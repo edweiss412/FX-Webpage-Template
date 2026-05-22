@@ -4,6 +4,21 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ---
 
+## Phase F close-out (2026-05-22) — adversarial review LOW residuals
+
+### M11-F-D1: Animation suppression injected post-navigation via `addStyleTag` rather than pre-navigation via `addInitScript`
+
+- **Severity:** LOW (theoretical timing concern; empirically determined to be a non-issue at current manifest scope)
+- **File:line:** `scripts/help-screenshots.ts` — the `page.addStyleTag` call that injects `animation-duration: 0s !important; transition-duration: 0s !important;` runs AFTER `page.goto(..., waitUntil: "domcontentloaded")`, but BEFORE the quiescence wait + screenshot capture.
+- **Symptom:** Theoretically, a captured surface with an entrance animation (CSS keyframe, framer-motion `initial`/`animate`, spinner, transition-on-mount) could start animating before the post-navigation style tag injects, producing a mid-animation intermediate-frame capture. Empirically, the 5-times-repeat capture of `dashboard-overview-light.webp` under the pinned Docker image produced byte-identical SHA256 across all 5 runs (`1fde5a98f1b3ddcbbada7ad7ba7c5db7caad32f4d83a468d42739e59bbb130 5a` × 5).
+- **Why deferred (concrete trigger):** Current 3 manifest keys (`dashboard-overview`, `review-queues-empty-state`, `preview-as-crew-banner`) capture surfaces that contain only hover/focus transition-colors on links/buttons — no load-time animations, no spinners, no framer-motion inside the captured selectors. `RightNowCard` does use framer-motion but is outside the `preview-as-crew-banner` capture region. The empirical determinism evidence outweighs the theoretical timing vulnerability at this scope. Phase F R4 APPROVE-with-residual disposition.
+- **Why not BACKLOG.md:** Concrete re-open trigger exists (see below). Fix path is well-scoped (~5 lines): move animation-suppression CSS from `page.addStyleTag` (post-navigation) to `page.addInitScript` (pre-navigation, runs before any DOM is parsed). The same surface is already used for theme + WebSocket determinism per the current code, so the refactor is mechanical.
+- **Spec status:** §3.6.2 reproducibility precondition #4 ("animations off"); spec doesn't pin the injection moment, so current implementation is spec-compliant.
+- **Impact at v1:** None observed. Empirical 5x checksum determinism + manifest surface audit confirms no current capture is vulnerable.
+- **Re-open trigger:** EITHER (a) the manifest grows to include a new key whose captured selector contains framer-motion entrance animations, CSS `@keyframes` animations, spinners, or `transition-on-mount` patterns; OR (b) any future drift-gate false-positive that root-cause analysis traces to mid-animation capture; OR (c) the Phase I `/impeccable harden` pass elects to land this as a defense-in-depth structural improvement regardless of empirical determinism.
+
+---
+
 ## Phase E close-out (2026-05-20) — Codex R3 spec-vs-shipped findings
 
 ### M11-E-D1: `/help/admin/sharing-links` documents M9-spec-canonical signed-link controls that M9 hasn't shipped
