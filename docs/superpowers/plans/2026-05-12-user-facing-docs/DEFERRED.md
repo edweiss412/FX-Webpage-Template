@@ -4,6 +4,65 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ---
 
+## Phase G §B close-out (2026-05-22) — hybrid disposition + impeccable v3 round-1 dispositions
+
+### M11-G-D-1: §5.6 matrix row `help-affordance--dashboard-restage-badge--tooltip` defers UI delivery
+
+- **Severity:** LOW (single-row affordance, not a blocker for v1 admin workflow)
+- **Matrix row:** `app/help/_affordanceMatrix.ts` row 3 (`Dashboard - Review staged changes badge`)
+- **Symptom:** ActiveShowsPanel renders the `⚠ Review staged changes` badge as inline text only (no `?` tooltip surface). The matrix testid `help-affordance--dashboard-restage-badge--tooltip` is NOT yet attached to any DOM element.
+- **Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-1` comment.
+- **Why deferred (concrete trigger):** Hover-tooltip on an existing inline badge requires a new HoverCard-style component (Phase D's `<HelpTooltip>` is a click-to-disclose `<details>`, not a hover popover). Adding a HoverCard pattern is a new UX surface decision that warrants its own design pass with impeccable critique before implementation. Cramming it into Phase G's TDD cycle either rushes the design or stalls Phase G close-out.
+- **Why not BACKLOG.md:** Concrete re-open trigger exists (operator feedback OR next admin-UX polish milestone). Fix path is well-scoped (~30 lines once HoverCard pattern is decided): add a `<HoverCard>` (or similar) around the badge text + render matrix testid + Learn-more link to `/help/admin/review-queues#re-stage`.
+- **Spec status:** §5.6 row stays canonical (matrix is the source of truth; this is a v1 delivery gap, not a spec amendment).
+- **Re-open trigger:** EITHER (a) next admin-UX polish milestone elects to design the HoverCard pattern; OR (b) FXAV operator feedback flags missing context on the "Review staged changes" badge (e.g., "I didn't know what this badge meant the first time it appeared"); OR (c) a future milestone introduces a HoverCard primitive for another reason and this surface gets retrofit alongside.
+
+### M11-G-D-2: §5.6 matrix row `help-affordance--per-show-restage-card--tooltip` defers UI delivery
+
+- **Severity:** LOW (single-row affordance; G.3 already wires per-error Learn-more on every error row through HelpAffordance — this row would add card-LEVEL tooltip on top of that)
+- **Matrix row:** `app/help/_affordanceMatrix.ts` row 5 (`Per-show - Staged review card (re-stage)`)
+- **Symptom:** StagedReviewCard renders without a card-level header `?` tooltip surface. The matrix testid is NOT yet attached.
+- **Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-2` comment.
+- **Why deferred (concrete trigger):** StagedReviewCard has no current header element above the choice-row table; adding one requires structural refactor of the card's header (currently it renders straight into the choice table). Multi-instance positioning (several cards stacked) adds complexity; the tooltip needs to disambiguate which card it pertains to. Genuine UX design pass needed.
+- **Why not BACKLOG.md:** Re-open trigger is concrete; the matrix row is canonical.
+- **Spec status:** §5.6 canonical.
+- **Re-open trigger:** Next admin-UX polish milestone OR operator feedback indicating confusion about a specific staged-review card's purpose.
+
+### M11-G-D-3: §5.6 matrix row `help-affordance--preview-banner--tooltip` defers UI delivery
+
+- **Severity:** LOW (preview banner already self-documents via "Previewing as" + role chip; secondary tooltip is polish)
+- **Matrix row:** `app/help/_affordanceMatrix.ts` row 10 (`Preview-as-crew sticky banner`)
+- **Symptom:** PreviewBanner renders without an inline `?` tooltip. The matrix testid is NOT yet attached.
+- **Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-3` comment.
+- **Why deferred (concrete trigger):** Sticky banner + inline tooltip is a non-trivial UX surface — placement (where on the banner does the `?` sit without overflowing on narrow mobile widths?), dismissal flow (the banner stays sticky while content scrolls; tooltip disclosure needs to integrate with that), mobile interaction patterns. Warrants own design pass.
+- **Why not BACKLOG.md:** Concrete re-open trigger.
+- **Spec status:** §5.6 canonical.
+- **Re-open trigger:** Next admin-UX polish milestone OR operator feedback flagging confusion about the preview banner's purpose.
+
+### M11-G-D-4: HelpAffordance Learn-more `text-text-subtle` inside `bg-warning-bg` is uncalibrated (pre-existing pattern carried forward)
+
+- **Severity:** LOW (visual contrast concern in error banners; pre-existing pattern from ErrorExplainer's pre-G.3 `helpfulContext` mode using same uncalibrated combination)
+- **Files:** `components/admin/HelpAffordance.tsx` disclosure body's `text-text-subtle` class. When HelpAffordance is mounted inside a `bg-warning-bg`-styled error wrapper (AlertBanner, StagedReviewCard, ReSyncButton), the disclosure body's `text-text-subtle` (calibrated for `--color-bg`) sits on `--color-warning-bg` — an uncalibrated pair per DESIGN.md §1.2 / §L33.
+- **Symptom:** Estimated contrast ~4.5:1 light / ~3.3:1 dark inside warning banners (dark pair fails AA body). Critique HIGH-1 finding. Pre-G.3 ErrorExplainer's `helpfulContext` mode rendered the disclosure with identical `text-text-subtle` classes inside the same warning banners — so the combination predates G.3; G.3 just preserves the same pattern when migrating disclosure hosting from ErrorExplainer to HelpAffordance.
+- **Why deferred (concrete trigger):** Fixing requires EITHER (a) moving HelpAffordance OUTSIDE the warning-bg wrapper in each error host (changes visual layout — disclosures + Learn-more become siblings BELOW the warning block, not inside it; meaningful UX change), OR (b) introducing a calibrated `--color-text-subtle-on-warning` token + updating DESIGN.md §L33 contrast table. Both are larger changes than the G.3 wiring scope.
+- **Why not BACKLOG.md:** Concrete fix path; should land alongside any future warning-banner restyling pass.
+- **Spec status:** Not a spec issue; DESIGN.md token-table extension OR layout-pattern decision.
+- **Re-open trigger:** EITHER (a) impeccable harden pass on AlertBanner/StagedReviewCard/ReSyncButton; OR (b) DESIGN.md gains a calibrated subtle-text-on-warning pair; OR (c) Phase 2 crew-help work (which would re-examine error-banner contrast across both audiences).
+
+### M11-G-D-5: HelpAffordance `"use client"` boundary + null-pathname conservative no-emit
+
+- **Severity:** INFO (theoretical edge case; conservative-by-design behavior; bundle weight benign)
+- **File:line:** `components/admin/HelpAffordance.tsx:38` (`"use client"` directive) + `:74` (`usePathname()` call) + `:80` (fallback `route ?? pathname ?? "/"`)
+- **Symptom:** Two concerns from impeccable audit Round-1 H3:
+  - (a) Catalog-bundle weight: converting HelpAffordance from Server to Client Component nominally pulls `MESSAGE_CATALOG` + `messageFor` + `lookupHelpfulContext` into the client bundle. EMPIRICALLY MOOT: 15+ existing client components (FinalizeButton, ReportModal, PendingPanelRetryButton, etc.) already import the catalog client-side, so the bundle weight was already paid pre-G.3.
+  - (b) Null-pathname fallback: when `usePathname()` returns `null` (edge cases: error boundaries, certain Suspense states), the `route ?? pathname ?? "/"` fallback lands on `"/"` — not an admin route — so `shouldEmitLearnMore` returns false and the Learn-more link is silently hidden. This is CONSERVATIVE BY DESIGN: when context is unknown, do not emit (safer than emitting an admin-context link in a possibly-crew context).
+- **Why deferred (concrete trigger):** The architectural alternative is to require `route` as a prop from every server-component caller, removing the client-boundary. That's a 15+ call-site refactor with prop-drilling through page-level wrappers. Significant scope; cost outweighs benefit at v1 since the conservative-no-emit is acceptable behavior.
+- **Why not BACKLOG.md:** Concrete fix path documented; can land alongside a future router-aware-Server-Component initiative.
+- **Spec status:** Not a spec issue.
+- **Re-open trigger:** EITHER (a) Next.js exposes server-side route via a stable API that doesn't require prop-drilling; OR (b) a real-world report of Learn-more silently disappearing on an admin route (e.g., error-boundary surface); OR (c) bundle-size analysis flags HelpAffordance's client-bundle import chain as concerning.
+
+---
+
 ## Phase F close-out (2026-05-22) — adversarial review LOW residuals
 
 ### M11-F-D1: Animation suppression injected post-navigation via `addStyleTag` rather than pre-navigation via `addInitScript`

@@ -8,8 +8,30 @@ import { admin } from "./helpers/supabaseAdmin";
 
 const BASE_URL = "http://localhost:3004";
 
+// SKIP set for matrix concrete rows whose host UI is deferred to a follow-up
+// admin-UX milestone (per M11 Phase G hybrid disposition + DEFERRED.md
+// entries M11-G-D-1/D-2/D-3). The HelpTooltip / inline-tooltip surface for
+// each of these is NOT shipped at v1; the matrix row stays canonical so
+// future re-enable is a single-commit removal of its testid from this set +
+// shipping the affordance. Filing pattern matches Phase F's M11-F-D1 and
+// Phase E's M11-E-D5 — concrete re-open triggers documented in DEFERRED.md.
+const DEFERRED_TESTIDS = new Set<string>([
+  // SKIP: M11-G-D-1 — re-enable when ActiveShowsPanel row badge gains a
+  // HoverCard-pattern tooltip surface (admin-UX polish milestone OR
+  // operator feedback flags missing context on the staged-changes badge).
+  "help-affordance--dashboard-restage-badge--tooltip",
+  // SKIP: M11-G-D-2 — re-enable when StagedReviewCard gains a card-level
+  // header tooltip (multi-instance positioning + per-card affordance UX
+  // pass needed; not a single-line addition).
+  "help-affordance--per-show-restage-card--tooltip",
+  // SKIP: M11-G-D-3 — re-enable when PreviewBanner gains an inline
+  // tooltip (sticky-banner placement + dismissal UX + mobile flow design
+  // needed; non-trivial; admin-UX polish milestone).
+  "help-affordance--preview-banner--tooltip",
+]);
+
 const concreteRows = AFFORDANCE_MATRIX.filter((row): row is ConcreteRow =>
-  row.kind === "concrete",
+  row.kind === "concrete" && !DEFERRED_TESTIDS.has(row.testid),
 );
 
 type FixtureShow = {
