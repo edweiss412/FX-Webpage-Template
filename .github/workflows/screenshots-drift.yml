@@ -18,10 +18,19 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
       - uses: supabase/setup-cli@v1
         with:
           version: latest
       - run: supabase start
-      - run: pnpm screenshot:help
-      - run: git diff --exit-code public/help/screenshots/
+      - name: Capture screenshots in pinned Playwright image
+        run: |
+          docker run --rm --network host \
+            -v "$PWD:/work" \
+            -w /work \
+            -e CI=true \
+            mcr.microsoft.com/playwright:v1.59.1-jammy \
+            bash -lc "corepack enable && pnpm screenshot:help"
+      - name: Check screenshot drift
+        run: |
+          git diff --exit-code public/help/screenshots/
+          test -z "$(git ls-files --others --exclude-standard public/help/screenshots/)"

@@ -19,7 +19,7 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
     };
 
     expect(packageJson.scripts?.["screenshot:help"]).toBe(
-      "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test --project=screenshots-help --project=screenshots-help-capture",
+      "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-help --project=screenshots-help-capture",
     );
   });
 
@@ -49,8 +49,11 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
     expect(existsSync(workflowPath)).toBe(true);
     expect(workflow).toContain("supabase/setup-cli");
     expect(workflow).toContain("supabase start");
+    expect(workflow).toContain("mcr.microsoft.com/playwright:v1.59.1-jammy");
+    expect(workflow).toContain("docker run --rm --network host");
     expect(workflow).toContain("pnpm screenshot:help");
     expect(workflow).toContain("git diff --exit-code public/help/screenshots/");
+    expect(workflow).toContain("git ls-files --others --exclude-standard public/help/screenshots/");
     expect(workflow).toContain("cron:");
     expect(workflow).not.toContain("pnpm db:seed");
   });

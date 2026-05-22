@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const configPath = join(process.cwd(), "playwright.config.ts");
+const screenshotConfigPath = join(process.cwd(), "playwright.screenshots.config.ts");
 const gitignorePath = join(process.cwd(), ".gitignore");
 const setupPath = join(process.cwd(), "tests/e2e/screenshots-help-setup.ts");
 
@@ -29,20 +30,36 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
   });
 
   it("sets a local database URL for the production screenshot webServer", () => {
-    const config = readFileSync(configPath, "utf8");
+    const config = readFileSync(screenshotConfigPath, "utf8");
 
     expect(config).toContain(
       'TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres"',
     );
   });
 
+  it("sets JWT signing env for the screenshot webServer", () => {
+    const config = readFileSync(screenshotConfigPath, "utf8");
+
+    expect(config).toContain('JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"');
+  });
+
   it("uses the established 300s cold-build timeout for the port-3004 screenshot webServer", () => {
-    const config = readFileSync(configPath, "utf8");
+    const config = readFileSync(screenshotConfigPath, "utf8");
     const screenshotServerBlock = config.match(
       /Phase F screenshot\/help-docs server[\s\S]*?url: "http:\/\/localhost:3004",[\s\S]*?timeout: 300_000,/,
     );
 
     expect(screenshotServerBlock).not.toBeNull();
+  });
+
+  it("keeps the screenshot-only config scoped to the port-3004 webServer", () => {
+    const config = readFileSync(screenshotConfigPath, "utf8");
+
+    expect(config).toContain('url: "http://localhost:3004"');
+    expect(config).not.toContain("localhost:3000");
+    expect(config).not.toContain("localhost:3001");
+    expect(config).not.toContain("localhost:3002");
+    expect(config).not.toContain("localhost:3003");
   });
 
   it("declares the help-docs project for deep-link, auth, and mobile specs", () => {

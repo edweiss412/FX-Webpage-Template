@@ -8,6 +8,7 @@ const ROOT = process.cwd();
 const APP_ROOT = join(ROOT, "app");
 const HELP_ROOT = join(ROOT, "app", "help");
 const SCREENSHOTS_DIR = join(ROOT, "public", "help", "screenshots");
+const MANIFEST_PATH = join(ROOT, "scripts", "help-screenshots.manifest.ts");
 const SCREENSHOT_NAME_RE = /(<Screenshot)\s+[^>]*name=["']([^"']*)["']/g;
 
 type ScreenshotRef = {
@@ -170,5 +171,15 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
       duplicates,
       `Byte-identical MDX-referenced screenshot WebPs:\n${duplicates.join("\n")}`,
     ).toEqual([]);
+  });
+
+  it("derives the preview-as-crew UUID from the seeded fixture crew identity", () => {
+    const source = readFileSync(MANIFEST_PATH, "utf8");
+
+    expect(source).toContain("stableUuid(");
+    expect(source).toContain("RPAS_CENTRAL_2026_PREVIEW_CREW_NAME");
+    expect(source).not.toMatch(
+      /RPAS_CENTRAL_2026_PREVIEW_CREW_ID\s*=\s*["'][0-9a-f-]{36}["']/i,
+    );
   });
 });

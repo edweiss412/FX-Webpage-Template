@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type ScreenshotTheme = "light" | "dark" | "both";
 
 export type ScreenshotViewport = {
@@ -22,8 +24,26 @@ export const MOBILE = { width: 390, height: 844 } as const satisfies ScreenshotV
 
 const RPAS_CENTRAL_2026 = "2026-03-rpas-central-four-seasons";
 const RPAS_CENTRAL_2026_SLUG = "2026-03-retirement-plan-advisor-institute-central-2026";
-const RPAS_CENTRAL_2026_PREVIEW_CREW_ID = "14a65611-f670-4233-8e68-5dbdee221f00";
+const RPAS_CENTRAL_2026_PREVIEW_CREW_NAME = "Eric Weiss";
+const RPAS_CENTRAL_2026_PREVIEW_CREW_ID = stableUuid(
+  `seed-fixture:${RPAS_CENTRAL_2026}:crew:${RPAS_CENTRAL_2026_PREVIEW_CREW_NAME}`,
+);
 const MID_SHOW_INSTANT = "2026-03-24T15:00:00.000Z";
+
+function stableHash(input: string): string {
+  return createHash("sha256").update(input).digest("hex");
+}
+
+function stableUuid(input: string): string {
+  const hex = stableHash(input);
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${((Number.parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join("-");
+}
 
 export const MANIFEST: readonly ManifestEntry[] = [
   {

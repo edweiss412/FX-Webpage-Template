@@ -29,7 +29,7 @@
     "test:audit:traceability": "pnpm gen:traceability && vitest run tests/cross-cutting/traceability.test.ts",
     "test:audit:branch-protection": "vitest run tests/cross-cutting/verify-branch-protection.test.ts",
     "db:seed": "pnpm dlx tsx supabase/seed.ts",
-    "screenshot:help": "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test --project=screenshots-help --project=screenshots-help-capture",
+    "screenshot:help": "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test -c playwright.screenshots.config.ts --project=screenshots-help --project=screenshots-help-capture",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:parser": "vitest run tests/parser tests/invariants",
