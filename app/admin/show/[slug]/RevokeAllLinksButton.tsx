@@ -82,8 +82,14 @@ export function RevokeAllLinksButton({
   // state machine explicit. The settled transition also re-anchors
   // the banner sibling next to the idle button cluster so the
   // cause→effect chain is visible (Critique HIGH-1).
+  // Explicit state-machine transition (resolving→idle) when the async
+  // action settles. Deriving this from isPending/result at render time
+  // was the prior `effectiveUi` approach; impeccable audit M-2 + M-3
+  // removed it in favor of an explicit state machine. The lint rule
+  // below is a false positive for this state-machine pattern.
   useEffect(() => {
     if (!isPending && result !== null && ui === "resolving") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUi("idle");
     }
   }, [isPending, result, ui]);
