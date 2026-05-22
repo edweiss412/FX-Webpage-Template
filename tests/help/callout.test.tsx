@@ -12,9 +12,12 @@ describe("<Callout>", () => {
     expect(screen.getByText("Hello world")).toBeInTheDocument();
   });
 
-  it.each(["note", "warning", "tip"] as const)("variant '%s' renders with role status", (t) => {
+  it.each(["note", "warning", "tip"] as const)("variant '%s' renders with role='note'", (t) => {
+    // All three variants use role='note' per impeccable audit P1-B (Task I.1).
+    // role='alert' was overreach for static MDX warning content; ARIA Authoring
+    // Practices reserve alert for dynamic time-sensitive messages.
     render(<Callout type={t}>x</Callout>);
-    expect(screen.getByRole(t === "warning" ? "alert" : "note")).toBeInTheDocument();
+    expect(screen.getByRole("note")).toBeInTheDocument();
   });
 
   it("defaults to 'note' for unknown type (spec §6.3 guard)", () => {

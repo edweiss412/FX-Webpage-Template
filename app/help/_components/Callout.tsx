@@ -13,7 +13,12 @@ const VARIANTS = {
     bg: "bg-warning-bg",
     border: "border-warning-text",
     text: "text-warning-text",
-    role: "alert" as const,
+    // Was role="alert" — overreach for static MDX content per ARIA Authoring
+    // Practices (alert is for dynamic time-sensitive messages; forces SR to
+    // interrupt reading order on every render). "note" matches the other two
+    // variants and matches how the warning callout is actually used in /help.
+    // (Impeccable audit P1-B — Task I.1.)
+    role: "note" as const,
     icon: "⚠",
     iconTestid: "callout-icon-warning",
   },
