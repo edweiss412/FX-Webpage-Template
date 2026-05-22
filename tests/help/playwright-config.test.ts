@@ -44,6 +44,22 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     expect(config).toContain("process.env.NEXT_PUBLIC_SUPABASE_URL ??");
   });
 
+  it("provides local Supabase anon-key defaults for every screenshot server-client alias", () => {
+    const config = readFileSync(screenshotConfigPath, "utf8");
+    const localAnonKeySegments = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9",
+      "CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+    ];
+
+    expect(config).toContain("process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??");
+    expect(config).toContain("process.env.SUPABASE_ANON_KEY ??");
+    expect(config).toContain("process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??");
+    for (const segment of localAnonKeySegments) {
+      expect(config).toContain(segment);
+    }
+  });
+
   it("sets JWT signing env for the screenshot webServer", () => {
     const config = readFileSync(screenshotConfigPath, "utf8");
 
