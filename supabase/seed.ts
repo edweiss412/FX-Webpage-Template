@@ -259,6 +259,7 @@ function crewInsertSql(seed: FixtureSeed): string {
     .map(
       (crew) => `
         insert into public.crew_members (
+          id,
           show_id,
           name,
           email,
@@ -270,6 +271,7 @@ function crewInsertSql(seed: FixtureSeed): string {
           flight_info
         )
         select
+          ${sqlString(stableUuid(`${seed.driveFileId}:crew:${crew.name}`))}::uuid,
           id,
           ${sqlString(crew.name)},
           ${sqlNullableString(crew.email)},

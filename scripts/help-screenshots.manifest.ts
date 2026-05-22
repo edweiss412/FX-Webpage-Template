@@ -21,6 +21,8 @@ export const DESKTOP = { width: 1280, height: 800 } as const satisfies Screensho
 export const MOBILE = { width: 390, height: 844 } as const satisfies ScreenshotViewport;
 
 const RPAS_CENTRAL_2026 = "2026-03-rpas-central-four-seasons";
+const RPAS_CENTRAL_2026_SLUG = "2026-03-retirement-plan-advisor-institute-central-2026";
+const RPAS_CENTRAL_2026_PREVIEW_CREW_ID = "14a65611-f670-4233-8e68-5dbdee221f00";
 const MID_SHOW_INSTANT = "2026-03-24T15:00:00.000Z";
 
 export const MANIFEST: readonly ManifestEntry[] = [
@@ -40,14 +42,14 @@ export const MANIFEST: readonly ManifestEntry[] = [
   },
   {
     key: "per-show-staged-review",
-    route: "/admin/show/2026-03-rpas-central-four-seasons",
+    route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}`,
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
     viewport: DESKTOP,
   },
   {
     key: "preview-as-crew-banner",
-    route: "/admin/show/2026-03-rpas-central-four-seasons/preview/riley-morgan",
+    route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}/preview/${RPAS_CENTRAL_2026_PREVIEW_CREW_ID}`,
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
     viewport: MOBILE,
