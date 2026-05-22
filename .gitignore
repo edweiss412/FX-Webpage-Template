@@ -59,3 +59,9 @@ playwright/.cache/
 
 # Hook audit log for codex-companion adversarial-review prompts (~/.claude/hooks/check-codex-adversarial-review-fresh-eyes.sh)
 .codex-adversarial-review-audit.log
+
+# pnpm content-addressable store (created when Docker pinned-image runs pnpm install with $PWD mounted at /work)
+.pnpm-store/
+
+# Playwright test-results scratch dir (created by screenshot capture + walker runs)
+tmp/
