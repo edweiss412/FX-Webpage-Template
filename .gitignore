@@ -12,6 +12,7 @@ out/
 .next-prod/
 .next-prod-flip/
 .next-build-artifact-gate-test/
+.next-screenshots-help/
 .nuxt/
 .cache/
 .parcel-cache/

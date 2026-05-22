@@ -1,0 +1,58 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const configPath = join(process.cwd(), "playwright.config.ts");
+const gitignorePath = join(process.cwd(), ".gitignore");
+const setupPath = join(process.cwd(), "tests/e2e/screenshots-help-setup.ts");
+
+describe("Playwright screenshot-help project config (Task F.4)", () => {
+  it("declares screenshots-help setup and capture projects on port 3004", () => {
+    const config = readFileSync(configPath, "utf8");
+
+    expect(config).toContain('name: "screenshots-help-setup"');
+    expect(config).toContain("testMatch: /screenshots-help-setup\\.ts/");
+    expect(config).toContain('name: "screenshots-help"');
+    expect(config).toContain('dependencies: ["screenshots-help-setup"]');
+    expect(config).toContain("testMatch: /help-screenshots-clock-pipeline\\.spec\\.ts/");
+    expect(config).toContain('baseURL: "http://localhost:3004"');
+    expect(config).toContain("pnpm exec next start --port 3004");
+    expect(config).toContain('NEXT_DIST_DIR: ".next-screenshots-help"');
+    expect(config).toContain('url: "http://localhost:3004"');
+  });
+
+  it("sets test-auth env for the screenshot webServer", () => {
+    const config = readFileSync(configPath, "utf8");
+
+    expect(config).toContain('ENABLE_TEST_AUTH: "true"');
+    expect(config).toContain('TEST_AUTH_SECRET: "test-secret-fixture"');
+  });
+
+  it("declares the help-docs project for deep-link, auth, and mobile specs", () => {
+    const config = readFileSync(configPath, "utf8");
+
+    expect(config).toContain('name: "help-docs"');
+    expect(config).toContain("testMatch: /(deep-link-walker|help-auth|help-mobile)\\.spec\\.ts/");
+    expect(config).toContain('dependencies: ["screenshots-help-setup"]');
+    expect(config).toContain('baseURL: "http://localhost:3004"');
+  });
+
+  it("uses a real setup-project test file, not a default-export globalSetup", () => {
+    expect(existsSync(setupPath)).toBe(true);
+
+    const setupSource = readFileSync(setupPath, "utf8");
+    expect(setupSource).toContain("test(");
+    expect(setupSource).toContain('spawnSync("pnpm", ["db:seed"]');
+    expect(setupSource).toContain('expect(process.env.ENABLE_TEST_AUTH).toBe("true")');
+    expect(setupSource).toContain(
+      'expect(process.env.TEST_AUTH_SECRET).toBe("test-secret-fixture")',
+    );
+    expect(setupSource).not.toMatch(/export\s+default\s+async\s+function\s+globalSetup/);
+  });
+
+  it("keeps the screenshots-help Next dist dir out of git", () => {
+    const gitignore = readFileSync(gitignorePath, "utf8");
+
+    expect(gitignore).toContain(".next-screenshots-help/");
+  });
+});

@@ -104,6 +104,47 @@ export default defineConfig({
         baseURL: "http://localhost:3003",
       },
     },
+    {
+      // Phase F.4: setup-project pattern for the screenshot harness.
+      // Setup projects run real test files. A default-exported
+      // `globalSetup()` function here would not execute.
+      name: "screenshots-help-setup",
+      testMatch: /screenshots-help-setup\.ts/,
+    },
+    {
+      name: "screenshots-help",
+      testMatch: /help-screenshots-clock-pipeline\.spec\.ts/,
+      dependencies: ["screenshots-help-setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: "http://localhost:3004",
+        colorScheme: "light",
+        contextOptions: {
+          reducedMotion: "reduce",
+        },
+        launchOptions: {
+          args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+        },
+        locale: "en-US",
+        timezoneId: "America/New_York",
+        viewport: { width: 1280, height: 800 },
+      },
+    },
+    {
+      name: "help-docs",
+      testMatch: /(deep-link-walker|help-auth|help-mobile)\.spec\.ts/,
+      dependencies: ["screenshots-help-setup"],
+      use: {
+        ...devices["iPhone 14"],
+        baseURL: "http://localhost:3004",
+        contextOptions: {
+          reducedMotion: "reduce",
+        },
+        locale: "en-US",
+        timezoneId: "America/New_York",
+        viewport: { width: 390, height: 844 },
+      },
+    },
   ],
   webServer: [
     {
@@ -208,6 +249,20 @@ export default defineConfig({
       url: "http://localhost:3003",
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
+    },
+    {
+      // Phase F screenshot/help-docs server (port 3004). Port 3003 is
+      // already reserved by prod-runtime-flip above.
+      command: "pnpm build && pnpm exec next start --port 3004",
+      env: {
+        ADMIN_DEV_PANEL_ENABLED: "true",
+        ENABLE_TEST_AUTH: "true",
+        NEXT_DIST_DIR: ".next-screenshots-help",
+        TEST_AUTH_SECRET: "test-secret-fixture",
+      },
+      url: "http://localhost:3004",
+      reuseExistingServer: !process.env.CI,
+      timeout: process.env.CI ? 120_000 : 60_000,
     },
   ],
 });

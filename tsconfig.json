@@ -42,7 +42,9 @@
     "/Users/ericweiss/FX-Webpage-Template/.next-build-artifact-gate-test/types/**/*.ts",
     "/Users/ericweiss/FX-Webpage-Template/.next-build-artifact-gate-test/dev/types/**/*.ts",
     ".next-build-artifact-gate-test/types/**/*.ts",
-    ".next-build-artifact-gate-test/dev/types/**/*.ts"
+    ".next-build-artifact-gate-test/dev/types/**/*.ts",
+    ".next-screenshots-help/types/**/*.ts",
+    ".next-screenshots-help/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -50,6 +52,7 @@
     ".next-prod",
     ".next-prod-flip",
     ".next-build-artifact-gate-test",
+    ".next-screenshots-help",
     "tests/cross-cutting/fixtures/auth-x3",
     "tests/cross-cutting/fixtures/no-global-cursor",
     "tests/cross-cutting/fixtures/no-global-cursor-semantic",
