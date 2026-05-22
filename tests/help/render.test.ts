@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, type ComponentType } from "react";
 import { describe, expect, it } from "vitest";
 import { readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { useMDXComponents } from "@/mdx-components";
 
