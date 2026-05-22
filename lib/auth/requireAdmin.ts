@@ -20,6 +20,7 @@
  * canonical admin email required by §13.2.3 / AC-8.2.
  */
 import { forbidden } from "next/navigation";
+import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
@@ -122,5 +123,23 @@ export async function requireAdminIdentity(): Promise<AdminIdentity> {
 }
 
 export async function requireAdmin(): Promise<void> {
+  let reqHeaders: Awaited<ReturnType<typeof headers>> | null = null;
+  try {
+    reqHeaders = await headers();
+  } catch {
+    reqHeaders = null;
+  }
+
+  const expectedSecret = process.env.TEST_AUTH_SECRET;
+  if (
+    reqHeaders?.get("x-help-force-infra-fail") === "1" &&
+    process.env.ENABLE_TEST_AUTH === "true" &&
+    expectedSecret !== undefined &&
+    expectedSecret.length >= 16 &&
+    reqHeaders.get("authorization") === `Bearer ${expectedSecret}`
+  ) {
+    throw new AdminInfraError("test-forced infra fail (H.2)");
+  }
+
   await requireAdminIdentity();
 }
