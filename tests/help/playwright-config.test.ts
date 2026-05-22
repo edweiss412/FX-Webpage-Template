@@ -6,6 +6,7 @@ const configPath = join(process.cwd(), "playwright.config.ts");
 const screenshotConfigPath = join(process.cwd(), "playwright.screenshots.config.ts");
 const gitignorePath = join(process.cwd(), ".gitignore");
 const setupPath = join(process.cwd(), "tests/e2e/screenshots-help-setup.ts");
+const helpDocsSetupPath = join(process.cwd(), "tests/e2e/help-docs-setup.ts");
 
 describe("Playwright screenshot-help project config (Task F.4)", () => {
   it("declares screenshots-help setup and capture projects on port 3004", () => {
@@ -111,8 +112,24 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
 
     expect(config).toContain('name: "help-docs"');
     expect(config).toContain("testMatch: /(deep-link-walker|help-auth|help-mobile)\\.spec\\.ts/");
-    expect(config).toContain('dependencies: ["screenshots-help-setup"]');
+    expect(config).toContain('dependencies: ["help-docs-setup"]');
     expect(config).toContain('baseURL: "http://localhost:3004"');
+  });
+
+  it("splits help-docs setup into a wizard-active seed state", () => {
+    for (const path of [configPath, screenshotConfigPath]) {
+      const config = readFileSync(path, "utf8");
+
+      expect(config).toContain('name: "help-docs-setup"');
+      expect(config).toContain("testMatch: /help-docs-setup\\.ts/");
+      expect(config).toContain('dependencies: ["help-docs-setup"]');
+    }
+
+    expect(existsSync(helpDocsSetupPath)).toBe(true);
+    const setupSource = readFileSync(helpDocsSetupPath, "utf8");
+    expect(setupSource).toContain('spawnSync("pnpm", ["db:seed"]');
+    expect(setupSource).toContain("pending_wizard_session_id");
+    expect(setupSource).toContain("watched_folder_id: null");
   });
 
   it("uses a real setup-project test file, not a default-export globalSetup", () => {

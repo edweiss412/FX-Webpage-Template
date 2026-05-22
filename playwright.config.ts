@@ -150,9 +150,13 @@ export default defineConfig({
       },
     },
     {
+      name: "help-docs-setup",
+      testMatch: /help-docs-setup\.ts/,
+    },
+    {
       name: "help-docs",
       testMatch: /(deep-link-walker|help-auth|help-mobile)\.spec\.ts/,
-      dependencies: ["screenshots-help-setup"],
+      dependencies: ["help-docs-setup"],
       use: {
         ...devices["iPhone 14"],
         baseURL: "http://localhost:3004",

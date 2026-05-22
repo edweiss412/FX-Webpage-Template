@@ -7,6 +7,7 @@ import { signInAs } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
 
 const BASE_URL = "http://localhost:3004";
+const HELP_DOCS_WIZARD_SESSION_ID = "22222222-2222-4222-8222-222222222222";
 
 // SKIP set for matrix concrete rows whose host UI is deferred to a follow-up
 // admin-UX milestone (per M11 Phase G hybrid disposition + DEFERRED.md
@@ -46,6 +47,58 @@ type FixtureCrew = {
 
 let fixtureShowPromise: Promise<FixtureShow> | null = null;
 let fixtureCrewPromise: Promise<FixtureCrew> | null = null;
+
+function isWizardRow(row: ConcreteRow): boolean {
+  return row.testid.startsWith("help-affordance--wizard-step");
+}
+
+async function setDashboardAdminState(): Promise<void> {
+  const { error } = await admin
+    .from("app_settings")
+    .update({
+      watched_folder_id: "seed-fixture-folder",
+      watched_folder_name: "Seed fixture folder",
+      watched_folder_set_by_email: "seed-mode@fxav.local",
+      watched_folder_set_at: "2026-01-01T12:00:00.000Z",
+      pending_folder_id: null,
+      pending_folder_name: null,
+      pending_folder_set_by_email: null,
+      pending_folder_set_at: null,
+      pending_wizard_session_id: null,
+      pending_wizard_session_at: null,
+    })
+    .eq("id", "default");
+  if (error) throw new Error(`deep-link walker dashboard state failed: ${error.message}`);
+}
+
+async function setWizardAdminState(): Promise<void> {
+  const { error } = await admin
+    .from("app_settings")
+    .update({
+      watched_folder_id: null,
+      watched_folder_name: null,
+      watched_folder_set_by_email: null,
+      watched_folder_set_at: null,
+      pending_folder_id: null,
+      pending_folder_name: null,
+      pending_folder_set_by_email: null,
+      pending_folder_set_at: null,
+      pending_wizard_session_id: HELP_DOCS_WIZARD_SESSION_ID,
+      pending_wizard_session_at: new Date().toISOString(),
+    })
+    .eq("id", "default");
+  if (error) throw new Error(`deep-link walker wizard state failed: ${error.message}`);
+}
+
+async function prepareAdminState(row: ConcreteRow): Promise<void> {
+  if (isWizardRow(row)) {
+    await setWizardAdminState();
+    return;
+  }
+  if (row.sourceRoute === "/admin") {
+    await setDashboardAdminState();
+  }
+}
 
 async function fixtureShow(): Promise<FixtureShow> {
   fixtureShowPromise ??= (async () => {
@@ -141,6 +194,13 @@ async function firstSeenStagedId(): Promise<string> {
 }
 
 async function routeFor(row: ConcreteRow): Promise<string> {
+  if (row.testid === "help-affordance--wizard-step2--tooltip") {
+    return "/admin?step=2";
+  }
+  if (row.testid === "help-affordance--wizard-step3--tooltip") {
+    return "/admin?step=3";
+  }
+
   if (row.sourceRoute.includes("STAGED_ID_PLACEHOLDER")) {
     return row.sourceRoute.replace("STAGED_ID_PLACEHOLDER", await firstSeenStagedId());
   }
@@ -187,6 +247,7 @@ test("AFFORDANCE_MATRIX has concrete rows including the first-seen staged route"
 
 for (const row of concreteRows) {
   test(`${row.testid} resolves on ${row.sourceRoute}`, async ({ page }) => {
+    await prepareAdminState(row);
     await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE_URL });
     const sourceRoute = await routeFor(row);
     const response = await page.goto(sourceRoute, { waitUntil: "domcontentloaded" });
