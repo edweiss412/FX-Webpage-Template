@@ -4,7 +4,11 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 export function Header() {
   return (
     <header className="flex items-center justify-between border-b border-border py-4 mb-6">
-      <Link href="/help" data-testid="help-header-brand" className="font-semibold text-text-strong">
+      <Link
+        href="/help"
+        data-testid="help-header-brand"
+        className="inline-flex min-h-tap-min items-center px-2 -mx-2 font-semibold text-text-strong"
+      >
         FXAV Help
       </Link>
       <div className="flex items-center gap-4">

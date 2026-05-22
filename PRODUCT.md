@@ -56,7 +56,7 @@ Voice is direct, plain-language, and respectful of the reader's time. No jargon,
 
 **Motion.** Deliberate, never showy. The spec already enumerates compound-transition contracts in §8.2 — those are the canonical motion moments. Everything else stays still. Always honor `prefers-reduced-motion`.
 
-**Accessibility floor.** WCAG AAA where it's cheap, AA as the absolute floor — the full `audit` skill should pass clean. Direct-sunlight readability is a hard requirement: light-mode body text must meet AAA contrast against its surface (≥7:1 for body), and the orange accent must hit AA contrast in every context it appears as text or as a target. All interactive targets ≥44×44px.
+**Accessibility floor.** WCAG AAA where it's cheap, AA as the absolute floor — the full `audit` skill should pass clean. Direct-sunlight readability is a hard requirement: light-mode body text must meet AAA contrast against its surface (≥7:1 for body), and the orange accent must hit AA contrast in every context it appears as text or as a target. All interactive targets ≥44×44px, with the standard WCAG 2.5.5 inline exception: links rendered inline within prose body text (e.g., MDX content `<a>` elements inside `<main>` paragraphs and list items) follow the inline-flow exception and are exempt from the floor. The 44×44 minimum applies to all chrome, controls, navigation, breadcrumbs, badges, and any non-inline interactive target.
 
 ### Design Principles
 
