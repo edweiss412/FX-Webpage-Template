@@ -60,6 +60,21 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     }
   });
 
+  it("provides local Supabase service-role defaults for production screenshot server reads", () => {
+    const config = readFileSync(screenshotConfigPath, "utf8");
+    const localServiceRoleKeySegments = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0",
+      "EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+    ];
+
+    expect(config).toContain("process.env.SUPABASE_SECRET_KEY ??");
+    expect(config).toContain("process.env.SUPABASE_SERVICE_ROLE_KEY ??");
+    for (const segment of localServiceRoleKeySegments) {
+      expect(config).toContain(segment);
+    }
+  });
+
   it("sets JWT signing env for the screenshot webServer", () => {
     const config = readFileSync(screenshotConfigPath, "utf8");
 
