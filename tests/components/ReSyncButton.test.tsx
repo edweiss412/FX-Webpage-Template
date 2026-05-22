@@ -19,6 +19,7 @@ import { ReSyncButton } from "@/components/admin/ReSyncButton";
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: refreshMock }),
+  usePathname: () => "/",
 }));
 
 const fetchMock = vi.fn<typeof fetch>();

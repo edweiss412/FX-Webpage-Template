@@ -25,7 +25,7 @@ import {
   type PendingIngestionRow,
   type FirstSeenStagedRow,
 } from "@/components/admin/PendingPanel";
-import { Tour } from "@/components/admin/Tour";
+import { DashboardFooter } from "@/components/admin/DashboardFooter";
 
 type DashboardData = {
   shows: ActiveShowRow[];
@@ -299,21 +299,7 @@ export async function Dashboard() {
         firstSeenStaged={result.firstSeenStaged}
       />
 
-      <footer
-        data-testid="admin-dashboard-footer"
-        className="mt-section-gap flex flex-col gap-2 border-t border-border pt-section-gap"
-      >
-        <p
-          className="text-xs font-medium uppercase text-text-subtle"
-          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-        >
-          New here?
-        </p>
-        <p className="text-sm text-text-subtle">
-          A short walkthrough of how this admin page is laid out.
-        </p>
-        <Tour />
-      </footer>
+      <DashboardFooter />
     </main>
   );
 }

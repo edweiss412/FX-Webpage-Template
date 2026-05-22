@@ -27,6 +27,7 @@ import type {
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: refreshMock, push: vi.fn() }),
+  usePathname: () => "/",
 }));
 
 const fetchMock = vi.fn<typeof fetch>();

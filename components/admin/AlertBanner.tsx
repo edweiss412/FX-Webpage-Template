@@ -27,6 +27,7 @@ import Link from "next/link";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
@@ -201,7 +202,6 @@ export async function AlertBanner() {
       <ErrorExplainer
         code={alert.code}
         surface="admin"
-        helpfulContext
         {...(alert.context
           ? {
               // Type-narrow: messageFor only consumes primitive values; cast
@@ -210,6 +210,24 @@ export async function AlertBanner() {
               // values unsubstituted (the placeholder remains, which the
               // _metaAdminAlertCatalog regression test will flag the next time
               // anyone adds an unsupported key).
+              params: alert.context as unknown as Record<
+                string,
+                string | number | boolean | null | undefined
+              >,
+            }
+          : {})}
+      />
+      {/*
+        Phase G.3: HelpAffordance hosts the §9.0.1 "What does this mean?"
+        disclosure (was ErrorExplainer's helpfulContext prop pre-G.3) AND
+        the §5.6 template-family `Learn more →` link. Sibling of
+        ErrorExplainer so the message text + help affordances cohabit one
+        admin_alert row.
+      */}
+      <HelpAffordance
+        code={alert.code}
+        {...(alert.context
+          ? {
               params: alert.context as unknown as Record<
                 string,
                 string | number | boolean | null | undefined

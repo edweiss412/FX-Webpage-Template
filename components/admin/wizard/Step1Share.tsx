@@ -83,13 +83,22 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           </h2>
           <HelpTooltip
             label="Help: Share your show folder"
-            testId="wizard-step1-help"
+            testId="help-affordance--wizard-step1--tooltip"
           >
             <p>
               The app reads your show sheets straight from Google Drive.
               You pick one folder and share it with the email we display
               below. Anything you drop into that folder appears here in a
               few minutes; nothing else on your Drive is touched.
+            </p>
+            <p className="mt-2">
+              <a
+                href="/help/admin/onboarding-wizard#service-account"
+                aria-label="Learn more about sharing your show folder"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                Learn more →
+              </a>
             </p>
           </HelpTooltip>
         </div>

@@ -104,13 +104,22 @@ export function ActiveShowsPanel({ rows, now }: ActiveShowsPanelProps) {
         </h3>
         <HelpTooltip
           label="Help: Active shows"
-          testId="active-shows-help"
+          testId="help-affordance--dashboard-active-shows--tooltip"
         >
           <p>
             Every show whose sheet has been read and approved appears here.
             Tap a title to open its detail page or preview it as a crew
             member. The status next to each show tells you when it last
             synced from Drive and whether anything needs your attention.
+          </p>
+          <p className="mt-2">
+            <a
+              href="/help/admin/dashboard#active-shows"
+              aria-label="Learn more about active shows"
+              className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            >
+              Learn more →
+            </a>
           </p>
         </HelpTooltip>
       </div>

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 /**
- * tests/components/admin/PreviewBannerHelpAffordanceTour.test.tsx
- * (M10 §B Task 10.8 + 10.9 / Phase 3 / Clusters I-5 + I-6)
+ * tests/components/admin/PreviewBannerHelpAffordance.test.tsx
+ * (M10 §B Task 10.8 + 10.9 / Phase 3 / Clusters I-5 + I-6; renamed in
+ * M11 Phase G.3 — Tour describe block removed when Tour.tsx was deleted
+ * + superseded by /help/tour MDX + DashboardFooter)
  *
  * Focused regression coverage for the Phase 3 §B surfaces, addressing
  * Codex R3 HIGH ("Phase 3 implementation has no tests despite the
@@ -15,22 +17,18 @@
  *   - PreviewBanner renders name + role chip + Exit link to the
  *     canonical /admin/show/<slug> route (NOT a build-gated route),
  *     and embeds the ReportButton client island (not a dead Link).
- *   - Tour step 4 renders curly quote characters around "What does
- *     this mean?" — the R2 regression catch (HTML entities inside a
- *     JS string passed through `{expression}` to JSX render as
- *     literal text, not decoded characters).
- *   - File-content audit: Tour.tsx step 4 string contains the U+201C /
- *     U+201D characters and NOT the `&ldquo;`/`&rdquo;` tokens.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { PreviewBanner } from "@/components/admin/PreviewBanner";
-import { Tour } from "@/components/admin/Tour";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
 
 afterEach(() => cleanup());
 
@@ -162,35 +160,3 @@ describe("PreviewBanner (§9.3)", () => {
   });
 });
 
-describe("Tour (§9.0.1)", () => {
-  test("step 4 body contains curly quotes around the explainer label (not HTML entities)", () => {
-    // Source-level invariant: the JS string literal must contain real
-    // U+201C / U+201D characters because React does NOT decode HTML
-    // entities inside `{expression}` values. This pins the R2
-    // regression.
-    const file = resolve(
-      __dirname,
-      "..",
-      "..",
-      "..",
-      "components",
-      "admin",
-      "Tour.tsx",
-    );
-    const src = readFileSync(file, "utf8");
-    expect(src).not.toContain("&ldquo;");
-    expect(src).not.toContain("&rdquo;");
-    expect(src).toContain("“What does this mean?”");
-  });
-
-  test("trigger opens the dialog and renders the first step", () => {
-    render(<Tour />);
-    const trigger = screen.getByTestId("admin-tour-trigger");
-    expect(trigger.textContent).toContain("Take the tour");
-    fireEvent.click(trigger);
-    const title = screen.getByTestId("admin-tour-title");
-    expect(title.textContent).toBe("Your dashboard");
-    const indicator = screen.getByTestId("admin-tour-step-indicator");
-    expect(indicator.textContent).toBe("Step 1 of 4");
-  });
-});

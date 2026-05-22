@@ -50,6 +50,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { ReportButton } from "@/components/shared/ReportButton";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
@@ -550,7 +551,8 @@ export function StagedReviewCard({
           role="alert"
           className="mt-4 rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
         >
-          <ErrorExplainer code={errorCode} surface="admin" helpfulContext />
+          <ErrorExplainer code={errorCode} surface="admin" />
+          <HelpAffordance code={errorCode} />
         </div>
       ) : null}
 

@@ -216,12 +216,21 @@ export function Step2Verify() {
           </h2>
           <HelpTooltip
             label="Help: Verify your folder"
-            testId="wizard-step2-help"
+            testId="help-affordance--wizard-step2--tooltip"
           >
             <p>
               Paste the URL of the Drive folder you shared in step 1. We
               read every Google Sheet inside that folder, then walk you
               through any that need a closer look in step 3.
+            </p>
+            <p className="mt-2">
+              <a
+                href="/help/admin/onboarding-wizard#step-2"
+                aria-label="Learn more about verifying your folder"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                Learn more →
+              </a>
             </p>
           </HelpTooltip>
         </div>

@@ -27,6 +27,7 @@ import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedRevie
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: refreshMock }),
+  usePathname: () => "/",
 }));
 
 const fetchMock = vi.fn<typeof fetch>();

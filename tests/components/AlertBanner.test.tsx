@@ -29,6 +29,14 @@ import { cleanup, render } from "@testing-library/react";
 import { AlertBanner } from "@/components/admin/AlertBanner";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
+// Phase G.3 mounts <HelpAffordance> (a Client Component using usePathname)
+// inside AlertBanner. Mock as the non-admin "/" so existing assertions on
+// banner contents remain stable; Learn-more emission is gated out.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
+
 // In-memory rows the mock supabase client returns. Each test mutates this.
 // Mock shape mirrors the production SELECT exactly:
 // `id, code, raised_at, show_id, shows(slug)`. Do NOT add fields the

@@ -330,7 +330,7 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           </h2>
           <HelpTooltip
             label="Help: Review your sheets"
-            testId="wizard-step3-help"
+            testId="help-affordance--wizard-step3--tooltip"
           >
             <p>
               Each row below is one sheet from your folder. Approve good
@@ -338,6 +338,15 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
               that does not belong. Setup will not finish until every row
               has a decision. Tap What does this mean on any error for a
               plain-language explanation.
+            </p>
+            <p className="mt-2">
+              <a
+                href="/help/admin/onboarding-wizard#step-3"
+                aria-label="Learn more about reviewing your sheets"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                Learn more →
+              </a>
             </p>
           </HelpTooltip>
         </div>

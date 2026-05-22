@@ -207,7 +207,41 @@ export default async function AdminShowPage({
         highlightAlertId={sp.alert_id ?? null}
       />
 
-      <ReSyncButton slug={show.slug} />
+      <section
+        data-testid="admin-show-sync-health-section"
+        aria-labelledby="admin-show-sync-health-heading"
+        className="flex flex-col gap-3"
+      >
+        <div className="flex items-center gap-2">
+          <h2
+            id="admin-show-sync-health-heading"
+            className="text-lg font-semibold text-text-strong"
+          >
+            Sync health
+          </h2>
+          <HelpTooltip
+            label="Help: Sync health"
+            testId="help-affordance--per-show-sync-health--tooltip"
+          >
+            <p>
+              When the app last read this show&apos;s sheet from Drive, and
+              whether the latest read succeeded. Use Re-sync to fetch the
+              sheet again on demand; the dashboard&apos;s show row also
+              shows the result of every sync.
+            </p>
+            <p className="mt-2">
+              <a
+                href="/help/admin/per-show-panel#sync-health"
+                aria-label="Learn more about sync health"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                Learn more →
+              </a>
+            </p>
+          </HelpTooltip>
+        </div>
+        <ReSyncButton slug={show.slug} />
+      </section>
 
       <section
         data-testid="admin-show-preview-as-section"
@@ -224,13 +258,22 @@ export default async function AdminShowPage({
           </h2>
           <HelpTooltip
             label="Help: Preview as a crew member"
-            testId="admin-show-preview-as-help"
+            testId="help-affordance--per-show-preview-links--tooltip"
           >
             <p>
               Open the crew page the way one of these crew members sees
               it. A yellow banner at the top reminds you that you are
               previewing. This is the same data Doug sees on the crew
               page, including any role-based redactions.
+            </p>
+            <p className="mt-2">
+              <a
+                href="/help/admin/preview-as-crew"
+                aria-label="Learn more about previewing as a crew member"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                Learn more →
+              </a>
             </p>
           </HelpTooltip>
         </div>
@@ -300,7 +343,41 @@ export default async function AdminShowPage({
         )}
       </section>
 
-      <ParsePanel rows={rows} showId={show.id} />
+      <section
+        data-testid="admin-show-parse-warnings-section"
+        aria-labelledby="admin-show-parse-warnings-heading"
+        className="flex flex-col gap-3"
+      >
+        <div className="flex items-center gap-2">
+          <h2
+            id="admin-show-parse-warnings-heading"
+            className="text-lg font-semibold text-text-strong"
+          >
+            Parse warnings
+          </h2>
+          <HelpTooltip
+            label="Help: Parse warnings"
+            testId="help-affordance--per-show-parse-warnings--tooltip"
+          >
+            <p>
+              Anything the app couldn&apos;t auto-apply for this show shows
+              up below as a staged review card with the rows that need a
+              decision. Apply once you&apos;ve resolved the warning, or
+              discard with a reason if the change shouldn&apos;t land.
+            </p>
+            <p className="mt-2">
+              <a
+                href="/help/admin/parse-warnings"
+                aria-label="Learn more about parse warnings"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                Learn more →
+              </a>
+            </p>
+          </HelpTooltip>
+        </div>
+        <ParsePanel rows={rows} showId={show.id} />
+      </section>
 
       <PerShowCrewSection
         showId={show.id}

@@ -19,6 +19,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
 
 export type ReSyncButtonProps = {
   slug: string;
@@ -103,7 +104,8 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
           data-testid="admin-resync-error"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
         >
-          <ErrorExplainer code={errorCode} surface="admin" helpfulContext />
+          <ErrorExplainer code={errorCode} surface="admin" />
+          <HelpAffordance code={errorCode} />
         </div>
       ) : null}
       {successMessage && !errorCode ? (

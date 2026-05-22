@@ -76,7 +76,7 @@ export function PendingPanel({
         </h3>
         <HelpTooltip
           label="Help: Sheets we couldn't auto-apply"
-          testId="pending-panel-help"
+          testId="help-affordance--dashboard-pending-ingestion--tooltip"
         >
           <p>
             New sheets land here for first-time review, and any sheet we
@@ -84,6 +84,15 @@ export function PendingPanel({
             Review and apply for a clean new sheet, or Retry, Defer, or
             Ignore for a sheet that failed. Anything you decide here
             disappears from this list right away.
+          </p>
+          <p className="mt-2">
+            <a
+              href="/help/admin/review-queues#first-seen"
+              aria-label="Learn more about sheets we couldn't auto-apply"
+              className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            >
+              Learn more →
+            </a>
           </p>
         </HelpTooltip>
       </div>
