@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+process.env.ENABLE_TEST_AUTH ??= "true";
+process.env.TEST_AUTH_SECRET ??= "test-secret-fixture";
+
 export default defineConfig({
   testDir: "tests/e2e",
   timeout: 60_000,
