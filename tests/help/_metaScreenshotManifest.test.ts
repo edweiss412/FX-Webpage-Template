@@ -125,6 +125,32 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
     expect(missing, `Missing screenshot WebPs:\n${missing.join("\n")}`).toEqual([]);
   });
 
+  it("same-key light and dark WebPs are byte-distinct for both-theme captures", () => {
+    if (!screenshotsDirActive()) return;
+
+    const identical: string[] = [];
+    for (const entry of MANIFEST) {
+      if (entry.theme === "light" || entry.theme === "dark") continue;
+
+      const lightPath = join(SCREENSHOTS_DIR, `${entry.key}-light.webp`);
+      const darkPath = join(SCREENSHOTS_DIR, `${entry.key}-dark.webp`);
+      if (!existsSync(lightPath) || !existsSync(darkPath)) continue;
+
+      const light = readFileSync(lightPath);
+      const dark = readFileSync(darkPath);
+      if (light.equals(dark)) {
+        identical.push(`${entry.key}-light.webp == ${entry.key}-dark.webp`);
+      }
+    }
+
+    expect(
+      identical,
+      `Theme application failed: ${identical.join(
+        ", ",
+      )} are byte-identical — dark theme may not be applying`,
+    ).toEqual([]);
+  });
+
   it("does not contain orphan WebPs outside the manifest key set", () => {
     if (!screenshotsDirActive()) return;
 
