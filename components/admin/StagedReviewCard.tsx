@@ -51,6 +51,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { ReportButton } from "@/components/shared/ReportButton";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
@@ -451,12 +452,33 @@ export function StagedReviewCard({
             what Doug actually wants to recognize on a phone glance.
             "Staged update" fallback covers rows where the page couldn't
             derive a summary from `parse_result`. */}
-        <h3
-          className="text-base font-semibold text-text-strong"
-          data-testid="staged-parse-summary"
-        >
-          {row.parseSummaryLine ?? "Staged update"}
-        </h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3
+            className="text-base font-semibold text-text-strong"
+            data-testid="staged-parse-summary"
+          >
+            {row.parseSummaryLine ?? "Staged update"}
+          </h3>
+          {isFirstSeenMode ? (
+            <HelpTooltip
+              label="Help: First-seen staged review"
+              testId="help-affordance--first-seen-review-card--tooltip"
+            >
+              <p>
+                This is the first time we have seen this sheet. Approve the
+                parsed details to publish, or set the sheet aside until it
+                changes again.
+              </p>
+              <a
+                href="/help/admin/review-queues#first-seen"
+                aria-label="Learn more about first-seen staged review"
+                className="mt-2 inline-flex w-fit min-h-tap-min items-center text-sm font-medium text-accent-on-bg underline underline-offset-2 transition-colors duration-fast hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                Learn more →
+              </a>
+            </HelpTooltip>
+          ) : null}
+        </div>
         {/* Time caption — formatted human-friendly; the ISO is preserved
             in the `<time dateTime=...>` attribute for machines. */}
         <p className="text-sm text-text-subtle">
