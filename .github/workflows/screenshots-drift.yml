@@ -29,7 +29,7 @@ jobs:
             -w /work \
             -e CI=true \
             mcr.microsoft.com/playwright:v1.59.1-jammy \
-            bash -lc "corepack enable && pnpm screenshot:help"
+            bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"
       - name: Check screenshot drift
         run: |
           git diff --exit-code public/help/screenshots/

@@ -75,13 +75,22 @@ export default defineConfig({
     {
       // Phase F screenshot/help-docs server (port 3004). Port 3003 is
       // already reserved by prod-runtime-flip in the main Playwright config.
-      command: "pnpm build && pnpm exec next start --port 3004",
+      command:
+        "NODE_OPTIONS=--max-old-space-size=8192 pnpm build && " +
+        "NODE_OPTIONS=--max-old-space-size=8192 pnpm exec next start --port 3004",
       env: {
         ADMIN_DEV_PANEL_ENABLED: "true",
         ENABLE_TEST_AUTH: "true",
         JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min",
         NEXT_DIST_DIR: ".next-screenshots-help",
-        TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        NEXT_PUBLIC_SUPABASE_URL:
+          process.env.NEXT_PUBLIC_SUPABASE_URL ??
+          process.env.SUPABASE_URL ??
+          "http://127.0.0.1:54321",
+        SUPABASE_URL: process.env.SUPABASE_URL ?? "http://127.0.0.1:54321",
+        TEST_DATABASE_URL:
+          process.env.TEST_DATABASE_URL ??
+          "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
         TEST_AUTH_SECRET: "test-secret-fixture",
       },
       url: "http://localhost:3004",

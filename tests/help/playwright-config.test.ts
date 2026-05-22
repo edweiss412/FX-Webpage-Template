@@ -32,9 +32,16 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
   it("sets a local database URL for the production screenshot webServer", () => {
     const config = readFileSync(screenshotConfigPath, "utf8");
 
-    expect(config).toContain(
-      'TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres"',
-    );
+    expect(config).toContain("process.env.TEST_DATABASE_URL ??");
+    expect(config).toContain('"postgresql://postgres:postgres@127.0.0.1:54322/postgres"');
+  });
+
+  it("allows the screenshot webServer to point Supabase HTTP clients at a container host URL", () => {
+    const config = readFileSync(screenshotConfigPath, "utf8");
+
+    expect(config).toContain("process.env.SUPABASE_URL ??");
+    expect(config).toContain('"http://127.0.0.1:54321"');
+    expect(config).toContain("process.env.NEXT_PUBLIC_SUPABASE_URL ??");
   });
 
   it("sets JWT signing env for the screenshot webServer", () => {
@@ -50,6 +57,12 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     );
 
     expect(screenshotServerBlock).not.toBeNull();
+  });
+
+  it("sets an explicit Node heap for the screenshot build command", () => {
+    const config = readFileSync(screenshotConfigPath, "utf8");
+
+    expect(config).toContain("NODE_OPTIONS=--max-old-space-size=8192 pnpm build");
   });
 
   it("keeps the screenshot-only config scoped to the port-3004 webServer", () => {

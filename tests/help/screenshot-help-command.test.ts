@@ -51,6 +51,7 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
     expect(workflow).toContain("supabase start");
     expect(workflow).toContain("mcr.microsoft.com/playwright:v1.59.1-jammy");
     expect(workflow).toContain("docker run --rm --network host");
+    expect(workflow).toContain("postgresql-client");
     expect(workflow).toContain("pnpm screenshot:help");
     expect(workflow).toContain("git diff --exit-code public/help/screenshots/");
     expect(workflow).toContain("git ls-files --others --exclude-standard public/help/screenshots/");
