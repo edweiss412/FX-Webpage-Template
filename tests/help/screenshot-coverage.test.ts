@@ -1,10 +1,11 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MANIFEST } from "@/scripts/help-screenshots.manifest";
 
 const ROOT = process.cwd();
 const HELP_ROOT = join(ROOT, "app", "help");
+const SCREENSHOTS_ROOT = join(ROOT, "public", "help", "screenshots");
 
 type ScreenshotRef = {
   file: string;
@@ -47,7 +48,6 @@ function collectScreenshotRefs(): ScreenshotRef[] {
 }
 
 describe("help screenshot coverage Half A (Task F.8 / test #8)", () => {
-  // F.11 Half B appends: non-empty walk assertion + on-disk WebP existence + un-skip M11-E-D5 stopgaps.
   it("every collected <Screenshot name=> reference is non-empty and resolves to a manifest entry", () => {
     const refs = collectScreenshotRefs();
 
@@ -68,4 +68,23 @@ describe("help screenshot coverage Half A (Task F.8 / test #8)", () => {
 
     expect(violations, `Screenshot coverage violations:\n${violations.join("\n")}`).toEqual([]);
   });
+});
+
+describe("Screenshot coverage Half B — on-disk WebP existence (Task F.11)", () => {
+  const refs = collectScreenshotRefs();
+
+  it("discovers at least one <Screenshot name=> reference in help MDX", () => {
+    expect(refs.length, "No <Screenshot name=> references found in app/help").toBeGreaterThan(0);
+  });
+
+  for (const ref of refs) {
+    for (const theme of ["light", "dark"] as const) {
+      it(`${ref.name}-${theme}.webp exists and is non-empty for ${ref.file}:${ref.line}`, () => {
+        const path = join(SCREENSHOTS_ROOT, `${ref.name}-${theme}.webp`);
+
+        expect(existsSync(path), `Missing WebP: ${path}`).toBe(true);
+        expect(statSync(path).size, `Empty WebP: ${path}`).toBeGreaterThan(0);
+      });
+    }
+  }
 });

@@ -67,5 +67,6 @@ export const MANIFEST: readonly ManifestEntry[] = [
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
     viewport: MOBILE,
+    captureSelector: "[data-testid=admin-preview-banner]",
   },
 ];
