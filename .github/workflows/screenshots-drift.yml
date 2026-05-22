@@ -25,7 +25,7 @@ jobs:
       - run: supabase start
       - name: Capture screenshots in pinned Playwright image
         run: |
-          docker run --rm --network host \
+          docker run --rm --platform linux/amd64 --network host \
             -v "$PWD:/work" \
             -w /work \
             -e CI=true \

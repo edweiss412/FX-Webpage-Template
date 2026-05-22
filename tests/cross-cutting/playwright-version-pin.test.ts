@@ -57,6 +57,22 @@ function driftWorkflowDockerVersion(): Semver {
   return parseSemver(match[1] ?? "", "screenshots drift workflow Docker tag");
 }
 
+function driftWorkflowDockerRunCommand(): string {
+  const workflow = readFileSync(DRIFT_WORKFLOW_PATH, "utf8");
+  const match =
+    /docker run[\s\S]*?mcr\.microsoft\.com\/playwright:v\d+\.\d+\.\d+-jammy/.exec(
+      workflow,
+    );
+
+  if (!match) {
+    throw new Error(
+      "screenshots drift workflow is missing a docker run command for the pinned Playwright image",
+    );
+  }
+
+  return match[0];
+}
+
 describe("Playwright package and screenshot drift Docker image stay minor-version pinned", () => {
   it("uses the same Playwright major.minor in package.json and the drift workflow image", () => {
     const packageVersion = playwrightPackageVersion();
@@ -68,5 +84,14 @@ describe("Playwright package and screenshot drift Docker image stay minor-versio
       dockerMinor,
       `Playwright version skew: package.json says ${packageVersion.raw}, drift workflow uses v${dockerVersion.raw}-jammy`,
     ).toBe(packageMinor);
+  });
+
+  it("pins the screenshot drift Docker run to linux/amd64", () => {
+    const dockerRun = driftWorkflowDockerRunCommand();
+
+    expect(
+      dockerRun,
+      "Docker --platform pin missing: screenshot byte-comparison gates must run mcr.microsoft.com/playwright under linux/amd64",
+    ).toContain("--platform linux/amd64");
   });
 });
