@@ -6,6 +6,7 @@ const packageJsonPath = join(process.cwd(), "package.json");
 const playwrightConfigPath = join(process.cwd(), "playwright.config.ts");
 const captureSpecPath = join(process.cwd(), "tests/e2e/screenshots-help-capture.spec.ts");
 const workflowPath = join(process.cwd(), ".github/workflows/screenshots-drift.yml");
+const seedPath = join(process.cwd(), "supabase/seed.ts");
 
 function readIfExists(path: string): string {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
@@ -52,5 +53,14 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
     expect(workflow).toContain("git diff --exit-code public/help/screenshots/");
     expect(workflow).toContain("cron:");
     expect(workflow).not.toContain("pnpm db:seed");
+  });
+
+  it("db:seed settles app_settings into dashboard mode for /admin screenshot capture", () => {
+    const seed = readIfExists(seedPath);
+
+    expect(existsSync(seedPath)).toBe(true);
+    expect(seed).toMatch(/update\s+public\.app_settings[\s\S]*watched_folder_id\s*=/i);
+    expect(seed).toMatch(/update\s+public\.app_settings[\s\S]*pending_wizard_session_id\s*=\s*null/i);
+    expect(seed).toMatch(/update\s+public\.app_settings[\s\S]*pending_folder_id\s*=\s*null/i);
   });
 });

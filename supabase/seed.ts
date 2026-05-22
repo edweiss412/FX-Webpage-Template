@@ -16,6 +16,9 @@ const fixtureDir = join(process.cwd(), "fixtures/shows/raw");
 const seedDrivePrefix = "seed-fixture:";
 const restageRequiredFixture = "2026-04-asset-mgmt-cfo-coo-waldorf.md";
 const seedAdminEmail = requiredCanonicalEmail("seed-mode@fxav.local");
+const seedWatchedFolderId = "seed-fixture-folder";
+const seedWatchedFolderName = "Seed fixture folder";
+const seedWatchedFolderSetAt = "2026-01-01T12:00:00.000Z";
 
 type FixtureSeed = {
   fileName: string;
@@ -486,6 +489,27 @@ function syncAuditInsertSql(seed: FixtureSeed): string {
   `;
 }
 
+function appSettingsSeedSql(): string {
+  return `
+    insert into public.app_settings (id)
+    values ('default')
+    on conflict (id) do nothing;
+
+    update public.app_settings
+       set watched_folder_id = ${sqlString(seedWatchedFolderId)},
+           watched_folder_name = ${sqlString(seedWatchedFolderName)},
+           watched_folder_set_by_email = ${sqlString(seedAdminEmail)},
+           watched_folder_set_at = ${sqlTimestamp(seedWatchedFolderSetAt)},
+           pending_folder_id = null,
+           pending_folder_name = null,
+           pending_folder_set_by_email = null,
+           pending_folder_set_at = null,
+           pending_wizard_session_id = null,
+           pending_wizard_session_at = null
+     where id = 'default';
+  `;
+}
+
 function seedSql(seeds: FixtureSeed[]): string {
   const locks = seeds
     .map(
@@ -507,6 +531,8 @@ function seedSql(seeds: FixtureSeed[]): string {
      where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)};
     delete from public.shows
      where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)};
+
+    ${appSettingsSeedSql()}
 
     ${seeds
       .map(

@@ -1,11 +1,56 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MANIFEST } from "@/scripts/help-screenshots.manifest";
 
 const ROOT = process.cwd();
 const APP_ROOT = join(ROOT, "app");
+const HELP_ROOT = join(ROOT, "app", "help");
 const SCREENSHOTS_DIR = join(ROOT, "public", "help", "screenshots");
+const SCREENSHOT_NAME_RE = /(<Screenshot)\s+[^>]*name=["']([^"']*)["']/g;
+
+type ScreenshotRef = {
+  file: string;
+  line: number;
+  name: string;
+};
+
+function walkMdx(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkMdx(path));
+    } else if (entry.isFile() && entry.name.endsWith(".mdx")) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+function collectScreenshotRefs(): ScreenshotRef[] {
+  if (!existsSync(HELP_ROOT)) return [];
+
+  const refs: ScreenshotRef[] = [];
+  for (const abs of walkMdx(HELP_ROOT)) {
+    const rel = abs.slice(ROOT.length + 1);
+    const source = readFileSync(abs, "utf8");
+    for (const match of source.matchAll(SCREENSHOT_NAME_RE)) {
+      if (match.index === undefined) continue;
+      refs.push({
+        file: rel,
+        line: source.slice(0, match.index).split("\n").length,
+        name: match[2] ?? "",
+      });
+    }
+  }
+  return refs;
+}
+
+function sha1(path: string): string {
+  return createHash("sha1").update(readFileSync(path)).digest("hex");
+}
 
 function fixtureExists(fixture: string): boolean {
   return (
@@ -91,5 +136,39 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
       });
 
     expect(orphans, `Orphan screenshot WebPs:\n${orphans.join("\n")}`).toEqual([]);
+  });
+
+  it("every manifest key is consumed by at least one help MDX <Screenshot name>", () => {
+    const referenced = new Set(collectScreenshotRefs().map((ref) => ref.name));
+    const unreferenced = MANIFEST.map((entry) => entry.key).filter((key) => !referenced.has(key));
+
+    expect(
+      unreferenced,
+      `Manifest screenshot keys without help MDX consumers:\n${unreferenced.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("MDX-referenced screenshots do not share byte-identical light/dark WebPs", () => {
+    if (!screenshotsDirActive()) return;
+
+    const referenced = [...new Set(collectScreenshotRefs().map((ref) => ref.name))].sort();
+    const duplicates: string[] = [];
+    for (const theme of ["light", "dark"] as const) {
+      const byHash = new Map<string, string[]>();
+      for (const key of referenced) {
+        const path = join(SCREENSHOTS_DIR, `${key}-${theme}.webp`);
+        if (!existsSync(path)) continue;
+        const hash = sha1(path);
+        byHash.set(hash, [...(byHash.get(hash) ?? []), `${key}-${theme}.webp`]);
+      }
+      for (const names of byHash.values()) {
+        if (names.length > 1) duplicates.push(names.join(" == "));
+      }
+    }
+
+    expect(
+      duplicates,
+      `Byte-identical MDX-referenced screenshot WebPs:\n${duplicates.join("\n")}`,
+    ).toEqual([]);
   });
 });

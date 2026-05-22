@@ -8,17 +8,17 @@ afterEach(() => cleanup());
 
 describe("<Screenshot>", () => {
   it("renders a <picture> with light + dark sources at the expected paths", () => {
-    const { container } = render(<Screenshot name="dashboard-active-shows" alt="The dashboard." />);
+    const { container } = render(<Screenshot name="dashboard-overview" alt="The dashboard." />);
     const picture = container.querySelector("picture");
     expect(picture).not.toBeNull();
 
     const darkSource = picture!.querySelector("source[media='(prefers-color-scheme: dark)']");
     expect(darkSource).not.toBeNull();
-    expect(darkSource!.getAttribute("srcset")).toBe("/help/screenshots/dashboard-active-shows-dark.webp");
+    expect(darkSource!.getAttribute("srcset")).toBe("/help/screenshots/dashboard-overview-dark.webp");
 
     const img = picture!.querySelector("img");
     expect(img).not.toBeNull();
-    expect(img!.getAttribute("src")).toBe("/help/screenshots/dashboard-active-shows-light.webp");
+    expect(img!.getAttribute("src")).toBe("/help/screenshots/dashboard-overview-light.webp");
     expect(img!.getAttribute("alt")).toBe("The dashboard.");
   });
 

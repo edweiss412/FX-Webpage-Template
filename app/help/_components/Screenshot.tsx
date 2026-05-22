@@ -24,7 +24,7 @@ export function Screenshot({
   // fails."
   if (name.trim() === "") {
     throw new Error(
-      `<Screenshot>: \`name\` prop is empty. Provide a manifest key, e.g. <Screenshot name="dashboard-active-shows" />.`,
+      `<Screenshot>: \`name\` prop is empty. Provide a manifest key, e.g. <Screenshot name="dashboard-overview" />.`,
     );
   }
   return (

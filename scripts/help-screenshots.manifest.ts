@@ -32,27 +32,7 @@ export const MANIFEST: readonly ManifestEntry[] = [
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
     viewport: DESKTOP,
-  },
-  {
-    key: "dashboard-active-shows",
-    route: "/admin",
-    fixture: RPAS_CENTRAL_2026,
-    frozenClockInstant: MID_SHOW_INSTANT,
-    viewport: DESKTOP,
-  },
-  {
-    key: "dashboard-pending-ingestion",
-    route: "/admin",
-    fixture: RPAS_CENTRAL_2026,
-    frozenClockInstant: MID_SHOW_INSTANT,
-    viewport: DESKTOP,
-  },
-  {
-    key: "per-show-staged-review",
-    route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}`,
-    fixture: RPAS_CENTRAL_2026,
-    frozenClockInstant: MID_SHOW_INSTANT,
-    viewport: DESKTOP,
+    captureSelector: "[data-testid=admin-dashboard]",
   },
   {
     key: "review-queues-side-by-side",
@@ -60,6 +40,7 @@ export const MANIFEST: readonly ManifestEntry[] = [
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
     viewport: DESKTOP,
+    captureSelector: "[data-testid=admin-pending-panel]",
   },
   {
     key: "preview-as-crew-banner",
