@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import sharp from "sharp";
 import { MANIFEST, type ManifestEntry, type ScreenshotTheme } from "./help-screenshots.manifest";
@@ -216,8 +215,8 @@ async function main(): Promise<void> {
   await captureAll();
 }
 
-const invokedPath = process.argv[1] ?? null;
-if (invokedPath && fileURLToPath(import.meta.url) === invokedPath) {
+const invokedPath = process.argv[1] ?? "";
+if (invokedPath.endsWith("scripts/help-screenshots.ts")) {
   main().catch((error: unknown) => {
     console.error(error);
     process.exit(1);

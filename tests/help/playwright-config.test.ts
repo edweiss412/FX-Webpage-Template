@@ -28,6 +28,14 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     expect(config).toContain('TEST_AUTH_SECRET: "test-secret-fixture"');
   });
 
+  it("sets a local database URL for the production screenshot webServer", () => {
+    const config = readFileSync(configPath, "utf8");
+
+    expect(config).toContain(
+      'TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres"',
+    );
+  });
+
   it("declares the help-docs project for deep-link, auth, and mobile specs", () => {
     const config = readFileSync(configPath, "utf8");
 

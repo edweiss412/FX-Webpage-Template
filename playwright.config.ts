@@ -131,6 +131,25 @@ export default defineConfig({
       },
     },
     {
+      name: "screenshots-help-capture",
+      testMatch: /screenshots-help-capture\.spec\.ts/,
+      dependencies: ["screenshots-help-setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: "http://localhost:3004",
+        colorScheme: "light",
+        contextOptions: {
+          reducedMotion: "reduce",
+        },
+        launchOptions: {
+          args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+        },
+        locale: "en-US",
+        timezoneId: "America/New_York",
+        viewport: { width: 1280, height: 800 },
+      },
+    },
+    {
       name: "help-docs",
       testMatch: /(deep-link-walker|help-auth|help-mobile)\.spec\.ts/,
       dependencies: ["screenshots-help-setup"],
@@ -258,6 +277,7 @@ export default defineConfig({
         ADMIN_DEV_PANEL_ENABLED: "true",
         ENABLE_TEST_AUTH: "true",
         NEXT_DIST_DIR: ".next-screenshots-help",
+        TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
         TEST_AUTH_SECRET: "test-secret-fixture",
       },
       url: "http://localhost:3004",
