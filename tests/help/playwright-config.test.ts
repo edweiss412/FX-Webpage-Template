@@ -36,6 +36,15 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     );
   });
 
+  it("uses the established 300s cold-build timeout for the port-3004 screenshot webServer", () => {
+    const config = readFileSync(configPath, "utf8");
+    const screenshotServerBlock = config.match(
+      /Phase F screenshot\/help-docs server[\s\S]*?url: "http:\/\/localhost:3004",[\s\S]*?timeout: 300_000,/,
+    );
+
+    expect(screenshotServerBlock).not.toBeNull();
+  });
+
   it("declares the help-docs project for deep-link, auth, and mobile specs", () => {
     const config = readFileSync(configPath, "utf8");
 

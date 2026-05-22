@@ -19,7 +19,7 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
     };
 
     expect(packageJson.scripts?.["screenshot:help"]).toBe(
-      "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test --project=screenshots-help-capture",
+      "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test --project=screenshots-help --project=screenshots-help-capture",
     );
   });
 

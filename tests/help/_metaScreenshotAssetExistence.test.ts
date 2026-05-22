@@ -104,7 +104,7 @@ describe("Help <Screenshot> asset existence (Phase F unlocked)", () => {
     // assertion pins the current Phase-E-close inventory.
     const expected = new Set([
       "dashboard-overview",
-      "review-queues-side-by-side",
+      "review-queues-empty-state",
       "preview-as-crew-banner",
     ]);
     const found = new Set(refs.map((r) => r.name));

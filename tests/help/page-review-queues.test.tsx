@@ -57,10 +57,11 @@ describe("/help/admin/review-queues (E.6)", () => {
     expect(src).toMatch(/<Callout\s+type=["']warning["']/);
   });
 
-  it("includes the side-by-side Screenshot per content brief step 7", () => {
+  it("includes the empty pending-queue Screenshot per Phase F review R2", () => {
     expect(src).toMatch(
-      /<Screenshot\s+name=["']review-queues-side-by-side["']/,
+      /<Screenshot\s+name=["']review-queues-empty-state["']/,
     );
+    expect(src).toContain("No sheets are waiting in the captured state");
   });
 
   it("does NOT reference <ScreenshotPlaceholder> (v1 ships real screenshots — Phase H.4 lint enforces)", () => {

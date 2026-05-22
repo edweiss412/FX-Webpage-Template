@@ -282,7 +282,7 @@ export default defineConfig({
       },
       url: "http://localhost:3004",
       reuseExistingServer: !process.env.CI,
-      timeout: process.env.CI ? 120_000 : 60_000,
+      timeout: 300_000,
     },
   ],
 });

@@ -35,7 +35,7 @@ export const MANIFEST: readonly ManifestEntry[] = [
     captureSelector: "[data-testid=admin-dashboard]",
   },
   {
-    key: "review-queues-side-by-side",
+    key: "review-queues-empty-state",
     route: "/admin",
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
