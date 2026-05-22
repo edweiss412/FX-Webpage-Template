@@ -164,12 +164,18 @@ app/admin/actions.ts                                      # Phase C.4 (add `// n
 app/show/[slug]/p/actions.ts                              # Phase C.4 (waiver)
 app/admin/dev/actions.ts                                  # Phase C.4 (waivers)
 components/admin/AlertBanner.tsx                          # Phase G.3 (Learn-more wiring on the shared messageFor renderer)
-components/admin/ParsePanel.tsx                           # Phase G.4 (testid retrofit per §5.6 matrix rows: parse-warnings header + parse-warning rows)
-components/admin/ReSyncButton.tsx                         # Phase G.4 (testid retrofit per §5.6 matrix: sync-health header sibling)
+components/admin/ParsePanel.tsx                           # Phase G.4 (testid retrofit per §5.6 matrix: parse-warnings section header; per-code parse warnings use the error-message template family per Amendment 1)
+components/admin/ReSyncButton.tsx                         # Phase G.4 (testid retrofit per §5.6 matrix: sync-health / manual-sync affordance sibling)
 components/admin/StagedReviewCard.tsx                     # Phase G.4 (testid retrofit per §5.6 matrix: per-show staged-review card; first-seen variant if M9 ships it separately)
 components/messages/ErrorExplainer.tsx                    # Phase G.3 — confirmed live at r4 (verified: ls components/messages/ → ErrorExplainer.tsx exists). The §9.0.1 "What does this mean?" expansion component; G.3 wires the Learn-more link inside it via shouldEmitLearnMore.
-components/admin/<dashboard-row-component>.tsx            # Phase G.4 — M9-owned, dashboard "Active Shows" + "Sheets we couldn't auto-apply" panel headers and the "Review staged changes" status badge. Concrete path resolves via Phase G.0 pre-execution discovery (r4); per AC-11.22 sequencing, M10 close-out gates M11 execution.
-components/<onboarding-wizard>.tsx                        # Phase G.4 — M10-owned, three wizard step headers carrying help-affordance--wizard-step{1,2,3}--tooltip testids. Concrete path resolves via Phase G.0 pre-execution discovery (r4).
+components/admin/ActiveShowsPanel.tsx                     # Phase G.4 — dashboard Active shows panel header + "Review staged changes" status-badge affordance owner (Phase G.0 discovery)
+components/admin/PendingPanel.tsx                         # Phase G.4 — dashboard "Sheets we couldn't auto-apply" panel header owner (Phase G.0 discovery)
+components/admin/Tour.tsx                                 # Phase G.3/G.4 — dashboard footer "Take the tour" affordance owner (Phase G.0 discovery)
+app/admin/show/[slug]/page.tsx                            # Phase G.4 — per-show preview-as-crew section header + parse-panel mount owner; UI edit owned by §B Opus (Phase G.0 discovery)
+components/admin/PreviewBanner.tsx                        # Phase G.4 — preview-as-crew sticky banner affordance owner (Phase G.0 discovery)
+components/admin/wizard/Step1Share.tsx                    # Phase G.4 — onboarding wizard step 1 tooltip owner (Phase G.0 discovery)
+components/admin/wizard/Step2Verify.tsx                   # Phase G.4 — onboarding wizard step 2 tooltip owner (Phase G.0 discovery)
+components/admin/wizard/Step3Review.tsx                   # Phase G.4 — onboarding wizard step 3 tooltip owner (Phase G.0 discovery)
 next.config.ts                                            # Phase A.1 (add withMDX + pageExtensions ['ts','tsx','mdx'])
 package.json + pnpm-lock.yaml                             # Phase A.1 (@next/mdx + loaders) + F.3 (sharp) + F.5 (screenshot:help script)
 playwright.config.ts                                      # Phase F.4 (add `screenshots-help` project + webServer entry)
