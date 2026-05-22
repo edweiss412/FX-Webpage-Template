@@ -86,7 +86,7 @@ function screenshotsDirActive(): boolean {
   return entries.some((e) => e.endsWith(".webp"));
 }
 
-describe("Help <Screenshot> asset existence (Phase E meta-test, deferred to Phase F)", () => {
+describe("Help <Screenshot> asset existence (Phase F unlocked)", () => {
   const refs = collectReferences();
   const phaseFActive = screenshotsDirActive();
 
@@ -96,7 +96,7 @@ describe("Help <Screenshot> asset existence (Phase E meta-test, deferred to Phas
     expect(refs.length).toBeGreaterThanOrEqual(0);
   });
 
-  it.skip("collector finds every <Screenshot name> on disk as of Phase E close", () => {
+  it("collector finds every <Screenshot name> on disk as of Phase E close", () => {
     // Regression guard for Codex R7: the prior line-by-line scanner missed
     // multi-line `<Screenshot\n  name="X"\n />` blocks. If the collector ever
     // silently drops a reference (whitespace formatting change, regex tweak,
@@ -111,7 +111,6 @@ describe("Help <Screenshot> asset existence (Phase E meta-test, deferred to Phas
     const missing = [...expected].filter((n) => !found.has(n));
     expect(missing, `collector missed: ${missing.join(", ")}`).toEqual([]);
   });
-  // skip rationale: <ScreenshotPlaceholder> revert per DEFERRED.md M11-E-D5; re-enable when Phase F.10/F.11 lands.
 
   // Conditional skip: until Phase F lands, the asset directory does not exist.
   // This test auto-activates the moment Phase F creates `public/help/screenshots/`

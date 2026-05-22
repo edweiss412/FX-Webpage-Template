@@ -27,6 +27,13 @@ const MID_SHOW_INSTANT = "2026-03-24T15:00:00.000Z";
 
 export const MANIFEST: readonly ManifestEntry[] = [
   {
+    key: "dashboard-overview",
+    route: "/admin",
+    fixture: RPAS_CENTRAL_2026,
+    frozenClockInstant: MID_SHOW_INSTANT,
+    viewport: DESKTOP,
+  },
+  {
     key: "dashboard-active-shows",
     route: "/admin",
     fixture: RPAS_CENTRAL_2026,
@@ -43,6 +50,13 @@ export const MANIFEST: readonly ManifestEntry[] = [
   {
     key: "per-show-staged-review",
     route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}`,
+    fixture: RPAS_CENTRAL_2026,
+    frozenClockInstant: MID_SHOW_INSTANT,
+    viewport: DESKTOP,
+  },
+  {
+    key: "review-queues-side-by-side",
+    route: "/admin",
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
     viewport: DESKTOP,
