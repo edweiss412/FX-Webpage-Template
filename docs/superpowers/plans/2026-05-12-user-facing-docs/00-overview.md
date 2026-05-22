@@ -38,7 +38,26 @@
 
 ## Ratified spec amendments
 
-**None at plan-write time (2026-05-12).** The spec went through 8 rounds of cross-CLI adversarial review (r1 → r10) and was committed at r10 (commit `fc26d8b`). Any amendments ratified during M11 execution must be recorded here in the same shape as the existing crew-pages plan's amendment list (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/00-overview.md`).
+**At plan-write time (2026-05-12):** None. The spec went through 8 rounds of cross-CLI adversarial review (r1 → r10) and was committed at r10 (commit `fc26d8b`).
+
+### Amendment 1 (2026-05-22): Parse-warning rows fold into error-message testid family
+
+**Ratified at:** Phase G §A pre-execution discovery, 2026-05-22.
+
+**Spec section affected:** §5.6 affordance matrix — the row currently listed as:
+
+> `/admin/show/<slug>` — individual parse-warning row with `help-affordance--parse-warning-row--learn-more`
+
+**Amendment:** REMOVE the `help-affordance--parse-warning-row--learn-more` testid family. Per-code parse-warning `Learn more →` links are covered by the existing error-message template-family row using the testid pattern `help-affordance--error-message--<code>--learn-more`. The collapse is functionally complete because parse-warning messages flow through `messageFor(code)` in `components/admin/ParsePanel.tsx`, which routes them through the same rendering helper that error-messages use, yielding the error-message-family testid automatically.
+
+**Rationale (originally surfaced as plan-body r4 fix in `07-affordance-retrofit.md` lines 178-184 + line 337):** A separate `parse-warning-row` testid family duplicates the existing error-message coverage without functional benefit — every per-code parse-warning Learn-more link already routes through `messageFor(code).helpHref` and lands the error-message-family testid. Maintaining two parallel testid namespaces for the same code-keyed affordance creates double-coverage burden in tests/QA + a relitigation surface in every future review round.
+
+**Implementation contract:**
+- `AFFORDANCE_MATRIX` in G.1's `affordanceMatrix.ts` does NOT include a `parse-warning-row` testid family.
+- ParsePanel parse-warning rows continue to render through `messageFor(code)`; tests assert each warning row carries `data-testid="help-affordance--error-message--<code>--learn-more"` (per `tests/admin/parse-panel-affordance.test.tsx` per plan body line 337).
+- The `?` tooltip at the parse-warnings section header (`help-affordance--per-show-parse-warnings--tooltip` per plan body line 176) is unaffected — that row remains in the matrix as a non-per-code section affordance.
+
+**Promotion path:** plan body 07-affordance-retrofit.md r4 revision already documents the technical reasoning inline; this amendment formalizes the spec-level ratification so future reviews don't re-litigate the deviation.
 
 ---
 

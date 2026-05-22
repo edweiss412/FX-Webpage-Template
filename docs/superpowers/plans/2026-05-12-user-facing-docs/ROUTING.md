@@ -46,7 +46,7 @@ Same as FXAV ROUTING.md §"Reviewer pairing logic." Cross-model review pairs the
 Both phases have a single pin-stop where the backend signature stabilizes before the UI/co-located work consumes it. Pattern matches the M5/M8/M10 single-pin-stop rule documented in `../2026-04-30-fxav-crew-pages-design/HANDOFF-TEMPLATE.md` §0:
 
 - **Phase C pin:** after C.1 lands `lib/time/now.ts` with the `nowForServer()` export. Pin contract: `(req: Request) => Date | string` (exact signature per spec §C.1). Opus's C.4 migration consumes against this pin.
-- **Phase G pin:** after the affordance matrix + render-side gate land (G.1–G.3). Pin contract: `AffordanceRow` type + `shouldShowAffordance(row, ctx): boolean` + `messageFor(code).helpHref` extension. Opus's G.4–G.6 retrofit consumes against this pin.
+- **Phase G pin:** after the affordance matrix + render-side gate land (G.1 + G.2). Pin contract: `AffordanceRow` type (G.1) + `shouldEmitLearnMore({ route, helpHref }): boolean` gate signature (G.2). The catalog `helpHref` field itself was populated by Phase B + Phase E backfill (not Phase G); G.3+ consume those existing values. **Split:** §A Codex owns G.0 + G.1 + G.2 pre-pin, then G.5 (deep-link walker test) + G.6 (error-renderer gate meta-test) post-pin. §B Opus owns G.3 (JSX wiring of `Learn more →` into shared error renderer + dashboard footer + section-header tooltips) + G.4 (`data-testid` retrofit on M3/M9/M10 source components). G.3 + G.4 edit `components/admin/*.tsx`, dashboard-footer components, and section-header tooltips — UI files strictly Opus per AGENTS.md UI hard rule. §A and §B run in parallel after the pin until reconvergence at phase close-out.
 
 ## Handoff template
 
