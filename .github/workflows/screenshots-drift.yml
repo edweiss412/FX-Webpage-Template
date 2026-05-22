@@ -19,5 +19,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase start
       - run: pnpm screenshot:help
       - run: git diff --exit-code public/help/screenshots/

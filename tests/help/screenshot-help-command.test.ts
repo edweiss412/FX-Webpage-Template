@@ -46,6 +46,8 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
     const workflow = readIfExists(workflowPath);
 
     expect(existsSync(workflowPath)).toBe(true);
+    expect(workflow).toContain("supabase/setup-cli");
+    expect(workflow).toContain("supabase start");
     expect(workflow).toContain("pnpm screenshot:help");
     expect(workflow).toContain("git diff --exit-code public/help/screenshots/");
     expect(workflow).toContain("cron:");
