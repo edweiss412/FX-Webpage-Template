@@ -9,8 +9,9 @@
 // because the destination heading was plain `## Crew preview links`. This
 // meta-test catches that whole class going forward.
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
 const APP_HELP = join(process.cwd(), "app/help");
 
@@ -35,6 +36,20 @@ function urlToFile(urlPath: string): string | null {
       // not found, try next extension
     }
   }
+  return null;
+}
+
+function helpHrefToFile(helpHref: string): string | null {
+  const [urlPath] = helpHref.split("#");
+  if (!urlPath) return null;
+  const viaRoute = urlToFile(urlPath);
+  if (viaRoute) return viaRoute;
+
+  const fsPath = urlPath.replace(/^\/help/, "app/help");
+  const directMdx = join(process.cwd(), `${fsPath}.mdx`);
+  const directTsx = join(process.cwd(), `${fsPath}.tsx`);
+  if (existsSync(directMdx)) return directMdx;
+  if (existsSync(directTsx)) return directTsx;
   return null;
 }
 
@@ -119,4 +134,49 @@ describe("help cross-page fragment resolver (meta-test)", () => {
     // re-introduce the bug; pin the explicit JSX form.
     expect(dest).not.toMatch(/^## Crew preview links\b/m);
   });
+});
+
+describe("catalog helpHref anchor resolver (test #1)", () => {
+  const entries = Object.values(MESSAGE_CATALOG).filter(
+    (entry) => entry.helpHref !== null,
+  );
+
+  it("derives a non-empty set of catalog entries with helpHref", () => {
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  for (const entry of entries) {
+    it(`${entry.code}: helpHref resolves to a real page + anchor`, () => {
+      const href = entry.helpHref;
+      expect(href).not.toBeNull();
+      const file = helpHrefToFile(href!);
+      expect(
+        file,
+        `helpHref ${href} does not resolve to a real page file`,
+      ).not.toBeNull();
+
+      const fragment = href!.includes("#") ? href!.split("#")[1] : null;
+      if (!fragment) return;
+
+      const dest = readFileSync(file!, "utf8");
+      const dynamicErrorsAnchor =
+        href!.startsWith("/help/errors#") &&
+        dest.includes("<RefAnchor id={entry.code}");
+      const refAnchor = new RegExp(
+        `<RefAnchor[^>]*\\bid=["']${fragment}["']`,
+      ).test(dest);
+      const explicitId = new RegExp(`\\bid=["']${fragment}["']`).test(dest);
+      const explicitBraceId = new RegExp(
+        `\\bid=\\{["']${fragment}["']\\}`,
+      ).test(dest);
+
+      expect(
+        dynamicErrorsAnchor || refAnchor || explicitId || explicitBraceId,
+        `helpHref ${href} fragment "${fragment}" not found in ${relative(
+          process.cwd(),
+          file!,
+        )}`,
+      ).toBe(true);
+    });
+  }
 });
