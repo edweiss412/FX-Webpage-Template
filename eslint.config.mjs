@@ -13,6 +13,7 @@ const eslintConfig = defineConfig([
     ".next/**",
     // Build artifacts produced by the dual-build Playwright projects
     // (configured in playwright.config.ts via NEXT_DIST_DIR).
+    ".next-screenshots-help/**",
     ".next-dev/**",
     ".next-prod/**",
     ".next-prod-flip/**",
