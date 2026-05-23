@@ -404,7 +404,12 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 ### 5.5 RLS
 
 - `public.shows` already has admin-write / public-read RLS (per migration `20260501000000_initial_public_schema.sql`). The two new columns inherit the existing policy. No new RLS surface.
-- The Server Actions all use the service-role client (no end-user Supabase JWT), so RLS is not the access control mechanism for the new columns; the action body's `requireAdmin()` (for reset) or roster-membership check (for select) is.
+- **Per-action Supabase client matrix** (R20 correction — the blanket "all Server Actions use service-role" claim was wrong):
+  - `selectIdentity` — service-role client (read-only `crew_members` + `shows.published/archived` lookups; no JWT-dependent SQL needed).
+  - `clearIdentity` — no DB access at all; cookie mutation only.
+  - `cleanupStaleEntry` — no DB access; cookie mutation only.
+  - `resetPickerEpoch` — **cookie-bound `createSupabaseServerClient()`** (NOT service-role). The RPC `reset_picker_epoch_atomic` body calls `public.is_admin()` which reads from the request JWT; the cookie-bound client carries Doug/Eric's admin JWT so the SQL gate resolves correctly. See §5.6 R18 correction.
+  RLS is not the access control mechanism for the new columns; the per-action `requireAdmin()` (reset) and roster-membership check (select) plus the in-DB `is_admin()` gate (reset RPC) are.
 
 ### 5.6 PostgREST DML lockdown + advisory-lock invariants (per AGENTS.md cross-cutting discipline)
 
@@ -613,7 +618,7 @@ The brand strip, show identifier strip, picker block (heading, sub-instruction, 
     }
   }
   ```
-  `t` is a unix-second epoch of last touch. On read, `t` is updated and the cookie is re-emitted (this is the sliding-TTL mechanism). On write of a 51st entry, the minimum-`t` entry is dropped first.
+  `t` is a unix-second epoch of last touch. **`t` is updated ONLY by Server Action writes** (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `resetPickerEpoch`) — reads never emit `Set-Cookie` per the R16 contract (§4.9). On write of an entry that pushes the encoded cookie past the byte-budget cap, the minimum-`t` entry is evicted first. (An earlier draft incorrectly described `t` as updating on read; that recreated the lost-update race R16 eliminated.)
 - **Name truncation**: none. Long names wrap; the row height grows.
 
 ### 7.6 Rendered vs conceptual
