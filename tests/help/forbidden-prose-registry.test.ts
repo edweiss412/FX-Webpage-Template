@@ -67,6 +67,24 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
     rationale:
       "R13 finding 2 (dashboard.mdx). ActiveShowsPanel.statusGlyph emits only ✓, ⚠ Review staged changes, ✗ Needs attention, Publishing…, or · — there is no separate warnings-count badge in the row.",
   },
+  {
+    id: "preview-links-list",
+    pattern: /\bpreview[- ]links\s+list\b/i,
+    rationale:
+      "R15 finding 2 (daily-rhythm.mdx + whats-different.mdx). The per-show panel exposes a crew section with Issue/Revoke link controls and a separate Preview-as-a-crew-member admin-impersonation section; there is no copyable preview-links list affordance. Doug issues each link via per-row controls and shares the URL through his usual channel.",
+  },
+  {
+    id: "24-hour-undo-email",
+    pattern: /(?:24[- ]hour|24h)[^.]{0,80}(?:undo|unpublish)/i,
+    rationale:
+      "R15 finding 1 (catalog SHOW_FIRST_PUBLISHED + getting-started/dashboard/review-queues/tour). Auto-publish emits an admin_alert with severity=info that AlertBanner filters out, and no email-send infrastructure ships in v1. The unpublish endpoint + token exist server-side but Doug has no in-app delivery surface for the link. Until the safety-net surface ships, help must not promise the email/undo.",
+  },
+  {
+    id: "confirmation-email",
+    pattern: /confirmation\s+email/i,
+    rationale:
+      "R15 finding 1 corollary. No email-send infrastructure ships in v1 (no sendgrid / resend / nodemailer / SMTP code path). Any 'confirmation email' phrasing implies a delivery channel that does not exist.",
+  },
 ];
 
 function helpMdxFiles(): string[] {
