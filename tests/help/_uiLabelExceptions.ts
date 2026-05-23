@@ -285,34 +285,20 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
 ];
 
 export const UI_LABEL_EXCEPTIONS: readonly UiLabelException[] = [
-  // ─── M11-E-D1: sharing-link controls (master spec §5.2 / §7.2; M9 deferred) ───
-  {
-    label: "Issue first link",
-    file: "app/help/admin/sharing-links/page.mdx",
-    deferredId: "M11-E-D1",
-    rationale:
-      "Master spec §5.2 + §7.2 canonical sharing-link control label. M9 ships the control in the per-show panel crew section; per-show panel currently lacks the control. Re-open when M9 lands.",
-  },
-  {
-    label: "Issue new link",
-    file: "app/help/admin/sharing-links/page.mdx",
-    deferredId: "M11-E-D1",
-    rationale:
-      "Master spec §5.2 + §7.2 canonical sharing-link control label. M9 deferred. Re-open when M9 lands.",
-  },
+  // ─── M11-E-D1: sharing-link controls (master spec §5.2 / §7.2) ───
+  // I.2 R10 finding 2: "Issue first link", "Issue new link", "Revoke all
+  // links" were exempted as M9-deferred. M9.5 shipped them (DEFERRED.md
+  // M11-E-D1 line 119 ratification 2026-05-21 at tag `m9.5-completed`,
+  // SHA ad4826e). Labels live in app/admin/show/[slug]/IssueLinkButton.tsx:49
+  // and RevokeAllLinksButton.tsx:133. Exemptions removed so the crosswalk
+  // catches future regressions on these shipped labels. Only "Copy share
+  // link" remains exempted — still backlog, not yet shipped.
   {
     label: "Copy share link",
     file: "app/help/admin/sharing-links/page.mdx",
     deferredId: "M11-E-D1",
     rationale:
-      "Master spec §5.2 + §7.2 canonical sharing-link control label. M9 deferred. Re-open when M9 lands.",
-  },
-  {
-    label: "Revoke all links",
-    file: "app/help/admin/sharing-links/page.mdx",
-    deferredId: "M11-E-D1",
-    rationale:
-      "Master spec §5.2 + §7.2 canonical sharing-link control label. Referenced in prose-only (not bolded); declared via DECLARED_UI_LABELS registry layer. M9 deferred. Re-open when M9 lands.",
+      "Master spec §5.2 + §7.2 canonical sharing-link control label. Per BACKLOG.md `BL-COPY-SHARE-LINK` — still pending; the other three labels in this DEFERRED entry (Issue first/new link, Revoke all links) shipped via M9.5 and their exemptions were removed per Phase I Codex R10 finding 2.",
   },
 
   // ─── M11-E-D3: Active Shows panel section name (master spec §9.1; M9 deferred) ───
