@@ -45,8 +45,19 @@ const SPEC_PATH = join(
 // span or bare text. Common project prefixes; expand if a citation lives
 // elsewhere. The regex deliberately stops at characters that can't appear
 // in valid relative paths so we don't pull in surrounding prose.
+// Extension alternation orders longer-first so `.tsx` matches as `.tsx`
+// not `.ts`-prefix-of-`.tsx`. Trailing `\b` requires word-boundary so
+// `Screenshot.tsx` doesn't half-match as `Screenshot.ts`.
 const CITATION_RE =
-  /\b((?:app|lib|components|scripts|tests|supabase|fixtures)\/[\w./\-[\]]+\.(?:ts|tsx|mdx|md|sql|yml|yaml|json)):(\d+)(?:-(\d+))?/g;
+  /\b((?:app|lib|components|scripts|tests|supabase|fixtures)\/[\w./\-[\]]+\.(?:tsx|ts|mdx|md|sql|yml|yaml|json))\b:(\d+)(?:-(\d+))?/g;
+
+// I.2 R5 finding 3 extension: bare file paths (no `:line`) also need
+// existence checking. Phase I R5 surfaced 4 stale bare-path citations
+// (test files moved or renamed). Match the same project prefixes + file
+// extensions but with NO trailing `:digit`. Use a negative lookahead to
+// avoid double-matching paths the CITATION_RE already picked up.
+const BARE_PATH_RE =
+  /\b((?:app|lib|components|scripts|tests|supabase|fixtures)\/[\w./\-[\]]+\.(?:tsx|ts|mdx|md|sql|yml|yaml|json))\b(?!:\d)/g;
 
 // Phrasings that introduce a historical citation — the spec is explicitly
 // referencing a past state of the code. Keep this list narrow; broadening
@@ -109,6 +120,24 @@ describe("M11 spec file:line citation integrity (Phase I Codex R4 structural def
       violations.push(
         `Cited line out of range: ${fullMatch} (file has ${lineCount} lines)`,
       );
+    }
+  }
+
+  // I.2 R5 extension: bare-path citations (no `:line`) get existence
+  // checking only. Same historical-marker exemption applies — amendment
+  // sentences referencing renamed/moved files explicitly are exempted.
+  for (const match of spec.matchAll(BARE_PATH_RE)) {
+    const fullMatch = match[0];
+    const relPath = match[1]!;
+
+    if (hasHistoricalContext(spec, match.index!)) {
+      skipped.push(relPath);
+      continue;
+    }
+
+    const absPath = join(REPO_ROOT, relPath);
+    if (!existsSync(absPath)) {
+      violations.push(`Cited bare path does not exist: ${fullMatch}`);
     }
   }
 
