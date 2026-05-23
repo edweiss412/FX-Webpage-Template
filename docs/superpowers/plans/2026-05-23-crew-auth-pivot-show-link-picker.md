@@ -1090,6 +1090,7 @@ declare
   v_drive_file_id text;
   v_published boolean;
   v_archived boolean;
+  v_crew_show uuid;
 begin
   -- Step 1: resolve the (slug, token) pair into show_id + drive_file_id
   -- for the lock key. Availability is NOT trusted from this read; it's
@@ -1136,13 +1137,12 @@ begin
   -- Step 5: roster membership. R5-F3: distinguish WRONG_SHOW from
   -- NOT_FOUND so form-tamper attempts (a real crew_member_id from
   -- a different show) emit the tamper-specific signal rather than
-  -- looking identical to "row deleted."
-  declare v_crew_show uuid;
-  begin
-    select show_id into v_crew_show
-      from public.crew_members
-     where id = p_crew_member_id;
-  end;
+  -- looking identical to "row deleted." R7-F1: v_crew_show is
+  -- declared at the function-top declare block so subsequent
+  -- branch reads stay in scope.
+  select show_id into v_crew_show
+    from public.crew_members
+   where id = p_crew_member_id;
   if v_crew_show is null then
     show_id := null; picker_epoch := null; rejection_code := 'PICKER_CREW_MEMBER_NOT_FOUND';
     return next; return;
@@ -1703,7 +1703,19 @@ export default async function ShowPage({
   if (show.archived) notFound();
 
   const req = new Request('https://placeholder', { headers: await headers() });
-  const admin = await isAdminSession(req as any);
+  let admin;
+  try {
+    admin = await isAdminSession(req as any);
+  } catch {
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+  }
+  // R7-F3: isAdminSession returns { ok: false, reason: 'infra_error' }
+  // on Supabase outages. We MUST surface that as terminal-failure
+  // rather than silently falling through to the crew picker (which
+  // would render the wrong viewer mode for a real admin).
+  if (!admin.ok && admin.reason === 'infra_error') {
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+  }
   if (admin.ok) {
     // Admin precedence — render as admin without going through picker.
     const viewer = { kind: 'admin' as const };
@@ -2324,6 +2336,26 @@ Each matched item gets a paired `DROP FUNCTION/TRIGGER/POLICY IF EXISTS` line (w
 
 The implementer's grep-derived list MUST cover at least these eight categories; gaps are caught by Task G3.
 
+**R7-F2 STRICT REQUIREMENT**: the scaffold below is illustrative ONLY. Function signatures shown are likely WRONG against the live schema. Before writing the migration, the implementer MUST query `pg_proc` directly and generate the exact DROP list:
+
+```sql
+-- Run this against the dev DB FIRST. Copy the output verbatim into the migration:
+select
+  'drop function if exists ' ||
+  n.nspname || '.' || p.proname || '(' ||
+  pg_get_function_identity_arguments(p.oid) ||
+  ');' as drop_stmt
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and (
+    p.proname ~ '(link_session|leaked_link|issue_new_link|revoke_all_link|recheck_link_session|bootstrap_nonce)'
+    or pg_get_functiondef(p.oid) ~ '(crew_member_auth|link_sessions|bootstrap_nonces|revoked_links)'
+  );
+```
+
+The output paste replaces the illustrative drops below. The illustrative drops are intentionally LEFT INCORRECT so the implementer cannot copy them verbatim — they MUST regenerate from live schema.
+
 ```sql
 -- supabase/migrations/20260523000099_cutover_drop_m9_5.sql
 -- THE CUTOVER MIGRATION. References to crew_member_auth /
@@ -2331,16 +2363,23 @@ The implementer's grep-derived list MUST cover at least these eight categories; 
 -- / etc. are EXPECTED in this file and are exempted from the
 -- no-jwt-surface meta-test (per R13 CUTOVER_MIGRATION_TIMESTAMP).
 
--- Functions (from signed_link_admin_rpcs.sql + 20260504/20260505 migrations):
-drop function if exists public.mint_link_session_if_active_kid_matches(uuid, text, int, text, timestamptz);
-drop function if exists public.revoke_leaked_link_atomic(uuid, text, int);
-drop function if exists public.revoke_leaked_link_atomic_advisory_lock(uuid, text, int);
-drop function if exists public.revoke_all_links_rpc(uuid);
-drop function if exists public.issue_new_link_rpc(uuid, text);
-drop function if exists public.recheck_link_session_mint_auth_state(uuid, text, int);
+-- ⚠ ILLUSTRATIVE — signatures below DO NOT match live schema. Run the
+-- pg_proc query above and REPLACE this block with the verbatim output
+-- BEFORE applying. The G3 verification test will catch a mismatch
+-- post-application.
 
--- Triggers on the to-be-dropped tables fall away with the table drops below,
--- but explicit drops for any trigger on shared parent tables:
+-- Functions (illustrative; regenerate from pg_proc):
+-- drop function if exists public.mint_link_session_if_active_kid_matches(<actual sig>);
+-- drop function if exists public.revoke_leaked_link_atomic(<actual sig>);
+-- drop function if exists public.revoke_leaked_link_atomic_advisory_lock(<actual sig>);
+-- drop function if exists public.revoke_all_links_rpc(<actual sig>);
+-- drop function if exists public.issue_new_link_rpc(<actual sig>);
+-- drop function if exists public.recheck_link_session_mint_auth_state(<actual sig>);
+-- drop function if exists public.consume_bootstrap_nonce_atomic(<actual sig>);
+-- drop function if exists public.mint_bootstrap_nonce_atomic(<actual sig>);
+-- drop function if exists public.cleanup_bootstrap_nonces(<actual sig>);
+
+-- Triggers (also regenerate via pg_trigger query for completeness):
 drop trigger if exists crew_member_auth_publish_invalidation on public.crew_member_auth;
 drop trigger if exists crew_member_auth_publish_invalidation_insert on public.crew_member_auth;
 drop trigger if exists crew_member_auth_bump_last_changed_at on public.crew_member_auth;
@@ -2350,10 +2389,6 @@ drop table if exists public.link_sessions cascade;
 drop table if exists public.bootstrap_nonces cascade;
 drop table if exists public.revoked_links cascade;
 drop table if exists public.crew_member_auth cascade;
-
--- The implementer runs the grep commands above and APPENDS any additional
--- matched functions/triggers/policies to this file BEFORE applying.
--- The G3 verification test asserts the final state matches the migration.
 ```
 
 ### Task G3: Post-cutover schema verification test
