@@ -225,17 +225,19 @@ BEGIN TRANSACTION;
      SET picker_epoch = picker_epoch + 1,
          picker_epoch_bumped_at = now()
    WHERE id = $1;
+  -- in-transaction publish: pg_notify fires atomically on COMMIT.
+  -- If COMMIT fails (lock contention, constraint violation), the
+  -- notification does NOT fire. If COMMIT succeeds, every subscribed
+  -- tab on every device sees the invalidation.
+  publishShowInvalidation(tx, showId);   -- same helper sync uses
 COMMIT;
-        │
-        ▼
-publishShowInvalidation(supabase, showId)   -- explicit, post-commit
         │
         ▼
 Every existing cookie entry for this show now has `e` ≠ shows.picker_epoch.
 Next visit on each device triggers epoch_stale → picker re-prompts.
-Realtime broadcast fires on `show:<showId>:invalidation` for any
-already-open tabs (composite viewer_version_token has advanced via
-the new picker_epoch_bumped_at term in §4.6).
+Realtime broadcast fired atomically with COMMIT on `show:<showId>:
+invalidation` for any already-open tabs (composite viewer_version_token
+has advanced via the new picker_epoch_bumped_at term in §4.6).
 ```
 
 **Advisory-lock topology (per AGENTS.md invariant 2 — non-negotiable).** `resetPickerEpoch` mutates `public.shows`, so it MUST run inside the per-show advisory lock. Lock key is `hashtext('show:' || drive_file_id)` — the canonical project key per `AGENTS.md` invariant 2. Holder topology: the lock is acquired at the **Server Action layer** (the only entry point that mutates `shows.picker_epoch`); no nested RPC, no JS-side wrapper above the action, no other layer touches the column. This single-holder design is documented here and pinned by an extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` (per §10.1 meta-test inventory). The action uses the blocking form (`pg_advisory_xact_lock`, not `pg_try_advisory_xact_lock`) because it is an admin-initiated request, not a cron path — the spec's invariant 2 directs admin/blocking paths to the blocking variant. If the lock is contended by a concurrent sync run for the same show, the admin's Reset request waits until the sync transaction commits, then proceeds. This is acceptable: Reset is a rare manual click, not a hot path.
@@ -362,7 +364,7 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 - The two triggers `crew_member_auth_publish_invalidation` and `crew_member_auth_publish_invalidation_insert` (per migration `20260501001000_internal_and_admin.sql:83-93`) drop with the table.
 - **No new trigger on `public.shows`.** The existing helper `publish_show_invalidation_after_statement()` (at `20260501001000_internal_and_admin.sql:59-81`) iterates `select distinct show_id from new_rows`. That column name comes from the trigger's transition table, which for child tables (`crew_members`, `crew_member_auth`) carries an explicit `show_id` FK column. For `public.shows` itself, the transition table column is `id` (the show's own PK), NOT `show_id` — reusing the helper would emit a missing-column error and abort the Reset transaction.
-- Instead, the `resetPickerEpoch` Server Action **calls the project's existing helper `publishShowInvalidation(supabase, showId)`** (the same one Phase 2 sync writes use, per parent spec §8 publish-side contract) explicitly after the locked UPDATE commits. This keeps the trigger surface unchanged AND avoids over-broadcasting on every `shows` UPDATE (which would cause every sync write to spam the `show:<id>:invalidation` channel even when nothing viewer-visible changed).
+- Instead, the `resetPickerEpoch` Server Action **calls the project's existing helper `publishShowInvalidation(tx, showId)` IN-TRANSACTION before COMMIT** (the same one Phase 2 sync writes use, per parent spec §8 publish-side contract). `pg_notify` is transaction-scoped — the notification fires atomically with COMMIT, so already-open tabs cannot miss an invalidation while the epoch UPDATE is durably committed. If COMMIT fails (lock contention, constraint violation), neither the UPDATE nor the notification take effect. This keeps the trigger surface unchanged AND avoids over-broadcasting on every `shows` UPDATE (which would cause every sync write to spam the `show:<id>:invalidation` channel even when nothing viewer-visible changed).
 
 ### 5.5 RLS
 
@@ -681,7 +683,7 @@ The plan CREATES or EXTENDS the following structural meta-tests:
 | `tests/messages/_metaAdminAlertCatalog.test.ts` (existing) | EXTEND | Remove all M9.5-era codes; add `PICKER_EPOCH_RESET`, `PICKER_SELECTION_RACE`, and the new picker-rejection codes (`PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, etc.). |
 | `tests/auth/_metaPickerCookieContract.test.ts` (new) | CREATE | Pins the cookie envelope shape: name = `__Host-fxav_picker`, `v=1` strict, decoder returns null on shape failures, encoder/decoder are the only producers in the repo. Banned-identifier audit: the literal substring `__Host-fxav_picker` outside `lib/auth/picker/cookieEnvelope.ts`, the middleware, and the test fixtures fails. Asserts `MAX_COOKIE_VALUE_BYTES === 3800` and that the constant cannot be raised beyond 3900 without a paired `// browser-cap-implication-acknowledged` comment in the same hunk. |
 | `tests/components/_metaPickerRoleChipContract.test.ts` (new) | CREATE | Pins the LEAD-chip-uses-FXAV-orange contract: any roster row where the underlying crew member has `LEAD` in `role_flags` renders with the accent chip; any other row renders the neutral chip. Test runs against a fixture roster with mixed `role_flags`. |
-| `tests/cross-cutting/no-jwt-surface.test.ts` (new) | CREATE | Banned-identifier audit: the literal substrings `__Host-fxav_session`, `redeemLink`, `signLinkJwt`, `verifyLinkJwt`, `current_token_version`, `revoked_below_version`, `max_issued_version`, `bootstrap_nonces`, `link_sessions`, `revoked_links`, `crew_member_auth`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED`, `validateCrewAssetSession`, `validateLinkSession`, `crew_link` (as a `kind` discriminator) MUST not appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts`, `supabase/migrations/<post-cutover>/**`. (Old migrations retain their history per migration-immutability rules.) |
+| `tests/cross-cutting/no-jwt-surface.test.ts` (new) | CREATE | Banned-identifier audit. The literal substrings `__Host-fxav_session`, `redeemLink`, `signLinkJwt`, `verifyLinkJwt`, `current_token_version`, `revoked_below_version`, `max_issued_version`, `bootstrap_nonces`, `link_sessions`, `revoked_links`, `crew_member_auth`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED`, `validateCrewAssetSession`, `validateLinkSession`, `crew_link` (as a `kind` discriminator), `crew_google` (as a `kind` discriminator) MUST not appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts`, `supabase/migrations/<post-cutover>/**`. Additionally, `validateGoogleSession` imports MUST appear ONLY in `app/api/report/route.ts`, `app/api/me/**`, `app/me/**`, `app/auth/sign-out/route.ts`, AND the test directory — every other consumer is banned (this is the explicit "Google-session-for-crew-identity is dead" guarantee from Resolved Decision 15, structurally enforced). Old migrations retain their history per migration-immutability rules. |
 | `tests/cross-cutting/picker-resolver-callsite-contract.test.ts` (new) | CREATE | Asserts every route handler that needs crew identity (`/show/[slug]/page.tsx`, `/api/realtime/subscriber-token`, `/api/asset/diagram/[show]/[rev]/[key]`, `/api/asset/reel/[show]`, `/api/asset/agenda/[show]/[id]`, `/api/show/[slug]/version`, `/api/report`) imports `resolvePickerSelection` from the canonical helper path AND distinguishes its `infra_error` arm from auth-denied. Static-analysis walker over the file list — does NOT depend on running the routes. |
 
 ### 10.2 Functional test coverage
