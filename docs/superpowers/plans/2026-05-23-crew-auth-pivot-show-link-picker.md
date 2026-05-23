@@ -1130,12 +1130,22 @@ begin
     return next; return;
   end if;
 
-  -- Step 5: roster membership.
-  if not exists (
-    select 1 from public.crew_members
-     where id = p_crew_member_id and show_id = v_show_id
-  ) then
+  -- Step 5: roster membership. R5-F3: distinguish WRONG_SHOW from
+  -- NOT_FOUND so form-tamper attempts (a real crew_member_id from
+  -- a different show) emit the tamper-specific signal rather than
+  -- looking identical to "row deleted."
+  declare v_crew_show uuid;
+  begin
+    select show_id into v_crew_show
+      from public.crew_members
+     where id = p_crew_member_id;
+  end;
+  if v_crew_show is null then
     show_id := null; picker_epoch := null; rejection_code := 'PICKER_CREW_MEMBER_NOT_FOUND';
+    return next; return;
+  end if;
+  if v_crew_show <> v_show_id then
+    show_id := null; picker_epoch := null; rejection_code := 'PICKER_CREW_MEMBER_WRONG_SHOW';
     return next; return;
   end if;
 
@@ -1647,14 +1657,24 @@ export default async function ShowPage({
 }) {
   const { slug, shareToken } = await params;
 
-  // R34/R35 + R1-F2: resolve via private RPC; destructure error.
-  // Infra-error MUST be discriminable from "wrong token" (404),
-  // per AGENTS.md call-boundary discipline. A Supabase outage or
-  // missing GRANT EXECUTE returns terminal-failure, not 404.
-  const supabase = createSupabaseServiceRoleClient();
-  const resolveResp = await supabase.rpc('resolve_show_by_slug_and_token', {
-    p_slug: slug, p_share_token: shareToken,
-  });
+  // R34/R35 + R1-F2 + R5-F2: resolve via private RPC; destructure error
+  // AND wrap in try/catch since Supabase calls can THROW on network/
+  // runtime faults. Infra-error MUST be discriminable from "wrong
+  // token" (404), per AGENTS.md call-boundary discipline.
+  let supabase;
+  try {
+    supabase = createSupabaseServiceRoleClient();
+  } catch {
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+  }
+  let resolveResp;
+  try {
+    resolveResp = await supabase.rpc('resolve_show_by_slug_and_token', {
+      p_slug: slug, p_share_token: shareToken,
+    });
+  } catch {
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+  }
   if (resolveResp.error) {
     // Infra fault — render terminal-failure UI (cataloged code).
     return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
@@ -1662,11 +1682,16 @@ export default async function ShowPage({
   const showId = resolveResp.data;
   if (!showId) notFound(); // confirmed token/slug mismatch.
 
-  const showResp = await supabase
-    .from('shows')
-    .select('id, published, archived')
-    .eq('id', showId)
-    .maybeSingle();
+  let showResp;
+  try {
+    showResp = await supabase
+      .from('shows')
+      .select('id, published, archived')
+      .eq('id', showId)
+      .maybeSingle();
+  } catch {
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+  }
   if (showResp.error) return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
   if (!showResp.data) notFound(); // race: show deleted between RPC and SELECT.
   const show = showResp.data;
@@ -1700,7 +1725,12 @@ export default async function ShowPage({
   switch (resolved.kind) {
     case 'resolved': {
       const viewer = { kind: 'crew' as const, crewMemberId: resolved.crewMemberId };
-      const data = await getShowForViewer(showId as string, viewer);
+      let data;
+      try {
+        data = await getShowForViewer(showId as string, viewer);
+      } catch {
+        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+      }
       // R2-F1: live ShowForViewer uses crewMembers (not crew); preserve
       // existing ShowBodyProps { slug, showId, viewer, data }.
       const crew = data.crewMembers.find((c) => c.id === resolved.crewMemberId);
@@ -2205,17 +2235,34 @@ git commit -m "refactor: delete M9.5 JWT/link/me surfaces (G1)"
 - Modify: `lib/messages/catalog.ts` (delete all M9.5-era code entries)
 - Modify: `lib/messages/__generated__/spec-codes.ts` (regenerate from catalog)
 
-**Implementer-action requirement (R1-F3):** before writing this migration, the implementer MUST run a grep-derived inventory of every M9.5 function/trigger/policy/grant the migration needs to drop. Use:
+**Implementer-action requirement (R1-F3 + R5-F1):** before writing this migration, the implementer MUST run a grep-derived inventory of every M9.5 function/trigger/policy/grant the migration needs to drop. Use BOTH a broad name-match grep AND a body-content grep so renamed-but-related helpers aren't missed:
 
 ```bash
-# Implementer pre-check (do NOT skip):
-rg -n "create (or replace )?function public\.(mint_link_session|revoke_leaked_link|issue_new_link|revoke_all_link|recheck_link_session_mint_auth_state)" supabase/migrations
+# Implementer pre-check (do NOT skip — R5-F1 broadened):
+# 1. Functions whose NAME references M9.5 tables/concepts:
+rg -n "create (or replace )?function public\.[a-z_]*(link_session|leaked_link|issue_new_link|revoke_all_link|recheck_link_session|bootstrap_nonce|crew_member_auth)" supabase/migrations
+
+# 2. Functions whose BODY references any of the dropped tables (catches helpers
+#    with neutral names that operate on the dropped tables):
+rg -nU "create (or replace )?function[\s\S]{0,8000}?(crew_member_auth|link_sessions|bootstrap_nonces|revoked_links)" supabase/migrations
+
+# 3. Triggers, policies, grants:
 rg -n "create policy.*on public\.(crew_member_auth|link_sessions|bootstrap_nonces|revoked_links)" supabase/migrations
-rg -n "create trigger.*on public\.(crew_member_auth|link_sessions)" supabase/migrations
-rg -n "grant .*on (function|table) public\.(mint_link_session|revoke_leaked_link|issue_new_link|revoke_all|link_sessions|crew_member_auth|bootstrap_nonces|revoked_links)" supabase/migrations
+rg -n "create trigger.*on public\.(crew_member_auth|link_sessions|bootstrap_nonces|revoked_links)" supabase/migrations
+rg -n "grant .*on (function|table) public\.[a-z_]*(link_session|leaked_link|issue_new_link|revoke_all|recheck_link_session|bootstrap_nonce|crew_member_auth|link_sessions|revoked_links)" supabase/migrations
 ```
 
-Each matched item gets a paired `DROP FUNCTION/TRIGGER/POLICY IF EXISTS` line in the cutover migration. The migration also asserts post-application no legacy entry points remain via the test in Task G3 below.
+Each matched item gets a paired `DROP FUNCTION/TRIGGER/POLICY IF EXISTS` line (with EXACT current signature — pre-check signatures with `\df+ public.<fn>` in psql before writing the DROP). The migration also asserts post-application no legacy entry points remain via the test in Task G3 below (broadened in R5-F1 to scan function bodies for any of the dropped table identifiers).
+
+**Current known M9.5 RPC inventory (NON-EXHAUSTIVE — grep is canonical):**
+- `mint_link_session_if_active_kid_matches` (signature per `supabase/migrations/20260505000001_redeem_link_locked_rpcs.sql` — verify before drop)
+- `revoke_leaked_link_atomic(uuid, text, int, text)` and the `_advisory_lock` variant
+- `revoke_all_links_rpc(uuid, text)`
+- `issue_new_link_rpc(uuid, text)`
+- `recheck_link_session_mint_auth_state(uuid, text, int)`
+- `consume_bootstrap_nonce_atomic`, `mint_bootstrap_nonce_atomic`, `cleanup_bootstrap_nonces` (any name matching `bootstrap_nonce*`)
+
+The implementer's grep-derived list MUST cover at least these eight categories; gaps are caught by Task G3.
 
 ```sql
 -- supabase/migrations/20260523000099_cutover_drop_m9_5.sql
@@ -2269,15 +2316,28 @@ describe('post-cutover schema is clean of M9.5 surface (R1-F3)', () => {
     expect(data ?? []).toHaveLength(0);
   });
 
-  it('no M9.5 RPC functions remain', async () => {
+  it('no M9.5 RPC functions remain (broadened R5-F1: name + body scan)', async () => {
     const supabase = createSupabaseServiceRoleClient();
-    const { data } = await supabase.rpc('exec_sql', {
+    // Name-pattern check: catches all M9.5 RPC name conventions including bootstrap helpers.
+    const { data: byName } = await supabase.rpc('exec_sql', {
       sql: `select proname from pg_proc p
               join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'public'
-                and proname ~ '^(mint_link_session|revoke_leaked_link|revoke_all_links|issue_new_link|recheck_link_session)'`,
+                and proname ~ '(link_session|leaked_link|revoke_all_link|issue_new_link|recheck_link_session|bootstrap_nonce|crew_member_auth)'`,
     });
-    expect(data ?? []).toHaveLength(0);
+    expect(byName ?? []).toHaveLength(0);
+
+    // Body-content check: catches helpers with neutral names that still
+    // reference the dropped tables. pg_get_functiondef returns the
+    // complete source.
+    const { data: byBody } = await supabase.rpc('exec_sql', {
+      sql: `select p.proname
+              from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public'
+                and pg_get_functiondef(p.oid) ~ '(crew_member_auth|link_sessions|bootstrap_nonces|revoked_links)'`,
+    });
+    expect(byBody ?? []).toHaveLength(0);
   });
 
   it('no executable grants remain on M9.5 functions for non-service roles', async () => {
