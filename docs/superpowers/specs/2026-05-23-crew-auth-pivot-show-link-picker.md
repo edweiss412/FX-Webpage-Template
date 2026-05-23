@@ -414,7 +414,7 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 ### 6.1 Picker entry guards
 
-`resolvePickerSelection` operates in this order. The return type is a discriminated union of SIX variants; per AGENTS.md invariant 9 (Supabase call-boundary discipline), DB faults must be discriminable from auth/identity outcomes:
+`resolvePickerSelection` operates in this order. The return type is a discriminated union of SEVEN variants; per AGENTS.md invariant 9 (Supabase call-boundary discipline), DB faults must be discriminable from auth/identity outcomes:
 
 ```ts
 type ResolvePickerSelectionResult =
@@ -422,27 +422,37 @@ type ResolvePickerSelectionResult =
   | { kind: 'no_selection' }
   | { kind: 'epoch_stale' }
   | { kind: 'removed_from_roster' }
+  | { kind: 'show_unavailable' }
   | { kind: 'infra_error'; code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
 ```
+
+The `shows.archived` / `shows.published` gate is part of the resolver — every consumer (page, asset routes, realtime token, version, report) gets the same availability check without re-implementing it.
 
 1. **No cookie at all** → `{ kind: 'no_selection' }`.
 2. **Cookie present but decode failure** (parse error, wrong `v`, missing fields, wrong types) → `{ kind: 'no_selection' }`. Decoder returns `null` per the strict-shape contract; resolver treats this as a fresh-device scenario, NOT as a tamper signal (the parent spec's strict-shape decoder discipline at `lib/auth/cookies.ts:34` is the precedent).
 3. **Cookie decoded; no entry for this `show_id`** → `{ kind: 'no_selection' }`.
-4. **DB read failure on `shows.picker_epoch` lookup** (returned error OR thrown infra fault from `createSupabaseServiceRoleClient` / `.maybeSingle()`) → `{ kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' }`. NO cookie is touched on this branch; NO `epoch_stale`/`removed_from_roster` is falsely emitted on a transient outage.
-5. **Entry present; entry `e` ≠ `shows.picker_epoch`** → `{ kind: 'epoch_stale' }`.
-6. **DB read failure on `crew_members` membership lookup** → `{ kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' }`. Same posture as 4.
-7. **Entry present, epoch matches; `SELECT id FROM crew_members WHERE id = $1 AND show_id = $2` returns 0 rows** → `{ kind: 'removed_from_roster' }`.
-8. **Entry present, epoch matches, row exists** → `{ kind: 'resolved', crewMemberId }`.
+4. **DB read failure on `shows.{picker_epoch, archived, published}` lookup** (returned error OR thrown infra fault from `createSupabaseServiceRoleClient` / `.maybeSingle()`) → `{ kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' }`. NO cookie is touched on this branch; NO `epoch_stale`/`removed_from_roster`/`show_unavailable` is falsely emitted on a transient outage.
+5. **Show is unavailable** (`archived = true` OR `published = false`) → `{ kind: 'show_unavailable' }`. Cookie's entry for this show is NOT cleared (a republished show should resolve to its previous selection without re-prompting). Consumers MUST treat this as a hard-deny: page route renders `notFound()`, API routes return 410 Gone (matching the parent spec's existing show-unavailable contract).
+6. **Entry present; entry `e` ≠ `shows.picker_epoch`** → `{ kind: 'epoch_stale' }`.
+7. **DB read failure on `crew_members` membership lookup** → `{ kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' }`. Same posture as 4.
+8. **Entry present, epoch matches; `SELECT id FROM crew_members WHERE id = $1 AND show_id = $2` returns 0 rows** → `{ kind: 'removed_from_roster' }`.
+9. **Entry present, epoch matches, row exists, show available** → `{ kind: 'resolved', crewMemberId }`.
 
 Cases 1, 2, 3 render the picker without an explanatory banner (first-time-on-device UX). Case 5 renders a banner "Doug reset access for this show — pick yourself again." Case 7 renders a banner "Your previous selection was removed by Doug — pick yourself from the current roster." Case 8 renders the crew page.
 
-**Infra-error handling at each consumer (cases 4 + 6):**
+**Infra-error handling at each consumer (cases 4 + 7):**
 
 - `app/show/[slug]/page.tsx` — renders the existing cataloged terminal-failure UI (the same shape used for `ADMIN_SESSION_LOOKUP_FAILED` per the parent spec's `R21 F2` discipline at `app/show/[slug]/page.tsx:109-123`). No cookie cleanup. No partial render.
 - `/api/realtime/subscriber-token` — returns `500` with the cataloged operator code. The `ShowRealtimeBridge` already treats subscriber-token failures via its bounded-backoff renewal path; no client behavior change.
 - `/api/asset/diagram/...`, `/api/asset/reel/...`, `/api/asset/agenda/...` — return `500` with the cataloged operator code; the client renders the existing placeholder for the missing asset. No 403/410 false-positives that would cause incorrect revocation appearances.
 - `/api/show/[slug]/version` — returns `500`; the bridge's catch-up logic preserves its last-known-good `data-render-version`.
 - The Server Actions `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `resetPickerEpoch` are exempt from this contract because they each have their own DB-error handling — they do not call `resolvePickerSelection` directly.
+
+**Show-unavailable handling at each consumer (case 5):**
+
+- `app/show/[slug]/page.tsx` — calls `notFound()` (same as the existing M11 contract for unpublished shows; non-admin viewers cannot distinguish "unpublished slug" from "unknown slug"). The page's own explicit `!published OR archived` short-circuit (§4.1 step 3) STILL runs first and catches the no-cookie / no-picker-entry case; the resolver's `show_unavailable` arm covers the with-cookie case for completeness.
+- `/api/realtime/subscriber-token`, `/api/asset/{diagram,reel,agenda}/...`, `/api/show/[slug]/version`, `/api/report` — return `410 Gone` with the cataloged crew-facing message `PICKER_SHOW_UNAVAILABLE`. 410 is correct (not 404) because the show DID exist and the cookie's selection was valid before archival; a transient 410 invites the caller to drop cached state. Asset routes already use 410 for the analogous unpublished/drift contract per parent spec §7.3, so this is consistent.
+- The Server Actions `selectIdentity` and `cleanupStaleEntry` already validate availability inside their own bodies (§6.2 rejection codes); they do not need to consult `resolvePickerSelection`'s availability arm. `clearIdentity` and `resetPickerEpoch` are admin-only or cookie-only operations and don't gate on availability.
 
 ### 6.2 Server Action input validation
 
@@ -649,6 +659,7 @@ The `lib/messages/catalog.ts` entries scoped to JWT-version mutations (every cod
 - `PICKER_INVALID_INPUT`: `showId` or `crewMemberId` failed UUID validation in the Server Action.
 - `PICKER_CREW_MEMBER_NOT_FOUND`: row not present at the moment of selection (sync ran between picker render and submit).
 - `PICKER_CREW_MEMBER_WRONG_SHOW`: form-tamper defense (cross-show submission). Operator-only.
+- `PICKER_RESOLVER_LOOKUP_FAILED`: `resolvePickerSelection`'s DB read failed (returned error or thrown infra fault from the Supabase service-role client). Crew page renders the existing cataloged terminal-failure UI; API routes return 500. Catalog entry MUST include both `dougFacing` operator copy (for admin logs / `admin_alerts`) and `crewFacing` copy (for the page render via `messageFor(...)`). The `tests/messages/_metaAdminAlertCatalog.test.ts` registry is extended to assert this code is cataloged before any consumer uses it.
 
 ---
 
@@ -707,7 +718,8 @@ The plan's TDD checklist includes:
 - **Composite `viewer_version_token`** — DB-level test that the function returns a value advancing on `picker_epoch_bumped_at` updates.
 - **Realtime bridge auth swap** — `/api/realtime/subscriber-token` reads picker cookie correctly; admin path via Google session still works.
 - **Admin precedence preserved** — admin with a stale picker cookie still sees admin mode, not picker.
-- **Unpublished/archived show guard** — non-admin viewer on an unpublished or archived show gets `notFound()` BEFORE any picker render. Test asserts: (a) no `roster-list` DOM element is emitted; (b) no DB query for `crew_members` was issued; (c) the response status is 404, not 200. Same test repeated for an archived (published=true, archived=true) show.
+- **Unpublished/archived show guard — page route** — non-admin viewer on an unpublished or archived show gets `notFound()` BEFORE any picker render. Test asserts: (a) no `roster-list` DOM element is emitted; (b) no DB query for `crew_members` was issued; (c) the response status is 404, not 200. Same test repeated for an archived (published=true, archived=true) show.
+- **Unpublished/archived show guard — API routes** — every API route in §6 that calls `resolvePickerSelection` (subscriber-token, asset/diagram, asset/reel, asset/agenda, version, report) MUST return `410 Gone` with `PICKER_SHOW_UNAVAILABLE` copy when called with a valid picker cookie for an archived OR unpublished show. Each route gets its own test asserting: (a) the resolver returns `kind: 'show_unavailable'`; (b) the response status is 410; (c) no asset bytes / no realtime token / no version_token / no report row is created; (d) admin path via `isAdminSession` is unaffected (admins can still hit these routes for unpublished shows during preview/QA per parent spec).
 - **Asset route auth swap — diagram** — `/api/asset/diagram/<show>/<rev>/<assetKey>` accepts picker cookie for the matching show; rejects no-cookie (401); rejects wrong-show cookie (403, WITHOUT touching `link_sessions`-style server state — the picker model has no such state to clean up); rejects stale-epoch cookie (403); rejects removed-from-roster cookie (403); admin path via `isAdminSession` still works. The 410 (revision-mismatch) contract is unchanged from M11.
 - **Asset route auth swap — reel** — `/api/asset/reel/<show>` same matrix as diagram. The buffer-then-verify md5 contract from the parent spec §7.3 is unchanged; only the auth source swaps.
 - **Asset route auth swap — agenda** — `/api/asset/agenda/<show>/<id>` same matrix as diagram. Currently uses `validateCrewAssetSession`; pivot swaps to `resolvePickerSelection`. PDF streaming + content-disposition contract unchanged.
