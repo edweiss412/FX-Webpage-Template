@@ -227,13 +227,14 @@ supabase.rpc('reset_picker_epoch_atomic', { p_show_id: showId })
 -- Full DDL (mirrors the existing admin-RPC pattern at
 -- supabase/migrations/20260520000000_signed_link_admin_rpcs.sql):
 create or replace function public.reset_picker_epoch_atomic(p_show_id uuid)
-  returns void
+  returns int
   language plpgsql
   security definer
   set search_path = public, pg_temp
 as $$
 declare
   v_drive_file_id text;
+  v_new_epoch int;
 begin
   -- IN-FUNCTION ADMIN GATE (R17 — required, do NOT rely on JS-side
   -- requireAdmin() alone; an authenticated PostgREST caller could
@@ -251,14 +252,23 @@ begin
 
   perform pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
 
+  -- RETURNING captures the post-UPDATE epoch under the held lock —
+  -- this is the only source of truth for the new_epoch value used
+  -- by the Server Action's return shape AND the PICKER_EPOCH_RESET
+  -- admin-alert payload. Doing a separate post-RPC SELECT would be
+  -- outside the lock and could observe a later epoch under a
+  -- concurrent reset (R21 finding).
   update public.shows
      set picker_epoch = picker_epoch + 1,
          picker_epoch_bumped_at = now()
-   where id = p_show_id;
+   where id = p_show_id
+   returning picker_epoch into v_new_epoch;
 
   -- In-function call to the existing publish helper; pg_notify is
   -- transaction-scoped, so the notification fires atomically on COMMIT.
   perform public.publish_show_invalidation(p_show_id);
+
+  return v_new_epoch;
 end;
 $$;
 
@@ -549,7 +559,7 @@ The picker cookie is the credential under the pivot model. A stale cookie (epoch
 
 `clearIdentity({ showId })`: `showId` must be a UUID. No DB read — pure cookie mutation.
 
-`resetPickerEpoch({ showId })`: `requireAdmin()` first (matches admin-action pattern; `lib/auth/requireAdmin.ts`). `showId` must be a UUID; show must exist. Returns `{ ok: true, new_epoch: <int> }` for the admin UI to display.
+`resetPickerEpoch({ showId })`: `requireAdmin()` first (matches admin-action pattern; `lib/auth/requireAdmin.ts`). `showId` must be a UUID; show must exist. Returns `{ ok: true, new_epoch: <int> }` for the admin UI to display, where `new_epoch` is the value returned by the SECURITY DEFINER RPC `reset_picker_epoch_atomic` — sourced from `RETURNING picker_epoch` inside the locked transaction. **The Server Action MUST use the RPC return value verbatim; it MUST NOT do a separate `SELECT picker_epoch FROM shows WHERE id = ...` after the RPC**, because a post-RPC read happens outside the advisory lock and could observe a later epoch under a concurrent reset (causing the `PICKER_EPOCH_RESET` admin-alert payload to misreport the epoch this action committed).
 
 ---
 
