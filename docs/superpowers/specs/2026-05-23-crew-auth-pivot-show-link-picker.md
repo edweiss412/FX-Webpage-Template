@@ -380,7 +380,27 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 ### 5.6 PostgREST DML lockdown + advisory-lock invariants (per AGENTS.md cross-cutting discipline)
 
-`shows.picker_epoch` and `shows.picker_epoch_bumped_at` are written ONLY by the new SECURITY DEFINER RPC `public.reset_picker_epoch_atomic(uuid)`. No other code path mutates them. PostgREST DML on `public.shows` is already REVOKEd from `authenticated`/`anon` (the existing admin-tables lockdown); the new columns inherit that posture. The RPC itself is GRANTed EXECUTE to `service_role` ONLY — REVOKEd from `authenticated`, `anon`, `public`. The Server Action `resetPickerEpoch` (which uses the service-role client) is the only caller. **R7 amendment**: the earlier "no new RPC" claim was wrong — the atomic transaction requirement (lock + UPDATE + publish_show_invalidation) cannot be satisfied across multiple Supabase JS `.rpc()` calls, so a single SQL function is required. The RPC IS the new entry-point surface for this column; the Server Action wraps it for admin-gating.
+`shows.picker_epoch` and `shows.picker_epoch_bumped_at` are written ONLY by the new SECURITY DEFINER RPC `public.reset_picker_epoch_atomic(uuid)`. No other code path mutates them.
+
+**R10 correction**: an earlier draft of this paragraph claimed "PostgREST DML on `public.shows` is already REVOKEd from `authenticated`/`anon` (the existing admin-tables lockdown)." That claim was wrong — the live migration at `supabase/migrations/20260501002000_rls_policies.sql:227-239` grants `select, insert, update, delete` on `public.shows` to `anon, authenticated`, gated only by the `admin_update` RLS policy. An authenticated admin session could therefore call `supabase.from('shows').update({ picker_epoch: 99 }).eq('id', ...)` directly via PostgREST, bypassing the advisory lock, the publish helper, AND the RPC entry point.
+
+**Required lockdown migration (new):** add a column-level REVOKE on the two new picker columns:
+
+```sql
+revoke update (picker_epoch, picker_epoch_bumped_at)
+  on table public.shows
+  from anon, authenticated;
+```
+
+This keeps existing admin writes to other `shows` columns (`archived`, `published`, sync-engine fields) working while making the picker columns un-writable via PostgREST. The only path that can update them is `service_role` (used by Server Actions via the service-role client) — and service-role callers MUST go through the SECURITY DEFINER RPC because the lockdown meta-test asserts no other writer exists.
+
+**Structural meta-test (extends `tests/auth/_metaInfraContract.test.ts`).** Asserts:
+
+1. The `revoke update (picker_epoch, picker_epoch_bumped_at)` migration exists and applies cleanly.
+2. No `from('shows').update(...)` call in `app/**`, `lib/**`, `components/**` includes `picker_epoch` or `picker_epoch_bumped_at` in its update set (static grep guard).
+3. The only writer of these columns in `supabase/migrations/<post-cutover>/**` is `public.reset_picker_epoch_atomic`.
+
+The RPC itself is GRANTed EXECUTE to `service_role` ONLY — REVOKEd from `authenticated`, `anon`, `public`. The Server Action `resetPickerEpoch` (which uses the service-role client) is the only caller. **R7 + R10 amendments combined**: the atomic transaction requirement (lock + UPDATE + publish_show_invalidation) requires a single SQL function (R7); the columns being written ALSO need column-level REVOKE because the inherited table-level grants don't satisfy AGENTS.md's PostgREST DML lockdown invariant by themselves (R10).
 
 **Advisory-lock acquisition (per AGENTS.md invariant 2 — non-negotiable).** Because the Reset path mutates `public.shows`, the per-show advisory lock MUST be acquired inside the same transaction as the UPDATE. The mechanics are in §4.5; the call-boundary contract here is: the structural meta-test at `tests/auth/_metaInfraContract.test.ts` is extended to register `resetPickerEpoch`, AND the advisory-lock topology meta-test at `tests/auth/advisoryLockRpcDeadlock.test.ts` is extended to assert (a) the SECURITY DEFINER RPC body `public.reset_picker_epoch_atomic` acquires the lock at exactly one layer, (b) NO JS-side wrapper around the RPC call acquires the same lock (no nested holder), (c) NO other DB function reacquires `hashtext('show:' || drive_file_id)` while the RPC body holds it, and (d) `public.reset_picker_epoch_atomic` is the only writer of `shows.picker_epoch` and `shows.picker_epoch_bumped_at` in the repo. The `selectIdentity`, `clearIdentity`, and `cleanupStaleEntry` Server Actions perform only READS against `shows`/`crew_members` and cookie writes against the client; they do not require the advisory lock.
 
@@ -438,9 +458,16 @@ The `shows.archived` / `shows.published` gate is part of the resolver — every 
 8. **Entry present, epoch matches; `SELECT id FROM crew_members WHERE id = $1 AND show_id = $2` returns 0 rows** → `{ kind: 'removed_from_roster' }`.
 9. **Entry present, epoch matches, row exists, show available** → `{ kind: 'resolved', crewMemberId }`.
 
-Cases 1, 2, 3 render the picker without an explanatory banner (first-time-on-device UX). Case 5 renders a banner "Doug reset access for this show — pick yourself again." Case 7 renders a banner "Your previous selection was removed by Doug — pick yourself from the current roster." Case 8 renders the crew page.
+Mapping of resolver `kind` outcomes to UI behaviour (referenced by `kind`, not case number, to avoid renumbering drift):
 
-**Infra-error handling at each consumer (cases 4 + 7):**
+- `kind: 'no_selection'` (cases 1, 2, 3) — page renders the picker in **initial** mode (no banner). First-time-on-device UX.
+- `kind: 'epoch_stale'` (case 6) — page renders the picker in **epoch-stale banner** mode: "Doug reset access for this show — pick yourself again."
+- `kind: 'removed_from_roster'` (case 8) — page renders the picker in **removed-from-roster banner** mode: "Your previous selection was removed by Doug — pick yourself from the current roster."
+- `kind: 'show_unavailable'` (case 5) — page renders `notFound()`; API consumers return 410 Gone with `PICKER_SHOW_UNAVAILABLE` (see "Show-unavailable handling at each consumer" below). The picker is NEVER rendered in this case — the show is gone.
+- `kind: 'infra_error'` (cases 4, 7) — page renders the cataloged terminal-failure UI; API consumers return 500 with `PICKER_RESOLVER_LOOKUP_FAILED` (see "Infra-error handling at each consumer" below). Picker is NEVER rendered.
+- `kind: 'resolved'` (case 9) — page renders `<_ShowBody />` with the resolved identity. API consumers proceed with the cached `crewMemberId`.
+
+**Infra-error handling at each consumer (`kind: 'infra_error'`):**
 
 - `app/show/[slug]/page.tsx` — renders the existing cataloged terminal-failure UI (the same shape used for `ADMIN_SESSION_LOOKUP_FAILED` per the parent spec's `R21 F2` discipline at `app/show/[slug]/page.tsx:109-123`). No cookie cleanup. No partial render.
 - `/api/realtime/subscriber-token` — returns `500` with the cataloged operator code. The `ShowRealtimeBridge` already treats subscriber-token failures via its bounded-backoff renewal path; no client behavior change.
@@ -448,7 +475,7 @@ Cases 1, 2, 3 render the picker without an explanatory banner (first-time-on-dev
 - `/api/show/[slug]/version` — returns `500`; the bridge's catch-up logic preserves its last-known-good `data-render-version`.
 - The Server Actions `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `resetPickerEpoch` are exempt from this contract because they each have their own DB-error handling — they do not call `resolvePickerSelection` directly.
 
-**Show-unavailable handling at each consumer (case 5):**
+**Show-unavailable handling at each consumer (`kind: 'show_unavailable'`):**
 
 - `app/show/[slug]/page.tsx` — calls `notFound()` (same as the existing M11 contract for unpublished shows; non-admin viewers cannot distinguish "unpublished slug" from "unknown slug"). The page's own explicit `!published OR archived` short-circuit (§4.1 step 3) STILL runs first and catches the no-cookie / no-picker-entry case; the resolver's `show_unavailable` arm covers the with-cookie case for completeness.
 - `/api/realtime/subscriber-token`, `/api/asset/{diagram,reel,agenda}/...`, `/api/show/[slug]/version`, `/api/report` — return `410 Gone` with the cataloged crew-facing message `PICKER_SHOW_UNAVAILABLE`. 410 is correct (not 404) because the show DID exist and the cookie's selection was valid before archival; a transient 410 invites the caller to drop cached state. Asset routes already use 410 for the analogous unpublished/drift contract per parent spec §7.3, so this is consistent.
@@ -517,9 +544,9 @@ The picker has exactly three render modes:
 
 | Mode | When | Visual delta |
 | ---- | ---- | ------------ |
-| **Initial** | Cases 1, 2, 3 from §6.1 | No banner row. Standard heading + sub-instruction. |
-| **Epoch-stale banner** | Case 4 | Banner row present, copy: "Doug reset access for this show — pick yourself again." |
-| **Removed-from-roster banner** | Case 5 | Banner row present, copy: "Your previous selection was removed by Doug — pick yourself from the current roster." |
+| **Initial** | `kind: 'no_selection'` (resolver cases 1, 2, 3) | No banner row. Standard heading + sub-instruction. |
+| **Epoch-stale banner** | `kind: 'epoch_stale'` (resolver case 6) | Banner row present, copy: "Doug reset access for this show — pick yourself again." |
+| **Removed-from-roster banner** | `kind: 'removed_from_roster'` (resolver case 8) | Banner row present, copy: "Your previous selection was removed by Doug — pick yourself from the current roster." |
 
 The brand strip, show identifier strip, picker block (heading, sub-instruction, list), and footer are **identical across all three modes**. Only the banner row varies.
 
