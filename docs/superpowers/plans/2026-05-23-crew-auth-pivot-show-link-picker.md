@@ -610,7 +610,10 @@ describe('viewer_version_token (rewritten)', () => {
     }).select('id').single();
 
     const { data: v1 } = await supabase.rpc('viewer_version_token', { p_show_id: show!.id });
-    await supabase.rpc('reset_picker_epoch_atomic', { p_show_id: show!.id });
+    // R6-F3: reset_picker_epoch_atomic requires admin; use cookie-bound
+    // admin fixture, not service-role.
+    const adminClient = await createTestAdminCookieBoundClient();
+    await adminClient.rpc('reset_picker_epoch_atomic', { p_show_id: show!.id });
     const { data: v2 } = await supabase.rpc('viewer_version_token', { p_show_id: show!.id });
 
     expect(v2).not.toBe(v1);
@@ -1751,13 +1754,18 @@ export default async function ShowPage({
     case 'no_selection':
     case 'epoch_stale':
     case 'removed_from_roster': {
-      // R2-F3: destructure { data, error }; infra → TerminalFailure,
-      // NOT empty-roster (which would mask the outage).
-      const rosterResp = await supabase
-        .from('crew_members')
-        .select('id, name, role, role_flags')
-        .eq('show_id', showId)
-        .order('name', { ascending: true });
+      // R2-F3 + R6-F2: destructure { data, error } AND wrap in try/catch
+      // for thrown faults. Infra → TerminalFailure, NOT empty-roster.
+      let rosterResp;
+      try {
+        rosterResp = await supabase
+          .from('crew_members')
+          .select('id, name, role, role_flags')
+          .eq('show_id', showId)
+          .order('name', { ascending: true });
+      } catch {
+        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+      }
       if (rosterResp.error) return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
       const roster = rosterResp.data ?? [];
       return (
@@ -2194,6 +2202,58 @@ git commit -am "feat(admin): mount Reset + Rotate buttons on per-show panel (F4)
 ---
 
 ## Phase G: Cleanup (delete M9.5 surfaces)
+
+> **R6-F1 ordering constraint (CRITICAL):** the cutover migration in Task G2 drops `crew_member_auth` and `link_sessions`. Existing source paths still write to / read from those tables. Dropping them while the source still depends on them would break sync, apply, unpublish, and the admin per-show panel on first use post-migration. Phase G0 lands the source refactors BEFORE Phase G1/G2 drops the files and tables. Each G0 task is independently committable and individually verifiable; Phase G2 (table DROPs) cannot start until ALL G0 tasks are merged.
+
+### Task G0a: Refactor `lib/sync/runScheduledCronSync.ts` — remove `crew_member_auth` writes
+
+**Files:**
+- Modify: `lib/sync/runScheduledCronSync.ts` (delete the `from('crew_member_auth')` insert/upsert paths added in M5/M9.5)
+- Test: existing `tests/sync/*.test.ts` (update fixtures + assertions)
+
+The sync engine previously provisioned per-crew-member `crew_member_auth` rows on every Phase-2 commit (initial `current_token_version = 1` insert). Post-pivot, no such row exists — picker identity is cookie-only; the table is dropped. Remove the insert + any subsequent UPDATE the sync engine performs on this table. Verify no other sync helpers reference the table.
+
+```bash
+git commit -am "refactor(sync): remove crew_member_auth provisioning (G0a)"
+```
+
+### Task G0b: Refactor `lib/sync/applyStaged.ts` — remove `crew_member_auth` updates
+
+Same pattern. Apply-staged commits previously updated `crew_member_auth.last_changed_at` on `role_flags` mutations; that contribution to `viewer_version_token` is replaced by the existing `crew_members.last_changed_at` term per A6.
+
+```bash
+git commit -am "refactor(sync): remove crew_member_auth updates from applyStaged (G0b)"
+```
+
+### Task G0c: Refactor `lib/sync/unpublishShow.ts` — remove `crew_member_auth` + `link_sessions` cleanup
+
+Per spec §4.10, `unpublishShow` previously deleted `link_sessions` rows on unpublish (to revoke active sessions for that show). With both tables dropped, the cleanup is moot.
+
+```bash
+git commit -am "refactor(sync): remove link_sessions/crew_member_auth cleanup from unpublishShow (G0c)"
+```
+
+### Task G0d: Delete or refactor `lib/data/loadShowCrewWithAuth.ts` + its consumers
+
+`loadShowCrewWithAuth.ts` joins `crew_members` with `crew_member_auth` to surface JWT-version state in the admin per-show panel. Post-pivot the panel's per-row "Issue/Revoke" affordances are deleted (Phase F1), so the helper has no remaining purpose. Options:
+- (a) Delete the file. Admin per-show data loader becomes a simple `crew_members` SELECT.
+- (b) Rename to `loadShowCrew.ts`, drop the auth join.
+
+The implementer picks (a) if the helper has no other call sites; (b) if some non-pivot caller still uses the role-flag join logic. Verify via `rg -n loadShowCrewWithAuth` first.
+
+```bash
+git commit -am "refactor(data): drop loadShowCrewWithAuth (or rename to loadShowCrew); G0d"
+```
+
+### Task G0e: Verification — pre-cutover no-jwt-surface dry-run
+
+Before applying the G2 migration, run the H2 meta-test (no-jwt-surface) against the working tree EXCLUDING migrations. It MUST pass: zero references to `crew_member_auth`, `link_sessions`, `bootstrap_nonces`, `revoked_links`, `validateLinkSession`, etc. in `app/**`, `lib/**`, `components/**`, `middleware.ts`. If anything still references those identifiers, add a G0f/G0g/... task to fix it BEFORE the cutover.
+
+```bash
+# Verification command (implementer runs this before G2):
+pnpm vitest run tests/cross-cutting/no-jwt-surface.test.ts
+# Expected: PASS. If FAIL, do NOT proceed to G2 — add G0 tasks for each match.
+```
 
 ### Task G1: Delete JWT/redeem-link/bootstrap surface files
 
