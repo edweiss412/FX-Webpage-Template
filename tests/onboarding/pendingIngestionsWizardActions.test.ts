@@ -27,6 +27,7 @@ class FakeWizardPendingTx {
     last_seen_modified_time: string | null;
   } | null;
   deferrals: Array<{ kind: string; driveFileId: string }> = [];
+  manifestUpdates: Array<{ status: string; wizardSessionId: string; driveFileId: string }> = [];
   deleted = false;
 
   async queryOne<T>(sql: string, params: unknown[]) {
@@ -42,6 +43,14 @@ class FakeWizardPendingTx {
     if (normalized.startsWith("insert into public.deferred_ingestions")) {
       this.deferrals.push({ kind: params[1] as string, driveFileId: params[0] as string });
       return { upserted: true } as T;
+    }
+    if (normalized.startsWith("update public.onboarding_scan_manifest")) {
+      this.manifestUpdates.push({
+        status: params[0] as string,
+        wizardSessionId: params[1] as string,
+        driveFileId: params[2] as string,
+      });
+      return { updated: true } as T;
     }
     if (normalized.startsWith("delete from public.pending_ingestions")) {
       this.deleted = true;
@@ -109,6 +118,7 @@ describe("wizard pending_ingestions actions", () => {
     expect(await json(response)).toEqual({ ok: false, code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
     expect(tx.deferrals).toEqual([]);
     expect(tx.deleted).toBe(false);
+    expect(tx.manifestUpdates).toEqual([]);
   });
 
   test("defer_until_modified writes a wizard deferral and deletes the pending ingestion", async () => {
@@ -131,5 +141,35 @@ describe("wizard pending_ingestions actions", () => {
     expect(await json(response)).toEqual({ status: "ignored" });
     expect(tx.deferrals).toEqual([{ driveFileId: "file-1", kind: "permanent_ignore" }]);
     expect(tx.deleted).toBe(true);
+  });
+
+  // I.2 R20 F1 (HIGH, 2026-05-23): finalize's unresolved-manifest predicate
+  // counts rows with status IN ('staged','hard_failed','discard_retryable',
+  // 'live_row_conflict'). Before this fix, defer_until_modified and
+  // permanent_ignore wrote `deferred_ingestions` + deleted `pending_ingestions`
+  // but never transitioned `onboarding_scan_manifest.status` from
+  // 'hard_failed' to the resolved status. The operator saw a 200 OK and
+  // then finalize blocked with ONBOARDING_NOT_RESOLVED. Both branches must
+  // transition the manifest atomically in the same locked transaction.
+  test("defer_until_modified transitions the manifest row to defer_until_modified", async () => {
+    const tx = new FakeWizardPendingTx();
+
+    const response = await handleWizardPendingIngestionDeferUntilModified(req("/defer"), context, deps(tx));
+
+    expect(response.status).toBe(200);
+    expect(tx.manifestUpdates).toEqual([
+      { status: "defer_until_modified", wizardSessionId: W1, driveFileId: "file-1" },
+    ]);
+  });
+
+  test("permanent_ignore transitions the manifest row to permanent_ignore", async () => {
+    const tx = new FakeWizardPendingTx();
+
+    const response = await handleWizardPendingIngestionPermanentIgnore(req("/ignore"), context, deps(tx));
+
+    expect(response.status).toBe(200);
+    expect(tx.manifestUpdates).toEqual([
+      { status: "permanent_ignore", wizardSessionId: W1, driveFileId: "file-1" },
+    ]);
   });
 });

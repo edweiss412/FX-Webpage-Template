@@ -214,6 +214,29 @@ async function deletePendingIngestion(
   );
 }
 
+// I.2 R20 F1 (2026-05-23): defer/ignore must transition the manifest row
+// alongside the deferred_ingestions upsert + pending_ingestions delete.
+// Finalize's unresolved-count predicate counts manifest rows in
+// ('staged','hard_failed','discard_retryable','live_row_conflict'); without
+// this transition the row stays 'hard_failed' and finalize blocks with
+// ONBOARDING_NOT_RESOLVED. Runs inside the same per-show advisory-locked tx.
+async function transitionManifestRow(
+  tx: WizardPendingIngestionRouteTx,
+  row: PendingIngestionRow & { wizard_session_id: string },
+  kind: "defer_until_modified" | "permanent_ignore",
+): Promise<void> {
+  await tx.queryOne<{ updated: boolean } | null>(
+    `
+      update public.onboarding_scan_manifest
+         set status = $1, transitioned_at = now()
+       where wizard_session_id = $2::uuid
+         and drive_file_id = $3
+       returning true as updated
+    `,
+    [kind, row.wizard_session_id, row.drive_file_id],
+  );
+}
+
 async function handleAction(
   context: RouteContext,
   routeDeps: WizardPendingIngestionRouteDeps,
@@ -255,6 +278,7 @@ async function handleAction(
     }
 
     await upsertWizardDeferral(tx, current.row, action);
+    await transitionManifestRow(tx, current.row, action);
     await deletePendingIngestion(tx, id);
     return NextResponse.json({
       status: action === "defer_until_modified" ? "deferred" : "ignored",
