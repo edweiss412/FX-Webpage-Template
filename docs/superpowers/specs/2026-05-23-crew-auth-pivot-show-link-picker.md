@@ -454,11 +454,20 @@ The parent spec's Realtime contract (broadcast topic `show:<showId>:invalidation
      security definer
      set search_path = public, pg_temp
    as $$
-     select to_char(greatest(
-       coalesce((select extract(epoch from last_synced_at) * 1000 from public.shows where id = p_show_id), 0),
-       coalesce((select extract(epoch from max(last_changed_at)) * 1000 from public.crew_members where show_id = p_show_id), 0),
-       coalesce((select extract(epoch from picker_epoch_bumped_at) * 1000 from public.shows where id = p_show_id), 0)
-     ), 'FM999999999999999');
+     -- R41-R17 invariant fix: the token is a COMPOUND string of
+     -- (greatest-millis):(picker_epoch) so two rapid epoch resets in the
+     -- same millisecond produce distinct tokens. Without picker_epoch in
+     -- the suffix, a reset/rotate pair landing inside one millisecond
+     -- would leave open Realtime clients with an unchanged version token
+     -- and no forced refresh despite cookies being invalidated.
+     select
+       to_char(greatest(
+         coalesce((select extract(epoch from last_synced_at) * 1000 from public.shows where id = p_show_id), 0),
+         coalesce((select extract(epoch from max(last_changed_at)) * 1000 from public.crew_members where show_id = p_show_id), 0),
+         coalesce((select extract(epoch from picker_epoch_bumped_at) * 1000 from public.shows where id = p_show_id), 0)
+       ), 'FM999999999999999')
+       || ':'
+       || coalesce((select picker_epoch::text from public.shows where id = p_show_id), '0');
    $$;
    ```
 
@@ -725,7 +734,7 @@ grant execute on function public.claim_oauth_identity(text) to service_role;
 
 **Why filter `claimed_via_oauth_at IS NULL` (not COALESCE on UPDATE):** preserves the FIRST stamp date across multiple sign-ins (the row only updates if currently null). Useful for audit ("when did Alice first claim her identity?"). Also reduces lock acquisition: shows where every matching row is already claimed are skipped (no lock acquired, no UPDATE issued) — repeated callback invocations on already-claimed identities are zero-cost. The function returns the count of rows newly stamped so the caller can decide whether to emit `OAUTH_IDENTITY_CLAIMED` to `admin_alerts` (count > 0) or stay silent (count == 0, `OAUTH_CLAIM_NO_ROWS`).
 
-**Why `lower(trim(...))`:** matches the existing email canonicalization contract (parent spec §4.1.1; `crew_members_email_canonical` CHECK constraint). The OAuth-callback handler's `auth.users.email` should already be canonicalized by Supabase Auth; the `lower(trim(...))` is defense-in-depth against future Supabase behaviour changes.
+**Why callers canonicalize at the boundary (R41-R17 invariant-3 enforcement):** the RPC compares emails by direct `=` against the canonical-stored column. Callers MUST call `canonicalize()` from `lib/email/canonicalize.ts` on raw `auth.users.email` BEFORE passing to this RPC. AGENTS.md invariant 3 forbids a second normalization boundary; the no-inline-email-normalization meta-test enforces this for the callback, picker-bootstrap, the SQL migration, and resolvePickerSelection. The stored crew_members.email column matches the canonical form via the `crew_members_email_canonical` CHECK constraint, so column-to-column comparisons inside the RPC body are also direct (no transformation needed on either side).
 
 **Cross-show scope:** every `crew_members` row matching the email stamps. One sign-in claims identity globally across every show the email is on. Consistent with Decision 15's "permanent global claim."
 
@@ -960,7 +969,7 @@ The picker cookie is the credential under the pivot model. A stale cookie (epoch
 
 - `showId` must be a UUID; otherwise reject with `PICKER_INVALID_INPUT`.
 - `crewMemberId` must be a UUID; otherwise reject with `PICKER_INVALID_INPUT`.
-- `SELECT id, show_id, claimed_via_oauth_at, email FROM crew_members WHERE id = $1`: 0 rows → reject with `PICKER_CREW_MEMBER_NOT_FOUND`; show_id mismatch → reject with `PICKER_CREW_MEMBER_WRONG_SHOW` (defense-in-depth against form-tampering); **`claimed_via_oauth_at IS NOT NULL` → reject with `PICKER_IDENTITY_CLAIMED` (R41 Fix-2)**; **`(SELECT COUNT(*) FROM crew_members WHERE show_id = $show_id AND lower(trim(email)) = lower(trim($email))) > 1` → reject with `PICKER_IDENTITY_AMBIGUOUS` (R41-R6 Fix-3)** — the submitted crew row's email matches multiple rows on this show; the action cannot resolve a single identity. The selection MUST happen atomically inside `select_identity_atomic` (the SECURITY DEFINER RPC under the per-show advisory lock) so concurrent mutations cannot slip between the read and the cookie-mint. The RPC body MUST include BOTH the `claimed_via_oauth_at IS NULL` predicate AND the same-show same-email count predicate in its row-selection step. **Why both UI deactivation AND server check** (R41-R6): the picker's deactivated-row UI prevents legitimate users from accidentally selecting; the server check is the structural defense against form-tamper (hand-crafted POST submitting a deactivated row). The two layers are intentionally redundant and the §10.2 test exercises both: a UI-tap on a deactivated row redirects to sign-in (form action attribute); a hand-crafted POST bypassing the form redirect is rejected with the cataloged code.
+- `SELECT id, show_id, claimed_via_oauth_at, email FROM crew_members WHERE id = $1`: 0 rows → reject with `PICKER_CREW_MEMBER_NOT_FOUND`; show_id mismatch → reject with `PICKER_CREW_MEMBER_WRONG_SHOW` (defense-in-depth against form-tampering); **`claimed_via_oauth_at IS NOT NULL` → reject with `PICKER_IDENTITY_CLAIMED` (R41 Fix-2)**; **`(SELECT COUNT(*) FROM crew_members WHERE show_id = $show_id AND email = (SELECT email FROM crew_members WHERE id = $1)) > 1` → reject with `PICKER_IDENTITY_AMBIGUOUS` (R41-R6 Fix-3; R41-R17 invariant-3 cleanup)** — the submitted crew row's email matches multiple rows on this show; the action cannot resolve a single identity. Direct `email = email` comparison (both sides canonical via the `crew_members_email_canonical` CHECK constraint); no inline `lower(trim(...))` — AGENTS.md invariant 3. The selection MUST happen atomically inside `select_identity_atomic` (the SECURITY DEFINER RPC under the per-show advisory lock) so concurrent mutations cannot slip between the read and the cookie-mint. The RPC body MUST include BOTH the `claimed_via_oauth_at IS NULL` predicate AND the same-show same-email count predicate in its row-selection step. **Why both UI deactivation AND server check** (R41-R6): the picker's deactivated-row UI prevents legitimate users from accidentally selecting; the server check is the structural defense against form-tamper (hand-crafted POST submitting a deactivated row). The two layers are intentionally redundant and the §10.2 test exercises both: a UI-tap on a deactivated row redirects to sign-in (form action attribute); a hand-crafted POST bypassing the form redirect is rejected with the cataloged code.
 - `SELECT published, archived, picker_epoch FROM shows WHERE id = $1`: not found or `archived=true` or `published=false` → reject with `PICKER_SHOW_UNAVAILABLE`.
 - All rejection codes are added to `lib/messages/catalog.ts` with crew-facing copy that doesn't expose the structured code (per AGENTS.md invariant 5).
 
@@ -981,7 +990,7 @@ When `/show/<slug>` resolves to the picker, the rendered viewport contains:
 3. **Picker block** — left/right padded 16px on a 390px viewport.
    - **Question heading** `Who are you?` (20px, `font-weight: 700`, `color: var(--foreground)`).
    - **Sub-instruction** `Tap your name to open the show page.` (12px, `color: var(--muted-foreground)`). 4px below the heading.
-   - **Optional banner row** (only present when resolver returns `kind: 'epoch_stale'` or `kind: 'removed_from_roster'` from §6.1) — one-line copy in a 12px medium-weight inline note, FXAV-orange-tinted background (`bg-orange-100` / `bg-orange-900/30` in dark mode). 8px above the list.
+   - **Optional banner row** (R41-R17 expanded — present when resolver returns ANY of `epoch_stale`, `removed_from_roster`, OR `identity_invalidated` (either reason) from §6.1) — one-line copy in a 12px medium-weight inline note, FXAV-orange-tinted background (`bg-orange-100` / `bg-orange-900/30` in dark mode). 8px above the list. Banner copy selected per the §7.4 mode table: epoch-stale, removed-from-roster, identity-claimed-after-pick, or identity-ambiguous.
    - **Roster list** — flat alphabetical by `crew_members.name`. Each row is a `<form>` element with a single `<button type="submit">` filling the row.
 4. **Footer** — single line of copy, 10px, `color: var(--muted-foreground)`: `Shared by Doug Larson · FXAV`. 24px below the list.
 
@@ -1025,7 +1034,7 @@ Visual treatment for BOTH cases: row background `var(--muted)` (instead of `var(
 
 **Picker render query (R41-R6)** must surface BOTH signals. The data fetcher joins:
 - `crew_members.claimed_via_oauth_at` (per-row, direct column read).
-- A `same_show_email_count` derived field — `COUNT(*) OVER (PARTITION BY show_id, lower(trim(email)))` — counting how many crew rows on this show share this row's canonicalized email. A value > 1 means ambiguous.
+- A `same_show_email_count` derived field — `COUNT(*) OVER (PARTITION BY show_id, email)` (R41-R17 invariant-3: direct column partition; the stored `email` column is already canonical via the `crew_members_email_canonical` CHECK constraint) — counting how many crew rows on this show share this row's email. A value > 1 means ambiguous.
 
 A row renders as deactivated when `claimed_via_oauth_at IS NOT NULL OR same_show_email_count > 1`.
 
@@ -1046,15 +1055,17 @@ For each prop / data input to the picker, what renders:
 
 ### 7.4 Mode boundaries
 
-The picker has exactly three render modes:
+The picker has exactly **five** render modes (R41-R17 expanded — added two `identity_invalidated` modes to match the §6.1 resolver):
 
 | Mode | When | Visual delta |
 | ---- | ---- | ------------ |
 | **Initial** | `kind: 'no_selection'` (resolver cases 1, 2, 3) | No banner row. Standard heading + sub-instruction. |
-| **Epoch-stale banner** | `kind: 'epoch_stale'` (resolver case 6) | Banner row present, copy: "Doug reset access for this show — pick yourself again." |
-| **Removed-from-roster banner** | `kind: 'removed_from_roster'` (resolver case 8) | Banner row present, copy: "Your previous selection was removed by Doug — pick yourself from the current roster." |
+| **Epoch-stale banner** | `kind: 'epoch_stale'` (resolver case 6) | Banner row present, copy: "Doug reset access for this show — pick yourself again." (`PICKER_EPOCH_STALE_BANNER`) |
+| **Removed-from-roster banner** | `kind: 'removed_from_roster'` (resolver case 8) | Banner row present, copy: "Your previous selection was removed by Doug — pick yourself from the current roster." (`PICKER_REMOVED_FROM_ROSTER_BANNER`) |
+| **Identity-claimed-after-pick banner (R41-R17)** | `kind: 'identity_invalidated', reason: 'claimed_after_pick'` (resolver case 9) | Banner row present, copy: "This identity is now claimed by a signed-in user. Pick yourself from the current roster or sign in to use the same identity." (`PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER`). The previously-picked crew row renders as deactivated (R41-R6 expanded predicate); user must pick a different row OR sign in. |
+| **Identity-ambiguous banner (R41-R17)** | `kind: 'identity_invalidated', reason: 'email_ambiguous'` (resolver case 10) | Banner row present, copy: "This name needs roster cleanup — ask Doug to remove the duplicate." (`PICKER_IDENTITY_AMBIGUOUS_BANNER`). Both ambiguous rows render as deactivated; user cannot recover without admin roster cleanup (out-of-pivot-scope). |
 
-The brand strip, show identifier strip, picker block (heading, sub-instruction, list), and footer are **identical across all three modes**. Only the banner row varies.
+The brand strip, show identifier strip, picker block (heading, sub-instruction, list), and footer are **identical across all five modes**. Only the banner row varies. All four banner modes (epoch-stale, removed-from-roster, identity-claimed-after-pick, identity-ambiguous) also mount `<StaleCleanupAutoSubmit>` per §4.9 R41-R15 trigger-set expansion.
 
 ### 7.5 Cap / truncation behaviour
 
@@ -1245,7 +1256,7 @@ The plan CREATES or EXTENDS the following structural meta-tests:
 | --------- | ------ | --- |
 | `tests/auth/_metaInfraContract.test.ts` (existing) | EXTEND | Register `resolvePickerSelection`, `selectIdentity`, `clearIdentity`, `resetPickerEpoch` as Supabase-call-boundary subjects. Each must destructure `{ data, error }` and surface infra faults as discriminable typed results per AGENTS.md invariant 9. |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` (existing) | EXTEND | The Reset RPC mutates `shows.picker_epoch` and therefore MUST hold the per-show advisory lock per AGENTS.md invariant 2 (see §4.5). The pin asserts: (a) the SECURITY DEFINER RPC `public.reset_picker_epoch_atomic` body acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` at exactly one layer; (b) the JS-side `resetPickerEpoch` Server Action has NO advisory-lock call AND NO `lockedShowTx`/equivalent wrapper around the `.rpc()` invocation (no nested holder); (c) no other DB function reacquires the same key while the RPC body holds it; (d) no other writer of `picker_epoch` or `picker_epoch_bumped_at` exists in the repo. |
-| `tests/admin/no-inline-email-normalization.test.ts` (existing) | **EXTEND (R41-R16 invariant-3 enforcement)** | Picker proper doesn't touch emails, but R41 OAuth integration does. EXTEND the meta-test to also scan: (a) `app/auth/callback/route.ts` for `canonicalize(user.email)` usage and forbid inline `.toLowerCase()` / `.trim()` on email strings; (b) `app/api/auth/picker-bootstrap/route.ts` for the same; (c) `supabase/migrations/**` SQL files defining `claim_oauth_identity` for inline `lower(trim(...))` on `email` columns or parameters — forbid; (d) `resolvePickerSelection.ts` for any `lower(trim(email))` patterns — forbid (the resolver compares already-canonical column values via `=`). All four extensions enforce AGENTS.md invariant 3 (one canonicalization boundary). |
+| `tests/admin/no-inline-email-normalization.test.ts` (existing) | **EXTEND (R41-R16/R41-R17 invariant-3 enforcement — six scan surfaces)** | Picker proper doesn't touch emails, but R41 OAuth integration does. EXTEND the meta-test to scan: (a) `app/auth/callback/route.ts` for `canonicalize(user.email)` usage and forbid inline `.toLowerCase()` / `.trim()` on email strings; (b) `app/api/auth/picker-bootstrap/route.ts` for the same; (c) `supabase/migrations/**` SQL files defining `claim_oauth_identity`, `select_identity_atomic`, AND the picker-render data fetcher's query for inline `lower(trim(...))` on `email` columns or parameters — forbid; (d) `resolvePickerSelection.ts` for any `lower(trim(email))` patterns — forbid (the resolver compares already-canonical column values via `=`); (e) **the `select_identity_atomic` RPC body for inline `lower(trim(email))` in the ambiguous-email subquery — R41-R17 expanded coverage; uses direct `email = email` comparison via the canonical CHECK constraint**; (f) **the picker-render data fetcher's `COUNT(*) OVER (PARTITION BY show_id, email)` window for inline normalization in the PARTITION BY — R41-R17 expanded coverage**. All six extensions enforce AGENTS.md invariant 3 (one canonicalization boundary). |
 | `tests/messages/_metaAdminAlertCatalog.test.ts` (existing) | EXTEND | Remove all M9.5-era codes; add `PICKER_EPOCH_RESET`, `PICKER_SELECTION_RACE`, and the new picker-rejection codes (`PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, etc.). |
 | `tests/auth/_metaPickerCookieContract.test.ts` (new) | CREATE | Pins the cookie envelope shape: name = `__Host-fxav_picker`, `v=1` strict, decoder returns null on shape failures, encoder/decoder are the only producers in the repo. Banned-identifier audit: the literal substring `__Host-fxav_picker` outside `lib/auth/picker/cookieEnvelope.ts`, the middleware, and the test fixtures fails. Asserts `MAX_COOKIE_VALUE_BYTES === 3800` and that the constant cannot be raised beyond 3900 without a paired `// browser-cap-implication-acknowledged` comment in the same hunk. |
 | `tests/components/_metaPickerRoleChipContract.test.ts` (new) | CREATE | Pins the LEAD-chip-uses-FXAV-orange contract: any roster row where the underlying crew member has `LEAD` in `role_flags` renders with the accent chip; any other row renders the neutral chip. Test runs against a fixture roster with mixed `role_flags`. |
@@ -1263,7 +1274,7 @@ The plan's TDD checklist includes:
 - **`resetPickerEpoch`** — happy path; non-admin rejection.
 - **Cookie envelope** — round-trip encode/decode; reject `v != 1`; reject missing fields; reject wrong types; reject malformed JSON.
 - **LRU eviction at cap** — write 51 entries; assert oldest by `t` was dropped.
-- **Composite `viewer_version_token`** — DB-level test that the function returns a value advancing on `picker_epoch_bumped_at` updates.
+- **Composite `viewer_version_token` (R41-R17 expanded)** — DB-level test that the function returns a value advancing on `picker_epoch_bumped_at` updates. **R41-R17 same-millisecond regression**: fixture executes two rapid `picker_epoch` bumps via `reset_picker_epoch_atomic` inside the SAME millisecond (use a transaction with `pg_sleep(0.0001)` or batched calls). Assert: the returned `viewer_version_token` strings are DISTINCT across the two reads (their `:epoch` suffixes differ even when the timestamp portion is identical). Without R41-R17's `:picker_epoch` suffix, the test would fail because both reads would produce identical millisecond-prefix strings. The Realtime broadcast layer uses the token as a freshness key; distinct tokens ensure open tabs force-refresh on every reset.
 - **Realtime bridge auth swap** — `/api/realtime/subscriber-token` reads picker cookie correctly; admin path via Google session still works.
 - **Admin precedence preserved** — admin with a stale picker cookie still sees admin mode, not picker.
 - **Unpublished/archived show guard — page route (R41-R10 expanded for Google-session ordering)** — non-admin viewer on an unpublished or archived show gets `notFound()` BEFORE any picker render OR Google-session resolve. Test asserts: (a) no `roster-list` DOM element is emitted; (b) no DB query for `crew_members` was issued; (c) the response status is 404, not 200. Same test repeated for an archived (published=true, archived=true) show. **R41-R10 redirect-loop regression**: fixture is an UNPUBLISHED show with a Google session whose email matches exactly one `crew_members` row on that unpublished show. Without R41-R10, the chain step 4(b'/c) would return `needs_picker_bootstrap` → bootstrap → `claim_oauth_identity` filters published-only → empty `result.shows` for this slug → no cookie minted → 302 back → step 4 re-fires → INFINITE LOOP. With R41-R10's step-3.5 (unpublished guard ahead of Google-session resolve), the test asserts: (a) page returns 404 immediately, no 302 to `/api/auth/picker-bootstrap`; (b) `claim_oauth_identity` was NEVER called; (c) redirect-chain depth is 0 (404 is the direct response).
