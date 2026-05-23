@@ -647,7 +647,7 @@ The brand strip, show identifier strip, picker block (heading, sub-instruction, 
     }
   }
   ```
-  `t` is a unix-second epoch of last touch. **`t` is updated ONLY by Server Action writes** (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `resetPickerEpoch`) — reads never emit `Set-Cookie` per the R16 contract (§4.9). On write of an entry that pushes the encoded cookie past the byte-budget cap, the minimum-`t` entry is evicted first. (An earlier draft incorrectly described `t` as updating on read; that recreated the lost-update race R16 eliminated.)
+  `t` is a unix-second epoch of last touch. **`t` is updated ONLY by the three crew-side Server Actions** (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`) — reads never emit `Set-Cookie` per the R16 contract (§4.9), and `resetPickerEpoch` never touches the cookie per the R30 contract (admin-side reset would recreate the lost-update race if it wrote the envelope). On write of an entry that pushes the encoded cookie past the byte-budget cap, the minimum-`t` entry is evicted first. (Earlier drafts incorrectly listed `t` as updating on read AND included `resetPickerEpoch` in the writer list; both recreated the lost-update race R16/R30 eliminated.)
 - **Name truncation**: none. Long names wrap; the row height grows.
 
 ### 7.6 Rendered vs conceptual
