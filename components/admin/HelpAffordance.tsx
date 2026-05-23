@@ -77,7 +77,8 @@ export function HelpAffordance({ code, params, route }: HelpAffordanceProps) {
   if (!isKnownCode(code)) return null;
 
   const effectiveRoute = route ?? pathname ?? "/";
-  const helpHref = messageFor(code, params).helpHref;
+  const entry = messageFor(code, params);
+  const helpHref = entry.helpHref;
   const helpful = lookupHelpfulContext(code, params);
 
   const showHelpful = helpful != null;
@@ -110,7 +111,7 @@ export function HelpAffordance({ code, params, route }: HelpAffordanceProps) {
         <a
           href={helpHref}
           data-testid={testidForErrorCode(code)}
-          aria-label={`Learn more about ${code.toLowerCase().replace(/_/g, " ")}`}
+          aria-label={`Learn more: ${entry.title ?? "this error"}`}
           className="inline-flex w-fit min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           Learn more →
