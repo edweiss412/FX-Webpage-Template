@@ -63,9 +63,9 @@ Each decision is owner-determined; cite by number from this list in the implemen
 1. **One link per show; URL is `/show/<slug>`.** No fragment, no per-person URL, no JWT. The link is the credential.
 2. **Picker container is an interstitial route.** `/show/<slug>` renders ONLY the picker (FXAV mark + show title + roster list) as the entire viewport when no valid selection exists. After selection, the same URL renders the existing `_ShowBody.tsx`. No skeleton, no modal, no behind-the-picker chrome.
 3. **Picker list shape: flat alphabetical, role chip right-aligned.** One scrollable list, sorted by `crew_members.name` ascending. Each row shows `<name>` (primary) and a role chip drawn from `crew_members.role` (the human-readable string, e.g., "A1", "LEAD"). LEAD chip uses FXAV orange (`#F79338`) per the parent `PRODUCT.md:42-47` accent contract; all other chips use the neutral surface from `DESIGN.md`.
-4. **Cookie shape: `__Host-fxav_picker` carrying a versioned JSON envelope.** Wire form: `{ "v": 1, "selections": { "<show_id_uuid>": { "id": "<crew_member_id_uuid>", "e": <picker_epoch_int>, "t": <unix_seconds_int> } } }`. The `t` field is the unix-second epoch of the entry's last touch — stamped on selection and refreshed on every authenticated visit (this is the sliding-TTL mechanism). It is also the LRU sort key when the 50-entry cap is hit. URL-encoded into the cookie value. Single host-wide cookie (no per-show cookie names) — the per-show-name pattern is forbidden by the parent spec §7.2 cookie-header-growth reasoning (`2026-04-30-fxav-crew-pages-design.md:1949`).
+4. **Cookie shape: `__Host-fxav_picker` carrying a versioned JSON envelope.** Wire form: `{ "v": 1, "selections": { "<show_id_uuid>": { "id": "<crew_member_id_uuid>", "e": <picker_epoch_int>, "t": <unix_seconds_int> } } }`. The `t` field is the unix-second epoch of the entry's last touch — stamped on selection and refreshed on every authenticated visit (this is the sliding-TTL mechanism). It is also the LRU sort key when the byte-budget cap (Resolved Decision 6) is hit. URL-encoded into the cookie value. Single host-wide cookie (no per-show cookie names) — the per-show-name pattern is forbidden by the parent spec §7.2 cookie-header-growth reasoning (`2026-04-30-fxav-crew-pages-design.md:1949`).
 5. **TTL: 90 days, sliding.** Refreshed on every authenticated visit via `Set-Cookie` re-emission with `Max-Age=7776000`. There is no separate absolute cap — abandoned devices fall out after 90 days of silence; active devices never re-prompt on schedule. (An earlier draft proposed a 365-day hard cap; the owner answer was sliding-only with no absolute cap, so this spec carries only the sliding form.)
-6. **Cap: 50 most-recent shows per cookie, LRU eviction on write.** Keeps the cookie value comfortably under the 4 KB browser cookie limit (~50 entries × ~80 bytes ≈ 4 KB, with envelope overhead).
+6. **Cap: byte-budget LRU eviction (target ≤ 3800 bytes encoded), not a fixed entry count.** On every write that would grow the cookie, the encoder iteratively evicts the entry with the lowest `t` (last-touch unix-seconds) until the final URL-encoded `Set-Cookie` value (including the cookie name `__Host-fxav_picker=` prefix) is at or below 3800 bytes. The 3800-byte target sits comfortably below the 4096-byte (4 KB) browser per-cookie cap with ~300 bytes of safety margin for the `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`, `Max-Age=7776000` attribute suffix. **An earlier draft of this spec stated a fixed 50-entry cap based on a back-of-envelope ~80-byte-per-entry estimate; that estimate undercounted by ~25%.** Real per-entry size (UUID show key + UUID crew id + `e` + `t`, URL-encoded) is ~106 bytes encoded; 50 entries would be ~5.3 KB raw / ~7.2 KB after `encodeURIComponent` overhead, exceeding the browser cap. The byte-budget approach is robust to JSON-encoding overhead changes and works regardless of the actual entry count (which will land near 35 at the cap given current entry sizing). The encoder helper exposes a `MAX_COOKIE_VALUE_BYTES = 3800` constant; a structural meta-test asserts the constant is never raised beyond 3900 without a paired comment explaining the browser-cap implication.
 7. **Removed-id behaviour: silent re-prompt with empty-state banner.** When the cookie's `crew_member_id` no longer matches an active row in `crew_members` for `show_id` (Doug removed them between sessions), the picker re-renders with a banner: "Your previous selection was removed by Doug." Cookie key for that show is cleared on the same render.
 8. **Show-link lifetime: as long as the show row exists.** `shows.archived = true` (per `lib/sync/unpublishShow.ts` and the existing `shows` table per migration `20260501000000_initial_public_schema.sql:3-29`) is the kill switch. No date-based expiry. No admin "expire link" button. Doug archives a show when he wants its link to stop working.
 9. **Escape-hatch placement: pinned header chip.** Sub-header strip on every crew page render shows `"<Name> · <Role>"` with a "Not you?" link below. Tap navigates to `/show/<slug>` with that show's cookie key cleared; server re-renders the picker. Same URL, no query param, browser history unchanged.
@@ -87,15 +87,34 @@ Crew taps `/show/<slug>` in group thread
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
+│ middleware.ts (cookie-refresh; see §4.9)                    │
+│   - For path /show/<slug>, if __Host-fxav_picker has an     │
+│     entry for show_id (decoded via shared helper), refresh  │
+│     `t` and re-emit Set-Cookie with Max-Age=7776000.        │
+│   - Pure refresh; no validation, no DB read. Stale/invalid  │
+│     entries are detected and cleared by the Server Component│
+│     chain below + by the route handlers' own resolver call. │
+└─────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────┐
 │ app/show/[slug]/page.tsx (Server Component, no auth)        │
 │                                                              │
 │  1. resolveShowFromSlug(slug)                                │
-│       → { id, published } | not_found | infra_error          │
+│       → { id, published, archived }                          │
+│       | not_found | infra_error                              │
 │                                                              │
 │  2. if isAdminSession(req) → render as admin (unchanged)     │
-│     [admin precedence; admin never sees picker]              │
+│     [admin precedence; admin sees unpublished + archived     │
+│      for editing — preserves M11 admin debug workflow]       │
 │                                                              │
-│  3. else: read cookie __Host-fxav_picker                     │
+│  3. else if !published OR archived:                          │
+│     notFound() — non-admin viewers cannot distinguish        │
+│     "unpublished slug" from "unknown slug." This gate runs   │
+│     BEFORE any picker render so the picker never exposes a   │
+│     roster for an unpublished show (existence-oracle defense)│
+│                                                              │
+│  4. else: read cookie __Host-fxav_picker                     │
 │       → resolvePickerSelection({ showId, cookie })           │
 │         returns one of:                                      │
 │           - { kind: 'resolved', crewMemberId }               │
@@ -103,10 +122,12 @@ Crew taps `/show/<slug>` in group thread
 │           - { kind: 'epoch_stale' }                          │
 │           - { kind: 'removed_from_roster' }                  │
 │                                                              │
-│  4. if no_selection | epoch_stale | removed_from_roster:     │
+│  5. if no_selection | epoch_stale | removed_from_roster:     │
 │       render <PickerInterstitial roster banner? />           │
+│       (cookie cleanup deferred to a Server Action — Server   │
+│       Components cannot mutate cookies; see §4.9)            │
 │                                                              │
-│  5. else (resolved):                                         │
+│  6. else (resolved):                                         │
 │       getShowForViewer(showId, { kind: 'crew_link',          │
 │                                  showId, crewMemberId })     │
 │       render <_ShowBody data={...} identityChip={...} />     │
@@ -147,7 +168,7 @@ Server Action: selectIdentity({ showId, crewMemberId })
 │                                                              │
 │  3. Read existing cookie envelope; merge new entry           │
 │     { showId: { id: crewMemberId, e: picker_epoch } }        │
-│     Apply LRU eviction if > 50 entries                       │
+│     Apply byte-budget LRU eviction if encoded > 3800 bytes   │
 │                                                              │
 │  4. Emit Set-Cookie with __Host-fxav_picker, 90-day Max-Age, │
 │     Path=/, HttpOnly, Secure, SameSite=Lax                   │
@@ -197,12 +218,23 @@ Admin clicks "Reset picker selections on this show" on /admin/show/<slug>
 Server Action: resetPickerEpoch({ showId })  [admin-only; requireAdmin()]
         │
         ▼
-UPDATE shows SET picker_epoch = picker_epoch + 1 WHERE id = $1
+BEGIN TRANSACTION;
+  SELECT drive_file_id FROM shows WHERE id = $1;  -- need drive_file_id for the lock key
+  pg_advisory_xact_lock(hashtext('show:' || drive_file_id));
+  UPDATE shows
+     SET picker_epoch = picker_epoch + 1,
+         picker_epoch_bumped_at = now()
+   WHERE id = $1;
+COMMIT;
         │
         ▼
 Every existing cookie entry for this show now has `e` ≠ shows.picker_epoch.
 Next visit on each device triggers epoch_stale → picker re-prompts.
 ```
+
+**Advisory-lock topology (per AGENTS.md invariant 2 — non-negotiable).** `resetPickerEpoch` mutates `public.shows`, so it MUST run inside the per-show advisory lock. Lock key is `hashtext('show:' || drive_file_id)` — the canonical project key per `AGENTS.md` invariant 2. Holder topology: the lock is acquired at the **Server Action layer** (the only entry point that mutates `shows.picker_epoch`); no nested RPC, no JS-side wrapper above the action, no other layer touches the column. This single-holder design is documented here and pinned by an extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` (per §10.1 meta-test inventory). The action uses the blocking form (`pg_advisory_xact_lock`, not `pg_try_advisory_xact_lock`) because it is an admin-initiated request, not a cron path — the spec's invariant 2 directs admin/blocking paths to the blocking variant. If the lock is contended by a concurrent sync run for the same show, the admin's Reset request waits until the sync transaction commits, then proceeds. This is acceptable: Reset is a rare manual click, not a hot path.
+
+**Why the lock matters.** Without it, a concurrent sync writing `shows.last_synced_at` (per `lib/sync/phase2.ts` etc.) could interleave with the Reset write in a way that loses one of the two updates depending on transaction isolation. The advisory lock serializes all `shows`-mutating paths so Reset and sync see each other's changes in a well-defined order.
 
 The button is idempotent at the action level (clicking twice in succession bumps the epoch twice; the second bump is harmless — already-stale cookies remain stale). No server-side state is created per device; the epoch is the entire mechanism.
 
@@ -244,7 +276,25 @@ The parent spec's Realtime contract (broadcast topic `show:<showId>:invalidation
 - `lib/auth/picker/resetPickerEpoch.ts` (new) — admin-only Server Action.
 - `components/admin/PerShowCrewSection.tsx` (existing, 173 lines) — **simplified**. Per-row Issue/Revoke controls and the "Revoke all links" button are removed. The "Reset picker selections" button is added. Preview-as-crew links per row are preserved.
 
-### 4.8 Files deleted by the implementation plan
+### 4.9 Cookie-write boundaries (Next 16 constraint)
+
+**Server Components cannot mutate cookies.** Per Next 16, calling `cookies().set()` from a Server Component throws. Cookie writes are only legal from Server Actions, Route Handlers, or Middleware. The pivot's cookie-touching paths therefore split across two mechanisms:
+
+**Mechanism A — middleware refresh (sliding TTL).** A thin middleware in `middleware.ts` (replacing the deleted M9.5 leaked-link compromise handler) runs on every request whose path matches `^/show/[^/]+$` AND every request to `/api/asset/...` / `/api/realtime/subscriber-token`. The middleware:
+
+1. Decodes the `__Host-fxav_picker` cookie via the shared helper (`lib/auth/picker/cookieEnvelope.ts`).
+2. If decode succeeds AND the cookie contains an entry for the path's `show_id` (derived from the slug via a cached slug→id lookup, or directly from the route param), bump that entry's `t` to the current unix-seconds and re-emit the cookie with `Max-Age=7776000`.
+3. Decode failures, missing-entry, and stale-epoch all pass through untouched — the middleware does NOT validate against the DB; that's the resolver's job in the Server Component. The middleware is a pure refresh, not an enforcement layer.
+
+**Why middleware, not a beacon.** A client-side beacon (POST on mount) would require client JS, would not run for crew on the picker interstitial (which has no client JS), and would race with the page render. Middleware runs at the edge per-request, has access to cookies in both directions, and composes cleanly with the Server Component's render flow.
+
+**Mechanism B — Server Actions for invalid-entry cleanup.** When the Server Component's resolver detects `epoch_stale` or `removed_from_roster`, it renders the picker AND embeds a one-shot `<form>` that the client auto-submits on mount, calling a `cleanupStaleEntry({ showId })` Server Action that removes the stale entry from the cookie. The picker render does NOT block on this submission — the picker still works without JS (the user picks a name, the `selectIdentity` Server Action will overwrite the stale entry naturally). The auto-submitting form is a progressive-enhancement nicety that keeps the cookie clean for users with JS enabled.
+
+Alternative considered: redirect through a `/auth/picker/cleanup?next=...` route handler when stale-entry is detected. Rejected because (a) it adds a navigation hop visible in the URL bar, (b) it requires a JS-free fallback anyway (route handlers can't redirect AND clean the cookie atomically in a way the user sees), and (c) middleware-based eager cleanup of decode-failure cookies is impossible without the DB, so progressive-enhancement Server Action cleanup is consistent across all stale states.
+
+**`Max-Age` arithmetic for middleware refresh.** `Max-Age=7776000` = 90 days × 86400 s/day. Re-emitted on every authenticated visit. There is no separate absolute cap — Resolved Decision 5.
+
+### 4.10 Files deleted by the implementation plan
 
 These are M9.5 / parent-spec §7.2 surfaces that have no role in the pivot. The plan deletes them in the same milestone:
 
@@ -300,9 +350,11 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 - `public.shows` already has admin-write / public-read RLS (per migration `20260501000000_initial_public_schema.sql`). The two new columns inherit the existing policy. No new RLS surface.
 - The Server Actions all use the service-role client (no end-user Supabase JWT), so RLS is not the access control mechanism for the new columns; the action body's `requireAdmin()` (for reset) or roster-membership check (for select) is.
 
-### 5.6 PostgREST DML lockdown invariant (per AGENTS.md cross-cutting discipline)
+### 5.6 PostgREST DML lockdown + advisory-lock invariants (per AGENTS.md cross-cutting discipline)
 
-`shows.picker_epoch` and `shows.picker_epoch_bumped_at` are written ONLY by the `resetPickerEpoch` Server Action (which uses the service-role client). No other code path mutates them. The structural meta-test at `tests/auth/_metaInfraContract.test.ts` is extended to register the new helper. PostgREST DML on `public.shows` is already REVOKEd from `authenticated`/`anon` (the existing admin-tables lockdown); the new columns inherit that posture. **No new RPC; no new entry-point surface.** The pivot deliberately does not introduce an RPC for the epoch bump because the existing admin-action pattern (service-role UPDATE inside a Server Action behind `requireAdmin()`) is the canonical shape.
+`shows.picker_epoch` and `shows.picker_epoch_bumped_at` are written ONLY by the `resetPickerEpoch` Server Action (which uses the service-role client). No other code path mutates them. PostgREST DML on `public.shows` is already REVOKEd from `authenticated`/`anon` (the existing admin-tables lockdown); the new columns inherit that posture. **No new RPC; no new entry-point surface.** The pivot deliberately does not introduce an RPC for the epoch bump because the existing admin-action pattern (service-role UPDATE inside a Server Action behind `requireAdmin()`) is the canonical shape.
+
+**Advisory-lock acquisition (per AGENTS.md invariant 2 — non-negotiable).** Because `resetPickerEpoch` mutates `public.shows`, it MUST acquire `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` inside the same transaction as the UPDATE. The mechanics are in §4.5; the call-boundary contract here is: the structural meta-test at `tests/auth/_metaInfraContract.test.ts` is extended to register `resetPickerEpoch`, AND the advisory-lock topology meta-test at `tests/auth/advisoryLockRpcDeadlock.test.ts` is extended to assert (a) the Server Action body acquires the lock at exactly one layer, (b) no nested SECURITY DEFINER RPC reacquires the same key, and (c) `resetPickerEpoch` is the only writer of `shows.picker_epoch` in the repo. The `selectIdentity`, `clearIdentity`, and `cleanupStaleEntry` Server Actions perform only READS against `shows`/`crew_members` and cookie writes against the client; they do not require the advisory lock.
 
 ---
 
@@ -413,7 +465,7 @@ The brand strip, show identifier strip, picker block (heading, sub-instruction, 
 ### 7.5 Cap / truncation behaviour
 
 - **Roster cap**: no software cap. The `<unique (show_id, name)>` constraint at `20260501000000_initial_public_schema.sql:43` is the only natural limit (no duplicate names per show). At >50 entries the page scrolls naturally; the spec does not introduce virtualization. If Doug's shows ever exceed 100 crew, follow-up work adds search + virtualization.
-- **Cookie cap (per Resolved Decision 6)**: 50 most-recent shows in the cookie. On the 51st `selectIdentity`, the LRU-oldest entry is evicted (oldest by `last_touched_at` which is stamped into the entry envelope at write time). **Cookie wire shape with timestamps**:
+- **Cookie cap (per Resolved Decision 6)**: byte-budget at 3800 bytes encoded. On every `selectIdentity` write, the encoder evicts the entry with the lowest `t` (last-touch unix-seconds) until the encoded value fits the budget. **Cookie wire shape with timestamps**:
   ```json
   {
     "v": 1,
@@ -580,10 +632,10 @@ The plan CREATES or EXTENDS the following structural meta-tests:
 | Meta-test | Action | Why |
 | --------- | ------ | --- |
 | `tests/auth/_metaInfraContract.test.ts` (existing) | EXTEND | Register `resolvePickerSelection`, `selectIdentity`, `clearIdentity`, `resetPickerEpoch` as Supabase-call-boundary subjects. Each must destructure `{ data, error }` and surface infra faults as discriminable typed results per AGENTS.md invariant 9. |
-| `tests/auth/advisoryLockRpcDeadlock.test.ts` (existing) | NO CHANGE | The pivot's mutations are all simple UPDATEs on `shows` with no advisory lock. The existing topology pin is unchanged. |
+| `tests/auth/advisoryLockRpcDeadlock.test.ts` (existing) | EXTEND | The Reset action mutates `shows.picker_epoch` and therefore MUST hold the per-show advisory lock per AGENTS.md invariant 2 (see §4.5). The pin asserts: `resetPickerEpoch` acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` at exactly the Server Action layer; no nested holder; no other writer of `picker_epoch` or `picker_epoch_bumped_at` exists. |
 | `tests/admin/no-inline-email-normalization.test.ts` (existing) | NO CHANGE | Picker doesn't touch emails. |
 | `tests/messages/_metaAdminAlertCatalog.test.ts` (existing) | EXTEND | Remove all M9.5-era codes; add `PICKER_EPOCH_RESET`, `PICKER_SELECTION_RACE`, and the new picker-rejection codes (`PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, etc.). |
-| `tests/auth/_metaPickerCookieContract.test.ts` (new) | CREATE | Pins the cookie envelope shape: name = `__Host-fxav_picker`, `v=1` strict, decoder returns null on shape failures, encoder/decoder are the only producers in the repo. Banned-identifier audit: the literal substring `__Host-fxav_picker` outside `lib/auth/picker/cookieEnvelope.ts` fails. |
+| `tests/auth/_metaPickerCookieContract.test.ts` (new) | CREATE | Pins the cookie envelope shape: name = `__Host-fxav_picker`, `v=1` strict, decoder returns null on shape failures, encoder/decoder are the only producers in the repo. Banned-identifier audit: the literal substring `__Host-fxav_picker` outside `lib/auth/picker/cookieEnvelope.ts`, the middleware, and the test fixtures fails. Asserts `MAX_COOKIE_VALUE_BYTES === 3800` and that the constant cannot be raised beyond 3900 without a paired `// browser-cap-implication-acknowledged` comment in the same hunk. |
 | `tests/components/_metaPickerRoleChipContract.test.ts` (new) | CREATE | Pins the LEAD-chip-uses-FXAV-orange contract: any roster row where the underlying crew member has `LEAD` in `role_flags` renders with the accent chip; any other row renders the neutral chip. Test runs against a fixture roster with mixed `role_flags`. |
 | `tests/cross-cutting/no-jwt-surface.test.ts` (new) | CREATE | Banned-identifier audit: the literal substrings `__Host-fxav_session`, `redeemLink`, `signLinkJwt`, `verifyLinkJwt`, `current_token_version`, `revoked_below_version`, `max_issued_version`, `bootstrap_nonces`, `link_sessions`, `revoked_links`, `crew_member_auth`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED` MUST not appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts`, `supabase/migrations/<post-cutover>/**`. (Old migrations retain their history per migration-immutability rules.) |
 
@@ -601,6 +653,12 @@ The plan's TDD checklist includes:
 - **Composite `viewer_version_token`** — DB-level test that the function returns a value advancing on `picker_epoch_bumped_at` updates.
 - **Realtime bridge auth swap** — `/api/realtime/subscriber-token` reads picker cookie correctly; admin path via Google session still works.
 - **Admin precedence preserved** — admin with a stale picker cookie still sees admin mode, not picker.
+- **Unpublished/archived show guard** — non-admin viewer on an unpublished or archived show gets `notFound()` BEFORE any picker render. Test asserts: (a) no `roster-list` DOM element is emitted; (b) no DB query for `crew_members` was issued; (c) the response status is 404, not 200. Same test repeated for an archived (published=true, archived=true) show.
+- **Asset route auth swap — diagram** — `/api/asset/diagram/<show>/<rev>/<assetKey>` accepts picker cookie for the matching show; rejects no-cookie (401); rejects wrong-show cookie (403, WITHOUT touching `link_sessions`-style server state — the picker model has no such state to clean up); rejects stale-epoch cookie (403); rejects removed-from-roster cookie (403); admin path via `isAdminSession` still works. The 410 (revision-mismatch) contract is unchanged from M11.
+- **Asset route auth swap — reel** — `/api/asset/reel/<show>` same matrix as diagram. The buffer-then-verify md5 contract from the parent spec §7.3 is unchanged; only the auth source swaps.
+- **Middleware refresh** — request to `/show/<slug>` with a cookie entry for that show emits a Set-Cookie response header with the same value but bumped `t` and refreshed `Max-Age=7776000`. Request to `/show/<other-slug>` does NOT touch the cookie's entry for this slug. Request without a cookie produces no Set-Cookie header.
+- **`cleanupStaleEntry` Server Action** — when called with a `showId` whose entry's `e` is stale, the entry is removed from the cookie envelope; when the envelope becomes empty, the cookie is fully cleared (`Max-Age=0`); when called for an entry that's already valid, no-op (idempotent).
+- **Reset action advisory-lock holder topology** — extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` asserts `resetPickerEpoch` acquires the lock at exactly one layer (the Server Action body) and is the only writer of `shows.picker_epoch`.
 
 ### 10.3 Layout-dimensions task (mandatory per AGENTS.md)
 
@@ -673,20 +731,20 @@ Every external reference the body of the spec depends on, gathered for self-revi
 | `viewer_version_token` function | `supabase/migrations/20260501001000_internal_and_admin.sql:18-30` | §4.6, §5.3 |
 | `publish_show_invalidation_after_statement` | `supabase/migrations/20260501001000_internal_and_admin.sql:59-81` | §5.4 |
 | `crew_member_auth_publish_invalidation` triggers | `supabase/migrations/20260501001000_internal_and_admin.sql:83-93` | §5.4 |
-| `SESSION_COOKIE_NAME` constant (retired) | `lib/auth/constants.ts:1` | §4.8 |
-| `setSessionCookie`/`clearSessionCookie` helpers (retired) | `lib/auth/cookies.ts:15-22` | §4.8 |
+| `SESSION_COOKIE_NAME` constant (retired) | `lib/auth/constants.ts:1` | §4.10 |
+| `setSessionCookie`/`clearSessionCookie` helpers (retired) | `lib/auth/cookies.ts:15-22` | §4.10 |
 | `decodeSessionCookieValue` strict-shape decoder pattern | `lib/auth/cookies.ts:27-34` | §4.7 (mirrored), §6.1 |
 | `resolveShowViewer` chain | `lib/auth/resolveShowViewer.ts:65-193` | §4.1 |
 | `isAdminSession` precedence at top of chain | `lib/auth/resolveShowViewer.ts:123-126` | §4.1, §6 |
-| `validateLinkSession` (retired) | `lib/auth/validateLinkSession.ts` (entire file) | §4.8 |
+| `validateLinkSession` (retired) | `lib/auth/validateLinkSession.ts` (entire file) | §4.10 |
 | `getShowForViewer` `Viewer` discriminated union | `lib/data/getShowForViewer.ts:79-92` | §4.1 |
 | `getShowForViewer` role-derivation read | `lib/data/getShowForViewer.ts:218-230` | §1, §4.1 |
 | `app/show/[slug]/page.tsx` chain (modified) | `app/show/[slug]/page.tsx:73-89` | §4.1 |
 | `PerShowCrewSection.tsx` (simplified) | `components/admin/PerShowCrewSection.tsx` (173 lines) | §8.1, §8.3 |
-| `IssueLinkButton.tsx` (deleted) | `app/admin/show/[slug]/IssueLinkButton.tsx` (92 lines) | §4.8 |
-| `RevokeAllLinksButton.tsx` (deleted) | `app/admin/show/[slug]/RevokeAllLinksButton.tsx` (196 lines) | §4.8 |
-| `middleware.ts` leaked-link handler (deleted) | `middleware.ts` (228 lines) | §4.8 |
-| `/api/auth/redeem-link/route.ts` (deleted) | `app/api/auth/redeem-link/route.ts` (394 lines) | §4.8 |
+| `IssueLinkButton.tsx` (deleted) | `app/admin/show/[slug]/IssueLinkButton.tsx` (92 lines) | §4.10 |
+| `RevokeAllLinksButton.tsx` (deleted) | `app/admin/show/[slug]/RevokeAllLinksButton.tsx` (196 lines) | §4.10 |
+| `middleware.ts` leaked-link handler (deleted) | `middleware.ts` (228 lines) | §4.10 |
+| `/api/auth/redeem-link/route.ts` (deleted) | `app/api/auth/redeem-link/route.ts` (394 lines) | §4.10 |
 | `ShowRealtimeBridge` (auth-source swap only) | `components/realtime/ShowRealtimeBridge.tsx:179` | §4.6 |
 | `/api/realtime/subscriber-token` (auth-source swap only) | `app/api/realtime/subscriber-token/route.ts:47` | §4.6 |
 | `requireAdmin` | `lib/auth/requireAdmin.ts` | §4.5, §6.2 |
@@ -705,7 +763,10 @@ Every literal number in this spec, anchored to its single source:
 | Number | Where | Source |
 | ------ | ----- | ------ |
 | 90 days | Cookie sliding TTL (Max-Age=7776000) | Resolved Decision 5 |
-| 50 entries | Cookie LRU cap | Resolved Decision 6 |
+| 3800 bytes | Cookie byte-budget cap (encoded value, including name prefix) | Resolved Decision 6 |
+| 3900 bytes | Hard ceiling for the budget constant (meta-test guards against raising past this without comment) | Resolved Decision 6 |
+| 4096 bytes | Browser per-cookie cap | Resolved Decision 6 |
+| 7776000 seconds | `Max-Age` value (90 days × 86400) | Resolved Decision 5, §4.9 |
 | 44px | Row min-height (WCAG 2.5.5) | §7.7 |
 | 0.5px | Playwright tolerance | §10.3 |
 | 4 KB | Browser cookie limit (~80 bytes × 50) | Resolved Decision 6 |
@@ -722,7 +783,7 @@ Every literal number in this spec, anchored to its single source:
 | 999px | Chip border-radius (pill) | §7.2 |
 | 60 days post-showclose | (NOT USED — see Resolved Decision 8: link is live for the show row's lifetime) | — |
 | Roster cap | NONE (`<unique (show_id, name)>` constraint is the only natural limit) | §7.5 |
-| File sizes for deletion budget | 92 + 196 + 228 + 394 + 173 (modified) + ~575 (modified) ≈ 1,658 lines | §4.8 |
+| File sizes for deletion budget | 92 + 196 + 228 + 394 + 173 (modified) + ~575 (modified) ≈ 1,658 lines | §4.10 |
 
 The 60-day-post-showclose number from an earlier draft of Resolved Decision 8 was retired in the brainstorm — Decision 8 is "live forever as long as the show row exists." This appendix entry is the canonical "removed" marker to prevent the number from being reintroduced silently.
 
