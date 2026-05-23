@@ -141,43 +141,52 @@ Crew taps `/show/<slug>/<share-token>` in group thread
 │     a. No Google session → fall through to step 5.           │
 │     b. Session exists, email matches EXACTLY ONE crew row    │
 │        for this show, cookie has an entry whose `id` EQUALS  │
-│        that matched crew_member_id, AND cookie.t >=          │
-│        extract(epoch from claimed_via_oauth_at)::int (i.e.   │
-│        cookie was minted AT OR AFTER the OAuth claim, OR     │
-│        the row is not claimed yet) → fall through to step 6  │
-│        (cookie path; typical post-bootstrap-mint flow).      │
-│        R41-R9 amendment: equality match is required, NOT     │
-│        cookie-presence alone. R41-R11 amendment: claim-time  │
-│        check is also required, to handle the legitimate      │
-│        same-user upgrade path (Bob picked self at t=100,     │
-│        Bob signs in via Google at t=200; cookie t=100 <      │
-│        200 — the cookie is stale relative to the claim,      │
-│        even though id matches).                              │
+│        that matched crew_member_id, AND the matched row's    │
+│        claimed_via_oauth_at IS NOT NULL (the OAuth claim     │
+│        succeeded), AND cookie.t >= extract(epoch from        │
+│        claimed_via_oauth_at)::int (cookie was minted AT      │
+│        OR AFTER the claim, indicating it came from           │
+│        picker-bootstrap post-claim) → fall through to step   │
+│        6 (cookie path; typical post-bootstrap flow).         │
+│        R41-R12 amendment: the IS-NOT-NULL check is required  │
+│        because callback's claim_oauth_identity can fail with │
+│        infra error — leaving the row's claim NULL. Without   │
+│        this check, branch b would accept the cookie (same    │
+│        id) and skip bootstrap, never retrying the claim;     │
+│        the identity-exclusivity contract would silently      │
+│        fail. The bootstrap retry is the recovery path.       │
 │     b'. Session exists, email matches EXACTLY ONE crew row,  │
-│         AND EITHER (a) cookie has an entry whose `id` does   │
-│         NOT equal that crew_member_id (shared-device shadow  │
-│         scenario), OR (b) cookie's `id` matches BUT cookie.t │
-│         < claim_epoch (same-user upgrade scenario — Bob      │
-│         picked self pre-OAuth, now signs in; old cookie is   │
-│         pre-claim) → return needs_picker_bootstrap.          │
-│         Picker-bootstrap overwrites the cookie entry with a  │
-│         fresh post-claim mint (t = now > claim_epoch). The   │
-│         OAuth-resolved identity ALWAYS wins, regardless of   │
-│         whether the prior pick was a shadow OR a same-user   │
-│         pre-claim pick. Both scenarios converge on the same  │
-│         legal redirect path.                                 │
-│     c. Session exists, email matches EXACTLY ONE crew row    │
-│        for this show, show is published, NO cookie entry     │
-│        yet → return { kind: 'needs_picker_bootstrap',        │
-│        next: <signed intent token, currentTokenizedURL> }.   │
-│        Page route calls redirect(                            │
-│          '/api/auth/picker-bootstrap?next=' + next +         │
-│          '&t=' + intentToken                                 │
-│        ) — Server Components CANNOT mint cookies (R41-R2     │
-│        CRITICAL repair); the Route Handler at the redirect   │
-│        target is the legal cookie mutator. Intent token is   │
-│        an HMAC of { slug, shareToken, exp: 60s } using the   │
-│        picker cookie signing key (R41-R4 CSRF defense).      │
+│         AND ANY of the following hold:                       │
+│         (i) cookie has an entry whose `id` does NOT equal    │
+│             that crew_member_id (shared-device shadow), OR   │
+│         (ii) cookie's `id` matches BUT the matched row's     │
+│              claimed_via_oauth_at IS NULL (callback's claim  │
+│              RPC failed; need to retry — R41-R12), OR        │
+│         (iii) cookie's `id` matches AND row is claimed BUT   │
+│               cookie.t < claim_epoch (same-user pre-claim    │
+│               upgrade — R41-R11), OR                         │
+│         (iv) NO cookie entry for this show exists at all     │
+│              (the original needs_picker_bootstrap case)      │
+│         → return needs_picker_bootstrap. Picker-bootstrap    │
+│         invokes claim_oauth_identity (idempotent retry),     │
+│         then mints a fresh post-claim cookie. All four       │
+│         scenarios converge on the same legal redirect path.  │
+│     c. (subsumed by branch b'(iv) — R41-R12 consolidation.   │
+│        The "no cookie entry" case was previously a separate  │
+│        branch; it now collapses into b'(iv) since the        │
+│        decision and downstream behavior are identical.       │
+│        Documentation preserved here for back-references      │
+│        across the spec; branch letter retained to avoid      │
+│        renumbering drift across other §-numbered citations.) │
+│        Page route emits the redirect via:                    │
+│          redirect('/api/auth/picker-bootstrap?next=' + next  │
+│            + '&t=' + intentToken)                            │
+│        from next/navigation. Server Components CANNOT mint   │
+│        cookies; the Route Handler is the legal mutator.      │
+│        Intent token canonical format per §4.7 producer/      │
+│        consumer harmonization (R41-R10): base64url(JSON({    │
+│        slug, shareToken, exp: 60s})) + '.' + base64url(      │
+│        HMAC(payload, PICKER_COOKIE_SIGNING_KEY)).             │
 │     d. Session exists, email matches MULTIPLE crew rows for  │
 │        this show (R41-R4 ambiguous-email defense — would     │
 │        otherwise redirect-loop because picker-bootstrap      │
@@ -454,7 +463,7 @@ The parent spec's Realtime contract (broadcast topic `show:<showId>:invalidation
 - `lib/auth/picker/cookieEnvelope.ts` (new) — `encodePickerCookie`, `decodePickerCookie` helpers. Mirrors the discipline of `lib/auth/cookies.ts:27-34` (versioned envelope, strict-shape decoder, null on parse failure / wrong `v` / wrong field types).
 - ~~`lib/cache/showSlugMap.ts`~~ — **REMOVED in R16**. The helper existed to support middleware-refresh's slug→id lookup; with middleware refresh dropped (lost-update race), no consumer remains. Slug→id resolution where needed uses the existing `resolveShowFromSlug` pattern in `app/show/[slug]/page.tsx:119+`.
 - `lib/auth/picker/resolvePickerSelection.ts` (new) — **the COOKIE-ONLY cookie-read + DB-validation helper.** Returns a discriminated union (`resolved | no_selection | epoch_stale | removed_from_roster | show_unavailable | infra_error`). Imported by BOTH the page route AND every API consumer. **Does NOT import `validateGoogleSession`** — the Google-session auto-resolve step lives in `resolveShowPageAccess.ts` (next entry). The structural allowlist in §10.1 enforces this split.
-- `lib/auth/picker/resolveShowPageAccess.ts` (new, R41 Fix-3; R41-R3 pure-resolver; **R41-R7: 11-arm discriminated union explicitly enumerated**). **Page-route-only auth chain helper.** Called exclusively by `app/show/[slug]/[shareToken]/page.tsx`. Encapsulates the resolver chain: archived → admin precedence → Google-session-matching-crew-row → existing picker cookie → unpublished. Imports `validateGoogleSession`. **The helper is PURE — it never encodes cookies and never calls `cookies().set()`.** Returns a discriminated union of EXACTLY ELEVEN arms (R41-R7 — caller exhaustiveness checks fail if any arm is missing):
+- `lib/auth/picker/resolveShowPageAccess.ts` (new, R41 Fix-3; R41-R3 pure-resolver; R41-R7: 11-arm union; **R41-R12: unpublished-precedence corrected**). **Page-route-only auth chain helper.** Called exclusively by `app/show/[slug]/[shareToken]/page.tsx`. Encapsulates the resolver chain **in this exact order**: archived → admin precedence → **unpublished (R41-R10 step 3.5 — MUST come before any Google-session branch to prevent the bootstrap-loop class)** → Google-session-matching-crew-row → existing picker cookie. The helper is defense-in-depth alongside the page-route's own ordered chain; the page can also pre-check published before calling the helper, but the helper MUST also enforce the ordering internally. Imports `validateGoogleSession`. **The helper is PURE — it never encodes cookies and never calls `cookies().set()`.** Returns a discriminated union of EXACTLY ELEVEN arms (R41-R7 — caller exhaustiveness checks fail if any arm is missing):
 
   1. `{ kind: 'archived' }` — show is archived; page renders 404.
   2. `{ kind: 'admin' }` — admin precedence; page renders admin mode.
@@ -1281,6 +1290,7 @@ The plan's TDD checklist includes:
   - **Sub-C: the OAuth user's OWN cookie is preserved (negative regression)**. Fixture: Alice signs in via OAuth at T1 (`claimed_via_oauth_at = 200`); callback stamps her row; picker-bootstrap mints her cookie at T2=210 (after the claim). Alice visits Show-X. Tests assert: (a) `resolvePickerSelection` returns `{ kind: 'resolved' }` (NOT `identity_invalidated`) because `cookie.t (210) >= claim_epoch (200)`; (b) page renders `_ShowBody`; (c) API consumers return 200. This is the critical exclusion that makes the post-claim invalidation safe for the legitimate identity holder.
 - **Shared-device shadow scenario (R41-R9 HIGH regression)** — fixture: Alice has a valid picker cookie on this device for Show-X with `{id: AliceCrewId, e: 1, t: 100}` (selected via the bypass picker; Alice's row is NOT OAuth-claimed). Now Bob signs in via Google OAuth on the same device. Bob's email matches a DIFFERENT crew row `BobCrewId` on Show-X. Bob visits `/show/<slug-X>/<token-X>`. Tests assert: (a) `resolveShowPageAccess` does NOT return `{ kind: 'resolved' }` despite the cookie being present (R41-R9 branch b' — cookie's `id != matched crew_member_id`); (b) the helper returns `{ kind: 'needs_picker_bootstrap' }` instead; (c) page redirects to `/api/auth/picker-bootstrap?next=...&t=...`; (d) bootstrap mints Bob's cookie entry for Show-X (overwrites Alice's entry — same target_show_id); (e) Bob lands on the show body rendered as Bob, not Alice; (f) Alice's other cookie entries for other shows (if any) are preserved byte-identical (the one-show-write contract holds).
 - **Same-user OAuth upgrade scenario (R41-R11 HIGH regression)** — fixture: Bob picks himself via the bypass picker at T0=100 — cookie has `{Show-X: {id: BobCrewId, e: 1, t: 100}}`; Bob's `claimed_via_oauth_at` is NULL at this point. At T1=200 Bob signs in via Google on the same device; OAuth callback fires `claim_oauth_identity` which stamps Bob's row's `claimed_via_oauth_at = 200`. Per R41-R6, callback does NOT mint a new cookie — Bob's cookie still has t=100, predating the claim at 200. Bob visits Show-X. **Without R41-R11**: step 4(b) would let the cookie path resolve (id matches), but `resolvePickerSelection` would reject with `identity_invalidated, claimed_after_pick` because cookie.t=100 < claim_epoch=200; Bob would see the claimed-identity banner and his OWN row deactivated, blocking his legitimate upgrade. **With R41-R11**: step 4(b) checks BOTH id-equality AND cookie.t >= claim_epoch. Cookie.t=100 < 200, so branch b' fires → `needs_picker_bootstrap`. Bootstrap mints Bob's fresh cookie at T2=210 (t > claim_epoch). Bob lands on Show-X rendered as Bob. Tests assert: (a) step 4 returns `needs_picker_bootstrap` (NOT cookie path); (b) bootstrap response sets `__Host-fxav_picker` with `{id: BobCrewId, e: 1, t: ~210}`; (c) follow-up page request to Show-X resolves to `{ kind: 'resolved', crewMemberId: BobCrewId }`; (d) the deactivation contract on the picker no longer applies because the show body renders directly (no picker render path).
+- **Callback RPC failure retry via bootstrap (R41-R12 HIGH regression)** — fixture: Bob picks himself at T0=100 (cookie has `{id: BobCrewId, t: 100}`; Bob's row's `claimed_via_oauth_at` is NULL). At T1, Bob signs in via Google; callback fires `claim_oauth_identity` BUT the RPC throws an infra fault — Bob's row remains `claimed_via_oauth_at = NULL`. Bob is left signed-in but his identity is NOT yet claimed. Bob visits Show-X. **Without R41-R12**: step 4(b) accepts the cookie (id matches; cookie.t >= NULL-coerced-zero is true; "row is not claimed yet" was accepted by the prior contract); resolvePickerSelection returns `resolved`; page renders; bootstrap is NEVER invoked; the claim never retries; Bob's identity is never locked from other devices. **With R41-R12**: step 4(b) requires `claimed_via_oauth_at IS NOT NULL`. Bob's row is NULL → branch b'(ii) fires → `needs_picker_bootstrap` → bootstrap invokes `claim_oauth_identity` (idempotent retry) → on success, stamps Bob's row + mints fresh cookie → page renders with claimed identity. Tests assert: (a) step 4 returns `needs_picker_bootstrap` even when cookie's id matches the Google session (because the row is NULL-claimed); (b) bootstrap calls `claim_oauth_identity` (DB query log assertion); (c) after the retry succeeds, the row's `claimed_via_oauth_at` is non-null; (d) bootstrap mints a fresh cookie + 302s back; (e) follow-up page request resolves to `_ShowBody`. **Persistent RPC failure variant**: if bootstrap's retry of `claim_oauth_identity` also fails → R41-R7 fail-closed contract: bootstrap returns 502 with cataloged `PICKER_BOOTSTRAP_RPC_FAILED` page (not a redirect — no loop). User retries on next visit.
 - **Concordant cookie no-op (R41-R9 negative regression)** — fixture: Alice signs in via Google AFTER her cookie was already minted via picker-bootstrap (T1 cookie t=210; her claim_epoch is 200; t > 200 so cookie is post-claim). Alice visits Show-X. Tests assert: (a) step 4(b) takes the cookie path (id matches AND cookie.t >= claim_epoch); (b) no redirect to bootstrap; (c) page renders directly. This guards against unnecessary redirects when the cookie is already correct.
 - **No middleware cookie writes** (R16 contract) — middleware.ts MUST NOT emit a `Set-Cookie` header for `__Host-fxav_picker` on any route. Test: for every route in the §6 routing table (page route, asset routes, version, subscriber-token, report), simulate a request carrying a valid picker cookie; assert the response Set-Cookie header for `__Host-fxav_picker` is absent UNLESS the route handler is a crew-side Server Action invocation (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`). This pins the "crew-side-Server-Actions-only cookie mutator" invariant.
 - **`resetPickerEpoch` emits no picker Set-Cookie** (R30 contract) — invoke the admin Reset action; assert the response has NO `Set-Cookie` header for `__Host-fxav_picker`. Regression against the lost-update race that would result if the admin Reset path were a cookie mutator.
