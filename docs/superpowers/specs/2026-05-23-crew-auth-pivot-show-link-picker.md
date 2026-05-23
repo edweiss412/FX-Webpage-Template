@@ -44,7 +44,7 @@ The 2026-05-23 owner determination relaxed the threat model. The following are d
 
 - **Per-person revocation.** The model cannot support it. Anyone with the show-link can pick any name on that show's roster. To revoke "one person," Doug removes them from the sheet; the next sync drops them from `crew_members`; the next page load shows them an empty-state "you're no longer on this show's crew" inside a re-prompted picker. Per-person locking would require a credential the picker model doesn't have.
 - **Audit log of picker selections.** The threat model does not call for it. If Doug ever asks "who picked which identity on which device," that's a v2 candidate. v1 stores no server-side selection log; the cookie is client-only state.
-- **SSO / OAuth crew identity.** The whole pivot exists to avoid this path. The existing Google-OAuth admin login stays for Doug and Eric only (`isAdminSession` allowlist + Postgres `is_admin()` RPC); crew members never authenticate.
+- **SSO / OAuth as a REQUIRED crew credential.** Crew never NEED to sign in — the share-link + picker is the primary access path; the OAuth restoration per R41 Resolved Decisions 15-17 is an OPTIONAL identity layer, not a credential gate. Show access works for anonymous (cookie-less) users with a valid `/show/<slug>/<share-token>` URL. What R41 restores: (a) Google sign-in as a path that auto-resolves to the user's matching crew row (login skips the picker via picker-bootstrap), (b) `/me` as a cross-show discovery surface for signed-in users, (c) `validateGoogleSession` callers in the allowlist (§10.1). The admin OAuth login (Doug, Eric) is unchanged — `isAdminSession` allowlist + Postgres `is_admin()` RPC. **What stays OUT**: per-crew-row OAuth-credential REQUIREMENT, password auth, magic links, social logins other than Google.
 - **Search / typeahead on the picker.** Doug's shows top out around 15 crew (M11 retro data, fixture corpus inspection). A flat alphabetical list scrolls cleanly at that size on a 390px viewport. Search adds chrome that wouldn't earn its keep. If rosters grow past ~25 in future, search can be layered on the flat list additively — not a redesign.
 - **Per-device naming or "manage my devices" affordance.** The cookie is the device. There is no UI for naming, listing, or revoking individual devices. New device = no cookie = picker prompts again.
 - **Compact / chrome-less picker variant on re-prompts.** Re-prompts (after "Not you?" or after cookie expiry) use the same picker UI as first-time. A separate compact variant would be a second design surface to maintain with no behavioural gain — crew still need to find their name in a list.
@@ -217,11 +217,17 @@ Crew taps `/show/<slug>/<share-token>` in group thread
 │       → resolvePickerSelection({ showId, cookie })           │
 │       (the COOKIE-ONLY helper; this is the SAME helper       │
 │       imported by every API route — R41-R1 Fix-3)            │
-│         returns one of:                                      │
+│         returns one of SEVEN discriminant kinds (8 outcomes │
+│         when identity_invalidated.reason is expanded —      │
+│         R41-R14 wording sync):                              │
 │           - { kind: 'resolved', crewMemberId }               │
 │           - { kind: 'no_selection' }                         │
 │           - { kind: 'epoch_stale' }                          │
 │           - { kind: 'removed_from_roster' }                  │
+│           - { kind: 'identity_invalidated', reason:          │
+│               'claimed_after_pick' | 'email_ambiguous' }     │
+│             (R41-R8 — covers stale-by-claim AND late-detected│
+│             ambiguous-email cookies; see §6.1 cases 9 + 10)  │
 │           - { kind: 'show_unavailable' }                     │
 │           - { kind: 'infra_error', code }                    │
 │                                                              │
@@ -230,13 +236,21 @@ Crew taps `/show/<slug>/<share-token>` in group thread
 │                                  crewMemberId })             │
 │       render <_ShowBody data={...} identityChip={...} />     │
 │                                                              │
-│  8. else if request URL carries `?gate=skip` (the user       │
-│     dismissed the SignInOrSkipGate by tapping "Skip and      │
-│     pick your name") OR cookie state is epoch_stale /        │
-│     removed_from_roster (returning user with stale state):   │
+│  8. else if request URL carries `?gate=skip` OR cookie state │
+│     is one of {epoch_stale, removed_from_roster,             │
+│     identity_invalidated} (returning user with stale state — │
+│     R41-R13 sync added identity_invalidated to this list):   │
 │       render <PickerInterstitial roster banner? />           │
+│       Banner content is selected by the resolver kind:       │
+│         - epoch_stale → PICKER_EPOCH_STALE_BANNER            │
+│         - removed_from_roster →                              │
+│             PICKER_REMOVED_FROM_ROSTER_BANNER                │
+│         - identity_invalidated, claimed_after_pick →         │
+│             PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER        │
+│         - identity_invalidated, email_ambiguous →            │
+│             PICKER_IDENTITY_AMBIGUOUS_BANNER                 │
 │       (deactivated rows per §7 R41 amendment; cookie         │
-│       cleanup deferred to a Server Action; see §4.9)         │
+│       cleanup via cleanupStaleEntry Server Action; see §4.9) │
 │                                                              │
 │  9. else (no auth resolved, no cookie at all, no gate=skip): │
 │       render <SignInOrSkipGate slug shareToken /> — the new  │
@@ -462,8 +476,8 @@ The parent spec's Realtime contract (broadcast topic `show:<showId>:invalidation
 - `components/auth/IdentityChip.tsx` (new) — renders the `<Name> · <Role>` display + "Not you?" `<form action={clearIdentity}>`. Server Component (no client JS).
 - `lib/auth/picker/cookieEnvelope.ts` (new) — `encodePickerCookie`, `decodePickerCookie` helpers. Mirrors the discipline of `lib/auth/cookies.ts:27-34` (versioned envelope, strict-shape decoder, null on parse failure / wrong `v` / wrong field types).
 - ~~`lib/cache/showSlugMap.ts`~~ — **REMOVED in R16**. The helper existed to support middleware-refresh's slug→id lookup; with middleware refresh dropped (lost-update race), no consumer remains. Slug→id resolution where needed uses the existing `resolveShowFromSlug` pattern in `app/show/[slug]/page.tsx:119+`.
-- `lib/auth/picker/resolvePickerSelection.ts` (new) — **the COOKIE-ONLY cookie-read + DB-validation helper.** Returns a discriminated union of **EIGHT arms (R41-R8 added identity_invalidated; R41-R13 propagated to this contract bullet)**: `resolved | no_selection | epoch_stale | removed_from_roster | identity_invalidated | show_unavailable | infra_error`. The `identity_invalidated` arm carries `{ expectedEpoch, expectedCrewMemberId, reason: 'claimed_after_pick' | 'email_ambiguous' }` per §6.1; consumers' switch statements MUST exhaustively handle both reasons. Imported by BOTH the page route AND every API consumer. **Does NOT import `validateGoogleSession`**. The structural allowlist in §10.1 enforces this split. **The 8-arm union is the canonical contract**; the §6.1 ordered chain is the implementation algorithm — both descriptions must match. The §10.2 stale-credential matrix test pins all 8 arms × all 6 API consumers.
-- `lib/auth/picker/resolveShowPageAccess.ts` (new, R41 Fix-3; R41-R3 pure-resolver; R41-R7: union enumerated; **R41-R12: unpublished-precedence corrected; R41-R13: identity_invalidated arms added**). **Page-route-only auth chain helper.** Called exclusively by `app/show/[slug]/[shareToken]/page.tsx`. Encapsulates the resolver chain **in this exact order**: archived → admin precedence → **unpublished (R41-R10 step 3.5 — MUST come before any Google-session branch to prevent the bootstrap-loop class)** → Google-session-matching-crew-row → existing picker cookie. The helper is defense-in-depth alongside the page-route's own ordered chain; the page can also pre-check published before calling the helper, but the helper MUST also enforce the ordering internally. Imports `validateGoogleSession`. **The helper is PURE — it never encodes cookies and never calls `cookies().set()`.** Returns a discriminated union of **EXACTLY TWELVE arms (R41-R13 — caller exhaustiveness checks fail if any arm is missing):**
+- `lib/auth/picker/resolvePickerSelection.ts` (new) — **the COOKIE-ONLY cookie-read + DB-validation helper.** Returns a discriminated union of **SEVEN discriminant `kind` values** (R41-R14 canonical wording — eight WIRE outcomes when `identity_invalidated.reason` is expanded): `resolved | no_selection | epoch_stale | removed_from_roster | identity_invalidated | show_unavailable | infra_error`. The `identity_invalidated` arm carries `{ expectedEpoch, expectedCrewMemberId, reason: 'claimed_after_pick' | 'email_ambiguous' }` per §6.1; consumers' switch statements MUST exhaustively handle BOTH the 7 kinds AND the 2 reasons inside `identity_invalidated` (the `assertNever` exhaustiveness check fires on either dimension). Imported by BOTH the page route AND every API consumer. **Does NOT import `validateGoogleSession`**. The structural allowlist in §10.1 enforces this split. **The 7-kind / 8-outcome union is the canonical contract**; the §6.1 ordered chain is the implementation algorithm — both descriptions must match. The §10.2 stale-credential matrix test pins all 8 outcomes × all 6 API consumers (kind=identity_invalidated tested with both reasons).
+- `lib/auth/picker/resolveShowPageAccess.ts` (new, R41 Fix-3; R41-R3 pure-resolver; R41-R7: union enumerated; **R41-R12: unpublished-precedence corrected; R41-R13: identity_invalidated arm added; R41-R14: kind/outcome wording harmonized**). **Page-route-only auth chain helper.** Called exclusively by `app/show/[slug]/[shareToken]/page.tsx`. Encapsulates the resolver chain **in this exact order**: archived → admin precedence → **unpublished (R41-R10 step 3.5 — MUST come before any Google-session branch to prevent the bootstrap-loop class)** → Google-session-matching-crew-row → existing picker cookie. The helper is defense-in-depth alongside the page-route's own ordered chain; the page can also pre-check published before calling the helper, but the helper MUST also enforce the ordering internally. Imports `validateGoogleSession`. **The helper is PURE — it never encodes cookies and never calls `cookies().set()`.** Returns a discriminated union of **EXACTLY ELEVEN discriminant `kind` values** (R41-R14 canonical wording — twelve WIRE outcomes when `identity_invalidated.reason` is expanded; caller exhaustiveness checks fail if any kind OR reason is missing):
 
   1. `{ kind: 'archived' }` — show is archived; page renders 404.
   2. `{ kind: 'admin' }` — admin precedence; page renders admin mode.
@@ -478,7 +492,7 @@ The parent spec's Realtime contract (broadcast topic `show:<showId>:invalidation
   11. `{ kind: 'show_unavailable' }` — show became archived or unpublished after cookie was minted; page renders terminal failure or 404 depending on context.
   12. `{ kind: 'infra_error', code }` — DB read failed; page renders terminal-failure UI with the cataloged code.
 
-  The R41-R2 `justMinted` arm and the cookie-encoder import are DELETED. **A static guard** asserts `resolveShowPageAccess.ts` does NOT import the picker cookie encoder NOR `cookies` from `next/headers`. **API consumers MUST NOT import this helper** — the no-jwt-surface meta-test asserts the only consumer is the show-page route handler. **Exhaustiveness check**: a TypeScript `assertNever(kind)` at the bottom of the page-route switch fails compilation if any arm is missed; `tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts` exercises each of the 12 arms (R41-R13 expanded from 11 to add `identity_invalidated`) with fixture inputs and asserts the page-route handler produces the documented response (404 / redirect / render with banner / render `_ShowBody`).
+  The R41-R2 `justMinted` arm and the cookie-encoder import are DELETED. **A static guard** asserts `resolveShowPageAccess.ts` does NOT import the picker cookie encoder NOR `cookies` from `next/headers`. **API consumers MUST NOT import this helper** — the no-jwt-surface meta-test asserts the only consumer is the show-page route handler. **Exhaustiveness check**: a TypeScript `assertNever(kind)` at the bottom of the page-route switch fails compilation if any kind is missed; inside the `identity_invalidated` arm, a nested `assertNever(reason)` fails on missing reason. `tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts` exercises each of the **12 distinct outcomes** (11 kinds × 1 outcome each + identity_invalidated's 2 reasons = 12 total wire-distinct cases — R41-R14 wording sync) with fixture inputs and asserts the page-route handler produces the documented response (404 / redirect / render with banner / render `_ShowBody`).
 - `lib/auth/picker/selectIdentity.ts` (new) — the Server Action.
 - `lib/auth/picker/clearIdentity.ts` (new) — the Server Action.
 - `lib/auth/picker/resetPickerEpoch.ts` (new) — admin-only Server Action.
