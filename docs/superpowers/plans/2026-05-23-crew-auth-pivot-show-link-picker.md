@@ -289,9 +289,12 @@ describe('reset_picker_epoch_atomic RPC', () => {
     expect(error?.code).toBe('42501');
   });
 
-  it('raises on missing show', async () => {
-    const supabase = createSupabaseServiceRoleClient();
-    const { error } = await supabase
+  it('raises P0002 on missing show (cookie-bound admin path; R10-F3)', async () => {
+    // Service-role isn't is_admin() → would 42501. Use admin fixture
+    // so the function passes the admin gate, then hits the missing-show
+    // branch and raises P0002.
+    const adminClient = await createTestAdminCookieBoundClient();
+    const { error } = await adminClient
       .rpc('reset_picker_epoch_atomic', { p_show_id: '00000000-0000-0000-0000-000000000000' });
     expect(error?.code).toBe('P0002');
   });
@@ -1478,6 +1481,10 @@ export async function cleanupStaleEntry(formData: FormData) {
   return cleanupStaleEntryCore({ slug, shareToken, showId, expectedEpoch, expectedCrewMemberId });
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
+const TOKEN_RE = /^[0-9a-f]{64}$/;
+
 export async function cleanupStaleEntryCore(input: {
   slug: string;
   shareToken: string;
@@ -1485,7 +1492,14 @@ export async function cleanupStaleEntryCore(input: {
   expectedEpoch: number;
   expectedCrewMemberId: string;
 }) {
-  // [...validate UUIDs/slug/token per B4 contract...]
+  // R10-F2: inline validation (do NOT defer to a comment placeholder).
+  if (!SLUG_RE.test(input.slug)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  if (!TOKEN_RE.test(input.shareToken)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  if (!UUID_RE.test(input.showId)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  if (!UUID_RE.test(input.expectedCrewMemberId)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  if (!Number.isInteger(input.expectedEpoch) || input.expectedEpoch < 0) {
+    return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  }
 
   const key = pickerCookieSigningKey();
   const cookieStore = await cookies();
@@ -2388,7 +2402,7 @@ Each matched item gets a paired `DROP FUNCTION/TRIGGER/POLICY IF EXISTS` line (w
 
 The implementer's grep-derived list MUST cover at least these eight categories; gaps are caught by Task G3.
 
-**R7-F2 STRICT REQUIREMENT**: the scaffold below is illustrative ONLY. Function signatures shown are likely WRONG against the live schema. Before writing the migration, the implementer MUST query `pg_proc` directly and generate the exact DROP list:
+**R7-F2 + R10-F1 STRICT REQUIREMENT**: the scaffold below is illustrative ONLY. Function signatures shown are likely WRONG against the live schema. Before writing the migration, the implementer MUST query `pg_proc` directly and generate the exact DROP list. **A pre-apply test gate (added below) FAILS if the migration contains any `drop table public.<jwt-era-table>` line without a paired non-commented `drop function` block for every M9.5 RPC the migration is supposed to drop.** This makes the table drop structurally dependent on the function drops:
 
 ```sql
 -- Run this against the dev DB FIRST. Copy the output verbatim into the migration:
@@ -2441,6 +2455,67 @@ drop table if exists public.link_sessions cascade;
 drop table if exists public.bootstrap_nonces cascade;
 drop table if exists public.revoked_links cascade;
 drop table if exists public.crew_member_auth cascade;
+```
+
+### Task G2-pre: Pre-apply cutover-migration gate test (R10-F1)
+
+**Files:**
+- Create: `tests/db/cutover-migration-gate.test.ts`
+
+This test runs BEFORE the cutover migration applies (in the same CI/test command). It reads the cutover migration file and asserts:
+
+```ts
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+
+describe('cutover migration gate (R10-F1)', () => {
+  const path = 'supabase/migrations/20260523000099_cutover_drop_m9_5.sql';
+  const sql = fs.readFileSync(path, 'utf8');
+
+  it('drops the M9.5 tables', () => {
+    expect(sql).toMatch(/drop table if exists public\.link_sessions/);
+    expect(sql).toMatch(/drop table if exists public\.bootstrap_nonces/);
+    expect(sql).toMatch(/drop table if exists public\.revoked_links/);
+    expect(sql).toMatch(/drop table if exists public\.crew_member_auth/);
+  });
+
+  it('drops every required M9.5 RPC family BEFORE the table drops', () => {
+    // Required RPC name patterns (broadened beyond R7-F2 scaffold).
+    const required = [
+      /drop function if exists public\.mint_link_session/i,
+      /drop function if exists public\.revoke_leaked_link/i,
+      /drop function if exists public\.revoke_all_link/i,
+      /drop function if exists public\.issue_new_link/i,
+      /drop function if exists public\.recheck_link_session/i,
+      /drop function if exists public\.consume_bootstrap_nonce/i,
+      /drop function if exists public\.mint_bootstrap_nonce/i,
+      /drop function if exists public\.cleanup_bootstrap_nonces/i,
+    ];
+    for (const re of required) {
+      expect(sql, `Missing required DROP for ${re}`).toMatch(re);
+    }
+  });
+
+  it('every required DROP FUNCTION is NOT in a comment line', () => {
+    const required = [
+      'mint_link_session', 'revoke_leaked_link', 'revoke_all_link',
+      'issue_new_link', 'recheck_link_session',
+      'consume_bootstrap_nonce', 'mint_bootstrap_nonce', 'cleanup_bootstrap_nonces',
+    ];
+    const lines = sql.split('\n');
+    for (const name of required) {
+      const live = lines.find((l) => /^\s*drop function/i.test(l) && l.includes(name));
+      expect(live, `${name} DROP FUNCTION must NOT be commented out`).toBeDefined();
+    }
+  });
+});
+```
+
+The CI command order MUST be: this gate test → apply migration → G3 post-application verification. If the gate fails, the migration does NOT apply.
+
+```bash
+git add tests/db/cutover-migration-gate.test.ts
+git commit -m "test(db): pre-apply cutover-migration gate (R10-F1; G2-pre)"
 ```
 
 ### Task G3: Post-cutover schema verification test
