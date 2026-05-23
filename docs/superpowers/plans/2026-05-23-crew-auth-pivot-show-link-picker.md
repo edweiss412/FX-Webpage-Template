@@ -1789,8 +1789,16 @@ export default async function ShowPage({
   }
   if (admin.ok) {
     // Admin precedence — render as admin without going through picker.
+    // R13-F3: wrap getShowForViewer in try/catch (same posture as the
+    // crew branch); admin outages get the cataloged terminal-failure
+    // UI, not an uncataloged framework error.
     const viewer = { kind: 'admin' as const };
-    const data = await getShowForViewer(showId as string, viewer);
+    let data;
+    try {
+      data = await getShowForViewer(showId as string, viewer);
+    } catch {
+      return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+    }
     return (
       <ShowBody
         slug={slug}
@@ -2144,7 +2152,7 @@ git commit -am "feat(ui): IdentityChip + ShowBody integration (C4)"
 `resolvePickerSelection` takes `{ showId, cookie }`. The slug-based routes (`/api/show/[slug]/version`, `/api/realtime/subscriber-token` whose request body carries the show_id, `/api/report` similar) need a derivation step that maps the URL/body identifier to a `show_id` UUID BEFORE calling the resolver. The contract:
 
 - **`/api/show/[slug]/version`**: `params.slug` arrives in the URL. The route MUST call `resolve_show_by_slug_and_token`-OR-`SELECT id FROM shows WHERE slug = $1 LIMIT 1` (no share-token in this URL — admin-and-cookie auth go through different code paths, but the version endpoint doesn't carry the share-token). Wait — per the spec, the version endpoint requires a picker cookie OR admin session; the picker cookie alone proves possession of the show-link. The route does NOT re-validate the share-token because the cookie's HMAC signature + `e === shows.picker_epoch` already proves the cookie came from a valid selection. So the route does `SELECT id FROM shows WHERE slug = $1` (slug-only lookup), gets the show_id, then calls `resolvePickerSelection({ showId, cookie })`. Missing-slug → 404 (matches the page route's contract for unknown slugs). DB infra fault → 500 + cataloged code.
-- **`/api/realtime/subscriber-token`**: request body carries `show_id` (UUID) directly per the existing route contract. No slug derivation needed.
+- **`/api/realtime/subscriber-token`**: per the LIVE route contract (verified via grep), the request body carries `{ slug }`, not `show_id`. R13-F2 amendment: the route MUST do `SELECT id FROM shows WHERE slug = $1 LIMIT 1` to derive show_id, then call `resolvePickerSelection({ showId, cookie })`. Do NOT change the request body shape — `ShowRealtimeBridge` posts `{ slug }` and changing it would require a coordinated client update. Missing slug → 404. DB infra fault → 500 with cataloged code.
 - **`/api/asset/{diagram,reel,agenda}/[show]/...`**: `params.show` is the show UUID per R34. No derivation needed.
 - **`/api/report`**: request body carries `show_id`.
 
@@ -2314,6 +2322,41 @@ git commit -am "feat(admin): Reset Picker Epoch button (F2)"
 ```
 
 ---
+
+### Task F2.5: Add `<CurrentShareLinkPanel>` admin component (R13-F1)
+
+**Files:**
+- Create: `app/admin/show/[slug]/CurrentShareLinkPanel.tsx`
+- Create: `lib/data/loadShowShareToken.ts` (admin-only read path; SECURITY DEFINER RPC `admin_read_share_token(p_show_id uuid) returns text` + JS helper)
+- Create: `supabase/migrations/20260523000010_admin_read_share_token.sql` (the read RPC)
+- Test: `tests/components/CurrentShareLinkPanel.test.tsx`
+
+The pivot makes `show_share_tokens` private (REVOKE ALL from anon/authenticated) so it's not directly SELECTable. Admin UI needs a read path to display the current share URL so Doug can copy and share. Without this, after migration the share URL exists in the DB but nowhere in the UI — Doug has no way to obtain it short of querying the DB directly.
+
+**SQL:**
+```sql
+-- supabase/migrations/20260523000010_admin_read_share_token.sql
+create or replace function public.admin_read_share_token(p_show_id uuid)
+  returns text
+  language sql
+  stable
+  security definer
+  set search_path = public, pg_temp
+as $$
+  select case when public.is_admin() then t.share_token else null end
+    from public.show_share_tokens t
+   where t.show_id = p_show_id
+   limit 1
+$$;
+revoke all on function public.admin_read_share_token(uuid) from public;
+grant execute on function public.admin_read_share_token(uuid) to authenticated, service_role;
+```
+
+**Component:** displays the canonical share URL `https://crew.fxav.show/show/<slug>/<token>` (or the env-configured origin) with a Copy button. Updates after Rotate (via revalidate). Tests: (a) loads token + renders URL; (b) non-admin → no token (RPC returns null → component renders an error state); (c) post-rotate URL reflects the new token.
+
+```bash
+git commit -am "feat(admin): CurrentShareLinkPanel + admin_read_share_token RPC (R13-F1; F2.5)"
+```
 
 ### Task F3: Add `<RotateShareTokenButton>` admin component (R39)
 
