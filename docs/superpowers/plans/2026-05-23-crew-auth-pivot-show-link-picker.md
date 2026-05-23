@@ -2456,6 +2456,42 @@ The implementer picks (a) if the helper has no other call sites; (b) if some non
 git commit -am "refactor(data): drop loadShowCrewWithAuth (or rename to loadShowCrew); G0d"
 ```
 
+### Task G0e0: Refactor `app/auth/sign-out/route.ts` — drop validateLinkSession import (R15-F1)
+
+**Files:**
+- Modify: `app/auth/sign-out/route.ts`
+- Test: `tests/api/sign-out.test.ts` (extend)
+
+Pre-pivot, sign-out imports `deleteSession` from `lib/auth/validateLinkSession.ts` (line 9) and calls it (line 127) to remove the `link_sessions` row. Post-pivot:
+- `link_sessions` table is dropped (G2).
+- `__Host-fxav_session` cookie is also gone (replaced by `__Host-fxav_picker`).
+- Sign-out's job is now ONLY to clear the Supabase Auth session via `supabase.auth.signOut()`. The picker cookie is NOT cleared on sign-out (per Resolved Decision 15 — the picker cookie is a separate identity contract).
+
+```ts
+// app/auth/sign-out/route.ts (post-pivot)
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
+
+export const runtime = 'nodejs';
+
+export async function POST() {
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut();
+  // Picker cookie intentionally NOT cleared per Resolved Decision 15.
+  return NextResponse.redirect(new URL('/', process.env.NEXT_PUBLIC_SITE_ORIGIN!), { status: 302 });
+}
+
+export function GET() {
+  return new NextResponse(null, { status: 405 });
+}
+```
+
+Tests: (a) POST clears Supabase Auth session and 302s to `/`; (b) GET returns 405; (c) no `__Host-fxav_picker` Set-Cookie is emitted; (d) post-rewrite, `validateLinkSession` is no longer imported anywhere in `app/**`.
+
+```bash
+git commit -am "refactor(auth): sign-out no longer imports validateLinkSession (R15-F1; G0e0)"
+```
+
 ### Task G0e1: Refactor audit/lib references (R8-F2)
 
 **Files:**
@@ -2478,6 +2514,8 @@ git commit -am "refactor(audit): purge M9.5 references from audit + me helpers (
 ```
 
 ### Task G0e: Verification — pre-cutover no-jwt-surface dry-run
+
+> **R15-F2 ordering correction**: Task H2 (`tests/cross-cutting/no-jwt-surface.test.ts`) is the gate test referenced here. H2 was originally scheduled in Phase H (after Phase G), which would prevent this dry-run from working. **Move H2 to land BEFORE G0e** — the test file is created early (right after Phase B, before Phase G work starts) so the dry-run gate exists when G0e runs. The H2 test passes once all G0a–G0e1 refactors land. Re-sequenced phase order: A → B → H2 (only; other H tasks stay in Phase H) → C → D → E → F → G0a–G0e1 → G0e (dry-run) → G1 → G2 → G3 → remaining H tasks → I.
 
 Before applying the G2 migration, run the H2 meta-test (no-jwt-surface) against the working tree EXCLUDING migrations. It MUST pass: zero references to `crew_member_auth`, `link_sessions`, `bootstrap_nonces`, `revoked_links`, `validateLinkSession`, etc. in `app/**`, `lib/**`, `components/**`, `middleware.ts`. If anything still references those identifiers, add a G0f/G0g/... task to fix it BEFORE the cutover.
 
@@ -2816,7 +2854,32 @@ git commit -am "test(meta): adminAlertCatalog updated for picker codes (H7)"
 
 ---
 
-## Phase I: Adversarial review + close-out
+## Phase I: Impeccable v3 gate + adversarial review + close-out
+
+### Task I0: Impeccable v3 critique + audit (R15-F3 — AGENTS.md invariant 8 mandate)
+
+**MANDATORY before any adversarial review or execution handoff.** AGENTS.md invariant 8: "Every UI surface ships only after `/impeccable critique` AND `/impeccable audit` pass on the affected diff, with HIGH and CRITICAL findings either fixed or explicitly deferred via a `DEFERRED.md` entry." The pivot ships multiple UI surfaces:
+- `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` (C2)
+- `app/show/[slug]/[shareToken]/_StaleCleanupAutoSubmit.tsx` (C3)
+- `components/auth/IdentityChip.tsx` (C4)
+- `components/auth/TerminalFailure.tsx` (C0)
+- `components/admin/PerShowCrewSection.tsx` (F1)
+- `app/admin/show/[slug]/ResetPickerEpochButton.tsx` (F2)
+- `app/admin/show/[slug]/CurrentShareLinkPanel.tsx` (F2.5)
+- `app/admin/show/[slug]/RotateShareTokenButton.tsx` (F3)
+- `components/realtime/ShowRealtimeBridge.tsx` (D3.5 modification)
+
+Run BOTH commands externally (per `feedback_impeccable_external_attestation_required` memory: self-attestation by the Opus session that wrote the UI fails the v3 §1.8 gate):
+
+```bash
+# In a fresh subagent OR user-invoked session:
+/impeccable critique
+/impeccable audit
+```
+
+Record findings + dispositions in the milestone's handoff doc §12 (or DEFERRED.md if applicable). HIGH and CRITICAL findings either fixed in-place or explicitly deferred via DEFERRED.md entry. Re-run the gates after any UI fix per `feedback_impeccable_external_attestation_required` ("fires on every UI mutation including post-review fix commits").
+
+**Do not proceed to I1/I2/I3 until impeccable gates pass.**
 
 ### Task I1: Plan self-review
 
