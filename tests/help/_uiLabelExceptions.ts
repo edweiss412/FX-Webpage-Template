@@ -252,28 +252,29 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   },
 
   // ─── app/help/admin/sharing-links/page.mdx ───
-  // Heuristic already flags `Issue first link`, `Issue new link`,
-  // `Copy share link` (all M11-E-D1). Add the prose-only mentions for
-  // explicit declaration too.
+  // Sharing-link control labels. M9.5 shipped Issue first link / Issue new
+  // link / Revoke all links (DEFERRED.md M11-E-D1 line 119 ratification
+  // 2026-05-21 at tag m9.5-completed). Copy share link remains deferred
+  // per BL-COPY-SHARE-LINK. Notes updated per Phase I Codex R11 finding 2.
   {
     label: "Issue first link",
     file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — M11-E-D1 (M9 deferred).",
+    note: "Sharing-link control — M9.5-shipped at app/admin/show/[slug]/IssueLinkButton.tsx:49.",
   },
   {
     label: "Issue new link",
     file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — M11-E-D1 (M9 deferred).",
+    note: "Sharing-link control — M9.5-shipped at app/admin/show/[slug]/IssueLinkButton.tsx:49 (label renders when prior link version exists).",
   },
   {
     label: "Copy share link",
     file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — M11-E-D1 (M9 deferred).",
+    note: "Sharing-link control — backlog per BL-COPY-SHARE-LINK; companion exemption in UI_LABEL_EXCEPTIONS still active.",
   },
   {
     label: "Revoke all links",
     file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — M11-E-D1 (M9 deferred).",
+    note: "Sharing-link control — M9.5-shipped at app/admin/show/[slug]/RevokeAllLinksButton.tsx:133 (per-row control; revokes every link version ever issued for that crew member).",
   },
 
   // ─── app/help/tour/page.mdx ───
