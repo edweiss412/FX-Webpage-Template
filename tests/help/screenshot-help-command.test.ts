@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const packageJsonPath = join(process.cwd(), "package.json");
-const playwrightConfigPath = join(process.cwd(), "playwright.config.ts");
+// Per I.2 finding 1: screenshots-help-capture lives ONLY in the dedicated
+// screenshots config — keeping it out of the default playwright.config.ts
+// prevents `pnpm test:e2e` from accidentally overwriting committed x64
+// WebP baselines with host-architecture bytes.
+const playwrightConfigPath = join(process.cwd(), "playwright.screenshots.config.ts");
+const defaultPlaywrightConfigPath = join(process.cwd(), "playwright.config.ts");
 const captureSpecPath = join(process.cwd(), "tests/e2e/screenshots-help-capture.spec.ts");
 const workflowPath = join(process.cwd(), ".github/workflows/screenshots-drift.yml");
 const seedPath = join(process.cwd(), "supabase/seed.ts");
@@ -23,13 +28,24 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
     );
   });
 
-  it("declares screenshots-help-capture as a dependent Playwright project on port 3004", () => {
+  it("declares screenshots-help-capture as a dependent Playwright project on port 3004 in the SCREENSHOTS config", () => {
     const config = readFileSync(playwrightConfigPath, "utf8");
 
     expect(config).toContain('name: "screenshots-help-capture"');
     expect(config).toContain("testMatch: /screenshots-help-capture\\.spec\\.ts/");
     expect(config).toContain('dependencies: ["screenshots-help-setup"]');
     expect(config).toContain('baseURL: "http://localhost:3004"');
+  });
+
+  it("does NOT declare screenshots-help-capture in the default playwright.config.ts (I.2 finding 1)", () => {
+    // `pnpm test:e2e` uses the default config. If the WebP-writing capture
+    // project lived there, any dev or CI step running the bare e2e command
+    // would silently overwrite the committed x64-Linux baselines with
+    // host-architecture bytes. Pin the absence structurally.
+    const defaultConfig = readFileSync(defaultPlaywrightConfigPath, "utf8");
+
+    expect(defaultConfig).not.toContain('name: "screenshots-help-capture"');
+    expect(defaultConfig).not.toContain("screenshots-help-capture\\.spec\\.ts");
   });
 
   it("runs captureAll from a real Playwright spec file", () => {

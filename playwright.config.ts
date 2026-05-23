@@ -130,25 +130,12 @@ export default defineConfig({
         viewport: { width: 1280, height: 800 },
       },
     },
-    {
-      name: "screenshots-help-capture",
-      testMatch: /screenshots-help-capture\.spec\.ts/,
-      dependencies: ["screenshots-help-setup"],
-      use: {
-        ...devices["Desktop Chrome"],
-        baseURL: "http://localhost:3004",
-        colorScheme: "light",
-        contextOptions: {
-          reducedMotion: "reduce",
-        },
-        launchOptions: {
-          args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
-        },
-        locale: "en-US",
-        timezoneId: "America/New_York",
-        viewport: { width: 1280, height: 800 },
-      },
-    },
+    // Note: the WebP-writing `screenshots-help-capture` project lives ONLY
+    // in `playwright.screenshots.config.ts`. Keeping it out of the default
+    // config means `pnpm test:e2e` cannot inadvertently overwrite the
+    // committed x64-Linux WebP baselines with host-architecture bytes
+    // (the byte-comparison CI gate discipline — Phase F r3 / r5).
+    // `pnpm screenshot:help` remains the only path that runs captureAll().
     {
       name: "help-docs-setup",
       testMatch: /help-docs-setup\.ts/,
