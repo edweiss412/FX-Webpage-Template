@@ -629,7 +629,10 @@ describe('viewer_version_token (rewritten)', () => {
 ```sql
 -- supabase/migrations/20260523000006_viewer_version_token_rewrite.sql
 -- R5/R7: replace crew_member_auth term (table deleted in Phase G)
--- with picker_epoch_bumped_at. Same string-returning signature.
+-- with picker_epoch_bumped_at. R17-F2: also append the monotonic
+-- picker_epoch counter to the returned token so two rapid bumps in
+-- the same millisecond produce distinct version tokens. Same
+-- string-returning signature.
 
 create or replace function public.viewer_version_token(p_show_id uuid)
   returns text
@@ -645,9 +648,15 @@ as $$
               from public.crew_members where show_id = p_show_id), 0),
     coalesce((select extract(epoch from picker_epoch_bumped_at) * 1000
               from public.shows where id = p_show_id), 0)
-  ), 'FM999999999999999');
+  ), 'FM999999999999999')
+  -- R17-F2: append picker_epoch counter (monotonic, increments by 1
+  -- per reset/rotate). Two bumps within the same millisecond still
+  -- produce distinct tokens because the counter advances.
+  || '-' || coalesce((select picker_epoch::text from public.shows where id = p_show_id), '0');
 $$;
 ```
+
+Regression test in A6: spawn two reset_picker_epoch_atomic calls back-to-back; assert viewer_version_token returns a DIFFERENT value after each one, even if their picker_epoch_bumped_at timestamps fall within the same millisecond.
 
 - [ ] **Step 5: Commit**
 
@@ -2199,8 +2208,9 @@ git commit -am "feat(ui): IdentityChip + ShowBody integration (C4)"
 
 `resolvePickerSelection` takes `{ showId, cookie }`. The slug-based routes (`/api/show/[slug]/version`, `/api/realtime/subscriber-token` whose request body carries the show_id, `/api/report` similar) need a derivation step that maps the URL/body identifier to a `show_id` UUID BEFORE calling the resolver. The contract:
 
-- **`/api/show/[slug]/version`**: `params.slug` arrives in the URL. The route MUST call `resolve_show_by_slug_and_token`-OR-`SELECT id FROM shows WHERE slug = $1 LIMIT 1` (no share-token in this URL — admin-and-cookie auth go through different code paths, but the version endpoint doesn't carry the share-token). Wait — per the spec, the version endpoint requires a picker cookie OR admin session; the picker cookie alone proves possession of the show-link. The route does NOT re-validate the share-token because the cookie's HMAC signature + `e === shows.picker_epoch` already proves the cookie came from a valid selection. So the route does `SELECT id FROM shows WHERE slug = $1` (slug-only lookup), gets the show_id, then calls `resolvePickerSelection({ showId, cookie })`. Missing-slug → 404 (matches the page route's contract for unknown slugs). DB infra fault → 500 + cataloged code.
-- **`/api/realtime/subscriber-token`**: per the LIVE route contract (verified via grep), the request body carries `{ slug }`, not `show_id`. R13-F2 amendment: the route MUST do `SELECT id FROM shows WHERE slug = $1 LIMIT 1` to derive show_id, then call `resolvePickerSelection({ showId, cookie })`. Do NOT change the request body shape — `ShowRealtimeBridge` posts `{ slug }` and changing it would require a coordinated client update. Missing slug → 404. DB infra fault → 500 with cataloged code.
+- **`/api/show/[slug]/version`**: `params.slug` arrives in the URL. The route does `SELECT id FROM shows WHERE slug = $1 LIMIT 1` to derive show_id. **R17-F1: unknown-slug returns 401, NOT 404**, so unauthenticated callers cannot distinguish "real private show slug" from "non-existent slug" without possessing the share-token (which they don't present to this endpoint). The route's response matrix collapses unknown-slug + invalid-cookie + no-cookie all into 401. Only authenticated callers (valid picker cookie OR admin session) get to the 200/410/500 paths. DB infra fault → 500. (The page route at `/show/<slug>/<shareToken>` still uses 404 for unknown-slug because the share-token is required to reach it; the leak only applies to slug-only API routes.)
+- **`/api/realtime/subscriber-token`**: same posture per R13-F2 — body carries `{ slug }`; route does SELECT id FROM shows WHERE slug to derive show_id. **R17-F1: unknown-slug → 401**, same rationale.
+- **`/api/realtime/subscriber-token`** (duplicate kept-in-sync section, see above): body `{ slug }` → SELECT id; **R17-F1: missing slug → 401** (not 404). Do NOT change body shape.
 - **`/api/asset/{diagram,reel,agenda}/[show]/...`**: `params.show` is the show UUID per R34. No derivation needed.
 - **`/api/report`**: request body carries `show_id`.
 
