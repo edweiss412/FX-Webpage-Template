@@ -84,7 +84,7 @@ Each decision is owner-determined; cite by number from this list in the implemen
 
 16. **Sign-in-or-skip interstitial gate (R41 amendment).** When `/show/<slug>/<share-token>` resolves but none of {admin, Google session matching a crew row for this show, valid picker cookie} succeeds, the route renders a new gate component `<SignInOrSkipGate>`. Layout: brand strip + show identifier + two clear actions — **primary: "Skip and pick your name"** (server-driven navigation that re-enters the route with a `?gate=skip` flag the route handler reads as permission to render the picker interstitial); **secondary: "Sign in with Google"** (initiates the OAuth flow with the current tokenized URL as the post-callback destination). The skip-CTA is primary because the workflow's default audience (most crew most of the time) just wants to see their call time; sign-in is the opt-in upgrade. Anti-pattern: making sign-in feel mandatory or making skip hard to find — the gate is not a wall. Detailed UX in §7.
 
-17. **Login skips the picker entirely.** If `validateGoogleSession` resolves to a session whose `auth.users.email` matches a `crew_members` row for the route's `show_id`, the route handler mints the picker cookie directly (`crew_member_id` = the matched row's id; `e` = current `picker_epoch`; `t` = now) and renders the `_ShowBody.tsx` body without rendering the picker interstitial. The cookie's HMAC signature is the same as a picker-mint cookie; downstream API routes can't tell the two paths apart, which is intentional (identity is identity regardless of mint path). One difference at the audit layer: the auth-callback handler stamps `claimed_via_oauth_at` (per §4.8), so the next picker render across any device will deactivate this crew member's row in the bypass picker.
+17. **Login skips the picker entirely (R41-R2 revised — two-stage flow).** When a user signs in via Google OAuth, the auth callback handler (a legal cookie mutator per Next App Router) does TWO things in addition to setting the Supabase Auth session: (a) stamps `claimed_via_oauth_at` on every matching `crew_members` row via `claim_oauth_identity` under per-show advisory locks (§4.8 + §5.3); (b) mints the picker cookie envelope with entries for EVERY show the user is on, using the matched crew_member_ids, current picker_epochs, and now as `t`. The callback then redirects to the validated `next` URL. When the user lands on `/show/<slug>/<share-token>`, the picker cookie ALREADY contains an entry for that show, so step 6 of §4.1 catches it and renders `_ShowBody` immediately. The cookie's HMAC signature is the same as a `selectIdentity`-mint cookie; downstream API routes can't tell the two paths apart, which is intentional (identity is identity regardless of mint path). **Edge case — Google-signed-in user visits a show they weren't on at sign-in time** (e.g., Doug added them after sign-in, or they visit from `/me` for a new show): the cookie lacks an entry for the new show; §4.1 step 4 detects this and redirects to `/api/auth/picker-bootstrap` (a Route Handler, also a legal cookie mutator), which mints the missing entry and 302s back. One difference at the audit layer: the callback handler stamps `claimed_via_oauth_at`, so the next picker render across any device will deactivate this crew member's row in the bypass picker.
 14. **Server Action drives selection.** `selectIdentity({ slug, shareToken, crewMemberId })` (Next 16 App Router idiom). **R37 amendment**: the action MUST receive AND re-validate the share-token before minting a cookie — calling the action with `{ showId, crewMemberId }` alone would let anyone with show/crew UUIDs forge a signed picker cookie, bypassing the share-token gate the page route enforces. The action invokes `resolve_show_by_slug_and_token(slug, shareToken)` server-side and gets back the `show_id` (or NULL → reject). Then validates the `crewMemberId` is in the current roster for that `show_id`, validates the show is published + not archived, reads current `shows.picker_epoch`, mutates the cookie via `Set-Cookie` header in the response (HMAC-signed envelope per Decision 4), calls `revalidatePath`. The picker form embeds `slug` and `shareToken` as hidden inputs sourced from the route params (which the page-route resolver already validated).
 
 ---
@@ -128,16 +128,21 @@ Crew taps `/show/<slug>/<share-token>` in group thread
 │     R41-R1 Fix-3 structural split).                          │
 │     Internally calls validateGoogleSession(req). If session  │
 │     exists AND its auth.users.email matches a row in         │
-│     crew_members for THIS show_id, AND the show is published:│
-│       - Mint picker cookie for { showId, crewMemberId:       │
-│         matched row's id, e: current picker_epoch, t: now }  │
-│         via Set-Cookie header.                               │
-│       - getShowForViewer(showId, { kind: 'crew',             │
-│           crewMemberId: matched row's id })                  │
-│       - Render <_ShowBody data={...} identityChip={...} />.  │
-│       - Skip the picker entirely. R41 path: login is the     │
-│         identity-verified upgrade; signed-in crew never see  │
-│         the picker for shows they're on.                     │
+│     crew_members for THIS show_id, AND the show is published,│
+│     AND no picker cookie entry exists for this show_id yet:  │
+│       - Return { kind: 'needs_picker_bootstrap',             │
+│           next: <currentTokenizedURL> }.                     │
+│       - Page route calls redirect(                           │
+│           '/api/auth/picker-bootstrap?next=' + encoded next  │
+│         ) — Server Components CANNOT mint cookies (R41-R2    │
+│         CRITICAL repair); the Route Handler at the redirect  │
+│         target is the legal cookie mutator. After mint, that │
+│         handler 302s back to next; the next request hits     │
+│         step 6 with a fresh cookie and renders show body.    │
+│     If session exists AND the cookie ALREADY contains an     │
+│     entry for this show (typical when callback hook minted   │
+│     cookies for all the user's shows at sign-in) → fall      │
+│     through to step 6 (cookie path).                         │
 │     If session exists but email does NOT match any row in    │
 │     crew_members for this show → fall through to step 5      │
 │     (the signed-in user is on Doug's link but not on this    │
@@ -390,7 +395,8 @@ The parent spec's Realtime contract (broadcast topic `show:<showId>:invalidation
 ### 4.7 Component tree (post-pivot)
 
 - **Next route file structure (R35 amendment):** the crew route moves from `app/show/[slug]/page.tsx` to **`app/show/[slug]/[shareToken]/page.tsx`** — a nested dynamic segment. The slug-only `app/show/[slug]/page.tsx` is DELETED (no fallback render); a slug-only URL hits Next's 404. This makes the tokenized path the only possible crew route at the file-system level. The route component reads `params.slug` and `params.shareToken`, calls `resolveShowFromSlugAndToken(slug, shareToken)`, and proceeds with the existing auth chain.
-- `app/show/[slug]/[shareToken]/page.tsx` (new, replaces `app/show/[slug]/page.tsx`) — auth resolution + delegation. **R41 amendment**: imports `resolveShowPageAccess` (the page-route-only helper) which encapsulates the full chain (archived → admin → Google-session auto-resolve → picker cookie → unpublished). When the Google-session arm hits, the page handler reads `result.justMinted` and emits `Set-Cookie: __Host-fxav_picker=<envelope>` on the response before rendering `_ShowBody`. Admin precedence + `requireAdmin()` defense-in-depth at the top of the chain (per the old file's docstring at lines 27-35) is preserved verbatim.
+- `app/show/[slug]/[shareToken]/page.tsx` (new, replaces `app/show/[slug]/page.tsx`) — auth resolution + delegation. **R41-R2 amendment (CRITICAL repair)**: imports `resolveShowPageAccess` (the page-route-only helper) which encapsulates the full chain. **Server Components cannot emit `Set-Cookie`** (Next.js App Router contract — only Route Handlers, Server Actions, and Middleware can mutate cookies via `cookies().set()`); the page route therefore CANNOT mint a picker cookie directly when a Google session matches. Instead, when `resolveShowPageAccess` returns `{ kind: 'needs_picker_bootstrap', next: <current tokenized URL> }`, the page calls `redirect('/api/auth/picker-bootstrap?next=' + encodeURIComponent(currentURL))` from `next/navigation`. The new Route Handler `/api/auth/picker-bootstrap` (see next bullet) is a legal cookie mutator and mints the envelope before 302ing back. Admin precedence + `requireAdmin()` defense-in-depth at the top of the chain (per the old file's docstring at lines 27-35) is preserved verbatim.
+- `app/api/auth/picker-bootstrap/route.ts` (new, R41-R2 amendment) — Route Handler that legally mints `__Host-fxav_picker` for a Google-signed-in user. Flow: (1) read `next` from query params, validate against the same `validateNextParam.ts` allowlist as `/auth/sign-in`; (2) `validateGoogleSession(req)` — no session → redirect to `next` without setting any cookie (the page will then render its non-Google fallback chain); (3) for the show identified by `next`'s tokenized URL (slug+share-token re-validated via `resolve_show_by_slug_and_token`), SELECT the `crew_members` row whose email matches `auth.users.email` AND `show_id` matches the resolved show; (4) if a match exists AND `claimed_via_oauth_at IS NOT NULL` (defensive — should always be non-null after the callback hook stamped it), update the user's picker envelope entry for this `show_id` with `{ id: <crewMemberId>, e: <current picker_epoch>, t: <now> }` via `cookies().set('__Host-fxav_picker', ...)`; (5) 302 to `next`. If no match exists (Google-signed-in user not on this show's roster), 302 to `next` without setting a cookie — the page route then renders the SignInOrSkipGate naturally. **This Route Handler IS in the cookie-mutator allowlist** alongside `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`; the §10.1 picker-cookie-contract meta-test is extended to include it. The handler is rate-limited at the route level (idempotent reads-only on the DB side; only cookie writes; no user-controlled write beyond the validated `next` URL).
 - `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` (new, Server Component) — renders the picker. Reads the show's roster from `crew_members` via service-role client. Renders the `<form action={selectIdentity}>` markup. No client-side JavaScript needed for the picker itself. When the resolver returns `epoch_stale` or `removed_from_roster`, also mounts `<StaleCleanupAutoSubmit>` (below) once with the resolver's `expectedEpoch` and `expectedCrewMemberId`.
 - `app/show/[slug]/[shareToken]/_StaleCleanupAutoSubmit.tsx` (new, **client component** — the ONLY `'use client'` component in the picker tree) — renders an invisible `<form action={cleanupStaleEntry}>` with hidden inputs for `showId`, `expectedEpoch`, `expectedCrewMemberId`, and auto-submits on mount via `useEffect`. R25 amendment: this surface exists because cleanup form auto-submit requires client JS, which Server Components cannot provide.
 - `app/show/[slug]/[shareToken]/_ShowBody.tsx` (existing `_ShowBody.tsx` MOVED into the tokenized route directory) — unchanged in role-derived rendering. **Modified** to accept a new prop `identityChip: { name, role }` which it renders into the existing sub-header strip (the same slot that holds the show title today).
@@ -412,7 +418,7 @@ The parent spec's Realtime contract (broadcast topic `show:<showId>:invalidation
 
 **R16 amendment — middleware refresh is REMOVED from this spec.** Earlier drafts (R3–R15) specified a middleware-based sliding-TTL refresh that bumped the cookie's `t` and re-emitted `Max-Age=7776000` on every authenticated request. R16 surfaced an unfixable lost-update race: middleware decodes the request's cookie (which may be stale by the time the response is written), bumps one entry, and re-emits the WHOLE envelope. If a Server Action (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`) commits a newer envelope BETWEEN the in-flight request's cookie capture and the middleware's Set-Cookie response, the middleware response overwrites the Server Action's newer state. Because the browser stores a single `__Host-fxav_picker` cookie and the LAST `Set-Cookie` wins, this is unfixable without inventing a server-side authoritative store the pivot model deliberately does not have.
 
-**Single-mechanism contract (v1):** the cookie is mutated **only** by the three crew-side Server Actions — `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`. Each reads the current cookie, mutates the envelope in memory, and writes a fresh Set-Cookie with `Max-Age=7776000`. **`resetPickerEpoch` does NOT touch the cookie (R30 amendment)** — the admin Reset action mutates `shows.picker_epoch` server-side; existing cookies become stale-on-next-read via the `e` mismatch detected by `resolvePickerSelection`. Adding `resetPickerEpoch` to the cookie-mutator list would recreate the R16 lost-update race: an admin-side reset response could clobber a concurrent crew-side `selectIdentity` if the admin happened to share a browser profile with the crew member. Middleware does NOT touch the cookie. The middleware file `middleware.ts` is deleted entirely after the M9.5 compromise-event handler removal — or it remains as a no-op `export function middleware() { return NextResponse.next() }` if Next 16 requires a stub, with no cookie reads or writes.
+**Single-mechanism contract (v1) — R41-R2 expanded mutator list:** the cookie is mutated **only** by the five legal cookie-mutator surfaces: (a) three crew-side Server Actions — `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`; (b) two R41-R2 Route Handlers — `app/auth/callback/route.ts` (cookie-bootstrap after OAuth sign-in: mints entries for every show in the user's `claim_oauth_identity` result set) AND `app/api/auth/picker-bootstrap/route.ts` (per-show cookie-mint for Google-signed-in users visiting a show they weren't on at sign-in time). Each surface reads the current cookie, mutates the envelope in memory, and writes a fresh Set-Cookie with `Max-Age=7776000`. **Server Components CANNOT mutate cookies** — this is a Next App Router invariant (Server Components can read `cookies()` but `cookies().set(...)` throws in that context). The page route at `/show/<slug>/<share-token>` MUST therefore redirect to the Route Handler for any cookie mint that originates from a Server Component context (R41-R2 CRITICAL repair). **`resetPickerEpoch` does NOT touch the cookie (R30 amendment)** — the admin Reset action mutates `shows.picker_epoch` server-side; existing cookies become stale-on-next-read via the `e` mismatch detected by `resolvePickerSelection`. Adding `resetPickerEpoch` to the cookie-mutator list would recreate the R16 lost-update race. Middleware does NOT touch the cookie. The middleware file `middleware.ts` is deleted entirely after the M9.5 compromise-event handler removal — or it remains as a no-op stub if Next 16 requires one.
 
 **Same-origin / CSRF contract for picker Server Actions (R32/R33 amendment).** All three cookie-mutating Server Actions — `selectIdentity`, `clearIdentity`, `cleanupStaleEntry` — are unauthenticated state-changing endpoints (anyone with the show-link can invoke them, by design, to set their own picker selection). To prevent cross-site forged invocation, each action MUST validate that the request is same-origin. **Mechanism**: Next 16 Server Actions enforce same-origin by default — the framework compares the request's `Origin` header (or `Host` for non-CORS posts) against the canonical site origin and rejects mismatches BEFORE invoking the action body. **No `experimental.serverActions.allowedOrigins` config is added** (R33 amendment — an earlier draft incorrectly proposed adding `localhost:3000` to that list, which is an EXCEPTION list that BYPASSES the host-mismatch check; including dev origins in a production-shipped config would authorize forged posts from those origins). The pivot relies on the default same-origin enforcement that Next 16 already applies; the dev environment works because dev requests are themselves same-origin against `localhost:3000`. **Tests**: each cookie-mutator gets a negative-regression test that POSTs with an `Origin: https://attacker.example` header (simulated) and asserts (a) no Set-Cookie is emitted, (b) the response is Next.js's standard cross-origin rejection (typically 403), (c) the cookie's prior value is preserved. A production-config test asserts that `next.config.ts` does NOT contain `experimental.serverActions.allowedOrigins` keys for non-production origins.
 
@@ -438,28 +444,37 @@ When a user signs in via Google (Supabase Auth OAuth callback at `app/auth/callb
 // In app/auth/callback/route.ts, AFTER supabase.auth.exchangeCodeForSession() succeeds:
 const { data: { user } } = await supabase.auth.getUser();
 if (user?.email) {
-  // Service-role client; RPC body acquires per-show advisory locks for every
-  // affected show in deterministic drive_file_id order (see §5.3 SQL helper).
-  // Returns the count of rows newly stamped (>= 0).
-  const { data: claimedCount, error } = await serviceRole.rpc('claim_oauth_identity', { p_email: user.email });
+  // R41-R2: combined RPC stamps the column AND returns the user's full
+  // shows-with-crew-row set in one DB round-trip under per-show advisory locks.
+  // Returns { claimed_count, shows: { show_id, crew_member_id, picker_epoch }[] }.
+  const { data: result, error } = await serviceRole.rpc('claim_oauth_identity', { p_email: user.email });
   if (error) {
-    // Infra fault — log and continue. Sign-in still proceeds; the next callback
-    // will re-attempt the stamp. Surfaces via _metaInfraContract.test.ts.
     logger.error('claim_oauth_identity failed', { email: user.email, error });
-  } else if ((claimedCount ?? 0) > 0) {
-    // Emit OAUTH_IDENTITY_CLAIMED to admin_alerts only when rows were actually
-    // stamped — otherwise every admin sign-in spams the alert.
-    await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', { user_email: user.email, claimed_count: claimedCount });
+    // Don't block sign-in on infra fault; picker-bootstrap route handler will
+    // re-derive the user's shows on the next show-page visit.
+  } else {
+    if ((result?.claimed_count ?? 0) > 0) {
+      // Emit OAUTH_IDENTITY_CLAIMED admin alert only when rows were actually stamped.
+      await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', { user_email: user.email, claimed_count: result.claimed_count });
+    }
+    // Mint picker cookie envelope with entries for every show the user is on.
+    // This is the "login skips picker" mechanism (Decision 17). Route Handler
+    // is a legal cookie mutator per Next App Router; Server Components are not.
+    const envelope = buildPickerEnvelopeFromShows(result?.shows ?? []);
+    if (envelope.selections && Object.keys(envelope.selections).length > 0) {
+      cookies().set(PICKER_COOKIE_NAME, signEnvelope(envelope), PICKER_COOKIE_OPTIONS);
+    }
   }
-  // claimedCount === 0 → silent success (OAUTH_CLAIM_NO_ROWS, not cataloged).
 }
 ```
+
+**Why the RPC returns the shows set, not just claimed_count:** the callback handler needs to mint picker cookie entries for EVERY show the user has a crew_members row on — not just shows newly stamped this round. If the user signed in once before and is signing in again, `claimed_count` is 0 (rows already stamped) but the user still needs cookies for every show. The RPC's return signature is now `(claimed_count integer, shows jsonb)` — `claimed_count` for the alert decision, `shows` for the cookie mint. The `shows` field is derived from the same locked-set the UPDATE operates on (R41-R2 race-fix below).
 
 **SQL helper** (in the same migration as the new column):
 
 ```sql
 create or replace function public.claim_oauth_identity(p_email text)
-  returns integer
+  returns jsonb
   language plpgsql
   security definer
   set search_path = public, pg_temp
@@ -468,35 +483,68 @@ declare
   v_email text := lower(trim(p_email));
   v_drive_file_id text;
   v_claimed_count integer := 0;
+  v_shows jsonb;
 begin
   -- AGENTS.md invariant 2: every crew_members mutation runs under the
   -- per-show advisory lock. claim_oauth_identity touches rows across
-  -- MULTIPLE shows (same email may appear on several rosters), so we
-  -- acquire the lock for each affected show in a deterministic order
-  -- before issuing the UPDATE. Ordering by drive_file_id prevents
-  -- cross-transaction deadlock with any other multi-show writer.
+  -- MULTIPLE shows (same email may appear on several rosters).
+  --
+  -- R41-R2 race fix: we acquire locks for ALL shows the user has a crew
+  -- row on (not only unclaimed) so a concurrent INSERT for a new show
+  -- after lock-selection cannot slip through. The downstream UPDATE is
+  -- restricted to the locked show set via a CTE materialization — rows
+  -- on shows that appear AFTER this transaction's snapshot do not get
+  -- stamped this round; they wait until the next callback invocation.
   for v_drive_file_id in
     select distinct s.drive_file_id
       from public.crew_members cm
       join public.shows s on s.id = cm.show_id
      where cm.email = v_email
-       and cm.claimed_via_oauth_at is null
      order by s.drive_file_id
   loop
     perform pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
   end loop;
 
-  -- Now safe to update: every affected show is locked at the one
-  -- documented holder layer (this RPC body). Server Action wrapper
-  -- MUST NOT also wrap in lockedShowTx — the structural meta-test
-  -- pins single-holder topology.
-  update public.crew_members
-     set claimed_via_oauth_at = now()
-   where email = v_email
-     and claimed_via_oauth_at is null;
-  get diagnostics v_claimed_count = row_count;
+  -- Materialize the locked target set, then UPDATE only those crew_member rows.
+  -- A concurrent INSERT for a different show (not in locked_shows) cannot be
+  -- stamped by this statement because the WHERE clause filters by show_id
+  -- against the materialized set.
+  with locked_shows as (
+    select distinct s.id as show_id
+      from public.crew_members cm
+      join public.shows s on s.id = cm.show_id
+     where cm.email = v_email
+  ),
+  updated as (
+    update public.crew_members cm
+       set claimed_via_oauth_at = now()
+      from locked_shows ls
+     where cm.email = v_email
+       and cm.show_id = ls.show_id
+       and cm.claimed_via_oauth_at is null
+   returning cm.id, cm.show_id
+  )
+  select count(*) into v_claimed_count from updated;
 
-  return v_claimed_count;
+  -- Build the shows result set (every show the user has a crew row on, locked
+  -- and now-claimed). Caller (auth-callback handler) mints picker cookie
+  -- entries from this set.
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'show_id', s.id,
+           'crew_member_id', cm.id,
+           'picker_epoch', s.picker_epoch
+         )), '[]'::jsonb)
+    into v_shows
+    from public.crew_members cm
+    join public.shows s on s.id = cm.show_id
+   where cm.email = v_email
+     and s.published = true
+     and s.archived = false;
+
+  return jsonb_build_object(
+    'claimed_count', v_claimed_count,
+    'shows', v_shows
+  );
 end;
 $$;
 revoke all on function public.claim_oauth_identity(text) from public;
@@ -570,7 +618,7 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 - **NEW (R41): `public.my_share_tokens_for_email() returns table(slug text, share_token text)`** — SECURITY DEFINER function that reads `auth.email()` (the signed-in user's email) internally, looks up every `crew_members` row with the matching canonicalized email on a published+not-archived show, joins `show_share_tokens` for those shows, and returns the paired `(slug, share_token)` set. Callers cannot pass an email argument — the function uses only `auth.email()` — so a signed-in user can only enumerate THEIR OWN show tokens. `REVOKE ALL FROM public; GRANT EXECUTE TO authenticated`. Returns an empty set if the caller is unauthenticated or their email matches no crew rows. This is the only path that exposes share-tokens to authenticated (non-service) callers; the page route (`/show/<slug>/<share-token>`) resolves the token via the slug+token pair instead, and admins read individual tokens via `admin_read_share_token(uuid)` (per Task F2.5).
 
-- **NEW (R41): `public.claim_oauth_identity(p_email text) returns void`** — SECURITY DEFINER helper called from the auth-callback handler (§4.8). `REVOKE ALL FROM public; GRANT EXECUTE TO service_role`. Stamps `claimed_via_oauth_at` on every `crew_members` row with matching canonicalized email via `COALESCE(claimed_via_oauth_at, now())`. Idempotent (preserves first-stamp date across repeated sign-ins).
+- **NEW (R41 / revised R41-R2): `public.claim_oauth_identity(p_email text) returns jsonb`** — SECURITY DEFINER helper called from the auth-callback handler (§4.8). `REVOKE ALL FROM public; GRANT EXECUTE TO service_role`. Acquires per-show advisory locks for every show the user has a `crew_members` row on (sorted by `drive_file_id` to prevent cross-transaction deadlock), stamps `claimed_via_oauth_at` on every NULL-stamped row in that locked set (R41-R2 fix: UPDATE is restricted to locked shows via CTE, preventing a concurrent INSERT for an unlocked show from being stamped), and returns `{ claimed_count: int, shows: [{ show_id, crew_member_id, picker_epoch }] }` for the caller to mint picker cookies for all the user's shows in one envelope write. Idempotent (re-invocations preserve first-stamp date because the UPDATE filters `claimed_via_oauth_at IS NULL`).
 
 ### 5.4 Triggers modified
 
@@ -1038,13 +1086,19 @@ The plan's TDD checklist includes:
 - **Report endpoint auth swap** — `/api/report` accepts picker cookie for the matching show OR admin via `isAdminSession`/`requireAdminIdentity`. The `validateGoogleSession` arm is removed (per R41 minimum-surface-area: Google-signed-in crew get a picker cookie via the page route's step-4 auto-resolve before any API call). Tests assert: (a) picker cookie + matching `show_id` → 200; (b) picker cookie + mismatched `show_id` body → 401; (c) admin session → 200; (d) **Google session matching a crew email WITHOUT a picker cookie → 401** (regression against the M11 arm; if this returns 200 the redundant arm has been re-introduced); (e) no session at all → 401.
 - **`/me` preserved with tokenized URLs (R41 amendment)** — request to `/me` while signed in renders the list of shows where the user's email matches a `crew_members` row on a published+not-archived show. Tests assert: (a) signed-in user with matching crew rows gets a list whose entries are `/show/<slug>/<share-token>` URLs (full tokenized form, NOT bare `/show/<slug>`); (b) the rendered URLs come from `my_share_tokens_for_email()` RPC, not from a JOIN against `show_share_tokens` directly (the RPC enforces `auth.email()` self-scope); (c) signed-in user with no matching crew rows gets an empty-state surface; (d) admin user gets `/me` with their crew memberships listed (admins who are also crew see both surfaces); (e) anonymous user redirects to `/auth/sign-in?next=/me`; (f) **cross-user enumeration negative test**: invoke `my_share_tokens_for_email()` while signed in as user X and confirm it returns ONLY rows for X's email — no row for user Y leaks even when Y's email is passed as a parameter (the RPC ignores the parameter and reads `auth.email()`). Static-analysis assertion: `listShowsForCrew` import survives only in `lib/data/listShowsForCrew.ts` and `app/me/page.tsx`; no other production import.
 - **SignInOrSkipGate first-contact (R41 amendment, §7.1a)** — request to `/show/<slug>/<share-token>` with NO picker cookie, NO admin session, NO Google session, AND no `?gate=skip` query param renders the SignInOrSkipGate. Tests assert: (a) `[data-testid="sign-in-or-skip-gate"]` is in the DOM; (b) the page does NOT include `[data-testid="picker-roster-row"]` (the picker is NOT pre-rendered behind the gate); (c) the Sign-in link href is `/auth/sign-in?next=<encoded current URL>`; (d) the Skip button is a same-page navigation to `<current URL>?gate=skip`. Compound test: same request with `?gate=skip` renders the picker, NOT the gate.
-- **Google-session auto-resolution (R41 amendment, §4.1 step-4)** — request to `/show/<slug>/<share-token>` with a Google session whose email matches a `crew_members` row on this show AND no picker cookie. Tests assert: (a) response renders `<_ShowBody />` directly (NOT the picker, NOT the gate); (b) a fresh picker cookie is minted with `{ id: <matched-crew-id>, e: <current-epoch>, t: <now> }` (Set-Cookie observed in response headers); (c) the `validateGoogleSession` call inside `resolveShowPageAccess` (NOT `resolvePickerSelection` — see R41-R1 Fix-3 split) is the entry point per the no-jwt-surface allowlist. Negative test: Google session whose email does NOT match any crew row for this show renders the SignInOrSkipGate (NOT the picker — the user is signed in but not associated with this show).
+- **Google-session auto-resolution (R41-R2 revised — redirect-bootstrap flow)** — two sub-cases:
+  - **Sub-case A: cookie already present** (normal flow — user signed in earlier via OAuth callback which minted cookies for all their shows). Request to `/show/<slug>/<share-token>` with Google session + valid picker cookie entry for this show. Tests assert: (a) page renders `<_ShowBody />` directly via §4.1 step 6 (cookie path); (b) NO redirect; (c) NO new Set-Cookie (cookie is already correct).
+  - **Sub-case B: cookie missing** (edge: Doug added user to show after sign-in, or user navigates to a new show from `/me`). Request to `/show/<slug>/<share-token>` with Google session but NO cookie entry for this show. Tests assert: (a) page route returns redirect to `/api/auth/picker-bootstrap?next=<encoded current URL>`; (b) following the redirect, the route handler validates the session, mints the picker cookie entry for this show, and 302s back; (c) the follow-up request renders `<_ShowBody />` via §4.1 step 6; (d) the `validateGoogleSession` call inside `resolveShowPageAccess` (NOT `resolvePickerSelection` — see R41-R1 Fix-3 split) is the entry point that triggers the redirect; (e) the picker-bootstrap handler is the legal cookie mutator per R41-R2 CRITICAL repair.
+  - **Negative test**: Google session whose email does NOT match any crew row for this show renders the SignInOrSkipGate (NOT the picker — the user is signed in but not associated with this show). The redirect-bootstrap is NOT triggered (step 4 falls through to step 5 then step 9).
 - **API routes reject Google session without picker cookie (R41-R1 Fix-3 regression)** — for EACH API consumer in §6 (`/api/realtime/subscriber-token`, `/api/asset/diagram`, `/api/asset/reel`, `/api/asset/agenda`, `/api/show/[slug]/version`, `/api/report`), construct a request with a valid Google session whose email matches a `crew_members` row on the target show, but with NO `__Host-fxav_picker` cookie. Assert: response status is 401 (NOT 200). This is the contract-level test that R41-R1 R1 HIGH demanded — if `resolvePickerSelection` ever picked up a Google-session auto-resolve, every one of these tests would flip to 200 and CI would fail. Companion structural test: grep each API-route source file for `validateGoogleSession` import → MUST be absent.
-- **OAuth-callback claim-stamp hook (R41 amendment, §4.8)** — request to `/auth/callback?code=<valid-code>` after Google OAuth. Tests assert: (a) `exchangeCodeForSession()` is called first; (b) on success, `claim_oauth_identity(<user-email>)` is invoked via the service-role client; (c) every `crew_members` row whose `email = <user-email>` AND `claimed_via_oauth_at IS NULL` is updated to set `claimed_via_oauth_at = NOW()`; (d) rows already stamped are NOT re-stamped (idempotent); (e) the post-stamp redirect honors the `next` param (admin → `/admin`, otherwise → validated next or `/me`); (f) **negative-regression**: a callback for a user with NO matching crew row succeeds with no UPDATE (the function returns 0 rows affected without error).
+- **OAuth-callback claim-stamp hook + cookie-bootstrap (R41-R2 revised, §4.8)** — request to `/auth/callback?code=<valid-code>` after Google OAuth. Tests assert: (a) `exchangeCodeForSession()` is called first; (b) on success, `claim_oauth_identity(<user-email>)` is invoked via the service-role client; (c) every `crew_members` row whose `email = <user-email>` AND `claimed_via_oauth_at IS NULL` is updated to set `claimed_via_oauth_at = NOW()`; (d) rows already stamped are NOT re-stamped (idempotent); (e) the RPC returns `{ claimed_count, shows: [...] }` and the handler emits `Set-Cookie: __Host-fxav_picker` containing entries for every show in the `shows` array (legal cookie mutator — Route Handler context); (f) the post-stamp redirect honors the `next` param; (g) **negative-regression**: a callback for a user with NO matching crew row succeeds with no UPDATE (the function returns `claimed_count: 0, shows: []` and the handler emits NO Set-Cookie); (h) **second sign-in idempotence**: a user who previously signed in (rows already stamped) re-signs-in; assert `claimed_count = 0` but the cookie envelope is re-minted with all the user's shows (so a user signing in on a new device picks up cookies for every show). The OAUTH_IDENTITY_CLAIMED admin alert is emitted ONLY when `claimed_count > 0`.
+- **Picker-bootstrap Route Handler (R41-R2 new, `/api/auth/picker-bootstrap`)** — request to `/api/auth/picker-bootstrap?next=/show/<slug>/<share-token>` with Google session. Tests assert: (a) `next` validated against `validateNextParam.ts` allowlist (regex matches `^/show/[a-z0-9-]+/[0-9a-f]{64}$`); (b) `resolve_show_by_slug_and_token` re-validates the slug+token pair, NULL → 302 to `/` with no cookie set; (c) `validateGoogleSession` → no session → 302 to `next` with no cookie set (the page route then renders its normal non-Google chain); (d) `validateGoogleSession` resolves + email matches crew_members for this show → cookie envelope updated with `{ id: <crewMemberId>, e: <picker_epoch>, t: <now> }` for this show_id + 302 to `next`; (e) `validateGoogleSession` resolves but email NOT in this show's crew_members → 302 to `next` with NO cookie set (the show page renders the SignInOrSkipGate naturally — the user is signed in but not on this show); (f) the cookie set carries `Max-Age=7776000`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, name `__Host-fxav_picker`; (g) the handler is in the cookie-mutator allowlist of the picker-cookie-contract meta-test.
 - **Deactivated row tap-redirect (R41 amendment, §7.2)** — picker rendered with a roster containing one crew member whose underlying row has `claimed_via_oauth_at IS NOT NULL`. Tests assert: (a) that row's container has `aria-disabled="false"` (still tappable) AND the row's name/chip computed colors equal `var(--muted-foreground)`; (b) the row carries a 16px lock icon to the LEFT of the role chip with `aria-label="Sign in to use this identity"`; (c) the row's `<form>` action submits to `/auth/sign-in?next=<encoded tokenized URL>` instead of `selectIdentity`; (d) submitting the form does NOT mint a picker cookie (Set-Cookie absent); (e) un-claimed rows in the same picker remain fully active. Anti-tautology: the assertion derives the deactivated row from the fixture's `claimed_via_oauth_at` field, not from a position index — works across roster permutations.
 - **Cross-show claim consistency (R41 amendment)** — fixture: two published shows (Show-A, Show-B), one crew member with the same email on both, currently claimed on neither. Test: invoke `claim_oauth_identity(<email>)`. Asserts: (a) BOTH rows now carry `claimed_via_oauth_at` (the function operates by email, not by show); (b) opening Show-A's picker shows the row as deactivated; (c) opening Show-B's picker also shows the row as deactivated. Regression against partial-claim drift (the function MUST stamp all matching rows in a single statement).
 - **`PICKER_IDENTITY_CLAIMED` server-side enforcement (R41 Fix-2 regression)** — negative test against hand-crafted Server Action POST. Fixture: a crew member with `claimed_via_oauth_at = '2026-05-23T...'`. Bypassing the deactivated-row UI, invoke `selectIdentity({ slug, shareToken, crewMemberId: <claimed-id> })` directly via a fetch with the form-encoded body. Assert: (a) the action returns a redirect to `/auth/sign-in?next=...` (the cataloged response for `PICKER_IDENTITY_CLAIMED`); (b) NO `Set-Cookie` header for `__Host-fxav_picker` is emitted; (c) the `select_identity_atomic` RPC's SQL inside the DB log shows the `claimed_via_oauth_at IS NULL` predicate (DB-level assertion via test instrumentation); (d) the structured log carries a `tamper` flag with `{ show_id, attempted_crew_member_id, observed_claimed_at }`. **Concurrency variant**: invoke `selectIdentity` and `claim_oauth_identity` concurrently for the same crew member; assert exactly one outcome (either the select wins and the claim stamps a new row leaving the cookie minted, OR the claim wins first and select rejects with `PICKER_IDENTITY_CLAIMED`) — never both. The per-show advisory lock guarantees this serialization; the test verifies the contract.
 - **`claim_oauth_identity` advisory-lock topology (R41 Fix-1 regression)** — DB-level test against the SECURITY DEFINER body. Fixture: 3 published shows sharing one crew email. Concurrent test (two parallel transactions): T1 invokes `claim_oauth_identity` for the email; T2 invokes `reset_picker_epoch_atomic` for Show-1. Assert: T1 and T2 complete without deadlock (the deterministic `drive_file_id` order combined with reset-RPC's single-show acquire prevents circular wait). Lock-holder assertion: extend `tests/auth/advisoryLockRpcDeadlock.test.ts` to enumerate every `pg_proc.proname` in `public` that touches `crew_members` and assert each is in the documented set `{ claim_oauth_identity, select_identity_atomic, sync_apply, ... }` with a known lock-acquisition layer; a new function added without registering is a test failure. **Single-holder pin**: the JS-side caller of `claim_oauth_identity` in `app/auth/callback/route.ts` MUST NOT wrap the RPC call in `lockedShowTx`/equivalent — assert via static analysis of the callback handler's imports.
+- **`claim_oauth_identity` UPDATE-set materialization (R41-R2 race-fix regression)** — DB-level concurrent test against the new CTE-restricted UPDATE. Fixture: user has crew_members rows on Show-A and Show-B; a third Show-C exists but the user is NOT yet on its roster. Concurrent (two parallel transactions): T1 invokes `claim_oauth_identity(email)`; T2 INSERTs a crew_members row for the email on Show-C IMMEDIATELY after T1 has acquired its Show-A + Show-B locks but BEFORE its UPDATE statement runs. Assert: T1's UPDATE does NOT stamp the Show-C row (it's not in the locked set materialized at lock-acquisition time); the Show-C row remains `claimed_via_oauth_at IS NULL`. T2's INSERT commits without holding any advisory lock on Show-C (regression note: sync_apply DOES acquire the lock; this test fixture mimics the raw INSERT pattern only to verify T1's filter). On the NEXT callback invocation (or `claim_oauth_identity` re-call), Show-C is in the new locked set and gets stamped. This pins the R41-R2 R2 HIGH fix.
+- **Cookie-mutator allowlist expansion (R41-R2 §10.1)** — extend `tests/auth/_metaPickerCookieContract.test.ts` to add `app/auth/callback/route.ts` and `app/api/auth/picker-bootstrap/route.ts` to the allowed cookie-mutator file list (alongside `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`). Any other file calling `cookies().set('__Host-fxav_picker', ...)` fails the audit. The middleware file remains explicitly banned from picker-cookie mutation per R16 contract.
 - **Stale-credential mapping across all API consumers** — for every route in §6 that calls `resolvePickerSelection` (subscriber-token, version, asset/{diagram,reel,agenda}, report), the test matrix asserts: (a) `kind: 'epoch_stale'` → 401 with no resource body; (b) `kind: 'removed_from_roster'` → 401 with no resource body; (c) `kind: 'show_unavailable'` → 410; (d) `kind: 'infra_error'` → 500; (e) `kind: 'no_selection'` → 401 (no credential at all). Each status is distinguishable on the wire so `ShowRealtimeBridge` can treat 401 as `forceRefresh` (its existing auth-denied path) and 410 as "this show is gone." The asset components' placeholder rendering on 401 is unchanged from M11.
 - **No middleware cookie writes** (R16 contract) — middleware.ts MUST NOT emit a `Set-Cookie` header for `__Host-fxav_picker` on any route. Test: for every route in the §6 routing table (page route, asset routes, version, subscriber-token, report), simulate a request carrying a valid picker cookie; assert the response Set-Cookie header for `__Host-fxav_picker` is absent UNLESS the route handler is a crew-side Server Action invocation (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`). This pins the "crew-side-Server-Actions-only cookie mutator" invariant.
 - **`resetPickerEpoch` emits no picker Set-Cookie** (R30 contract) — invoke the admin Reset action; assert the response has NO `Set-Cookie` header for `__Host-fxav_picker`. Regression against the lost-update race that would result if the admin Reset path were a cookie mutator.
@@ -1214,7 +1268,7 @@ For every boolean / config field this spec touches or introduces:
 | `shows.archived` | column | admin action | route handler at `app/show/[slug]/page.tsx` | If `true`, route 404s for all viewers including admin (existing behaviour) |
 | `shows.picker_epoch` | column (new) | `resetPickerEpoch` Server Action | `resolvePickerSelection`, `selectIdentity` | Mismatch with cookie's `e` triggers `epoch_stale` re-prompt |
 | `crew_members.role_flags[]` | column | sync engine | `getShowForViewer` (re-derived every request) | Drives LEAD detection for chip styling AND financials inclusion |
-| `__Host-fxav_picker` cookie | client | Server Actions only | `resolvePickerSelection`, `selectIdentity`, `clearIdentity` | Carries per-show selection state |
+| `__Host-fxav_picker` cookie | client | Server Actions (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`) AND Route Handlers (`/auth/callback`, `/api/auth/picker-bootstrap`) — R41-R2 expanded list | `resolvePickerSelection`, `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `resolveShowPageAccess` | Carries per-show selection state. Server Components are NOT in the mutator list (Next App Router contract). |
 | `crew_members.claimed_via_oauth_at` (R41) | column (new, TIMESTAMPTZ NULL) | `claim_oauth_identity()` SECURITY DEFINER RPC, invoked from `/auth/callback` post-success | Picker render (`PickerInterstitial` reads it to render row as deactivated); future cross-show auto-resolve | Non-null → picker row renders as deactivated (`var(--muted-foreground)`, lock icon, form action → `/auth/sign-in`); null → row is fully selectable |
 | `?gate=skip` URL query param (R41) | URL (not persisted) | Crew clicks "Skip" on `<SignInOrSkipGate>` | Route handler at `/show/[slug]/[shareToken]/page.tsx` | Presence with no auth → render picker; absence with no auth → render gate |
 
