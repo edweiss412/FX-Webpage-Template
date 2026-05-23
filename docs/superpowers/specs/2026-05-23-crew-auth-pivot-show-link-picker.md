@@ -104,17 +104,24 @@ Crew taps `/show/<slug>` in group thread
 │       → { id, published, archived }                          │
 │       | not_found | infra_error                              │
 │                                                              │
-│  2. if isAdminSession(req) → render as admin (unchanged)     │
-│     [admin precedence; admin sees unpublished + archived     │
-│      for editing — preserves M11 admin debug workflow]       │
+│  2. if archived === true:                                    │
+│     notFound() — EVEN FOR ADMINS. The `/show/<slug>` route   │
+│     is a crew surface; admins debug archived shows via the   │
+│     admin route at `/admin/show/<slug>` instead. R27         │
+│     amendment: this gate runs BEFORE admin precedence to     │
+│     align with Appendix D's archived = kill-switch contract  │
+│     for all viewers.                                         │
 │                                                              │
-│  3. else if !published OR archived:                          │
+│  3. if isAdminSession(req) → render as admin (admin sees     │
+│     unpublished — but archived is already a 404 from step 2) │
+│                                                              │
+│  4. else if !published:                                      │
 │     notFound() — non-admin viewers cannot distinguish        │
 │     "unpublished slug" from "unknown slug." This gate runs   │
 │     BEFORE any picker render so the picker never exposes a   │
 │     roster for an unpublished show (existence-oracle defense)│
 │                                                              │
-│  4. else: read cookie __Host-fxav_picker                     │
+│  5. else: read cookie __Host-fxav_picker                     │
 │       → resolvePickerSelection({ showId, cookie })           │
 │         returns one of:                                      │
 │           - { kind: 'resolved', crewMemberId }               │
@@ -122,12 +129,12 @@ Crew taps `/show/<slug>` in group thread
 │           - { kind: 'epoch_stale' }                          │
 │           - { kind: 'removed_from_roster' }                  │
 │                                                              │
-│  5. if no_selection | epoch_stale | removed_from_roster:     │
+│  6. if no_selection | epoch_stale | removed_from_roster:     │
 │       render <PickerInterstitial roster banner? />           │
 │       (cookie cleanup deferred to a Server Action — Server   │
 │       Components cannot mutate cookies; see §4.9)            │
 │                                                              │
-│  6. else (resolved):                                         │
+│  7. else (resolved):                                         │
 │       getShowForViewer(showId, { kind: 'crew',               │
 │                                  crewMemberId })             │
 │       render <_ShowBody data={...} identityChip={...} />     │
@@ -713,7 +720,7 @@ That's it for per-row. Both M9.5 buttons and all status text scoped to JWT versi
 
 - Copy: `Reset picker selections`
 - Subcopy: `Every device that has picked an identity on this show will be re-prompted on their next visit.`
-- Confirm step: a `<Dialog>` opens with copy `Are you sure? <N> selections will be reset.` where `<N>` is a server-rendered count of unique `(show_id)` keys in the picker (this is a UX nicety — see §8.2 for why `<N>` is not strictly available, but we can show "selections may exist on any number of devices; this resets them all").
+- Confirm step: a `<Dialog>` opens with count-free copy: `Are you sure? Every device that has picked an identity for this show will be re-prompted on its next visit. This action is immediate and cannot be undone (but resetting again has the same effect).` **R27 amendment**: the spec previously suggested `<N> selections will be reset` with `<N>` as a "server-rendered count" — but §8.2 explicitly establishes that the server has no per-device selection log, so `<N>` would be either fabricated or invented by adding a server-side store (which is out of scope per §11). The count-free copy keeps the dialog honest about what the server can know.
 - On confirm: Server Action `resetPickerEpoch({ showId })`. On success: a toast "Picker selections reset. Each device will see the picker on next visit."
 
 ### 8.2 What the admin cannot see
