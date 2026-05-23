@@ -65,3 +65,19 @@ Voice is direct, plain-language, and respectful of the reader's time. No jargon,
 3. **One accent, used sparingly.** FXAV orange means "this matters now." If everything is accented, nothing is. Default surfaces are neutral; orange earns its appearances.
 4. **Both modes equally beautiful.** Dark mode is not a 90% inverse of light. Each is designed against its own use case (sunlit ballroom vs. dim backstage) and should feel intentional.
 5. **Plain language, never technical chrome.** Empty states, errors, warnings, and admin copy all speak human. Error codes belong in the network tab, never the UI. Doug shouldn't have to know what RLS or a token is, ever.
+
+### Crew auth & sharing model (2026-05-23 owner determination)
+
+**Doug shares one link per show — not one link per crew member.** Crew tap the show link, see a "who are you?" picker listing every crew member on that show's roster, tap their own name, and the page renders for them. The selection persists in a session cookie on that device so the picker is a one-time gate per device, not a per-visit prompt. Role-based filtering happens server-side from the picked identity, exactly as it would from a signed-link identity.
+
+**Why this overrides the prior signed-link-per-crew-member design.** The original design (per-person JWT-signed links, per-row Issue / Revoke controls, leaked-link recovery) optimized for a threat model Doug doesn't actually run. Role filtering is a UX feature — it lets each crew member focus on what's relevant to them — not a security gate against the people in the group thread who already have the link. The signed-link infrastructure created a real workflow regression (Doug goes from one message to N messages per show) in exchange for revocation discipline he wouldn't exercise. The owner has made the call to recover the workflow.
+
+**Implications for code already shipped (M9.5).** The per-person signed-link controls (`IssueLinkButton`, `RevokeAllLinksButton`, the `current_token_version` / `revoked_below_version` columns, the JWT redemption path, the leaked-link middleware floor-bump) are now in the wrong shape for v1. They are NOT to be deleted in M11 close-out — M11 ships docs describing the model in flight and closes. The pivot becomes a dedicated post-M11 milestone with its own spec, plan, and adversarial review cycle. Until that milestone lands, the shipped code is the current behaviour.
+
+**Open design questions for the pivot spec (not to be answered here):**
+
+- The picker's UI shape: list with thumbnails? Searchable input? What renders before the picker is dismissed?
+- Re-prompt cadence: cookie expiry, new-device behaviour, "I'm not <name>" escape hatch.
+- Role-change propagation: when Doug edits the sheet and someone's role changes, does the cookie identity carry forward, or does the next load re-prompt?
+- The admin's role: what (if anything) does Doug still control per crew member, given the picker model? Probably nothing — but worth surfacing.
+- What happens to the per-row "Preview as a crew member" affordance on the per-show panel? It probably stays — it's Doug's tool for spot-checking each role's view.

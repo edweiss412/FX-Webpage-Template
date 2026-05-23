@@ -4,6 +4,11 @@
 **Author:** Eric Weiss
 **Companion docs:** [`Project-Goal.md`](../../../Project-Goal.md), [`fixtures/shows/README.md`](../../../fixtures/shows/README.md), [`fixtures/shows/_schema-diff.md`](../../../fixtures/shows/_schema-diff.md)
 
+> **AMENDMENT — 2026-05-23: crew auth model pivot (owner determination).**
+> The per-crew-member signed-link auth model described in §5.2 / §7.2 / §9.2 of this spec is OBSOLETE for v1. Owner has determined v1 will use one show-link plus a "who are you?" self-identify picker (selection persists in a session cookie per device). Role-based filtering remains, but is derived from the picked identity, not from a JWT. Rationale: role filtering is a UX feature for crew focus, not a security gate; the per-person link model created a meaningful workflow regression for Doug (N messages per show vs. one) in exchange for revocation discipline he would not exercise.
+>
+> This amendment is the single source of truth. The signed-link sections below remain readable as historical context but do NOT describe v1 behaviour. A dedicated post-M11 milestone will re-spec the auth model in full; until that milestone lands, shipped M9.5 code reflects the obsolete model but is NOT to be ripped out as part of M11 close-out. See `PRODUCT.md` → "Crew auth & sharing model (2026-05-23 owner determination)" for the full context.
+
 ---
 
 ## 1. Goal & scope
