@@ -1,12 +1,22 @@
 /**
- * Structural defense — forbidden-prose registry for help MDX.
+ * Structural defense — forbidden-prose registry for help MDX + live
+ * Doug-facing catalog strings.
  *
- * Class this catches: Doug-facing MDX prose that implies a UI affordance
- * which does NOT exist in shipped code. The R13 sibling test (`backlog-
- * label-annotation.test.ts`) catches LABEL-level drift (e.g., a bolded
- * `**Copy share link**` button name). This registry catches PROSE-level
- * drift — phrasings that don't name a button by label but still tell
- * Doug to perform an action the UI cannot perform.
+ * Class this catches: Doug-facing prose (in help MDX or in the live
+ * §12.4 catalog rendered by admin UI controls via getDougFacing) that
+ * implies a UI affordance which does NOT exist in shipped code. The
+ * R13 sibling test (`backlog-label-annotation.test.ts`) catches LABEL-
+ * level drift (e.g., a bolded `**Copy share link**` button name). This
+ * registry catches PROSE-level drift — phrasings that don't name a
+ * button by label but still tell Doug to perform an action the UI
+ * cannot perform.
+ *
+ * Coverage extended in R17 to scan the §12.4 catalog as well, since
+ * R17 surfaced that the `ADMIN_LINK_*` entries' dougFacing / followUp
+ * / helpfulContext / longExplanation strings are rendered LIVE by
+ * IssueLinkButton and RevokeAllLinksButton through getDougFacing.
+ * Per AGENTS.md, class-sweep + structural defense at the same time:
+ * the registry now treats catalog string fields as in-scope surfaces.
  *
  * R14 root cause + Codex recommendation (2026-05-23): "Add a structural
  * grep/registry guard for copy-link and preview-links prose across all
@@ -24,8 +34,17 @@ import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+
 const PROJECT_ROOT = resolve(__dirname, "..", "..");
 const HELP_ROOT = resolve(PROJECT_ROOT, "app/help");
+
+const CATALOG_CHECKED_FIELDS = [
+  "dougFacing",
+  "followUp",
+  "helpfulContext",
+  "longExplanation",
+] as const;
 
 type ForbiddenProseEntry = {
   /** Regex that catches the phantom phrasing. Match is case-insensitive by default. */
@@ -57,9 +76,9 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
   },
   {
     id: "active-shows-row-actions-column",
-    pattern: /\bActions\b[^.]{0,120}\b(?:Open|Preview as|Re-sync|Archive)\b/i,
+    pattern: /\b(?:Active\s+shows[^.]{0,120}\bActions\b|\bActions\b\s+column\b)[^.]{0,120}\b(?:Open|Preview as|Re-sync|Archive)\b/i,
     rationale:
-      "R13 finding 2 (dashboard.mdx). ActiveShowsPanel does not render an Actions column. Every row-level action lives one click deeper on the per-show panel.",
+      "R13 finding 2 (dashboard.mdx). ActiveShowsPanel does not render an Actions column. Pattern requires the column/Active-shows context so legitimate prose mentioning admin write actions (like FINALIZE_OWNED_SHOW.helpfulContext) does not false-positive.",
   },
   {
     id: "yellow-warnings-badge",
@@ -87,9 +106,9 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
   },
   {
     id: "share-the-url-channel",
-    pattern: /share\s+the\s+URL\s+through\s+whatever\s+channel/i,
+    pattern: /share\s+the\s+(?:crew\s+page\s+)?URL\s+(?:through|with)\s+(?:whatever|the\s+crew)/i,
     rationale:
-      "R16 finding 1 root. The phantom-affordance class extends to the URL-distribution channel itself: signLinkJwt() exists in lib/auth/jwt.ts:123 but no production action surface calls it. issueNewLinkAction returns version counters, not a URL. Doug literally cannot extract a URL from the shipped UI, so 'share the URL through whatever channel you already use' is structurally false. Per the M11 user-direction ('describe only what's shipped'), help docs must acknowledge URL distribution runs through a developer-built handoff in v1 until the post-M11 picker model lands.",
+      "R16 finding 1 root + R17 catalog extension. The phantom-affordance class extends to the URL-distribution channel itself: signLinkJwt() exists in lib/auth/jwt.ts:123 but no production action surface calls it. issueNewLinkAction returns version counters, not a URL. Doug literally cannot extract a URL from the shipped UI, so 'share the URL through whatever channel' / 'share the crew page URL with the crew member' is structurally false. Per the M11 user-direction ('describe only what's shipped'), help docs and live §12.4 catalog strings must acknowledge URL distribution runs through a developer-built handoff in v1 until the post-M11 picker model lands.",
   },
   {
     id: "send-each-their-link",
@@ -153,5 +172,38 @@ describe("Forbidden-prose registry (R14 structural defense)", () => {
       "# Per-show panel\n\nOpen the sheet in the same tab via the dashboard's row action, fix it, and re-sync.\n";
     const matched = FORBIDDEN_PROSE.find((e) => e.pattern.test(synthetic));
     expect(matched?.id).toBe("dashboard-row-action");
+  });
+
+  it("no live §12.4 catalog string matches a known phantom-affordance phrase (R17 extension)", () => {
+    // R17 root: ADMIN_LINK_ISSUED_OK / ADMIN_LINK_REVOKED_OK /
+    // ADMIN_LINK_NO_LIVE_LINK carried "share the URL" / "send fresh
+    // URL" / "newly-minted JWT" phrasing that IssueLinkButton +
+    // RevokeAllLinksButton render LIVE via getDougFacing. The MDX
+    // sweep was insufficient. This assertion treats every catalog
+    // string field as a forbidden-prose surface.
+    const violations: string[] = [];
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      for (const field of CATALOG_CHECKED_FIELDS) {
+        const value = (entry as Record<string, unknown>)[field];
+        if (typeof value !== "string") continue;
+        for (const fp of FORBIDDEN_PROSE) {
+          const m = value.match(fp.pattern);
+          if (m) {
+            violations.push(
+              `${code}.${field} matches forbidden pattern "${fp.id}": "${m[0]}". ` +
+                `Rationale: ${fp.rationale}`,
+            );
+          }
+        }
+      }
+    }
+    expect(violations, violations.join("\n  → ")).toEqual([]);
+  });
+
+  it("rejects a synthetic catalog entry whose followUp invokes the share-the-url phantom (negative regression)", () => {
+    const syntheticFollowUp =
+      "Doug → share the crew page URL with the crew member via your usual channel";
+    const matched = FORBIDDEN_PROSE.find((e) => e.pattern.test(syntheticFollowUp));
+    expect(matched?.id).toBe("share-the-url-channel");
   });
 });

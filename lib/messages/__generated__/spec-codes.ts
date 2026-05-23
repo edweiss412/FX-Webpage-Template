@@ -52,20 +52,20 @@ export const SPEC_CODES = {
   },
   "ADMIN_LINK_ISSUED_OK": {
     "crewFacing": null,
-    "dougFacing": "New link issued. The crew member's link is now live at the bumped token version.",
-    "followUp": "Doug → share the crew page URL with the crew member via your usual channel",
-    "helpfulContext": "Issue new link bumps both current_token_version and max_issued_version. The newly-minted JWT carries the bumped version and passes both the strict-equality and floor checks at the redemption path. A dedicated 'Copy share link' affordance is not yet shipped (tracked as BL-COPY-SHARE-LINK); use your existing share path.",
+    "dougFacing": "Link issued. The crew member's token version is now live server-side.",
+    "followUp": "Doug → coordinate URL delivery via the developer-built handoff (no in-app URL surface yet)",
+    "helpfulContext": "Issue new link bumps both current_token_version and max_issued_version server-side. The token version is now live; until a dedicated in-app URL surface ships, the crew member's URL reaches them through the developer-built distribution handoff. The picker model that replaces this entirely is tracked as a post-M11 milestone.",
   },
   "ADMIN_LINK_NO_LIVE_LINK": {
     "crewFacing": null,
     "dougFacing": "There's no live link to revoke for this crew member.",
-    "followUp": "Doug → Issue new link if you want to mint a fresh one",
+    "followUp": "Doug → Issue new link if you want to rotate to a live token version",
     "helpfulContext": "The crew member's auth row is in 'no live link' state — current_token_version equals revoked_below_version, so there's nothing for the Revoke-all action to invalidate.",
   },
   "ADMIN_LINK_REVOKED_OK": {
     "crewFacing": null,
-    "dougFacing": "All links revoked. Click 'Issue new link' when you're ready to send a fresh one.",
-    "followUp": "Doug → Issue new link → send fresh URL to crew member",
+    "dougFacing": "All links revoked. Tap Issue new link when you're ready to rotate to a fresh token version.",
+    "followUp": "Doug → Issue new link → coordinate URL delivery via the developer-built handoff (no in-app URL surface yet)",
     "helpfulContext": "Revoking all links sets the revocation floor to the current token version. Every outstanding signed link for this crew member is now invalid. The row is in 'no live link' state until you issue a new one.",
   },
   "ADMIN_LINK_SHOW_NOT_FOUND": {
@@ -276,7 +276,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This show is currently being published as part of a setup wizard. Wait for the wizard to finish, then try again.",
     "followUp": "Doug → wait for wizard finalize to complete",
-    "helpfulContext": "This show is currently being published as part of a setup wizard's multi-batch finalize. Until the wizard's final-publish step commits, the row is held with `published = false` and admin write actions (Re-sync, Archive, Apply/Discard staged changes) are gated to prevent races against the in-flight finalize. Wait for the wizard tab to finish — the dashboard 'Publishing…' badge clears the moment the final-publish step commits, after which this action will succeed.",
+    "helpfulContext": "This show is currently being published as part of a setup wizard's multi-batch finalize. Until the wizard's final-publish step commits, the row is held with `published = false` and admin write actions (Re-sync from Drive, Apply/Discard staged changes, and similar gated actions) are blocked to prevent races against the in-flight finalize. Wait for the wizard tab to finish — the dashboard 'Publishing…' badge clears the moment the final-publish step commits, after which this action will succeed.",
   },
   "FOLDER_NOT_FOUND": {
     "crewFacing": null,
@@ -414,7 +414,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "That sheet belongs to an in-progress setup wizard. Open the wizard in this browser to act on it, or use the dashboard once setup is finished.",
     "followUp": "Doug → use the wizard tab, or wait for setup to finish",
-    "helpfulContext": "There are two flavors of pending-sheet rows: live rows (managed from the dashboard) and wizard-staged rows (managed inside the setup wizard). The dashboard's Retry / Discard endpoints only act on live rows; you reached this code by acting on a wizard-staged row from a stale dashboard view. The wizard owns its own action surface; open the wizard tab to act on those rows, or wait until setup finishes (which converts the wizard rows into live rows).",
+    "helpfulContext": "There are two flavors of pending-sheet rows: live rows (managed from the post-onboarding dashboard's Sheets-we-couldn't-auto-apply panel) and wizard-staged rows (managed inside the setup wizard). The Retry / Discard endpoints behind the post-onboarding panel act only on live rows; you reached this code by acting on a wizard-staged row from a stale post-onboarding view. The wizard owns its own action surface; open the wizard tab to act on those rows, or wait until setup finishes (which converts the wizard rows into live rows).",
   },
   "LOCK_OWNERSHIP_ASSERTION_FAILED": {
     "crewFacing": null,
@@ -1020,7 +1020,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This unpublish link expired (24-hour window). To take this show offline now, archive it from the admin dashboard.",
     "followUp": "Doug → archive via dashboard",
-    "helpfulContext": "The unpublish link in the auto-publish confirmation email is only valid for 24 hours. After that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the admin dashboard and archive it from the show's parse panel.",
+    "helpfulContext": "The auto-publish unpublish link is only valid for 24 hours after issuance. After that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the admin dashboard and archive it from the show's parse panel.",
   },
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
