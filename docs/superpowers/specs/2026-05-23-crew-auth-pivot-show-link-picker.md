@@ -128,13 +128,13 @@ Crew taps `/show/<slug>` in group thread
 │       Components cannot mutate cookies; see §4.9)            │
 │                                                              │
 │  6. else (resolved):                                         │
-│       getShowForViewer(showId, { kind: 'crew_link',          │
-│                                  showId, crewMemberId })     │
+│       getShowForViewer(showId, { kind: 'crew',               │
+│                                  crewMemberId })             │
 │       render <_ShowBody data={...} identityChip={...} />     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-The `getShowForViewer` call shape is intentionally the same one the M9.5 path used (`lib/data/getShowForViewer.ts:198` accepts a `Viewer` discriminated union; the `kind: 'crew_link'` arm at `lib/data/getShowForViewer.ts:79-92` matches). The data fetcher does not know or care that the identity came from a picker cookie instead of a redeemed JWT — it gets a `(showId, crewMemberId)` pair and re-derives role flags from the live row. **This is the structural reason the pivot is cheap to ship: every layer below the auth resolver is unchanged.**
+The `getShowForViewer` call shape uses the existing `Viewer` discriminated union at `lib/data/getShowForViewer.ts:79-82`, which has three arms: `{ kind: 'crew', crewMemberId }`, `{ kind: 'admin' }`, `{ kind: 'admin_preview', crewMemberId }`. The pivot's picker chain emits `{ kind: 'crew', crewMemberId }` — the same arm M9.5's `validateLinkSession`-derived path emitted (the older `crew_link` shape from `resolveShowViewer.ts:46` was a CHAIN-level discriminator, not a Viewer-level one; the data fetcher always saw `'crew'`). The data fetcher does not know or care that the identity came from a picker cookie instead of a redeemed JWT — it gets a `(showId, crewMemberId)` pair and re-derives role flags from the live row. **This is the structural reason the pivot is cheap to ship: every layer below the auth resolver is unchanged.**
 
 ### 4.2 Request flow (crew member, returning visit)
 
@@ -218,19 +218,26 @@ Admin clicks "Reset picker selections on this show" on /admin/show/<slug>
 Server Action: resetPickerEpoch({ showId })  [admin-only; requireAdmin()]
         │
         ▼
-BEGIN TRANSACTION;
-  SELECT drive_file_id FROM shows WHERE id = $1;  -- need drive_file_id for the lock key
-  pg_advisory_xact_lock(hashtext('show:' || drive_file_id));
-  UPDATE shows
-     SET picker_epoch = picker_epoch + 1,
-         picker_epoch_bumped_at = now()
-   WHERE id = $1;
-  -- in-transaction publish: pg_notify fires atomically on COMMIT.
-  -- If COMMIT fails (lock contention, constraint violation), the
-  -- notification does NOT fire. If COMMIT succeeds, every subscribed
-  -- tab on every device sees the invalidation.
-  publishShowInvalidation(tx, showId);   -- same helper sync uses
-COMMIT;
+supabase.rpc('reset_picker_epoch_atomic', { p_show_id: showId })
+        │
+        ▼ (server-side, single SECURITY DEFINER function — atomic)
+        │
+public.reset_picker_epoch_atomic(p_show_id uuid):
+  BEGIN
+    SELECT drive_file_id INTO v_drive_file_id FROM shows WHERE id = p_show_id;
+    IF v_drive_file_id IS NULL THEN RAISE EXCEPTION 'show not found'; END IF;
+    PERFORM pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
+    UPDATE shows
+       SET picker_epoch = picker_epoch + 1,
+           picker_epoch_bumped_at = now()
+     WHERE id = p_show_id;
+    -- in-function call to the existing publish helper:
+    PERFORM public.publish_show_invalidation(p_show_id);
+    -- pg_notify (inside publish_show_invalidation) queues the
+    -- notification; it fires atomically on transaction COMMIT.
+  END;
+        │
+        ▼ COMMIT (implicit transaction wrapping the RPC call)
         │
         ▼
 Every existing cookie entry for this show now has `e` ≠ shows.picker_epoch.
@@ -240,7 +247,9 @@ invalidation` for any already-open tabs (composite viewer_version_token
 has advanced via the new picker_epoch_bumped_at term in §4.6).
 ```
 
-**Advisory-lock topology (per AGENTS.md invariant 2 — non-negotiable).** `resetPickerEpoch` mutates `public.shows`, so it MUST run inside the per-show advisory lock. Lock key is `hashtext('show:' || drive_file_id)` — the canonical project key per `AGENTS.md` invariant 2. Holder topology: the lock is acquired at the **Server Action layer** (the only entry point that mutates `shows.picker_epoch`); no nested RPC, no JS-side wrapper above the action, no other layer touches the column. This single-holder design is documented here and pinned by an extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` (per §10.1 meta-test inventory). The action uses the blocking form (`pg_advisory_xact_lock`, not `pg_try_advisory_xact_lock`) because it is an admin-initiated request, not a cron path — the spec's invariant 2 directs admin/blocking paths to the blocking variant. If the lock is contended by a concurrent sync run for the same show, the admin's Reset request waits until the sync transaction commits, then proceeds. This is acceptable: Reset is a rare manual click, not a hot path.
+**Advisory-lock topology (per AGENTS.md invariant 2 — non-negotiable).** `resetPickerEpoch` mutates `public.shows`, so it MUST run inside the per-show advisory lock. Lock key is `hashtext('show:' || drive_file_id)` — the canonical project key per `AGENTS.md` invariant 2. **Holder topology: the lock is acquired INSIDE the SECURITY DEFINER RPC `public.reset_picker_epoch_atomic`, which is the ONLY entry point that mutates `shows.picker_epoch`.** The Server Action `resetPickerEpoch` is a thin wrapper that validates admin identity via `requireAdmin()` then calls `.rpc('reset_picker_epoch_atomic', ...)`; the Server Action layer itself does NOT call `pg_advisory_xact_lock`. This is a single-holder design — no nested holder, no JS-side wrapper above the RPC, no other DB function or trigger touches the column. The single-holder invariant is pinned by an extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` (per §10.1 meta-test inventory). The RPC uses the blocking form (`pg_advisory_xact_lock`, not `pg_try_advisory_xact_lock`) because Reset is admin-initiated, not a cron path — invariant 2 directs admin/blocking paths to the blocking variant. If the lock is contended by a concurrent sync run for the same show, the RPC waits until the sync transaction commits, then proceeds. This is acceptable: Reset is a rare manual click, not a hot path.
+
+**Why a SECURITY DEFINER RPC rather than an in-Server-Action transaction (R7 finding).** The Supabase JS client (`tx.rpc(...)`) cannot share a raw Postgres transaction with subsequent client calls — each `.rpc()` invocation runs in its own implicit transaction. Holding the lock, doing the UPDATE, and calling `publish_show_invalidation` from THREE separate `tx.rpc(...)` calls would split them across three transactions, defeating the atomicity AGENTS.md invariant 2 requires. The only way to have lock + UPDATE + publish atomic is to put them all inside one SQL function body. `public.reset_picker_epoch_atomic(p_show_id uuid)` is that function. Per parent spec §8 the existing `publish_show_invalidation(uuid)` SQL helper exists at `supabase/migrations/20260503000000_publish_show_invalidation_helper.sql` and is callable from inside another SECURITY DEFINER function via `PERFORM public.publish_show_invalidation(p_show_id)`.
 
 **Why the lock matters.** Without it, a concurrent sync writing `shows.last_synced_at` (per `lib/sync/phase2.ts` etc.) could interleave with the Reset write in a way that loses one of the two updates depending on transaction isolation. The advisory lock serializes all `shows`-mutating paths so Reset and sync see each other's changes in a well-defined order.
 
@@ -362,7 +371,7 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 - The two triggers `crew_member_auth_publish_invalidation` and `crew_member_auth_publish_invalidation_insert` (per migration `20260501001000_internal_and_admin.sql:83-93`) drop with the table.
 - **No new trigger on `public.shows`.** The existing helper `publish_show_invalidation_after_statement()` (at `20260501001000_internal_and_admin.sql:59-81`) iterates `select distinct show_id from new_rows`. That column name comes from the trigger's transition table, which for child tables (`crew_members`, `crew_member_auth`) carries an explicit `show_id` FK column. For `public.shows` itself, the transition table column is `id` (the show's own PK), NOT `show_id` — reusing the helper would emit a missing-column error and abort the Reset transaction.
-- Instead, the `resetPickerEpoch` Server Action **calls the project's existing helper `publishShowInvalidation(tx, showId)` IN-TRANSACTION before COMMIT** (the same one Phase 2 sync writes use, per parent spec §8 publish-side contract). `pg_notify` is transaction-scoped — the notification fires atomically with COMMIT, so already-open tabs cannot miss an invalidation while the epoch UPDATE is durably committed. If COMMIT fails (lock contention, constraint violation), neither the UPDATE nor the notification take effect. This keeps the trigger surface unchanged AND avoids over-broadcasting on every `shows` UPDATE (which would cause every sync write to spam the `show:<id>:invalidation` channel even when nothing viewer-visible changed).
+- Instead, the **new SECURITY DEFINER RPC `public.reset_picker_epoch_atomic(p_show_id uuid)`** wraps lock acquisition + UPDATE + `PERFORM public.publish_show_invalidation(p_show_id)` into a single SQL function body. The Supabase JS Server Action calls it via `.rpc('reset_picker_epoch_atomic', { p_show_id: showId })`. Because everything happens inside one SQL function, `pg_notify` (inside `publish_show_invalidation`) is queued in the function's implicit transaction and fires atomically when the RPC's transaction commits. If COMMIT fails (lock contention, constraint violation), neither the UPDATE nor the notification take effect. This keeps the trigger surface unchanged AND avoids over-broadcasting on every `shows` UPDATE (which would cause every sync write to spam the `show:<id>:invalidation` channel even when nothing viewer-visible changed).
 
 ### 5.5 RLS
 
@@ -371,7 +380,7 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 ### 5.6 PostgREST DML lockdown + advisory-lock invariants (per AGENTS.md cross-cutting discipline)
 
-`shows.picker_epoch` and `shows.picker_epoch_bumped_at` are written ONLY by the `resetPickerEpoch` Server Action (which uses the service-role client). No other code path mutates them. PostgREST DML on `public.shows` is already REVOKEd from `authenticated`/`anon` (the existing admin-tables lockdown); the new columns inherit that posture. **No new RPC; no new entry-point surface.** The pivot deliberately does not introduce an RPC for the epoch bump because the existing admin-action pattern (service-role UPDATE inside a Server Action behind `requireAdmin()`) is the canonical shape.
+`shows.picker_epoch` and `shows.picker_epoch_bumped_at` are written ONLY by the new SECURITY DEFINER RPC `public.reset_picker_epoch_atomic(uuid)`. No other code path mutates them. PostgREST DML on `public.shows` is already REVOKEd from `authenticated`/`anon` (the existing admin-tables lockdown); the new columns inherit that posture. The RPC itself is GRANTed EXECUTE to `service_role` ONLY — REVOKEd from `authenticated`, `anon`, `public`. The Server Action `resetPickerEpoch` (which uses the service-role client) is the only caller. **R7 amendment**: the earlier "no new RPC" claim was wrong — the atomic transaction requirement (lock + UPDATE + publish_show_invalidation) cannot be satisfied across multiple Supabase JS `.rpc()` calls, so a single SQL function is required. The RPC IS the new entry-point surface for this column; the Server Action wraps it for admin-gating.
 
 **Advisory-lock acquisition (per AGENTS.md invariant 2 — non-negotiable).** Because `resetPickerEpoch` mutates `public.shows`, it MUST acquire `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` inside the same transaction as the UPDATE. The mechanics are in §4.5; the call-boundary contract here is: the structural meta-test at `tests/auth/_metaInfraContract.test.ts` is extended to register `resetPickerEpoch`, AND the advisory-lock topology meta-test at `tests/auth/advisoryLockRpcDeadlock.test.ts` is extended to assert (a) the Server Action body acquires the lock at exactly one layer, (b) no nested SECURITY DEFINER RPC reacquires the same key, and (c) `resetPickerEpoch` is the only writer of `shows.picker_epoch` in the repo. The `selectIdentity`, `clearIdentity`, and `cleanupStaleEntry` Server Actions perform only READS against `shows`/`crew_members` and cookie writes against the client; they do not require the advisory lock.
 
@@ -681,7 +690,7 @@ The plan CREATES or EXTENDS the following structural meta-tests:
 | `tests/messages/_metaAdminAlertCatalog.test.ts` (existing) | EXTEND | Remove all M9.5-era codes; add `PICKER_EPOCH_RESET`, `PICKER_SELECTION_RACE`, and the new picker-rejection codes (`PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, etc.). |
 | `tests/auth/_metaPickerCookieContract.test.ts` (new) | CREATE | Pins the cookie envelope shape: name = `__Host-fxav_picker`, `v=1` strict, decoder returns null on shape failures, encoder/decoder are the only producers in the repo. Banned-identifier audit: the literal substring `__Host-fxav_picker` outside `lib/auth/picker/cookieEnvelope.ts`, the middleware, and the test fixtures fails. Asserts `MAX_COOKIE_VALUE_BYTES === 3800` and that the constant cannot be raised beyond 3900 without a paired `// browser-cap-implication-acknowledged` comment in the same hunk. |
 | `tests/components/_metaPickerRoleChipContract.test.ts` (new) | CREATE | Pins the LEAD-chip-uses-FXAV-orange contract: any roster row where the underlying crew member has `LEAD` in `role_flags` renders with the accent chip; any other row renders the neutral chip. Test runs against a fixture roster with mixed `role_flags`. |
-| `tests/cross-cutting/no-jwt-surface.test.ts` (new) | CREATE | Banned-identifier audit. The literal substrings `__Host-fxav_session`, `redeemLink`, `signLinkJwt`, `verifyLinkJwt`, `current_token_version`, `revoked_below_version`, `max_issued_version`, `bootstrap_nonces`, `link_sessions`, `revoked_links`, `crew_member_auth`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED`, `validateCrewAssetSession`, `validateLinkSession`, `crew_link` (as a `kind` discriminator), `crew_google` (as a `kind` discriminator) MUST not appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts`, `supabase/migrations/<post-cutover>/**`. Additionally, `validateGoogleSession` imports MUST appear ONLY in `app/api/report/route.ts`, `app/api/me/**`, `app/me/**`, `app/auth/sign-out/route.ts`, AND the test directory — every other consumer is banned (this is the explicit "Google-session-for-crew-identity is dead" guarantee from Resolved Decision 15, structurally enforced). Old migrations retain their history per migration-immutability rules. |
+| `tests/cross-cutting/no-jwt-surface.test.ts` (new) | CREATE | Banned-identifier audit. The literal substrings `__Host-fxav_session`, `redeemLink`, `signLinkJwt`, `verifyLinkJwt`, `current_token_version`, `revoked_below_version`, `max_issued_version`, `bootstrap_nonces`, `link_sessions`, `revoked_links`, `crew_member_auth`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED`, `validateCrewAssetSession`, `validateLinkSession`, `crew_link` (as a `ShowViewer` chain-level `kind` discriminator in `lib/auth/resolveShowViewer.ts` — NOT to be confused with the `Viewer` data-fetcher union at `lib/data/getShowForViewer.ts:79-82` whose `'crew'` arm is preserved), `crew_google` (as a `ShowViewer` chain-level discriminator) MUST not appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts`, `supabase/migrations/<post-cutover>/**`. Additionally, `validateGoogleSession` imports MUST appear ONLY in `app/api/report/route.ts`, `app/api/me/**`, `app/me/**`, `app/auth/sign-out/route.ts`, AND the test directory — every other consumer is banned (this is the explicit "Google-session-for-crew-identity is dead" guarantee from Resolved Decision 15, structurally enforced). Old migrations retain their history per migration-immutability rules. |
 | `tests/cross-cutting/picker-resolver-callsite-contract.test.ts` (new) | CREATE | Asserts every route handler that needs crew identity (`/show/[slug]/page.tsx`, `/api/realtime/subscriber-token`, `/api/asset/diagram/[show]/[rev]/[key]`, `/api/asset/reel/[show]`, `/api/asset/agenda/[show]/[id]`, `/api/show/[slug]/version`, `/api/report`) imports `resolvePickerSelection` from the canonical helper path AND distinguishes its `infra_error` arm from auth-denied. Static-analysis walker over the file list — does NOT depend on running the routes. |
 
 ### 10.2 Functional test coverage
