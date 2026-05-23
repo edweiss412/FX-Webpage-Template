@@ -4,6 +4,38 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ---
 
+## Phase I close-out (2026-05-22) — Codex R1 cross-CLI adversarial review dispositions
+
+### M11-I-D-1: `/help/errors` trailing CTA uses `mailto:` until non-show-scoped report surface lands
+
+- **Severity:** MEDIUM (spec-amendment-by-deferral; user-visible UI works)
+- **File:line:** `app/help/errors/page.tsx:45-49` (the trailing `<a href="mailto:edweiss412@gmail.com…">If this keeps happening, tell Eric →</a>` per entry)
+- **Spec citation:** AC-11.11 (M11 spec line 695) + master-spec §13.1 (bug-report pipeline surfaces)
+- **Symptom:** AC-11.11 specifies the trailing CTA points to "the bug-report flow (per §4.3)". The implementation uses `mailto:` instead. Originally committed at `7c4c4ee` with the rationale "E.13 P1 — /admin/bug-report route absent" but the deferral was not formally filed at the time.
+
+- **Why deferred (concrete-but-larger-scope-than-close-out):** Master-spec §13.1 defines exactly four bug-report surfaces, all SHOW-SCOPED:
+  1. Live parse feedback (admin, per-warning button in §9.2 parse panel)
+  2. Per-crew preview banner (admin, scoped to show + crew member)
+  3. Crew page footer in preview mode (admin, scoped to previewed show)
+  4. "Something looks wrong?" footer button on crew pages (crew, scoped via signed link)
+
+  M8's `ReportButton` (`components/shared/ReportButton.tsx:39`) requires `showId: string` — show-scoped by design. The `/help/errors` trailing CTA is a fundamentally different signal shape: Doug arriving at `/help/errors#PARSE_ERROR_LAST_GOOD` isn't reporting against a specific show — he's flagging that the code keeps recurring across his show portfolio. That's a non-show-scoped recurrence-signal surface that:
+  - Was never defined in master-spec §13.1
+  - Was never planned in M8 (the report-flow milestone, hardened across ~30 rounds without anyone identifying this surface as needed)
+  - Was never built into the ReportButton/ReportModal contract
+
+  Building it now would require: design pass on a 5th non-show-scoped report surface, ReportModal contract extension to accept null `showId`, possibly a new `/api/report-recurrence` endpoint or a §12.4-catalog-shaped DB schema decision, possibly an admin triage view. That's a multi-task milestone-scope feature, not a close-out polish.
+
+- **What v1 ships with:** `mailto:edweiss412@gmail.com?subject=FXAV%20bug%3A&body=What%20happened%3A%0A%0AWhich%20code%3A%0A` — the user opens their mail client, the subject/body are pre-populated with the form fields, Eric receives a real email. Loses idempotency, retry/reaper semantics, cataloged labels, and GitHub issue routing that the §13.1 four-surface pipeline provides — but the report still reaches Eric.
+
+- **Spec amendment ratified alongside this deferral:** AC-11.11 in the M11 spec is amended to acknowledge `mailto:` as the v1 trigger and reference this DEFERRED entry. The amendment is line-edit only (~3 lines).
+
+- **Why not BACKLOG.md:** Trigger is concrete enough — either (a) a future milestone introduces a non-show-scoped report surface for any other reason and `/help/errors` adopts it, OR (b) FXAV operator feedback flags the mailto-vs-modal divergence as a real friction point ("I want to report this without opening my mail client"). Both are plausible v1.x triggers. The companion speculative future-feature lives at BACKLOG.md `BL-HELP-NON-SHOW-REPORT-SURFACE`.
+
+- **Re-open trigger:** EITHER (a) M12+ or any future milestone elects to design a non-show-scoped report surface; OR (b) operator feedback flags the mailto friction; OR (c) the master-spec §13.1 four-surface contract gets revisited and adds a fifth surface.
+
+---
+
 ## Phase G §B close-out (2026-05-22) — hybrid disposition + impeccable v3 round-1 dispositions
 
 ### M11-G-D-1: §5.6 matrix row `help-affordance--dashboard-restage-badge--tooltip` defers UI delivery
