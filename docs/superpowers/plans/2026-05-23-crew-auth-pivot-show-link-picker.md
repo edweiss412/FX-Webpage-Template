@@ -1297,7 +1297,20 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
 // R3-F1: uses select_identity_atomic RPC so the token check, roster
 // check, availability check, AND epoch read all run under the per-show
 // advisory lock. Rotation cannot interleave.
+// R12-F3: every infra surface — pickerCookieSigningKey, service-role
+// client construction, cookies().get/set, decodePickerCookie,
+// encodePickerCookie — can throw. Wrap the entire body in try/catch
+// so any thrown fault maps to the typed PICKER_RESOLVER_LOOKUP_FAILED
+// result instead of bubbling up as a framework error.
 export async function selectIdentityCore(input: SelectIdentityInput): Promise<SelectIdentityResult> {
+  try {
+    return await selectIdentityCoreImpl(input);
+  } catch {
+    return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
+}
+
+async function selectIdentityCoreImpl(input: SelectIdentityInput): Promise<SelectIdentityResult> {
   if (!input || typeof input !== 'object') return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (typeof input.slug !== 'string' || !SLUG_RE.test(input.slug)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (typeof input.shareToken !== 'string' || !TOKEN_RE.test(input.shareToken)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
@@ -2124,6 +2137,19 @@ git commit -am "feat(ui): IdentityChip + ShowBody integration (C4)"
 
 ## Phase D: API route auth swaps
 
+### D-pre: Show-id derivation contract for slug-based API routes (R12-F2)
+
+**Files:** documentation-only — applies to D1, D2, D3, D4 implementations.
+
+`resolvePickerSelection` takes `{ showId, cookie }`. The slug-based routes (`/api/show/[slug]/version`, `/api/realtime/subscriber-token` whose request body carries the show_id, `/api/report` similar) need a derivation step that maps the URL/body identifier to a `show_id` UUID BEFORE calling the resolver. The contract:
+
+- **`/api/show/[slug]/version`**: `params.slug` arrives in the URL. The route MUST call `resolve_show_by_slug_and_token`-OR-`SELECT id FROM shows WHERE slug = $1 LIMIT 1` (no share-token in this URL — admin-and-cookie auth go through different code paths, but the version endpoint doesn't carry the share-token). Wait — per the spec, the version endpoint requires a picker cookie OR admin session; the picker cookie alone proves possession of the show-link. The route does NOT re-validate the share-token because the cookie's HMAC signature + `e === shows.picker_epoch` already proves the cookie came from a valid selection. So the route does `SELECT id FROM shows WHERE slug = $1` (slug-only lookup), gets the show_id, then calls `resolvePickerSelection({ showId, cookie })`. Missing-slug → 404 (matches the page route's contract for unknown slugs). DB infra fault → 500 + cataloged code.
+- **`/api/realtime/subscriber-token`**: request body carries `show_id` (UUID) directly per the existing route contract. No slug derivation needed.
+- **`/api/asset/{diagram,reel,agenda}/[show]/...`**: `params.show` is the show UUID per R34. No derivation needed.
+- **`/api/report`**: request body carries `show_id`.
+
+Per route, the show_id derivation step + its error handling (404 for unknown slug, 500 for infra) is the first thing the route does, BEFORE calling `resolvePickerSelection`. Each route's test matrix asserts: (a) the derivation step's outcome maps cleanly to the cataloged response codes; (b) a slug not in `shows` returns 404 from the derivation step, NOT from the resolver.
+
 ### Task D1: Subscriber-token route — swap to picker cookie
 
 **Files:**
@@ -2509,6 +2535,8 @@ drop table if exists public.bootstrap_nonces cascade;
 drop table if exists public.revoked_links cascade;
 drop table if exists public.crew_member_auth cascade;
 ```
+
+> **R12-F1 task ordering**: G2-pre's gate test reads the cutover migration file; G3's post-cutover schema test asserts the post-application state. Each commit must be green on a clean checkout, so the order is: **G2-write-migration (commits the migration file with the pre-apply gate test in the SAME commit; gate test passes against the committed migration; migration is NOT yet applied)** → **G2-apply (applies the migration; G3 schema test passes)** → **G3-verify (commits the post-apply verification suite that asserts cleanly applied state)**. The G2-pre task description below documents the gate-test contract; the actual commit happens in G2-write-migration alongside the migration file.
 
 ### Task G2-pre: Pre-apply cutover-migration gate test (R10-F1)
 
