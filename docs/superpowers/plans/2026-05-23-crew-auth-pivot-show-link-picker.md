@@ -1055,7 +1055,109 @@ git commit -m "feat(auth): resolvePickerSelection 7-arm resolver (B2)"
 
 ---
 
-### Task B3: `selectIdentity` Server Action (R37 share-token validation)
+### Task B3-pre: New SECURITY DEFINER RPC `select_identity_atomic` (R3-F1)
+
+**Files:**
+- Create: `supabase/migrations/20260523000007_select_identity_atomic.sql`
+- Test: `tests/db/select_identity_atomic.test.ts`
+
+**Rationale (R3-F1 race):** A multi-step selectIdentity (resolve token → roster check → epoch read → cookie write) has a race window where `rotate_show_share_token` can commit between the token resolve and the epoch read, allowing the old URL to mint a cookie at the new epoch. The fix is a single SECURITY DEFINER RPC that performs ALL the DB work under the per-show advisory lock — the same lock that rotation holds — so the two operations serialize.
+
+```sql
+-- supabase/migrations/20260523000007_select_identity_atomic.sql
+create or replace function public.select_identity_atomic(
+  p_slug text,
+  p_share_token text,
+  p_crew_member_id uuid
+)
+  returns table (
+    show_id uuid,
+    picker_epoch int,
+    rejection_code text
+  )
+  language plpgsql
+  security definer
+  set search_path = public, pg_temp
+as $$
+declare
+  v_show_id uuid;
+  v_drive_file_id text;
+  v_published boolean;
+  v_archived boolean;
+begin
+  -- Step 1: resolve the (slug, token) pair into show_id.
+  select s.id, s.drive_file_id, s.published, s.archived
+    into v_show_id, v_drive_file_id, v_published, v_archived
+    from public.shows s
+    join public.show_share_tokens t on t.show_id = s.id
+   where s.slug = p_slug
+     and t.share_token = p_share_token
+   limit 1;
+  if v_show_id is null then
+    show_id := null; picker_epoch := null; rejection_code := 'PICKER_INVALID_SHARE_TOKEN';
+    return next; return;
+  end if;
+
+  -- Step 2: acquire the per-show lock. After this, rotate_show_share_token
+  -- and reset_picker_epoch_atomic for this show are blocked until we COMMIT.
+  perform pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
+
+  -- Step 3: re-verify the (slug, token) pair UNDER the lock. If rotation
+  -- committed before we got the lock, the token now mismatches.
+  if not exists (
+    select 1 from public.show_share_tokens
+     where show_id = v_show_id and share_token = p_share_token
+  ) then
+    show_id := null; picker_epoch := null; rejection_code := 'PICKER_INVALID_SHARE_TOKEN';
+    return next; return;
+  end if;
+
+  -- Step 4: availability check (also under the lock).
+  if v_archived or not v_published then
+    show_id := null; picker_epoch := null; rejection_code := 'PICKER_SHOW_UNAVAILABLE';
+    return next; return;
+  end if;
+
+  -- Step 5: roster membership.
+  if not exists (
+    select 1 from public.crew_members
+     where id = p_crew_member_id and show_id = v_show_id
+  ) then
+    show_id := null; picker_epoch := null; rejection_code := 'PICKER_CREW_MEMBER_NOT_FOUND';
+    return next; return;
+  end if;
+
+  -- Step 6: read picker_epoch under the lock. Reset/Rotate cannot
+  -- bump it during this transaction; the value we return is
+  -- guaranteed to match what a concurrent rotation would observe.
+  select s.picker_epoch into picker_epoch
+    from public.shows s where s.id = v_show_id;
+
+  show_id := v_show_id;
+  rejection_code := null;
+  return next;
+end;
+$$;
+
+revoke all on function public.select_identity_atomic(text, text, uuid) from public;
+grant execute on function public.select_identity_atomic(text, text, uuid)
+  to authenticated, service_role;
+```
+
+Test cases:
+- Happy path: returns `{ show_id, picker_epoch, rejection_code: null }`.
+- Wrong token: returns `{ rejection_code: 'PICKER_INVALID_SHARE_TOKEN' }`.
+- Wrong crew row: returns `PICKER_CREW_MEMBER_NOT_FOUND`.
+- Archived show: returns `PICKER_SHOW_UNAVAILABLE`.
+- **Concurrent rotation race regression**: spawn two transactions in parallel — one calls `rotate_show_share_token`, the other calls `select_identity_atomic` with the OLD token. Whichever acquires the lock first wins; the other observes the post-state under the same lock. Asserts: rotation-wins → select returns `PICKER_INVALID_SHARE_TOKEN` even though it presented the old token; select-wins → cookie minted at the OLD epoch (which is then bumped by the subsequent rotation). No window where the old token can mint a cookie at the new epoch.
+
+```bash
+git commit -am "feat(db): select_identity_atomic RPC (token+epoch under advisory lock; B3-pre)"
+```
+
+---
+
+### Task B3: `selectIdentity` Server Action (R37 share-token validation, R3-F1 atomic)
 
 **Files:**
 - Create: `lib/auth/picker/selectIdentity.ts`
@@ -1063,15 +1165,15 @@ git commit -m "feat(auth): resolvePickerSelection 7-arm resolver (B2)"
 
 - [ ] **Step 1-5: TDD cycle**
 
-Test cases (full list — write each as a `describe`/`it` block):
+Test cases (R3-F3 — unit tests target `selectIdentityCore` with object args; the FormData entry `selectIdentity` has its own real-form-submission test that constructs FormData):
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest';
-import { selectIdentity } from '@/lib/auth/picker/selectIdentity';
+import { selectIdentity, selectIdentityCore } from '@/lib/auth/picker/selectIdentity';
 
-describe('selectIdentity Server Action', () => {
+describe('selectIdentityCore (object-shaped — direct invocation)', () => {
   it('R37: rejects without share-token (legacy { showId, crewMemberId } shape)', async () => {
-    const result = await selectIdentity({ showId: 'x', crewMemberId: 'y' } as any);
+    const result = await selectIdentityCore({ showId: 'x', crewMemberId: 'y' } as any);
     expect(result.code).toBe('PICKER_INVALID_INPUT');
   });
   it("R37: rejects with wrong share-token (code 'PICKER_INVALID_SHARE_TOKEN')", async () => { /* ... */ });
@@ -1083,6 +1185,27 @@ describe('selectIdentity Server Action', () => {
   it('happy path: mints HMAC-signed cookie + revalidates tokenized path', async () => { /* assert Set-Cookie present + revalidatePath called with /show/${slug}/${token} */ });
   it('merges new entry into existing envelope without disturbing other shows', async () => { /* ... */ });
   it('LRU-evicts oldest entry when over byte budget', async () => { /* ... */ });
+});
+
+describe('selectIdentity FormData entry (real form submission shape)', () => {
+  it('parses FormData and delegates to selectIdentityCore', async () => {
+    const fd = new FormData();
+    fd.set('slug', 'real-slug');
+    fd.set('shareToken', 'a'.repeat(64));
+    fd.set('crewMemberId', '11111111-1111-1111-1111-111111111111');
+    const result = await selectIdentity(fd);
+    expect(result.ok).toBe(false);
+    // PICKER_INVALID_SHARE_TOKEN (no real show seeded for this slug).
+    expect((result as any).code).toBe('PICKER_INVALID_SHARE_TOKEN');
+  });
+
+  it('rejects FormData with missing fields → PICKER_INVALID_INPUT', async () => {
+    const fd = new FormData();
+    fd.set('slug', 'real-slug');
+    // shareToken + crewMemberId missing
+    const result = await selectIdentity(fd);
+    expect((result as any).code).toBe('PICKER_INVALID_INPUT');
+  });
 });
 ```
 
@@ -1122,6 +1245,9 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
 }
 
 // Object-shaped core — unit-testable; never invoked directly by <form>.
+// R3-F1: uses select_identity_atomic RPC so the token check, roster
+// check, availability check, AND epoch read all run under the per-show
+// advisory lock. Rotation cannot interleave.
 export async function selectIdentityCore(input: SelectIdentityInput): Promise<SelectIdentityResult> {
   if (!input || typeof input !== 'object') return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (typeof input.slug !== 'string' || !SLUG_RE.test(input.slug)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
@@ -1130,41 +1256,31 @@ export async function selectIdentityCore(input: SelectIdentityInput): Promise<Se
 
   const supabase = createSupabaseServiceRoleClient();
 
-  // R37: share-token check FIRST.
-  const { data: showId, error: resolveErr } = await supabase.rpc(
-    'resolve_show_by_slug_and_token',
-    { p_slug: input.slug, p_share_token: input.shareToken },
-  );
-  if (resolveErr) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
-  if (!showId) return { ok: false, code: 'PICKER_INVALID_SHARE_TOKEN' };
-
-  // Roster membership.
-  const { data: crew, error: crewErr } = await supabase
-    .from('crew_members')
-    .select('id, show_id')
-    .eq('id', input.crewMemberId)
-    .maybeSingle();
-  if (crewErr) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
-  if (!crew) return { ok: false, code: 'PICKER_CREW_MEMBER_NOT_FOUND' };
-  if (crew.show_id !== showId) return { ok: false, code: 'PICKER_CREW_MEMBER_WRONG_SHOW' };
-
-  // Availability + epoch.
-  const { data: show, error: showErr } = await supabase
-    .from('shows')
-    .select('picker_epoch, published, archived')
-    .eq('id', showId)
+  // R3-F1: single RPC under advisory lock; rotation cannot interleave.
+  const { data, error } = await supabase
+    .rpc('select_identity_atomic', {
+      p_slug: input.slug,
+      p_share_token: input.shareToken,
+      p_crew_member_id: input.crewMemberId,
+    })
     .single();
-  if (showErr || !show) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
-  if (show.archived || !show.published) return { ok: false, code: 'PICKER_SHOW_UNAVAILABLE' };
+  if (error) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  if (!data) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  if (data.rejection_code) return { ok: false, code: data.rejection_code };
+  if (!data.show_id || !Number.isInteger(data.picker_epoch)) {
+    return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
+  const showId = data.show_id as string;
+  const lockedEpoch = data.picker_epoch as number;
 
   // Merge into existing envelope.
   const key = pickerCookieSigningKey();
   const cookieStore = await cookies();
   const existing = decodePickerCookie(cookieStore.get(COOKIE_NAME)?.value, key);
   const env = existing ?? { v: 1 as const, selections: {} };
-  env.selections[showId as string] = {
+  env.selections[showId] = {
     id: input.crewMemberId,
-    e: show.picker_epoch,
+    e: lockedEpoch,
     t: Math.floor(Date.now() / 1000),
   };
   const encoded = encodePickerCookie(env, key);
@@ -1439,6 +1555,8 @@ git commit -am "feat(ui): TerminalFailure cataloged-message component (C0)"
 
 ### Task C1: Move crew route to `app/show/[slug]/[shareToken]/`
 
+**Task ordering (R3-F2):** C1 depends on C0 (TerminalFailure component) and C4 (IdentityChip + ShowBody prop addition for `identityChip`). The implementer MUST land the prop addition + TerminalFailure import in the same commit as the route move OR reorder: C0 → C4-step-1 (extend ShowBody props with optional `identityChip`) → C1 → C4-step-2 (mount IdentityChip from ShowBody). Either path keeps each commit building.
+
 **Files:**
 - Move: `app/show/[slug]/page.tsx` → `app/show/[slug]/[shareToken]/page.tsx`
 - Move: `app/show/[slug]/_ShowBody.tsx` → `app/show/[slug]/[shareToken]/_ShowBody.tsx`
@@ -1481,6 +1599,7 @@ import { COOKIE_NAME } from '@/lib/auth/picker/cookieEnvelope';
 import { PickerInterstitial } from './_PickerInterstitial';
 import { ShowBody } from './_ShowBody';
 import { getShowForViewer } from '@/lib/data/getShowForViewer';
+import { TerminalFailure } from '@/components/auth/TerminalFailure';
 
 export default async function ShowPage({
   params,
@@ -1520,8 +1639,17 @@ export default async function ShowPage({
   const admin = await isAdminSession(req as any);
   if (admin.ok) {
     // Admin precedence — render as admin without going through picker.
-    const data = await getShowForViewer(showId as string, { kind: 'admin' });
-    return <ShowBody data={data} identityChip={null} />;
+    const viewer = { kind: 'admin' as const };
+    const data = await getShowForViewer(showId as string, viewer);
+    return (
+      <ShowBody
+        slug={slug}
+        showId={showId as string}
+        viewer={viewer}
+        data={data}
+        identityChip={null}
+      />
+    );
   }
 
   if (!show.published) notFound();
