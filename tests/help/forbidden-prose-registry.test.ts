@@ -85,6 +85,18 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
     rationale:
       "R15 finding 1 corollary. No email-send infrastructure ships in v1 (no sendgrid / resend / nodemailer / SMTP code path). Any 'confirmation email' phrasing implies a delivery channel that does not exist.",
   },
+  {
+    id: "share-the-url-channel",
+    pattern: /share\s+the\s+URL\s+through\s+whatever\s+channel/i,
+    rationale:
+      "R16 finding 1 root. The phantom-affordance class extends to the URL-distribution channel itself: signLinkJwt() exists in lib/auth/jwt.ts:123 but no production action surface calls it. issueNewLinkAction returns version counters, not a URL. Doug literally cannot extract a URL from the shipped UI, so 'share the URL through whatever channel you already use' is structurally false. Per the M11 user-direction ('describe only what's shipped'), help docs must acknowledge URL distribution runs through a developer-built handoff in v1 until the post-M11 picker model lands.",
+  },
+  {
+    id: "send-each-their-link",
+    pattern: /send\s+each\s+(?:crew\s+member\s+)?their\s+(?:link|personal\s+link)\s+from/i,
+    rationale:
+      "R16 corollary. Same root as share-the-url-channel: 'send each their link from <surface>' implies Doug has a sendable URL extracted from <surface>. He doesn't. Whitelist legitimate paraphrases by adjusting this pattern only after confirming a URL surface ships.",
+  },
 ];
 
 function helpMdxFiles(): string[] {
