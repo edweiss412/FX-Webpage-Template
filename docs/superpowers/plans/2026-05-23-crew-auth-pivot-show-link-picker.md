@@ -880,6 +880,14 @@ git commit -m "feat(auth): HMAC-signed picker cookie envelope (B1)"
 
 ### Task B2: `resolvePickerSelection` resolver (7-arm discriminated union)
 
+**R16-F1 race posture (explicit accept; documented in §10 tests):** `resolvePickerSelection` reads `shows.picker_epoch` and `crew_members` in separate non-locked queries. A concurrent `rotate_show_share_token` / `reset_picker_epoch_atomic` (under the advisory lock) could commit BETWEEN the resolver's two reads, allowing a stale cookie to authorize ONE more request after rotation/reset commits. The race window is bounded:
+- After the rotate/reset commits, the NEXT picker-cookie-bearing request acquires the post-commit `picker_epoch`; cookie's `e` mismatches; resolver returns `epoch_stale` → 401.
+- The realtime broadcast fires on rotate/reset commit; open tabs receive it and `router.refresh()` triggers a fresh resolve that observes the new epoch.
+
+**Why not atomic-RPC for resolution**: the resolver runs on EVERY authenticated request (page renders, asset fetches, version probes, subscriber-token mints). Wrapping each in `pg_advisory_xact_lock` would serialize all reads through the per-show lock, destroying read concurrency. The race window is brief (~one request), the consequence is one additional asset/page response after rotation, and the realtime broadcast force-refreshes open tabs immediately. The pivot's threat model accepts this trade-off.
+
+Regression test in §10: spawn concurrent `rotate_show_share_token` and a resolver call with the OLD cookie. Assert (a) at most one resolver call wins post-rotation; (b) the subsequent resolver call returns `epoch_stale`. Documents the bounded race rather than eliminating it.
+
 **Files:**
 - Create: `lib/auth/picker/resolvePickerSelection.ts`
 - Test: `tests/auth/picker/resolvePickerSelection.test.ts`
@@ -1810,6 +1818,24 @@ export default async function ShowPage({
     return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
   }
   if (admin.ok) {
+    // R16-F2: preserve the canonical M11 double-gate. After
+    // isAdminSession's predicate check, call requireAdmin() so the
+    // canonical chokepoint (build-time email allowlist + is_admin()
+    // RPC) confirms. Predicate/chokepoint drift falls through to the
+    // crew chain rather than rendering as admin. requireAdmin()
+    // raises via notFound()/forbidden() (Next.js navigation control
+    // flow); catch the throw and continue.
+    try {
+      await requireAdmin();
+    } catch (e) {
+      if (e instanceof AdminInfraError) {
+        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+      }
+      // Navigation throw from notFound()/forbidden() — predicate
+      // disagreed with chokepoint; treat as non-admin.
+      // (Fall through to the crew flow below.)
+    }
+
     // Admin precedence — render as admin without going through picker.
     // R13-F3: wrap getShowForViewer in try/catch (same posture as the
     // crew branch); admin outages get the cataloged terminal-failure
