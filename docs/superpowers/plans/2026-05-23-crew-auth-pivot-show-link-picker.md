@@ -1090,6 +1090,10 @@ Implementation file:
 
 ```ts
 // lib/auth/picker/selectIdentity.ts
+// R1-F1: Server Actions invoked as <form action={}> receive a
+// FormData argument, NOT a plain object. The exported action
+// parses FormData; a separate object-shaped core function is
+// unit-testable directly. Both paths share the same validation.
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -1106,7 +1110,19 @@ const MAX_AGE_SEC = 7_776_000;
 export type SelectIdentityInput = { slug: string; shareToken: string; crewMemberId: string };
 export type SelectIdentityResult = { ok: true } | { ok: false; code: string };
 
-export async function selectIdentity(input: SelectIdentityInput): Promise<SelectIdentityResult> {
+// FormData entry point — what Next invokes when <form action={selectIdentity}> submits.
+export async function selectIdentity(formData: FormData): Promise<SelectIdentityResult> {
+  const slug = formData.get('slug');
+  const shareToken = formData.get('shareToken');
+  const crewMemberId = formData.get('crewMemberId');
+  if (typeof slug !== 'string' || typeof shareToken !== 'string' || typeof crewMemberId !== 'string') {
+    return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  }
+  return selectIdentityCore({ slug, shareToken, crewMemberId });
+}
+
+// Object-shaped core — unit-testable; never invoked directly by <form>.
+export async function selectIdentityCore(input: SelectIdentityInput): Promise<SelectIdentityResult> {
   if (!input || typeof input !== 'object') return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (typeof input.slug !== 'string' || !SLUG_RE.test(input.slug)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (typeof input.shareToken !== 'string' || !TOKEN_RE.test(input.shareToken)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
@@ -1174,6 +1190,8 @@ git commit -m "feat(auth): selectIdentity Server Action (R37 token validation; B
 ---
 
 ### Task B4: `clearIdentity` Server Action (R39 — needs slug+shareToken for revalidate)
+
+**Form/FormData pattern (R1-F1):** like `selectIdentity`, the exported `clearIdentity` accepts `FormData` (called from `<form action={clearIdentity}>` in `IdentityChip`), parses string fields, and delegates to an object-shaped `clearIdentityCore({ slug, shareToken, showId })` that unit tests exercise directly. Same pattern for `cleanupStaleEntry` (B5).
 
 **Files:**
 - Create: `lib/auth/picker/clearIdentity.ts`
@@ -1403,19 +1421,29 @@ export default async function ShowPage({
 }) {
   const { slug, shareToken } = await params;
 
-  // R34/R35: resolve via private RPC; mismatch → 404.
+  // R34/R35 + R1-F2: resolve via private RPC; destructure error.
+  // Infra-error MUST be discriminable from "wrong token" (404),
+  // per AGENTS.md call-boundary discipline. A Supabase outage or
+  // missing GRANT EXECUTE returns terminal-failure, not 404.
   const supabase = createSupabaseServiceRoleClient();
-  const { data: showId } = await supabase.rpc('resolve_show_by_slug_and_token', {
+  const resolveResp = await supabase.rpc('resolve_show_by_slug_and_token', {
     p_slug: slug, p_share_token: shareToken,
   });
-  if (!showId) notFound();
+  if (resolveResp.error) {
+    // Infra fault — render terminal-failure UI (cataloged code).
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+  }
+  const showId = resolveResp.data;
+  if (!showId) notFound(); // confirmed token/slug mismatch.
 
-  const { data: show } = await supabase
+  const showResp = await supabase
     .from('shows')
     .select('id, published, archived')
     .eq('id', showId)
-    .single();
-  if (!show) notFound();
+    .maybeSingle();
+  if (showResp.error) return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+  if (!showResp.data) notFound(); // race: show deleted between RPC and SELECT.
+  const show = showResp.data;
 
   // R27: archived 404s for ALL viewers including admin (crew route is crew-only).
   if (show.archived) notFound();
@@ -1937,6 +1965,18 @@ git commit -m "refactor: delete M9.5 JWT/link/me surfaces (G1)"
 - Modify: `lib/messages/catalog.ts` (delete all M9.5-era code entries)
 - Modify: `lib/messages/__generated__/spec-codes.ts` (regenerate from catalog)
 
+**Implementer-action requirement (R1-F3):** before writing this migration, the implementer MUST run a grep-derived inventory of every M9.5 function/trigger/policy/grant the migration needs to drop. Use:
+
+```bash
+# Implementer pre-check (do NOT skip):
+rg -n "create (or replace )?function public\.(mint_link_session|revoke_leaked_link|issue_new_link|revoke_all_link|recheck_link_session_mint_auth_state)" supabase/migrations
+rg -n "create policy.*on public\.(crew_member_auth|link_sessions|bootstrap_nonces|revoked_links)" supabase/migrations
+rg -n "create trigger.*on public\.(crew_member_auth|link_sessions)" supabase/migrations
+rg -n "grant .*on (function|table) public\.(mint_link_session|revoke_leaked_link|issue_new_link|revoke_all|link_sessions|crew_member_auth|bootstrap_nonces|revoked_links)" supabase/migrations
+```
+
+Each matched item gets a paired `DROP FUNCTION/TRIGGER/POLICY IF EXISTS` line in the cutover migration. The migration also asserts post-application no legacy entry points remain via the test in Task G3 below.
+
 ```sql
 -- supabase/migrations/20260523000099_cutover_drop_m9_5.sql
 -- THE CUTOVER MIGRATION. References to crew_member_auth /
@@ -1944,14 +1984,78 @@ git commit -m "refactor: delete M9.5 JWT/link/me surfaces (G1)"
 -- / etc. are EXPECTED in this file and are exempted from the
 -- no-jwt-surface meta-test (per R13 CUTOVER_MIGRATION_TIMESTAMP).
 
+-- Functions (from signed_link_admin_rpcs.sql + 20260504/20260505 migrations):
 drop function if exists public.mint_link_session_if_active_kid_matches(uuid, text, int, text, timestamptz);
 drop function if exists public.revoke_leaked_link_atomic(uuid, text, int);
--- ... (full list per spec §4.10 + signed_link_admin_rpcs.sql)
+drop function if exists public.revoke_leaked_link_atomic_advisory_lock(uuid, text, int);
+drop function if exists public.revoke_all_links_rpc(uuid);
+drop function if exists public.issue_new_link_rpc(uuid, text);
+drop function if exists public.recheck_link_session_mint_auth_state(uuid, text, int);
 
+-- Triggers on the to-be-dropped tables fall away with the table drops below,
+-- but explicit drops for any trigger on shared parent tables:
+drop trigger if exists crew_member_auth_publish_invalidation on public.crew_member_auth;
+drop trigger if exists crew_member_auth_publish_invalidation_insert on public.crew_member_auth;
+drop trigger if exists crew_member_auth_bump_last_changed_at on public.crew_member_auth;
+
+-- Tables (CASCADE drops dependent indexes/policies/grants):
 drop table if exists public.link_sessions cascade;
 drop table if exists public.bootstrap_nonces cascade;
 drop table if exists public.revoked_links cascade;
 drop table if exists public.crew_member_auth cascade;
+
+-- The implementer runs the grep commands above and APPENDS any additional
+-- matched functions/triggers/policies to this file BEFORE applying.
+-- The G3 verification test asserts the final state matches the migration.
+```
+
+### Task G3: Post-cutover schema verification test
+
+**Files:**
+- Create: `tests/db/cutover-schema-clean.test.ts`
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { createSupabaseServiceRoleClient } from '@/lib/supabase/server';
+
+describe('post-cutover schema is clean of M9.5 surface (R1-F3)', () => {
+  it('no link_sessions / bootstrap_nonces / revoked_links / crew_member_auth tables remain', async () => {
+    const supabase = createSupabaseServiceRoleClient();
+    const { data } = await supabase.rpc('exec_sql', {
+      sql: `select table_name from information_schema.tables
+              where table_schema = 'public'
+                and table_name in ('link_sessions','bootstrap_nonces','revoked_links','crew_member_auth')`,
+    });
+    expect(data ?? []).toHaveLength(0);
+  });
+
+  it('no M9.5 RPC functions remain', async () => {
+    const supabase = createSupabaseServiceRoleClient();
+    const { data } = await supabase.rpc('exec_sql', {
+      sql: `select proname from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public'
+                and proname ~ '^(mint_link_session|revoke_leaked_link|revoke_all_links|issue_new_link|recheck_link_session)'`,
+    });
+    expect(data ?? []).toHaveLength(0);
+  });
+
+  it('no executable grants remain on M9.5 functions for non-service roles', async () => {
+    const supabase = createSupabaseServiceRoleClient();
+    const { data } = await supabase.rpc('exec_sql', {
+      sql: `select routine_name from information_schema.routine_privileges
+              where routine_schema = 'public'
+                and grantee in ('anon','authenticated')
+                and routine_name ~ '(link_session|leaked_link|issue_new_link|revoke_all_links)'`,
+    });
+    expect(data ?? []).toHaveLength(0);
+  });
+});
+```
+
+```bash
+git add tests/db/cutover-schema-clean.test.ts
+git commit -m "test(db): post-cutover schema clean (R1-F3; G3)"
 ```
 
 ```bash
