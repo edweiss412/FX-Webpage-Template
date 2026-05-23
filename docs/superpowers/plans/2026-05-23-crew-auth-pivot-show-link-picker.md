@@ -1213,6 +1213,7 @@ describe('clearIdentity', () => {
 
 ```ts
 // lib/auth/picker/clearIdentity.ts
+// R1-F1 + R2-F2: FormData entry-point + object-shaped *Core.
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -1224,7 +1225,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const TOKEN_RE = /^[0-9a-f]{64}$/;
 
-export async function clearIdentity(input: { slug: string; shareToken: string; showId: string }) {
+export async function clearIdentity(formData: FormData) {
+  const slug = formData.get('slug');
+  const shareToken = formData.get('shareToken');
+  const showId = formData.get('showId');
+  if (typeof slug !== 'string' || typeof shareToken !== 'string' || typeof showId !== 'string') {
+    return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  }
+  return clearIdentityCore({ slug, shareToken, showId });
+}
+
+export async function clearIdentityCore(input: { slug: string; shareToken: string; showId: string }) {
   if (!UUID_RE.test(input.showId)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (!SLUG_RE.test(input.slug)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (!TOKEN_RE.test(input.shareToken)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
@@ -1267,6 +1278,8 @@ Same TDD shape as B4 but with the compare-and-delete contract:
 
 ```ts
 // lib/auth/picker/cleanupStaleEntry.ts
+// R1-F1 + R2-F2: FormData entry-point + object-shaped *Core.
+// Note: expectedEpoch arrives as a string in FormData; must parseInt.
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -1274,7 +1287,29 @@ import { cookies } from 'next/headers';
 import { encodePickerCookie, decodePickerCookie, COOKIE_NAME } from '@/lib/auth/picker/cookieEnvelope';
 import { pickerCookieSigningKey } from '@/lib/env/pickerCookieSigningKey';
 
-export async function cleanupStaleEntry(input: {
+export async function cleanupStaleEntry(formData: FormData) {
+  const slug = formData.get('slug');
+  const shareToken = formData.get('shareToken');
+  const showId = formData.get('showId');
+  const expectedEpochRaw = formData.get('expectedEpoch');
+  const expectedCrewMemberId = formData.get('expectedCrewMemberId');
+  if (
+    typeof slug !== 'string' ||
+    typeof shareToken !== 'string' ||
+    typeof showId !== 'string' ||
+    typeof expectedEpochRaw !== 'string' ||
+    typeof expectedCrewMemberId !== 'string'
+  ) {
+    return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  }
+  const expectedEpoch = Number.parseInt(expectedEpochRaw, 10);
+  if (!Number.isInteger(expectedEpoch) || expectedEpoch < 0) {
+    return { ok: false, code: 'PICKER_INVALID_INPUT' };
+  }
+  return cleanupStaleEntryCore({ slug, shareToken, showId, expectedEpoch, expectedCrewMemberId });
+}
+
+export async function cleanupStaleEntryCore(input: {
   slug: string;
   shareToken: string;
   showId: string;
@@ -1368,6 +1403,39 @@ git commit -am "feat(auth): resetPickerEpoch + rotateShareToken admin Server Act
 ---
 
 ## Phase C: Route restructure + picker UI
+
+### Task C0: Create `<TerminalFailure>` cataloged-message component
+
+**Files:**
+- Create: `components/auth/TerminalFailure.tsx`
+- Test: `tests/components/TerminalFailure.test.tsx`
+
+Mirrors the parent spec's terminal-failure render pattern (per `app/show/[slug]/page.tsx:109-123` `R21 F2`). Reads a `code` prop and renders cataloged `crewFacing` copy via `messageFor()` — never the raw code per AGENTS.md invariant 5.
+
+```tsx
+// components/auth/TerminalFailure.tsx
+import { messageFor } from '@/lib/messages/lookup';
+
+export function TerminalFailure({ code }: { code: string }) {
+  const entry = messageFor(code);
+  return (
+    <main className="min-h-screen flex flex-col items-center justify-center px-4">
+      <h1 className="text-xl font-bold">Something went wrong</h1>
+      <p className="text-sm text-muted-foreground mt-2 max-w-[480px] text-center">
+        {entry.crewFacing ?? entry.dougFacing ?? 'Please try again.'}
+      </p>
+    </main>
+  );
+}
+```
+
+Test: passing `PICKER_RESOLVER_LOOKUP_FAILED` renders the cataloged copy; raw code substring is NOT in the rendered DOM (anti-tautology regression).
+
+```bash
+git commit -am "feat(ui): TerminalFailure cataloged-message component (C0)"
+```
+
+---
 
 ### Task C1: Move crew route to `app/show/[slug]/[shareToken]/`
 
@@ -1464,17 +1532,18 @@ export default async function ShowPage({
 
   switch (resolved.kind) {
     case 'resolved': {
-      const data = await getShowForViewer(showId as string, {
-        kind: 'crew',
-        crewMemberId: resolved.crewMemberId,
-      });
-      const crew = data.crew.find((c) => c.id === resolved.crewMemberId);
+      const viewer = { kind: 'crew' as const, crewMemberId: resolved.crewMemberId };
+      const data = await getShowForViewer(showId as string, viewer);
+      // R2-F1: live ShowForViewer uses crewMembers (not crew); preserve
+      // existing ShowBodyProps { slug, showId, viewer, data }.
+      const crew = data.crewMembers.find((c) => c.id === resolved.crewMemberId);
       return (
         <ShowBody
-          data={data}
-          identityChip={crew ? { name: crew.name, role: crew.role } : null}
           slug={slug}
-          shareToken={shareToken}
+          showId={showId as string}
+          viewer={viewer}
+          data={data}
+          identityChip={crew ? { name: crew.name, role: crew.role, shareToken } : null}
         />
       );
     }
@@ -1485,17 +1554,21 @@ export default async function ShowPage({
     case 'no_selection':
     case 'epoch_stale':
     case 'removed_from_roster': {
-      const { data: roster } = await supabase
+      // R2-F3: destructure { data, error }; infra → TerminalFailure,
+      // NOT empty-roster (which would mask the outage).
+      const rosterResp = await supabase
         .from('crew_members')
         .select('id, name, role, role_flags')
         .eq('show_id', showId)
         .order('name', { ascending: true });
+      if (rosterResp.error) return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+      const roster = rosterResp.data ?? [];
       return (
         <PickerInterstitial
           slug={slug}
           shareToken={shareToken}
           showId={showId as string}
-          roster={roster ?? []}
+          roster={roster}
           banner={
             resolved.kind === 'epoch_stale' ? 'PICKER_EPOCH_STALE_BANNER'
             : resolved.kind === 'removed_from_roster' ? 'PICKER_REMOVED_FROM_ROSTER_BANNER'
