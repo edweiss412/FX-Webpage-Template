@@ -19,7 +19,7 @@ Doug Larson PMs Institutional Investor shows for FXAV. The parent spec replaced 
 
 The owner-determined v1 model:
 
-- **One link per show.** `https://crew.fxav.show/show/<slug>/<share-token>` is the only URL Doug shares. He sends it once per show through his existing channel. **R34 amendment**: the slug alone is NOT the credential — slug derivation is deterministic from sheet title + month (per `lib/parser/slug.ts:4-10`), so a slug-only URL would be guessable by anyone who knows the client name and approximate event date. The `<share-token>` segment carries high entropy (256 bits via `crypto.randomUUID()`, base32-encoded, ~52 chars) and is the actual bearer credential. Both segments are validated by the route handler; either alone (or a mismatched pair) returns 404.
+- **One link per show.** `https://crew.fxav.show/show/<slug>/<share-token>` is the only URL Doug shares. He sends it once per show through his existing channel. **R34/R38 amendment**: the slug alone is NOT the credential — slug derivation is deterministic from sheet title + month (per `lib/parser/slug.ts:4-10`), so a slug-only URL would be guessable by anyone who knows the client name and approximate event date. The `<share-token>` segment carries high entropy: **32 random bytes hex-encoded via `encode(gen_random_bytes(32), 'hex')` → 64 lowercase hex characters matching `^[0-9a-f]{64}$`**. This is the canonical encoding across the URL, the DB column, the resolver RPC, and the entropy meta-test. Both URL segments are validated by the route handler; either alone (or a mismatched pair) returns 404.
 - **"Who are you?" picker.** First visit on a device renders an interstitial listing the show's current crew roster (`crew_members` rows where `show_id` matches). Crew member taps their own name.
 - **Per-device sticky identity.** Selection persists in a host-wide cookie (`__Host-fxav_picker`) carrying a combined JSON map keyed by `show_id`. 90-day `Max-Age` refreshed by Server Actions only (per §4.9 R16 contract — middleware refresh is structurally unsafe). Picker is a one-time gate per device per show until the cookie expires.
 - **Role filtering preserved.** The role-derivation contract in `lib/data/getShowForViewer.ts:218-230` is untouched: role flags are read fresh from `crew_members.role_flags` on every request, joined to `shows_internal` only for LEAD/admin viewers (parent spec §7.4). Picker identity is the input to that fetcher; role is derived from the input, not stored in the cookie.
@@ -28,7 +28,7 @@ The owner-determined v1 model:
 
 **v1 in-scope outcomes:**
 
-- The crew page (`app/show/[slug]/page.tsx`) renders the picker interstitial when no valid selection exists for the show in the cookie; otherwise renders the existing `_ShowBody.tsx` with the picked identity supplied to `getShowForViewer`.
+- The crew page (`app/show/[slug]/[shareToken]/page.tsx` per R35) renders the picker interstitial when no valid selection exists for the show in the cookie; otherwise renders the existing `_ShowBody.tsx` with the picked identity supplied to `getShowForViewer`.
 - A new Server Action sets the cookie key and revalidates.
 - An admin button on `/admin/show/<slug>` ("Reset picker selections on this show") bumps a `shows.picker_epoch` integer that invalidates every device's selection for that show in one operation.
 - The M9.5 signed-link surfaces (JWT, redeem-link, fragment-bootstrap, leaked-link middleware, per-row Issue/Revoke controls, `crew_member_auth` / `link_sessions` / `bootstrap_nonces` / `revoked_links` tables) are deleted in the same plan execution.
@@ -98,7 +98,7 @@ Crew taps `/show/<slug>/<share-token>` in group thread
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ app/show/[slug]/page.tsx (Server Component, no auth)        │
+│ app/show/[slug]/[shareToken]/page.tsx (Server Component)    │
 │                                                              │
 │  1. resolveShowFromSlugAndToken(slug, shareToken)            │
 │       → { id, published, archived }                          │
@@ -157,8 +157,9 @@ Crew taps a name in the picker
         │
         ▼
 <form action={selectIdentity}>
-  <input type="hidden" name="showId" value={...} />
-  <input type="hidden" name="crewMemberId" value={...} />
+  <input type="hidden" name="slug"         value={params.slug} />
+  <input type="hidden" name="shareToken"   value={params.shareToken} />
+  <input type="hidden" name="crewMemberId" value={crew.id} />
   <button type="submit">…</button>
 </form>
         │
@@ -169,21 +170,31 @@ Server Action: selectIdentity({ slug, shareToken, crewMemberId })
 ┌─────────────────────────────────────────────────────────────┐
 │ lib/auth/picker/selectIdentity.ts (new)                     │
 │                                                              │
+│  0. (R37 — must run BEFORE any other validation):            │
+│     showId ← resolve_show_by_slug_and_token(slug, shareToken)│
+│     If NULL → reject PICKER_INVALID_SHARE_TOKEN.             │
+│     NO cookie is emitted. NO further steps run.              │
+│                                                              │
 │  1. Validate crewMemberId ∈ current roster for showId        │
 │     (SELECT id FROM crew_members WHERE id = $1 AND show_id   │
-│      = $2; if 0 rows → reject with PICKER_INVALID_SELECTION) │
+│      = $2; if 0 rows → reject with                           │
+│      PICKER_CREW_MEMBER_NOT_FOUND / WRONG_SHOW).             │
 │                                                              │
-│  2. Read shows.picker_epoch and shows.published for showId   │
-│     If unpublished → reject (no picker on unpublished shows) │
+│  2. Read shows.picker_epoch, shows.published, shows.archived │
+│     for showId. If !published OR archived → reject           │
+│     PICKER_SHOW_UNAVAILABLE.                                 │
 │                                                              │
-│  3. Read existing cookie envelope; merge new entry           │
-│     { showId: { id: crewMemberId, e: picker_epoch } }        │
-│     Apply byte-budget LRU eviction if encoded > 3800 bytes   │
+│  3. Read existing HMAC-signed cookie envelope (verify        │
+│     signature; null → start with empty envelope). Merge new  │
+│     entry { showId: { id: crewMemberId, e: picker_epoch,     │
+│     t: nowSeconds } }. Apply byte-budget LRU eviction if     │
+│     encoded > 3800 bytes.                                    │
 │                                                              │
-│  4. Emit Set-Cookie with __Host-fxav_picker, 90-day Max-Age, │
-│     Path=/, HttpOnly, Secure, SameSite=Lax                   │
+│  4. Re-sign the envelope (HMAC-SHA256, PICKER_COOKIE_        │
+│     SIGNING_KEY) and emit Set-Cookie with __Host-fxav_picker,│
+│     90-day Max-Age, Path=/, HttpOnly, Secure, SameSite=Lax.  │
 │                                                              │
-│  5. revalidatePath(`/show/${slug}/${shareToken}`)                          │
+│  5. revalidatePath(`/show/${slug}/${shareToken}`)            │
 │  6. Server Component re-renders into _ShowBody               │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -551,7 +562,7 @@ Mapping of resolver `kind` outcomes to UI behaviour (referenced by `kind`, not c
 
 **Infra-error handling at each consumer (`kind: 'infra_error'`):**
 
-- `app/show/[slug]/page.tsx` — renders the existing cataloged terminal-failure UI (the same shape used for `ADMIN_SESSION_LOOKUP_FAILED` per the parent spec's `R21 F2` discipline at `app/show/[slug]/page.tsx:109-123`). No cookie cleanup. No partial render.
+- `app/show/[slug]/[shareToken]/page.tsx` — renders the existing cataloged terminal-failure UI (the same shape used for `ADMIN_SESSION_LOOKUP_FAILED` per the parent spec's `R21 F2` discipline at `app/show/[slug]/page.tsx:109-123`). No cookie cleanup. No partial render.
 - `/api/realtime/subscriber-token` — returns `500` with the cataloged operator code. The `ShowRealtimeBridge` already treats subscriber-token failures via its bounded-backoff renewal path; no client behavior change.
 - `/api/asset/diagram/...`, `/api/asset/reel/...`, `/api/asset/agenda/...` — return `500` with the cataloged operator code; the client renders the existing placeholder for the missing asset. No 403/410 false-positives that would cause incorrect revocation appearances.
 - `/api/show/[slug]/version` — returns `500`; the bridge's catch-up logic preserves its last-known-good `data-render-version`.
@@ -561,7 +572,7 @@ Mapping of resolver `kind` outcomes to UI behaviour (referenced by `kind`, not c
 
 The picker cookie is the credential under the pivot model. A stale cookie (epoch behind the current `shows.picker_epoch`, OR a `crewMemberId` no longer in the roster) is an invalid credential and consumers MUST treat it as auth-denied. Per the parent spec's existing posture for unauthenticated crew API requests (asset/version/realtime routes return 401), the consumer mapping is:
 
-- `app/show/[slug]/page.tsx` — renders the picker interstitial in the appropriate banner mode (epoch-stale or removed-from-roster banner per §7.4). The cookie cleanup happens via the `cleanupStaleEntry` Server Action embedded in the picker render (§4.9 Mechanism B).
+- `app/show/[slug]/[shareToken]/page.tsx` — renders the picker interstitial in the appropriate banner mode (epoch-stale or removed-from-roster banner per §7.4). The cookie cleanup happens via the `cleanupStaleEntry` Server Action embedded in the picker render (§4.9 Mechanism B).
 - `/api/realtime/subscriber-token` — returns `401 Unauthorized`. The existing `ShowRealtimeBridge` already treats 401 from this endpoint as a "force refresh" signal (`components/realtime/ShowRealtimeBridge.tsx` documented auth-denied path); on refresh, the page route's picker re-renders. No client-side change needed.
 - `/api/show/[slug]/version` — returns `401 Unauthorized`. **This is the bridge's primary stale-detection path** — `ShowRealtimeBridge` treats 401 from the version endpoint as `forceRefresh` (per existing `components/realtime/ShowRealtimeBridge.tsx:280-310` posture). After `router.refresh()`, the page route's resolver sees the stale state and renders the picker. Without this 401, the bridge would treat the response as a transient failure and the open tab would never re-prompt.
 - `/api/asset/{diagram,reel,agenda}/...` — returns `401 Unauthorized`. The crew page's image / PDF / video components show the existing placeholder on auth-denied asset responses. The next page navigation invokes the picker.
@@ -571,7 +582,7 @@ The picker cookie is the credential under the pivot model. A stale cookie (epoch
 
 **Show-unavailable handling at each consumer (`kind: 'show_unavailable'`):**
 
-- `app/show/[slug]/page.tsx` — calls `notFound()` (same as the existing M11 contract for unpublished shows; non-admin viewers cannot distinguish "unpublished slug" from "unknown slug"). The page's own explicit `!published OR archived` short-circuit (§4.1 step 3) STILL runs first and catches the no-cookie / no-picker-entry case; the resolver's `show_unavailable` arm covers the with-cookie case for completeness.
+- `app/show/[slug]/[shareToken]/page.tsx` — calls `notFound()` (same as the existing M11 contract for unpublished shows; non-admin viewers cannot distinguish "unpublished slug" from "unknown slug"). The page's own explicit `!published OR archived` short-circuit (§4.1 step 3) STILL runs first and catches the no-cookie / no-picker-entry case; the resolver's `show_unavailable` arm covers the with-cookie case for completeness.
 - `/api/realtime/subscriber-token`, `/api/asset/{diagram,reel,agenda}/...`, `/api/show/[slug]/version`, `/api/report` — return `410 Gone` with the cataloged crew-facing message `PICKER_SHOW_UNAVAILABLE`. 410 is correct (not 404) because the show DID exist and the cookie's selection was valid before archival; a transient 410 invites the caller to drop cached state. Asset routes already use 410 for the analogous unpublished/drift contract per parent spec §7.3, so this is consistent.
 - The Server Actions `selectIdentity` and `cleanupStaleEntry` already validate availability inside their own bodies (§6.2 rejection codes); they do not need to consult `resolvePickerSelection`'s availability arm. `clearIdentity` and `resetPickerEpoch` are admin-only or cookie-only operations and don't gate on availability.
 
@@ -828,7 +839,7 @@ The plan CREATES or EXTENDS the following structural meta-tests:
 | `tests/auth/_metaPickerCookieContract.test.ts` (new) | CREATE | Pins the cookie envelope shape: name = `__Host-fxav_picker`, `v=1` strict, decoder returns null on shape failures, encoder/decoder are the only producers in the repo. Banned-identifier audit: the literal substring `__Host-fxav_picker` outside `lib/auth/picker/cookieEnvelope.ts`, the middleware, and the test fixtures fails. Asserts `MAX_COOKIE_VALUE_BYTES === 3800` and that the constant cannot be raised beyond 3900 without a paired `// browser-cap-implication-acknowledged` comment in the same hunk. |
 | `tests/components/_metaPickerRoleChipContract.test.ts` (new) | CREATE | Pins the LEAD-chip-uses-FXAV-orange contract: any roster row where the underlying crew member has `LEAD` in `role_flags` renders with the accent chip; any other row renders the neutral chip. Test runs against a fixture roster with mixed `role_flags`. |
 | `tests/cross-cutting/no-jwt-surface.test.ts` (new) | CREATE | Banned-identifier audit. The literal substrings `__Host-fxav_session`, `redeemLink`, `signLinkJwt`, `verifyLinkJwt`, `current_token_version`, `revoked_below_version`, `max_issued_version`, `bootstrap_nonces`, `link_sessions`, `revoked_links`, `crew_member_auth`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED`, `validateCrewAssetSession`, `validateLinkSession`, `crew_link` (as a `ShowViewer` chain-level `kind` discriminator in `lib/auth/resolveShowViewer.ts` — NOT to be confused with the `Viewer` data-fetcher union at `lib/data/getShowForViewer.ts:79-82` whose `'crew'` arm is preserved), `crew_google` (as a `ShowViewer` chain-level discriminator) MUST not appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts`. **Migration scope is explicitly carved out**: the same identifiers ARE permitted to appear in `supabase/migrations/<cutover-migration>.sql` itself (the file that DROPs the M9.5 surface), but MUST NOT appear in any migration with a timestamp AFTER the cutover migration. The meta-test reads the cutover migration's filename from a single `CUTOVER_MIGRATION_TIMESTAMP` constant exported by the audit helper, and (a) allows ALL of the banned identifiers inside that specific migration file in `DROP TABLE` / `DROP FUNCTION` / `REVOKE` contexts; (b) bans them in app/lib/components/middleware unconditionally; (c) bans them in every migration with a timestamp strictly greater than `CUTOVER_MIGRATION_TIMESTAMP`. Old migrations (timestamp < CUTOVER) retain their history per migration-immutability rules and are out of scope of the test entirely. Additionally, `validateGoogleSession` imports MUST NOT appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts` (production code) — only in the test directory. R15 confirmed `/auth/sign-out` does not import it; the module is deleted in the cutover migration. The substring `listShowsForCrew` is also banned outside the test directory (the helper is removed with `/me`). |
-| `tests/cross-cutting/picker-resolver-callsite-contract.test.ts` (new) | CREATE | Asserts every route handler that needs crew identity (`/show/[slug]/page.tsx`, `/api/realtime/subscriber-token`, `/api/asset/diagram/[show]/[rev]/[key]`, `/api/asset/reel/[show]`, `/api/asset/agenda/[show]/[id]`, `/api/show/[slug]/version`, `/api/report`) imports `resolvePickerSelection` from the canonical helper path AND distinguishes its `infra_error` arm from auth-denied. Static-analysis walker over the file list — does NOT depend on running the routes. |
+| `tests/cross-cutting/picker-resolver-callsite-contract.test.ts` (new) | CREATE | Asserts every route handler that needs crew identity (`app/show/[slug]/[shareToken]/page.tsx` per R35/R38, `/api/realtime/subscriber-token`, `/api/asset/diagram/[show]/[rev]/[key]`, `/api/asset/reel/[show]`, `/api/asset/agenda/[show]/[id]`, `/api/show/[slug]/version`, `/api/report`) imports `resolvePickerSelection` from the canonical helper path AND distinguishes its `infra_error` arm from auth-denied. Static-analysis walker over the file list — does NOT depend on running the routes. R38 amendment: the OLD `app/show/[slug]/page.tsx` is explicitly excluded (deleted per §4.7); a regression assertion fails if that file exists OR re-imports `resolvePickerSelection`. |
 
 ### 10.2 Functional test coverage
 
