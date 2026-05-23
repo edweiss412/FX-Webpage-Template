@@ -1,20 +1,24 @@
 # Sharing crew links
 
-Each crew member on a show has their own signed link that opens their personal crew page on whatever phone they tap it from. There's no app to install and no password to remember: opening the link is the credential. You send links from the per-show panel, one per crew member, through whatever channel you already use (text, email, group thread). The link is scoped to one person on one show, and it stops working when the show closes, when you issue a new link for that person, or when you revoke all their links.
+Each crew member on a show has their own signed link that opens their personal crew page on whatever phone they tap it from. There's no app to install and no password to remember: opening the link is the credential. You activate each crew member's link from the per-show panel, then share the URL through whatever channel you already use (text, email, group thread). The link is scoped to one person on one show, and it stops working when the show closes, when you issue a new link for that person, or when you revoke all their links.
 
 ## How to send a link
 
 <Step n={1}>
-**Open the per-show panel for the show you're staffing, and find the [crew preview links list](/help/admin/per-show-panel#crew-preview-links).** Each row is one crew member. Rows for people who don't have a live link yet show **Issue first link**; rows that already have a live link show **Copy share link**.
+**Open the per-show panel for the show you're staffing, and find the [crew section with the per-row link-issuance controls](/help/admin/per-show-panel#crew-preview-links).** Each row is one crew member. Rows for people who have never had a live link show **Issue first link**; rows that already have a live link show **Issue new link**; rows that have been revoked show the **Issue new link** button next to a "No live link." status hint and a disabled **Revoke all links** button.
 </Step>
 
 <Step n={2}>
-**Tap Issue first link (for new crew) or Copy share link (for crew who already have one).** The link is copied to your clipboard. The format is `https://crew.fxav.show/show/<show-slug>/p#t=...`; the part after `#t=` is the credential, which is why the link is personal and shouldn't be forwarded.
+**Tap Issue first link (for new crew) or Issue new link (for crew who already have one).** The button label flips to "Issuing first link…" or "Issuing…" while the request is in flight; on success a "New link issued. The crew member's link is now live at the bumped token version." confirmation appears on the row. The link is now active server-side and ready for the crew member to use.
 </Step>
 
 <Step n={3}>
-**Paste the link into a text, email, or whatever channel you use with that crew member, and send it.** They tap the link on their phone, the page loads, and they're in. They do not need to sign in, install anything, or enter a code.
+**Send the crew member their link via your usual channel** (text, email, group thread). The URL format is `https://crew.fxav.show/show/<show-slug>/p#t=<token>`; the part after `#t=` is the credential, which is why the link is personal and shouldn't be forwarded.
 </Step>
+
+<Callout type="note">
+**A one-tap "copy this crew member's URL" button is not yet built.** Until it lands, tapping Issue first link or Issue new link activates the link server-side, and the URL itself moves through whatever sharing channel you already use with crew. The control still does the work that matters: without tapping it, the link is not valid.
+</Callout>
 
 ## What crew see
 
@@ -28,7 +32,7 @@ Links are meant to be personal, but in practice a crew member sometimes forwards
 
 You don't need to track down the forwarded copy or contact whoever received it. The act of issuing a new link is the revocation.
 
-To do this, open the per-show panel, find that crew member's row in the crew preview links list, and tap **Issue new link**. The button replaces the prior **Copy share link** affordance while the row is in the no-live-link state. Tap it once and the row immediately flips back to **Copy share link** with a fresh URL ready to send.
+To do this, open the per-show panel, find that crew member's row in the crew section, and tap **Issue new link**. The previously issued link stops working immediately on the next tap; share the freshly activated link via your usual channel.
 
 ## Link expiry + revocation
 
@@ -36,8 +40,8 @@ Links don't have a fixed calendar expiry. They stay valid as long as the show is
 
 Three things retire a link:
 
-- **You tap Issue new link for that crew member.** The previously issued link stops working on the next tap. Send the freshly copied link in its place.
-- **You tap Revoke all links for that crew member** (less common; use this if you suspect the link has been compromised and you don't want a working link out there until you decide who to re-send to). The crew member's row enters the no-live-link state until you tap Issue new link.
+- **You tap Issue new link for that crew member.** The previously issued link stops working on the next tap. Send the freshly activated link in its place.
+- **You tap Revoke all links for that crew member** (less common; use this if you suspect the link has been compromised and you don't want a working link out there until you decide who to re-send to). The row enters the "No live link." state and the Revoke all links button disables; tap Issue new link when you're ready to mint a fresh one.
 - **The crew member is removed from the show's sheet.** When sync applies a sheet change that removes someone, every link for that name immediately stops working. If the same name is re-added later, you'll need to tap Issue new link to send them a fresh one.
 
 When a crew member taps a retired link, they see a short page telling them the link is no longer valid and to ask Doug for a new one. There's no raw error code on the page, and no way for them to recover on their own; the recovery is for you to send a new link.

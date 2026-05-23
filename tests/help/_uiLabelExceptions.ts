@@ -80,9 +80,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   // ─── app/help/daily-rhythm/page.mdx ───
   // Section name + badge label referenced in prose.
   {
-    label: "Active Shows",
+    label: "Active shows",
     file: "app/help/daily-rhythm/page.mdx",
-    note: "Dashboard panel section name — M11-E-D3 (M9 deferred, ActiveShowsPanel not yet rendering the literal heading).",
+    note: "Dashboard panel section heading — components/admin/ActiveShowsPanel.tsx:103 (shipped via M9 with lowercase 's'). I.2 R13 finding 2 + user direction realigned MDX casing to match shipped.",
   },
   {
     label: "Review staged changes",
@@ -100,23 +100,23 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   },
 
   // ─── app/help/admin/dashboard/page.mdx ───
-  // The Active Shows + Sheets-we-couldn't-auto-apply panels. Row-action labels
-  // Open / Preview as / Re-sync / Archive are M11-E-D3 (M9 deferred).
+  // The Active shows + Sheets-we-couldn't-auto-apply panels. Per Phase I R13:
+  // the previous "Actions column" claim (Open / Preview as / Re-sync / Archive
+  // in-row buttons) was a phantom — shipped ActiveShowsPanel has no in-row
+  // actions. MDX rewritten to describe shipped behaviour: title link, dates,
+  // crew count, last-sync + status indicator; row-level actions live on the
+  // per-show panel one click deeper. Exempted labels for those phantoms
+  // removed from both registries.
   {
-    label: "Active Shows",
+    label: "Active shows",
     file: "app/help/admin/dashboard/page.mdx",
-    note: "Panel section name — M11-E-D3 (M9 deferred).",
+    note: "Panel section heading — components/admin/ActiveShowsPanel.tsx:103.",
   },
   {
     label: "Review staged changes",
     file: "app/help/admin/dashboard/page.mdx",
-    note: "Badge + primary-action label — components/admin/ActiveShowsPanel.tsx:69.",
+    note: "Status indicator string — components/admin/ActiveShowsPanel.tsx:69.",
   },
-  // Note: dashboard/page.mdx <h2> uses the hyphenated page-IA form
-  // "Sheets-we-couldn't-auto-apply" which is a section heading, not the
-  // production button/panel label. The production label "Sheets we couldn't
-  // auto-apply" (no hyphens) is declared on the review-queues page where it
-  // appears in prose; no dashboard entry needed.
   {
     label: "Retry now",
     file: "app/help/admin/dashboard/page.mdx",
@@ -136,26 +136,6 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     label: "Review and apply",
     file: "app/help/admin/dashboard/page.mdx",
     note: "Pending-panel action — components/admin/PendingPanel.tsx:125 rendered button text.",
-  },
-  {
-    label: "Open",
-    file: "app/help/admin/dashboard/page.mdx",
-    note: "Active Shows row action — M11-E-D3 (M9 deferred).",
-  },
-  {
-    label: "Preview as",
-    file: "app/help/admin/dashboard/page.mdx",
-    note: "Active Shows row action — app/admin/show/[slug]/page.tsx:239 ('Preview as a crew member' substring matches).",
-  },
-  {
-    label: "Re-sync",
-    file: "app/help/admin/dashboard/page.mdx",
-    note: "Active Shows row action — components/admin/ReSyncButton.tsx ('Re-sync from Drive' substring matches).",
-  },
-  {
-    label: "Archive",
-    file: "app/help/admin/dashboard/page.mdx",
-    note: "Active Shows row action — M11-E-D3 (M9 deferred).",
   },
 
   // ─── app/help/admin/onboarding-wizard/page.mdx ───
@@ -185,21 +165,41 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   // Catalog-style reference; no top-level UI controls declared.
 
   // ─── app/help/admin/per-show-panel/page.mdx ───
-  // Action required + Re-sync now are M11-E-D4 (M9 deferred).
+  // Per Phase I R13 + user direction: the previous "Action required" card
+  // title was a phantom (shipped StagedReviewCard has no such literal
+  // heading; eyebrow is the source-kind label). "Re-sync now" was the
+  // wrong literal — shipped ReSyncButton.tsx:99 renders "Re-sync from Drive".
+  // MDX rewritten to describe shipped behaviour; exemption entries for the
+  // phantoms removed.
   {
-    label: "Action required",
+    label: "Re-sync from Drive",
     file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card title — M11-E-D4 (M9 deferred).",
+    note: "Per-show manual-sync button — components/admin/ReSyncButton.tsx:99.",
   },
   {
-    label: "Re-sync now",
+    label: "Auto sync",
     file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Per-show manual-sync button — M11-E-D4 (M9 deferred).",
+    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:86.",
+  },
+  {
+    label: "Drive push",
+    file: "app/help/admin/per-show-panel/page.mdx",
+    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:87.",
+  },
+  {
+    label: "Manual sync",
+    file: "app/help/admin/per-show-panel/page.mdx",
+    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:88.",
+  },
+  {
+    label: "Onboarding scan",
+    file: "app/help/admin/per-show-panel/page.mdx",
+    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:89.",
   },
   {
     label: "Review staged changes",
     file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Badge — components/admin/ActiveShowsPanel.tsx:69.",
+    note: "Status indicator string — components/admin/ActiveShowsPanel.tsx:69.",
   },
   {
     label: "Previewing as",
@@ -241,9 +241,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     note: "Panel section name — components/admin/PendingPanel.tsx:75.",
   },
   {
-    label: "Active Shows",
+    label: "Active shows",
     file: "app/help/admin/review-queues/page.mdx",
-    note: "Dashboard panel name — M11-E-D3 (M9 deferred).",
+    note: "Dashboard panel section heading — components/admin/ActiveShowsPanel.tsx:103.",
   },
   {
     label: "Apply",
@@ -253,28 +253,24 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
 
   // ─── app/help/admin/sharing-links/page.mdx ───
   // Sharing-link control labels. M9.5 shipped Issue first link / Issue new
-  // link / Revoke all links (DEFERRED.md M11-E-D1 line 119 ratification
-  // 2026-05-21 at tag m9.5-completed). Copy share link remains deferred
-  // per BL-COPY-SHARE-LINK. Notes updated per Phase I Codex R11 finding 2.
+  // link / Revoke all links. Per Phase I R13 + user direction: the unshipped
+  // "Copy share link" name was scrubbed from the MDX in favour of a generic
+  // Doug-facing description ("a one-tap button to copy each crew member's
+  // URL is not yet built"). Internal milestone IDs no longer leak into copy.
   {
     label: "Issue first link",
     file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — M9.5-shipped at app/admin/show/[slug]/IssueLinkButton.tsx:49.",
+    note: "Sharing-link control — app/admin/show/[slug]/IssueLinkButton.tsx:49.",
   },
   {
     label: "Issue new link",
     file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — M9.5-shipped at app/admin/show/[slug]/IssueLinkButton.tsx:49 (label renders when prior link version exists).",
-  },
-  {
-    label: "Copy share link",
-    file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — backlog per BL-COPY-SHARE-LINK; companion exemption in UI_LABEL_EXCEPTIONS still active.",
+    note: "Sharing-link control — app/admin/show/[slug]/IssueLinkButton.tsx:49 (label renders when prior link version exists).",
   },
   {
     label: "Revoke all links",
     file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — M9.5-shipped at app/admin/show/[slug]/RevokeAllLinksButton.tsx:133 (per-row control; revokes every link version ever issued for that crew member).",
+    note: "Sharing-link control — app/admin/show/[slug]/RevokeAllLinksButton.tsx:133 (per-row control; revokes every link version ever issued for that crew member).",
   },
 
   // ─── app/help/tour/page.mdx ───
@@ -285,66 +281,17 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   // dynamically from production source, so all already match by construction.
 ];
 
-export const UI_LABEL_EXCEPTIONS: readonly UiLabelException[] = [
-  // ─── M11-E-D1: sharing-link controls (master spec §5.2 / §7.2) ───
-  // I.2 R10 finding 2: "Issue first link", "Issue new link", "Revoke all
-  // links" were exempted as M9-deferred. M9.5 shipped them (DEFERRED.md
-  // M11-E-D1 line 119 ratification 2026-05-21 at tag `m9.5-completed`,
-  // SHA ad4826e). Labels live in app/admin/show/[slug]/IssueLinkButton.tsx:49
-  // and RevokeAllLinksButton.tsx:133. Exemptions removed so the crosswalk
-  // catches future regressions on these shipped labels. Only "Copy share
-  // link" remains exempted — still backlog, not yet shipped.
-  {
-    label: "Copy share link",
-    file: "app/help/admin/sharing-links/page.mdx",
-    deferredId: "M11-E-D1",
-    rationale:
-      "Master spec §5.2 + §7.2 canonical sharing-link control label. Per BACKLOG.md `BL-COPY-SHARE-LINK` — still pending; the other three labels in this DEFERRED entry (Issue first/new link, Revoke all links) shipped via M9.5 and their exemptions were removed per Phase I Codex R10 finding 2.",
-  },
-
-  // ─── M11-E-D3: Active Shows panel section name (master spec §9.1; M9 deferred) ───
-  {
-    label: "Active Shows",
-    file: "app/help/admin/review-queues/page.mdx",
-    deferredId: "M11-E-D3",
-    rationale:
-      "Master spec §9.1 dashboard section name. Shipped dashboard at app/admin/page.tsx does not yet render the literal 'Active Shows' panel heading; M9 ships ActiveShowsPanel. Re-open when M9 lands.",
-  },
-  {
-    label: "Active Shows",
-    file: "app/help/daily-rhythm/page.mdx",
-    deferredId: "M11-E-D3",
-    rationale:
-      "Master spec §9.1 dashboard section name (same panel as review-queues exception). Referenced prose-only on daily-rhythm; declared via DECLARED_UI_LABELS registry layer. M9 deferred.",
-  },
-  {
-    label: "Active Shows",
-    file: "app/help/admin/dashboard/page.mdx",
-    deferredId: "M11-E-D3",
-    rationale:
-      "Master spec §9.1 dashboard section name. Referenced prose-only on dashboard help page; declared via DECLARED_UI_LABELS registry layer. M9 deferred.",
-  },
-  {
-    label: "Archive",
-    file: "app/help/admin/dashboard/page.mdx",
-    deferredId: "M11-E-D3",
-    rationale:
-      "Master spec §9.1 dashboard row-action label. Grep of components/admin/ActiveShowsPanel.tsx returns ZERO matches for 'Archive'; M9 deferred. Re-open when M9 ships row actions.",
-  },
-
-  // ─── M11-E-D4: per-show panel sections (master spec §9.2; M9 deferred) ───
-  {
-    label: "Action required",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    deferredId: "M11-E-D4",
-    rationale:
-      "Master spec §9.2 per-show panel staged-review card title. The shipped per-show panel does not yet render this literal card heading; M9 deferred. Re-open when M9 lands.",
-  },
-  {
-    label: "Re-sync now",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    deferredId: "M11-E-D4",
-    rationale:
-      "Master spec §9.2 per-show panel manual-sync button. The shipped per-show panel does not yet render this literal button label; M9 deferred. Re-open when M9 lands.",
-  },
-];
+// Per Phase I R13 + user direction (2026-05-23): every prior exemption
+// covered a Doug-facing MDX label that was either (a) wrong casing for a
+// shipped label, or (b) a phantom for an unshipped UI affordance. The
+// remedy was to rewrite the MDX to describe shipped behaviour and scrub
+// internal milestone IDs from copy. With that work done, there are no
+// remaining MDX labels that need spec-vs-shipped exemption — every label
+// in DECLARED_UI_LABELS now cites a shipped surface.
+//
+// If a future plan ratifies docs ahead of UI implementation, add the
+// exemption back here with a fresh DEFERRED.md ID. Otherwise prefer
+// the discipline: only document what's shipped; describe gaps with
+// Doug-facing phrasing (e.g. "not yet built") so the structural defense
+// in tests/help/backlog-label-annotation.test.ts has nothing to gate.
+export const UI_LABEL_EXCEPTIONS: readonly UiLabelException[] = [];

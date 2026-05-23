@@ -4,31 +4,33 @@ The admin dashboard is where you start each morning. Two stacked panels tell you
 
 <Screenshot
   name="dashboard-overview"
-  alt="The admin dashboard with the Active Shows panel on top and the Sheets-we-couldn't-auto-apply panel below it."
+  alt="The admin dashboard with the Active shows panel on top and the Sheets-we-couldn't-auto-apply panel below it."
 />
 
-<h2 id="active-shows">The Active Shows panel</h2>
+<h2 id="active-shows">The Active shows panel</h2>
 
-One row per show. The columns are:
+One row per show. The row is a single line on a wider screen and stacks vertically on a phone. Each row reads from left to right (or top to bottom on a phone):
 
-- **Title.** The show name, exactly as it appears in your sheet.
-- **Dates.** Load-in through load-out, formatted `3/22 → 3/26/26`.
-- **Crew.** How many crew rows the latest applied sync produced.
-- **Last sync.** When the app last polled the sheet, plus a status badge (see below).
-- **Actions.** Open, Preview as, Re-sync, Archive.
+- **Title.** The show name, exactly as it appears in your sheet. Tapping the title opens the per-show panel for that show.
+- **Dates.** Load-in through load-out, formatted `3/22 → 3/26/26`. Hidden if the sheet didn't have dates yet.
+- **Crew count.** A short `crew` label preceded by the count of crew rows the latest applied sync produced.
+- **Last sync + status.** Relative time since the last poll (e.g., "5 min ago") followed by `·` and one of the status indicators below.
 
-The **Last sync** badge is the column that matters most. Four states:
+The **status indicator** is the part of the row that matters most. The shipped values are:
 
-- **Green check (✓).** The sheet polled cleanly and any edits were auto-applied. Nothing for you to do.
-- **Yellow Review staged changes badge (⚠).** The sheet has new edits that tripped a review rule, so the app staged them instead of auto-applying. The crew still sees the prior approved version. The row's primary action becomes **Review staged changes** and takes you to the per-show panel. See [Review queues](/help/admin/review-queues#re-stage) for what to do next.
-- **Yellow warnings badge (⚠ N warnings).** The sync applied, but the parser flagged things worth a look (a soft warning, not a hard failure). Open the show to see them.
-- **Red error indicator (✗ parse error).** The most recent sync hard-failed. The crew page still serves the last good version. Open the show, read the error message, fix the sheet, and re-sync.
+- **`✓`** — The sheet polled cleanly and any edits were auto-applied. Nothing for you to do.
+- **`⚠ Review staged changes`** — The sheet has new edits that tripped a review rule, so the app staged them instead of auto-applying. The crew still sees the prior approved version. Tap the row's title to open the per-show panel; the staged-review card sits at the top with Apply + Discard. See [Review queues](/help/admin/review-queues#re-stage) for what to do next.
+- **`✗ Needs attention`** — The most recent sync hard-failed (parse error, or the sheet was moved or unshared). The crew page still serves the last good version. Tap the title to open the per-show panel, read the error message, fix the sheet, and re-sync from there.
+- **`Publishing…`** — The show is going through its first publish after onboarding. Show up shortly as `✓`.
+- **`·`** — Quiet placeholder when the sync state isn't one of the above (e.g., a never-synced row, or a status string the panel doesn't have a dedicated glyph for).
 
-The empty state (no shows yet) tells you to share your Drive folder with the service-account email and gives you a one-click copy button for that email.
+Every row-level action — opening the show, re-syncing from Drive, previewing as a crew member, reviewing staged changes — lives one click deeper, on the per-show panel that opens when you tap the title. The dashboard row is read-only at a glance; the per-show panel is where you act.
+
+The empty state (no shows yet) reads "You do not have any shows yet." and tells you to share a sheet into your watched Drive folder so the sync can pick it up.
 
 <h2 id="pending-ingestion">The Sheets-we-couldn't-auto-apply panel</h2>
 
-Most new sheets in your folder publish on their own and show up in **Active Shows**. The confirmation email carries a 24-hour one-click undo link for mistakes. This panel only fills up when the app couldn't take a sheet that far on its own. Two kinds of rows show up here:
+Most new sheets in your folder publish on their own and show up in **Active shows**. The confirmation email carries a 24-hour one-click undo link for mistakes. This panel only fills up when the app couldn't take a sheet that far on its own. Two kinds of rows show up here:
 
 - **First-seen sheets that hard-failed.** A new sheet appeared in your Drive folder, but the fetch or parse failed before it could become a show. Each row shows the file name, when it was first seen, how many times the app has tried, and the error message. Your options are **Retry now** (so the app tries again), **Defer until modified** (the row stays out of the way until the sheet's modified time changes), and **Permanently ignore** (the row is dismissed for good). Retry never auto-applies a first-seen sheet, even when everything passes. It can only move the row into the queue below, where you Apply it explicitly.
 - **First-seen sheets held for review.** The parse passed, but something tripped a review rule (a crew count that shrank, a LEAD status that toggled, an email that moved between rows, a diagram tab that came back empty), or the sheet was surfaced by the onboarding wizard's scan step. Either way the app held it for your sign-off. Each row shows the candidate title and dates the app pulled out, plus a list of what tripped the review. Your options are **Review and apply** (opens the staged-review surface, where you confirm the show goes live) and **Discard** (drops the candidate without ever creating a public crew link).
@@ -37,4 +39,4 @@ A row stays in this panel until you act on it. Nothing here clears itself.
 
 ## Staged-changes review
 
-Edits to an already-live show don't appear here. They show up as a yellow **Review staged changes** badge on the show's row in the Active Shows panel above. The handling is the same idea, just in a different place. For the full walkthrough see [Review queues](/help/admin/review-queues#re-stage).
+Edits to an already-live show don't appear here. They show up as a yellow **Review staged changes** badge on the show's row in the Active shows panel above. The handling is the same idea, just in a different place. For the full walkthrough see [Review queues](/help/admin/review-queues#re-stage).

@@ -4,7 +4,7 @@
 
 <h2 id="staged-review-card">Staged review card</h2>
 
-The yellow **Action required** card appears at the top of the panel whenever the app has staged edits for this show that haven't been Applied yet. It lists every triggered review item with a plain-language description, shows the diff between the prior approved version and the staged one for each affected section (crew, hotels, rooms, and so on), and gives you the Apply and Discard buttons.
+A staged-review card appears at the top of the panel whenever the app has staged edits for this show that haven't been Applied yet. It carries an eyebrow telling you where the change came from (**Auto sync**, **Drive push**, **Manual sync**, or **Onboarding scan**), a one-line parse summary as its heading, and lists every triggered review item with a plain-language description. It also shows the diff between the prior approved version and the staged one for each affected section (crew, hotels, rooms, and so on), and gives you the Apply and Discard buttons.
 
 The card also names the version you're approving: "staged from edits Doug made on …" with the staged modified time, so there's no guessing about which save you're looking at. While the card is present, the three sections below render underneath as informational context.
 
@@ -14,7 +14,7 @@ For a full walkthrough of the Apply versus Discard decision, see [Review queues]
 
 A compact list of the last five sync attempts for this show. Each row shows when the sync ran, how long it took, and whether it ended cleanly, with warnings, or with a hard error.
 
-A **Re-sync now** button sits next to the list. Use it when you've just edited the sheet and don't want to wait for the next scheduled poll, or when a previous attempt errored and you've fixed the cell it complained about.
+A **Re-sync from Drive** button sits at the top of the page. Tap it when you've just edited the sheet and don't want to wait for the next scheduled poll, or when a previous attempt errored and you've fixed the cell it complained about. While it runs, the label flips to "Syncing…" and a success line ("Synced. Changes applied." or similar, depending on outcome) appears below the button.
 
 If syncs keep failing in a row, the most likely cause is in the sheet itself: a renamed tab, a column the parser expected that's gone missing, or a row shape change the parser doesn't recognize. Open the sheet in the same tab via the dashboard's row action, fix the cell the error points at, and re-sync. If the failures don't have an obvious cause in the sheet, send the page link and the error text to Eric.
 
