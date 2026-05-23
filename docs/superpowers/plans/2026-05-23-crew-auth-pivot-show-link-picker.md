@@ -1427,6 +1427,14 @@ export async function clearIdentity(formData: FormData) {
 }
 
 export async function clearIdentityCore(input: { slug: string; shareToken: string; showId: string }) {
+  try {
+    return await clearIdentityCoreImpl(input);
+  } catch {
+    return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
+}
+
+async function clearIdentityCoreImpl(input: { slug: string; shareToken: string; showId: string }) {
   if (!UUID_RE.test(input.showId)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (!SLUG_RE.test(input.slug)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
   if (!TOKEN_RE.test(input.shareToken)) return { ok: false, code: 'PICKER_INVALID_INPUT' };
@@ -1505,6 +1513,20 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const TOKEN_RE = /^[0-9a-f]{64}$/;
 
 export async function cleanupStaleEntryCore(input: {
+  slug: string;
+  shareToken: string;
+  showId: string;
+  expectedEpoch: number;
+  expectedCrewMemberId: string;
+}) {
+  try {
+    return await cleanupStaleEntryCoreImpl(input);
+  } catch {
+    return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
+}
+
+async function cleanupStaleEntryCoreImpl(input: {
   slug: string;
   shareToken: string;
   showId: string;
@@ -2275,17 +2297,27 @@ git commit -am "refactor(auth): drop resolveShowViewer.ts (no callers post-pivot
 
 ---
 
-### Task E2: Scrub `/me` from auth chain redirects (R22)
+### Task E2: Scrub `/me` from auth chain redirects (R22 + R14-F2)
 
-**Files:**
+**Files (broadened per R14-F2 — implementer runs the grep below BEFORE coding to confirm the full set):**
 - Modify: `lib/auth/validateNextParam.ts` (remove `/me(\/.*)?$` from allowlist regex)
 - Modify: `app/auth/sign-in/page.tsx` (redirect already-signed-in non-admins to `/`, not `/me`)
 - Modify: `app/auth/callback/route.ts` (same)
 - Modify: `app/api/auth/google/start/route.ts` (same)
+- Modify: `app/auth/clear-session/route.ts` (per R14-F2: contains its OWN local allowlist regex that still accepts `/me`; update or replace with import from `validateNextParam`)
+- Modify: `lib/messages/catalog.ts` (per R14-F2: line ~1231 OAuth error copy names `/me` as an allowed destination; rewrite the user-facing copy)
+- Regenerate: `lib/messages/__generated__/spec-codes.ts` (catalog-emitted output)
 - Test: `tests/auth/me-scrub-static.test.ts`
 - Test: `tests/auth/validateNextParam.test.ts`
 
-Static test grep for `/me` URL literals across `app/**`, `lib/**`, `components/**`, `middleware.ts` — fail if any production reference survives outside test fixtures.
+**Pre-coding grep (mandatory):**
+```bash
+rg -n '("|''|`)/me("|''|`|/)' app lib components middleware.ts --glob '!**/*.test.*' --glob '!**/__generated__/**'
+```
+
+Each match → either rewrite to non-`/me` destination or delete. The H2 no-jwt-surface meta-test scans for any remaining matches AFTER all E2 + G0e1 work lands.
+
+Static test grep for `/me` URL literals across `app/**`, `lib/**`, `components/**`, `middleware.ts` — fail if any production reference survives outside test fixtures and generated catalog.
 
 ```bash
 git commit -am "fix(auth): scrub /me from redirect chain + allowlist (R22; E2)"
@@ -2637,10 +2669,7 @@ describe('cutover migration gate (R10-F1)', () => {
 
 The CI command order MUST be: this gate test → apply migration → G3 post-application verification. If the gate fails, the migration does NOT apply.
 
-```bash
-git add tests/db/cutover-migration-gate.test.ts
-git commit -m "test(db): pre-apply cutover-migration gate (R10-F1; G2-pre)"
-```
+**R14-F1 commit-ordering correction**: do NOT commit the gate test standalone (it would FAIL because the migration file doesn't exist yet on a clean checkout). The gate test commits in the SAME commit as the migration file at G2 below. The G2-pre task description here documents the gate-test CONTRACT; the actual commit is part of G2.
 
 ### Task G3: Post-cutover schema verification test
 
@@ -2699,10 +2728,7 @@ describe('post-cutover schema is clean of M9.5 surface (R1-F3)', () => {
 });
 ```
 
-```bash
-git add tests/db/cutover-schema-clean.test.ts
-git commit -m "test(db): post-cutover schema clean (R1-F3; G3)"
-```
+**R14-F1 commit-ordering correction**: G3's verification test cannot pass on a clean checkout BEFORE the cutover migration applies. The test commits as part of the SAME G2-apply commit where the migration applies. The G3 task here documents the test CONTRACT; the actual commit is part of G2-apply.
 
 ```bash
 git add supabase/migrations/20260523000099_cutover_drop_m9_5.sql lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts
