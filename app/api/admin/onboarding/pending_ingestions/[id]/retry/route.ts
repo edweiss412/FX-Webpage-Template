@@ -220,21 +220,33 @@ async function deletePendingIngestion(
 // ('staged','hard_failed','discard_retryable','live_row_conflict'); without
 // this transition the row stays 'hard_failed' and finalize blocks with
 // ONBOARDING_NOT_RESOLVED. Runs inside the same per-show advisory-locked tx.
+//
+// M12 R41-R9/R11/R16 (2026-05-23): mirrors discardStaged.ts CAS pattern —
+// the UPDATE carries an active-wizard-session EXISTS predicate so a wizard
+// supersession that lands between requireCurrentWizardRow and this UPDATE
+// no-ops the manifest write. Returns whether a row was affected so the
+// caller can refuse to delete the pending_ingestions row on a 0-row result.
 async function transitionManifestRow(
   tx: WizardPendingIngestionRouteTx,
   row: PendingIngestionRow & { wizard_session_id: string },
   kind: "defer_until_modified" | "permanent_ignore",
-): Promise<void> {
-  await tx.queryOne<{ updated: boolean } | null>(
+): Promise<boolean> {
+  const updated = await tx.queryOne<{ updated: boolean } | null>(
     `
       update public.onboarding_scan_manifest
          set status = $1, transitioned_at = now()
        where wizard_session_id = $2::uuid
          and drive_file_id = $3
-       returning true as updated
+         and exists (
+           select 1 from public.app_settings
+            where id = 'default'
+              and pending_wizard_session_id = $2::uuid
+         )
+      returning true as updated
     `,
     [kind, row.wizard_session_id, row.drive_file_id],
   );
+  return Boolean(updated?.updated);
 }
 
 async function handleAction(
@@ -277,8 +289,16 @@ async function handleAction(
       return retryResponse(result);
     }
 
+    // M12 R41-R9/R11/R16: run the manifest CAS UPDATE first so a wizard
+    // supersession (or any 0-row outcome) aborts before we write a deferral
+    // for a stale session or delete the pending_ingestions row. If the CAS
+    // misses, surface WIZARD_SESSION_SUPERSEDED (409) per the same contract
+    // used by requireCurrentWizardRow and lib/sync/discardStaged.ts.
+    const manifestTransitioned = await transitionManifestRow(tx, current.row, action);
+    if (!manifestTransitioned) {
+      return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+    }
     await upsertWizardDeferral(tx, current.row, action);
-    await transitionManifestRow(tx, current.row, action);
     await deletePendingIngestion(tx, id);
     return NextResponse.json({
       status: action === "defer_until_modified" ? "deferred" : "ignored",

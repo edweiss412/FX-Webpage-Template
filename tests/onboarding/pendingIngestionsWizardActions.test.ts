@@ -13,6 +13,7 @@ const ID1 = "33333333-3333-4333-8333-333333333333";
 class FakeWizardPendingTx {
   activeWizardSessionId: string | null = W1;
   pendingFolderId: string | null = "folder-1";
+  manifestUpdateAffectsRow = true;
   row = {
     id: ID1,
     drive_file_id: "file-1",
@@ -28,6 +29,7 @@ class FakeWizardPendingTx {
   } | null;
   deferrals: Array<{ kind: string; driveFileId: string }> = [];
   manifestUpdates: Array<{ status: string; wizardSessionId: string; driveFileId: string }> = [];
+  manifestUpdateAttempts: Array<{ status: string; wizardSessionId: string; driveFileId: string }> = [];
   deleted = false;
 
   async queryOne<T>(sql: string, params: unknown[]) {
@@ -45,11 +47,14 @@ class FakeWizardPendingTx {
       return { upserted: true } as T;
     }
     if (normalized.startsWith("update public.onboarding_scan_manifest")) {
-      this.manifestUpdates.push({
+      const entry = {
         status: params[0] as string,
         wizardSessionId: params[1] as string,
         driveFileId: params[2] as string,
-      });
+      };
+      this.manifestUpdateAttempts.push(entry);
+      if (!this.manifestUpdateAffectsRow) return null as T;
+      this.manifestUpdates.push(entry);
       return { updated: true } as T;
     }
     if (normalized.startsWith("delete from public.pending_ingestions")) {
@@ -171,5 +176,40 @@ describe("wizard pending_ingestions actions", () => {
     expect(tx.manifestUpdates).toEqual([
       { status: "permanent_ignore", wizardSessionId: W1, driveFileId: "file-1" },
     ]);
+  });
+
+  // M12 adversarial review R41-R9/R11/R16 (HIGH, 2026-05-23): manifest UPDATE
+  // returning 0 rows (e.g., wizard superseded after requireCurrentWizardRow,
+  // manifest row missing, or app_settings drift inside the locked tx) must
+  // abort with WIZARD_SESSION_SUPERSEDED and MUST NOT delete the
+  // pending_ingestions row. Mirrors lib/sync/discardStaged.ts CAS pattern.
+  test("defer_until_modified aborts with 409 when manifest CAS UPDATE affects 0 rows", async () => {
+    const tx = new FakeWizardPendingTx();
+    tx.manifestUpdateAffectsRow = false;
+
+    const response = await handleWizardPendingIngestionDeferUntilModified(req("/defer"), context, deps(tx));
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(tx.manifestUpdateAttempts).toEqual([
+      { status: "defer_until_modified", wizardSessionId: W1, driveFileId: "file-1" },
+    ]);
+    expect(tx.manifestUpdates).toEqual([]);
+    expect(tx.deleted).toBe(false);
+  });
+
+  test("permanent_ignore aborts with 409 when manifest CAS UPDATE affects 0 rows", async () => {
+    const tx = new FakeWizardPendingTx();
+    tx.manifestUpdateAffectsRow = false;
+
+    const response = await handleWizardPendingIngestionPermanentIgnore(req("/ignore"), context, deps(tx));
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(tx.manifestUpdateAttempts).toEqual([
+      { status: "permanent_ignore", wizardSessionId: W1, driveFileId: "file-1" },
+    ]);
+    expect(tx.manifestUpdates).toEqual([]);
+    expect(tx.deleted).toBe(false);
   });
 });
