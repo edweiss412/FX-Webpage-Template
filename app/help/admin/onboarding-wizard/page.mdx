@@ -30,16 +30,20 @@ A "Start over" link sits at the bottom of every wizard step while you're in onbo
 
 <h2 id="step-2">Step 2: Verify access</h2>
 
-The second screen asks for the folder URL (or just the folder ID) and checks in real time that the app can actually see it.
+The second screen asks for the folder URL and runs a one-shot check that the app can actually see it.
 
 What you do on this step:
 
 <Step n={1}>
-**Paste the folder URL (or just the folder ID) into the wizard's input.** The app checks access in real time; you don't click a "Verify" button separately.
+**Paste the folder URL into the input labeled "Folder link."** Drive folder URLs look like `https://drive.google.com/drive/folders/...`. Grab the URL from your browser's address bar while the folder is open in Drive.
 </Step>
 
 <Step n={2}>
-**When you see the green check with the folder name and sheet count, click the button to move to step 3.** The screen reads something like "Found N sheets in your folder, ready to bring them in?"
+**Click the Verify and scan button.** While the scan runs the wizard shows "Looking through your folder…" plus an elapsed-seconds counter, and the button label flips to "Verifying…" so you know it is in flight. Large folders can take a minute.
+</Step>
+
+<Step n={3}>
+**When the scan returns, you'll see a summary of what was found in the folder, with counts of sheets ready for review, sheets that could not be parsed, non-sheet files we skipped, and any live-row conflicts. Click "Continue to Step 3" to move on.**
 </Step>
 
 If the check doesn't come back green, one of these is why:
@@ -57,12 +61,16 @@ The wizard never shows raw error codes on this step. If a screen ever does, that
 
 After verification, the wizard scans the whole folder and shows you every sheet it found, one row per sheet. This is the only step where you do meaningful work; steps 1 and 2 are setup.
 
-Each row has one of four statuses:
+Each row carries a status badge. You start with three first-contact statuses and add a fourth as soon as you've acted on a row; the resolved statuses below replace the first-contact one in place once you've made the call.
 
-- **Parsed and ready.** Green check. Click to review and approve. The sheet looks like a valid show sheet and the app pulled out crew, schedule, hotel, transportation, and everything else the way it expects. Approve once you've eyeballed it.
-- **Couldn't parse.** Yellow warning with a plain-English explanation of what went wrong. Most of the time this is "the sheet has a column we don't recognize" or "a date cell didn't read as a date." Click to see the details. You can fix the sheet in Drive and re-run the scan, or defer the sheet (it'll be re-checked the next time it changes).
-- **Skipped.** Gray badge. The folder contained something that isn't a Google Sheet (a doc, a PDF, an image). The app ignores it; you don't need to do anything.
-- **Already in live sync.** Red warning. This only happens in an unusual recovery situation where the same sheet exists in your live data already; the wizard won't promote it again. You resolve the live row from the dashboard, then re-run the wizard.
+First-contact statuses:
+
+- **Ready for review.** The sheet parsed cleanly. Click **Review and apply** to walk through what the parser extracted and approve it.
+- **Couldn't parse.** Yellow badge with a plain-English explanation of what went wrong. Most of the time this is "the sheet has a column we don't recognize" or "a date cell didn't read as a date." The row offers three buttons: **Retry now** (re-runs the parser, useful after you fix a cell in Drive), **Defer until modified** (we'll re-check the next time the sheet changes), and **Permanently ignore** (the sheet stays out of the system).
+- **Skipped: not a Google Sheet.** The folder contained something that isn't a Google Sheet (a doc, a PDF, an image). The app ignores it; the row is informational and counts as resolved automatically.
+- **Live row conflict.** This only happens in an unusual recovery situation where the same sheet exists in your live data already; the wizard won't promote it again. You resolve the live row from the dashboard, then re-run setup.
+
+After you act on a row, its badge flips to one of these resolved states: **Applied** (the sheet has been promoted), **Deferred until modified** (we'll re-check on next change), **Permanently ignored** (the sheet stays out of the system), or **Set aside (try again next sync)** if you discarded a staged change with the "try again next sync" option. **Set aside** is the one resolved-looking badge that still needs another decision before you can finish setup; the wizard tells you which rows are still pending in the count above the list.
 
 What you do on this step:
 
