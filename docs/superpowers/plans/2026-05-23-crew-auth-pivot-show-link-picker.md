@@ -1080,15 +1080,20 @@ git commit -m "feat(auth): resolvePickerSelection 7-arm resolver (B2)"
 
 ```sql
 -- supabase/migrations/20260523000007_select_identity_atomic.sql
+-- R9-F2: output parameters renamed (out_show_id / out_picker_epoch /
+-- out_rejection_code) so they cannot ambiguously match against
+-- column names like `show_id` referenced in queries. Every
+-- table-column read inside the function is also qualified with an
+-- alias (e.g., s.id, t.share_token, cm.show_id).
 create or replace function public.select_identity_atomic(
   p_slug text,
   p_share_token text,
   p_crew_member_id uuid
 )
   returns table (
-    show_id uuid,
-    picker_epoch int,
-    rejection_code text
+    out_show_id uuid,
+    out_picker_epoch int,
+    out_rejection_code text
   )
   language plpgsql
   security definer
@@ -1112,7 +1117,7 @@ begin
      and t.share_token = p_share_token
    limit 1;
   if v_show_id is null then
-    show_id := null; picker_epoch := null; rejection_code := 'PICKER_INVALID_SHARE_TOKEN';
+    out_show_id := null; out_picker_epoch := null; out_rejection_code := 'PICKER_INVALID_SHARE_TOKEN';
     return next; return;
   end if;
 
@@ -1126,7 +1131,7 @@ begin
     select 1 from public.show_share_tokens
      where show_id = v_show_id and share_token = p_share_token
   ) then
-    show_id := null; picker_epoch := null; rejection_code := 'PICKER_INVALID_SHARE_TOKEN';
+    out_show_id := null; out_picker_epoch := null; out_rejection_code := 'PICKER_INVALID_SHARE_TOKEN';
     return next; return;
   end if;
 
@@ -1139,7 +1144,7 @@ begin
     from public.shows
    where id = v_show_id;
   if v_archived or not v_published then
-    show_id := null; picker_epoch := null; rejection_code := 'PICKER_SHOW_UNAVAILABLE';
+    out_show_id := null; out_picker_epoch := null; out_rejection_code := 'PICKER_SHOW_UNAVAILABLE';
     return next; return;
   end if;
 
@@ -1153,22 +1158,22 @@ begin
     from public.crew_members
    where id = p_crew_member_id;
   if v_crew_show is null then
-    show_id := null; picker_epoch := null; rejection_code := 'PICKER_CREW_MEMBER_NOT_FOUND';
+    out_show_id := null; out_picker_epoch := null; out_rejection_code := 'PICKER_CREW_MEMBER_NOT_FOUND';
     return next; return;
   end if;
   if v_crew_show <> v_show_id then
-    show_id := null; picker_epoch := null; rejection_code := 'PICKER_CREW_MEMBER_WRONG_SHOW';
+    out_show_id := null; out_picker_epoch := null; out_rejection_code := 'PICKER_CREW_MEMBER_WRONG_SHOW';
     return next; return;
   end if;
 
   -- Step 6: read picker_epoch under the lock. Reset/Rotate cannot
   -- bump it during this transaction; the value we return is
   -- guaranteed to match what a concurrent rotation would observe.
-  select s.picker_epoch into picker_epoch
+  select s.picker_epoch into out_picker_epoch
     from public.shows s where s.id = v_show_id;
 
-  show_id := v_show_id;
-  rejection_code := null;
+  out_show_id := v_show_id;
+  out_rejection_code := null;
   return next;
 end;
 $$;
@@ -1184,7 +1189,7 @@ Test cases:
 - Wrong crew row: returns `PICKER_CREW_MEMBER_NOT_FOUND`.
 - Archived show: returns `PICKER_SHOW_UNAVAILABLE`.
 - **Concurrent rotation race regression**: spawn two transactions in parallel — one calls `rotate_show_share_token`, the other calls `select_identity_atomic` with the OLD token. Whichever acquires the lock first wins; the other observes the post-state under the same lock. Asserts: rotation-wins → select returns `PICKER_INVALID_SHARE_TOKEN` even though it presented the old token; select-wins → cookie minted at the OLD epoch (which is then bumped by the subsequent rotation). No window where the old token can mint a cookie at the new epoch.
-- **Concurrent archive race regression (R4-F1)**: spawn two transactions — one calls `select_identity_atomic` with a valid token; the other archives the same show via `UPDATE shows SET archived = true`. Whichever acquires the lock first wins; the loser sees the post-state. Asserts: archive-wins → select observes `archived = true` under the lock and returns `PICKER_SHOW_UNAVAILABLE`, NOT a stale `success`.
+- **Concurrent archive race regression (R4-F1 + R9-F1)**: spawn two transactions — one calls `select_identity_atomic` with a valid token; the other archives the same show via the LIVE archive writer (`unpublishShow.ts` or whichever helper Doug's archive action actually invokes, which MUST itself acquire `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` per AGENTS.md invariant 2). A direct `UPDATE shows SET archived = true` would NOT acquire the lock and would race — that's a violation of the project invariant, not a valid test scenario. Asserts: archive-wins → select observes `archived = true` under the lock and returns `PICKER_SHOW_UNAVAILABLE`. Plus a class-sweep meta-test (extend `tests/auth/advisoryLockRpcDeadlock.test.ts`) asserts every `shows.archived` / `shows.published` writer in the repo acquires the per-show advisory lock per the existing grep-derived shows-writer inventory (§5.6 R23/R24).
 
 ```bash
 git commit -am "feat(db): select_identity_atomic RPC (token+epoch under advisory lock; B3-pre)"
@@ -1295,7 +1300,9 @@ export async function selectIdentityCore(input: SelectIdentityInput): Promise<Se
   // R4-F2: wrap in try/catch — .rpc() can THROW on network/runtime faults
   // (not just return error), and the throw bypasses the typed
   // PICKER_RESOLVER_LOOKUP_FAILED contract per AGENTS.md invariant 9.
-  let data: { show_id: string | null; picker_epoch: number | null; rejection_code: string | null } | null = null;
+  // R9-F2: RPC output params are renamed out_* to avoid PL/pgSQL
+  // column-name ambiguity. JS destructures the renamed fields.
+  let data: { out_show_id: string | null; out_picker_epoch: number | null; out_rejection_code: string | null } | null = null;
   let error: unknown = null;
   try {
     const resp = await supabase
@@ -1312,12 +1319,12 @@ export async function selectIdentityCore(input: SelectIdentityInput): Promise<Se
   }
   if (error) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
   if (!data) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
-  if (data.rejection_code) return { ok: false, code: data.rejection_code };
-  if (!data.show_id || !Number.isInteger(data.picker_epoch)) {
+  if (data.out_rejection_code) return { ok: false, code: data.out_rejection_code };
+  if (!data.out_show_id || !Number.isInteger(data.out_picker_epoch)) {
     return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
   }
-  const showId = data.show_id as string;
-  const lockedEpoch = data.picker_epoch as number;
+  const showId = data.out_show_id as string;
+  const lockedEpoch = data.out_picker_epoch as number;
 
   // Merge into existing envelope.
   const key = pickerCookieSigningKey();
@@ -1812,13 +1819,28 @@ export default async function ShowPage({
 }
 ```
 
-- [ ] **Step 3: Delete the old slug-only file**
+- [ ] **Step 3: Delete the old slug-only file + update consumers**
 
 ```bash
 rm app/show/[slug]/page.tsx
 # Move _ShowBody.tsx into the new directory:
 git mv app/show/[slug]/_ShowBody.tsx app/show/[slug]/[shareToken]/_ShowBody.tsx
 ```
+
+**R9-F3 consumer update**: the admin preview page imports `ShowBody` from the old path. Update its import to the new module path (or, if there are more consumers, ship a compatibility re-export `app/show/[slug]/_ShowBody.ts` that just `export { ShowBody } from './[shareToken]/_ShowBody'` until all callers migrate). Verify with:
+
+```bash
+rg -n "from .*app/show/\[slug\]/_ShowBody|from .*show/\[slug\]/_ShowBody" app components lib tests
+# Each match → update to the new path. No matches should remain after this step.
+```
+
+The admin preview at `app/admin/show/[slug]/preview/[crewId]/page.tsx:39` (current import line per repo grep) MUST be updated in the same commit as the route move. Add a build-verification step:
+
+```bash
+pnpm tsc --noEmit && pnpm eslint app components lib
+```
+
+The build MUST succeed before the commit.
 
 - [ ] **Step 4-5: Run tests + commit**
 
