@@ -384,21 +384,29 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 **R10 correction**: an earlier draft of this paragraph claimed "PostgREST DML on `public.shows` is already REVOKEd from `authenticated`/`anon` (the existing admin-tables lockdown)." That claim was wrong — the live migration at `supabase/migrations/20260501002000_rls_policies.sql:227-239` grants `select, insert, update, delete` on `public.shows` to `anon, authenticated`, gated only by the `admin_update` RLS policy. An authenticated admin session could therefore call `supabase.from('shows').update({ picker_epoch: 99 }).eq('id', ...)` directly via PostgREST, bypassing the advisory lock, the publish helper, AND the RPC entry point.
 
-**Required lockdown migration (new):** add a column-level REVOKE on the two new picker columns:
+**Required lockdown migration (new):** column-level REVOKE alone is NOT sufficient — Postgres's column-level REVOKE does NOT subtract from a previously-granted table-level UPDATE. The migration MUST revoke the table-level grant entirely:
 
 ```sql
-revoke update (picker_epoch, picker_epoch_bumped_at)
-  on table public.shows
-  from anon, authenticated;
+revoke update, insert, delete on table public.shows from anon, authenticated;
+-- service_role retains its existing grant_all_privileges line; no change.
+-- The pre-existing RLS policies (admin_insert, admin_update, admin_delete)
+-- remain in place as defense-in-depth but are now unreachable because
+-- the underlying privilege is gone for anon/authenticated.
 ```
 
-This keeps existing admin writes to other `shows` columns (`archived`, `published`, sync-engine fields) working while making the picker columns un-writable via PostgREST. The only path that can update them is `service_role` (used by Server Actions via the service-role client) — and service-role callers MUST go through the SECURITY DEFINER RPC because the lockdown meta-test asserts no other writer exists.
+This is safe because **the app already mutates `public.shows` exclusively via SECURITY DEFINER RPCs and the service-role client**. A repo-wide grep for `from('shows').update(`, `from('shows').insert(`, `from('shows').delete(` returns ZERO results in `app/**`, `lib/**`, `components/**` (only `.select()` reads exist). The pivot's `reset_picker_epoch_atomic` adds another RPC; no new direct-DML caller is introduced. After this migration, the only paths that can write to `public.shows` are:
+
+1. SECURITY DEFINER RPCs that the codebase calls via `.rpc(...)` — these execute as the function's owner (typically `postgres` / `service_role`), bypassing the revoked grant.
+2. Server-side code paths that explicitly use the service-role client (`createSupabaseServiceRoleClient()` per `lib/supabase/server.ts`) — service-role retains the full grant.
+
+Both categories already follow the AGENTS.md call-boundary discipline (typed infra-error handling, advisory-lock acquisition where required). The PostgREST surface stops being a write path for `shows` entirely.
 
 **Structural meta-test (extends `tests/auth/_metaInfraContract.test.ts`).** Asserts:
 
-1. The `revoke update (picker_epoch, picker_epoch_bumped_at)` migration exists and applies cleanly.
-2. No `from('shows').update(...)` call in `app/**`, `lib/**`, `components/**` includes `picker_epoch` or `picker_epoch_bumped_at` in its update set (static grep guard).
-3. The only writer of these columns in `supabase/migrations/<post-cutover>/**` is `public.reset_picker_epoch_atomic`.
+1. The migration revokes table-level UPDATE / INSERT / DELETE on `public.shows` from `anon, authenticated`.
+2. A live DB probe (run against the post-migration schema in CI): `select has_table_privilege('authenticated', 'public.shows', 'UPDATE')` returns `false`. Equivalent assertion for `INSERT` and `DELETE`. AND a column-specific live probe: `select has_column_privilege('authenticated', 'public.shows', 'picker_epoch', 'UPDATE')` returns `false` (defense against a future migration that re-grants table-level UPDATE without removing the picker columns).
+3. No `from('shows').update(...)`, `.insert(...)`, or `.delete(...)` call appears in `app/**`, `lib/**`, `components/**` (static grep guard), EXCEPT in files that explicitly use `createSupabaseServiceRoleClient()` per a paired import-trace.
+4. The only writer of `picker_epoch` and `picker_epoch_bumped_at` in `supabase/migrations/<post-cutover>/**` is `public.reset_picker_epoch_atomic`.
 
 The RPC itself is GRANTed EXECUTE to `service_role` ONLY — REVOKEd from `authenticated`, `anon`, `public`. The Server Action `resetPickerEpoch` (which uses the service-role client) is the only caller. **R7 + R10 amendments combined**: the atomic transaction requirement (lock + UPDATE + publish_show_invalidation) requires a single SQL function (R7); the columns being written ALSO need column-level REVOKE because the inherited table-level grants don't satisfy AGENTS.md's PostgREST DML lockdown invariant by themselves (R10).
 
