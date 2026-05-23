@@ -228,8 +228,14 @@ BEGIN TRANSACTION;
 COMMIT;
         │
         ▼
+publishShowInvalidation(supabase, showId)   -- explicit, post-commit
+        │
+        ▼
 Every existing cookie entry for this show now has `e` ≠ shows.picker_epoch.
 Next visit on each device triggers epoch_stale → picker re-prompts.
+Realtime broadcast fires on `show:<showId>:invalidation` for any
+already-open tabs (composite viewer_version_token has advanced via
+the new picker_epoch_bumped_at term in §4.6).
 ```
 
 **Advisory-lock topology (per AGENTS.md invariant 2 — non-negotiable).** `resetPickerEpoch` mutates `public.shows`, so it MUST run inside the per-show advisory lock. Lock key is `hashtext('show:' || drive_file_id)` — the canonical project key per `AGENTS.md` invariant 2. Holder topology: the lock is acquired at the **Server Action layer** (the only entry point that mutates `shows.picker_epoch`); no nested RPC, no JS-side wrapper above the action, no other layer touches the column. This single-holder design is documented here and pinned by an extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` (per §10.1 meta-test inventory). The action uses the blocking form (`pg_advisory_xact_lock`, not `pg_try_advisory_xact_lock`) because it is an admin-initiated request, not a cron path — the spec's invariant 2 directs admin/blocking paths to the blocking variant. If the lock is contended by a concurrent sync run for the same show, the admin's Reset request waits until the sync transaction commits, then proceeds. This is acceptable: Reset is a rare manual click, not a hot path.
@@ -280,7 +286,7 @@ The parent spec's Realtime contract (broadcast topic `show:<showId>:invalidation
 
 **Server Components cannot mutate cookies.** Per Next 16, calling `cookies().set()` from a Server Component throws. Cookie writes are only legal from Server Actions, Route Handlers, or Middleware. The pivot's cookie-touching paths therefore split across two mechanisms:
 
-**Mechanism A — middleware refresh (sliding TTL).** A thin middleware in `middleware.ts` (replacing the deleted M9.5 leaked-link compromise handler) runs on every request whose path matches `^/show/[^/]+$` AND every request to `/api/asset/...` / `/api/realtime/subscriber-token`. The middleware:
+**Mechanism A — middleware refresh (sliding TTL).** A thin middleware in `middleware.ts` (replacing the deleted M9.5 leaked-link compromise handler) runs on every request whose path matches any of: `^/show/[^/]+$`, `^/api/asset/(diagram|reel|agenda)/`, `^/api/realtime/subscriber-token$`, `^/api/show/[^/]+/version$`, `^/api/report$`. The middleware:
 
 1. Decodes the `__Host-fxav_picker` cookie via the shared helper (`lib/auth/picker/cookieEnvelope.ts`).
 2. If decode succeeds AND the cookie contains an entry for the path's `show_id` (derived from the slug via a cached slug→id lookup, or directly from the route param), bump that entry's `t` to the current unix-seconds and re-emit the cookie with `Max-Age=7776000`.
@@ -304,8 +310,10 @@ These are M9.5 / parent-spec §7.2 surfaces that have no role in the pivot. The 
 - `app/admin/show/[slug]/RevokeAllLinksButton.tsx` (196 lines)
 - The leaked-link compromise-event handler in `middleware.ts` (the entire 228-line file's primary purpose — the file likely shrinks to a no-op middleware or is removed entirely; the implementation plan picks whichever is cleaner)
 - `lib/auth/validateLinkSession.ts` (the JWT cookie-session validator)
+- `lib/auth/validateCrewAssetSession.ts` (the JWT-era asset-route auth helper; agenda + diagram + reel routes are switched to `resolvePickerSelection`)
 - `lib/auth/jwt.ts` (signing/verifying helpers used only by the JWT path)
 - `lib/auth/bootstrapCookie.ts` (the fragment-bootstrap one-shot cookie)
+- The `crew_link` and `crew_google` arms of `ShowViewer` in `lib/auth/resolveShowViewer.ts:44-53` (the file may be retained as a thin admin-only resolver wrapper OR deleted entirely depending on whether callers consolidate around `isAdminSession` + `resolvePickerSelection`)
 - `lib/sync/unpublishShow.ts` line 154 onward (the `link_sessions` cleanup; the rest of `unpublishShow` stays)
 - `supabase/migrations/<new-migration>.sql` — DROP statements for `crew_member_auth`, `link_sessions`, `bootstrap_nonces`, `revoked_links`, and the SECURITY DEFINER RPCs that mutate them (`mint_link_session_if_active_kid_matches`, `revoke_leaked_link_atomic`, the Issue/Revoke RPCs in `20260520000000_signed_link_admin_rpcs.sql`).
 - All `lib/messages/catalog.ts` entries scoped to the obsolete codes (`LEAKED_LINK_DETECTED`, `CSRF_DENIED`, `CSRF_NONCE_EXPIRED`, `CSRF_KEY_ROTATED`, `LINK_REVOKED_*`, the Issue/Revoke admin-alert codes).
@@ -343,7 +351,8 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 ### 5.4 Triggers modified
 
 - The two triggers `crew_member_auth_publish_invalidation` and `crew_member_auth_publish_invalidation_insert` (per migration `20260501001000_internal_and_admin.sql:83-93`) drop with the table.
-- A new statement-level UPDATE trigger on `public.shows` (when `picker_epoch` or `picker_epoch_bumped_at` changes) calls `publish_show_invalidation_after_statement()` (existing function at `20260501001000_internal_and_admin.sql:59-81`). Without it, a Reset action would advance the composite token but no broadcast would fire.
+- **No new trigger on `public.shows`.** The existing helper `publish_show_invalidation_after_statement()` (at `20260501001000_internal_and_admin.sql:59-81`) iterates `select distinct show_id from new_rows`. That column name comes from the trigger's transition table, which for child tables (`crew_members`, `crew_member_auth`) carries an explicit `show_id` FK column. For `public.shows` itself, the transition table column is `id` (the show's own PK), NOT `show_id` — reusing the helper would emit a missing-column error and abort the Reset transaction.
+- Instead, the `resetPickerEpoch` Server Action **calls the project's existing helper `publishShowInvalidation(supabase, showId)`** (the same one Phase 2 sync writes use, per parent spec §8 publish-side contract) explicitly after the locked UPDATE commits. This keeps the trigger surface unchanged AND avoids over-broadcasting on every `shows` UPDATE (which would cause every sync write to spam the `show:<id>:invalidation` channel even when nothing viewer-visible changed).
 
 ### 5.5 RLS
 
@@ -374,6 +383,10 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 | `/api/realtime/subscriber-token` | picker cookie OR admin Google session | **Auth source modified.** Body unchanged. Reads `__Host-fxav_picker` (via `resolvePickerSelection`) for crew; reads Supabase Auth session via `isAdminSession` for admin. The non-admin `validateGoogleSession` arm is removed — same rationale as Resolved Decision 15. Mints the existing Realtime JWT with `show_id` + `sub` claims. |
 | `/api/asset/diagram/<show-slug>/<rev>/<assetKey>` | picker cookie OR admin | **Auth source modified** (same as subscriber-token). Cache headers, revision-pinning, and 410 contract unchanged. |
 | `/api/asset/reel/<show-slug>` | picker cookie OR admin | **Auth source modified.** Streaming, drift gate, buffer-then-verify all unchanged. |
+| `/api/asset/agenda/<show-slug>/<id>` | picker cookie OR admin | **Auth source modified.** Currently calls `isAdminSession` (line 215) then `validateCrewAssetSession` (line 240) per the M11 chain. Pivot replaces `validateCrewAssetSession` with `resolvePickerSelection`. Admin precedence path unchanged. Streaming + PDF contract unchanged. |
+| `/api/show/<slug>/version` | picker cookie OR admin | **Auth source modified.** Currently calls `resolveShowViewer` (line 42). With `resolveShowViewer`'s `crew_link` and `crew_google` arms removed, this route swaps to a direct `isAdminSession` then `resolvePickerSelection` chain mirroring the page-route flow. Response body (`{ version_token }`) unchanged. The `ShowRealtimeBridge` cold-start version fence at `components/realtime/ShowRealtimeBridge.tsx` continues to work without bridge-side changes. |
+| `/api/report` | picker cookie OR admin Google session OR admin allowlist | **Auth source modified.** Currently imports `validateLinkSession` (line 5), `validateGoogleSession` (line 4), `requireAdminIdentity` (line 3). Pivot removes the `validateLinkSession` arm and replaces it with `resolvePickerSelection`. The admin arms (`requireAdminIdentity` AND `validateGoogleSession`-for-admin) are preserved because `/api/report` is the bug-reporter and admins legitimately submit reports without going through the picker. Body, idempotency, lease_holder contract unchanged. |
+| `/auth/sign-out` | POST, signed-in | **Modified.** Currently calls `deleteSession` from `lib/auth/validateLinkSession.ts` (line 9) to delete the `link_sessions` row. With `link_sessions` retired, the `deleteSession` call is removed entirely; sign-out clears only the Supabase Auth session cookies. The `__Host-fxav_picker` cookie is NOT cleared on sign-out per §6 ("sign-out is an admin concept; the picker cookie is a separate identity contract"). |
 | `/admin`, `/admin/show/<slug>`, `/admin/show/<slug>/preview/<crewId>`, etc. | admin | **Unchanged**, except the per-show panel UI per §8. |
 
 **`?t=` is no longer a compromise event.** The leaked-link compromise-event handler is deleted along with the JWT model. Vercel request logs no longer carry sensitive tokens because no tokens exist. If a stray legacy URL somehow appears with a `?t=` query, Next.js's normal routing just ignores the unknown query param.
@@ -382,16 +395,35 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 ### 6.1 Picker entry guards
 
-`resolvePickerSelection` operates in this order — each step's outcome is a discriminable union variant:
+`resolvePickerSelection` operates in this order. The return type is a discriminated union of SIX variants; per AGENTS.md invariant 9 (Supabase call-boundary discipline), DB faults must be discriminable from auth/identity outcomes:
+
+```ts
+type ResolvePickerSelectionResult =
+  | { kind: 'resolved'; crewMemberId: string }
+  | { kind: 'no_selection' }
+  | { kind: 'epoch_stale' }
+  | { kind: 'removed_from_roster' }
+  | { kind: 'infra_error'; code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+```
 
 1. **No cookie at all** → `{ kind: 'no_selection' }`.
 2. **Cookie present but decode failure** (parse error, wrong `v`, missing fields, wrong types) → `{ kind: 'no_selection' }`. Decoder returns `null` per the strict-shape contract; resolver treats this as a fresh-device scenario, NOT as a tamper signal (the parent spec's strict-shape decoder discipline at `lib/auth/cookies.ts:34` is the precedent).
 3. **Cookie decoded; no entry for this `show_id`** → `{ kind: 'no_selection' }`.
-4. **Entry present; entry `e` ≠ `shows.picker_epoch`** → `{ kind: 'epoch_stale' }`.
-5. **Entry present, epoch matches; `SELECT id FROM crew_members WHERE id = $1 AND show_id = $2` returns 0 rows** → `{ kind: 'removed_from_roster' }`.
-6. **Entry present, epoch matches, row exists** → `{ kind: 'resolved', crewMemberId }`.
+4. **DB read failure on `shows.picker_epoch` lookup** (returned error OR thrown infra fault from `createSupabaseServiceRoleClient` / `.maybeSingle()`) → `{ kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' }`. NO cookie is touched on this branch; NO `epoch_stale`/`removed_from_roster` is falsely emitted on a transient outage.
+5. **Entry present; entry `e` ≠ `shows.picker_epoch`** → `{ kind: 'epoch_stale' }`.
+6. **DB read failure on `crew_members` membership lookup** → `{ kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' }`. Same posture as 4.
+7. **Entry present, epoch matches; `SELECT id FROM crew_members WHERE id = $1 AND show_id = $2` returns 0 rows** → `{ kind: 'removed_from_roster' }`.
+8. **Entry present, epoch matches, row exists** → `{ kind: 'resolved', crewMemberId }`.
 
-Cases 1, 2, 3 render the picker without an explanatory banner (first-time-on-device UX). Case 4 renders a banner "Doug reset access for this show — pick yourself again." Case 5 renders a banner "Your previous selection was removed by Doug — pick yourself from the current roster." Case 6 renders the crew page.
+Cases 1, 2, 3 render the picker without an explanatory banner (first-time-on-device UX). Case 5 renders a banner "Doug reset access for this show — pick yourself again." Case 7 renders a banner "Your previous selection was removed by Doug — pick yourself from the current roster." Case 8 renders the crew page.
+
+**Infra-error handling at each consumer (cases 4 + 6):**
+
+- `app/show/[slug]/page.tsx` — renders the existing cataloged terminal-failure UI (the same shape used for `ADMIN_SESSION_LOOKUP_FAILED` per the parent spec's `R21 F2` discipline at `app/show/[slug]/page.tsx:109-123`). No cookie cleanup. No partial render.
+- `/api/realtime/subscriber-token` — returns `500` with the cataloged operator code. The `ShowRealtimeBridge` already treats subscriber-token failures via its bounded-backoff renewal path; no client behavior change.
+- `/api/asset/diagram/...`, `/api/asset/reel/...`, `/api/asset/agenda/...` — return `500` with the cataloged operator code; the client renders the existing placeholder for the missing asset. No 403/410 false-positives that would cause incorrect revocation appearances.
+- `/api/show/[slug]/version` — returns `500`; the bridge's catch-up logic preserves its last-known-good `data-render-version`.
+- The Server Actions `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `resetPickerEpoch` are exempt from this contract because they each have their own DB-error handling — they do not call `resolvePickerSelection` directly.
 
 ### 6.2 Server Action input validation
 
@@ -637,7 +669,8 @@ The plan CREATES or EXTENDS the following structural meta-tests:
 | `tests/messages/_metaAdminAlertCatalog.test.ts` (existing) | EXTEND | Remove all M9.5-era codes; add `PICKER_EPOCH_RESET`, `PICKER_SELECTION_RACE`, and the new picker-rejection codes (`PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, etc.). |
 | `tests/auth/_metaPickerCookieContract.test.ts` (new) | CREATE | Pins the cookie envelope shape: name = `__Host-fxav_picker`, `v=1` strict, decoder returns null on shape failures, encoder/decoder are the only producers in the repo. Banned-identifier audit: the literal substring `__Host-fxav_picker` outside `lib/auth/picker/cookieEnvelope.ts`, the middleware, and the test fixtures fails. Asserts `MAX_COOKIE_VALUE_BYTES === 3800` and that the constant cannot be raised beyond 3900 without a paired `// browser-cap-implication-acknowledged` comment in the same hunk. |
 | `tests/components/_metaPickerRoleChipContract.test.ts` (new) | CREATE | Pins the LEAD-chip-uses-FXAV-orange contract: any roster row where the underlying crew member has `LEAD` in `role_flags` renders with the accent chip; any other row renders the neutral chip. Test runs against a fixture roster with mixed `role_flags`. |
-| `tests/cross-cutting/no-jwt-surface.test.ts` (new) | CREATE | Banned-identifier audit: the literal substrings `__Host-fxav_session`, `redeemLink`, `signLinkJwt`, `verifyLinkJwt`, `current_token_version`, `revoked_below_version`, `max_issued_version`, `bootstrap_nonces`, `link_sessions`, `revoked_links`, `crew_member_auth`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED` MUST not appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts`, `supabase/migrations/<post-cutover>/**`. (Old migrations retain their history per migration-immutability rules.) |
+| `tests/cross-cutting/no-jwt-surface.test.ts` (new) | CREATE | Banned-identifier audit: the literal substrings `__Host-fxav_session`, `redeemLink`, `signLinkJwt`, `verifyLinkJwt`, `current_token_version`, `revoked_below_version`, `max_issued_version`, `bootstrap_nonces`, `link_sessions`, `revoked_links`, `crew_member_auth`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED`, `validateCrewAssetSession`, `validateLinkSession`, `crew_link` (as a `kind` discriminator) MUST not appear anywhere in `app/**`, `lib/**`, `components/**`, `middleware.ts`, `supabase/migrations/<post-cutover>/**`. (Old migrations retain their history per migration-immutability rules.) |
+| `tests/cross-cutting/picker-resolver-callsite-contract.test.ts` (new) | CREATE | Asserts every route handler that needs crew identity (`/show/[slug]/page.tsx`, `/api/realtime/subscriber-token`, `/api/asset/diagram/[show]/[rev]/[key]`, `/api/asset/reel/[show]`, `/api/asset/agenda/[show]/[id]`, `/api/show/[slug]/version`, `/api/report`) imports `resolvePickerSelection` from the canonical helper path AND distinguishes its `infra_error` arm from auth-denied. Static-analysis walker over the file list — does NOT depend on running the routes. |
 
 ### 10.2 Functional test coverage
 
@@ -656,6 +689,9 @@ The plan's TDD checklist includes:
 - **Unpublished/archived show guard** — non-admin viewer on an unpublished or archived show gets `notFound()` BEFORE any picker render. Test asserts: (a) no `roster-list` DOM element is emitted; (b) no DB query for `crew_members` was issued; (c) the response status is 404, not 200. Same test repeated for an archived (published=true, archived=true) show.
 - **Asset route auth swap — diagram** — `/api/asset/diagram/<show>/<rev>/<assetKey>` accepts picker cookie for the matching show; rejects no-cookie (401); rejects wrong-show cookie (403, WITHOUT touching `link_sessions`-style server state — the picker model has no such state to clean up); rejects stale-epoch cookie (403); rejects removed-from-roster cookie (403); admin path via `isAdminSession` still works. The 410 (revision-mismatch) contract is unchanged from M11.
 - **Asset route auth swap — reel** — `/api/asset/reel/<show>` same matrix as diagram. The buffer-then-verify md5 contract from the parent spec §7.3 is unchanged; only the auth source swaps.
+- **Asset route auth swap — agenda** — `/api/asset/agenda/<show>/<id>` same matrix as diagram. Currently uses `validateCrewAssetSession`; pivot swaps to `resolvePickerSelection`. PDF streaming + content-disposition contract unchanged.
+- **Version endpoint auth swap** — `/api/show/<slug>/version` accepts picker cookie for the matching show; rejects no-cookie (200 with `{ version_token: <current> }` is OK — version endpoint is intentionally open to crew on this show); admin still works. Asserts the response body is `{ version_token: <string> }` not leaking any auth-state diagnostic. Plus an `infra_error` test: when `viewer_version_token` RPC fails, the route returns 500, NOT 200-with-stale.
+- **Report endpoint auth swap** — `/api/report` accepts picker cookie for the matching show; admin via `requireAdminIdentity` AND `validateGoogleSession` paths preserved. The body's `show_id` field's cross-cookie match is validated.
 - **Middleware refresh** — request to `/show/<slug>` with a cookie entry for that show emits a Set-Cookie response header with the same value but bumped `t` and refreshed `Max-Age=7776000`. Request to `/show/<other-slug>` does NOT touch the cookie's entry for this slug. Request without a cookie produces no Set-Cookie header.
 - **`cleanupStaleEntry` Server Action** — when called with a `showId` whose entry's `e` is stale, the entry is removed from the cookie envelope; when the envelope becomes empty, the cookie is fully cleared (`Max-Age=0`); when called for an entry that's already valid, no-op (idempotent).
 - **Reset action advisory-lock holder topology** — extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` asserts `resetPickerEpoch` acquires the lock at exactly one layer (the Server Action body) and is the only writer of `shows.picker_epoch`.
