@@ -1008,7 +1008,16 @@ export async function resolvePickerSelection({
   showId: string;
   cookie: string | undefined;
 }): Promise<ResolvePickerSelectionResult> {
-  const env = decodePickerCookie(cookie, pickerCookieSigningKey());
+  // R8-F1: pickerCookieSigningKey() throws on unset/malformed env.
+  // Catch here so a misconfigured deploy returns the typed
+  // infra_error contract instead of a framework 500.
+  let key: string;
+  try {
+    key = pickerCookieSigningKey();
+  } catch {
+    return { kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
+  const env = decodePickerCookie(cookie, key);
   if (!env) return { kind: 'no_selection' };
   const entry = env.selections[showId];
   if (!entry) return { kind: 'no_selection' };
@@ -1607,7 +1616,7 @@ git commit -am "feat(ui): TerminalFailure cataloged-message component (C0)"
 
 ### Task C1: Move crew route to `app/show/[slug]/[shareToken]/`
 
-**Task ordering (R3-F2):** C1 depends on C0 (TerminalFailure component) and C4 (IdentityChip + ShowBody prop addition for `identityChip`). The implementer MUST land the prop addition + TerminalFailure import in the same commit as the route move OR reorder: C0 → C4-step-1 (extend ShowBody props with optional `identityChip`) → C1 → C4-step-2 (mount IdentityChip from ShowBody). Either path keeps each commit building.
+**Task ordering (R3-F2 + R8-F3):** C1 depends on C0 (TerminalFailure), C2 (PickerInterstitial — C1 imports `./_PickerInterstitial`), C3 (StaleCleanupAutoSubmit — referenced from C2), and C4 (IdentityChip + ShowBody prop addition). Implementation order MUST be: **C0 → C2 → C3 → C4-step-1 (extend ShowBody props with optional `identityChip` to keep existing callers building) → C1 (route move; can now import all required components) → C4-step-2 (mount IdentityChip from ShowBody, remove the now-unused legacy slug-only path)**. Each commit must build and test green. C2 and C3 can ship as no-op (Server Component renders nothing visible) until C1 wires them up — write them as fully-functional but unused so the commits are green.
 
 **Files:**
 - Move: `app/show/[slug]/page.tsx` → `app/show/[slug]/[shareToken]/page.tsx`
@@ -2255,6 +2264,27 @@ The implementer picks (a) if the helper has no other call sites; (b) if some non
 
 ```bash
 git commit -am "refactor(data): drop loadShowCrewWithAuth (or rename to loadShowCrew); G0d"
+```
+
+### Task G0e1: Refactor audit/lib references (R8-F2)
+
+**Files:**
+- Modify or delete: `lib/audit/trustDomains.ts` (references the old auth-domain model — `link_sessions`, `crew_member_auth`)
+- Modify: `lib/audit/authChain.ts` (still encodes the M9.5 chain ordering)
+- Modify: `lib/audit/authPrimitives.ts` (lists `link_sessions`, `__Host-fxav_session` as registered subjects)
+- Regenerate: `lib/audit/email-boundaries.generated.ts` (referenced banned identifiers via emitted output)
+- Modify or delete: `lib/me/partitionMeShows.ts` (helper referenced by /me — delete with /me)
+
+Per the pre-cutover dry-run gate (G0e), the H2 no-jwt-surface meta-test MUST pass with zero banned-identifier matches across these audit/lib files. The implementer's grep before this task:
+
+```bash
+rg -n "(crew_member_auth|link_sessions|bootstrap_nonces|revoked_links|validateLinkSession|validateCrewAssetSession|listShowsForCrew|crew_link|crew_google|__Host-fxav_session)" lib/audit lib/me
+```
+
+Each match → either delete the surrounding scaffolding or rewrite it to reference the new picker surfaces (e.g., `__Host-fxav_picker`, `show_share_tokens`, `select_identity_atomic`).
+
+```bash
+git commit -am "refactor(audit): purge M9.5 references from audit + me helpers (G0e1)"
 ```
 
 ### Task G0e: Verification — pre-cutover no-jwt-surface dry-run
