@@ -559,7 +559,7 @@ When `/show/<slug>` resolves to the picker, the rendered viewport contains:
 3. **Picker block** — left/right padded 16px on a 390px viewport.
    - **Question heading** `Who are you?` (20px, `font-weight: 700`, `color: var(--foreground)`).
    - **Sub-instruction** `Tap your name to open the show page.` (12px, `color: var(--muted-foreground)`). 4px below the heading.
-   - **Optional banner row** (only present in cases 4, 5 from §6.1) — one-line copy in a 12px medium-weight inline note, FXAV-orange-tinted background (`bg-orange-100` / `bg-orange-900/30` in dark mode). 8px above the list.
+   - **Optional banner row** (only present when resolver returns `kind: 'epoch_stale'` or `kind: 'removed_from_roster'` from §6.1) — one-line copy in a 12px medium-weight inline note, FXAV-orange-tinted background (`bg-orange-100` / `bg-orange-900/30` in dark mode). 8px above the list.
    - **Roster list** — flat alphabetical by `crew_members.name`. Each row is a `<form>` element with a single `<button type="submit">` filling the row.
 4. **Footer** — single line of copy, 10px, `color: var(--muted-foreground)`: `Shared by Doug Larson · FXAV`. 24px below the list.
 
@@ -587,7 +587,7 @@ For each prop / data input to the picker, what renders:
 | `roster` (size > 50) | large list | Roster list scrolls within the viewport's main scrolling container; no virtualization for v1 (50+ crew is rare and the DOM cost is acceptable; if it ever exceeds ~100, address in a follow-up). |
 | `crew_members.role` | empty string | Role chip omitted (no chip space reserved). Row is name-only. |
 | `crew_members.name` | empty string | This should not occur (`NOT NULL` per `20260501000000_initial_public_schema.sql:34`). Defensive: render the row with a placeholder `(Unnamed)` in italics, suppressed from the alphabetical sort by being placed last. |
-| `bannerMessage` (cases 4, 5) | `null` | Banner row omitted; picker spacing flows as if it weren't there. |
+| `bannerMessage` (kind: 'epoch_stale' / 'removed_from_roster') | `null` | Banner row omitted; picker spacing flows as if it weren't there. |
 
 ### 7.4 Mode boundaries
 
@@ -727,8 +727,8 @@ The `lib/messages/catalog.ts` entries scoped to JWT-version mutations (every cod
 
 **New crew-facing copy codes** (rendered via `messageFor(...)` per AGENTS.md invariant 5; never displayed as raw codes):
 
-- `PICKER_EPOCH_STALE_BANNER`: the banner copy on the picker when the cookie's epoch is behind the row's epoch. Default copy: "Doug reset access for this show — pick yourself again." Used by §6.1 case 4.
-- `PICKER_REMOVED_FROM_ROSTER_BANNER`: the banner copy when the picked crew member is no longer in the roster. Default copy: "Your previous selection was removed by Doug — pick yourself from the current roster." Used by §6.1 case 5.
+- `PICKER_EPOCH_STALE_BANNER`: the banner copy on the picker when the cookie's epoch is behind the row's epoch. Default copy: "Doug reset access for this show — pick yourself again." Used by §6.1 `kind: 'epoch_stale'`.
+- `PICKER_REMOVED_FROM_ROSTER_BANNER`: the banner copy when the picked crew member is no longer in the roster. Default copy: "Your previous selection was removed by Doug — pick yourself from the current roster." Used by §6.1 `kind: 'removed_from_roster'`.
 - `PICKER_EMPTY_ROSTER`: the empty-state copy when the show's roster has no rows yet. Default copy: "Doug hasn't added crew yet — check back soon." Used by §7.3 guard condition.
 - `PICKER_SHOW_UNAVAILABLE`: rejection copy when `selectIdentity` runs against an unpublished or archived show. Default copy: "This show isn't available right now. Ask Doug for an updated link if you think this is a mistake." Used by §6.2 rejection paths.
 
@@ -786,7 +786,7 @@ The plan CREATES or EXTENDS the following structural meta-tests:
 
 The plan's TDD checklist includes:
 
-- **Picker-renders cases (5 code-path variants → 3 visual modes)** — one test per case in §6.1 cases 1–5 (cases 1, 2, 3 all render the "initial" visual mode from §7.4 but via different code paths and must each be exercised; cases 4 and 5 render the two banner modes). Each test fires a request with a constructed cookie state and asserts the rendered DOM (heading present, list count matches roster, banner code matches expected `messageFor()` lookup or absent).
+- **Picker-renders cases (5 code-path variants → 3 visual modes)** — one test per resolver outcome that renders the picker: `kind: 'no_selection'` exercised via the three code-path entry points (no cookie / decode failure / no entry for show_id — all render the "initial" visual mode from §7.4 but via different code paths and must each be exercised); `kind: 'epoch_stale'` (renders epoch-stale banner mode); `kind: 'removed_from_roster'` (renders removed-from-roster banner mode). Each test fires a request with a constructed cookie state and asserts the rendered DOM (heading present, list count matches roster, banner code matches expected `messageFor()` lookup or absent). The other resolver outcomes (`kind: 'show_unavailable'`, `kind: 'infra_error'`, `kind: 'resolved'`) are tested in their own dedicated tasks (notFound / terminal-failure UI / `_ShowBody` render respectively) and are NOT picker-renders.
 - **`selectIdentity` happy path** — Server Action sets cookie, route revalidates, next request resolves `kind: 'resolved'`.
 - **`selectIdentity` rejection paths** — invalid UUID, crew_member_id not in roster, wrong show_id, archived show, unpublished show. Each asserts the specific rejection code AND that no cookie was written.
 - **`clearIdentity`** — happy path (cookie key removed), all-shows-cleared path (cookie deleted entirely).
