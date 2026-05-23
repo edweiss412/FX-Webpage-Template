@@ -261,15 +261,16 @@ describe('reset_picker_epoch_atomic RPC', () => {
   });
 
   it('bumps picker_epoch under the advisory lock and returns the new value', async () => {
+    // R4-F3: service_role is NOT automatically admin per is_admin()'s
+    // app_metadata check. Use a cookie-bound admin fixture so the
+    // in-DB is_admin() resolves true for Doug/Eric's JWT.
     const supabase = createSupabaseServiceRoleClient();
     const { data: before } = await supabase
       .from('shows').select('picker_epoch').eq('id', showId).single();
     expect(before?.picker_epoch).toBe(1);
 
-    // Cookie-bound client would carry admin JWT; service-role
-    // is_admin() returns true for the bypass-by-default path
-    // (the meta-test in tests/auth/* enforces non-admin rejection).
-    const { data: newEpoch, error } = await supabase
+    const adminClient = await createTestAdminCookieBoundClient(); // helper
+    const { data: newEpoch, error } = await adminClient
       .rpc('reset_picker_epoch_atomic', { p_show_id: showId });
     expect(error).toBeNull();
     expect(newEpoch).toBe(2);
@@ -395,13 +396,15 @@ describe('rotate_show_share_token RPC', () => {
   });
 
   it('atomically rotates share_token AND bumps picker_epoch (R40)', async () => {
+    // R4-F3: cookie-bound admin client for is_admin() to resolve true.
     const supabase = createSupabaseServiceRoleClient();
     const { data: before } = await supabase
       .from('show_share_tokens').select('share_token').eq('show_id', showId).single();
     const { data: epochBefore } = await supabase
       .from('shows').select('picker_epoch').eq('id', showId).single();
 
-    const { data: result, error } = await supabase
+    const adminClient = await createTestAdminCookieBoundClient();
+    const { data: result, error } = await adminClient
       .rpc('rotate_show_share_token', { p_show_id: showId });
     expect(error).toBeNull();
     expect(result?.new_share_token).toMatch(/^[0-9a-f]{64}$/);
@@ -1085,9 +1088,11 @@ declare
   v_published boolean;
   v_archived boolean;
 begin
-  -- Step 1: resolve the (slug, token) pair into show_id.
-  select s.id, s.drive_file_id, s.published, s.archived
-    into v_show_id, v_drive_file_id, v_published, v_archived
+  -- Step 1: resolve the (slug, token) pair into show_id + drive_file_id
+  -- for the lock key. Availability is NOT trusted from this read; it's
+  -- re-read under the lock in step 4 (R4-F1).
+  select s.id, s.drive_file_id
+    into v_show_id, v_drive_file_id
     from public.shows s
     join public.show_share_tokens t on t.show_id = s.id
    where s.slug = p_slug
@@ -1112,7 +1117,14 @@ begin
     return next; return;
   end if;
 
-  -- Step 4: availability check (also under the lock).
+  -- Step 4: re-read published/archived UNDER the lock (R4-F1). The pre-lock
+  -- read in step 1 could have been pre-empted by a concurrent archive/
+  -- unpublish before we acquired the lock; using the pre-lock values
+  -- would let an archived show mint a cookie.
+  select published, archived
+    into v_published, v_archived
+    from public.shows
+   where id = v_show_id;
   if v_archived or not v_published then
     show_id := null; picker_epoch := null; rejection_code := 'PICKER_SHOW_UNAVAILABLE';
     return next; return;
@@ -1150,6 +1162,7 @@ Test cases:
 - Wrong crew row: returns `PICKER_CREW_MEMBER_NOT_FOUND`.
 - Archived show: returns `PICKER_SHOW_UNAVAILABLE`.
 - **Concurrent rotation race regression**: spawn two transactions in parallel — one calls `rotate_show_share_token`, the other calls `select_identity_atomic` with the OLD token. Whichever acquires the lock first wins; the other observes the post-state under the same lock. Asserts: rotation-wins → select returns `PICKER_INVALID_SHARE_TOKEN` even though it presented the old token; select-wins → cookie minted at the OLD epoch (which is then bumped by the subsequent rotation). No window where the old token can mint a cookie at the new epoch.
+- **Concurrent archive race regression (R4-F1)**: spawn two transactions — one calls `select_identity_atomic` with a valid token; the other archives the same show via `UPDATE shows SET archived = true`. Whichever acquires the lock first wins; the loser sees the post-state. Asserts: archive-wins → select observes `archived = true` under the lock and returns `PICKER_SHOW_UNAVAILABLE`, NOT a stale `success`.
 
 ```bash
 git commit -am "feat(db): select_identity_atomic RPC (token+epoch under advisory lock; B3-pre)"
@@ -1257,13 +1270,24 @@ export async function selectIdentityCore(input: SelectIdentityInput): Promise<Se
   const supabase = createSupabaseServiceRoleClient();
 
   // R3-F1: single RPC under advisory lock; rotation cannot interleave.
-  const { data, error } = await supabase
-    .rpc('select_identity_atomic', {
-      p_slug: input.slug,
-      p_share_token: input.shareToken,
-      p_crew_member_id: input.crewMemberId,
-    })
-    .single();
+  // R4-F2: wrap in try/catch — .rpc() can THROW on network/runtime faults
+  // (not just return error), and the throw bypasses the typed
+  // PICKER_RESOLVER_LOOKUP_FAILED contract per AGENTS.md invariant 9.
+  let data: { show_id: string | null; picker_epoch: number | null; rejection_code: string | null } | null = null;
+  let error: unknown = null;
+  try {
+    const resp = await supabase
+      .rpc('select_identity_atomic', {
+        p_slug: input.slug,
+        p_share_token: input.shareToken,
+        p_crew_member_id: input.crewMemberId,
+      })
+      .single();
+    data = resp.data as any;
+    error = resp.error;
+  } catch (e) {
+    error = e;
+  }
   if (error) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
   if (!data) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
   if (data.rejection_code) return { ok: false, code: data.rejection_code };
@@ -1473,7 +1497,7 @@ git commit -am "feat(auth): cleanupStaleEntry compare-and-delete (R22; B5)"
 - Test: `tests/auth/picker/resetPickerEpoch.test.ts`
 - Test: `tests/auth/picker/rotateShareToken.test.ts`
 
-- [ ] **Both actions follow R18 cookie-bound client + requireAdmin() pattern:**
+- [ ] **Both actions follow R18 cookie-bound client + requireAdmin() pattern + R4-F2 try/catch on the .rpc() call:**
 
 ```ts
 // lib/auth/picker/resetPickerEpoch.ts
@@ -1485,10 +1509,17 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 export async function resetPickerEpoch(input: { showId: string }) {
   await requireAdmin();
   const supabase = await createSupabaseServerClient(); // cookie-bound!
-  const { data: newEpoch, error } = await supabase
-    .rpc('reset_picker_epoch_atomic', { p_show_id: input.showId });
-  if (error) throw error;
-  return { ok: true, new_epoch: newEpoch as number };
+  // R4-F2: try/catch wraps the .rpc call so thrown faults map to a
+  // typed result instead of bubbling up as an uncataloged framework
+  // error.
+  try {
+    const { data: newEpoch, error } = await supabase
+      .rpc('reset_picker_epoch_atomic', { p_show_id: input.showId });
+    if (error) return { ok: false as const, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+    return { ok: true as const, new_epoch: newEpoch as number };
+  } catch {
+    return { ok: false as const, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
 }
 ```
 
@@ -1502,11 +1533,19 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 export async function rotateShareToken(input: { showId: string }) {
   await requireAdmin();
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .rpc('rotate_show_share_token', { p_show_id: input.showId })
-    .single();
-  if (error) throw error;
-  return { ok: true, new_share_token: data!.new_share_token as string, new_epoch: data!.new_epoch as number };
+  try {
+    const { data, error } = await supabase
+      .rpc('rotate_show_share_token', { p_show_id: input.showId })
+      .single();
+    if (error || !data) return { ok: false as const, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+    return {
+      ok: true as const,
+      new_share_token: data.new_share_token as string,
+      new_epoch: data.new_epoch as number,
+    };
+  } catch {
+    return { ok: false as const, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
 }
 ```
 
