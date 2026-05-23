@@ -1012,8 +1012,9 @@ export async function resolvePickerSelection({
   cookie: string | undefined;
 }): Promise<ResolvePickerSelectionResult> {
   // R8-F1: pickerCookieSigningKey() throws on unset/malformed env.
-  // Catch here so a misconfigured deploy returns the typed
-  // infra_error contract instead of a framework 500.
+  // R11-F2: createSupabaseServiceRoleClient() also throws on missing
+  // env. BOTH must be caught here so a misconfigured deploy returns
+  // the typed infra_error contract instead of a framework 500.
   let key: string;
   try {
     key = pickerCookieSigningKey();
@@ -1025,7 +1026,12 @@ export async function resolvePickerSelection({
   const entry = env.selections[showId];
   if (!entry) return { kind: 'no_selection' };
 
-  const supabase = createSupabaseServiceRoleClient();
+  let supabase;
+  try {
+    supabase = createSupabaseServiceRoleClient();
+  } catch {
+    return { kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
   let showRow: { picker_epoch: number; published: boolean; archived: boolean } | null = null;
   try {
     const { data, error } = await supabase
@@ -1602,6 +1608,25 @@ git commit -am "feat(auth): resetPickerEpoch + rotateShareToken admin Server Act
 
 ## Phase C: Route restructure + picker UI
 
+### Task C0-pre: Add picker message codes to catalog (R11-F3)
+
+**Files:**
+- Modify: `lib/messages/catalog.ts` (add the new PICKER_* entries from §8.4)
+- Modify (regenerate): `lib/messages/__generated__/spec-codes.ts` (the MessageCode union must include the new codes BEFORE TerminalFailure compiles)
+- Test: `tests/messages/picker-codes.test.ts`
+
+The plan previously deferred catalog updates to Task H7, but `<TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />` in Task C0 and the picker UI in Task C2 pass code strings to `messageFor()` whose live signature accepts `MessageCode`. Without the codes registered first, every commit from C0 onward fails to typecheck.
+
+The codes to register (per §8.4 of the spec, full list):
+- `PICKER_EPOCH_RESET` (admin-alert)
+- `PICKER_SELECTION_RACE` (admin-alert)
+- `PICKER_EPOCH_STALE_BANNER`, `PICKER_REMOVED_FROM_ROSTER_BANNER`, `PICKER_EMPTY_ROSTER`, `PICKER_SHOW_UNAVAILABLE` (crew-facing)
+- `PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, `PICKER_CREW_MEMBER_WRONG_SHOW`, `PICKER_INVALID_SHARE_TOKEN`, `PICKER_RESOLVER_LOOKUP_FAILED` (rejection — all carry both `dougFacing` + `crewFacing` per R33)
+
+```bash
+git commit -am "feat(messages): register PICKER_* catalog codes (C0-pre)"
+```
+
 ### Task C0: Create `<TerminalFailure>` cataloged-message component
 
 **Files:**
@@ -1612,9 +1637,12 @@ Mirrors the parent spec's terminal-failure render pattern (per `app/show/[slug]/
 
 ```tsx
 // components/auth/TerminalFailure.tsx
-import { messageFor } from '@/lib/messages/lookup';
+// R11-F3: typed via MessageCode union so codes pass the
+// catalog's strict-type check at compile time. C0-pre registers
+// the PICKER_* codes first.
+import { messageFor, type MessageCode } from '@/lib/messages/lookup';
 
-export function TerminalFailure({ code }: { code: string }) {
+export function TerminalFailure({ code }: { code: MessageCode }) {
   const entry = messageFor(code);
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4">
@@ -2155,6 +2183,31 @@ git commit -am "feat(api): asset routes auth swap to picker cookie (D3)"
 ```
 
 ---
+
+### Task D3.5: Update `ShowRealtimeBridge` to handle 410 as terminal auth loss (R11-F1)
+
+**Files:**
+- Modify: `components/realtime/ShowRealtimeBridge.tsx`
+- Test: `tests/components/ShowRealtimeBridge.test.tsx` (extend)
+
+The pre-pivot bridge treats 401/403 as `forceRefresh` and other non-OK responses as transient. The pivot introduces 410 (show_unavailable) on subscriber-token + version + asset routes. An open tab whose show gets archived would get 410 on the next renewal/version probe; without an explicit 410 handler, the tab keeps rendering stale state.
+
+```ts
+// In ShowRealtimeBridge's response-status handler:
+if (res.status === 401 || res.status === 403 || res.status === 410) {
+  // R11-F1: 410 = show_unavailable (archived). Same recovery as
+  // auth-denied — router.refresh() drives the Server Component
+  // through the resolver, which renders notFound() for archived.
+  router.refresh();
+  return;
+}
+```
+
+Tests: (a) 401 from version → forceRefresh (existing); (b) 410 from version → forceRefresh (new regression); (c) 410 from subscriber-token → forceRefresh + bridge does not retry-loop on 410.
+
+```bash
+git commit -am "feat(realtime): bridge handles 410 as terminal auth loss (R11-F1; D3.5)"
+```
 
 ### Task D4: Report route — remove `validateGoogleSession` + `validateLinkSession` arms
 
