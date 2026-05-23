@@ -21,7 +21,7 @@ The owner-determined v1 model:
 
 - **One link per show.** `https://crew.fxav.show/show/<slug>` is the only URL Doug shares. He sends it once per show through his existing channel.
 - **"Who are you?" picker.** First visit on a device renders an interstitial listing the show's current crew roster (`crew_members` rows where `show_id` matches). Crew member taps their own name.
-- **Per-device sticky identity.** Selection persists in a host-wide cookie (`__Host-fxav_picker`) carrying a combined JSON map keyed by `show_id`. 90-day sliding TTL. Picker is a one-time gate per device per show.
+- **Per-device sticky identity.** Selection persists in a host-wide cookie (`__Host-fxav_picker`) carrying a combined JSON map keyed by `show_id`. 90-day `Max-Age` refreshed by Server Actions only (per §4.9 R16 contract — middleware refresh is structurally unsafe). Picker is a one-time gate per device per show until the cookie expires.
 - **Role filtering preserved.** The role-derivation contract in `lib/data/getShowForViewer.ts:218-230` is untouched: role flags are read fresh from `crew_members.role_flags` on every request, joined to `shows_internal` only for LEAD/admin viewers (parent spec §7.4). Picker identity is the input to that fetcher; role is derived from the input, not stored in the cookie.
 - **Identity escape hatch.** A pinned "Not you?" link in the page chrome clears the cookie key for that show and re-prompts. No per-person revocation (the model doesn't support it).
 - **Admin path unchanged.** `isAdminSession` precedence in `lib/auth/resolveShowViewer.ts:123-126` continues to short-circuit the crew auth chain for Doug + Eric. Admin previews via `/admin/show/<slug>/preview/<crewId>` remain Doug's spot-check tool.
@@ -63,8 +63,8 @@ Each decision is owner-determined; cite by number from this list in the implemen
 1. **One link per show; URL is `/show/<slug>`.** No fragment, no per-person URL, no JWT. The link is the credential.
 2. **Picker container is an interstitial route.** `/show/<slug>` renders ONLY the picker (FXAV mark + show title + roster list) as the entire viewport when no valid selection exists. After selection, the same URL renders the existing `_ShowBody.tsx`. No skeleton, no modal, no behind-the-picker chrome.
 3. **Picker list shape: flat alphabetical, role chip right-aligned.** One scrollable list, sorted by `crew_members.name` ascending. Each row shows `<name>` (primary) and a role chip drawn from `crew_members.role` (the human-readable string, e.g., "A1", "LEAD"). LEAD chip uses FXAV orange (`#F79338`) per the parent `PRODUCT.md:42-47` accent contract; all other chips use the neutral surface from `DESIGN.md`.
-4. **Cookie shape: `__Host-fxav_picker` carrying a versioned JSON envelope.** Wire form: `{ "v": 1, "selections": { "<show_id_uuid>": { "id": "<crew_member_id_uuid>", "e": <picker_epoch_int>, "t": <unix_seconds_int> } } }`. The `t` field is the unix-second epoch of the entry's last touch — stamped on selection and refreshed on every authenticated visit (this is the sliding-TTL mechanism). It is also the LRU sort key when the byte-budget cap (Resolved Decision 6) is hit. URL-encoded into the cookie value. Single host-wide cookie (no per-show cookie names) — the per-show-name pattern is forbidden by the parent spec §7.2 cookie-header-growth reasoning (`2026-04-30-fxav-crew-pages-design.md:1949`).
-5. **TTL: 90 days, sliding.** Refreshed on every authenticated visit via `Set-Cookie` re-emission with `Max-Age=7776000`. There is no separate absolute cap — abandoned devices fall out after 90 days of silence; active devices never re-prompt on schedule. (An earlier draft proposed a 365-day hard cap; the owner answer was sliding-only with no absolute cap, so this spec carries only the sliding form.)
+4. **Cookie shape: `__Host-fxav_picker` carrying a versioned JSON envelope.** Wire form: `{ "v": 1, "selections": { "<show_id_uuid>": { "id": "<crew_member_id_uuid>", "e": <picker_epoch_int>, "t": <unix_seconds_int> } } }`. The `t` field is the unix-second epoch of the entry's last touch — stamped on selection by `selectIdentity` and updated by other Server Actions that mutate the entry. It is the LRU sort key when the byte-budget cap (Resolved Decision 6) is hit. URL-encoded into the cookie value. Single host-wide cookie (no per-show cookie names) — the per-show-name pattern is forbidden by the parent spec §7.2 cookie-header-growth reasoning (`2026-04-30-fxav-crew-pages-design.md:1949`).
+5. **TTL: 90 days, advanced on Server Action invocation only.** `Max-Age=7776000` re-emitted by Server Actions (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `resetPickerEpoch`) — NOT by middleware (the middleware refresh path was removed in R16 due to an unfixable lost-update race; see §4.9). A crew member who picks once and never re-picks will see the cookie expire 90 days after the last selection and the picker re-prompts; re-selection refreshes the cookie and continues normally. The picker is cheap to traverse. There is no separate absolute cap.
 6. **Cap: byte-budget LRU eviction (target ≤ 3800 bytes encoded), not a fixed entry count.** On every write that would grow the cookie, the encoder iteratively evicts the entry with the lowest `t` (last-touch unix-seconds) until the final URL-encoded `Set-Cookie` value (including the cookie name `__Host-fxav_picker=` prefix) is at or below 3800 bytes. The 3800-byte target sits comfortably below the 4096-byte (4 KB) browser per-cookie cap with ~300 bytes of safety margin for the `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`, `Max-Age=7776000` attribute suffix. **An earlier draft of this spec stated a fixed 50-entry cap based on a back-of-envelope ~80-byte-per-entry estimate; that estimate undercounted by ~25%.** Real per-entry size (UUID show key + UUID crew id + `e` + `t`, URL-encoded) is ~106 bytes encoded; 50 entries would be ~5.3 KB raw / ~7.2 KB after `encodeURIComponent` overhead, exceeding the browser cap. The byte-budget approach is robust to JSON-encoding overhead changes and works regardless of the actual entry count (which will land near 35 at the cap given current entry sizing). The encoder helper exposes a `MAX_COOKIE_VALUE_BYTES = 3800` constant; a structural meta-test asserts the constant is never raised beyond 3900 without a paired comment explaining the browser-cap implication.
 7. **Removed-id behaviour: silent re-prompt with empty-state banner.** When the cookie's `crew_member_id` no longer matches an active row in `crew_members` for `show_id` (Doug removed them between sessions), the picker re-renders with a banner: "Your previous selection was removed by Doug." Cookie key for that show is cleared on the same render.
 8. **Show-link lifetime: as long as the show row exists.** `shows.archived = true` (per `lib/sync/unpublishShow.ts` and the existing `shows` table per migration `20260501000000_initial_public_schema.sql:3-29`) is the kill switch. No date-based expiry. No admin "expire link" button. Doug archives a show when he wants its link to stop working.
@@ -89,15 +89,7 @@ Each decision is owner-determined; cite by number from this list in the implemen
 Crew taps `/show/<slug>` in group thread
         │
         ▼
-┌─────────────────────────────────────────────────────────────┐
-│ middleware.ts (cookie-refresh; see §4.9)                    │
-│   - For path /show/<slug>, if __Host-fxav_picker has an     │
-│     entry for show_id (decoded via shared helper), refresh  │
-│     `t` and re-emit Set-Cookie with Max-Age=7776000.        │
-│   - Pure refresh; no validation, no DB read. Stale/invalid  │
-│     entries are detected and cleared by the Server Component│
-│     chain below + by the route handlers' own resolver call. │
-└─────────────────────────────────────────────────────────────┘
+(middleware.ts is a no-op stub — R16 removed cookie refresh; see §4.9)
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -225,20 +217,49 @@ supabase.rpc('reset_picker_epoch_atomic', { p_show_id: showId })
         │
         ▼ (server-side, single SECURITY DEFINER function — atomic)
         │
-public.reset_picker_epoch_atomic(p_show_id uuid):
-  BEGIN
-    SELECT drive_file_id INTO v_drive_file_id FROM shows WHERE id = p_show_id;
-    IF v_drive_file_id IS NULL THEN RAISE EXCEPTION 'show not found'; END IF;
-    PERFORM pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
-    UPDATE shows
-       SET picker_epoch = picker_epoch + 1,
-           picker_epoch_bumped_at = now()
-     WHERE id = p_show_id;
-    -- in-function call to the existing publish helper:
-    PERFORM public.publish_show_invalidation(p_show_id);
-    -- pg_notify (inside publish_show_invalidation) queues the
-    -- notification; it fires atomically on transaction COMMIT.
-  END;
+-- Full DDL (mirrors the existing admin-RPC pattern at
+-- supabase/migrations/20260520000000_signed_link_admin_rpcs.sql):
+create or replace function public.reset_picker_epoch_atomic(p_show_id uuid)
+  returns void
+  language plpgsql
+  security definer
+  set search_path = public, pg_temp
+as $$
+declare
+  v_drive_file_id text;
+begin
+  -- IN-FUNCTION ADMIN GATE (R17 — required, do NOT rely on JS-side
+  -- requireAdmin() alone; an authenticated PostgREST caller could
+  -- otherwise invoke this RPC directly via supabase.rpc()):
+  if not public.is_admin() then
+    raise exception 'admin role required'
+      using errcode = '42501', hint = 'reset_picker_epoch_atomic is admin-only';
+  end if;
+
+  select drive_file_id into v_drive_file_id from public.shows where id = p_show_id;
+  if v_drive_file_id is null then
+    raise exception 'show not found'
+      using errcode = 'P0002';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
+
+  update public.shows
+     set picker_epoch = picker_epoch + 1,
+         picker_epoch_bumped_at = now()
+   where id = p_show_id;
+
+  -- In-function call to the existing publish helper; pg_notify is
+  -- transaction-scoped, so the notification fires atomically on COMMIT.
+  perform public.publish_show_invalidation(p_show_id);
+end;
+$$;
+
+-- Privilege grants (matches AGENTS.md PostgREST DML lockdown discipline):
+revoke all on function public.reset_picker_epoch_atomic(uuid) from public;
+grant execute on function public.reset_picker_epoch_atomic(uuid) to authenticated, service_role;
+-- Note: anon is intentionally NOT granted. Even if granted, the
+-- in-function is_admin() check would reject.
         │
         ▼ COMMIT (implicit transaction wrapping the RPC call)
         │
@@ -331,7 +352,7 @@ These are M9.5 / parent-spec §7.2 surfaces that have no role in the pivot. The 
 - `lib/auth/bootstrapCookie.ts` (the fragment-bootstrap one-shot cookie)
 - `app/me/page.tsx` and `app/me/**` (the crew-Google-discovery affordance retired by Resolved Decision 15)
 - `lib/data/listShowsForCrew.ts` (the helper that drove `/me`)
-- The `validateGoogleSession` import + call in `app/api/report/route.ts` (the `validateGoogleSession` MODULE remains for `/auth/sign-out`, but the report-route call site is excised; non-admin Google sessions cannot submit reports)
+- The `validateGoogleSession` import + call in `app/api/report/route.ts` (along with the MODULE itself per the line above — R15 confirmed no live consumer post-pivot; the M9.5 sign-out comment in earlier drafts was incorrect and is corrected here)
 - The `crew_link` and `crew_google` arms of `ShowViewer` in `lib/auth/resolveShowViewer.ts:44-53` (the file may be retained as a thin admin-only resolver wrapper OR deleted entirely depending on whether callers consolidate around `isAdminSession` + `resolvePickerSelection`)
 - `lib/sync/unpublishShow.ts` line 154 onward (the `link_sessions` cleanup; the rest of `unpublishShow` stays)
 - `supabase/migrations/<new-migration>.sql` — DROP statements for `crew_member_auth`, `link_sessions`, `bootstrap_nonces`, `revoked_links`, and the SECURITY DEFINER RPCs that mutate them (`mint_link_session_if_active_kid_matches`, `revoke_leaked_link_atomic`, the Issue/Revoke RPCs in `20260520000000_signed_link_admin_rpcs.sql`).
