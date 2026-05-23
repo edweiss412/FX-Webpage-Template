@@ -1014,7 +1014,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This unpublish link has already been used. The show is already unpublished, or someone else (or another tab) clicked it before you.",
     "followUp": "Doug → check show status in admin",
-    "helpfulContext": "The unpublish link in your email is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already clicked it. Check the admin dashboard to confirm the current state.",
+    "helpfulContext": "The auto-publish unpublish link is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already clicked it. Check the admin dashboard to confirm the current state.",
   },
   "UNPUBLISH_TOKEN_EXPIRED": {
     "crewFacing": null,

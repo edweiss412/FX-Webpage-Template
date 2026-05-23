@@ -748,9 +748,9 @@ export const MESSAGE_CATALOG = {
     dougFacing: "This unpublish link has already been used. The show is already unpublished, or someone else (or another tab) clicked it before you.",
     crewFacing: null,
     followUp: "Doug → check show status in admin",
-    helpfulContext: "The unpublish link in your email is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already clicked it. Check the admin dashboard to confirm the current state.",
+    helpfulContext: "The auto-publish unpublish link is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already clicked it. Check the admin dashboard to confirm the current state.",
     title: "Unpublish link already used",
-    longExplanation: "The unpublish link in your email is single-use and has already been used. Either the show is already unpublished, or another tab clicked it before you. Check the admin dashboard to confirm.",
+    longExplanation: "The auto-publish unpublish link is single-use and has already been used. Either the show is already unpublished, or another tab clicked it before you. Check the admin dashboard to confirm.",
     helpHref: "/help/errors#UNPUBLISH_TOKEN_CONSUMED",
   },
   UNPUBLISH_TOKEN_EXPIRED: {

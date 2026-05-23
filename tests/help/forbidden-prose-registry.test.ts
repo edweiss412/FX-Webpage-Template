@@ -105,6 +105,12 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
       "R15 finding 1 corollary. No email-send infrastructure ships in v1 (no sendgrid / resend / nodemailer / SMTP code path). Any 'confirmation email' phrasing implies a delivery channel that does not exist.",
   },
   {
+    id: "email-delivery-of-action-link",
+    pattern: /\b(?:link|button|URL)\b[^.]{0,40}\b(?:in|from)\s+your\s+email\b/i,
+    rationale:
+      "R18 finding 1 root. UNPUBLISH_TOKEN_CONSUMED claimed 'the unpublish link in your email' — same email-delivery phantom class as confirmation-email but a different surface phrasing. Class-sweep variant: any '<link|button|URL> in/from your email' phrasing implies an email-delivery channel that does not ship in v1.",
+  },
+  {
     id: "share-the-url-channel",
     pattern: /share\s+the\s+(?:crew\s+page\s+)?URL\s+(?:through|with)\s+(?:whatever|the\s+crew)/i,
     rationale:
