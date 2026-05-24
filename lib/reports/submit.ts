@@ -42,7 +42,7 @@ export type ReportAuthContext =
   | { kind: "admin"; email: string }
   | {
       kind: "crew";
-      source: "link" | "google";
+      source: "link" | "google" | "picker";
       showId: string;
       crewMemberId: string;
       email?: string;

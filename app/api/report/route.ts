@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
-import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
-import { validateLinkSession } from "@/lib/auth/validateLinkSession";
+import { resolvePickerSelection } from "@/lib/auth/picker/resolvePickerSelection";
 import {
   ReportSubmitInfraError,
   submitReport,
@@ -16,8 +15,7 @@ const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type ReportRouteDeps = {
-  validateLinkSession: typeof validateLinkSession;
-  validateGoogleSession: typeof validateGoogleSession;
+  resolvePickerSelection: typeof resolvePickerSelection;
   requireAdminIdentity: typeof requireAdminIdentity;
   submitReport: (auth: ReportAuthContext, body: RequestBody) => Promise<SubmitReportResult>;
   readCrewRoleFlags: typeof readCrewRoleFlags;
@@ -87,6 +85,16 @@ async function readCrewRoleFlags(
   }
 }
 
+function pickerCookieFromRequest(req: Request): string | undefined {
+  const raw = req.headers.get("cookie");
+  if (!raw) return undefined;
+  for (const part of raw.split(";")) {
+    const [name, ...valueParts] = part.trim().split("=");
+    if (name === "__Host-fxav_picker") return valueParts.join("=");
+  }
+  return undefined;
+}
+
 async function authenticateReportRequest(
   req: Request,
   body: RequestBody,
@@ -107,49 +115,42 @@ async function authenticateReportRequest(
     }
   }
 
-  const linkResult = await deps.validateLinkSession(req, { showId: body.show_id });
-  if (linkResult.kind === "success") {
+  const pickerResult = await deps.resolvePickerSelection({
+    showId: body.show_id,
+    cookie: pickerCookieFromRequest(req),
+  });
+  if (pickerResult.kind === "resolved") {
     const roleFlags = await deps.readCrewRoleFlags(
-      linkResult.viewer.showId,
-      linkResult.viewer.crewMemberId,
+      body.show_id,
+      pickerResult.crewMemberId,
     );
     if (!roleFlags.ok) return roleFlags;
     return {
       ok: true,
       auth: {
         kind: "crew",
-        source: "link",
-        showId: linkResult.viewer.showId,
-        crewMemberId: linkResult.viewer.crewMemberId,
+        source: "picker",
+        showId: body.show_id,
+        crewMemberId: pickerResult.crewMemberId,
         roleFlags: roleFlags.roleFlags,
       },
     };
   }
-  if (linkResult.kind === "terminal_failure") {
-    return { ok: false, status: linkResult.status, body: { ok: false, code: linkResult.code } };
-  }
-
-  const googleResult = await deps.validateGoogleSession(req, { showId: body.show_id });
-  if (googleResult.kind === "success") {
-    const roleFlags = await deps.readCrewRoleFlags(
-      googleResult.viewer.showId,
-      googleResult.viewer.crewMemberId,
-    );
-    if (!roleFlags.ok) return roleFlags;
+  if (pickerResult.kind === "identity_invalidated" || pickerResult.kind === "show_unavailable") {
     return {
-      ok: true,
-      auth: {
-        kind: "crew",
-        source: "google",
-        showId: googleResult.viewer.showId,
-        crewMemberId: googleResult.viewer.crewMemberId,
-        email: googleResult.viewer.email,
-        roleFlags: roleFlags.roleFlags,
+      ok: false,
+      status: 410,
+      body: {
+        ok: false,
+        code:
+          pickerResult.kind === "show_unavailable"
+            ? "PICKER_SHOW_UNAVAILABLE"
+            : "PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER",
       },
     };
   }
-  if (googleResult.kind === "terminal_failure") {
-    return { ok: false, status: googleResult.status, body: { ok: false, code: googleResult.code } };
+  if (pickerResult.kind === "infra_error") {
+    return { ok: false, status: 500, body: { ok: false, code: pickerResult.code } };
   }
 
   try {
@@ -164,8 +165,7 @@ async function authenticateReportRequest(
 }
 
 const defaultDeps: ReportRouteDeps = {
-  validateLinkSession,
-  validateGoogleSession,
+  resolvePickerSelection,
   requireAdminIdentity,
   submitReport,
   readCrewRoleFlags,

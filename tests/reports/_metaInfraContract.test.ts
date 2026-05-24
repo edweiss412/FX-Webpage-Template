@@ -387,8 +387,7 @@ describe("META reports infra-failure contract", () => {
         headers: { "content-type": "application/json" },
       }),
       {
-        validateLinkSession: async () => ({ kind: "continue" }),
-        validateGoogleSession: async () => ({ kind: "continue" }),
+        resolvePickerSelection: async () => ({ kind: "no_selection" }),
         requireAdminIdentity: async () => ({ email: "admin@example.com" }),
         readCrewRoleFlags: async () => ({ ok: true, roleFlags: ["A1"] }),
         submitReport: async () => {
