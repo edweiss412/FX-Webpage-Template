@@ -804,17 +804,9 @@ async function defaultBumpReviewerAuthFloors(
   showId: string,
   names: string[],
 ): Promise<void> {
-  if (names.length === 0) return;
-  await tx.queryOne<{ bumped: boolean }>(
-    `
-      update public.crew_member_auth
-         set revoked_below_version = greatest(revoked_below_version, current_token_version)
-       where show_id = $1::uuid
-         and crew_name = any($2::text[])
-      returning true as bumped
-    `,
-    [showId, names],
-  );
+  void tx;
+  void showId;
+  void names;
 }
 
 function isGone(metadata: DriveListedFile & { trashed?: boolean }): boolean {
