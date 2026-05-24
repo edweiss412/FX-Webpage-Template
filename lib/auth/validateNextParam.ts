@@ -10,10 +10,10 @@ export type ValidateNextParamOutcome =
   | { ok: true; path: string }
   | { ok: false; path: typeof DEFAULT_AUTH_NEXT_PATH; code: "OAUTH_REDIRECT_INVALID" };
 
-// /admin restored to the allowlist after R15 created the landing
-// page. /me retains its optional-sub-path form because `/me` IS a
-// real route (`app/me/page.tsx`).
-const ALLOWED_NEXT_RE = /^\/(show\/[a-z0-9-]+|admin(\/.*)?|me(\/.*)?)$/;
+// R41 P-R12: crew next targets must be tokenized share-link URLs.
+// Slug-only `/show/<slug>` and legacy `/show/<slug>/p` are rejected.
+// /admin and /me remain valid OAuth return targets.
+const ALLOWED_NEXT_RE = /^\/(show\/[a-z0-9-]+\/[0-9a-f]{64}|admin(\/.*)?|me(\/.*)?)$/;
 const BOOTSTRAP_SURFACE_RE = /^\/show\/[a-z0-9-]+\/p$/;
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 
