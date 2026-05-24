@@ -4045,7 +4045,10 @@ Register the picker helpers AND every new R41 auth/RPC surface (per AGENTS.md in
 - `rotateShareToken` (Task B6)
 - **R41 additions:**
   - `resolveShowPageAccess` (Task B7) — performs SELECTs against `shows`, `crew_members`, `show_share_tokens`; multiple Supabase call sites; must destructure `{data, error}` and surface infra faults as `{ kind: 'infra_error', code }` per its 11-arm union (NOT as silent fall-through).
-  - `app/api/auth/picker-bootstrap/route.ts` (Task C6) — calls `claim_oauth_identity` RPC AND reads `show_share_tokens`; must destructure `{data, error}` and surface RPC failures as 502 with PICKER_BOOTSTRAP_RPC_FAILED admin alert (R41-R7 fail-closed).
+  - `app/api/auth/picker-bootstrap/route.ts` (Task C6) — has TWO distinct Supabase RPC boundaries that BOTH must be registered per AGENTS.md invariant 9:
+    - **Step 3 — `resolve_show_by_slug_and_token` (pre-session)**: must destructure `{data, error}` + outer try/catch around the `.rpc(...)` call; thrown OR returned-error → 502 cataloged terminal HTML + best-effort `PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED` admin_alert with email-less context `{ stage: 'resolve_show', slug, rpc_error_code, rpc_error_message, route }`; `data: null` with no error → 403 cataloged terminal HTML, NO admin_alert (user/token mismatch class, not infra fault).
+    - **Step 4 — `claim_oauth_identity` (post-session)**: must destructure `{data, error}` + outer try/catch; thrown OR returned-error → 502 + best-effort `PICKER_BOOTSTRAP_RPC_FAILED` admin_alert with `attempted_email_hash` (R41-R7 fail-closed).
+    - H3 meta-test asserts BOTH boundaries by name; a future regression that adds a third RPC without registry coverage fails CI. Inner-try-catch around each upsertAdminAlert call (P-R21 + P-R24 best-effort contract).
   - `app/auth/callback/route.ts` (Task C7) — calls `claim_oauth_identity` RPC; must destructure `{data, error}` and log + skip cookie mint on failure (R41-R6 callback-fail recovery via picker-bootstrap retry).
   - `lib/data/listShowsForCrew.ts` rewrite (Task E2) — calls `my_share_tokens_for_email` RPC via cookie-bound client; must destructure `{data, error}` and surface infra fault to the page-route render path.
 
