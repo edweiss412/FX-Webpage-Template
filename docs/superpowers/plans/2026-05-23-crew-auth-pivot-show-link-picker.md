@@ -1284,21 +1284,46 @@ export async function resolvePickerSelection({
   if (entry.e !== showRow.picker_epoch) {
     return { kind: 'epoch_stale', expectedEpoch: entry.e, expectedCrewMemberId: entry.id };
   }
-  let crewExists = false;
+  // R41-R8/R22/R30: select claimed_via_oauth_at for the
+  // identity_invalidated comparison. floor() per R41-R30 (avoids
+  // banker's rounding); cookie.t <= claim_epoch_millis invalidates
+  // (R41-R22 fail-closed-on-ties).
+  let crewRow: { id: string; claimed_via_oauth_at: string | null } | null = null;
   try {
     const { data, error } = await supabase
       .from('crew_members')
-      .select('id')
+      .select('id, claimed_via_oauth_at')
       .eq('id', entry.id)
       .eq('show_id', showId)
       .maybeSingle();
     if (error) return { kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
-    crewExists = !!data;
+    crewRow = data;
   } catch {
     return { kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
   }
-  if (!crewExists) {
+  if (!crewRow) {
     return { kind: 'removed_from_roster', expectedEpoch: entry.e, expectedCrewMemberId: entry.id };
+  }
+  // R41-R8/R22/R30 identity_invalidated check: if the crew row is now
+  // OAuth-claimed AND the cookie predates the claim (cookie.t <=
+  // floor(extract(epoch from claimed_via_oauth_at) * 1000)::bigint),
+  // reject as claimed_after_pick. Legitimate post-claim cookies (minted
+  // via /api/auth/picker-bootstrap with t = mint_safe_t_millis = claim
+  // + 1) satisfy cookie.t > claim_epoch_millis and continue resolving.
+  if (crewRow.claimed_via_oauth_at !== null) {
+    const claimEpochMillis = Math.floor(new Date(crewRow.claimed_via_oauth_at).getTime());
+    // Note: getTime() returns UTC milliseconds; PostgreSQL TIMESTAMPTZ
+    // round-trips correctly through JSON via PostgREST. floor() is
+    // belt-and-suspenders against fractional-millisecond JSON encoding
+    // (R41-R30 paranoia; PostgreSQL stores microsecond precision).
+    if (entry.t <= claimEpochMillis) {
+      return {
+        kind: 'identity_invalidated',
+        expectedEpoch: entry.e,
+        expectedCrewMemberId: entry.id,
+        reason: 'claimed_after_pick',
+      };
+    }
   }
   return { kind: 'resolved', crewMemberId: entry.id };
 }
@@ -1337,6 +1362,7 @@ create or replace function public.select_identity_atomic(
   returns table (
     out_show_id uuid,
     out_picker_epoch int,
+    out_observed_at_millis bigint,  -- R41-R18/R22/R23 DB-side timestamp
     out_rejection_code text
   )
   language plpgsql
@@ -1349,6 +1375,7 @@ declare
   v_published boolean;
   v_archived boolean;
   v_crew_show uuid;
+  v_claimed_via_oauth_at timestamptz;  -- R41-R8 + R41-R35
 begin
   -- Step 1: resolve the (slug, token) pair into show_id + drive_file_id
   -- for the lock key. Availability is NOT trusted from this read; it's
@@ -1392,29 +1419,52 @@ begin
     return next; return;
   end if;
 
-  -- Step 5: roster membership. R5-F3: distinguish WRONG_SHOW from
-  -- NOT_FOUND so form-tamper attempts (a real crew_member_id from
-  -- a different show) emit the tamper-specific signal rather than
-  -- looking identical to "row deleted." R7-F1: v_crew_show is
-  -- declared at the function-top declare block so subsequent
-  -- branch reads stay in scope.
-  select show_id into v_crew_show
+  -- Step 5: roster membership + R41-R8 claimed-identity check.
+  -- R5-F3: distinguish WRONG_SHOW from NOT_FOUND so form-tamper
+  -- attempts (a real crew_member_id from a different show) emit
+  -- the tamper-specific signal. R41 Fix-2: also reject claimed
+  -- rows so a hand-crafted POST can't bypass the deactivated-row UI.
+  select show_id, claimed_via_oauth_at
+    into v_crew_show, v_claimed_via_oauth_at
     from public.crew_members
    where id = p_crew_member_id;
   if v_crew_show is null then
-    out_show_id := null; out_picker_epoch := null; out_rejection_code := 'PICKER_CREW_MEMBER_NOT_FOUND';
+    out_show_id := null; out_picker_epoch := null; out_observed_at_millis := null;
+    out_rejection_code := 'PICKER_CREW_MEMBER_NOT_FOUND';
     return next; return;
   end if;
   if v_crew_show <> v_show_id then
-    out_show_id := null; out_picker_epoch := null; out_rejection_code := 'PICKER_CREW_MEMBER_WRONG_SHOW';
+    out_show_id := null; out_picker_epoch := null; out_observed_at_millis := null;
+    out_rejection_code := 'PICKER_CREW_MEMBER_WRONG_SHOW';
     return next; return;
   end if;
+  -- R41-R8/R22/R30: reject if the row is OAuth-claimed. The bypass
+  -- picker is for unclaimed identities only; signed-in users go via
+  -- /api/auth/picker-bootstrap which uses the same claim_oauth_identity
+  -- and stamps mint_safe_t_millis > claim_epoch_millis.
+  if v_claimed_via_oauth_at is not null then
+    out_show_id := null; out_picker_epoch := null; out_observed_at_millis := null;
+    out_rejection_code := 'PICKER_IDENTITY_CLAIMED';
+    return next; return;
+  end if;
+
+  -- (R41-R35: ambiguous-email check REMOVED — schema's partial UNIQUE
+  -- index on (show_id, email) makes duplicate-email-on-same-show
+  -- impossible. The constraint is the canonical defense.)
 
   -- Step 6: read picker_epoch under the lock. Reset/Rotate cannot
   -- bump it during this transaction; the value we return is
   -- guaranteed to match what a concurrent rotation would observe.
   select s.picker_epoch into out_picker_epoch
     from public.shows s where s.id = v_show_id;
+
+  -- Step 7: capture observed_at_millis from clock_timestamp() AFTER
+  -- the advisory lock is held (R41-R18 + R41-R22 + R41-R23 + R41-R30).
+  -- clock_timestamp() returns current wall-clock at evaluation time;
+  -- now()/transaction_timestamp() returns transaction-start time
+  -- which could predate the lock acquisition under contention.
+  -- floor() avoids banker's rounding on ::bigint cast.
+  out_observed_at_millis := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
 
   out_show_id := v_show_id;
   out_rejection_code := null;
@@ -1577,11 +1627,12 @@ async function selectIdentityCoreImpl(input: SelectIdentityInput): Promise<Selec
   if (error) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
   if (!data) return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
   if (data.out_rejection_code) return { ok: false, code: data.out_rejection_code };
-  if (!data.out_show_id || !Number.isInteger(data.out_picker_epoch)) {
+  if (!data.out_show_id || !Number.isInteger(data.out_picker_epoch) || typeof data.out_observed_at_millis !== 'number') {
     return { ok: false, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
   }
   const showId = data.out_show_id as string;
   const lockedEpoch = data.out_picker_epoch as number;
+  const observedAtMillis = data.out_observed_at_millis as number;  // R41-R18 DB-side
 
   // Merge into existing envelope.
   const key = pickerCookieSigningKey();
@@ -1591,7 +1642,14 @@ async function selectIdentityCoreImpl(input: SelectIdentityInput): Promise<Selec
   env.selections[showId] = {
     id: input.crewMemberId,
     e: lockedEpoch,
-    t: Math.floor(Date.now() / 1000),
+    // R41-R18/R22/R23/R30 + spec §6.0: cookie.t MUST be the DB-side
+    // millisecond timestamp captured INSIDE the advisory lock via
+    // clock_timestamp(). NEVER Math.floor(Date.now() / 1000) — that's
+    // app-server seconds and (a) wrong precision and (b) susceptible to
+    // app-server vs DB-server clock skew. The §10.1 meta-test grep-
+    // bans Date.now / new Date / performance.now / process.hrtime as
+    // cookie.t sources in this file.
+    t: observedAtMillis,
   };
   const encoded = encodePickerCookie(env, key);
   cookieStore.set(COOKIE_NAME, encoded, {
@@ -2934,27 +2992,27 @@ pnpm vitest run tests/cross-cutting/no-jwt-surface.test.ts
 - `app/admin/show/[slug]/IssueLinkButton.tsx`
 - `app/admin/show/[slug]/RevokeAllLinksButton.tsx`
 - `lib/auth/validateLinkSession.ts`
-- `lib/auth/validateGoogleSession.ts` (R15 — no callers post-pivot)
+- ~~`lib/auth/validateGoogleSession.ts`~~ — **R41 amendment: PRESERVED.** Used by `resolveShowPageAccess`, `/auth/callback` claim-stamp hook, `/api/auth/picker-bootstrap`, `/me`. Allowlisted in §10.1 no-jwt-surface meta-test.
 - `lib/auth/validateCrewAssetSession.ts`
 - `lib/auth/jwt.ts`
 - `lib/auth/bootstrapCookie.ts`
-- `lib/data/listShowsForCrew.ts`
-- `app/me/` (entire directory; R14)
+- ~~`lib/data/listShowsForCrew.ts`~~ — **R41 amendment: PRESERVED + REWRITTEN.** Per Task E2 / Task A9: rewrite to wrap `my_share_tokens_for_email()` RPC and emit tokenized URLs.
+- ~~`app/me/` (entire directory)~~ — **R41 amendment: PRESERVED + REWRITTEN.** `/me` is the cross-show discovery surface for signed-in crew (Decision 15). Page rewritten to render tokenized URLs.
 - `app/api/me/` (if exists)
 - The leaked-link compromise-event handler in `middleware.ts` (file becomes no-op or is deleted)
 
 ```bash
-git rm -r app/api/auth/redeem-link/ app/show/[slug]/p/ app/me/ \
+git rm -r app/api/auth/redeem-link/ app/show/[slug]/p/ \
   app/admin/show/[slug]/IssueLinkButton.tsx \
   app/admin/show/[slug]/RevokeAllLinksButton.tsx \
   lib/auth/validateLinkSession.ts \
-  lib/auth/validateGoogleSession.ts \
   lib/auth/validateCrewAssetSession.ts \
   lib/auth/jwt.ts \
-  lib/auth/bootstrapCookie.ts \
-  lib/data/listShowsForCrew.ts
+  lib/auth/bootstrapCookie.ts
+# NOTE (R41): validateGoogleSession.ts, listShowsForCrew.ts, app/me/ are
+# all PRESERVED and rewritten per the R41 amendments. Do NOT git-rm them.
 # middleware.ts: edit to no-op or delete
-git commit -m "refactor: delete M9.5 JWT/link/me surfaces (G1)"
+git commit -m "refactor: delete M9.5 JWT/link surfaces; preserve R41 OAuth+/me (G1)"
 ```
 
 ---
@@ -3192,10 +3250,15 @@ git commit -am "test(meta): picker cookie contract meta-test (H1)"
 
 Banned-identifier audit per §10.1. Reads `CUTOVER_MIGRATION_TIMESTAMP` constant; allows the banned identifiers ONLY inside the cutover migration file in DROP/REVOKE contexts; bans them in `app/**`, `lib/**`, `components/**`, `middleware.ts`, and post-cutover migrations.
 
-Also bans `validateGoogleSession` imports outside test directory; bans `listShowsForCrew` substring; bans `/me` URL-literal strings.
+**R41-R19 STRUCTURAL ALLOWLIST (NOT broad ban):**
+- `validateGoogleSession` imports ALLOWED in: `lib/auth/validateGoogleSession.ts` (module), `lib/auth/picker/resolveShowPageAccess.ts`, `app/auth/callback/route.ts`, `app/api/auth/picker-bootstrap/route.ts`, `app/me/page.tsx`, AND test directory. Imports in any OTHER production file fail the audit.
+- `listShowsForCrew` substring ALLOWED in: `lib/data/listShowsForCrew.ts` (module) and `app/me/page.tsx` only.
+- `/me` URL-literals ALLOWED in production (the route is preserved per R41); do NOT ban.
+
+R41 reverses the R14/R15 wholesale ban; the structural allowlist preserves the no-extra-credentials invariant while permitting the targeted crew-identity-as-OAuth path.
 
 ```bash
-git commit -am "test(meta): no-jwt-surface ban + /me grep (H2)"
+git commit -am "test(meta): no-jwt-surface structural allowlist (H2; R41-R19)"
 ```
 
 ---
