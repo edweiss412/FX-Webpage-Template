@@ -2734,7 +2734,7 @@ Per spec §4.7 (R41-R6 / R41-R7 / R41-R24 / R41-R41). Flow:
 2. **Verify intent token** — format: `base64url(JSON({slug, shareToken, exp})) + '.' + base64url(HMAC-SHA256(payload, PICKER_COOKIE_SIGNING_KEY))`. Reject (403, NOT 302) on: missing `t`, malformed format, expired (`exp < now`), HMAC mismatch, OR embedded `{slug, shareToken}` not matching `next` URL's parsed values.
 3. `validateGoogleSession(req)` — no session → 302 to `next` with no cookie set.
 4. Invoke `claim_oauth_identity(canonicalize(user.email))` via service-role client.
-   - **RPC infra failure (R41-R7 fail-closed)**: return HTTP 502 with cataloged `PICKER_BOOTSTRAP_RPC_FAILED` terminal-failure HTML. NO 302 (would loop back). **ALSO emit `upsert_admin_alert(NULL show_id, 'PICKER_BOOTSTRAP_RPC_FAILED', jsonb_build_object('user_email', canonicalEmail, 'rpc_error_code', error.code, 'rpc_error_message', error.message))` via the service-role client** so operators get a durable record of persistent OAuth-bootstrap failures (per spec §8.4 R41-R7). Also emit a structured log line with the same payload. Tests assert: (a) HTTP 502 response; (b) `admin_alerts` row created with code `PICKER_BOOTSTRAP_RPC_FAILED`; (c) structured log emitted; (d) repeat invocations on the same user_email increment `occurrence_count` (upsert helper handles unique-index conflict per R41-R19).
+   - **RPC infra failure (R41-R7 fail-closed)**: return HTTP 502 with cataloged `PICKER_BOOTSTRAP_RPC_FAILED` terminal-failure HTML. NO 302 (would loop back). **ALSO emit `upsert_admin_alert(NULL show_id, 'PICKER_BOOTSTRAP_RPC_FAILED', jsonb_build_object('attempted_email_hash', hashForLog(canonicalEmail), 'rpc_error_code', error.code, 'rpc_error_message', error.message))` via the service-role client** — **R41 P-R9 Fix-2 (Finding 2)**: NEVER write the raw `canonicalEmail` to `admin_alerts.context` or structured logs. The repo's email-canonicalization audit (`lib/audit/emailCanonicalization.ts`) + cross-cutting PII guards forbid raw email in durable JSONB context. The `attempted_email_hash` field uses the same `hashForLog()` helper as C7 (R41-R19 ratified hashing); operators correlate hashes across alerts. Also emit a structured log line with the SAME hashed payload (no raw email anywhere). Tests assert: (a) HTTP 502 response; (b) `admin_alerts` row created with code `PICKER_BOOTSTRAP_RPC_FAILED`; (c) structured log emitted; (d) repeat invocations on the same canonical email produce the same `attempted_email_hash` AND increment `occurrence_count` (upsert helper handles unique-index conflict per R41-R19) — assert hash equality across two repeat invocations as the upsert-key proof; (e) **R41 P-R9 Fix-2 PII guard**: assert NO field in `admin_alerts.context` or the structured log line equals the raw canonical email (regex against the row + log payload).
 5. **One-show write contract (R41-R6)**: extract target `show_id` via `resolve_show_by_slug_and_token(slug, shareToken)`. Find `result.shows` entry for target_show_id. If present: read request envelope; modify ONLY this show's entry to `{ id: crew_member_id, e: picker_epoch, t: result.mint_safe_t_millis }`; write via `cookies().set('__Host-fxav_picker', signEnvelope(envelope), PICKER_COOKIE_OPTIONS)`. If absent: write NO cookie.
 6. 302 to `next`.
 
@@ -2757,44 +2757,78 @@ Per spec §4.8 (R41-R6 DB-only contract). AFTER `supabase.auth.exchangeCodeForSe
 ```ts
 import { canonicalize } from '@/lib/email/canonicalize';
 
-const { data: { user } } = await supabase.auth.getUser();
-if (user?.email) {
-  const canonicalEmail = canonicalize(user.email);  // R41-R16: canonicalize at boundary
-  const { data: result, error } = await serviceRole.rpc('claim_oauth_identity', { p_email: canonicalEmail });
-  if (error) {
-    logger.error('claim_oauth_identity failed', { email: canonicalEmail, error });
-    // R41-R12: bootstrap will retry on next show visit; sign-in still proceeds.
-  } else if ((result?.claimed_count ?? 0) > 0) {
-    // R41 P-R8 Fix-3 (Finding 3): emit ONE admin_alert per claimed row with the
-    // H7 context contract { crew_member_id, show_id, claimed_at_millis }, scoped
-    // to the show_id (not NULL). The aggregate-only emission collapsed all
-    // identity-claim events into one alert, hiding which show/crew rows were
-    // claimed and making operator triage impossible. The upsert helper's
-    // (show_id, code) unique index means re-claims on the same show increment
-    // occurrence_count rather than spamming new rows.
-    //
-    // R41-R12 + R41-R19: claimed_rows is guaranteed-non-null by A8 (`'[]'::jsonb`
-    // default) and the array contract is enforced by the A8 test matrix.
-    const claimedRows: Array<{ crew_member_id: string; show_id: string; claimed_at_millis: number }>
-      = result.claimed_rows ?? [];
-    for (const row of claimedRows) {
-      await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', {
-        show_id: row.show_id,  // per-show alert (NOT NULL)
-        context: {
-          crew_member_id: row.crew_member_id,
-          show_id: row.show_id,
-          claimed_at_millis: row.claimed_at_millis,
-          user_email_hash: hashForLog(canonicalEmail),  // avoid PII in alerts
-        },
-      });
+// R41 P-R9 Fix-1 (Finding 1) + AGENTS.md invariant 9 (Supabase call-boundary
+// discipline): wrap the entire claim-stamp block in try/catch AND destructure
+// { data, error } for every Supabase call. Distinguish returned-error from
+// thrown-error paths so transient network/runtime faults still let sign-in
+// continue (bootstrap retries on next show visit per R41-R12). Without this,
+// a Supabase client throw bubbles out as a framework 500 and the user is
+// stranded mid-OAuth-callback.
+try {
+  const { data: userResult, error: getUserError } = await supabase.auth.getUser();
+  if (getUserError) {
+    logger.error('callback.getUser returned error', { error: getUserError });
+    // Sign-in still proceeds; bootstrap retries on next visit.
+  } else if (userResult.user?.email) {
+    const canonicalEmail = canonicalize(userResult.user.email);  // R41-R16: canonicalize at boundary
+    const { data: result, error: rpcError } = await serviceRole.rpc('claim_oauth_identity', { p_email: canonicalEmail });
+    if (rpcError) {
+      logger.error('claim_oauth_identity returned error', { emailHash: hashForLog(canonicalEmail), error: rpcError });
+      // R41-R12: bootstrap will retry on next show visit; sign-in still proceeds.
+    } else if ((result?.claimed_count ?? 0) > 0) {
+      // R41 P-R8 Fix-3 (Finding 3): emit ONE admin_alert per claimed row with the
+      // H7 context contract { crew_member_id, show_id, claimed_at_millis,
+      // user_email_hash }, scoped to the show_id (not NULL). The aggregate-only
+      // emission collapsed all identity-claim events into one alert, hiding
+      // which show/crew rows were claimed and making operator triage
+      // impossible. The upsert helper's (show_id, code) unique index means
+      // re-claims on the same show increment occurrence_count rather than
+      // spamming new rows.
+      //
+      // R41-R12 + R41-R19: claimed_rows is guaranteed-non-null by A8 (`'[]'::jsonb`
+      // default) and the array contract is enforced by the A8 test matrix.
+      const claimedRows: Array<{ crew_member_id: string; show_id: string; claimed_at_millis: number }>
+        = result.claimed_rows ?? [];
+      for (const row of claimedRows) {
+        await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', {
+          show_id: row.show_id,  // per-show alert (NOT NULL)
+          context: {
+            crew_member_id: row.crew_member_id,
+            show_id: row.show_id,
+            claimed_at_millis: row.claimed_at_millis,
+            user_email_hash: hashForLog(canonicalEmail),  // avoid PII in alerts
+          },
+        });
+      }
     }
   }
-  // R41-R6: NO cookies().set('__Host-fxav_picker', ...) — callback is DB-stamp-only.
-  // The §10.1 meta-test grep-asserts this file does NOT contain that call.
+} catch (err) {
+  // R41 P-R9 Fix-1: thrown-error path (network fault, schema drift, undeclared
+  // SDK exception). Log + swallow so the OAuth callback still redirects to
+  // `next` and the user is signed in; picker-bootstrap retries the claim on
+  // the next show visit per R41-R12. NEVER let an exception here strand the
+  // user mid-callback. The structured log line is the operator's only
+  // signal — make sure the error is captured (not just `.toString()`).
+  logger.error('callback claim-stamp threw', {
+    error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+  });
+  // Optional admin_alert: emit CALLBACK_CLAIM_THREW with show_id=NULL,
+  // context: { error_name } so persistent throws (not just returned errors)
+  // are visible to operators. Cataloged via H7. Empty try-block fallback if
+  // emitAdminAlert itself throws: nested try/catch is acceptable here since
+  // we're already in the catch arm of the outer claim block.
+  try {
+    await emitAdminAlert('CALLBACK_CLAIM_THREW', {
+      show_id: null,
+      context: { error_name: err instanceof Error ? err.name : 'Unknown' },
+    });
+  } catch { /* alert emission can also fail; sign-in still proceeds */ }
 }
+// R41-R6: NO cookies().set('__Host-fxav_picker', ...) — callback is DB-stamp-only.
+// The §10.1 meta-test grep-asserts this file does NOT contain that call.
 ```
 
-Tests: (a) exchangeCodeForSession called first; (b) claim_oauth_identity called with canonicalized email; (c) NO Set-Cookie for `__Host-fxav_picker` in response (R41-R6); (d) **R41 P-R8 Fix-3**: when `claimed_rows.length = N > 0`, emitAdminAlert called EXACTLY N times, once per row, with `show_id` set to the row's show_id (NOT NULL aggregate) and `context: { crew_member_id, show_id, claimed_at_millis, user_email_hash }` — assert the full context shape on each call; (e) idempotent re-invocation: re-sign-in returns `claimed_count=0` + `claimed_rows=[]`, ZERO emitAdminAlert calls (no spam); (f) RPC failure path logs error and continues (sign-in still succeeds; bootstrap retries on next visit); (g) **R41 P-R8 Fix-3 cross-show**: seed Alice with crew_members in shows S1 and S2; assert ONE alert with `show_id=S1` and ONE alert with `show_id=S2`, NOT one aggregate alert with `show_id=NULL`; (h) **R41 P-R8 Fix-3 PII**: assert no alert context contains the raw email (only the hashed form).
+Tests: (a) exchangeCodeForSession called first; (b) claim_oauth_identity called with canonicalized email; (c) NO Set-Cookie for `__Host-fxav_picker` in response (R41-R6); (d) **R41 P-R8 Fix-3**: when `claimed_rows.length = N > 0`, emitAdminAlert called EXACTLY N times, once per row, with `show_id` set to the row's show_id (NOT NULL aggregate) and `context: { crew_member_id, show_id, claimed_at_millis, user_email_hash }` — assert the full context shape on each call; (e) idempotent re-invocation: re-sign-in returns `claimed_count=0` + `claimed_rows=[]`, ZERO emitAdminAlert calls (no spam); (f) RPC failure path logs error and continues (sign-in still succeeds; bootstrap retries on next visit); (g) **R41 P-R8 Fix-3 cross-show**: seed Alice with crew_members in shows S1 and S2; assert ONE alert with `show_id=S1` and ONE alert with `show_id=S2`, NOT one aggregate alert with `show_id=NULL`; (h) **R41 P-R8 Fix-3 PII**: assert no alert context contains the raw email (only the hashed form); (i) **R41 P-R9 Fix-1 returned-error vs thrown-error matrix**: (i.1) `supabase.auth.getUser()` returns `{ data: { user: null }, error: { name: 'AuthError', ... } }` → callback redirects to `next`, no Set-Cookie, no claim_oauth_identity call, no emitAdminAlert, structured log captured; (i.2) `supabase.auth.getUser()` THROWS (mock the client to throw 'fetch failed') → callback redirects to `next`, no claim_oauth_identity call, CALLBACK_CLAIM_THREW admin_alert emitted with show_id=null, structured log captured with error.name + error.message; (i.3) `serviceRole.rpc('claim_oauth_identity', ...)` returns `{ data: null, error: {...} }` → callback redirects, no emitAdminAlert for OAUTH_IDENTITY_CLAIMED (existing test (f) covers this) but structured log emitted; (i.4) `serviceRole.rpc('claim_oauth_identity', ...)` THROWS → callback redirects, CALLBACK_CLAIM_THREW admin_alert emitted, structured log captured; (i.5) `emitAdminAlert` inside the catch block itself throws → callback STILL redirects (nested catch swallows); (i.6) **H3 meta-contract**: register this file's getUser + rpc + emitAdminAlert calls in `tests/auth/_metaInfraContract.test.ts` so the structural meta-test enforces the destructure pattern (cannot regress by removing the try/catch).
 
 ```bash
 git commit -m "feat(auth): callback claim-stamp hook (C7; R41 §4.8 DB-only)"
@@ -3542,7 +3576,8 @@ Remove all M9.5 catalog codes; assert new codes are present:
 - `PICKER_EPOCH_STALE_BANNER`, `PICKER_REMOVED_FROM_ROSTER_BANNER`, `PICKER_EMPTY_ROSTER`, `PICKER_SHOW_UNAVAILABLE` (crew-facing)
 - `PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, `PICKER_CREW_MEMBER_WRONG_SHOW`, `PICKER_INVALID_SHARE_TOKEN`, `PICKER_RESOLVER_LOOKUP_FAILED` (rejection codes; all have both `dougFacing` and `crewFacing` copy per R33)
 - **R41 P-R7 Fix-3 — R41 admin-alert producers added by this pivot (MUST be in the catalog AND have registered producer write-sites):**
-  - `PICKER_BOOTSTRAP_RPC_FAILED` — emitted by `app/api/auth/picker-bootstrap/route.ts` (Task C6) when `claim_oauth_identity` returns an error OR throws (fail-closed 502 per spec §4.7 R41-R7). The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'PICKER_BOOTSTRAP_RPC_FAILED'`) in `app/api/auth/picker-bootstrap/route.ts`. Context: `{ rpc_error_code, attempted_email_hash, route: '/api/auth/picker-bootstrap' }`.
+  - `PICKER_BOOTSTRAP_RPC_FAILED` — emitted by `app/api/auth/picker-bootstrap/route.ts` (Task C6) when `claim_oauth_identity` returns an error OR throws (fail-closed 502 per spec §4.7 R41-R7). The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'PICKER_BOOTSTRAP_RPC_FAILED'`) in `app/api/auth/picker-bootstrap/route.ts`. **Context (P-R9 Fix-2)**: `{ attempted_email_hash: text, rpc_error_code: text, rpc_error_message: text, route: text }` — NEVER raw email. H7 grep-asserts no `user_email` (raw) field appears in any `PICKER_BOOTSTRAP_RPC_FAILED` emission site; only `attempted_email_hash` is allowed.
+  - `CALLBACK_CLAIM_THREW` — emitted by C7 callback claim-stamp hook when the claim block throws an exception (network fault, schema drift, undeclared SDK exception). Producer pattern: `emitAdminAlert(.*'CALLBACK_CLAIM_THREW'` in `app/auth/callback/route.ts`. Context: `{ error_name: text }` only (no email/PII; the error name is sufficient for operator triage). show_id is NULL (no per-show scoping at callback time).
   - `OAUTH_IDENTITY_CLAIMED` — emitted by the callback claim-stamp hook (Task C7) when `claim_oauth_identity` SUCCEEDS in stamping `claimed_via_oauth_at` for ≥1 rows. The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'OAUTH_IDENTITY_CLAIMED'`) in `app/auth/callback/route.ts` (or the dedicated claim-stamp helper if extracted). **Per-row emission (P-R8 Fix-3)**: C7 emits ONE alert per row in `claim_oauth_identity` result's `claimed_rows` array; each alert is scoped to `show_id` (NOT NULL aggregate). Context shape: `{ crew_member_id: uuid, show_id: uuid, claimed_at_millis: bigint, user_email_hash: text }`. H7 asserts both (i) catalog row context-shape pinning matches this exact shape (4 named fields), AND (ii) producer-call shape pinning: `tests/auth/callback-claim-hook.test.ts` mocks `claim_oauth_identity` to return a 2-row `claimed_rows` and asserts emitAdminAlert is called exactly twice with show_id per row. The aggregate-only `{ user_email, claimed_count }` shape is FORBIDDEN; H7 grep-asserts no `claimed_count` field appears in any OAUTH_IDENTITY_CLAIMED emission site.
 - **R41 P-R7 Fix-2 — `PICKER_IDENTITY_CLAIMED` and `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` catalog entries** (rejection + banner; both have `crewFacing` copy; `PICKER_IDENTITY_CLAIMED` carries `tamper:true` in structured logs per spec §8.4 even on the redirect path).
 

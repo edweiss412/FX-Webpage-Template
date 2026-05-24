@@ -585,22 +585,61 @@ When a user signs in via Google (Supabase Auth OAuth callback at `app/auth/callb
 // input is already canonical.
 import { canonicalize } from '@/lib/email/canonicalize';
 
-const { data: { user } } = await supabase.auth.getUser();
-if (user?.email) {
-  const canonicalEmail = canonicalize(user.email);
-  const { data: result, error } = await serviceRole.rpc('claim_oauth_identity', { p_email: canonicalEmail });
-  if (error) {
-    // Infra fault — log and continue. Next show-page visit's picker-bootstrap
-    // will retry claim_oauth_identity, so the stamp is eventually consistent.
-    logger.error('claim_oauth_identity failed', { email: user.email, error });
-  } else if ((result?.claimed_count ?? 0) > 0) {
-    await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', { user_email: user.email, claimed_count: result.claimed_count });
+// R41 P-R9 amendment (Fix-1 + Fix-3): the entire claim block runs under a
+// try/catch with explicit { data, error } destructuring per AGENTS.md
+// invariant 9 (Supabase call-boundary discipline). Returned-error and
+// thrown-error paths are BOTH handled; neither aborts the OAuth callback.
+// Per-row OAUTH_IDENTITY_CLAIMED emission (one alert per claimed row,
+// scoped to show_id, with hashed email) replaces the prior aggregate
+// shape.
+try {
+  const { data: userResult, error: getUserError } = await supabase.auth.getUser();
+  if (getUserError) {
+    logger.error('callback.getUser returned error', { error: getUserError });
+  } else if (userResult.user?.email) {
+    const canonicalEmail = canonicalize(userResult.user.email);
+    const { data: result, error: rpcError } = await serviceRole.rpc('claim_oauth_identity', { p_email: canonicalEmail });
+    if (rpcError) {
+      // Infra fault — log and continue. Next show-page visit's picker-bootstrap
+      // will retry claim_oauth_identity, so the stamp is eventually consistent.
+      // Email is HASHED in logs (P-R9 Fix-2: never raw PII).
+      logger.error('claim_oauth_identity returned error', { emailHash: hashForLog(canonicalEmail), error: rpcError });
+    } else if ((result?.claimed_count ?? 0) > 0) {
+      // R41 P-R8 Fix-3: per-row emission with hashed email. The aggregate
+      // { user_email, claimed_count } shape collapsed all identity-claim
+      // events into one alert, hiding which show/crew rows were claimed.
+      const claimedRows: Array<{ crew_member_id: string; show_id: string; claimed_at_millis: number }>
+        = result.claimed_rows ?? [];
+      for (const row of claimedRows) {
+        await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', {
+          show_id: row.show_id,
+          context: {
+            crew_member_id: row.crew_member_id,
+            show_id: row.show_id,
+            claimed_at_millis: row.claimed_at_millis,
+            user_email_hash: hashForLog(canonicalEmail),
+          },
+        });
+      }
+    }
   }
-  // NO cookies().set() here. The next show-page visit handles cookie minting.
+} catch (err) {
+  // R41 P-R9 Fix-1: thrown-error path. Log + swallow so sign-in still
+  // succeeds; picker-bootstrap retries the claim on next show visit.
+  logger.error('callback claim-stamp threw', {
+    error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
+  });
+  try {
+    await emitAdminAlert('CALLBACK_CLAIM_THREW', {
+      show_id: null,
+      context: { error_name: err instanceof Error ? err.name : 'Unknown' },
+    });
+  } catch { /* alert emission can also fail; sign-in still proceeds */ }
 }
+// NO cookies().set() here. The next show-page visit handles cookie minting.
 ```
 
-**Why the RPC still returns the `shows` set:** picker-bootstrap reuses the same RPC and needs the `shows` field for its one-show cookie mint. The callback ignores `result.shows` — it only consumes `claimed_count` for the alert decision. This is intentional: the RPC has one consumer-of-record (picker-bootstrap) that uses both fields; the callback uses only the alert-deciding field.
+**Why the RPC returns BOTH `claimed_rows` and `shows`:** `claimed_rows` is the per-row claim-event payload (callback's alert producer reads it; R41 P-R8 Fix-3). `shows` is the one-show cookie mint input (picker-bootstrap's mint step reads it). The callback ignores `result.shows` — it only consumes `claimed_count` + `claimed_rows`. picker-bootstrap consumes `shows` + `mint_safe_t_millis` and ignores `claimed_rows`. This is intentional: the RPC has two consumers with disjoint return-shape needs; the union return matches both.
 
 **Lazy-mint flow trace** (callback → first show visit):
 1. User signs in via Google. Callback fires `claim_oauth_identity`; stamps `claimed_via_oauth_at` on every matching crew row under per-show locks; redirects to `next` (e.g., `/me` or `/admin` or a show URL).
@@ -827,7 +866,7 @@ Drop order respects FKs (`link_sessions.show_id` references `shows.id`, etc., so
 
 - **NEW (R41; R41-R19 canonical-email pin): `public.my_share_tokens_for_email() returns table(slug text, share_token text)`** — SECURITY DEFINER function that reads **`public.auth_email_canonical()`** internally (the canonicalized form of the signed-in user's email — defined at `supabase/migrations/20260501002000_rls_policies.sql:11`; uses the same canonicalization as `crew_members.email` storage). Looks up every `crew_members` row whose `email = public.auth_email_canonical()` on a published+not-archived show, joins `show_share_tokens` for those shows, and returns the paired `(slug, share_token)` set. **R41-R19 critical**: the RPC MUST use `auth_email_canonical()`, NOT `auth.email()` directly. `auth.users.email` can return mixed-case strings (depending on the OAuth provider's normalization); comparing the raw value to canonical-stored `crew_members.email` would silently return an empty `/me` list for users whose Google account is mixed-case even when callback claiming (which canonicalizes via `lib/email/canonicalize.ts`) successfully stamps their rows. Callers cannot pass an email argument — the function uses only `auth_email_canonical()` — so a signed-in user can only enumerate THEIR OWN show tokens. `REVOKE ALL FROM public; GRANT EXECUTE TO authenticated`. Returns an empty set if the caller is unauthenticated or their canonical email matches no crew rows. This is the only path that exposes share-tokens to authenticated (non-service) callers. **Regression test**: `/me` with a Google account whose raw email is `Alice@Example.Com` (mixed case) finds the matching `crew_members` row stored with email `alice@example.com` (canonical form) and returns the tokenized URLs.
 
-- **NEW (R41 / revised R41-R6 / R41-R15): `public.claim_oauth_identity(p_email text) returns jsonb`** — SECURITY DEFINER helper called from the auth-callback handler (§4.8) AND from the picker-bootstrap Route Handler (§4.7). `REVOKE ALL FROM public; GRANT EXECUTE TO service_role`. Acquires per-show advisory locks for every show the user has a `crew_members` row on (sorted by `drive_file_id`), stamps `claimed_via_oauth_at` on every NULL-stamped row in the locked set, returns `{ claimed_count: int, shows: [{ show_id, crew_member_id, picker_epoch }] }`. Idempotent (UPDATE filters `claimed_via_oauth_at IS NULL`; re-invocations preserve first-stamp date). **Caller responsibilities (R41-R6 + R41-R15 strict contract):** (a) `/auth/callback` consumes ONLY `claimed_count` for the OAUTH_IDENTITY_CLAIMED admin-alert decision; it MUST NOT iterate `result.shows` to mint cookies (callback is NOT a picker-cookie mutator per R41-R6). (b) `/api/auth/picker-bootstrap` uses `result.shows` ONLY to find the entry whose `show_id === target_show_id` (the show derived from the `next` URL); it MUST NOT loop over `result.shows` to mint multiple entries (the one-show-write contract per R41-R6 is the structural defense against cross-show lost-update). **Static guard**: the meta-test grep-asserts that no caller of `claim_oauth_identity` in `app/**` or `lib/**` performs a `for (... of result.shows)` or `result.shows.map(...).forEach(set-cookie)` pattern. The RPC's `shows` field is shaped for single-row lookup by target_show_id, not bulk iteration. The earlier R41-R2 wording that said "for the caller to mint picker cookies for all the user's shows in one envelope write" is OBSOLETE — R41-R6 removed that pattern.
+- **NEW (R41 / revised R41-R6 / R41-R15 / P-R8 Fix-3): `public.claim_oauth_identity(p_email text) returns jsonb`** — SECURITY DEFINER helper called from the auth-callback handler (§4.8) AND from the picker-bootstrap Route Handler (§4.7). `REVOKE ALL FROM public; GRANT EXECUTE TO service_role`. Acquires per-show advisory locks for every show the user has a `crew_members` row on (sorted by `drive_file_id`), stamps `claimed_via_oauth_at` on every NULL-stamped row in the locked set, returns `{ claimed_count: int, claimed_rows: [{ crew_member_id, show_id, claimed_at_millis }], shows: [{ show_id, crew_member_id, picker_epoch }], mint_safe_t_millis: bigint }`. Idempotent (UPDATE filters `claimed_via_oauth_at IS NULL`; re-invocations preserve first-stamp date and return `claimed_rows: []`). **Caller responsibilities (R41-R6 + R41-R15 + P-R8 Fix-3 strict contract):** (a) `/auth/callback` consumes `claimed_count` for the alert-emission gate AND iterates `claimed_rows` to emit one OAUTH_IDENTITY_CLAIMED admin_alert per row (scoped to row.show_id, context = `{ crew_member_id, show_id, claimed_at_millis, user_email_hash }`); callback MUST NOT iterate `result.shows` to mint cookies (callback is NOT a picker-cookie mutator per R41-R6). (b) `/api/auth/picker-bootstrap` uses `result.shows` ONLY to find the entry whose `show_id === target_show_id` (the show derived from the `next` URL); it MUST NOT loop over `result.shows` to mint multiple entries (the one-show-write contract per R41-R6 is the structural defense against cross-show lost-update). **Static guards**: the meta-test grep-asserts that (i) no caller of `claim_oauth_identity` in `app/**` or `lib/**` performs a `for (... of result.shows)` or `result.shows.map(...).forEach(set-cookie)` pattern; (ii) no `OAUTH_IDENTITY_CLAIMED` emission site contains a `user_email` (raw) or `claimed_count` field in `context` — aggregate-shape regressions are CI-blocked. The RPC's `shows` field is shaped for single-row lookup by target_show_id, not bulk iteration. The earlier R41-R2 wording that said "for the caller to mint picker cookies for all the user's shows in one envelope write" is OBSOLETE — R41-R6 removed that pattern.
 
 ### 5.4 Triggers modified
 
@@ -1312,7 +1351,9 @@ The `lib/messages/catalog.ts` entries scoped to JWT-version mutations (every cod
 
 - `SIGN_IN_OR_SKIP_PROMPT`: crew-facing copy on the `<SignInOrSkipGate>` interstitial (§7.1a). Default copy: "Sign in to use the same identity on every show, or skip to pick from this show's roster." Operator copy unused (informational; never logged to `admin_alerts`).
 - `IDENTITY_DEACTIVATED_LOCK_HINT`: crew-facing copy on the deactivated picker row's lock icon `aria-label`. Default copy: "Sign in to use this identity." (§7.2 R41).
-- `OAUTH_IDENTITY_CLAIMED`: emitted to `admin_alerts` when `claim_oauth_identity()` updates 1+ crew rows (§4.8). Carries `{ user_email, claimed_show_ids: uuid[], claimed_count: int }`. Informational. The `_metaAdminAlertCatalog` registry asserts this code is cataloged.
+- `OAUTH_IDENTITY_CLAIMED`: emitted to `admin_alerts` when `claim_oauth_identity()` updates 1+ crew rows (§4.8). **R41 P-R9 Fix-3**: emitted PER-ROW (one alert per claimed row, scoped to that row's `show_id` — NOT one aggregate alert with `show_id=NULL`). Context: `{ crew_member_id: uuid, show_id: uuid, claimed_at_millis: bigint, user_email_hash: text }`. **NEVER raw `user_email`** — the `attempted_email_hash`/`user_email_hash` form is mandatory across all admin_alerts producers (P-R9 Fix-2 / Fix-3 reconciliation). The `_metaAdminAlertCatalog` registry asserts this code is cataloged AND that no `user_email` (raw) or `claimed_count` field appears in any OAUTH_IDENTITY_CLAIMED emission site (these would be aggregate-shape regressions). Informational.
+- `PICKER_BOOTSTRAP_RPC_FAILED`: emitted to `admin_alerts` when `claim_oauth_identity` returns error OR throws inside picker-bootstrap (§4.7 R41-R7 fail-closed). Context: `{ attempted_email_hash: text, rpc_error_code: text, rpc_error_message: text, route: text }`. NEVER raw email.
+- `CALLBACK_CLAIM_THREW`: emitted to `admin_alerts` when the callback claim-stamp block (§4.8) throws an exception (network fault, schema drift, undeclared SDK exception). show_id is NULL. Context: `{ error_name: text }` only — operator-triage signal, no PII.
 - `OAUTH_CLAIM_NO_ROWS`: NOT cataloged — silent success when `claim_oauth_identity()` matches 0 crew rows. The function returns affected-row count to the caller; no alert is emitted (otherwise every admin-user sign-in would spam alerts).
 - (R41-R35: the `AMBIGUOUS_EMAIL_BINDING` emission from `claim_oauth_identity` is REMOVED — the SQL no longer detects ambiguous rows because the schema's partial UNIQUE index makes the state impossible. The pre-pivot `AMBIGUOUS_EMAIL_BINDING` code in `validateGoogleSession.ts` MAY remain as a defensive surface for a hypothetical schema-corruption scenario, but R41 introduces no new emission paths.)
 
