@@ -1609,7 +1609,12 @@ async function selectIdentityCoreImpl(input: SelectIdentityInput): Promise<Selec
   // PICKER_RESOLVER_LOOKUP_FAILED contract per AGENTS.md invariant 9.
   // R9-F2: RPC output params are renamed out_* to avoid PL/pgSQL
   // column-name ambiguity. JS destructures the renamed fields.
-  let data: { out_show_id: string | null; out_picker_epoch: number | null; out_rejection_code: string | null } | null = null;
+  let data: {
+    out_show_id: string | null;
+    out_picker_epoch: number | null;
+    out_observed_at_millis: number | null;  // R41-R18 DB-side bigint (JS number is safe to ~2^53)
+    out_rejection_code: string | null;
+  } | null = null;
   let error: unknown = null;
   try {
     const resp = await supabase
@@ -2137,7 +2142,12 @@ export default async function ShowPage({
       return <TerminalFailure code={result.code} />;
     case 'admin': {
       const viewer = { kind: 'admin' as const };
-      const data = await getShowForViewer(result.showId, viewer);
+      let data;
+      try {
+        data = await getShowForViewer(result.showId, viewer);
+      } catch {
+        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+      }
       return <ShowBody slug={slug} showId={result.showId} viewer={viewer} data={data} identityChip={null} />;
     }
     case 'needs_picker_bootstrap': {
@@ -2149,7 +2159,12 @@ export default async function ShowPage({
     }
     case 'resolved': {
       const viewer = { kind: 'crew' as const, crewMemberId: result.crewMemberId };
-      const data = await getShowForViewer(result.showId, viewer);
+      let data;
+      try {
+        data = await getShowForViewer(result.showId, viewer);
+      } catch {
+        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+      }
       const crew = data.crewMembers.find((c) => c.id === result.crewMemberId);
       return (
         <ShowBody
@@ -2168,7 +2183,12 @@ export default async function ShowPage({
       if (!gateSkip) {
         return <SignInOrSkipGate slug={slug} shareToken={shareToken} />;
       }
-      const roster = await loadRoster(result.showId);  // helper inline or extracted
+      let roster;
+      try {
+        roster = await loadRoster(result.showId);
+      } catch {
+        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+      }
       return (
         <PickerInterstitial
           slug={slug} shareToken={shareToken}
@@ -2187,7 +2207,12 @@ export default async function ShowPage({
       // R41-R35: identity_invalidated has a single reason 'claimed_after_pick'
       // (the ambiguous_email reason was removed because the schema constraint
       // makes the state impossible).
-      const roster = await loadRoster(result.showId);
+      let roster;
+      try {
+        roster = await loadRoster(result.showId);
+      } catch {
+        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+      }
       const banner =
         result.kind === 'epoch_stale' ? 'PICKER_EPOCH_STALE_BANNER'
         : result.kind === 'removed_from_roster' ? 'PICKER_REMOVED_FROM_ROSTER_BANNER'
