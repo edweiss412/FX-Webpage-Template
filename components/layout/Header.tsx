@@ -15,10 +15,19 @@
  * fallback chain the slug uses (lib/parser/slug.ts:60-62) so the date the
  * crew sees in the URL is the date the crew sees in the header.
  */
+import type { ReactNode } from "react";
+
 import type { ShowRow } from "@/lib/parser/types";
 
 type HeaderProps = {
   show: Pick<ShowRow, "title" | "client_label" | "dates" | "venue">;
+  /**
+   * Optional right-slot content. When provided (M11.5 §B Task C4), the
+   * slot REPLACES the FXAV wordmark and stays visible on mobile —
+   * crew rely on the IdentityChip's "Not you?" recovery affordance on
+   * the same viewports that hide the decorative wordmark.
+   */
+  identityChip?: ReactNode;
 };
 
 /** Pick the show's display date — same fallback as the slug derivation. */
@@ -38,7 +47,7 @@ function formatHeaderDate(iso: string): string {
   });
 }
 
-export function Header({ show }: HeaderProps) {
+export function Header({ show, identityChip }: HeaderProps) {
   const date = pickHeaderDate(show.dates);
   const venueLine = show.venue?.name ?? null;
 
@@ -74,12 +83,19 @@ export function Header({ show }: HeaderProps) {
             </p>
           )}
         </div>
-        <p
-          aria-label="FXAV"
-          className="hidden shrink-0 self-start text-xs font-semibold uppercase tracking-eyebrow-strong text-text-faint sm:block"
-        >
-          FXAV
-        </p>
+        {identityChip !== undefined && identityChip !== null ? (
+          <div className="shrink-0 self-start" data-testid="page-header-right-slot">
+            {identityChip}
+          </div>
+        ) : (
+          <p
+            aria-label="FXAV"
+            className="hidden shrink-0 self-start text-xs font-semibold uppercase tracking-eyebrow-strong text-text-faint sm:block"
+            data-testid="page-header-fxav-wordmark"
+          >
+            FXAV
+          </p>
+        )}
       </div>
     </header>
   );

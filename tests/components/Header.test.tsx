@@ -133,3 +133,39 @@ describe("Header rebalance (M4-D3)", () => {
     expect(inner?.firstElementChild?.tagName.toLowerCase()).toBe("h1");
   });
 });
+
+describe("Header identityChip slot (M11.5 §B Task C4)", () => {
+  it("renders the FXAV wordmark when no identityChip is provided", () => {
+    const { queryByTestId } = render(<Header show={baseShow} />);
+    expect(queryByTestId("page-header-fxav-wordmark")).not.toBeNull();
+    expect(queryByTestId("page-header-right-slot")).toBeNull();
+  });
+
+  it("replaces the FXAV wordmark with the identityChip slot when provided", () => {
+    const chip = (
+      <span data-testid="header-test-fixture-chip">Alice · Audio A1</span>
+    );
+    const { queryByTestId } = render(
+      <Header show={baseShow} identityChip={chip} />,
+    );
+    expect(queryByTestId("page-header-fxav-wordmark")).toBeNull();
+    expect(queryByTestId("page-header-right-slot")).not.toBeNull();
+    expect(queryByTestId("header-test-fixture-chip")?.textContent).toBe(
+      "Alice · Audio A1",
+    );
+  });
+
+  it("does NOT hide the identityChip slot on mobile (no `hidden sm:block` class regression)", () => {
+    const chip = (
+      <span data-testid="header-test-fixture-chip">Alice · Audio A1</span>
+    );
+    const { getByTestId } = render(
+      <Header show={baseShow} identityChip={chip} />,
+    );
+    // Crew on the mobile viewport rely on "Not you?" — the slot must NOT
+    // inherit the FXAV wordmark's mobile-hidden treatment.
+    const slot = getByTestId("page-header-right-slot");
+    expect(slot.className).not.toContain("hidden");
+    expect(slot.className).not.toContain("sm:block");
+  });
+});

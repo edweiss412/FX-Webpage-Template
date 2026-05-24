@@ -20,6 +20,7 @@
  * the show.
  */
 import type { ReactNode } from "react";
+import { IdentityChip } from "@/components/auth/IdentityChip";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
@@ -68,6 +69,17 @@ export type ShowBodyProps = {
   showId: string;
   viewer: Viewer;
   data: ShowForViewer;
+  /**
+   * M11.5 §B Task C4: optional identity chip rendered in the page-header
+   * right slot. Provided by the tokenized route (C1) when the picker
+   * has resolved a crew identity; null/undefined for admin viewers and
+   * for the legacy slug-only path (which is removed when C1 lands).
+   */
+  identityChip?: {
+    name: string;
+    role: string;
+    shareToken: string;
+  } | null;
 };
 
 export async function ShowBody({
@@ -75,6 +87,7 @@ export async function ShowBody({
   showId,
   viewer,
   data,
+  identityChip,
 }: ShowBodyProps): Promise<ReactNode> {
   // Per-viewer context computed once and threaded into the hero card and
   // the tile grid below.
@@ -410,7 +423,22 @@ export async function ShowBody({
 
   return (
     <>
-      <Header show={data.show} />
+      <Header
+        show={data.show}
+        identityChip={
+          identityChip
+            ? (
+                <IdentityChip
+                  name={identityChip.name}
+                  role={identityChip.role}
+                  slug={slug}
+                  shareToken={identityChip.shareToken}
+                  showId={showId}
+                />
+              )
+            : undefined
+        }
+      />
       <ShowRealtimeBridge showId={showId} slug={slug} renderVersion={data.viewerVersionToken} />
       <main
         data-testid="page-container"
