@@ -182,6 +182,26 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ---
 
+### BL-WIZARD-SESSION-CAS-TURNOVER-RACE — Wizard defer/ignore can still commit after the active wizard is superseded
+
+**Origin:** Surfaced 11+ times across R41 spec + plan adversarial review rounds (2026-05-23 through 2026-05-24) by Codex on `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts:297-302`. Most recently P-R8 [high]. Dispositioned each time as OUT-OF-SCOPE for the R41 crew-auth pivot because the affected file is M-series onboarding code, not crew-auth code. Filing here so future R41-pivot adversarial-review rounds can cite this BACKLOG entry instead of re-surfacing the same finding.
+
+**Symptom:** `transitionManifestRow` checks `app_settings.pending_wizard_session_id` only at the manifest UPDATE step. After that succeeds, the handler performs the deferral upsert (line ~301) and pending-ingestion delete (line ~302) without holding or re-checking the `app_settings` row. Under READ COMMITTED, a concurrent finalize/new-scan transaction can supersede or clear the active wizard between the manifest UPDATE and the subsequent two mutations; the stale request can still commit a deferral and delete the pending row while returning 200. This is exactly the class the CAS is meant to prevent.
+
+**Scope of a real fix (if/when promoted):**
+
+- **Lock-then-act protocol.** Either (a) `SELECT pending_wizard_session_id FROM app_settings ... FOR UPDATE` inside the same transaction as the manifest UPDATE + deferral upsert + pending-ingestion delete, or (b) collapse all three mutations into a single SECURITY DEFINER RPC that takes the session-id as an arg and CHECKs it against `app_settings.pending_wizard_session_id` in one statement per mutation. Option (b) matches the M5 advisory-lock topology pattern used elsewhere in this codebase.
+- **Regression test.** Flip `pending_wizard_session_id` between the manifest UPDATE and the deferral upsert (e.g., via a `pg_advisory_xact_lock` + concurrent transaction harness), assert no deferral or delete commits, and assert the route returns a typed `WIZARD_SESSION_SUPERSEDED` failure.
+- **Audit trail.** If the race is detected, emit an `admin_alerts` row with the superseded vs current session-ids so operators can correlate.
+
+**Why backlog, not deferred:** This is an M-series onboarding wizard bug, not an FXAV crew-auth pivot bug. The R41 pivot does not touch this file. No M-series milestone is currently scheduled. Promoting requires a host milestone — most naturally an "M-onboarding-fixups" milestone scoped to known onboarding-flow races, OR a return to the M-series plan tree once R41 ships.
+
+**Promotion prerequisite:** EITHER (a) Doug or Eric observes a real wizard-session-turnover race in production (an orphaned deferral row, a phantom delete), OR (b) an unrelated onboarding milestone re-opens this file and a class-sweep audit lands the fix as part of the broader change, OR (c) the M-onboarding-fixups milestone is scheduled.
+
+**Promotion mechanics:** Add the lock-then-act RPC or `FOR UPDATE` patch as the lead task in the host milestone; pin via a structural meta-test that all three mutations occur in one transaction holding `app_settings` for update.
+
+---
+
 ## Promoted (was backlog, now scheduled)
 
 _(empty — no items have been promoted yet)_

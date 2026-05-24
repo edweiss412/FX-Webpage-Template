@@ -746,6 +746,7 @@ declare
   v_claimed_count integer := 0;
   v_shows jsonb;
   v_claim_at timestamptz;  -- R41-R23: clock_timestamp() AFTER locks
+  v_claimed_rows jsonb := '[]'::jsonb;  -- R41 P-R8 Fix-3: per-row claim details
   r record;
 begin
   -- R41-R3 + R41-R23: materialize the locked show ids BEFORE acquiring locks;
@@ -760,7 +761,9 @@ begin
   select array_agg(show_id) into v_locked_show_ids from show_set;
 
   if v_locked_show_ids is null or array_length(v_locked_show_ids, 1) is null then
-    return jsonb_build_object('claimed_count', 0, 'shows', '[]'::jsonb,
+    return jsonb_build_object('claimed_count', 0,
+                              'claimed_rows', '[]'::jsonb,  -- P-R8 Fix-3
+                              'shows', '[]'::jsonb,
                               'mint_safe_t_millis',
                                 floor(extract(epoch from clock_timestamp()) * 1000)::bigint + 1);
   end if;
@@ -781,15 +784,30 @@ begin
   -- contention, allowing impersonation (see spec §6.0).
   v_claim_at := clock_timestamp();
 
+  -- R41 P-R8 Fix-3 (Finding 3): capture per-row claim details so the C7
+  -- callback can emit OAUTH_IDENTITY_CLAIMED per show with the contract
+  -- context shape H7 mandates: { crew_member_id, show_id, claimed_at_millis }.
+  -- The previous aggregate-only return shape ({ claimed_count }) made it
+  -- impossible for operators to tell which show/crew rows were claimed
+  -- AND made it impossible for the producer to satisfy the H7 context
+  -- contract.
   with updated as (
     update public.crew_members cm
        set claimed_via_oauth_at = v_claim_at
      where cm.email = v_email
        and cm.show_id = any(v_locked_show_ids)
        and cm.claimed_via_oauth_at is null
-   returning cm.id, cm.show_id
+   returning cm.id as crew_member_id, cm.show_id
   )
-  select count(*) into v_claimed_count from updated;
+  select count(*), coalesce(jsonb_agg(jsonb_build_object(
+           'crew_member_id', crew_member_id,
+           'show_id', show_id,
+           -- R41-R30: floor(...)::bigint avoids banker's-rounding; matches
+           -- the cookie.t and mint_safe_t_millis derivation.
+           'claimed_at_millis', floor(extract(epoch from v_claim_at) * 1000)::bigint
+         )), '[]'::jsonb)
+    into v_claimed_count, v_claimed_rows
+    from updated;
 
   -- R41-R35: build shows result directly (no GROUP BY HAVING; ambiguous-
   -- email defense removed because the partial UNIQUE index on (show_id,
@@ -809,6 +827,10 @@ begin
 
   return jsonb_build_object(
     'claimed_count', v_claimed_count,
+    -- R41 P-R8 Fix-3: per-row claim details for OAUTH_IDENTITY_CLAIMED
+    -- producer (H7 context contract). Empty array when claimed_count = 0
+    -- (idempotent re-invocation; no spam).
+    'claimed_rows', v_claimed_rows,
     'shows', v_shows,
     -- R41-R22 + R41-R30: mint_safe_t_millis strictly greater than any
     -- claim_epoch_millis; uses clock_timestamp() (R41-R23) and floor()
@@ -831,7 +853,7 @@ revoke all on function public.claim_oauth_identity(text) from public;
 grant execute on function public.claim_oauth_identity(text) to service_role;
 ```
 
-Tests (per spec §10.2): (a) basic happy path; (b) idempotent re-invocation (claimed_count = 0 for already-claimed rows); (c) R41-R3 locked-set integrity (concurrent INSERT on unlocked show NOT stamped); (d) R41-R10 lock ordering (two concurrent claims on overlapping show sets do NOT deadlock under repeated invocations); (e) R41-R23 lock-contention (Mallory's select_identity_atomic vs Alice's claim_oauth_identity — clock_timestamp() ordering correct; bypass cookie invalidated by resolver); (f) R41-R22 same-millisecond ties → resolver `<=` invalidation catches; (g) R41-R30 floor() vs banker's-rounding regression with fractional millisecond `claimed_via_oauth_at` values.
+Tests (per spec §10.2): (a) basic happy path; (b) idempotent re-invocation (claimed_count = 0 AND claimed_rows = [] for already-claimed rows); (c) R41-R3 locked-set integrity (concurrent INSERT on unlocked show NOT stamped); (d) R41-R10 lock ordering (two concurrent claims on overlapping show sets do NOT deadlock under repeated invocations); (e) R41-R23 lock-contention (Mallory's select_identity_atomic vs Alice's claim_oauth_identity — clock_timestamp() ordering correct; bypass cookie invalidated by resolver); (f) R41-R22 same-millisecond ties → resolver `<=` invalidation catches; (g) R41-R30 floor() vs banker's-rounding regression with fractional millisecond `claimed_via_oauth_at` values; (h) **R41 P-R8 Fix-3 per-row return contract**: seed Alice with crew_member rows in shows S1, S2, S3 (S2 already claimed). Assert `claimed_count = 2` AND `claimed_rows` is a 2-element array, each row matching shape `{ crew_member_id: uuid, show_id: uuid, claimed_at_millis: bigint }`, with show_ids ∈ {S1, S3}, NOT containing S2, AND every `claimed_at_millis` equals `floor(extract(epoch from v_claim_at) * 1000)::bigint` (same value across rows since v_claim_at is captured once); (i) **R41 P-R8 Fix-3 empty-set return**: when Alice has no matching crew_members, return shape includes `claimed_rows: []` (not absent, not null).
 
 ```bash
 git commit -m "feat(db): add claim_oauth_identity SECURITY DEFINER RPC (A8)"
@@ -1502,7 +1524,7 @@ git commit -am "feat(db): select_identity_atomic RPC (token+epoch under advisory
 Test cases (R3-F3 — unit tests target `selectIdentityCore` with object args; the FormData entry `selectIdentity` has its own real-form-submission test that constructs FormData):
 
 ```ts
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { selectIdentity, selectIdentityCore } from '@/lib/auth/picker/selectIdentity';
 
 describe('selectIdentityCore (object-shaped — direct invocation)', () => {
@@ -1549,22 +1571,50 @@ describe('selectIdentity FormData entry (real form submission shape)', () => {
     fd.set('shareToken', 'b'.repeat(64));
     fd.set('crewMemberId', '22222222-2222-2222-2222-222222222222');  // claimed roster row
 
-    // Next.js redirect() throws a NEXT_REDIRECT error with a digest containing the location.
-    // Spec §8.4 PICKER_IDENTITY_CLAIMED rejection MUST redirect (not return) so the
-    // server-side tamper path resolves into the same OAuth recovery flow as the
-    // deactivated-row UI. The structured log STILL emits tamper:true on this path.
+    // R41 P-R8 Fix-2 (Finding 2): assert tamper:true structured log is emitted
+    // BEFORE the redirect throws. The §8.4 contract requires the audit record
+    // to survive the redirect path; an implementation that calls redirect()
+    // without the prior console.warn loses the tamper signal entirely.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     let thrown: any = null;
     try {
       await selectIdentity(fd);
     } catch (e: any) {
       thrown = e;
     }
+
+    // Tamper log: pin event name, tamper:true flag, slug + crewMemberId, NO shareToken.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(warnSpy.mock.calls[0][0] as string);
+    expect(logged.event).toBe('picker.identity_claimed');
+    expect(logged.tamper).toBe(true);
+    expect(logged.slug).toBe('claimed-show-slug');
+    expect(logged.crewMemberId).toBe('22222222-2222-2222-2222-222222222222');
+    expect(logged).not.toHaveProperty('shareToken');  // sensitive bearer; MUST NOT appear in logs.
+    warnSpy.mockRestore();
+
+    // Redirect: Next.js redirect() throws a NEXT_REDIRECT error with a digest containing the location.
     expect(thrown).not.toBeNull();
     expect(thrown.digest).toMatch(/^NEXT_REDIRECT/);
-    // The digest encodes the redirect URL; assert it points at /auth/sign-in with the
-    // tokenized URL as next= parameter (URL-encoded slug + shareToken).
     expect(thrown.digest).toContain('/auth/sign-in?next=');
     expect(thrown.digest).toContain(encodeURIComponent('/show/claimed-show-slug/' + 'b'.repeat(64)));
+  });
+
+  it('R41 P-R8 Fix-2: regression — tamper log is emitted EVEN IF redirect() throws synchronously', async () => {
+    // Negative regression: stash the production `redirect` call and have the
+    // test substitute a throwing stub that runs SYNCHRONOUSLY (no microtask
+    // gap). The console.warn MUST still have been called — proves the log
+    // call ordering is correct, not just "called before the next tick."
+    // If a future refactor moves console.warn after redirect(), this fails.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fd = new FormData();
+    fd.set('slug', 'claimed-show-slug');
+    fd.set('shareToken', 'c'.repeat(64));
+    fd.set('crewMemberId', '33333333-3333-3333-3333-333333333333');  // also claimed
+    try { await selectIdentity(fd); } catch { /* swallow */ }
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('R41 P-R7 Fix-2: core impl still returns typed PICKER_IDENTITY_CLAIMED — only the FormData entry redirects', async () => {
@@ -1625,11 +1675,36 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
   // <tokenized URL>, NOT a returned { ok: false, code } that would
   // strand the user.
   if (!result.ok && result.code === 'PICKER_IDENTITY_CLAIMED') {
+    // R41 P-R8 Fix-2 (Finding 2): EMIT the tamper signal BEFORE redirect()
+    // throws — otherwise the audit record is lost. The §8.4 contract says
+    // PICKER_IDENTITY_CLAIMED carries tamper:true in structured logs; the
+    // redirect-throw must NOT swallow that. Structured-log shape pinned by
+    // the FormData-entry redirect test below.
+    //
+    // Logging convention: console.warn(JSON.stringify(...)) is the
+    // platform-neutral pattern in this repo's Server Actions — Next.js
+    // captures stdout/stderr in Vercel logs without a centralized logger
+    // dependency. The `event` field is greppable from log aggregation.
+    // Do NOT include the shareToken (sensitive bearer credential); do
+    // include slug + crewMemberId so operators can correlate against the
+    // admin/per-show audit page.
+    console.warn(JSON.stringify({
+      event: 'picker.identity_claimed',
+      tamper: true,
+      slug,
+      crewMemberId,
+      // R41 §8.4: tamper:true distinguishes hand-crafted POST from the
+      // deactivated-row UI flow (which never hits selectIdentity at all —
+      // claimed rows render with action="/auth/sign-in?next=...").
+      // Reaching this branch means a client crafted a POST that bypassed
+      // the form's deactivated state — that IS the tamper signal.
+      reason: 'hand_crafted_post_bypassed_deactivated_row',
+      ts: new Date().toISOString(),
+    }));
     const tokenizedUrl = `/show/${slug}/${shareToken}`;
     // redirect() throws a Next.js NEXT_REDIRECT — the Server Action client
-    // handler follows it. The structured log STILL emits the tamper flag
-    // (PICKER_IDENTITY_CLAIMED carries `tamper:true` per §8.4); the audit
-    // record is preserved even as the user is sent to OAuth recovery.
+    // handler follows it. The console.warn above already emitted the
+    // tamper signal; the redirect is the user-facing recovery path.
     redirect(`/auth/sign-in?next=${encodeURIComponent(tokenizedUrl)}`);
   }
   return result;
@@ -2690,14 +2765,36 @@ if (user?.email) {
     logger.error('claim_oauth_identity failed', { email: canonicalEmail, error });
     // R41-R12: bootstrap will retry on next show visit; sign-in still proceeds.
   } else if ((result?.claimed_count ?? 0) > 0) {
-    await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', { user_email: canonicalEmail, claimed_count: result.claimed_count });
+    // R41 P-R8 Fix-3 (Finding 3): emit ONE admin_alert per claimed row with the
+    // H7 context contract { crew_member_id, show_id, claimed_at_millis }, scoped
+    // to the show_id (not NULL). The aggregate-only emission collapsed all
+    // identity-claim events into one alert, hiding which show/crew rows were
+    // claimed and making operator triage impossible. The upsert helper's
+    // (show_id, code) unique index means re-claims on the same show increment
+    // occurrence_count rather than spamming new rows.
+    //
+    // R41-R12 + R41-R19: claimed_rows is guaranteed-non-null by A8 (`'[]'::jsonb`
+    // default) and the array contract is enforced by the A8 test matrix.
+    const claimedRows: Array<{ crew_member_id: string; show_id: string; claimed_at_millis: number }>
+      = result.claimed_rows ?? [];
+    for (const row of claimedRows) {
+      await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', {
+        show_id: row.show_id,  // per-show alert (NOT NULL)
+        context: {
+          crew_member_id: row.crew_member_id,
+          show_id: row.show_id,
+          claimed_at_millis: row.claimed_at_millis,
+          user_email_hash: hashForLog(canonicalEmail),  // avoid PII in alerts
+        },
+      });
+    }
   }
   // R41-R6: NO cookies().set('__Host-fxav_picker', ...) — callback is DB-stamp-only.
   // The §10.1 meta-test grep-asserts this file does NOT contain that call.
 }
 ```
 
-Tests: (a) exchangeCodeForSession called first; (b) claim_oauth_identity called with canonicalized email; (c) NO Set-Cookie for `__Host-fxav_picker` in response (R41-R6); (d) OAUTH_IDENTITY_CLAIMED alert emitted only when claimed_count > 0; (e) RPC failure path logs error and continues (sign-in still succeeds; bootstrap retries on next visit); (f) idempotent re-invocation: re-sign-in returns claimed_count=0, no alert spam.
+Tests: (a) exchangeCodeForSession called first; (b) claim_oauth_identity called with canonicalized email; (c) NO Set-Cookie for `__Host-fxav_picker` in response (R41-R6); (d) **R41 P-R8 Fix-3**: when `claimed_rows.length = N > 0`, emitAdminAlert called EXACTLY N times, once per row, with `show_id` set to the row's show_id (NOT NULL aggregate) and `context: { crew_member_id, show_id, claimed_at_millis, user_email_hash }` — assert the full context shape on each call; (e) idempotent re-invocation: re-sign-in returns `claimed_count=0` + `claimed_rows=[]`, ZERO emitAdminAlert calls (no spam); (f) RPC failure path logs error and continues (sign-in still succeeds; bootstrap retries on next visit); (g) **R41 P-R8 Fix-3 cross-show**: seed Alice with crew_members in shows S1 and S2; assert ONE alert with `show_id=S1` and ONE alert with `show_id=S2`, NOT one aggregate alert with `show_id=NULL`; (h) **R41 P-R8 Fix-3 PII**: assert no alert context contains the raw email (only the hashed form).
 
 ```bash
 git commit -m "feat(auth): callback claim-stamp hook (C7; R41 §4.8 DB-only)"
@@ -3446,7 +3543,7 @@ Remove all M9.5 catalog codes; assert new codes are present:
 - `PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, `PICKER_CREW_MEMBER_WRONG_SHOW`, `PICKER_INVALID_SHARE_TOKEN`, `PICKER_RESOLVER_LOOKUP_FAILED` (rejection codes; all have both `dougFacing` and `crewFacing` copy per R33)
 - **R41 P-R7 Fix-3 — R41 admin-alert producers added by this pivot (MUST be in the catalog AND have registered producer write-sites):**
   - `PICKER_BOOTSTRAP_RPC_FAILED` — emitted by `app/api/auth/picker-bootstrap/route.ts` (Task C6) when `claim_oauth_identity` returns an error OR throws (fail-closed 502 per spec §4.7 R41-R7). The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'PICKER_BOOTSTRAP_RPC_FAILED'`) in `app/api/auth/picker-bootstrap/route.ts`. Context: `{ rpc_error_code, attempted_email_hash, route: '/api/auth/picker-bootstrap' }`.
-  - `OAUTH_IDENTITY_CLAIMED` — emitted by the callback claim-stamp hook (Task C7) when `claim_oauth_identity` SUCCEEDS in stamping `claimed_via_oauth_at` for the first time (audit trail for identity claim events). The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'OAUTH_IDENTITY_CLAIMED'`) in `app/auth/callback/route.ts` (or the dedicated claim-stamp helper if extracted). Context: `{ crew_member_id, show_id, claimed_at_millis }`.
+  - `OAUTH_IDENTITY_CLAIMED` — emitted by the callback claim-stamp hook (Task C7) when `claim_oauth_identity` SUCCEEDS in stamping `claimed_via_oauth_at` for ≥1 rows. The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'OAUTH_IDENTITY_CLAIMED'`) in `app/auth/callback/route.ts` (or the dedicated claim-stamp helper if extracted). **Per-row emission (P-R8 Fix-3)**: C7 emits ONE alert per row in `claim_oauth_identity` result's `claimed_rows` array; each alert is scoped to `show_id` (NOT NULL aggregate). Context shape: `{ crew_member_id: uuid, show_id: uuid, claimed_at_millis: bigint, user_email_hash: text }`. H7 asserts both (i) catalog row context-shape pinning matches this exact shape (4 named fields), AND (ii) producer-call shape pinning: `tests/auth/callback-claim-hook.test.ts` mocks `claim_oauth_identity` to return a 2-row `claimed_rows` and asserts emitAdminAlert is called exactly twice with show_id per row. The aggregate-only `{ user_email, claimed_count }` shape is FORBIDDEN; H7 grep-asserts no `claimed_count` field appears in any OAUTH_IDENTITY_CLAIMED emission site.
 - **R41 P-R7 Fix-2 — `PICKER_IDENTITY_CLAIMED` and `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` catalog entries** (rejection + banner; both have `crewFacing` copy; `PICKER_IDENTITY_CLAIMED` carries `tamper:true` in structured logs per spec §8.4 even on the redirect path).
 
 **Producer registry pattern (H7 enforcement):** Each catalog code that admits an `admin_alerts` row gets BOTH (a) a catalog row with `dougFacing` + `crewFacing` copy + `tamper` flag if applicable, AND (b) a registered production write-site — a `file:line` location matching `upsertAdminAlert(p_code => '<CODE>'` (Postgres-named-arg form) OR `upsert_admin_alert(.*'<CODE>'` (positional Postgres form) OR `.rpc('upsert_admin_alert', { p_code: '<CODE>'` (JS form). H7 test walks the catalog and for every code with `admitsAdminAlertRow: true`, greps the production codebase for at least one matching write-site; the test fails CLOSED if any catalog code has no registered producer (i.e., the catalog row exists but no code path writes the alert — the M5 R3–R22 lesson distilled per AGENTS.md invariant 9). Conversely, a structural-test sweep finds every `upsertAdminAlert(...'CODE'...)` call site and asserts each emitted code is registered in the catalog (no orphaned producers).
