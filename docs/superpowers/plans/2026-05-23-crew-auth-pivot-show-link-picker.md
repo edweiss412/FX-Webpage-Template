@@ -2335,14 +2335,17 @@ export function PickerInterstitial({
   return (
     <main data-testid="picker-interstitial-root" className="min-h-screen flex flex-col items-center justify-start md:justify-center px-4">
       <div data-testid="picker-brand-strip" className="pt-6 pb-4 text-center">
-        <span className="text-[14px] font-bold text-(--accent)V</span>
+        <span className="text-[14px] font-bold text-(--accent)">FXAV</span>
       </div>
       <h1 data-testid="picker-question-heading" className="text-xl font-bold">Who are you?</h1>
       <p data-testid="picker-sub-instruction" className="text-xs text-muted-foreground mt-1">
         Tap your name to open the show page.
       </p>
       {banner && (
-        <div data-testid="picker-banner" className="mt-2 mb-2 px-3 py-2 bg-orange-100 dark:bg-orange-900/30 text-xs rounded-md max-w-90
+        <div
+          data-testid="picker-banner"
+          className="mt-2 mb-2 px-3 py-2 bg-orange-100 dark:bg-orange-900/30 text-xs rounded-md max-w-90"
+        >
           {messageFor(banner).crewFacing}
         </div>
       )}
@@ -3324,10 +3327,24 @@ git commit -am "test(meta): no-jwt-surface structural allowlist (H2; R41-R19)"
 
 ### Task H3: Extend `tests/auth/_metaInfraContract.test.ts`
 
-Register: `resolvePickerSelection`, `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `resetPickerEpoch`, `rotateShareToken`. Each must follow the Supabase call-boundary discipline (destructure `{data, error}`; infra faults discriminable from auth-denied).
+Register the picker helpers AND every new R41 auth/RPC surface (per AGENTS.md invariant 9 / R41-R3-onward Supabase call-boundary discipline):
+
+- `resolvePickerSelection` (Task B2)
+- `selectIdentity` (Task B3)
+- `clearIdentity` (Task B4)
+- `cleanupStaleEntry` (Task B5)
+- `resetPickerEpoch` (Task B6)
+- `rotateShareToken` (Task B6)
+- **R41 additions:**
+  - `resolveShowPageAccess` (Task B7) — performs SELECTs against `shows`, `crew_members`, `show_share_tokens`; multiple Supabase call sites; must destructure `{data, error}` and surface infra faults as `{ kind: 'infra_error', code }` per its 11-arm union (NOT as silent fall-through).
+  - `app/api/auth/picker-bootstrap/route.ts` (Task C6) — calls `claim_oauth_identity` RPC AND reads `show_share_tokens`; must destructure `{data, error}` and surface RPC failures as 502 with PICKER_BOOTSTRAP_RPC_FAILED admin alert (R41-R7 fail-closed).
+  - `app/auth/callback/route.ts` (Task C7) — calls `claim_oauth_identity` RPC; must destructure `{data, error}` and log + skip cookie mint on failure (R41-R6 callback-fail recovery via picker-bootstrap retry).
+  - `lib/data/listShowsForCrew.ts` rewrite (Task E2) — calls `my_share_tokens_for_email` RPC via cookie-bound client; must destructure `{data, error}` and surface infra fault to the page-route render path.
+
+Each registry entry asserts the call site destructures `{data, error}` (not bare `data`), distinguishes returned-error from thrown-error paths, and infra faults surface as discriminable typed results. New call sites EITHER add a registry row OR carry an inline `// not-subject-to-meta: <reason>` comment per AGENTS.md invariant 9.
 
 ```bash
-git commit -am "test(meta): extend infra contract for picker helpers (H3)"
+git commit -am "test(meta): extend infra contract for picker + R41 auth surfaces (H3)"
 ```
 
 ---
