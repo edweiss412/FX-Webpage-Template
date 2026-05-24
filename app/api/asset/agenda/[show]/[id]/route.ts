@@ -32,7 +32,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getDriveClient } from "@/lib/drive/client";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import { validateCrewAssetSession } from "@/lib/auth/validateCrewAssetSession";
+import { validatePickerAssetSession } from "@/lib/auth/picker/validatePickerAssetSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
   ByteLimitExceededError,
@@ -237,7 +237,7 @@ async function authorizeAgendaRequest(
   if (!data) return { ok: false, response: gone() };
   if (!isAdmin && data.published !== true) return { ok: false, response: gone() };
   if (!isAdmin) {
-    const session = await validateCrewAssetSession(request, show);
+    const session = await validatePickerAssetSession(request, show);
     if (!session.ok) return { ok: false, response: session.response };
   }
 
@@ -374,7 +374,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     return gone();
   }
   if (!isAdmin) {
-    const session = await validateCrewAssetSession(request, show);
+    const session = await validatePickerAssetSession(request, show);
     if (!session.ok) return session.response;
   }
 

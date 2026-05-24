@@ -26,7 +26,7 @@ const routeMock = vi.hoisted(() => ({
     kind: "success" as const,
     viewer: { kind: "crew" as const, showId: "", crewMemberId: "crew-1" },
   } as MockLinkResult,
-  google: { kind: "continue" as const },
+  google: { kind: "continue" } as { kind: string },
   linkCalls: 0,
   googleCalls: 0,
   peek: { kind: "none" } as
@@ -85,6 +85,73 @@ vi.mock("@/lib/auth/validateGoogleSession", () => ({
   validateGoogleSession: async () => {
     routeMock.googleCalls += 1;
     return routeMock.google;
+  },
+}));
+
+vi.mock("@/lib/auth/picker/validatePickerAssetSession", () => ({
+  validatePickerAssetSession: async (_request: unknown, showIdArg: string) => {
+    if (routeMock.peek.kind === "envelope" && routeMock.peek.showId !== showIdArg) {
+      routeMock.googleCalls += 1;
+      if (routeMock.google.kind === "success") return { ok: true };
+      return {
+        ok: false,
+        response: new Response(null, {
+          status: 403,
+          headers: { "Cache-Control": "private, max-age=0, must-revalidate" },
+        }),
+      };
+    }
+    routeMock.linkCalls += 1;
+    if (routeMock.link.kind === "success") {
+      return routeMock.link.viewer.showId === showIdArg
+        ? { ok: true }
+        : {
+            ok: false,
+            response: new Response(null, {
+              status: 403,
+              headers: { "Cache-Control": "private, max-age=0, must-revalidate" },
+            }),
+          };
+    }
+    if (routeMock.link.kind === "terminal_failure") {
+      return {
+        ok: false,
+        response: Response.json(
+          { error: routeMock.link.code },
+          {
+            status: routeMock.link.status,
+            headers: { "Cache-Control": "private, max-age=0, must-revalidate" },
+          },
+        ),
+      };
+    }
+    routeMock.googleCalls += 1;
+    if (routeMock.google.kind === "success") return { ok: true };
+    if (routeMock.link.priorFailure?.status === 410) {
+      return {
+        ok: false,
+        response: new Response(null, {
+          status: 410,
+          headers: { "Cache-Control": "private, max-age=0, must-revalidate" },
+        }),
+      };
+    }
+    if (routeMock.peek.kind === "envelope" && routeMock.peek.showId !== showIdArg) {
+      return {
+        ok: false,
+        response: new Response(null, {
+          status: 403,
+          headers: { "Cache-Control": "private, max-age=0, must-revalidate" },
+        }),
+      };
+    }
+    return {
+      ok: false,
+      response: new Response(null, {
+        status: 401,
+        headers: { "Cache-Control": "private, max-age=0, must-revalidate" },
+      }),
+    };
   },
 }));
 

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import { validateCrewAssetSession } from "@/lib/auth/validateCrewAssetSession";
+import { validatePickerAssetSession } from "@/lib/auth/picker/validatePickerAssetSession";
 import { isAllowedDiagramMime, resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -131,7 +131,7 @@ async function authorizeDiagramRequest(
     return { ok: false, response: gone() };
   }
   if (!isAdmin) {
-    const session = await validateCrewAssetSession(request, show);
+    const session = await validatePickerAssetSession(request, show);
     if (!session.ok) return { ok: false, response: session.response };
   }
 
