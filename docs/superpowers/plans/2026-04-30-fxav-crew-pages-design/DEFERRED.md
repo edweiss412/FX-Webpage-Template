@@ -436,6 +436,51 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Why deferred:** DiagramsTile currently uses inline boolean checks (`items.length > 0`, `agendaLinks.some((link) => Boolean(link.fileId))`). Both are MEDIA-presence checks, not text-sentinel checks — they don't pattern-match the existing `shouldHideGenericOptional` (which hides "TBD" / "N/A" / "TBA"). The audit flagged this as a §1.9 meta-test coverage gap rather than a bug. v1 works correctly; the helper extraction is a discipline polish. AC-7.2 + AC-7.7 close at M7 — DiagramsTile returns null on whole-tile-missing per §8.3 already.
 **Suggested home:** M9 polish.
 
+### M11.5-IMP-1 — SignInOrSkipGate reassurance footer copy + catalog code
+
+**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 1 — picker chain).
+**Source:** External impeccable critique, M11.5 §B close-out. Picker spec §7.1a item 7 (reassurance footer "Crew don't have to sign in. Skip works for everyone.").
+**Description:** SignInOrSkipGate currently renders header + cataloged prompt + CTA pair without the spec-mandated reassurance footer at the bottom. The footer requires a new catalog code (suggested `SIGN_IN_OR_SKIP_FOOTER_REASSURANCE`) whose crewFacing copy reassures Skip-side users that signing in is optional.
+**Why deferred:** Adding catalog codes is §A territory (`lib/messages/catalog.ts` + the `lib/messages/__generated__/spec-codes.ts` generator). M11.5 §B UI session does not own that surface. The component-side wiring is trivial once the catalog code exists.
+**Suggested home:** M11.5 §A catalog addition pass OR M12 (whichever lands first). Trigger: catalog code is registered.
+
+### M11.5-IMP-2 — Picker `picker-show-strip` (show identifier line)
+
+**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 1 — picker chain).
+**Source:** External impeccable critique, M11.5 §B close-out. Picker spec §7.1 item 2 + §7.6 inventory.
+**Description:** Spec §7.1 item 2 requires a show identifier strip with `data-testid="picker-show-strip"` between the brand strip and the "Who are you?" heading. Currently absent — PickerInterstitial has no `show.title`/`show.dates` available because `resolveShowPageAccess` returns only `showId` for the picker-rendering arms.
+**Why deferred:** Adding the strip requires extending the resolver's return shape OR adding a separate metadata fetch in the route page (which already loads roster via `loadRoster`). Both options are minor but non-trivial — shape change is §A coordination; fetch addition is §B scope but compounds the route's complexity. Better landed in a dedicated polish pass that can also revisit the picker's typographic hierarchy with real show titles in view.
+**Suggested home:** M12 UX validation. Trigger: M12 amendment session adds show metadata to picker render scope OR resolver shape is extended.
+
+### M11.5-IMP-3 — /me consumes extended TerminalFailure (deduplication)
+
+**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 2 — TerminalFailure).
+**Source:** External impeccable audit, M11.5 §B close-out.
+**Description:** `app/me/page.tsx:105-126` renders its own inline terminal-failure block (`<main>` shell + `<h1>` + `<p>` + "Try again" link). The C0 commit's `<TerminalFailure>` component now accepts optional `title` + `retryHref` props (landed in `c1936f2`) so /me's inline block can be replaced by `<TerminalFailure code="..." title="..." retryHref="/me" />`.
+**Why deferred:** Refactor touches two render branches in /me (mid-chain failure + post-chain `listShowsForCrew` failure). Each call site has different catalog codes and slightly different copy. Out of M11.5 §B scope; mechanical follow-up that benefits from a dedicated diff.
+**Suggested home:** M12 UX validation. Trigger: M12 touches `app/me/page.tsx` for any reason.
+
+### M11.5-IMP-4 — DESIGN.md §1.2 contrast amendments for picker color pairs
+
+**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 1 — picker chain).
+**Source:** External impeccable audit, M11.5 §B close-out.
+**Description:** DESIGN.md §1.2 "Contrast summary" doesn't list two color pairs the picker uses: `text-text on bg-stale-tint` (the picker banner row) and `text-text-subtle on bg-surface-sunken` (claimed-row treatment). Both pairs almost certainly hit AA body floor on the chosen tints but the table doesn't pre-compute them.
+**Why deferred:** Small mechanical doc update (compute the two ratios, add two rows to the table). Out of §B scope; lands cleanly alongside any DESIGN.md edit.
+**Suggested home:** M11.5 §C close-out OR next milestone touching DESIGN.md. Trigger: a DESIGN.md edit is on the table for any reason.
+
+### M11.5-IMP-5 — Admin Reset/Rotate destructive-action UX polish set
+
+**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 4 — admin affordances).
+**Source:** External impeccable critique + audit, M11.5 §B close-out.
+**Description:** Four small polish items the attestation surfaced that need Doug feedback rather than local critique:
+1. The simplified "Crew" section + "Preview as a crew member" list are adjacent rosters with similar content. Consider folding the simplified roster into "Share & access" as context (C3).
+2. Two confirm rows (Reset + Rotate) can be open simultaneously — visually noisy, not destructive (C6).
+3. 2s Copy-button success-state duration is borderline short for venue-floor phone glance-back (A3).
+4. `aria-describedby` link from destructive Confirm button to its warning paragraph (group-label suffices for WCAG 2.1; tighter SR experience available) (A6).
+5. Confirm-row layout primitive inconsistency: Reset uses `flex flex-wrap items-center justify-end`; Rotate uses `flex flex-col items-end` containing a nested flex row (A5).
+**Why deferred:** Each is a UX tuning decision that benefits from Doug's actual usage feedback. Local critique can't ground the trade-offs (e.g., 2s vs 5s copy timing depends on Doug's typical scroll cadence).
+**Suggested home:** M12 UX validation. Trigger: M12 admin-surface validation pass.
+
 ---
 
 ## Resolved
