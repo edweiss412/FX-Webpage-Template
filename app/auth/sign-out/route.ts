@@ -6,6 +6,7 @@ import {
   decodeSessionCookieValue,
   SESSION_COOKIE_NAME,
 } from "@/lib/auth/cookies";
+import { COOKIE_NAME as PICKER_COOKIE_NAME } from "@/lib/auth/picker/cookieEnvelope";
 import { deleteSession } from "@/lib/auth/validateLinkSession";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -61,6 +62,10 @@ function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse):
       `${cookie.name}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`,
     );
   }
+}
+
+function clearPickerCookie(): string {
+  return `${PICKER_COOKIE_NAME}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
 /**
@@ -174,6 +179,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (linkSessionTornDown) {
       failureResponse.headers.append("Set-Cookie", clearSessionCookie());
       failureResponse.headers.append("Set-Cookie", clearBootstrapCookie());
+      failureResponse.headers.append("Set-Cookie", clearPickerCookie());
     }
     if (supabaseSignedOut) {
       clearSupabaseAuthCookies(request, failureResponse);
@@ -184,6 +190,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const response = NextResponse.redirect(new URL("/auth/sign-in", request.url), { status: 303 });
   response.headers.append("Set-Cookie", clearSessionCookie());
   response.headers.append("Set-Cookie", clearBootstrapCookie());
+  response.headers.append("Set-Cookie", clearPickerCookie());
   clearSupabaseAuthCookies(request, response);
   return response;
 }

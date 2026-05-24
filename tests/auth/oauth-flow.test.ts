@@ -310,7 +310,7 @@ describe("OAuth sign-out route", () => {
     server.service.deleteError = null;
   });
 
-  test("POST clears Supabase Auth plus FXAV session and bootstrap cookies atomically", async () => {
+  test("POST clears Supabase Auth plus FXAV session, bootstrap, and picker cookies atomically", async () => {
     const { POST } = await import("@/app/auth/sign-out/route");
 
     const response = await POST(
@@ -332,6 +332,9 @@ describe("OAuth sign-out route", () => {
     );
     expect(setCookies).toContain(
       "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain(
+      "__Host-fxav_picker=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
     );
     expect(setCookies).toContain(
       "sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
