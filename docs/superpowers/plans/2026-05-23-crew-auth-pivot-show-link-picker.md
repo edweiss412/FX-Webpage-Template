@@ -2082,196 +2082,161 @@ test('tokenized URL with right pair renders the picker', async ({ page }) => {
 });
 ```
 
-- [ ] **Step 2: Rewrite the route file**
+- [ ] **Step 2: Rewrite the route file (R41-R7 — use resolveShowPageAccess helper)**
+
+The page route MUST import `resolveShowPageAccess` (Task B7) and switch over the 11 discriminant kinds. The page does NOT call `resolvePickerSelection` directly (the helper does internally for the cookie path), does NOT call `validateGoogleSession` directly (the helper does for the Google-session arm), and does NOT call `cookies().set()` (Server Components cannot mutate cookies per Next App Router contract — for the `needs_picker_bootstrap` arm the page emits `redirect()` to the picker-bootstrap Route Handler which is the legal mutator).
 
 ```tsx
 // app/show/[slug]/[shareToken]/page.tsx
-import { cookies, headers } from 'next/headers';
-import { notFound } from 'next/navigation';
-import { isAdminSession } from '@/lib/auth/isAdminSession';
-import { resolvePickerSelection } from '@/lib/auth/picker/resolvePickerSelection';
+import { headers } from 'next/headers';
+import { notFound, redirect } from 'next/navigation';
+import { resolveShowPageAccess } from '@/lib/auth/picker/resolveShowPageAccess';
 import { createSupabaseServiceRoleClient } from '@/lib/supabase/server';
-import { COOKIE_NAME } from '@/lib/auth/picker/cookieEnvelope';
 import { PickerInterstitial } from './_PickerInterstitial';
+import { SignInOrSkipGate } from './_SignInOrSkipGate';
 import { ShowBody } from './_ShowBody';
 import { getShowForViewer } from '@/lib/data/getShowForViewer';
 import { TerminalFailure } from '@/components/auth/TerminalFailure';
 
+// Structural-test note (asserted in tests/cross-cutting/picker-resolver-callsite-contract.test.ts):
+// - This file imports resolveShowPageAccess.
+// - This file does NOT import resolvePickerSelection directly (helper uses it internally).
+// - This file does NOT import validateGoogleSession (helper uses it internally).
+// - This file does NOT import cookies from next/headers as a SET source (it may read cookies
+//   inside the helper invocation, but never calls cookies().set() — Server Components
+//   cannot mutate cookies; the picker-bootstrap Route Handler is the legal mutator).
+
 export default async function ShowPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string; shareToken: string }>;
+  searchParams: Promise<{ gate?: string }>;
 }) {
   const { slug, shareToken } = await params;
+  const { gate } = await searchParams;
+  const gateSkip = gate === 'skip';  // R41 SignInOrSkipGate dismissal flag.
 
-  // R34/R35 + R1-F2 + R5-F2: resolve via private RPC; destructure error
-  // AND wrap in try/catch since Supabase calls can THROW on network/
-  // runtime faults. Infra-error MUST be discriminable from "wrong
-  // token" (404), per AGENTS.md call-boundary discipline.
-  let supabase;
-  try {
-    supabase = createSupabaseServiceRoleClient();
-  } catch {
-    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-  }
-  let resolveResp;
-  try {
-    resolveResp = await supabase.rpc('resolve_show_by_slug_and_token', {
-      p_slug: slug, p_share_token: shareToken,
-    });
-  } catch {
-    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-  }
-  if (resolveResp.error) {
-    // Infra fault — render terminal-failure UI (cataloged code).
-    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-  }
-  const showId = resolveResp.data;
-  if (!showId) notFound(); // confirmed token/slug mismatch.
+  const reqHeaders = await headers();
+  const req = new Request('https://placeholder', { headers: reqHeaders });
 
-  let showResp;
-  try {
-    showResp = await supabase
-      .from('shows')
-      .select('id, published, archived')
-      .eq('id', showId)
-      .maybeSingle();
-  } catch {
-    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-  }
-  if (showResp.error) return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-  if (!showResp.data) notFound(); // race: show deleted between RPC and SELECT.
-  const show = showResp.data;
+  // R41 — the helper encapsulates archived → admin → unpublished →
+  // Google-session → cookie chain and returns the 11-arm union.
+  const result = await resolveShowPageAccess({ slug, shareToken, req });
 
-  // R27: archived 404s for ALL viewers including admin (crew route is crew-only).
-  if (show.archived) notFound();
-
-  const req = new Request('https://placeholder', { headers: await headers() });
-  let admin;
-  try {
-    admin = await isAdminSession(req as any);
-  } catch {
-    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-  }
-  // R7-F3: isAdminSession returns { ok: false, reason: 'infra_error' }
-  // on Supabase outages. We MUST surface that as terminal-failure
-  // rather than silently falling through to the crew picker (which
-  // would render the wrong viewer mode for a real admin).
-  if (!admin.ok && admin.reason === 'infra_error') {
-    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-  }
-  if (admin.ok) {
-    // R16-F2: preserve the canonical M11 double-gate. After
-    // isAdminSession's predicate check, call requireAdmin() so the
-    // canonical chokepoint (build-time email allowlist + is_admin()
-    // RPC) confirms. Predicate/chokepoint drift falls through to the
-    // crew chain rather than rendering as admin. requireAdmin()
-    // raises via notFound()/forbidden() (Next.js navigation control
-    // flow); catch the throw and continue.
-    try {
-      await requireAdmin();
-    } catch (e) {
-      if (e instanceof AdminInfraError) {
-        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-      }
-      // Navigation throw from notFound()/forbidden() — predicate
-      // disagreed with chokepoint; treat as non-admin.
-      // (Fall through to the crew flow below.)
+  switch (result.kind) {
+    case 'archived':
+      // R27: archived 404s for ALL viewers including admin.
+      notFound();
+    case 'unpublished':
+      notFound();
+    case 'infra_error':
+      return <TerminalFailure code={result.code} />;
+    case 'admin': {
+      const supabase = createSupabaseServiceRoleClient();
+      const { data: show } = await supabase.from('shows')
+        .select('id').eq('slug', slug).maybeSingle();
+      const viewer = { kind: 'admin' as const };
+      const data = await getShowForViewer(show!.id, viewer);
+      return <ShowBody slug={slug} showId={show!.id} viewer={viewer} data={data} identityChip={null} />;
     }
-
-    // Admin precedence — render as admin without going through picker.
-    // R13-F3: wrap getShowForViewer in try/catch (same posture as the
-    // crew branch); admin outages get the cataloged terminal-failure
-    // UI, not an uncataloged framework error.
-    const viewer = { kind: 'admin' as const };
-    let data;
-    try {
-      data = await getShowForViewer(showId as string, viewer);
-    } catch {
-      return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+    case 'needs_picker_bootstrap': {
+      // R41-R6 CRITICAL: Server Components cannot mint cookies; redirect
+      // to the Route Handler which is the legal cookie mutator. Intent
+      // token (R41-R5 CSRF defense) is generated by the helper.
+      const nextUrl = `/show/${slug}/${shareToken}`;
+      redirect(`/api/auth/picker-bootstrap?next=${encodeURIComponent(nextUrl)}&t=${encodeURIComponent(result.intentToken)}`);
     }
-    return (
-      <ShowBody
-        slug={slug}
-        showId={showId as string}
-        viewer={viewer}
-        data={data}
-        identityChip={null}
-      />
-    );
-  }
-
-  if (!show.published) notFound();
-
-  const cookieStore = await cookies();
-  const cookie = cookieStore.get(COOKIE_NAME)?.value;
-  const resolved = await resolvePickerSelection({ showId: showId as string, cookie });
-
-  switch (resolved.kind) {
     case 'resolved': {
-      const viewer = { kind: 'crew' as const, crewMemberId: resolved.crewMemberId };
-      let data;
-      try {
-        data = await getShowForViewer(showId as string, viewer);
-      } catch {
-        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-      }
-      // R2-F1: live ShowForViewer uses crewMembers (not crew); preserve
-      // existing ShowBodyProps { slug, showId, viewer, data }.
-      const crew = data.crewMembers.find((c) => c.id === resolved.crewMemberId);
+      const supabase = createSupabaseServiceRoleClient();
+      const { data: show } = await supabase.from('shows')
+        .select('id').eq('slug', slug).maybeSingle();
+      const viewer = { kind: 'crew' as const, crewMemberId: result.crewMemberId };
+      const data = await getShowForViewer(show!.id, viewer);
+      const crew = data.crewMembers.find((c) => c.id === result.crewMemberId);
       return (
         <ShowBody
           slug={slug}
-          showId={showId as string}
+          showId={show!.id}
           viewer={viewer}
           data={data}
           identityChip={crew ? { name: crew.name, role: crew.role, shareToken } : null}
         />
       );
     }
-    case 'show_unavailable':
-      notFound();
-    case 'infra_error':
-      return <TerminalFailure code={resolved.code} />;
-    case 'no_selection':
-    case 'epoch_stale':
-    case 'removed_from_roster': {
-      // R2-F3 + R6-F2: destructure { data, error } AND wrap in try/catch
-      // for thrown faults. Infra → TerminalFailure, NOT empty-roster.
-      let rosterResp;
-      try {
-        rosterResp = await supabase
-          .from('crew_members')
-          .select('id, name, role, role_flags')
-          .eq('show_id', showId)
-          .order('name', { ascending: true });
-      } catch {
-        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+    case 'no_auth': {
+      // R41-R5: SignInOrSkipGate is the first-contact surface. If
+      // ?gate=skip is present (user dismissed the gate), render the
+      // picker directly instead.
+      if (!gateSkip) {
+        return <SignInOrSkipGate slug={slug} shareToken={shareToken} />;
       }
-      if (rosterResp.error) return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
-      const roster = rosterResp.data ?? [];
+      const roster = await loadRoster(slug);  // helper inline or extracted
       return (
         <PickerInterstitial
-          slug={slug}
-          shareToken={shareToken}
-          showId={showId as string}
+          slug={slug} shareToken={shareToken}
+          showId={result.showId}
           roster={roster}
-          banner={
-            resolved.kind === 'epoch_stale' ? 'PICKER_EPOCH_STALE_BANNER'
-            : resolved.kind === 'removed_from_roster' ? 'PICKER_REMOVED_FROM_ROSTER_BANNER'
-            : null
-          }
-          staleCleanupHint={
-            resolved.kind === 'epoch_stale' || resolved.kind === 'removed_from_roster'
-              ? { expectedEpoch: resolved.expectedEpoch, expectedCrewMemberId: resolved.expectedCrewMemberId }
-              : null
-          }
+          banner={null}
+          staleCleanupHint={null}
         />
       );
+    }
+    case 'epoch_stale':
+    case 'removed_from_roster':
+    case 'identity_invalidated': {
+      // R41-R15: all three stale-credential kinds mount StaleCleanupAutoSubmit
+      // with the expectedEpoch + expectedCrewMemberId from the resolver.
+      // R41-R35: identity_invalidated has a single reason 'claimed_after_pick'
+      // (the ambiguous_email reason was removed because the schema constraint
+      // makes the state impossible).
+      const roster = await loadRoster(slug);
+      const banner =
+        result.kind === 'epoch_stale' ? 'PICKER_EPOCH_STALE_BANNER'
+        : result.kind === 'removed_from_roster' ? 'PICKER_REMOVED_FROM_ROSTER_BANNER'
+        : 'PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER';  // identity_invalidated/claimed_after_pick (R41-R35)
+      return (
+        <PickerInterstitial
+          slug={slug} shareToken={shareToken}
+          showId={result.showId}
+          roster={roster}
+          banner={banner}
+          staleCleanupHint={{
+            expectedEpoch: result.expectedEpoch,
+            expectedCrewMemberId: result.expectedCrewMemberId,
+          }}
+        />
+      );
+    }
+    case 'show_unavailable':
+      notFound();
+    default: {
+      // assertNever exhaustiveness — TypeScript compile-error if any kind missed.
+      const _exhaustive: never = result;
+      return _exhaustive;
     }
   }
 }
 ```
+
+**Roster loader** (referenced as `loadRoster(slug)` in the switch above):
+
+```ts
+async function loadRoster(slug: string): Promise<RosterRow[]> {
+  const supabase = createSupabaseServiceRoleClient();
+  // R41-R6 PickerInterstitial deactivated-row contract requires
+  // claimed_via_oauth_at to be in the selected fields.
+  const { data, error } = await supabase
+    .from('crew_members')
+    .select('id, name, role, role_flags, claimed_via_oauth_at')
+    .eq('show_id', (await supabase.from('shows').select('id').eq('slug', slug).single()).data!.id)
+    .order('name', { ascending: true });
+  if (error) throw new Error('roster lookup failed');
+  return data ?? [];
+}
+```
+
+**Exhaustiveness tests** (per spec §10.2 R41-R7 + Task B7): exercise each of the 11 arms with fixture inputs; assert response shape per arm (404 for archived/unpublished/show_unavailable; redirect to picker-bootstrap for needs_picker_bootstrap; SignInOrSkipGate for no_auth without `?gate=skip`; PickerInterstitial banner for stale kinds; ShowBody render for resolved/admin; TerminalFailure for infra_error). Structural test: file imports `resolveShowPageAccess` and does NOT import `resolvePickerSelection`, `validateGoogleSession`, or `cookies` (for SET). **Deactivated-row regression** (per spec §7.2 + §10.2): fixture seeds a roster with one `claimed_via_oauth_at IS NOT NULL` row + several NULL rows; assert: (a) claimed row's `<button>` has `data-claimed="true"`, lock icon, and form `action="/auth/sign-in?next=..."`; (b) NULL rows render with the normal selectIdentity form action; (c) hand-crafted POST submitting claimed crewMemberId to selectIdentity returns PICKER_IDENTITY_CLAIMED (server-side defense per Task B3-pre R41 Fix-2).
 
 - [ ] **Step 3: Delete the old slug-only file + update consumers**
 
@@ -2321,7 +2286,16 @@ import { selectIdentity } from '@/lib/auth/picker/selectIdentity';
 import { messageFor } from '@/lib/messages/lookup';
 import { StaleCleanupAutoSubmit } from './_StaleCleanupAutoSubmit';
 
-type RosterRow = { id: string; name: string; role: string; role_flags: string[] };
+// R41 PickerInterstitial RosterRow includes claimed_via_oauth_at per §7.2
+// deactivated-row contract. The page-route loader (Task C1) MUST select
+// this field so claimed rows can render as visually disabled.
+type RosterRow = {
+  id: string;
+  name: string;
+  role: string;
+  role_flags: string[];
+  claimed_via_oauth_at: string | null;  // R41 §7.2 deactivated-row predicate
+};
 
 export function PickerInterstitial({
   slug, shareToken, showId, roster, banner, staleCleanupHint,
@@ -2330,7 +2304,7 @@ export function PickerInterstitial({
   shareToken: string;
   showId: string;
   roster: RosterRow[];
-  banner: 'PICKER_EPOCH_STALE_BANNER' | 'PICKER_REMOVED_FROM_ROSTER_BANNER' | null;
+  banner: 'PICKER_EPOCH_STALE_BANNER' | 'PICKER_REMOVED_FROM_ROSTER_BANNER' | 'PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER' | null;
   staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null;
 }) {
   return (
@@ -2353,35 +2327,70 @@ export function PickerInterstitial({
         </div>
       ) : (
         <ul data-testid="picker-roster-list" className="w-full max-w-90 md:max-w-120 mt-3 space-y-1.25">
-          {roster.map((c) => (
-            <li key={c.id}>
-              <form action={selectIdentity}>
-                <input type="hidden" name="slug" value={slug} />
-                <input type="hidden" name="shareToken" value={shareToken} />
-                <input type="hidden" name="crewMemberId" value={c.id} />
-                <button
-                  type="submit"
-                  data-testid="picker-roster-row"
-                  data-crew-member-id={c.id}
-                  className="w-full min-h-11 px-3 flex items-center justify-between bg-card border border-border rounded-[9px] hover:bg-accent focus:bg-accent transition-colors"
+          {roster.map((c) => {
+            // R41 §7.2 deactivated-row contract: rows whose underlying crew
+            // member is OAuth-claimed render as visually disabled. The form
+            // action submits to /auth/sign-in (NOT selectIdentity) so the
+            // user completes their intent via OAuth. R41-R35: ambiguous-
+            // email predicate REMOVED (schema prevents the state).
+            const isClaimed = c.claimed_via_oauth_at !== null;
+            const tokenizedUrl = `/show/${slug}/${shareToken}`;
+            return (
+              <li key={c.id}>
+                <form
+                  action={isClaimed ? `/auth/sign-in?next=${encodeURIComponent(tokenizedUrl)}` : selectIdentity}
+                  method={isClaimed ? 'GET' : undefined}
                 >
-                  <span className="text-xs font-semibold">{c.name}</span>
-                  {c.role && (
-                    <span
-                      className={[
-                        'text-[8px] font-semibold rounded-full px-1.75 py-0.5',
-                        c.role_flags.includes('LEAD')
-                          ? 'bg-(--accent) text-(--accent-foreground)'
-                          : 'bg-muted text-muted-foreground',
-                      ].join(' ')}
-                    >
-                      {c.role}
-                    </span>
+                  {!isClaimed && (
+                    <>
+                      <input type="hidden" name="slug" value={slug} />
+                      <input type="hidden" name="shareToken" value={shareToken} />
+                      <input type="hidden" name="crewMemberId" value={c.id} />
+                    </>
                   )}
-                </button>
-              </form>
-            </li>
-          ))}
+                  <button
+                    type="submit"
+                    data-testid="picker-roster-row"
+                    data-crew-member-id={c.id}
+                    data-claimed={isClaimed ? 'true' : 'false'}
+                    className={[
+                      'w-full min-h-11 px-3 flex items-center justify-between border border-border rounded-[9px] transition-colors',
+                      isClaimed
+                        ? 'bg-muted text-muted-foreground cursor-pointer'
+                        : 'bg-card hover:bg-accent focus:bg-accent',
+                    ].join(' ')}
+                  >
+                    <span className="text-xs font-semibold flex items-center gap-1.5">
+                      {isClaimed && (
+                        <span
+                          aria-label={messageFor('IDENTITY_DEACTIVATED_LOCK_HINT').crewFacing}
+                          className="text-muted-foreground"
+                        >
+                          {/* 16px lock icon — R41 §7.2 */}
+                          🔒
+                        </span>
+                      )}
+                      {c.name}
+                    </span>
+                    {c.role && (
+                      <span
+                        className={[
+                          'text-[8px] font-semibold rounded-full px-1.75 py-0.5',
+                          isClaimed
+                            ? 'bg-muted text-muted-foreground'
+                            : c.role_flags.includes('LEAD')
+                              ? 'bg-(--accent) text-(--accent-foreground)'
+                              : 'bg-muted text-muted-foreground',
+                        ].join(' ')}
+                      >
+                        {c.role}
+                      </span>
+                    )}
+                  </button>
+                </form>
+              </li>
+            );
+          })}
         </ul>
       )}
       {staleCleanupHint && (
@@ -2734,7 +2743,7 @@ Per spec §10.2 R41-R1 Fix-3: every API consumer in §6 (`/api/realtime/subscrib
 
 Tests:
 - For EACH of the 6 API consumers: construct request with valid Google session + matching crew row + no picker cookie. Assert status === 401. If any flips to 200, an unintended Google-session arm has been reintroduced.
-- Structural guard (extend the existing picker-resolver-callsite-contract test): grep each API-route source file. Assert that `validateGoogleSession` is NOT imported anywhere in `app/api/**` outside the test directory; assert `resolveShowPageAccess` is NOT imported in `app/api/**` (it's page-route-only per R41-R1 Fix-3 allowlist).
+- Structural guard (extend the existing picker-resolver-callsite-contract test): grep the SIX §6 API consumer source files (`/api/realtime/subscriber-token`, `/api/asset/diagram`, `/api/asset/reel`, `/api/asset/agenda`, `/api/show/[slug]/version`, `/api/report`). Assert `validateGoogleSession` is NOT imported in those six. **Important allowlist note**: `app/api/auth/picker-bootstrap/route.ts` IS allowed to import `validateGoogleSession` per the spec §10.1 no-jwt-surface structural allowlist (the bootstrap handler legitimately needs the Google session to lazy-mint the picker cookie). The guard targets DATA APIs only, not the auth bootstrap handler. Also assert `resolveShowPageAccess` is NOT imported anywhere in `app/api/**` (it's page-route-only per R41-R1 Fix-3 allowlist — the only legal importer is `app/show/[slug]/[shareToken]/page.tsx`).
 
 ```bash
 git commit -am "test(api): Google-session-without-cookie rejection matrix (D5; R41-R1)"
