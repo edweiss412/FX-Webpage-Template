@@ -1258,16 +1258,16 @@ describe('decodePickerCookie millisecond-timestamp acceptance (P-R15 Fix-1)', ()
   const key = 'a'.repeat(64);
 
   it('decodes a realistic 2026-era Unix-ms timestamp (1737028800123)', () => {
-    const env = { v: 1 as const, selections: { 'show-uuid-1111-2222-3333-444444444444':
+    const env = { v: 1 as const, selections: { '11111111-1111-1111-1111-111111111111':
       { id: '11111111-2222-3333-4444-555555555555', e: 1, t: 1737028800123 } } };
     const encoded = encodePickerCookie(env, key);
     const decoded = decodePickerCookie(encoded, key);
     expect(decoded).not.toBeNull();
-    expect(decoded?.selections['show-uuid-1111-2222-3333-444444444444']?.t).toBe(1737028800123);
+    expect(decoded?.selections['11111111-1111-1111-1111-111111111111']?.t).toBe(1737028800123);
   });
 
   it('decodes Number.MAX_SAFE_INTEGER as the upper bound', () => {
-    const env = { v: 1 as const, selections: { 'show-uuid-1111-2222-3333-444444444444':
+    const env = { v: 1 as const, selections: { '11111111-1111-1111-1111-111111111111':
       { id: '11111111-2222-3333-4444-555555555555', e: 1, t: Number.MAX_SAFE_INTEGER } } };
     const encoded = encodePickerCookie(env, key);
     const decoded = decodePickerCookie(encoded, key);
@@ -1279,7 +1279,7 @@ describe('decodePickerCookie millisecond-timestamp acceptance (P-R15 Fix-1)', ()
     // cap still catches overflow attempts. JSON.parse round-trips this as
     // a number; the integer-ness check + cap should reject.
     const payload = JSON.stringify({ v: 1, selections: {
-      'show-uuid-1111-2222-3333-444444444444': {
+      '11111111-1111-1111-1111-111111111111': {
         id: '11111111-2222-3333-4444-555555555555', e: 1,
         t: Number.MAX_SAFE_INTEGER + 1,
       }
@@ -1290,7 +1290,7 @@ describe('decodePickerCookie millisecond-timestamp acceptance (P-R15 Fix-1)', ()
 
   it('REJECTS negative t', () => {
     const payload = JSON.stringify({ v: 1, selections: {
-      'show-uuid-1111-2222-3333-444444444444': {
+      '11111111-1111-1111-1111-111111111111': {
         id: '11111111-2222-3333-4444-555555555555', e: 1, t: -1,
       }
     }});
@@ -1300,7 +1300,7 @@ describe('decodePickerCookie millisecond-timestamp acceptance (P-R15 Fix-1)', ()
 
   it('REJECTS fractional t (non-integer)', () => {
     const payload = JSON.stringify({ v: 1, selections: {
-      'show-uuid-1111-2222-3333-444444444444': {
+      '11111111-1111-1111-1111-111111111111': {
         id: '11111111-2222-3333-4444-555555555555', e: 1, t: 1737028800123.5,
       }
     }});
