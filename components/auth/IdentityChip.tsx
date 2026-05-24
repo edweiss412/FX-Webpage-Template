@@ -59,6 +59,7 @@ export function IdentityChip({
         <button
           type="submit"
           data-testid="identity-chip-not-you"
+          aria-label="Switch crew member"
           className="min-h-tap-min text-xs text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           Not you?

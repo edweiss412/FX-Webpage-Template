@@ -44,6 +44,43 @@ describe("<TerminalFailure>", () => {
     expect(stripped).not.toContain("PICKER_RESOLVER_LOOKUP_FAILED");
   });
 
+  test("renders a custom title override when provided", () => {
+    const { getByTestId } = render(
+      <TerminalFailure
+        code="PICKER_RESOLVER_LOOKUP_FAILED"
+        title="We’re having trouble loading your shows"
+      />,
+    );
+    expect(getByTestId("terminal-failure").textContent).toContain(
+      "We’re having trouble loading your shows",
+    );
+    // Default title (show-context phrasing) must NOT also render.
+    expect(getByTestId("terminal-failure").textContent).not.toContain(
+      "this show",
+    );
+  });
+
+  test("renders a 'Try again' link when retryHref is provided (recovery affordance)", () => {
+    const { getByTestId, queryByTestId } = render(
+      <TerminalFailure
+        code="PICKER_RESOLVER_LOOKUP_FAILED"
+        retryHref="/show/sample-show/a"
+      />,
+    );
+    const retry = getByTestId("terminal-failure-retry") as HTMLAnchorElement;
+    expect(retry.tagName).toBe("A");
+    expect(retry.getAttribute("href")).toBe("/show/sample-show/a");
+    expect(retry.textContent).toContain("Try again");
+    // Without retryHref the link must not appear (regression catch).
+    cleanup();
+    const { queryByTestId: q2 } = render(
+      <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />,
+    );
+    expect(q2("terminal-failure-retry")).toBeNull();
+    // queryByTestId reference kept lint-friendly:
+    expect(queryByTestId).toBeDefined();
+  });
+
   test("falls back to dougFacing when crewFacing is null", () => {
     // Find a real catalog entry where crewFacing is null AND dougFacing
     // is populated. If none exists in the current catalog, that's

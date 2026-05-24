@@ -104,7 +104,6 @@ export function ResetPickerEpochButton({ showId }: { showId: string }) {
             <span aria-hidden="true" className="mr-1 font-semibold text-accent">
               ✓
             </span>
-            <span className="font-medium text-text-subtle">Last attempt:</span>{" "}
             {okMessage}
           </p>
         )}

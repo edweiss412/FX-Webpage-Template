@@ -131,7 +131,12 @@ export default async function ShowPage({
       try {
         data = await getShowForViewer(result.showId, viewer);
       } catch {
-        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+        return (
+          <TerminalFailure
+            code="PICKER_RESOLVER_LOOKUP_FAILED"
+            retryHref={`/show/${slug}/${shareToken}`}
+          />
+        );
       }
       return (
         <ShowBody
@@ -153,7 +158,12 @@ export default async function ShowPage({
       try {
         data = await getShowForViewer(result.showId, viewer);
       } catch {
-        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+        return (
+          <TerminalFailure
+            code="PICKER_RESOLVER_LOOKUP_FAILED"
+            retryHref={`/show/${slug}/${shareToken}`}
+          />
+        );
       }
       const crew = data.crewMembers.find((c) => c.id === result.crewMemberId);
       return (
@@ -190,7 +200,12 @@ export default async function ShowPage({
       try {
         roster = await loadRoster(result.showId);
       } catch {
-        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+        return (
+          <TerminalFailure
+            code="PICKER_RESOLVER_LOOKUP_FAILED"
+            retryHref={`/show/${slug}/${shareToken}`}
+          />
+        );
       }
       return (
         <PickerInterstitial
@@ -211,7 +226,12 @@ export default async function ShowPage({
       try {
         roster = await loadRoster(result.showId);
       } catch {
-        return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+        return (
+          <TerminalFailure
+            code="PICKER_RESOLVER_LOOKUP_FAILED"
+            retryHref={`/show/${slug}/${shareToken}`}
+          />
+        );
       }
       const banner =
         result.kind === "epoch_stale"

@@ -17,6 +17,7 @@
  *     to admin_alerts via the action body, not to the UI).
  */
 
+import { AlertTriangle } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
@@ -123,8 +124,9 @@ export function RotateShareTokenButton({
           type="button"
           onClick={onRotateClick}
           data-testid="admin-rotate-share-token-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-2 rounded-sm border border-warning-text/60 bg-surface px-4 py-2 font-medium text-warning-text transition-colors duration-fast hover:bg-warning-bg/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
+          <AlertTriangle aria-hidden="true" size={16} />
           Rotate share-token
         </button>
         {newUrl && (
@@ -147,6 +149,7 @@ export function RotateShareTokenButton({
             <div className="flex items-center gap-2">
               <code
                 data-testid="admin-rotate-share-token-url"
+                title={newUrl}
                 className="min-w-0 flex-1 truncate rounded-sm bg-surface px-2 py-1 text-xs text-text-strong"
               >
                 {newUrl}
@@ -155,6 +158,8 @@ export function RotateShareTokenButton({
                 type="button"
                 onClick={() => void onCopyClick(newUrl)}
                 data-testid="admin-rotate-share-token-copy-button"
+                aria-live="polite"
+                aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
                 className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 {copied ? "Copied" : "Copy"}
