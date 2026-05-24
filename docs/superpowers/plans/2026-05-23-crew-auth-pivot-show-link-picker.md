@@ -3326,6 +3326,38 @@ git commit -am "feat(admin): Reset Picker Epoch button (F2)"
 
 The pivot makes `show_share_tokens` private (REVOKE ALL from anon/authenticated) so it's not directly SELECTable. Admin UI needs a read path to display the current share URL so Doug can copy and share. Without this, after migration the share URL exists in the DB but nowhere in the UI — Doug has no way to obtain it short of querying the DB directly.
 
+**R41 P-R17 Fix-2 — cookie-bound caller contract (Finding 2).** `public.is_admin()` reads `auth.jwt()->>'app_metadata'->>'role'` from the session JWT. **Service-role clients have no JWT** (service-role keys bypass RLS but `auth.jwt()` returns NULL), so `public.is_admin()` evaluates `false` for service-role callers. If `loadShowShareToken` constructs a service-role client (the common admin-data-loader anti-pattern in this codebase), the RPC silently returns NULL and Doug's `<CurrentShareLinkPanel>` renders empty — he can't obtain the share URL. This is the same trust-boundary lesson the plan already documents for `/me` (Task E2 uses `createSupabaseServerClient()` not `serviceRole`).
+
+**Required call-site shape:**
+
+```ts
+// lib/data/loadShowShareToken.ts (admin-only read path)
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/requireAdmin';
+
+export async function loadShowShareToken(showId: string): Promise<string | null> {
+  // Gate: admin-only surface (also enforced by admin_read_share_token's
+  // in-RPC is_admin() check, but redundancy here gives a clean typed
+  // error before the round-trip).
+  await requireAdmin();
+
+  // R41 P-R17 Fix-2: cookie-bound client carries the admin's JWT so
+  // `public.is_admin()` resolves true inside the SECURITY DEFINER RPC.
+  // Service-role would bypass RLS but evaluate `auth.jwt()` as NULL,
+  // making is_admin() return false → RPC returns NULL → component
+  // renders empty share URL. The cookie-bound client is the ONLY
+  // legal caller of this RPC.
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc('admin_read_share_token', { p_show_id: showId });
+  if (error) {
+    // AGENTS.md invariant 9: distinguish returned-error from thrown-error.
+    // Caller (the panel) renders a terminal-failure HTML hint.
+    throw new Error(`admin_read_share_token failed: ${error.message ?? String(error)}`);
+  }
+  return typeof data === 'string' ? data : null;
+}
+```
+
 **SQL:**
 ```sql
 -- supabase/migrations/20260523000010_admin_read_share_token.sql
@@ -3342,10 +3374,16 @@ as $$
    limit 1
 $$;
 revoke all on function public.admin_read_share_token(uuid) from public;
-grant execute on function public.admin_read_share_token(uuid) to authenticated, service_role;
+-- R41 P-R17 Fix-2: GRANT to `authenticated` ONLY (NOT service_role). The
+-- service_role bypasses RLS but `auth.jwt()` returns NULL under it, so
+-- `public.is_admin()` evaluates false and the RPC returns NULL anyway.
+-- Removing the service_role grant prevents a future caller from mistakenly
+-- using serviceRole.rpc() and silently getting NULL; the grant is the
+-- structural defense against the anti-pattern.
+grant execute on function public.admin_read_share_token(uuid) to authenticated;
 ```
 
-**Component:** displays the canonical share URL `https://crew.fxav.show/show/<slug>/<token>` (or the env-configured origin) with a Copy button. Updates after Rotate (via revalidate). Tests: (a) loads token + renders URL; (b) non-admin → no token (RPC returns null → component renders an error state); (c) post-rotate URL reflects the new token.
+**Component:** displays the canonical share URL `https://crew.fxav.show/show/<slug>/<token>` (or the env-configured origin) with a Copy button. Updates after Rotate (via revalidate). Tests: (a) loads token + renders URL; (b) non-admin → no token (RPC returns null → component renders an error state); (c) post-rotate URL reflects the new token; (d) **R41 P-R17 Fix-2 service-role regression**: invoke `loadShowShareToken` with a service-role-constructed client (test stash). Assert it fails — either at the helper boundary (cookie-bound client construction) OR at the RPC (service_role no longer in the grant list → permission-denied). EITHER failure mode is acceptable; the contract is "service-role MUST NOT succeed." (e) **R41 P-R17 Fix-2 cookie-bound happy path**: invoke with the canonical cookie-bound admin client; assert returns the live share token.
 
 ```bash
 git commit -am "feat(admin): CurrentShareLinkPanel + admin_read_share_token RPC (R13-F1; F2.5)"
@@ -3903,6 +3941,13 @@ git commit -am "test(meta): extend infra contract for picker + R41 auth surfaces
 ### Task H4: Extend `tests/auth/advisoryLockRpcDeadlock.test.ts`
 
 Assert: `reset_picker_epoch_atomic` AND `rotate_show_share_token` are the ONLY writers of `shows.picker_epoch` + `shows.picker_epoch_bumped_at`; both acquire the lock at exactly one layer inside their SECURITY DEFINER bodies; their JS-side Server Action wrappers make NO advisory-lock call.
+
+**R41 P-R17 Fix-1 — extend the lock-holder inventory with `claim_oauth_identity` (Task A8).** A8 is a multi-show lock-taking SECURITY DEFINER RPC: it materializes `v_locked_show_ids` from `crew_members` for the user's email then acquires `pg_advisory_xact_lock` on EACH show (ordered by `drive_file_id` to prevent cross-transaction deadlock per R41-R10). H4 MUST register it alongside `reset_picker_epoch_atomic` and `rotate_show_share_token`:
+
+- **Single-holder pinning**: assert `claim_oauth_identity` is the SOLE acquirer of `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for the shows it touches when called from C6 (picker-bootstrap) and C7 (callback claim-stamp hook). The JS-side call sites at `app/api/auth/picker-bootstrap/route.ts` and `app/auth/callback/route.ts` make **NO** `pg_advisory_xact_lock` / `pg_try_advisory_xact_lock` call — wrapping the RPC in a JS-side lock would deadlock against the in-RPC loop (the M5 R20 deadlock class). H4 grep-asserts neither file contains `advisory_xact_lock` or `advisory_lock` strings.
+- **Crew-members write inventory extension**: A8 mutates `crew_members.claimed_via_oauth_at`. Extend the H4 writer-inventory grep to cover `crew_members` UPDATE statements: `(update\s+public\.crew_members)|(\.from\(['"]crew_members['"]\)\.(update|insert|delete|upsert))`. Every match must be either (i) sync-time pre-pivot code paths (allowlisted), or (ii) `claim_oauth_identity`'s body (which holds the per-show lock for every affected row). NO other R41-era code path writes `crew_members.claimed_via_oauth_at`.
+- **Lock-ordering meta-test**: A8 acquires locks in deterministic `drive_file_id` order. H4 asserts the function body contains `order by s.drive_file_id` in the lock-acquisition loop AND the `for r in select ... loop perform pg_advisory_xact_lock(...) end loop` pattern (per R41-R10 explicit ordering — set-based `PERFORM` does not guarantee execution order).
+- **Cross-call-site sweep**: H4 grep-asserts no caller in `app/**` or `lib/**` performs `pg_try_advisory_xact_lock(... 'show:' ...)` wrapping a `.rpc('claim_oauth_identity', ...)` call. If such a wrapper appears, it's a CRITICAL deadlock vector identical to M5 R20 — fail CI immediately.
 
 Plus the grep-derived `shows` writer inventory per R23/R24: scan `(\.from\(['"]shows['"]\)\.(update|insert|delete|upsert))|(update\s+public\.shows)|(insert\s+into\s+public\.shows)|(delete\s+from\s+public\.shows)` and assert each match has advisory-lock topology coverage.
 
