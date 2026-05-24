@@ -2210,11 +2210,37 @@ async function cleanupStaleEntryCoreImpl(input: {
     });
   }
   revalidatePath(`/show/${input.slug}/${input.shareToken}`);
+
+  // R41 P-R18 Fix-1 (Finding 1): emit PICKER_SELECTION_RACE admin_alert
+  // per §8.4 catalog row contract. Cataloged code with
+  // admitsAdminAlertRow:true MUST have a producer per H7. The "cleaned"
+  // path is the only place a stale-epoch race actually MATERIALIZED
+  // (the no-op path was a race that resolved itself; no signal needed).
+  // Operators want to know that a stale cookie was detected and reaped
+  // so they can correlate against the recent Reset/Rotate event that
+  // bumped the epoch.
+  //
+  // Best-effort: alert failure does NOT roll back the cleanup (the
+  // delete is the user's intent; alert is observational). Nested
+  // try/catch.
+  try {
+    const { upsertAdminAlert } = await import('@/lib/adminAlerts/upsertAdminAlert');
+    await upsertAdminAlert({
+      showId: input.showId,
+      code: 'PICKER_SELECTION_RACE',
+      context: {
+        show_id: input.showId,
+        stale_epoch: input.expectedEpoch,
+        stale_crew_member_id: input.expectedCrewMemberId,
+      },
+    });
+  } catch { /* alert emission failure does not roll back cleanup */ }
+
   return { ok: true, action: 'cleaned' };
 }
 ```
 
-Critical test: race-safety — when `selectIdentity` writes a fresh entry between picker render and cleanup form auto-submit, cleanup is a no-op.
+Critical test: race-safety — when `selectIdentity` writes a fresh entry between picker render and cleanup form auto-submit, cleanup is a no-op AND **no PICKER_SELECTION_RACE alert is emitted** (the race resolved itself; signal is only for materialized stale-cookie deletions). R41 P-R18 Fix-1: in the "cleaned" path, assert exactly one upsertAdminAlert call with code='PICKER_SELECTION_RACE', context={show_id, stale_epoch, stale_crew_member_id}; in the "noop" path, assert ZERO upsertAdminAlert calls. Alert-failure regression: mock upsertAdminAlert to throw; assert cleanupStaleEntry STILL returns `{ ok: true, action: 'cleaned' }` and the cookie IS cleaned in the cookie store.
 
 ```bash
 git commit -am "feat(auth): cleanupStaleEntry compare-and-delete (R22; B5)"
@@ -2291,9 +2317,11 @@ git commit -m "feat(auth): resolveShowPageAccess page-route helper (B7; R41 §4.
 
 import { requireAdmin } from '@/lib/auth/requireAdmin';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { upsertAdminAlert } from '@/lib/adminAlerts/upsertAdminAlert';
+import { hashForLog } from '@/lib/email/hashForLog';
 
 export async function resetPickerEpoch(input: { showId: string }) {
-  await requireAdmin();
+  const adminCtx = await requireAdmin();  // returns the admin's identity for audit
   const supabase = await createSupabaseServerClient(); // cookie-bound!
   // R4-F2: try/catch wraps the .rpc call so thrown faults map to a
   // typed result instead of bubbling up as an uncataloged framework
@@ -2302,6 +2330,29 @@ export async function resetPickerEpoch(input: { showId: string }) {
     const { data: newEpoch, error } = await supabase
       .rpc('reset_picker_epoch_atomic', { p_show_id: input.showId });
     if (error) return { ok: false as const, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+
+    // R41 P-R18 Fix-1 (Finding 1): emit PICKER_EPOCH_RESET admin_alert per
+    // §8.4 catalog row contract. Cataloged code with admitsAdminAlertRow:true
+    // MUST have a producer call site per H7 producer-registry meta-test;
+    // without this emission the catalog gates fail CI OR (if catalog is
+    // weakened) operators lose the audit signal for who-reset-which-show.
+    // Best-effort: alert failure does NOT roll back the reset (the
+    // epoch bump is the user's intent; alert is observational).
+    try {
+      await upsertAdminAlert({
+        showId: input.showId,
+        code: 'PICKER_EPOCH_RESET',
+        context: {
+          show_id: input.showId,
+          new_epoch: newEpoch as number,
+          admin_email_hash: hashForLog(adminCtx.email),
+        },
+      });
+    } catch {
+      // Alert emission failed; the reset itself succeeded. Operators
+      // can correlate via the page-route revalidation log if needed.
+    }
+
     return { ok: true as const, new_epoch: newEpoch as number };
   } catch {
     return { ok: false as const, code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
@@ -2335,7 +2386,7 @@ export async function rotateShareToken(input: { showId: string }) {
 }
 ```
 
-Tests assert: (a) non-admin caller throws via `requireAdmin()`; (b) admin caller succeeds; (c) **R30: no `__Host-fxav_picker` Set-Cookie header is emitted**; (d) for rotate, the returned new_share_token matches `/^[0-9a-f]{64}$/` and is different from the pre-rotation value.
+Tests assert: (a) non-admin caller throws via `requireAdmin()`; (b) admin caller succeeds; (c) **R30: no `__Host-fxav_picker` Set-Cookie header is emitted**; (d) for rotate, the returned new_share_token matches `/^[0-9a-f]{64}$/` and is different from the pre-rotation value; (e) **R41 P-R18 Fix-1 PICKER_EPOCH_RESET admin_alert emission**: on successful reset, upsertAdminAlert is called exactly once with `{ showId: input.showId, code: 'PICKER_EPOCH_RESET', context: { show_id, new_epoch, admin_email_hash } }`; assert context.admin_email_hash is NOT the raw email (PII guard); idempotent re-reset on the same show increments occurrence_count via the upsert helper; (f) **R41 P-R18 Fix-1 alert-failure does NOT roll back**: mock upsertAdminAlert to throw; assert resetPickerEpoch STILL returns `{ ok: true, new_epoch: ... }` and the DB epoch IS bumped — alert is observational, not blocking.
 
 ```bash
 git commit -am "feat(auth): resetPickerEpoch + rotateShareToken admin Server Actions (B6)"
@@ -3987,6 +4038,8 @@ Remove all M9.5 catalog codes; assert new codes are present:
   - `PICKER_BOOTSTRAP_RPC_FAILED` — emitted by `app/api/auth/picker-bootstrap/route.ts` (Task C6) when `claim_oauth_identity` returns an error OR throws (fail-closed 502 per spec §4.7 R41-R7). The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'PICKER_BOOTSTRAP_RPC_FAILED'`) in `app/api/auth/picker-bootstrap/route.ts`. **Context (P-R9 Fix-2)**: `{ attempted_email_hash: text, rpc_error_code: text, rpc_error_message: text, route: text }` — NEVER raw email. H7 grep-asserts no `user_email` (raw) field appears in any `PICKER_BOOTSTRAP_RPC_FAILED` emission site; only `attempted_email_hash` is allowed.
   - `CALLBACK_CLAIM_THREW` — emitted by C7 callback claim-stamp hook when the claim block throws an exception (network fault, schema drift, undeclared SDK exception). Producer pattern: `upsertAdminAlert(.*'CALLBACK_CLAIM_THREW'` in `app/auth/callback/route.ts`. Context: `{ error_name: text }` only (no email/PII; the error name is sufficient for operator triage). show_id is NULL (no per-show scoping at callback time).
   - `OAUTH_IDENTITY_CLAIMED` — emitted by the callback claim-stamp hook (Task C7) when `claim_oauth_identity` SUCCEEDS in stamping `claimed_via_oauth_at` for ≥1 rows. The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'OAUTH_IDENTITY_CLAIMED'`) in `app/auth/callback/route.ts` (or the dedicated claim-stamp helper if extracted). **Per-row emission (P-R8 Fix-3)**: C7 emits ONE alert per row in `claim_oauth_identity` result's `claimed_rows` array; each alert is scoped to `show_id` (NOT NULL aggregate). Context shape: `{ crew_member_id: uuid, show_id: uuid, claimed_at_millis: bigint, user_email_hash: text }`. H7 asserts both (i) catalog row context-shape pinning matches this exact shape (4 named fields), AND (ii) producer-call shape pinning: `tests/auth/callback-claim-hook.test.ts` mocks `claim_oauth_identity` to return a 2-row `claimed_rows` and asserts upsertAdminAlert is called exactly twice with show_id per row. The aggregate-only `{ user_email, claimed_count }` shape is FORBIDDEN; H7 grep-asserts no `claimed_count` field appears in any OAUTH_IDENTITY_CLAIMED emission site.
+  - **R41 P-R18 Fix-1 — `PICKER_EPOCH_RESET`** — emitted by `lib/auth/picker/resetPickerEpoch.ts` (Task B6) when `reset_picker_epoch_atomic` RPC succeeds. Producer pattern: `upsertAdminAlert\s*\(\s*\{[\s\S]*?code:\s*['"]PICKER_EPOCH_RESET['"]` in that file. Context: `{ show_id: uuid, new_epoch: int, admin_email_hash: text }`. H7 asserts NO raw email/`user_email` field; only `admin_email_hash`. show_id is the affected show (NOT NULL). Alert emission is BEST-EFFORT — wrapped in inner try/catch so failure doesn't roll back the reset; the H7 producer-registry assertion is structural (call site exists), not behavioral (test the emission itself in Task B6's test list).
+  - **R41 P-R18 Fix-1 — `PICKER_SELECTION_RACE`** — emitted by `lib/auth/picker/cleanupStaleEntry.ts` (Task B5) on the "cleaned" code path ONLY (not the "noop" race-resolved-itself path). Producer pattern: `upsertAdminAlert\s*\(\s*\{[\s\S]*?code:\s*['"]PICKER_SELECTION_RACE['"]` in that file. Context: `{ show_id: uuid, stale_epoch: int, stale_crew_member_id: uuid }`. show_id is the affected show. H7 asserts NO raw email field — this is a cleanup-side race signal, not an identity event; PII has no place. Alert emission is BEST-EFFORT — wrapped in inner try/catch so failure doesn't roll back the cookie cleanup.
 - **R41 P-R7 Fix-2 — `PICKER_IDENTITY_CLAIMED` and `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` catalog entries** (rejection + banner; both have `crewFacing` copy; `PICKER_IDENTITY_CLAIMED` carries `tamper:true` in structured logs per spec §8.4 even on the redirect path).
 
 **Producer registry pattern (H7 enforcement; R41 P-R14 Fix-2):** The canonical helper is `upsertAdminAlert(input: { showId, code, context })` at `lib/adminAlerts/upsertAdminAlert.ts:33`. Call sites pass a SINGLE OBJECT argument with `code` on its own line (multi-line object literal). The H7 test cannot rely on a positional-arg grep like `upsertAdminAlert(.*'CODE'` — that pattern misses the canonical shape entirely.
