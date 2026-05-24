@@ -32,7 +32,15 @@ const CATALOG_ROUTER_FUNCTIONS = new Set([
   "setError",
   "setErrorCode",
 ]);
-const CATALOG_ROUTER_COMPONENTS = new Set(["ErrorExplainer", "HelpAffordance"]);
+const CATALOG_ROUTER_COMPONENTS = new Set([
+  "ErrorExplainer",
+  "HelpAffordance",
+  // M11.5 §B Task C0: TerminalFailure is the picker-chain's
+  // catalog-router surface — it accepts `code={MessageCode}` and
+  // renders the catalog crewFacing copy. Same allowlist contract as
+  // ErrorExplainer / HelpAffordance.
+  "TerminalFailure",
+]);
 
 export type ForbiddenCodeProvenance = {
   code: string;

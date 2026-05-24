@@ -36,7 +36,7 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getShowForViewer, type ShowForViewer } from "@/lib/data/getShowForViewer";
 import { PreviewBanner } from "@/components/admin/PreviewBanner";
-import { ShowBody } from "@/app/show/[slug]/_ShowBody";
+import { ShowBody } from "@/app/show/[slug]/[shareToken]/_ShowBody";
 
 const INFRA_ERROR_COPY =
   // not-subject:M5-D8 — admin-only infra-fallback copy. `ADMIN_SESSION_LOOKUP_FAILED`

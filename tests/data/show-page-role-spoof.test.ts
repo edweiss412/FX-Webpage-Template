@@ -9,7 +9,7 @@
  * The full Playwright role-spoof e2e is Task 4.8's job (it needs
  * FinancialsTile to actually probe the financials surface). This test is
  * the COMPILE-TIME FORM of the same contract: the source of
- * app/show/[slug]/page.tsx must NEVER read `searchParams.role` (or any
+ * app/show/[slug]/[shareToken]/page.tsx must NEVER read `searchParams.role` (or any
  * bracket-form equivalent). A future refactor that introduces such a read
  * — even unintentionally — fails this test before it can ship.
  *
@@ -28,7 +28,7 @@ import path from "node:path";
 
 describe("/show/[slug] page source — identity-only mock contract", () => {
   test("static-analysis: page source NEVER reads searchParams.role (plan §preamble)", () => {
-    const src = readFileSync(path.resolve(__dirname, "../../app/show/[slug]/page.tsx"), "utf8");
+    const src = readFileSync(path.resolve(__dirname, "../../app/show/[slug]/[shareToken]/page.tsx"), "utf8");
     expect(
       src,
       "searchParams.role must not be referenced — only ?crew and ?as are read",

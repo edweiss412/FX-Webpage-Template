@@ -2,7 +2,7 @@
  * tests/show/page-today-uses-now-utility.test.ts (M11 Phase C Task C.2 / AC-11.38)
  *
  * Structural assertion that the render-side `const today = ...` site in
- * `app/show/[slug]/_ShowBody.tsx` consumes the request-scoped time utility
+ * `app/show/[slug]/[shareToken]/_ShowBody.tsx` consumes the request-scoped time utility
  * `nowDate()` from `@/lib/time/now` instead of `new Date()` directly.
  *
  * The call site moved from `page.tsx` to `_ShowBody.tsx` in M10 §B Task 10.8
@@ -15,9 +15,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-describe("app/show/[slug]/_ShowBody.tsx — render-side time migration (AC-11.38)", () => {
+describe("app/show/[slug]/[shareToken]/_ShowBody.tsx — render-side time migration (AC-11.38)", () => {
   const src = readFileSync(
-    join(process.cwd(), "app/show/[slug]/_ShowBody.tsx"),
+    join(process.cwd(), "app/show/[slug]/[shareToken]/_ShowBody.tsx"),
     "utf8",
   );
 
