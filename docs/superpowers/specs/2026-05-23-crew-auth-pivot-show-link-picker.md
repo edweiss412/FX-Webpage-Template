@@ -611,8 +611,9 @@ try {
       const claimedRows: Array<{ crew_member_id: string; show_id: string; claimed_at_millis: number }>
         = result.claimed_rows ?? [];
       for (const row of claimedRows) {
-        await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', {
-          show_id: row.show_id,
+        await upsertAdminAlert({
+          showId: row.show_id,
+          code: 'OAUTH_IDENTITY_CLAIMED',
           context: {
             crew_member_id: row.crew_member_id,
             show_id: row.show_id,
@@ -630,8 +631,9 @@ try {
     error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
   });
   try {
-    await emitAdminAlert('CALLBACK_CLAIM_THREW', {
-      show_id: null,
+    await upsertAdminAlert({
+      showId: null,
+      code: 'CALLBACK_CLAIM_THREW',
       context: { error_name: err instanceof Error ? err.name : 'Unknown' },
     });
   } catch { /* alert emission can also fail; sign-in still proceeds */ }
