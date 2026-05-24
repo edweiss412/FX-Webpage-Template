@@ -378,7 +378,7 @@ No URL change. No query parameter. Browser history is untouched (the form POST i
 Admin clicks "Reset picker selections on this show" on /admin/show/<slug>
         │
         ▼
-Server Action: resetPickerEpoch({ showId })  [admin-only; requireAdmin()]
+Server Action: resetPickerEpoch({ showId })  [admin-only; requireAdminIdentity()]
         │
         ▼
 // Server Action invokes the RPC via the COOKIE-BOUND server client
@@ -386,8 +386,17 @@ Server Action: resetPickerEpoch({ showId })  [admin-only; requireAdmin()]
 // is_admin() gate. The existing admin-RPC pattern in the repo at
 // app/admin/show/[slug]/actions.ts uses createSupabaseServerClient()
 // (cookie-bound) precisely so the SQL gate sees the admin identity.
+//
+// R41 P-R19 + P-R20 amendment: use `requireAdminIdentity()` (NOT
+// `requireAdmin()`). `requireAdmin()` returns void per
+// lib/auth/requireAdmin.ts:125; `requireAdminIdentity()` returns
+// AdminIdentity = { email: string } per :51,53. The PICKER_EPOCH_RESET
+// admin_alert (per §8.4) requires `admin_email_hash` in its context,
+// which derives from the canonical email via hashForLog (Task A6.5).
+// The void variant cannot supply that input. Both helpers gate on the
+// same is_admin() RPC — the identity variant is strictly stronger.
 const supabase = await createSupabaseServerClient(); // cookie-bound
-await requireAdmin();                                 // JS-side gate
+const adminCtx = await requireAdminIdentity();        // { email: string }
 supabase.rpc('reset_picker_epoch_atomic', { p_show_id: showId })
         │
         ▼ (server-side, single SECURITY DEFINER function — atomic)
@@ -456,7 +465,7 @@ invalidation` for any already-open tabs (composite viewer_version_token
 has advanced via the new picker_epoch_bumped_at term in §4.6).
 ```
 
-**Advisory-lock topology (per AGENTS.md invariant 2 — non-negotiable).** `resetPickerEpoch` mutates `public.shows`, so it MUST run inside the per-show advisory lock. Lock key is `hashtext('show:' || drive_file_id)` — the canonical project key per `AGENTS.md` invariant 2. **Holder topology: the lock is acquired INSIDE the SECURITY DEFINER RPC `public.reset_picker_epoch_atomic`, which is the ONLY entry point that mutates `shows.picker_epoch`.** The Server Action `resetPickerEpoch` is a thin wrapper that validates admin identity via `requireAdmin()` then calls `.rpc('reset_picker_epoch_atomic', ...)`; the Server Action layer itself does NOT call `pg_advisory_xact_lock`. This is a single-holder design — no nested holder, no JS-side wrapper above the RPC, no other DB function or trigger touches the column. The single-holder invariant is pinned by an extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` (per §10.1 meta-test inventory). The RPC uses the blocking form (`pg_advisory_xact_lock`, not `pg_try_advisory_xact_lock`) because Reset is admin-initiated, not a cron path — invariant 2 directs admin/blocking paths to the blocking variant. If the lock is contended by a concurrent sync run for the same show, the RPC waits until the sync transaction commits, then proceeds. This is acceptable: Reset is a rare manual click, not a hot path.
+**Advisory-lock topology (per AGENTS.md invariant 2 — non-negotiable).** `resetPickerEpoch` mutates `public.shows`, so it MUST run inside the per-show advisory lock. Lock key is `hashtext('show:' || drive_file_id)` — the canonical project key per `AGENTS.md` invariant 2. **Holder topology: the lock is acquired INSIDE the SECURITY DEFINER RPC `public.reset_picker_epoch_atomic`, which is the ONLY entry point that mutates `shows.picker_epoch`.** The Server Action `resetPickerEpoch` is a thin wrapper that validates admin identity via `requireAdminIdentity()` (P-R19/P-R20 amendment — see Decision-7 rationale at §3) then calls `.rpc('reset_picker_epoch_atomic', ...)`; the Server Action layer itself does NOT call `pg_advisory_xact_lock`. This is a single-holder design — no nested holder, no JS-side wrapper above the RPC, no other DB function or trigger touches the column. The single-holder invariant is pinned by an extension to `tests/auth/advisoryLockRpcDeadlock.test.ts` (per §10.1 meta-test inventory). The RPC uses the blocking form (`pg_advisory_xact_lock`, not `pg_try_advisory_xact_lock`) because Reset is admin-initiated, not a cron path — invariant 2 directs admin/blocking paths to the blocking variant. If the lock is contended by a concurrent sync run for the same show, the RPC waits until the sync transaction commits, then proceeds. This is acceptable: Reset is a rare manual click, not a hot path.
 
 **Why a SECURITY DEFINER RPC rather than an in-Server-Action transaction (R7 finding).** The Supabase JS client (`tx.rpc(...)`) cannot share a raw Postgres transaction with subsequent client calls — each `.rpc()` invocation runs in its own implicit transaction. Holding the lock, doing the UPDATE, and calling `publish_show_invalidation` from THREE separate `tx.rpc(...)` calls would split them across three transactions, defeating the atomicity AGENTS.md invariant 2 requires. The only way to have lock + UPDATE + publish atomic is to put them all inside one SQL function body. `public.reset_picker_epoch_atomic(p_show_id uuid)` is that function. Per parent spec §8 the existing `publish_show_invalidation(uuid)` SQL helper exists at `supabase/migrations/20260503000000_publish_show_invalidation_helper.sql` and is callable from inside another SECURITY DEFINER function via `PERFORM public.publish_show_invalidation(p_show_id)`.
 
@@ -611,16 +620,27 @@ try {
       const claimedRows: Array<{ crew_member_id: string; show_id: string; claimed_at_millis: number }>
         = result.claimed_rows ?? [];
       for (const row of claimedRows) {
-        await upsertAdminAlert({
-          showId: row.show_id,
-          code: 'OAUTH_IDENTITY_CLAIMED',
-          context: {
-            crew_member_id: row.crew_member_id,
-            show_id: row.show_id,
-            claimed_at_millis: row.claimed_at_millis,
-            user_email_hash: hashForLog(canonicalEmail),
-          },
-        });
+        // R41 P-R20 Fix-2: inner try/catch isolates each per-row alert
+        // emission so a single alert-infra failure doesn't poison the
+        // rest of the loop or get misclassified as CALLBACK_CLAIM_THREW.
+        try {
+          await upsertAdminAlert({
+            showId: row.show_id,
+            code: 'OAUTH_IDENTITY_CLAIMED',
+            context: {
+              crew_member_id: row.crew_member_id,
+              show_id: row.show_id,
+              claimed_at_millis: row.claimed_at_millis,
+              user_email_hash: hashForLog(canonicalEmail),
+            },
+          });
+        } catch (alertErr) {
+          logger.error('OAUTH_IDENTITY_CLAIMED per-row alert emission failed', {
+            emailHash: hashForLog(canonicalEmail),
+            showId: row.show_id,
+            error: alertErr instanceof Error ? { name: alertErr.name, message: alertErr.message } : String(alertErr),
+          });
+        }
       }
     }
   }

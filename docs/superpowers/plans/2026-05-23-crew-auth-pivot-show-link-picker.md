@@ -3117,20 +3117,43 @@ try {
       for (const row of claimedRows) {
         // R41 P-R13 Fix-2 — canonical helper signature: upsertAdminAlert
         // takes a single object { showId, code, context } per
-        // lib/adminAlerts/upsertAdminAlert.ts. The earlier `emitAdminAlert`
-        // name was a phantom; the H7 producer registry's grep pattern
-        // (upsertAdminAlert(...'<CODE>'...)) only matches this exact
-        // helper call.
-        await upsertAdminAlert({
-          showId: row.show_id,  // per-show alert (NOT NULL)
-          code: 'OAUTH_IDENTITY_CLAIMED',
-          context: {
-            crew_member_id: row.crew_member_id,
-            show_id: row.show_id,
-            claimed_at_millis: row.claimed_at_millis,
-            user_email_hash: hashForLog(canonicalEmail),  // avoid PII in alerts
-          },
-        });
+        // lib/adminAlerts/upsertAdminAlert.ts.
+        //
+        // R41 P-R20 Fix-2 (Finding 2): wrap EACH per-row alert in its own
+        // try/catch. Without this, if alert N throws (alert-infra failure,
+        // PostgREST rate-limit, transient DB error), the loop aborts at N,
+        // control jumps to the OUTER catch which emits
+        // CALLBACK_CLAIM_THREW — misclassifying the failure (the claim
+        // ITSELF succeeded; only the audit-emission failed) AND losing
+        // every per-row alert for rows N+1..end. The audit trail becomes
+        // partial exactly when an alert-infra failure is most worth
+        // recording. Inner try/catch isolates each row's emission so
+        // one failure doesn't poison the rest of the loop; the outer
+        // catch is reserved for genuine claim-block failures.
+        try {
+          await upsertAdminAlert({
+            showId: row.show_id,  // per-show alert (NOT NULL)
+            code: 'OAUTH_IDENTITY_CLAIMED',
+            context: {
+              crew_member_id: row.crew_member_id,
+              show_id: row.show_id,
+              claimed_at_millis: row.claimed_at_millis,
+              user_email_hash: hashForLog(canonicalEmail),  // avoid PII in alerts
+            },
+          });
+        } catch (alertErr) {
+          // Per-row alert emission failed. Log structured signal so
+          // operators can correlate; continue to next row. We do NOT
+          // re-classify as CALLBACK_CLAIM_THREW (the claim succeeded).
+          // Log shape mirrors the outer catch — hashed email, error
+          // name+message only, NO PII.
+          logger.error('OAUTH_IDENTITY_CLAIMED per-row alert emission failed', {
+            emailHash: hashForLog(canonicalEmail),
+            showId: row.show_id,
+            crewMemberId: row.crew_member_id,
+            error: alertErr instanceof Error ? { name: alertErr.name, message: alertErr.message } : String(alertErr),
+          });
+        }
       }
     }
   }
@@ -3161,7 +3184,7 @@ try {
 // The §10.1 meta-test grep-asserts this file does NOT contain that call.
 ```
 
-Tests: (a) exchangeCodeForSession called first; (b) claim_oauth_identity called with canonicalized email; (c) NO Set-Cookie for `__Host-fxav_picker` in response (R41-R6); (d) **R41 P-R8 Fix-3**: when `claimed_rows.length = N > 0`, upsertAdminAlert called EXACTLY N times, once per row, with `show_id` set to the row's show_id (NOT NULL aggregate) and `context: { crew_member_id, show_id, claimed_at_millis, user_email_hash }` — assert the full context shape on each call; (e) idempotent re-invocation: re-sign-in returns `claimed_count=0` + `claimed_rows=[]`, ZERO upsertAdminAlert calls (no spam); (f) RPC failure path logs error and continues (sign-in still succeeds; bootstrap retries on next visit); (g) **R41 P-R8 Fix-3 cross-show**: seed Alice with crew_members in shows S1 and S2; assert ONE alert with `show_id=S1` and ONE alert with `show_id=S2`, NOT one aggregate alert with `show_id=NULL`; (h) **R41 P-R8 Fix-3 PII**: assert no alert context contains the raw email (only the hashed form); (i) **R41 P-R9 Fix-1 returned-error vs thrown-error matrix**: (i.1) `supabase.auth.getUser()` returns `{ data: { user: null }, error: { name: 'AuthError', ... } }` → callback redirects to `next`, no Set-Cookie, no claim_oauth_identity call, no upsertAdminAlert, structured log captured; (i.2) `supabase.auth.getUser()` THROWS (mock the client to throw 'fetch failed') → callback redirects to `next`, no claim_oauth_identity call, CALLBACK_CLAIM_THREW admin_alert emitted with show_id=null, structured log captured with error.name + error.message; (i.3) `serviceRole.rpc('claim_oauth_identity', ...)` returns `{ data: null, error: {...} }` → callback redirects, no upsertAdminAlert for OAUTH_IDENTITY_CLAIMED (existing test (f) covers this) but structured log emitted; (i.4) `serviceRole.rpc('claim_oauth_identity', ...)` THROWS → callback redirects, CALLBACK_CLAIM_THREW admin_alert emitted, structured log captured; (i.5) `upsertAdminAlert` inside the catch block itself throws → callback STILL redirects (nested catch swallows); (i.6) **H3 meta-contract**: register this file's getUser + rpc + upsertAdminAlert calls in `tests/auth/_metaInfraContract.test.ts` so the structural meta-test enforces the destructure pattern (cannot regress by removing the try/catch).
+Tests: (a) exchangeCodeForSession called first; (b) claim_oauth_identity called with canonicalized email; (c) NO Set-Cookie for `__Host-fxav_picker` in response (R41-R6); (d) **R41 P-R8 Fix-3**: when `claimed_rows.length = N > 0`, upsertAdminAlert called EXACTLY N times, once per row, with `show_id` set to the row's show_id (NOT NULL aggregate) and `context: { crew_member_id, show_id, claimed_at_millis, user_email_hash }` — assert the full context shape on each call; (e) idempotent re-invocation: re-sign-in returns `claimed_count=0` + `claimed_rows=[]`, ZERO upsertAdminAlert calls (no spam); (f) RPC failure path logs error and continues (sign-in still succeeds; bootstrap retries on next visit); (g) **R41 P-R8 Fix-3 cross-show**: seed Alice with crew_members in shows S1 and S2; assert ONE alert with `show_id=S1` and ONE alert with `show_id=S2`, NOT one aggregate alert with `show_id=NULL`; (h) **R41 P-R8 Fix-3 PII**: assert no alert context contains the raw email (only the hashed form); (i) **R41 P-R9 Fix-1 returned-error vs thrown-error matrix**: (i.1) `supabase.auth.getUser()` returns `{ data: { user: null }, error: { name: 'AuthError', ... } }` → callback redirects to `next`, no Set-Cookie, no claim_oauth_identity call, no upsertAdminAlert, structured log captured; (i.2) `supabase.auth.getUser()` THROWS (mock the client to throw 'fetch failed') → callback redirects to `next`, no claim_oauth_identity call, CALLBACK_CLAIM_THREW admin_alert emitted with show_id=null, structured log captured with error.name + error.message; (i.3) `serviceRole.rpc('claim_oauth_identity', ...)` returns `{ data: null, error: {...} }` → callback redirects, no upsertAdminAlert for OAUTH_IDENTITY_CLAIMED (existing test (f) covers this) but structured log emitted; (i.4) `serviceRole.rpc('claim_oauth_identity', ...)` THROWS → callback redirects, CALLBACK_CLAIM_THREW admin_alert emitted, structured log captured; (i.5) `upsertAdminAlert` inside the catch block itself throws → callback STILL redirects (nested catch swallows); (i.6) **H3 meta-contract**: register this file's getUser + rpc + upsertAdminAlert calls in `tests/auth/_metaInfraContract.test.ts` so the structural meta-test enforces the destructure pattern (cannot regress by removing the try/catch); (i.7) **R41 P-R20 Fix-2 partial-per-row-alert-failure isolation**: mock claim_oauth_identity to return claimed_rows with 3 entries. Mock upsertAdminAlert such that the SECOND call throws (`new Error('rate limited')`). Assert: alerts 1 and 3 ARE emitted (the loop continues past the row-2 failure); alert 2 is missed; CALLBACK_CLAIM_THREW is NOT emitted (the claim itself succeeded); the structured log records the per-row alert failure with hashed email + show_id + crew_member_id + error name/message; the callback STILL redirects to `next`.
 
 ```bash
 git commit -m "feat(auth): callback claim-stamp hook (C7; R41 §4.8 DB-only)"
