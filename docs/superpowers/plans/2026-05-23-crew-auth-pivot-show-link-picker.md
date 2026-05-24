@@ -1876,25 +1876,28 @@ git commit -am "feat(auth): cleanupStaleEntry compare-and-delete (R22; B5)"
 
 Chain order: archived → admin precedence → unpublished (R41-R10 step 3.5 — before any Google-session branch to prevent bootstrap-loop) → Google-session-matching-crew-row → existing picker cookie.
 
-Return type:
+Return type. **Every page-rendering arm (admin, resolved, no_auth, epoch_stale, removed_from_roster, identity_invalidated) carries `showId`** so the page route can pass it to `PickerInterstitial` / `ShowBody` / `SignInOrSkipGate` without re-resolving slug-to-id (re-resolving outside the helper's lock window would race rotation/archive). The terminal arms (archived, unpublished, needs_picker_bootstrap, show_unavailable, infra_error) do NOT carry `showId` (page emits 404 or redirect; no downstream consumer needs it).
 
 ```ts
 export type ResolveShowPageAccessResult =
   | { kind: 'archived' }
-  | { kind: 'admin' }
-  | { kind: 'needs_picker_bootstrap'; intentToken: string }  // R41-R3/R41-R10 carries intent token for CSRF
-  | { kind: 'resolved'; crewMemberId: string; source: 'cookie' | 'admin' }
+  | { kind: 'admin'; showId: string }
+  | { kind: 'needs_picker_bootstrap'; intentToken: string }
+  | { kind: 'resolved'; showId: string; crewMemberId: string; source: 'cookie' | 'admin' }
   | { kind: 'unpublished' }
-  | { kind: 'no_auth' }
-  | { kind: 'epoch_stale'; expectedEpoch: number; expectedCrewMemberId: string }
-  | { kind: 'removed_from_roster'; expectedEpoch: number; expectedCrewMemberId: string }
+  | { kind: 'no_auth'; showId: string }
+  | { kind: 'epoch_stale'; showId: string; expectedEpoch: number; expectedCrewMemberId: string }
+  | { kind: 'removed_from_roster'; showId: string; expectedEpoch: number; expectedCrewMemberId: string }
   | { kind: 'identity_invalidated';  // R41-R13 + R41-R35
+      showId: string;
       expectedEpoch: number;
       expectedCrewMemberId: string;
       reason: 'claimed_after_pick' }
   | { kind: 'show_unavailable' }
   | { kind: 'infra_error'; code: string };
 ```
+
+Type-level test: assert via `Pick`/`Extract` that every page-rendering kind has a `showId: string` member; assert the terminal arms do NOT have `showId`. The Task C1 page route relies on this typing for the PickerInterstitial / SignInOrSkipGate / ShowBody props.
 
 For `needs_picker_bootstrap`, the helper generates the intent token in-place:
 
@@ -2133,12 +2136,9 @@ export default async function ShowPage({
     case 'infra_error':
       return <TerminalFailure code={result.code} />;
     case 'admin': {
-      const supabase = createSupabaseServiceRoleClient();
-      const { data: show } = await supabase.from('shows')
-        .select('id').eq('slug', slug).maybeSingle();
       const viewer = { kind: 'admin' as const };
-      const data = await getShowForViewer(show!.id, viewer);
-      return <ShowBody slug={slug} showId={show!.id} viewer={viewer} data={data} identityChip={null} />;
+      const data = await getShowForViewer(result.showId, viewer);
+      return <ShowBody slug={slug} showId={result.showId} viewer={viewer} data={data} identityChip={null} />;
     }
     case 'needs_picker_bootstrap': {
       // R41-R6 CRITICAL: Server Components cannot mint cookies; redirect
@@ -2148,16 +2148,13 @@ export default async function ShowPage({
       redirect(`/api/auth/picker-bootstrap?next=${encodeURIComponent(nextUrl)}&t=${encodeURIComponent(result.intentToken)}`);
     }
     case 'resolved': {
-      const supabase = createSupabaseServiceRoleClient();
-      const { data: show } = await supabase.from('shows')
-        .select('id').eq('slug', slug).maybeSingle();
       const viewer = { kind: 'crew' as const, crewMemberId: result.crewMemberId };
-      const data = await getShowForViewer(show!.id, viewer);
+      const data = await getShowForViewer(result.showId, viewer);
       const crew = data.crewMembers.find((c) => c.id === result.crewMemberId);
       return (
         <ShowBody
           slug={slug}
-          showId={show!.id}
+          showId={result.showId}
           viewer={viewer}
           data={data}
           identityChip={crew ? { name: crew.name, role: crew.role, shareToken } : null}
@@ -2171,7 +2168,7 @@ export default async function ShowPage({
       if (!gateSkip) {
         return <SignInOrSkipGate slug={slug} shareToken={shareToken} />;
       }
-      const roster = await loadRoster(slug);  // helper inline or extracted
+      const roster = await loadRoster(result.showId);  // helper inline or extracted
       return (
         <PickerInterstitial
           slug={slug} shareToken={shareToken}
@@ -2190,7 +2187,7 @@ export default async function ShowPage({
       // R41-R35: identity_invalidated has a single reason 'claimed_after_pick'
       // (the ambiguous_email reason was removed because the schema constraint
       // makes the state impossible).
-      const roster = await loadRoster(slug);
+      const roster = await loadRoster(result.showId);
       const banner =
         result.kind === 'epoch_stale' ? 'PICKER_EPOCH_STALE_BANNER'
         : result.kind === 'removed_from_roster' ? 'PICKER_REMOVED_FROM_ROSTER_BANNER'
@@ -2219,17 +2216,20 @@ export default async function ShowPage({
 }
 ```
 
-**Roster loader** (referenced as `loadRoster(slug)` in the switch above):
+**Roster loader** (referenced as `loadRoster(showId)` in the switch above):
 
 ```ts
-async function loadRoster(slug: string): Promise<RosterRow[]> {
+async function loadRoster(showId: string): Promise<RosterRow[]> {
   const supabase = createSupabaseServiceRoleClient();
   // R41-R6 PickerInterstitial deactivated-row contract requires
-  // claimed_via_oauth_at to be in the selected fields.
+  // claimed_via_oauth_at to be in the selected fields. showId is
+  // passed in by the route — it comes from result.showId returned
+  // by resolveShowPageAccess, captured under the helper's lock
+  // window. Re-resolving slug→id here would race rotation/archive.
   const { data, error } = await supabase
     .from('crew_members')
     .select('id, name, role, role_flags, claimed_via_oauth_at')
-    .eq('show_id', (await supabase.from('shows').select('id').eq('slug', slug).single()).data!.id)
+    .eq('show_id', showId)
     .order('name', { ascending: true });
   if (error) throw new Error('roster lookup failed');
   return data ?? [];
@@ -2776,8 +2776,8 @@ git commit -am "refactor(auth): drop resolveShowViewer.ts (no callers post-pivot
 **Instead of E2, the implementer's job is to PRESERVE the existing `/me` paths AND rewrite `app/me/page.tsx` + `lib/data/listShowsForCrew.ts` to emit tokenized URLs via the new `my_share_tokens_for_email()` RPC (Task A9).** See spec §6 routing table + §10.2 `/me preserved with tokenized URLs` test bullet for the canonical contract.
 
 **Files (rewrite, not delete):**
-- Modify: `app/me/page.tsx` — replace existing listShowsForCrew SQL with `serviceRole.rpc('my_share_tokens_for_email')` call; render entries as `/show/<slug>/<share-token>` tokenized URLs (NOT bare `/show/<slug>`).
-- Modify: `lib/data/listShowsForCrew.ts` — rewrite to wrap `my_share_tokens_for_email()` RPC.
+- Modify: `app/me/page.tsx` — replace existing listShowsForCrew SQL with a call to `my_share_tokens_for_email()` via the **request-bound `createSupabaseServerClient()` (cookie-bound auth client)**, NOT the service-role client. The RPC is `SECURITY DEFINER` with `GRANT EXECUTE TO authenticated` and reads `public.auth_email_canonical()` internally — service-role calls have NO `auth.email()` context, so the function would return an empty set (or permission-denied) when called via service-role. Cookie-bound client carries the signed-in user's JWT so `auth_email_canonical()` resolves correctly. Render entries as `/show/<slug>/<share-token>` tokenized URLs.
+- Modify: `lib/data/listShowsForCrew.ts` — rewrite to accept a Supabase client argument (typed as the cookie-bound variant) and call `.rpc('my_share_tokens_for_email')`. Caller (`app/me/page.tsx`) constructs the cookie-bound client and passes it in. **Negative test**: invoke `listShowsForCrew(serviceRoleClient)` and assert it FAILS or returns empty — the function MUST not silently succeed against service-role.
 - Test: `tests/app/me.test.ts` — assert tokenized URL output; mixed-case email regression (R41-R19); cross-user enumeration negative test.
 - Verify: `lib/auth/validateNextParam.ts` allowlist regex STILL accepts `/me` (R41 — do NOT remove).
 
