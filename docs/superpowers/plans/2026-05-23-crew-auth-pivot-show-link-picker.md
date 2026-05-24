@@ -3397,13 +3397,25 @@ import {
 export async function resolvePickerSelection(input: ResolvePickerInput): Promise<ResolvePickerResult> {
   // Service-role client for the cookie-path DB reads (existing contract).
   const serviceRole = createSupabaseServiceRoleClient();
-  // P-R30 Fix-1: ALSO construct the cookie-bound client to read auth.jwt()
-  // for the email-consistency check. createSupabaseServerClient reads the
-  // request's Supabase auth cookie; auth.jwt() inside the DB resolves to
-  // the active session's claims; auth_email_canonical() returns the
-  // canonical email or NULL.
-  const authClient = await createSupabaseServerClient();
-  const { data: sessionEmail } = await authClient.rpc('auth_email_canonical');
+
+  // P-R30 Fix-1 + P-R31 Fix-1 (FAIL-CLOSED): ALSO construct the cookie-bound
+  // client. AGENTS.md invariant 9 requires explicit { data, error }
+  // destructure AND try/catch around every Supabase call boundary. If ANY
+  // boundary fails — auth client construction throws, auth_email_canonical
+  // returns an error, the crew_members lookup returns/throws an error —
+  // return `infra_error` (NOT `resolved`). Failing open here would defeat
+  // the CRITICAL shared-device fix.
+  let sessionEmail: string | null = null;
+  try {
+    const authClient = await createSupabaseServerClient();
+    const { data, error } = await authClient.rpc('auth_email_canonical');
+    if (error) {
+      return { kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+    }
+    sessionEmail = typeof data === 'string' ? data : null;
+  } catch {
+    return { kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+  }
 
   // ... existing cookie-path resolution against serviceRole ...
 
@@ -3411,13 +3423,30 @@ export async function resolvePickerSelection(input: ResolvePickerInput): Promise
     // A Supabase session IS active. The cookie's crew_members row email MUST
     // match the session's canonical email — otherwise this is a shared-device
     // identity-mismatch attack (Bob's session + Alice's cookie).
-    const { data: rowEmail } = await serviceRole
-      .from('crew_members')
-      .select('email')
-      .eq('id', cookieEntry.id)
-      .single();
-    if (rowEmail?.email !== sessionEmail) {
-      return { kind: 'identity_invalidated', reason: 'session_mismatch', ... };
+    let rowEmail: string | null = null;
+    try {
+      const { data, error } = await serviceRole
+        .from('crew_members')
+        .select('email')
+        .eq('id', cookieEntry.id)
+        .single();
+      if (error) {
+        return { kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+      }
+      rowEmail = typeof data?.email === 'string' ? data.email : null;
+    } catch {
+      return { kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+    }
+    if (rowEmail !== sessionEmail) {
+      // Includes the null case (rowEmail null but sessionEmail present):
+      // the cookie's crew row has no email (data integrity issue) but the
+      // session does — STILL a mismatch; fail closed.
+      return {
+        kind: 'identity_invalidated',
+        expectedEpoch: cookieEntry.e,
+        expectedCrewMemberId: cookieEntry.id,
+        reason: 'session_mismatch',
+      };
     }
   }
   // (When sessionEmail is null — anonymous request — the cookie path
@@ -3430,11 +3459,19 @@ export async function resolvePickerSelection(input: ResolvePickerInput): Promise
 **Test (a) is now an INTEGRATION test (P-R30 Fix-1 addition)**: use a real request-bound test harness (Playwright or supertest with Supabase auth-cookie injection) where Bob's session is set in the cookie store BEFORE the API consumer call. Mock the resolvePickerSelection-internal `createSupabaseServerClient` to verify it's called (not service-role) for the auth.rpc call. Assert `auth_email_canonical()` returns Bob's canonical email (NOT null) inside the resolver and the consistency check fires. Without this integration test, a unit test with a mocked service-role client could pass while the production resolver is still inert.
 
 **Tests**:
-- (a) **R41 P-R29 Fix-1 CRITICAL shared-device API regression**: seed picker cookie with Alice's entry for Show-X (Alice has real crew_members row, cookie is signed correctly). Construct request with Supabase session for Bob (canonical email differs from Alice's). For EACH of the 6 API consumers: assert response is 401 (NOT 200). Assert NO Alice data in response body. Without the fix, all 6 consumers return 200 with Alice's data.
-- (b) **Anonymous request happy path**: same Alice cookie, NO Supabase session. All 6 consumers return 200 with Alice's data (cookie is sole credential; the mismatch check is skipped when no session).
-- (c) **Session-matches-cookie happy path**: Alice's cookie + Alice's Supabase session. All 6 consumers return 200 (consistency check passes).
+- (a) **R41 P-R29 Fix-1 + P-R31 Fix-2 CRITICAL shared-device API regression**: seed picker cookie with Alice's entry for Show-X (Alice has real crew_members row, cookie is signed correctly). Construct request with Supabase session for Bob (canonical email differs from Alice's). For EACH of the 6 API consumers: assert response is **HTTP 410** (NOT 401, NOT 200 — per spec §6.1 API-consumer behavior on session_mismatch: 410 maps to stale-but-knowable, distinct from 401 auth-missing). Assert NO Alice data in response body. Without the fix, all 6 consumers return 200 with Alice's data. Use a real request-bound integration harness (Playwright or supertest with Supabase auth-cookie injection) so the cookie-bound `createSupabaseServerClient()` inside the resolver receives Bob's actual JWT — NOT a mocked `null` session.
+- (b) **Anonymous request happy path**: same Alice cookie, NO Supabase session. All 6 consumers return 200 with Alice's data (cookie is sole credential; the mismatch check is skipped when `auth_email_canonical()` returns null).
+- (c) **Session-matches-cookie happy path**: Alice's cookie + Alice's Supabase session. All 6 consumers return 200 (consistency check passes — `rowEmail === sessionEmail`).
 - (d) Resolver-level unit test: assert the new `kind: 'identity_invalidated', reason: 'session_mismatch'` arm is returned when cookie+session mismatch.
 - (e) Structural test: assert `auth_email_canonical` IS imported in `lib/auth/picker/resolvePickerSelection.ts` AND is NOT imported anywhere else in `app/api/**` or `app/**` (allowlist of exactly one importer).
+- (f) **R41 P-R31 Fix-1 fail-closed regressions** (AGENTS.md invariant 9): for each Supabase boundary in the consistency check, simulate both returned-error AND thrown-error paths:
+  - (f.1) `createSupabaseServerClient()` THROWS → resolver returns `infra_error/PICKER_RESOLVER_LOOKUP_FAILED`; all 6 API consumers return 500. NO 200 (fail closed).
+  - (f.2) `authClient.rpc('auth_email_canonical')` returns `{ data: null, error: {...} }` → resolver returns `infra_error`; all 6 consumers return 500. NO 200.
+  - (f.3) `authClient.rpc(...)` THROWS → resolver returns `infra_error`; all 6 consumers return 500. NO 200.
+  - (f.4) `serviceRole.from('crew_members').select('email').single()` returns `{ data: null, error: {...} }` → resolver returns `infra_error`; all 6 consumers return 500. NO 200.
+  - (f.5) The same row-email lookup THROWS → resolver returns `infra_error`; all 6 consumers return 500. NO 200.
+  - **The CRITICAL contract this set pins**: a degraded-dependencies window MUST NOT silently fall through to "cookie path resolves as Alice." Every Supabase error path returns `infra_error`, NEVER `resolved`. Without test (f), a hand-written impl could destructure `{ data }` without `error` and silently fail-open.
+- (g) **R41 P-R31 Fix-1 rowEmail-null defense**: seed a cookie referencing a `crew_members.id` whose `email` IS NULL (legitimate data state — pre-pivot rows from an early sync). Construct a request with a Supabase session. Assert resolver returns `identity_invalidated/session_mismatch` (NOT `resolved`) — the `rowEmail !== sessionEmail` check catches `null !== 'someone@example.com'` as a mismatch, which is correct fail-closed behavior (session present but cookie's identity has no email to verify against).
 
 ```bash
 git commit -am "feat(auth): API shared-device identity-consistency check (D4.5; P-R29 Fix-1 CRITICAL)"
