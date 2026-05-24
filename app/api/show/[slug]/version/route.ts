@@ -15,7 +15,8 @@
  * the value returned here. If they differ, the snapshot is stale (a publish
  * fired during the SSR → hydrate gap) and the island must router.refresh().
  *
- * Auth: resolveShowViewer is the FIRST action.
+ * Auth: derive show_id from slug, then authorize via admin session or picker
+ * cookie before invoking viewer_version_token.
  *   - denied    → 401 SHOW_VERSION_AUTH_FAILED
  *   - forbidden → 403 SHOW_VERSION_CROSS_SHOW_FORBIDDEN
  *   - admin → 200 + { version_token }
@@ -30,8 +31,78 @@
  * island can branch on it deterministically).
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { resolveShowViewer } from "@/lib/auth/resolveShowViewer";
+import { isAdminSession } from "@/lib/auth/isAdminSession";
+import { resolvePickerSelection } from "@/lib/auth/picker/resolvePickerSelection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+
+type ApiViewer =
+  | { ok: true; showId: string }
+  | { ok: false; status: 401 | 410 | 500; error: string; reason?: string };
+
+function pickerCookieFromRequest(request: Request): string | undefined {
+  const raw = request.headers.get("cookie");
+  if (!raw) return undefined;
+  for (const part of raw.split(";")) {
+    const [name, ...valueParts] = part.trim().split("=");
+    if (name === "__Host-fxav_picker") return valueParts.join("=");
+  }
+  return undefined;
+}
+
+async function showIdFromSlug(slug: string): Promise<"infra_error" | string | null> {
+  try {
+    const supabase = createSupabaseServiceRoleClient();
+    const { data, error } = (await supabase
+      .from("shows")
+      .select("id")
+      .eq("slug", slug)
+      .maybeSingle()) as { data: { id: string } | null; error: unknown };
+    if (error) return "infra_error";
+    return data?.id ?? null;
+  } catch {
+    return "infra_error";
+  }
+}
+
+async function resolveVersionViewer(request: NextRequest, slug: string): Promise<ApiViewer> {
+  const showId = await showIdFromSlug(slug);
+  if (showId === "infra_error") {
+    return { ok: false, status: 500, error: "ADMIN_SESSION_LOOKUP_FAILED" };
+  }
+  if (!showId) {
+    return { ok: false, status: 401, error: "SHOW_VERSION_AUTH_FAILED", reason: "unknown_slug" };
+  }
+
+  const admin = await isAdminSession(request);
+  if (admin.ok) return { ok: true, showId };
+  if (admin.reason === "infra_error") {
+    return { ok: false, status: 500, error: "ADMIN_SESSION_LOOKUP_FAILED" };
+  }
+
+  const picker = await resolvePickerSelection({
+    showId,
+    cookie: pickerCookieFromRequest(request),
+  });
+  switch (picker.kind) {
+    case "resolved":
+      return { ok: true, showId };
+    case "show_unavailable":
+      return { ok: false, status: 410, error: "PICKER_SHOW_UNAVAILABLE" };
+    case "identity_invalidated":
+      return {
+        ok: false,
+        status: 410,
+        error: "PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER",
+        reason: picker.reason,
+      };
+    case "infra_error":
+      return { ok: false, status: 500, error: picker.code };
+    case "no_selection":
+    case "epoch_stale":
+    case "removed_from_roster":
+      return { ok: false, status: 401, error: "SHOW_VERSION_AUTH_FAILED", reason: picker.kind };
+  }
+}
 
 export async function GET(
   request: NextRequest,
@@ -39,27 +110,15 @@ export async function GET(
 ): Promise<Response> {
   const { slug } = await context.params;
 
-  const viewer = await resolveShowViewer(request, slug);
-  if (viewer.kind === "denied") {
+  const viewer = await resolveVersionViewer(request, slug);
+  if (!viewer.ok) {
     return NextResponse.json(
-      { error: "SHOW_VERSION_AUTH_FAILED", reason: viewer.reason },
-      { status: 401 },
+      { error: viewer.error, reason: viewer.reason },
+      { status: viewer.status },
     );
-  }
-  if (viewer.kind === "forbidden") {
-    return NextResponse.json(
-      { error: "SHOW_VERSION_CROSS_SHOW_FORBIDDEN", reason: viewer.reason },
-      { status: 403 },
-    );
-  }
-  if (viewer.kind === "terminal_failure") {
-    // R14 #2: validator infra fault — surface as 500 so operators see
-    // server-side faults instead of misclassifying them as auth denials.
-    console.error("[/api/show/[slug]/version] validator infra failure", viewer.code);
-    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
   }
 
-  const showId = viewer.show_id;
+  const showId = viewer.showId;
 
   const svc = createSupabaseServiceRoleClient();
   const { data, error } = await svc.rpc("viewer_version_token", {

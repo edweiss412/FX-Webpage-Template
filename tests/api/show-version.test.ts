@@ -1,155 +1,137 @@
-/**
- * tests/api/show-version.test.ts (M4 Task 4.16 routes)
- *
- * Asserts /api/show/[slug]/version returns:
- *   - 401 when resolveShowViewer → kind: 'denied' (no/invalid creds, unknown slug)
- *   - 403 when resolveShowViewer → kind: 'forbidden' (cross-show)
- *   - 200 + { version_token } for admin success.
- *
- * resolveShowViewer is mocked so this test exercises ONLY the route's
- * status-code mapping and version_token plumbing — the 5-arm union behavior
- * is pinned by tests/auth/resolveShowViewer.test.ts.
- */
-import { describe, expect, test, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { NextRequest } from "next/server";
-import type { ShowViewerFixture } from "@/tests/_helpers/showViewerFixtures";
-import { mockAdminViewer } from "@/tests/_helpers/showViewerFixtures";
 
-const resolveMock = vi.hoisted(() => {
-  return {
-    state: {
-      result: {
-        kind: "denied",
-        reason: "no_credentials",
-      } as ShowViewerFixture,
-      lastSlug: null as null | string,
-    },
-  };
-});
-
-vi.mock("@/lib/auth/resolveShowViewer", () => ({
-  resolveShowViewer: async (_req: unknown, slug: string) => {
-    resolveMock.state.lastSlug = slug;
-    return resolveMock.state.result;
-  },
+const state = vi.hoisted(() => ({
+  admin: { ok: false, reason: "not_admin" } as
+    | { ok: true; email: string }
+    | { ok: false; reason: "not_admin" | "infra_error" },
+  picker: { kind: "no_selection" } as unknown,
+  showRow: { id: "11111111-1111-4111-8111-111111111111" } as { id: string } | null,
+  showError: null as unknown,
+  versionToken: "1700000000000",
+  versionError: null as unknown,
+  rpcCalls: [] as Array<{ name: string; args: unknown }>,
 }));
 
-const supaMock = vi.hoisted(() => {
-  return {
-    state: {
-      versionToken: "1700000000000",
-      rpcError: null as null | { message: string },
-      rpcCalls: [] as Array<{ name: string; args: unknown }>,
-    },
-  };
-});
+vi.mock("@/lib/auth/isAdminSession", () => ({
+  isAdminSession: async () => state.admin,
+}));
+
+vi.mock("@/lib/auth/picker/resolvePickerSelection", () => ({
+  resolvePickerSelection: async () => state.picker,
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => ({
+    from: (table: string) => {
+      if (table !== "shows") throw new Error(`unexpected table ${table}`);
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({ data: state.showRow, error: state.showError }),
+          }),
+        }),
+      };
+    },
     rpc: async (name: string, args: unknown) => {
-      supaMock.state.rpcCalls.push({ name, args });
-      if (supaMock.state.rpcError) {
-        return { data: null, error: supaMock.state.rpcError };
-      }
-      return { data: supaMock.state.versionToken, error: null };
+      state.rpcCalls.push({ name, args });
+      if (state.versionError) return { data: null, error: state.versionError };
+      return { data: state.versionToken, error: null };
     },
   }),
 }));
 
 const { GET } = await import("@/app/api/show/[slug]/version/route");
 
-function fakeReq(): NextRequest {
-  return new Request("http://localhost/api/show/test-show/version", {
-    method: "GET",
-  }) as unknown as NextRequest;
+function fakeReq(cookie?: string): NextRequest {
+  const init: RequestInit = { method: "GET" };
+  if (cookie) init.headers = { cookie };
+  return new Request("http://localhost/api/show/test-show/version", init) as unknown as NextRequest;
 }
 
 beforeEach(() => {
-  resolveMock.state.result = { kind: "denied", reason: "no_credentials" };
-  resolveMock.state.lastSlug = null;
-  supaMock.state.versionToken = "1700000000000";
-  supaMock.state.rpcError = null;
-  supaMock.state.rpcCalls = [];
+  state.admin = { ok: false, reason: "not_admin" };
+  state.picker = { kind: "no_selection" };
+  state.showRow = { id: "11111111-1111-4111-8111-111111111111" };
+  state.showError = null;
+  state.versionToken = "1700000000000";
+  state.versionError = null;
+  state.rpcCalls = [];
 });
 
 describe("GET /api/show/[slug]/version", () => {
-  test("denied → 401 SHOW_VERSION_AUTH_FAILED", async () => {
-    // Pin BOTH status code and the version-route-specific error code.
-    // Distinct from /api/realtime/subscriber-token's
-    // SHOW_REALTIME_BROADCAST_AUTH_FAILED so admin-info logs and client
-    // branching can tell which surface returned the 401 (per plan §826).
-    resolveMock.state.result = { kind: "denied", reason: "no_credentials" };
-    const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
-    expect(res.status).toBe(401);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("SHOW_VERSION_AUTH_FAILED");
-    expect(resolveMock.state.lastSlug).toBe("test-show");
-  });
+  test("unknown slug collapses to 401 and does not call viewer_version_token", async () => {
+    state.showRow = null;
 
-  test("denied (unknown_slug) → 401 SHOW_VERSION_AUTH_FAILED", async () => {
-    resolveMock.state.result = { kind: "denied", reason: "unknown_slug" };
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "nope" }) });
+
     expect(res.status).toBe(401);
+    expect(state.rpcCalls).toEqual([]);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("SHOW_VERSION_AUTH_FAILED");
   });
 
-  test("non-admin unpublished show denial does not issue a version token", async () => {
-    resolveMock.state.result = { kind: "denied", reason: "unknown_slug" };
-    const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "draft-show" }) });
+  test("no picker cookie returns 401 before viewer_version_token RPC", async () => {
+    const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
+
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error?: string; version_token?: string };
-    expect(body.error).toBe("SHOW_VERSION_AUTH_FAILED");
-    expect(body.version_token).toBeUndefined();
-    expect(supaMock.state.rpcCalls).toEqual([]);
+    expect(state.rpcCalls).toEqual([]);
   });
 
-  test("forbidden → 403 SHOW_VERSION_CROSS_SHOW_FORBIDDEN", async () => {
-    // Pin the version-route-specific cross-show code. A regression that
-    // emits SHOW_REALTIME_CROSS_SHOW_FORBIDDEN here would defeat the §826
-    // distinction the plan requires (this test was the gap that let the
-    // HIGH 1 review finding land).
-    resolveMock.state.result = {
-      kind: "forbidden",
-      reason: "cross_show_link_session",
-      show_id: "different-show-uuid",
-    };
-    const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("SHOW_VERSION_CROSS_SHOW_FORBIDDEN");
-  });
+  test("valid picker cookie returns version token", async () => {
+    state.picker = { kind: "resolved", crewMemberId: "22222222-2222-4222-8222-222222222222" };
+    state.versionToken = "1234567890:7";
 
-  test("admin → 200 + version_token (calls viewer_version_token RPC)", async () => {
-    resolveMock.state.result = mockAdminViewer("show-uuid-1");
-    supaMock.state.versionToken = "1234567890";
-    const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
+    const res = await GET(fakeReq("__Host-fxav_picker=signed"), {
+      params: Promise.resolve({ slug: "test-show" }),
+    });
+
     expect(res.status).toBe(200);
     const body = (await res.json()) as { version_token: string };
-    expect(body.version_token).toBe("1234567890");
-    expect(supaMock.state.rpcCalls).toHaveLength(1);
-    expect(supaMock.state.rpcCalls[0]?.name).toBe("viewer_version_token");
-    expect(supaMock.state.rpcCalls[0]?.args).toEqual({ p_show_id: "show-uuid-1" });
+    expect(body.version_token).toBe("1234567890:7");
+    expect(state.rpcCalls).toEqual([
+      {
+        name: "viewer_version_token",
+        args: { p_show_id: "11111111-1111-4111-8111-111111111111" },
+      },
+    ]);
   });
 
-  test("RPC error after auth pass → 500 (does NOT leak as 200)", async () => {
-    resolveMock.state.result = mockAdminViewer("show-uuid-1");
-    supaMock.state.rpcError = { message: "synthetic db error" };
+  test("admin session returns version token without picker cookie", async () => {
+    state.admin = { ok: true, email: "admin@example.com" };
+    state.versionToken = "9876543210:2";
+
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
-    expect(res.status).toBe(500);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { version_token: string };
+    expect(body.version_token).toBe("9876543210:2");
   });
 
-  test("denied/forbidden status codes are distinct (regression fence)", async () => {
-    resolveMock.state.result = { kind: "denied", reason: "no_credentials" };
-    const denied = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
-    resolveMock.state.result = {
-      kind: "forbidden",
-      reason: "cross_show_link_session",
-      show_id: "different-show-uuid",
+  test("session_mismatch maps to 410 and does not call viewer_version_token", async () => {
+    state.picker = {
+      kind: "identity_invalidated",
+      reason: "session_mismatch",
+      expectedEpoch: 1,
+      expectedCrewMemberId: "22222222-2222-4222-8222-222222222222",
     };
-    const forbidden = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
-    expect(denied.status).toBe(401);
-    expect(forbidden.status).toBe(403);
-    expect(denied.status).not.toBe(forbidden.status);
+
+    const res = await GET(fakeReq("__Host-fxav_picker=signed"), {
+      params: Promise.resolve({ slug: "test-show" }),
+    });
+
+    expect(res.status).toBe(410);
+    expect(state.rpcCalls).toEqual([]);
+  });
+
+  test("version RPC error after auth pass → 500", async () => {
+    state.picker = { kind: "resolved", crewMemberId: "22222222-2222-4222-8222-222222222222" };
+    state.versionError = { message: "synthetic db error" };
+
+    const res = await GET(fakeReq("__Host-fxav_picker=signed"), {
+      params: Promise.resolve({ slug: "test-show" }),
+    });
+
+    expect(res.status).toBe(500);
   });
 });
