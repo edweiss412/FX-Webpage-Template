@@ -673,6 +673,7 @@ declare
   v_claimed_count integer := 0;
   v_shows jsonb;
   v_claim_at timestamptz;  -- R41-R23: clock_timestamp() AFTER all locks acquired
+  v_claimed_rows jsonb := '[]'::jsonb;  -- R41 P-R8 Fix-3: per-row claim details for OAUTH_IDENTITY_CLAIMED
   r record;  -- R41-R10: loop variable for explicit ordered lock acquisition
   -- R41-R35: v_ambiguous_show_ids removed (schema constraint prevents the state)
 begin
@@ -698,7 +699,15 @@ begin
     from show_set;
 
   if v_locked_show_ids is null or array_length(v_locked_show_ids, 1) is null then
-    return jsonb_build_object('claimed_count', 0, 'shows', '[]'::jsonb);
+    -- R41 P-R8 Fix-3: include claimed_rows: [] in empty-set path so consumers
+    -- can rely on the field always being present.
+    return jsonb_build_object(
+      'claimed_count', 0,
+      'claimed_rows', '[]'::jsonb,
+      'shows', '[]'::jsonb,
+      'mint_safe_t_millis',
+        floor(extract(epoch from clock_timestamp()) * 1000)::bigint + 1
+    );
   end if;
 
   -- Lock-acquisition pass (deterministic drive_file_id order).
@@ -736,15 +745,28 @@ begin
   -- UPDATE restricted to the materialized locked set. A row INSERTed for
   -- this email on an UNLOCKED show after lock-acquisition cannot be
   -- stamped this round because its show_id is not in v_locked_show_ids.
+  --
+  -- R41 P-R8 Fix-3: aggregate per-row claim details into v_claimed_rows so
+  -- the C7 callback can emit OAUTH_IDENTITY_CLAIMED PER ROW with the H7
+  -- context contract { crew_member_id, show_id, claimed_at_millis }.
+  -- v_claimed_rows is declared at the top of this function (default '[]'::jsonb).
   with updated as (
     update public.crew_members cm
        set claimed_via_oauth_at = v_claim_at
      where cm.email = v_email
        and cm.show_id = any(v_locked_show_ids)
        and cm.claimed_via_oauth_at is null
-   returning cm.id, cm.show_id
+   returning cm.id as crew_member_id, cm.show_id
   )
-  select count(*) into v_claimed_count from updated;
+  select count(*), coalesce(jsonb_agg(jsonb_build_object(
+           'crew_member_id', crew_member_id,
+           'show_id', show_id,
+           -- R41-R30 floor()::bigint avoids banker's-rounding; matches
+           -- cookie.t / mint_safe_t_millis derivation.
+           'claimed_at_millis', floor(extract(epoch from v_claim_at) * 1000)::bigint
+         )), '[]'::jsonb)
+    into v_claimed_count, v_claimed_rows
+    from updated;
 
   -- R41-R35: ambiguous-email detection REMOVED. The live schema's partial
   -- UNIQUE index `crew_members_show_email_unique ON (show_id, email) WHERE
@@ -780,6 +802,9 @@ begin
   -- previously-claimed claimed_via_oauth_at on the user's rows.
   return jsonb_build_object(
     'claimed_count', v_claimed_count,
+    -- R41 P-R8 Fix-3: per-row claim details for OAUTH_IDENTITY_CLAIMED
+    -- producer (H7 context contract). Empty array when claimed_count = 0.
+    'claimed_rows', v_claimed_rows,
     'shows', v_shows,
     'mint_safe_t_millis',
       greatest(
@@ -1344,7 +1369,7 @@ The `lib/messages/catalog.ts` entries scoped to JWT-version mutations (every cod
 - `PICKER_CREW_MEMBER_WRONG_SHOW`: form-tamper defense (the submitted `crewMemberId` belongs to a different show's roster). Crew-facing copy: "Something went wrong with that selection. Please try picking your name again." (Deliberately matches `PICKER_INVALID_INPUT` to avoid signaling form-tamper specifics to a probing client.) Operator-facing: full details flagged as a possible tamper signal.
 - **`PICKER_IDENTITY_CLAIMED` (R41 Fix-2):** the submitted `crewMemberId` row has `claimed_via_oauth_at IS NOT NULL`. Crew-facing copy: "This name is claimed by a signed-in user. Sign in with their Google account to use it." Operator-facing: `{ show_id, attempted_crew_member_id, observed_claimed_at }`. On render: the Server Action returns a redirect to `/auth/sign-in?next=<encoded tokenized URL>` (the same destination the UI's deactivated-row form-action targets) rather than re-displaying the picker with an error banner — this matches the UX contract from §7.2 (tapping a deactivated row leads to sign-in). Cataloged in `lib/messages/catalog.ts`. Carries the `tamper` log-flag (a form-tampered submission of a claimed crew row IS suspicious).
 - (R41-R35 removed `PICKER_IDENTITY_AMBIGUOUS` — the rejection-code class is no longer reachable. Schema constraint `crew_members_show_email_unique` makes the duplicate-email-on-same-show state impossible; the prior R41-R6 / R41-R18 same-show-email-count check is no longer needed.)
-- **`PICKER_BOOTSTRAP_RPC_FAILED` (R41-R7 Fix-2):** emitted from `/api/auth/picker-bootstrap` when `claim_oauth_identity` returns an error or throws. Crew-facing copy: "Couldn't sign you in. Please try again in a moment." Operator-facing: `{ user_email, rpc_error_code, rpc_error_message }`. On render: the handler returns 502 with the cataloged terminal-failure UI (HTML response, NOT a redirect — R41-R7 fail-closed contract prevents the infinite redirect loop the reviewer flagged). Cataloged in `lib/messages/catalog.ts`. ALSO emitted to `admin_alerts` with the same code so operators can investigate persistent failures.
+- **`PICKER_BOOTSTRAP_RPC_FAILED` (R41-R7 Fix-2; P-R10 Fix-3):** emitted from `/api/auth/picker-bootstrap` when `claim_oauth_identity` returns an error or throws. Crew-facing copy: "Couldn't sign you in. Please try again in a moment." Operator-facing context: `{ attempted_email_hash, rpc_error_code, rpc_error_message, route }`. **NEVER raw `user_email`** — P-R10 Fix-3 ratifies that the hashed `attempted_email_hash` form is mandatory across every R41 admin_alerts producer; operators correlate hashes across alerts via the deterministic `hashForLog()` helper. On render: the handler returns 502 with the cataloged terminal-failure UI (HTML response, NOT a redirect — R41-R7 fail-closed contract prevents the infinite redirect loop the reviewer flagged). Cataloged in `lib/messages/catalog.ts`. ALSO emitted to `admin_alerts` with the same code so operators can investigate persistent failures.
 - `PICKER_RESOLVER_LOOKUP_FAILED`: `resolvePickerSelection`'s DB read failed (returned error or thrown infra fault). Crew page renders the existing cataloged terminal-failure UI; API routes return 500. Catalog entry includes both `dougFacing` operator copy (for admin logs / `admin_alerts`) and `crewFacing` copy (for the page render via `messageFor(...)`). The `tests/messages/_metaAdminAlertCatalog.test.ts` registry is extended to assert this code is cataloged before any consumer uses it.
 
 **R41 amendment — sign-in / claim codes:**

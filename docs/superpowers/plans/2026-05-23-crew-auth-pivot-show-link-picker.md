@@ -703,6 +703,79 @@ git commit -m "feat(db): rewrite viewer_version_token (picker_epoch term; A6)"
 
 ---
 
+### Task A6.5: `lib/email/hashForLog.ts` — deterministic email hash for admin_alerts/logs (R41 P-R10 Fix-3)
+
+**Files:**
+- Create: `lib/email/hashForLog.ts`
+- Test: `tests/email/hashForLog.test.ts`
+
+**Purpose (P-R10 Fix-3):** every R41 admin_alerts producer (OAUTH_IDENTITY_CLAIMED, PICKER_BOOTSTRAP_RPC_FAILED) and every R41 structured-log line referencing a user email MUST store/log a deterministic HASH of the canonical email, NOT the raw email. The repo's email-canonicalization audit (`lib/audit/emailCanonicalization.ts`) + AGENTS.md PII discipline + the spec §8.4 catalog contract all require this. The `hashForLog` helper is the single source of truth; spec/plan references to `hashForLog(canonicalEmail)` resolve to this import.
+
+**Contract:**
+
+```ts
+// lib/email/hashForLog.ts
+import { createHash } from 'node:crypto';
+
+/**
+ * Deterministic email hash for admin_alerts.context and structured logs.
+ *
+ * Properties:
+ * - DETERMINISTIC: same canonical email → same hash bytes across processes
+ *   and time. Operators correlate hashes across alerts; this fails if the
+ *   hash is salted or randomized.
+ * - NOT REVERSIBLE: hex-encoded SHA-256 with a server-side pepper from
+ *   `HASH_FOR_LOG_PEPPER` env var. Without the pepper, an attacker who
+ *   exfiltrates admin_alerts cannot rainbow-table common emails back to
+ *   plaintext; with the pepper, the hash is a stable identifier for
+ *   operator triage.
+ * - PRE-CANONICALIZED INPUT: this helper assumes `email` was already
+ *   passed through `canonicalize()` per AGENTS.md invariant 3. It does
+ *   NOT re-canonicalize; passing a raw uncanonicalized email yields a
+ *   hash that won't match the canonical hash. Callers MUST canonicalize
+ *   first.
+ * - FAIL-LOUD on missing pepper: if `HASH_FOR_LOG_PEPPER` is unset or
+ *   shorter than 32 chars, throws at module load (NOT lazily). The
+ *   env-var probe runs once per process. Build-time gate ensures
+ *   production deployment cannot ship with a missing pepper.
+ * - RETURNS hex string with fixed length 64 (sha256). Suitable for direct
+ *   JSONB insertion via the supabase client.
+ */
+
+const PEPPER = process.env.HASH_FOR_LOG_PEPPER ?? '';
+if (PEPPER.length < 32) {
+  throw new Error(
+    'HASH_FOR_LOG_PEPPER env var must be set to a 32+ character value. ' +
+    'This is required for R41 admin_alerts PII-hash contract. See ' +
+    'lib/email/hashForLog.ts and AGENTS.md invariant 9 + spec §8.4.'
+  );
+}
+
+export function hashForLog(canonicalEmail: string): string {
+  return createHash('sha256').update(PEPPER).update(canonicalEmail).digest('hex');
+}
+```
+
+**Tests** (`tests/email/hashForLog.test.ts`):
+- (a) Determinism: `hashForLog('alice@example.com') === hashForLog('alice@example.com')` across two invocations.
+- (b) Distinct inputs → distinct outputs: `hashForLog('alice@example.com') !== hashForLog('bob@example.com')`.
+- (c) Length: every output is exactly 64 hex characters.
+- (d) Module-load gate: with `HASH_FOR_LOG_PEPPER` unset, importing the module throws with the documented error message.
+- (e) Module-load gate: with `HASH_FOR_LOG_PEPPER` set to a 31-char string, throws.
+- (f) Pre-canonicalization expectation: `hashForLog('alice@example.com') !== hashForLog('Alice@Example.com')` — the helper does NOT normalize case; callers MUST canonicalize first. This pins the contract that the helper is downstream of `canonicalize()`.
+- (g) **R41 P-R10 Fix-3 anchor**: importing `hashForLog` from `lib/email/hashForLog.ts` resolves (no phantom dependency); the spec §8.4 + plan B3/C6/C7 references to `hashForLog(canonicalEmail)` all import this exact path.
+
+**Env var registration** (must be added in the same commit as this task):
+- Add `HASH_FOR_LOG_PEPPER` to `.env.example` with a placeholder value documenting "32+ char random pepper for hashForLog email hashing — required at build + runtime, see lib/email/hashForLog.ts".
+- Add the var to the env-var meta-test if one exists (`tests/env/*.test.ts` — verify on the existing pattern); if not, add it to `lib/audit/envVars.ts` (or equivalent) so the existing env-var introspection catches drift.
+
+```bash
+git add lib/email/hashForLog.ts tests/email/hashForLog.test.ts .env.example
+git commit -m "feat(email): hashForLog helper for R41 admin_alerts PII hashing (A6.5)"
+```
+
+---
+
 ### Task A7: Add `crew_members.claimed_via_oauth_at` column (R41 OAuth identity claim)
 
 **Files:**
@@ -3153,28 +3226,89 @@ Pre-pivot, sign-out imports `deleteSession` from `lib/auth/validateLinkSession.t
 - `__Host-fxav_session` cookie is also gone (replaced by `__Host-fxav_picker`).
 - Sign-out's job is now to clear BOTH (a) the Supabase Auth session via `supabase.auth.signOut()` AND (b) **the `__Host-fxav_picker` cookie with `Max-Age=0` (R41-R41 credential-lifetime fix).** R41 made the picker cookie a derived credential of the signed-in user (`/api/auth/picker-bootstrap` mints it from the OAuth-matched crew row), so leaving it alive after sign-out leaks identity to the next user on a shared device.
 
+**R41 P-R10 Fix-2 (Finding 2) — preservation contract.** The pre-pivot `app/auth/sign-out/route.ts` is hardened in three ways that MUST be preserved across the R41 rewrite, NOT dropped:
+
+1. **Same-origin gate** (R22 F2 / R15 #1; pre-pivot at `app/auth/sign-out/route.ts:79-89`): `isSameOriginRequest(request)` checks `Sec-Fetch-Site` header (accepts `same-origin` or `none`); falls back to `Origin` header equality with the request's URL origin. Cross-site form POSTs are refused with 403 BEFORE any state mutation. WITHOUT this gate, R41 makes the regression worse: a malicious `<form action="https://fxav-prod/auth/sign-out" method="POST">` on an attacker page can log the user out AND clear their picker credential, then trigger a re-bootstrap that locks them out of their session — or worse, force a state where the next visitor on a shared device inherits the prior user's identity if the picker clear races the redirect.
+2. **Try/catch around `supabase.auth.signOut()`** (pre-pivot at `:142-160`) — distinguishes returned-error (`{ error }`) from thrown-error (network fault) per AGENTS.md invariant 9 (Supabase call-boundary discipline). On either failure path, the route returns the `teardownFailureHtml()` page (a server-rendered no-raw-error-codes HTML with a retry button posting back to `/auth/sign-out`), NOT a JSON document — preserves the no-raw-error-codes UI invariant (5).
+3. **Teardown-failure HTML response** (pre-pivot at `:24-65`) — preserves cookies on partial failure so the user can retry from the same auth context. R10 #2 fail-loud contract: the user sees the catalog-message copy via `messageFor()`, not a raw error code.
+
 ```ts
-// app/auth/sign-out/route.ts (post-pivot; R41-R41 picker cookie clear)
+// app/auth/sign-out/route.ts (post-pivot; R41-R41 picker cookie clear; P-R10
+// Fix-2 preservation contract — same-origin gate + try/catch + teardown HTML
+// all KEPT from the pre-pivot route. The R41 rewrite ONLY (a) removes the
+// M9.5 deleteSession() import + call (link_sessions table is dropped in this
+// pivot per Phase G), (b) adds the __Host-fxav_picker Max-Age=0 clear at the
+// success path. Same-origin gate, try/catch, teardownFailureHtml all stay.)
+
+import { NextRequest, NextResponse } from 'next/server';
+import { clearBootstrapCookie, clearSessionCookie, SESSION_COOKIE_NAME } from '@/lib/auth/cookies';
+import { messageFor } from '@/lib/messages/lookup';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
-export async function POST() {
-  const supabase = await createSupabaseServerClient();
-  await supabase.auth.signOut();
+// teardownFailureHtml() — UNCHANGED from pre-pivot (lines 24-65). Renders
+// the no-raw-error-codes failure HTML with a retry button. Body omitted
+// here for brevity; the post-pivot route preserves it verbatim.
+function teardownFailureHtml(): string { /* unchanged */ return ''; }
 
-  // R41-R41 CRITICAL: clear __Host-fxav_picker with Max-Age=0.
-  // The picker cookie is a derived credential of the signed-in user
-  // (minted via /api/auth/picker-bootstrap from the OAuth-matched crew
-  // row) — leaving it alive after sign-out leaks show identity to the
-  // next user on a shared browser. R41-R41 added /auth/sign-out as
-  // the FIFTH legal picker-cookie mutator surface (uniquely writes
-  // Max-Age=0; every other mutator extends the TTL).
+// isSameOriginRequest() — UNCHANGED from pre-pivot (lines 79-89). Sec-Fetch-Site
+// preferred; falls back to Origin header equality. Returns false for cross-site
+// form POSTs.
+function isSameOriginRequest(request: NextRequest): boolean { /* unchanged */ return false; }
+
+export async function POST(request: NextRequest): Promise<Response> {
+  // R22 F2 / R15 #1 PRESERVED: same-origin gate before any mutation. A
+  // cross-site POST returns 403 without touching cookies or Supabase.
+  // P-R10 Fix-2 RATIONALE: R41 makes the picker cookie a derived OAuth
+  // credential — a CSRF sign-out without this gate clears it cross-site
+  // and creates a re-bootstrap window that can leak identity on shared
+  // devices.
+  if (!isSameOriginRequest(request)) {
+    return new NextResponse('Forbidden', { status: 403 });
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // AGENTS.md invariant 9 PRESERVED: explicit { error } destructure AND
+  // outer try/catch for thrown faults. signOut can BOTH return an error
+  // (returned-error path) AND throw (network fault / runtime exception).
+  // Both paths route to teardownFailureHtml() — picker cookie is NOT
+  // cleared on failure (cookies preserved per R10 #2 fail-loud contract;
+  // user can retry from the same auth context).
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('signOut: Supabase signOut returned error', error);
+      return new NextResponse(teardownFailureHtml(), {
+        status: 500,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    }
+  } catch (err) {
+    console.error('signOut: Supabase signOut threw', err);
+    return new NextResponse(teardownFailureHtml(), {
+      status: 500,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
+  }
+
+  // Success path: redirect to / AND clear (a) the legacy session cookie,
+  // (b) the bootstrap cookie, (c) the R41-R41 __Host-fxav_picker cookie.
+  //
+  // R41-R41 CRITICAL: clear __Host-fxav_picker with Max-Age=0. The picker
+  // cookie is a derived credential of the signed-in user (minted via
+  // /api/auth/picker-bootstrap from the OAuth-matched crew row) — leaving
+  // it alive after sign-out leaks show identity to the next user on a
+  // shared browser. R41-R41 added /auth/sign-out as the FIFTH legal
+  // picker-cookie mutator surface (uniquely writes Max-Age=0; every
+  // other mutator extends the TTL).
   const response = NextResponse.redirect(
     new URL('/', process.env.NEXT_PUBLIC_SITE_ORIGIN!),
     { status: 302 }
   );
+  clearSessionCookie(response.cookies);  // legacy SESSION_COOKIE
+  clearBootstrapCookie(response.cookies);  // legacy bootstrap cookie
   response.cookies.set('__Host-fxav_picker', '', {
     maxAge: 0,
     path: '/',
@@ -3182,6 +3316,12 @@ export async function POST() {
     secure: true,
     sameSite: 'lax',
   });
+
+  // R41 P-R10 Fix-2: NOTE the M9.5 `deleteSession(envelope.token)` call is
+  // REMOVED in this rewrite — link_sessions table is dropped in Phase G.
+  // The pre-pivot route had a parallel try/catch around deleteSession;
+  // removing it is the only Supabase-call-boundary REMOVAL in this rewrite.
+  // All other boundaries (signOut returned/thrown) are preserved.
   return response;
 }
 
@@ -3190,12 +3330,16 @@ export function GET() {
 }
 ```
 
-Tests (per spec §10.2 R41-R41 regression):
+Tests (per spec §10.2 R41-R41 regression + P-R10 Fix-2 preservation):
 - (a) POST clears Supabase Auth session AND emits `Set-Cookie: __Host-fxav_picker=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`.
 - (b) GET returns 405.
 - (c) Post-rewrite, `validateLinkSession` is no longer imported anywhere in `app/**`.
 - (d) **R41-R41 shared-device regression**: fixture: user signs in → bootstrap mints picker cookie → user POSTs sign-out → simulated follow-up GET to `/show/<slug>/<token>` with NO cookies attached. Assert: the page renders `<SignInOrSkipGate>` (NOT `_ShowBody`); API consumers return 401. **Without R41-R41 fix**: the picker cookie survives sign-out and the follow-up renders as the previous user — leak.
 - (e) §10.1 `_metaPickerCookieContract.test.ts` lists `app/auth/sign-out/route.ts` in the cookie-mutator allowlist (as the fifth surface, alongside 3 Server Actions + picker-bootstrap).
+- (f) **R41 P-R10 Fix-2 PRESERVATION — same-origin gate (R22 F2)**: cross-site POST (Sec-Fetch-Site: cross-site, Origin: https://attacker.example) returns 403 with NO Supabase signOut call, NO cookie clearing, NO mutation. Stash both Sec-Fetch-Site AND Origin variants of the cross-site form POST to assert the gate accepts the falling-back-to-Origin path. Without this gate, an attacker form can force sign-out + picker-cookie clear cross-site.
+- (g) **R41 P-R10 Fix-2 PRESERVATION — signOut returned-error**: mock `supabase.auth.signOut()` to return `{ error: { message: 'rate limited' } }`. Assert: HTTP 500, `content-type: text/html`, body contains the messageFor('ADMIN_SESSION_LOOKUP_FAILED') copy AND a retry form `<form method="POST" action="/auth/sign-out">`. NO picker cookie clearing (cookies preserved for retry per R10 #2). NO 302 redirect (the failure HTML is the response).
+- (h) **R41 P-R10 Fix-2 PRESERVATION — signOut thrown-error**: mock `supabase.auth.signOut()` to throw `new TypeError('fetch failed')`. Same assertions as (g) — HTTP 500 HTML, no cookie clearing, no redirect.
+- (i) **R41 P-R10 Fix-2 PRESERVATION — H3 meta-registry**: register the new file's signOut + cookie calls in `tests/auth/_metaInfraContract.test.ts` so the same-origin gate, try/catch, and { error } destructure CANNOT regress.
 
 ```bash
 git commit -am "refactor(auth): sign-out no longer imports validateLinkSession (R15-F1; G0e0)"
