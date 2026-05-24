@@ -765,12 +765,66 @@ export function hashForLog(canonicalEmail: string): string {
 - (f) Pre-canonicalization expectation: `hashForLog('alice@example.com') !== hashForLog('Alice@Example.com')` — the helper does NOT normalize case; callers MUST canonicalize first. This pins the contract that the helper is downstream of `canonicalize()`.
 - (g) **R41 P-R10 Fix-3 anchor**: importing `hashForLog` from `lib/email/hashForLog.ts` resolves (no phantom dependency); the spec §8.4 + plan B3/C6/C7 references to `hashForLog(canonicalEmail)` all import this exact path.
 
-**Env var registration** (must be added in the same commit as this task):
-- Add `HASH_FOR_LOG_PEPPER` to `.env.example` with a placeholder value documenting "32+ char random pepper for hashForLog email hashing — required at build + runtime, see lib/email/hashForLog.ts".
-- Add the var to the env-var meta-test if one exists (`tests/env/*.test.ts` — verify on the existing pattern); if not, add it to `lib/audit/envVars.ts` (or equivalent) so the existing env-var introspection catches drift.
+**R41 P-R11 Fix-2 — test + build provisioning (mandatory; without this the import-time gate breaks unrelated tests).**
+
+The module-load gate at `lib/email/hashForLog.ts` throws if `HASH_FOR_LOG_PEPPER` is unset or shorter than 32 chars. C7 callback, C6 picker-bootstrap, AND B3 selectIdentity (the tamper-log path) all import `hashForLog`. Without env-var provisioning, importing any of those modules in a test or build with no pepper set causes import-time crashes — `vitest.config.ts` loads the empty `tests/setup.ts`, so test runs hit the throw immediately.
+
+Provisioning steps (ALL part of this task; verified against the real repo paths):
+
+1. **`tests/setup.ts` (replace the empty `export {};`)** — seed a deterministic 32+ char test pepper BEFORE any test module imports `lib/email/hashForLog.ts`. Use a fixed string so determinism tests pass across machines:
+
+   ```ts
+   // tests/setup.ts
+   // R41 P-R11 Fix-2: seed HASH_FOR_LOG_PEPPER for tests that import
+   // lib/email/hashForLog.ts. Module-load gate throws without this.
+   // Fixed deterministic value — same hash bytes across machines.
+   process.env.HASH_FOR_LOG_PEPPER ??=
+     'fxav-r41-test-pepper-32-chars-min-deterministic';
+
+   export {};
+   ```
+
+2. **`.env.local.example` (NOT `.env.example` — that path doesn't exist in this repo)** — append:
+
+   ```dotenv
+   # R41 P-R11: 32+ char random pepper for lib/email/hashForLog.ts email
+   # hashing in admin_alerts.context + structured logs. REQUIRED at build
+   # AND runtime — module-load gate throws if unset/short. Generate via
+   # `openssl rand -hex 32` for production; tests use a fixed value
+   # seeded by tests/setup.ts.
+   HASH_FOR_LOG_PEPPER=
+   ```
+
+   Verify append correctness with `git diff .env.local.example` — the project's echo-append discipline (see AGENTS.md "echo >> discipline") means use `printf '\n%s\n'` not `echo "X" >>` if appending via shell. The plan-time canonical approach is to Edit the file directly.
+
+3. **CI/build env provisioning** — Vercel deploy needs the env var. Add a note in the task commit message: "HASH_FOR_LOG_PEPPER must be set in Vercel project env vars before deploy; the module-load gate fails-loud at build time if missing." If the repo has a `scripts/env-check.ts` or `lib/audit/envVars.ts`-style env audit, register `HASH_FOR_LOG_PEPPER` there; grep the repo for `env-check`/`audit/env` to find the actual path before writing this step (do not invent a file).
+
+4. **Module-load-gate tests must reset module cache** — vitest caches the module after the first import. To test the unset/short-pepper throw path, the test MUST call `vi.resetModules()` BEFORE deleting `process.env.HASH_FOR_LOG_PEPPER` and re-importing. Example:
+
+   ```ts
+   import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+   describe('hashForLog module-load gate', () => {
+     beforeEach(() => { vi.resetModules(); });
+     it('throws when HASH_FOR_LOG_PEPPER is unset', async () => {
+       const prior = process.env.HASH_FOR_LOG_PEPPER;
+       delete process.env.HASH_FOR_LOG_PEPPER;
+       await expect(import('@/lib/email/hashForLog')).rejects.toThrow(/HASH_FOR_LOG_PEPPER/);
+       process.env.HASH_FOR_LOG_PEPPER = prior;
+     });
+     it('throws when HASH_FOR_LOG_PEPPER is <32 chars', async () => {
+       const prior = process.env.HASH_FOR_LOG_PEPPER;
+       process.env.HASH_FOR_LOG_PEPPER = 'short';
+       await expect(import('@/lib/email/hashForLog')).rejects.toThrow(/32/);
+       process.env.HASH_FOR_LOG_PEPPER = prior;
+     });
+     // Determinism + length tests can use a top-level static import
+     // because tests/setup.ts seeded the pepper before vitest started.
+   });
+   ```
 
 ```bash
-git add lib/email/hashForLog.ts tests/email/hashForLog.test.ts .env.example
+git add lib/email/hashForLog.ts tests/email/hashForLog.test.ts tests/setup.ts .env.local.example
 git commit -m "feat(email): hashForLog helper for R41 admin_alerts PII hashing (A6.5)"
 ```
 
@@ -2217,7 +2271,8 @@ The codes to register (per §8.4 of the spec, full list — R41 codes included):
   - `PICKER_IDENTITY_CLAIMED` (rejection — R41 Fix-2; redirects to /auth/sign-in)
   - `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` (crew-facing banner — R41-R8; resolver `identity_invalidated/claimed_after_pick`)
   - `PICKER_BOOTSTRAP_RPC_FAILED` (operator + crew-facing — R41-R7 fail-closed contract; emitted to admin_alerts AND rendered as 502 terminal page)
-  - `OAUTH_IDENTITY_CLAIMED` (admin-alert — R41-R12; emitted when claim_oauth_identity stamps ≥1 rows)
+  - `OAUTH_IDENTITY_CLAIMED` (admin-alert — R41-R12; emitted PER ROW with show_id-scoped context per P-R8 Fix-3)
+  - **R41 P-R11 Fix-3 — `CALLBACK_CLAIM_THREW`** (admin-alert — P-R9 Fix-1 thrown-error path; emitted from C7 callback claim-stamp block when the OAuth claim throws an exception). MUST be registered HERE in C0-pre, NOT deferred to H7, because C7's `emitAdminAlert('CALLBACK_CLAIM_THREW', ...)` call site fails typecheck against the `AdminAlertCode` union and violates the admin-alert catalog completeness invariant until the code is registered. The pattern is identical to PICKER_BOOTSTRAP_RPC_FAILED: register the code (with both `dougFacing` and any `crewFacing` copy) in `lib/messages/catalog.ts`, regenerate `lib/messages/__generated__/spec-codes.ts`, AND make sure the AdminAlertCode union (if separate from MessageCode) includes it. The H7 meta-test still ENFORCES the producer/catalog match — but the catalog row exists from C0-pre forward, not after C7.
   - `SIGN_IN_OR_SKIP_PROMPT` (crew-facing — R41-R5 SignInOrSkipGate copy)
   - `IDENTITY_DEACTIVATED_LOCK_HINT` (crew-facing — R41 deactivated-row lock icon aria-label)
   (R41-R35 REMOVED — do NOT register: `PICKER_IDENTITY_AMBIGUOUS`, `PICKER_IDENTITY_AMBIGUOUS_BANNER`. The pre-pivot `AMBIGUOUS_EMAIL_BINDING` may remain as defensive surface but R41 introduces no new emission paths.)
@@ -3303,8 +3358,17 @@ export async function POST(request: NextRequest): Promise<Response> {
   // shared browser. R41-R41 added /auth/sign-out as the FIFTH legal
   // picker-cookie mutator surface (uniquely writes Max-Age=0; every
   // other mutator extends the TTL).
+  //
+  // R41 P-R11 Fix-1: build the redirect URL from `request.url` (the same
+  // origin that just passed the same-origin gate), NOT from
+  // `process.env.NEXT_PUBLIC_SITE_ORIGIN`. If that env var is unset or
+  // malformed, `new URL('/', undefined)` throws AFTER supabase.auth.signOut()
+  // has already succeeded but BEFORE the cookie clears — exactly the
+  // partial-teardown state this section says it preserves against. The
+  // request.url form mirrors the pre-pivot route's redirect construction
+  // and is guaranteed-valid because the request already parsed it.
   const response = NextResponse.redirect(
-    new URL('/', process.env.NEXT_PUBLIC_SITE_ORIGIN!),
+    new URL('/', request.url),
     { status: 302 }
   );
   clearSessionCookie(response.cookies);  // legacy SESSION_COOKIE
@@ -3340,6 +3404,7 @@ Tests (per spec §10.2 R41-R41 regression + P-R10 Fix-2 preservation):
 - (g) **R41 P-R10 Fix-2 PRESERVATION — signOut returned-error**: mock `supabase.auth.signOut()` to return `{ error: { message: 'rate limited' } }`. Assert: HTTP 500, `content-type: text/html`, body contains the messageFor('ADMIN_SESSION_LOOKUP_FAILED') copy AND a retry form `<form method="POST" action="/auth/sign-out">`. NO picker cookie clearing (cookies preserved for retry per R10 #2). NO 302 redirect (the failure HTML is the response).
 - (h) **R41 P-R10 Fix-2 PRESERVATION — signOut thrown-error**: mock `supabase.auth.signOut()` to throw `new TypeError('fetch failed')`. Same assertions as (g) — HTTP 500 HTML, no cookie clearing, no redirect.
 - (i) **R41 P-R10 Fix-2 PRESERVATION — H3 meta-registry**: register the new file's signOut + cookie calls in `tests/auth/_metaInfraContract.test.ts` so the same-origin gate, try/catch, and { error } destructure CANNOT regress.
+- (j) **R41 P-R11 Fix-1 — partial-teardown regression**: run the sign-out POST with `process.env.NEXT_PUBLIC_SITE_ORIGIN` UNSET. Assert: HTTP 302 with `Location` derived from `request.url`'s origin (not undefined/malformed), Supabase signOut WAS called, and `__Host-fxav_picker` IS cleared (Max-Age=0 header present). The pre-Fix-1 code threw on `new URL('/', undefined)` AFTER signOut succeeded but BEFORE the cookie clear — leaving Supabase auth gone but picker cookie alive, the exact leak R41-R41 prevents. Also run with NEXT_PUBLIC_SITE_ORIGIN set to a malformed value (`'not-a-url'`) — assert the redirect is still well-formed from request.url, no throw.
 
 ```bash
 git commit -am "refactor(auth): sign-out no longer imports validateLinkSession (R15-F1; G0e0)"
