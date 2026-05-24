@@ -1995,11 +1995,19 @@ git commit -am "feat(auth): resetPickerEpoch + rotateShareToken admin Server Act
 
 The plan previously deferred catalog updates to Task H7, but `<TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />` in Task C0 and the picker UI in Task C2 pass code strings to `messageFor()` whose live signature accepts `MessageCode`. Without the codes registered first, every commit from C0 onward fails to typecheck.
 
-The codes to register (per §8.4 of the spec, full list):
+The codes to register (per §8.4 of the spec, full list — R41 codes included):
 - `PICKER_EPOCH_RESET` (admin-alert)
 - `PICKER_SELECTION_RACE` (admin-alert)
 - `PICKER_EPOCH_STALE_BANNER`, `PICKER_REMOVED_FROM_ROSTER_BANNER`, `PICKER_EMPTY_ROSTER`, `PICKER_SHOW_UNAVAILABLE` (crew-facing)
 - `PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, `PICKER_CREW_MEMBER_WRONG_SHOW`, `PICKER_INVALID_SHARE_TOKEN`, `PICKER_RESOLVER_LOOKUP_FAILED` (rejection — all carry both `dougFacing` + `crewFacing` per R33)
+- **R41 codes (per spec §8.4 R41 amendments):**
+  - `PICKER_IDENTITY_CLAIMED` (rejection — R41 Fix-2; redirects to /auth/sign-in)
+  - `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` (crew-facing banner — R41-R8; resolver `identity_invalidated/claimed_after_pick`)
+  - `PICKER_BOOTSTRAP_RPC_FAILED` (operator + crew-facing — R41-R7 fail-closed contract; emitted to admin_alerts AND rendered as 502 terminal page)
+  - `OAUTH_IDENTITY_CLAIMED` (admin-alert — R41-R12; emitted when claim_oauth_identity stamps ≥1 rows)
+  - `SIGN_IN_OR_SKIP_PROMPT` (crew-facing — R41-R5 SignInOrSkipGate copy)
+  - `IDENTITY_DEACTIVATED_LOCK_HINT` (crew-facing — R41 deactivated-row lock icon aria-label)
+  (R41-R35 REMOVED — do NOT register: `PICKER_IDENTITY_AMBIGUOUS`, `PICKER_IDENTITY_AMBIGUOUS_BANNER`. The pre-pivot `AMBIGUOUS_EMAIL_BINDING` may remain as defensive surface but R41 introduces no new emission paths.)
 
 ```bash
 git commit -am "feat(messages): register PICKER_* catalog codes (C0-pre)"
@@ -2557,7 +2565,7 @@ Per spec §4.7 (R41-R6 / R41-R7 / R41-R24 / R41-R41). Flow:
 2. **Verify intent token** — format: `base64url(JSON({slug, shareToken, exp})) + '.' + base64url(HMAC-SHA256(payload, PICKER_COOKIE_SIGNING_KEY))`. Reject (403, NOT 302) on: missing `t`, malformed format, expired (`exp < now`), HMAC mismatch, OR embedded `{slug, shareToken}` not matching `next` URL's parsed values.
 3. `validateGoogleSession(req)` — no session → 302 to `next` with no cookie set.
 4. Invoke `claim_oauth_identity(canonicalize(user.email))` via service-role client.
-   - **RPC infra failure (R41-R7 fail-closed)**: return HTTP 502 with cataloged `PICKER_BOOTSTRAP_RPC_FAILED` terminal-failure HTML. NO 302 (would loop back).
+   - **RPC infra failure (R41-R7 fail-closed)**: return HTTP 502 with cataloged `PICKER_BOOTSTRAP_RPC_FAILED` terminal-failure HTML. NO 302 (would loop back). **ALSO emit `upsert_admin_alert(NULL show_id, 'PICKER_BOOTSTRAP_RPC_FAILED', jsonb_build_object('user_email', canonicalEmail, 'rpc_error_code', error.code, 'rpc_error_message', error.message))` via the service-role client** so operators get a durable record of persistent OAuth-bootstrap failures (per spec §8.4 R41-R7). Also emit a structured log line with the same payload. Tests assert: (a) HTTP 502 response; (b) `admin_alerts` row created with code `PICKER_BOOTSTRAP_RPC_FAILED`; (c) structured log emitted; (d) repeat invocations on the same user_email increment `occurrence_count` (upsert helper handles unique-index conflict per R41-R19).
 5. **One-show write contract (R41-R6)**: extract target `show_id` via `resolve_show_by_slug_and_token(slug, shareToken)`. Find `result.shows` entry for target_show_id. If present: read request envelope; modify ONLY this show's entry to `{ id: crew_member_id, e: picker_epoch, t: result.mint_safe_t_millis }`; write via `cookies().set('__Host-fxav_picker', signEnvelope(envelope), PICKER_COOKIE_OPTIONS)`. If absent: write NO cookie.
 6. 302 to `next`.
 
@@ -2716,6 +2724,24 @@ git commit -am "feat(api): report route auth swap (drop link/google crew arms; D
 
 ---
 
+### Task D5: Cross-cutting API Google-session-without-cookie rejection matrix (R41-R1 Fix-3 regression)
+
+**Files:**
+- Create: `tests/api/_apiGoogleSessionRejectsWithoutCookie.test.ts`
+- Modify: `tests/cross-cutting/picker-resolver-callsite-contract.test.ts` (extension)
+
+Per spec §10.2 R41-R1 Fix-3: every API consumer in §6 (`/api/realtime/subscriber-token`, `/api/asset/diagram`, `/api/asset/reel`, `/api/asset/agenda`, `/api/show/[slug]/version`, `/api/report`) MUST return 401 when given a valid Google session whose email matches a `crew_members` row on the target show but NO `__Host-fxav_picker` cookie. The Google-session-auto-resolve path is RESTRICTED to `resolveShowPageAccess` (page-route helper); API consumers use cookie-only `resolvePickerSelection`.
+
+Tests:
+- For EACH of the 6 API consumers: construct request with valid Google session + matching crew row + no picker cookie. Assert status === 401. If any flips to 200, an unintended Google-session arm has been reintroduced.
+- Structural guard (extend the existing picker-resolver-callsite-contract test): grep each API-route source file. Assert that `validateGoogleSession` is NOT imported anywhere in `app/api/**` outside the test directory; assert `resolveShowPageAccess` is NOT imported in `app/api/**` (it's page-route-only per R41-R1 Fix-3 allowlist).
+
+```bash
+git commit -am "test(api): Google-session-without-cookie rejection matrix (D5; R41-R1)"
+```
+
+---
+
 ## Phase E: Auth chain modifications
 
 ### Task E1: Update `lib/auth/resolveShowViewer.ts` — drop `crew_link` + `crew_google` arms
@@ -2744,19 +2770,18 @@ git commit -am "refactor(auth): drop resolveShowViewer.ts (no callers post-pivot
 - Modify: `app/me/page.tsx` — replace existing listShowsForCrew SQL with `serviceRole.rpc('my_share_tokens_for_email')` call; render entries as `/show/<slug>/<share-token>` tokenized URLs (NOT bare `/show/<slug>`).
 - Modify: `lib/data/listShowsForCrew.ts` — rewrite to wrap `my_share_tokens_for_email()` RPC.
 - Test: `tests/app/me.test.ts` — assert tokenized URL output; mixed-case email regression (R41-R19); cross-user enumeration negative test.
-- Test: `tests/auth/validateNextParam.test.ts`
+- Verify: `lib/auth/validateNextParam.ts` allowlist regex STILL accepts `/me` (R41 — do NOT remove).
 
-**Pre-coding grep (mandatory):**
+**Preservation allowlist (no `/me` scrub; pre-R41 grep-and-rewrite step removed):**
+- `/me` route exists at `app/me/page.tsx` (rewritten per R41-R19).
+- `/me` allowed in `validateNextParam.ts` allowlist.
+- `/me` allowed in sign-in already-signed-in short-circuit destination, callback redirect, google/start redirectTo, clear-session allowed targets.
+- `/me` allowed in `lib/messages/catalog.ts` OAuth-error user-facing copy.
+
+H2 no-jwt-surface meta-test does NOT ban `/me` URL literals (per R41 — see H2 task). It bans M9.5 JWT/link surfaces only.
+
 ```bash
-rg -n '("|''|`)/me("|''|`|/)' app lib components middleware.ts --glob '!**/*.test.*' --glob '!**/__generated__/**'
-```
-
-Each match → either rewrite to non-`/me` destination or delete. The H2 no-jwt-surface meta-test scans for any remaining matches AFTER all E2 + G0e1 work lands.
-
-Static test grep for `/me` URL literals across `app/**`, `lib/**`, `components/**`, `middleware.ts` — fail if any production reference survives outside test fixtures and generated catalog.
-
-```bash
-git commit -am "fix(auth): scrub /me from redirect chain + allowlist (R22; E2)"
+git commit -am "feat(me): rewrite app/me to render tokenized URLs (R41 preservation; E2)"
 ```
 
 ---
