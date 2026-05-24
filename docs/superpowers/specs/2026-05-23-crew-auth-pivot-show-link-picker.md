@@ -90,7 +90,7 @@ Each decision is owner-determined; cite by number from this list in the implemen
 16. **Sign-in-or-skip interstitial gate (R41 amendment).** When `/show/<slug>/<share-token>` resolves but none of {admin, Google session matching a crew row for this show, valid picker cookie} succeeds, the route renders a new gate component `<SignInOrSkipGate>`. Layout: brand strip + show identifier + two clear actions — **primary: "Skip and pick your name"** (server-driven navigation that re-enters the route with a `?gate=skip` flag the route handler reads as permission to render the picker interstitial); **secondary: "Sign in with Google"** (initiates the OAuth flow with the current tokenized URL as the post-callback destination). The skip-CTA is primary because the workflow's default audience (most crew most of the time) just wants to see their call time; sign-in is the opt-in upgrade. Anti-pattern: making sign-in feel mandatory or making skip hard to find — the gate is not a wall. Detailed UX in §7.
 
 17. **Login skips the picker entirely (R41-R6 revised — lazy-mint flow).** When a user signs in via Google OAuth, the auth callback handler stamps `claimed_via_oauth_at` on every matching `crew_members` row via `claim_oauth_identity` (under per-show advisory locks) and redirects to the validated `next` URL. **The callback does NOT mint picker cookies** (R41-R6 simplification — removes the high-frequency race surface of callback-write vs selectIdentity). Cookies are minted lazily, one show at a time, on the user's first visit to each show: `resolveShowPageAccess` detects Google-session + email-match + no-cookie → 302 to `/api/auth/picker-bootstrap` → bootstrap mints the entry → 302 back → page renders show body. The user-perceived flow is "signed in → skipped the picker" because the redirect-bootstrap-redirect chain executes server-side; the user sees one URL transition (sign-in → show page) with no intermediate picker render. The cookie's HMAC signature is the same as a `selectIdentity`-mint cookie; downstream API routes can't tell the two paths apart, which is intentional. **Edge cases — all handled by the same lazy-mint flow**: (a) Doug adds user to a new show post-sign-in → first visit triggers bootstrap (b) callback's RPC fails with infra error → bootstrap retries the RPC (idempotent) (c) cookies expire / cleared → next show visit re-triggers bootstrap (d) user signs in on a new device → bootstrap fires on first show visit on the new device. One audit-layer property: `claimed_via_oauth_at` is stamped at callback time, so every picker render after sign-in (on any device) deactivates this crew member's row in the bypass picker.
-14. **Server Action drives selection (R41-R33 + R41-R34 locked-RPC contract).** `selectIdentity({ slug, shareToken, crewMemberId })` (Next 16 App Router idiom). **R37 base, R41-R33 redesign**: the action's body is a SINGLE locked RPC call — `select_identity_atomic(p_slug, p_share_token, p_crew_member_id)` — which does ALL validation INSIDE the per-show advisory lock (share-token re-resolve, crew_member roster check, claimed_via_oauth_at IS NULL check, same-show-email-count check, show published + not-archived check, picker_epoch read, observed_at_millis capture via clock_timestamp). NO pre-RPC JS-side call to `resolve_show_by_slug_and_token` (that would re-open the R41-R33 rotation race: an admin Rotate can commit between the JS pre-resolve and the locked RPC, letting a cookie be minted from an already-invalid old share-token). NO post-RPC SELECT picker_epoch outside the lock. The RPC's return value is authoritative. The picker form embeds `slug` and `shareToken` as hidden inputs sourced from the route params. The §10.1 picker-cookie meta-test grep-asserts `selectIdentity.ts` does NOT import or call `resolve_show_by_slug_and_token` AND does NOT call `.from('shows').select('picker_epoch')` post-RPC — both patterns are forbidden because they would observe state outside the locked window.
+14. **Server Action drives selection (R41-R33 + R41-R34 locked-RPC contract; R41-R35 ambiguous-email check removed).** `selectIdentity({ slug, shareToken, crewMemberId })` (Next 16 App Router idiom). **R37 base, R41-R33 redesign**: the action's body is a SINGLE locked RPC call — `select_identity_atomic(p_slug, p_share_token, p_crew_member_id)` — which does ALL validation INSIDE the per-show advisory lock (share-token re-resolve, crew_member roster check, claimed_via_oauth_at IS NULL check, show published + not-archived check, picker_epoch read, observed_at_millis capture via clock_timestamp). **R41-R35**: the prior same-show-email-count check is removed because the schema's partial UNIQUE index on (show_id, email) makes duplicates impossible. NO pre-RPC JS-side call to `resolve_show_by_slug_and_token` (that would re-open the R41-R33 rotation race: an admin Rotate can commit between the JS pre-resolve and the locked RPC, letting a cookie be minted from an already-invalid old share-token). NO post-RPC SELECT picker_epoch outside the lock. The RPC's return value is authoritative. The picker form embeds `slug` and `shareToken` as hidden inputs sourced from the route params. The §10.1 picker-cookie meta-test grep-asserts `selectIdentity.ts` does NOT import or call `resolve_show_by_slug_and_token` AND does NOT call `.from('shows').select('picker_epoch')` post-RPC — both patterns are forbidden because they would observe state outside the locked window.
 
 ---
 
@@ -641,11 +641,11 @@ declare
   -- rows already match the canonical form, so equality comparison is direct.
   v_email text := p_email;
   v_locked_show_ids uuid[];
-  v_ambiguous_show_ids uuid[];
   v_claimed_count integer := 0;
   v_shows jsonb;
   v_claim_at timestamptz;  -- R41-R23: clock_timestamp() AFTER all locks acquired
   r record;  -- R41-R10: loop variable for explicit ordered lock acquisition
+  -- R41-R35: v_ambiguous_show_ids removed (schema constraint prevents the state)
 begin
   -- R41-R3 fix: materialize the locked show ids into a PL/pgSQL array DURING
   -- the lock loop, then reuse that exact array as the filter for both the
@@ -717,67 +717,30 @@ begin
   )
   select count(*) into v_claimed_count from updated;
 
-  -- R41-R3 fix (ambiguous-email handling): GROUP BY show_id and HAVING
-  -- COUNT(*) = 1. Shows with 2+ crew rows sharing this email are OMITTED
-  -- from the returned set; one AMBIGUOUS_EMAIL_BINDING admin alert is
-  -- emitted per ambiguous show. Caller (callback handler or picker-bootstrap
-  -- handler) does NOT mint cookies for ambiguous shows — the user must
-  -- pick via the picker interstitial on those shows (where the deactivated
-  -- rows render as expected).
-  -- R41-R4 SQL fix: aggregate AFTER identifying ambiguous groups. The earlier
-  -- draft put GROUP BY + HAVING directly in the SELECT INTO statement, which
-  -- returns one one-element array per ambiguous group (and SELECT INTO would
-  -- bind only the first row in PL/pgSQL). The correct shape is a subquery
-  -- that yields one row per ambiguous show, with an outer array_agg over
-  -- those rows.
-  select coalesce(array_agg(show_id), array[]::uuid[])
-    into v_ambiguous_show_ids
-    from (
-      select cm.show_id
-        from public.crew_members cm
-       where cm.email = v_email
-         and cm.show_id = any(v_locked_show_ids)
-       group by cm.show_id
-      having count(*) > 1
-    ) ambiguous;
+  -- R41-R35: ambiguous-email detection REMOVED. The live schema's partial
+  -- UNIQUE index `crew_members_show_email_unique ON (show_id, email) WHERE
+  -- email IS NOT NULL` at supabase/migrations/20260501000000_initial_public_schema.sql:49-51
+  -- guarantees at most one crew_members row per (show_id, email). The
+  -- R41-R3/R41-R4 ambiguous-handling SQL was dead code defending an
+  -- impossible state; the constraint is the canonical defense. A sync
+  -- attempt to insert a duplicate-email row fails at constraint time and
+  -- surfaces via the existing pre-R41 sync-error pathway.
 
-  if array_length(v_ambiguous_show_ids, 1) is not null then
-    -- R41-R19 fix: use the existing upsert_admin_alert helper
-    -- (supabase/migrations/20260505000000_upsert_admin_alert.sql) instead of
-    -- a raw INSERT. The live admin_alerts schema is (show_id, code, context)
-    -- with a unique index on (coalesce(show_id::text, ''), code) where
-    -- resolved_at IS NULL — raw INSERT would violate the unique index on
-    -- repeated ambiguous sign-ins. The helper handles the conflict via
-    -- ON CONFLICT DO UPDATE SET occurrence_count = occurrence_count + 1.
-    perform public.upsert_admin_alert(
-      t.show_id,
-      'AMBIGUOUS_EMAIL_BINDING',
-      jsonb_build_object('email', v_email)
-    )
-    from unnest(v_ambiguous_show_ids) as t(show_id);
-  end if;
-
-  -- Build the shows result set: published + non-archived + UNIQUE email
-  -- match for this show. Restricted to v_locked_show_ids; excludes ambiguous.
+  -- Build the shows result set: published + non-archived crew rows for
+  -- this email, restricted to v_locked_show_ids. No GROUP BY needed —
+  -- the UNIQUE constraint guarantees a single row per (show_id, email).
   select coalesce(jsonb_agg(jsonb_build_object(
-           'show_id', sub.show_id,
-           'crew_member_id', sub.crew_member_id,
-           'picker_epoch', sub.picker_epoch
+           'show_id', s.id,
+           'crew_member_id', cm.id,
+           'picker_epoch', s.picker_epoch
          )), '[]'::jsonb)
     into v_shows
-    from (
-      select s.id as show_id,
-             min(cm.id) as crew_member_id,  -- safe — HAVING COUNT(*) = 1 below
-             s.picker_epoch
-        from public.crew_members cm
-        join public.shows s on s.id = cm.show_id
-       where cm.email = v_email
-         and cm.show_id = any(v_locked_show_ids)
-         and s.published = true
-         and s.archived = false
-       group by s.id, s.picker_epoch
-      having count(*) = 1
-    ) sub;
+    from public.crew_members cm
+    join public.shows s on s.id = cm.show_id
+   where cm.email = v_email
+     and cm.show_id = any(v_locked_show_ids)
+     and s.published = true
+     and s.archived = false;
 
   -- R41-R22 + R41-R23: compute mint_safe_t_millis for picker-bootstrap's
   -- cookie.t. Uses clock_timestamp() (NOT now()/transaction_timestamp())
@@ -929,7 +892,7 @@ Both categories already follow the AGENTS.md call-boundary discipline (typed inf
 
 **Advisory-lock acquisition (per AGENTS.md invariant 2 — non-negotiable; R41-R31 corrected for selectIdentity).** Because the Reset path mutates `public.shows`, the per-show advisory lock MUST be acquired inside the same transaction as the UPDATE. The mechanics are in §4.5; the call-boundary contract is: the structural meta-test at `tests/auth/_metaInfraContract.test.ts` registers `resetPickerEpoch`, AND the advisory-lock topology meta-test at `tests/auth/advisoryLockRpcDeadlock.test.ts` asserts (a) the SECURITY DEFINER RPC bodies acquire the lock at exactly one layer, (b) NO JS-side wrapper around the RPC call acquires the same lock, (c) NO other DB function reacquires the same hashkey while the RPC body holds it, and (d) the documented writer set is complete (per R41-R29: reset_picker_epoch_atomic + rotate_show_share_token are the two writers of `picker_epoch`).
 
-**R41-R31 selectIdentity correction**: `selectIdentity` MUST also acquire the per-show advisory lock via the `select_identity_atomic` SECURITY DEFINER RPC (per §6.2 + §6.0). The lock is required because the action READS multiple race-sensitive fields (`claimed_via_oauth_at`, `same_show_email_count`, `picker_epoch`, `observed_at_millis`) that can be mutated by concurrent `claim_oauth_identity` / `rotate_show_share_token` / `reset_picker_epoch_atomic` invocations — without the lock, the read-then-cookie-mint window allows the impersonation class R41-R18+R41-R23 closed. The advisory-lock topology meta-test asserts `select_identity_atomic` acquires the lock at exactly one layer inside the SECURITY DEFINER body. The JS Server Action wrapper does NOT call `pg_advisory_xact_lock` directly (single-holder rule).
+**R41-R31 selectIdentity correction (R41-R35 simplified)**: `selectIdentity` MUST also acquire the per-show advisory lock via the `select_identity_atomic` SECURITY DEFINER RPC (per §6.2 + §6.0). The lock is required because the action READS race-sensitive fields (`claimed_via_oauth_at`, `picker_epoch`, `observed_at_millis`) that can be mutated by concurrent `claim_oauth_identity` / `rotate_show_share_token` / `reset_picker_epoch_atomic` invocations — without the lock, the read-then-cookie-mint window allows the impersonation class R41-R18+R41-R23 closed. The advisory-lock topology meta-test asserts `select_identity_atomic` acquires the lock at exactly one layer inside the SECURITY DEFINER body. The JS Server Action wrapper does NOT call `pg_advisory_xact_lock` directly (single-holder rule).
 
 The `clearIdentity` and `cleanupStaleEntry` Server Actions perform NO DB reads of race-sensitive fields and NO server-side state mutations — they only mutate the client cookie. They do NOT require the advisory lock.
 
@@ -1042,7 +1005,9 @@ type ResolvePickerSelectionResult =
   | { kind: 'identity_invalidated';
       expectedEpoch: number;
       expectedCrewMemberId: string;
-      reason: 'claimed_after_pick' | 'email_ambiguous' }  // R41-R8 new arm
+      reason: 'claimed_after_pick' }  // R41-R8 added; R41-R35 simplified
+        // — R41-R35 removed 'email_ambiguous' reason (schema prevents the
+        // ambiguous state); identity_invalidated now has a single reason
   | { kind: 'show_unavailable' }
   | { kind: 'infra_error'; code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
 ```
@@ -1058,9 +1023,9 @@ The `shows.archived` / `shows.published` gate is part of the resolver — every 
 5. **Show is unavailable** (`archived = true` OR `published = false`) → `{ kind: 'show_unavailable' }`. Cookie's entry for this show is NOT cleared (a republished show should resolve to its previous selection without re-prompting). Consumers MUST treat this as a hard-deny: page route renders `notFound()`, API routes return 410 Gone (matching the parent spec's existing show-unavailable contract).
 6. **Entry present; entry `e` ≠ `shows.picker_epoch`** → `{ kind: 'epoch_stale' }`.
 7. **DB read failure on `crew_members` membership lookup** → `{ kind: 'infra_error', code: 'PICKER_RESOLVER_LOOKUP_FAILED' }`. Same posture as 4.
-8. **Entry present, epoch matches; row lookup returns 0 rows** → `{ kind: 'removed_from_roster' }`. The membership query is `SELECT id, show_id, claimed_via_oauth_at, email, (SELECT COUNT(*) FROM crew_members cm2 WHERE cm2.show_id = cm.show_id AND cm2.email = cm.email) AS same_show_email_count FROM crew_members cm WHERE cm.id = $1 AND cm.show_id = $2`. **R41-R16 invariant-3 fix**: direct `email = email` comparison — both sides already canonical via the `crew_members_email_canonical` CHECK constraint. No inline `lower(trim(...))`; the canonical helper at `lib/email/canonicalize.ts` is the only normalization boundary. If 0 rows → `removed_from_roster`.
+8. **Entry present, epoch matches; row lookup returns 0 rows** → `{ kind: 'removed_from_roster' }`. The membership query is `SELECT id, show_id, claimed_via_oauth_at FROM crew_members WHERE id = $1 AND show_id = $2` (R41-R35 simplified — the `same_show_email_count` derived field was removed because the schema's partial UNIQUE index on `(show_id, email)` makes duplicates impossible). If 0 rows → `removed_from_roster`.
 9. **Entry present, epoch matches, row exists, BUT `claimed_via_oauth_at IS NOT NULL` AND `cookie.t <= floor(extract(epoch from claimed_via_oauth_at) * 1000)::bigint`** (R41-R8 base; R41-R22 millisecond precision + R41-R30 floor() cast for deterministic truncation) → `{ kind: 'identity_invalidated', reason: 'claimed_after_pick' }`. The cookie predates the OAuth identity claim. **R41-R22 critical**: comparison uses unix-MILLISECONDS (not seconds — second resolution allowed bypass-then-claim within the same second to tie and incorrectly resolve) AND `cookie.t <= claim_epoch_millis` (NOT `<`) — the `<=` fails closed on ties. legitimate bootstrap mints carry `cookie.t = mint_safe_t_millis = max(now, max(claimed_via_oauth_at) millis) + 1`, which is STRICTLY GREATER than the claim's millis, so legitimate cookies cleanly satisfy `cookie.t > claim_epoch_millis`. Bypass cookies carry `cookie.t = observed_at_millis` from inside the lock, which is `<` claim_epoch_millis by transaction monotonicity (could equal at millisecond resolution under extreme conditions; the `<=` invalidation catches that tie). The cookie's `t` is the load-bearing distinguishing field; if it `<= claim_epoch_millis`, the cookie is from a pre-claim bypass pick and MUST be rejected.
-10. **Entry present, epoch matches, row exists, NOT claimed-after-pick, BUT `same_show_email_count > 1`** (R41-R8) → `{ kind: 'identity_invalidated', reason: 'email_ambiguous' }`. The row's email is duplicated on this show — the picker should have deactivated this row at render time (R41-R6 expanded deactivation predicate), but a hand-crafted cookie OR a cookie minted before the duplicate was added bypasses the UI. Rejecting at the resolver level closes the gap.
+10. (vacated — R41-R35 removed the ambiguous-email arm. The live schema's partial UNIQUE index on `crew_members(show_id, email) WHERE email IS NOT NULL` makes `same_show_email_count > 1` impossible at the row level. The case number is preserved to avoid renumbering downstream citations.)
 11. **All checks pass** → `{ kind: 'resolved', crewMemberId }`.
 
 Mapping of resolver `kind` outcomes to UI behaviour (referenced by `kind`, not case number, to avoid renumbering drift):
@@ -1109,7 +1074,7 @@ The picker cookie is the credential under the pivot model. A stale cookie (epoch
 
   **Two-step lock acquisition** (since the RPC takes slug not showId): (1) `SELECT id, drive_file_id FROM public.shows WHERE slug = p_slug` (BEFORE any lock) → obtains drive_file_id for the lock-key derivation; (2) `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))`; (3) AFTER the lock is held: `resolve_show_by_slug_and_token(p_slug, p_share_token)` → must return the same showId as step 1 AND must be NOT NULL. If NULL or different (rotation happened between step 1 and step 3), reject with `PICKER_INVALID_SHARE_TOKEN`. The slug→drive_file_id mapping is stable (slugs are deterministic from sheet title per `lib/parser/slug.ts` and don't rotate; only the share_token rotates).
 
-  After the locked share-token re-validation, the RPC body performs ALL of: (a) `SELECT id, show_id, claimed_via_oauth_at, email FROM crew_members WHERE id = p_crew_member_id`: 0 rows → reject with `PICKER_CREW_MEMBER_NOT_FOUND`; show_id mismatch → reject with `PICKER_CREW_MEMBER_WRONG_SHOW`; **`claimed_via_oauth_at IS NOT NULL` → reject with `PICKER_IDENTITY_CLAIMED` (R41 Fix-2)**; **same-show-email-count > 1 → reject with `PICKER_IDENTITY_AMBIGUOUS` (R41-R6 Fix-3; R41-R17)**; (b) on success, returns `{ ok: true, show_id, crew_member_id, picker_epoch, observed_at_millis: floor(extract(epoch from clock_timestamp()) * 1000)::bigint }`. **R41-R18 + R41-R22 + R41-R23 CRITICAL combined contract — the `observed_at_millis` field uses `clock_timestamp()` (NOT `now()` / `transaction_timestamp()`) so it reflects current wall-clock at the moment the IS-NULL check passed AFTER the advisory lock was acquired**, NOT the time the transaction began. The Server Action stamps cookie.t from this value. **R41-R23 critical**: without `clock_timestamp()`, a select_identity_atomic transaction that BEGAN before its lock was actually acquired (because a prior holder owned the lock) could return a too-early `observed_at_millis` predating the prior transaction's wall-clock work — but `clock_timestamp()` evaluated AFTER `pg_advisory_xact_lock` returns is strictly later than any wall-clock-captured value from a prior lock-released transaction's claim. The same fix applies to claim_oauth_identity's `claimed_via_oauth_at` stamp (uses `v_claim_at := clock_timestamp()` captured after all locks acquired, then UPDATE SET claimed_via_oauth_at = v_claim_at). All three layers (UI deactivation, server-side check, locked-clock-millisecond-timestamp) remain in place.
+  After the locked share-token re-validation, the RPC body performs ALL of: (a) `SELECT id, show_id, claimed_via_oauth_at FROM crew_members WHERE id = p_crew_member_id`: 0 rows → reject with `PICKER_CREW_MEMBER_NOT_FOUND`; show_id mismatch → reject with `PICKER_CREW_MEMBER_WRONG_SHOW`; **`claimed_via_oauth_at IS NOT NULL` → reject with `PICKER_IDENTITY_CLAIMED` (R41 Fix-2)**; (b) on success, returns `{ ok: true, show_id, crew_member_id, picker_epoch, observed_at_millis: floor(extract(epoch from clock_timestamp()) * 1000)::bigint }`. **R41-R35 amendment — the `same-show-email-count > 1` check is REMOVED**: an earlier R41-R6 draft added this check to defend against duplicate emails on the same show, but the live schema has a partial UNIQUE index `crew_members_show_email_unique ON (show_id, email) WHERE email IS NOT NULL` at `supabase/migrations/20260501000000_initial_public_schema.sql:49-51`. Duplicate same-show emails are IMPOSSIBLE at the schema level — a sync attempt to insert one fails at constraint-check time and surfaces via the existing pre-R41 sync-error pathway, never reaching the picker. The R41-R6 branches were dead defenses that the R41-R35 cleanup removes (see also: PICKER_IDENTITY_AMBIGUOUS code removed from §8.4; AMBIGUOUS_EMAIL_BINDING admin alert in claim_oauth_identity removed; identity_invalidated 'email_ambiguous' reason removed from resolver union and resolveShowPageAccess discriminator). **R41-R18 + R41-R22 + R41-R23 CRITICAL combined contract — the `observed_at_millis` field uses `clock_timestamp()` (NOT `now()` / `transaction_timestamp()`) so it reflects current wall-clock at the moment the IS-NULL check passed AFTER the advisory lock was acquired**, NOT the time the transaction began. The Server Action stamps cookie.t from this value. **R41-R23 critical**: without `clock_timestamp()`, a select_identity_atomic transaction that BEGAN before its lock was actually acquired (because a prior holder owned the lock) could return a too-early `observed_at_millis` predating the prior transaction's wall-clock work — but `clock_timestamp()` evaluated AFTER `pg_advisory_xact_lock` returns is strictly later than any wall-clock-captured value from a prior lock-released transaction's claim. The same fix applies to claim_oauth_identity's `claimed_via_oauth_at` stamp (uses `v_claim_at := clock_timestamp()` captured after all locks acquired, then UPDATE SET claimed_via_oauth_at = v_claim_at). All three layers (UI deactivation, server-side check, locked-clock-millisecond-timestamp) remain in place.
 - `SELECT published, archived, picker_epoch FROM shows WHERE id = $1`: not found or `archived=true` or `published=false` → reject with `PICKER_SHOW_UNAVAILABLE`.
 - All rejection codes are added to `lib/messages/catalog.ts` with crew-facing copy that doesn't expose the structured code (per AGENTS.md invariant 5).
 
@@ -1165,21 +1130,21 @@ Inside the row:
   - Default chip: 8px font-size, `font-weight: 600`, `color: var(--muted-foreground)`, `background: var(--muted)`, padding: 2px 7px, border-radius: 999px.
   - LEAD chip (any row where `role_flags` array contains `'LEAD'`, OR where `role === 'LEAD'`): same dimensions, `color: var(--accent-foreground)`, `background: var(--accent)` (FXAV orange `#F79338` / `oklch(...)` per `DESIGN.md`).
 
-**Deactivated-row contract (R41 amendment; R41-R6 expanded predicate).** A row renders as **deactivated** when EITHER predicate holds:
+**Deactivated-row contract (R41 amendment; R41-R35 simplified).** A row renders as **deactivated** when ONE predicate holds (R41-R35 removed the R41-R6 ambiguous-email predicate because the live schema's partial UNIQUE index `crew_members_show_email_unique ON (show_id, email)` makes the duplicate-email-on-same-show state impossible at the schema level — duplicate inserts fail at sync time):
 
 1. **OAuth-claimed:** the underlying `crew_members.claimed_via_oauth_at` is non-null.
-2. **Ambiguous-email (R41-R6):** this row's `email` appears on MORE THAN ONE `crew_members` row for THIS show (i.e., a duplicate email in Doug's roster for this show). This deactivation fires REGARDLESS of `claimed_via_oauth_at` state — a NULL-stamped ambiguous row is also deactivated. Without this, a Google-signed-in user whose email matches multiple rows on a show could land in a state where `claim_oauth_identity` failed (infra fault or legacy pre-R41 session) AND the picker still shows the ambiguous rows as selectable. The expanded predicate closes that gap.
+2. (vacated — R41-R35 removed the R41-R6 ambiguous-email predicate. Schema's partial UNIQUE index makes duplicate-email-on-same-show impossible.)
 
 **Visual treatment is identical across both cases** (row background `var(--muted)` instead of `var(--card)`; name + chip text `color: var(--muted-foreground)`; lock icon 16px `color: var(--muted-foreground)` to the LEFT of the role chip), **but behavior diverges by reason (R41-R18 corrected)**:
 
 1. **OAuth-claimed only** (`claimed_via_oauth_at IS NOT NULL` AND row is unique by email on this show): lock icon `aria-label="Sign in to use this identity"`. The `<button>` is tappable; form `action` is `/auth/sign-in?next=<tokenized URL>`. Tap completes the user's intent via OAuth flow. `data-claimed="true"`.
-2. **Ambiguous-email** (`same_show_email_count > 1`, regardless of claimed status — R41-R6 expanded predicate): lock icon `aria-label="Roster cleanup needed — ask Doug to remove the duplicate"`. The `<button>` is rendered but its form `action` is a no-op (e.g., `action="javascript:void(0)"` or omitted entirely so the form has no submission target; the tap is a visual click with no effect). Tap does NOT redirect to OAuth — `claim_oauth_identity` cannot resolve ambiguity (omits ambiguous shows from `result.shows` per R41-R3 SQL), so redirecting would loop the user back to the same picker. `data-ambiguous="true"` (and additionally `data-claimed="true"` if the row IS also OAuth-claimed). User recovery requires Doug to deduplicate the roster (admin scope; out-of-pivot for v1).
+2. (vacated — R41-R35; the ambiguous-email row state is impossible per the schema constraint.)
 
 **Picker render query (R41-R6)** must surface BOTH signals. The data fetcher joins:
 - `crew_members.claimed_via_oauth_at` (per-row, direct column read).
-- A `same_show_email_count` derived field — `COUNT(*) OVER (PARTITION BY show_id, email)` (R41-R17 invariant-3: direct column partition; the stored `email` column is already canonical via the `crew_members_email_canonical` CHECK constraint) — counting how many crew rows on this show share this row's email. A value > 1 means ambiguous.
+(R41-R35: the `same_show_email_count` derived field is removed. The schema's UNIQUE index makes the count always 1 on populated rows; the SQL is redundant.)
 
-A row renders as deactivated when `claimed_via_oauth_at IS NOT NULL OR same_show_email_count > 1`.
+A row renders as deactivated when `claimed_via_oauth_at IS NOT NULL`.
 
 ### 7.3 Guard conditions (per AGENTS.md spec self-review additions)
 
