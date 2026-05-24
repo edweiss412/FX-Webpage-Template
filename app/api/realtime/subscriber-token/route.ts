@@ -6,8 +6,8 @@
  * supabase.realtime.setAuth(jwt) before opening the
  * `show:<id>:invalidation` Broadcast channel.
  *
- * Auth: resolveShowViewer (from request cookies + body.slug) is the FIRST
- * action.
+ * Auth: derive show_id from body.slug, then authorize via admin session or
+ * picker cookie.
  *   - denied    → 401 SHOW_REALTIME_BROADCAST_AUTH_FAILED
  *   - forbidden → 403 SHOW_REALTIME_CROSS_SHOW_FORBIDDEN
  *   - admin → mint + 200.
@@ -31,7 +31,9 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { SignJWT } from "jose";
-import { resolveShowViewer } from "@/lib/auth/resolveShowViewer";
+import { isAdminSession } from "@/lib/auth/isAdminSession";
+import { resolvePickerSelection } from "@/lib/auth/picker/resolvePickerSelection";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const TOKEN_TTL_SECONDS = 5 * 60;
 
@@ -42,6 +44,85 @@ const TOKEN_TTL_SECONDS = 5 * 60;
 // character length, since the secret is encoded as bytes via TextEncoder
 // when handed to `jose`.
 const MIN_HS256_SECRET_BYTES = 32;
+
+type ApiViewer =
+  | { ok: true; showId: string; sub: string; viewerKind: "admin" | "crew" }
+  | { ok: false; status: 401 | 410 | 500; error: string; reason?: string };
+
+function pickerCookieFromRequest(request: Request): string | undefined {
+  const raw = request.headers.get("cookie");
+  if (!raw) return undefined;
+  for (const part of raw.split(";")) {
+    const [name, ...valueParts] = part.trim().split("=");
+    if (name === "__Host-fxav_picker") return valueParts.join("=");
+  }
+  return undefined;
+}
+
+async function showIdFromSlug(slug: string): Promise<"infra_error" | string | null> {
+  try {
+    const supabase = createSupabaseServiceRoleClient();
+    const { data, error } = (await supabase
+      .from("shows")
+      .select("id")
+      .eq("slug", slug)
+      .maybeSingle()) as { data: { id: string } | null; error: unknown };
+    if (error) return "infra_error";
+    return data?.id ?? null;
+  } catch {
+    return "infra_error";
+  }
+}
+
+async function resolveRealtimeViewer(request: NextRequest, slug: string): Promise<ApiViewer> {
+  const showId = await showIdFromSlug(slug);
+  if (showId === "infra_error") {
+    return { ok: false, status: 500, error: "ADMIN_SESSION_LOOKUP_FAILED" };
+  }
+  if (!showId) {
+    return {
+      ok: false,
+      status: 401,
+      error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED",
+      reason: "unknown_slug",
+    };
+  }
+
+  const admin = await isAdminSession(request);
+  if (admin.ok) return { ok: true, showId, sub: "<admin>", viewerKind: "admin" };
+  if (admin.reason === "infra_error") {
+    return { ok: false, status: 500, error: "ADMIN_SESSION_LOOKUP_FAILED" };
+  }
+
+  const picker = await resolvePickerSelection({
+    showId,
+    cookie: pickerCookieFromRequest(request),
+  });
+  switch (picker.kind) {
+    case "resolved":
+      return { ok: true, showId, sub: picker.crewMemberId, viewerKind: "crew" };
+    case "show_unavailable":
+      return { ok: false, status: 410, error: "PICKER_SHOW_UNAVAILABLE" };
+    case "identity_invalidated":
+      return {
+        ok: false,
+        status: 410,
+        error: "PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER",
+        reason: picker.reason,
+      };
+    case "infra_error":
+      return { ok: false, status: 500, error: picker.code };
+    case "no_selection":
+    case "epoch_stale":
+    case "removed_from_roster":
+      return {
+        ok: false,
+        status: 401,
+        error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED",
+        reason: picker.kind,
+      };
+  }
+}
 
 export async function POST(request: NextRequest): Promise<Response> {
   let body: { slug?: unknown };
@@ -55,25 +136,12 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
   const slug = body.slug;
 
-  const viewer = await resolveShowViewer(request, slug);
-  if (viewer.kind === "denied") {
+  const viewer = await resolveRealtimeViewer(request, slug);
+  if (!viewer.ok) {
     return NextResponse.json(
-      { error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED", reason: viewer.reason },
-      { status: 401 },
+      { error: viewer.error, reason: viewer.reason },
+      { status: viewer.status },
     );
-  }
-  if (viewer.kind === "forbidden") {
-    return NextResponse.json(
-      { error: "SHOW_REALTIME_CROSS_SHOW_FORBIDDEN", reason: viewer.reason },
-      { status: 403 },
-    );
-  }
-  if (viewer.kind === "terminal_failure") {
-    // R14 #2: validator infra fault — not an auth signal. Surface as
-    // 500 so operators see it as a server-side fault rather than a
-    // benign auth denial.
-    console.error("[/api/realtime/subscriber-token] validator infra failure", viewer.code);
-    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
   }
 
   const secret = process.env.SUPABASE_JWT_SECRET;
@@ -96,10 +164,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json({ error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" }, { status: 500 });
   }
 
-  const showId = viewer.show_id;
-
-  const sub = "<admin>";
-  const viewerKind = "admin";
+  const showId = viewer.showId;
+  const sub = viewer.sub;
+  const viewerKind = viewer.viewerKind;
 
   const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
 
