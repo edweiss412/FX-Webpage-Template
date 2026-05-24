@@ -94,11 +94,11 @@ describe("public.viewer_version_token(uuid) grants", () => {
     // Exercises the call path the application uses via supabase-js .rpc().
     // A function-not-found / signature-mismatch would surface as a non-zero
     // exit from psql here. The function returns text; for a missing show id
-    // it returns '0' (the to_char of greatest(0, 0, 0)) — we just assert it
-    // returns SOME text without erroring.
+    // it returns '0:0' (the to_char of greatest(0, 0, 0), plus picker_epoch
+    // suffix) — we just assert it returns SOME compound text without erroring.
     const out = runPsql(`
       select public.viewer_version_token('00000000-0000-0000-0000-000000000001'::uuid);
     `);
-    expect(out).toMatch(/^[0-9]+$/);
+    expect(out).toMatch(/^[0-9]+:0$/);
   });
 });
