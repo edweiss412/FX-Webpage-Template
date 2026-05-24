@@ -34,7 +34,7 @@ export const CREW_SESSION_CHAINS: { anyOf: readonly ValidPath[] } = {
 };
 
 export const PROTECTED_ROUTES: readonly RouteSpec[] = [
-  { path: "app/show/[slug]/page.tsx", chain: CREW_SESSION_CHAINS },
+  { path: "app/show/[slug]/[shareToken]/page.tsx", chain: "auth-library-exception" },
   { path: "app/show/[slug]/p/page.tsx", chain: "auth-library-exception" },
   { path: "app/me/page.tsx", chain: ["validateGoogleIdentity"] },
   { path: "app/admin/page.tsx", chain: ["requireAdmin"] },
@@ -48,11 +48,11 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
     path: "app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx",
     chain: ["requireAdmin"],
   },
-  { path: "app/api/asset/agenda/[show]/[id]/route.ts", chain: CREW_SESSION_CHAINS },
-  { path: "app/api/asset/diagram/[show]/[rev]/[key]/route.ts", chain: CREW_SESSION_CHAINS },
-  { path: "app/api/asset/reel/[show]/route.ts", chain: CREW_SESSION_CHAINS },
-  { path: "app/api/realtime/subscriber-token/route.ts", chain: CREW_SESSION_CHAINS },
-  { path: "app/api/show/[slug]/version/route.ts", chain: CREW_SESSION_CHAINS },
+  { path: "app/api/asset/agenda/[show]/[id]/route.ts", chain: "auth-library-exception" },
+  { path: "app/api/asset/diagram/[show]/[rev]/[key]/route.ts", chain: "auth-library-exception" },
+  { path: "app/api/asset/reel/[show]/route.ts", chain: "auth-library-exception" },
+  { path: "app/api/realtime/subscriber-token/route.ts", chain: "auth-library-exception" },
+  { path: "app/api/show/[slug]/version/route.ts", chain: "auth-library-exception" },
   { path: "app/api/show/[slug]/unpublish/route.ts", chain: "public" },
   { path: "app/api/report/route.ts", chain: CREW_SESSION_CHAINS },
   { path: "app/api/admin/admin-alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
@@ -94,6 +94,7 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
     chain: ["requireAdmin"],
   },
   { path: "app/api/auth/google/start/route.ts", chain: "public" },
+  { path: "app/api/auth/picker-bootstrap/route.ts", chain: "auth-library-exception" },
   { path: "app/api/auth/redeem-link/route.ts", chain: "auth-library-exception" },
   { path: "app/api/cron/asset-recovery/route.ts", chain: "cron" },
   { path: "app/api/cron/diagram-gc/route.ts", chain: "cron" },

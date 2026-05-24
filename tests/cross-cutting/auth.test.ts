@@ -58,9 +58,12 @@ function dynamicFromAllowEntry(path: string, source: string): DynamicFromAllowEn
 
 describe("X.3 M5 auth-chain semantic audit", () => {
   test("real M5 crew page passes protected-sink dominance checks", () => {
-    expect(auditM5AuthFile("app/show/[slug]/page.tsx", read("app/show/[slug]/page.tsx"))).toEqual(
-      [],
-    );
+    expect(
+      auditM5AuthFile(
+        "app/show/[slug]/[shareToken]/page.tsx",
+        read("app/show/[slug]/[shareToken]/page.tsx"),
+      ),
+    ).toEqual([]);
   });
 
   test("rejects a crew page that reads protected show data before resolving auth", () => {
@@ -229,6 +232,9 @@ describe("X.3 trust-domain semantic audit", () => {
     const live = auditProjectAuthChains({ mode: "classification-only" });
     expect(live).toEqual([]);
     expect(PROTECTED_ROUTES.map((route) => route.path)).toContain("app/api/report/route.ts");
+    expect(PROTECTED_ROUTES.map((route) => route.path)).toContain(
+      "app/show/[slug]/[shareToken]/page.tsx",
+    );
     expect(classifyTrustDomain("app/api/admin/onboarding/finalize/route.ts")).toBe("admin");
     expect(classifyTrustDomain("app/api/drive/webhook/route.ts")).toBe("public-webhook");
     expect(classifyTrustDomain("app/api/cron/sync/route.ts")).toBe("cron-internal");

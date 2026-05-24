@@ -107,6 +107,12 @@ export const INTERNAL_CODE_ENUMS = {
   PENDING_SYNC_NOT_FOUND: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: {
+    source: "admin_alerts.code"
+  },
+  PICKER_BOOTSTRAP_RPC_FAILED: {
+    source: "admin_alerts.code"
+  },
   PICKER_EPOCH_RESET: {
     source: "admin_alerts.code"
   },

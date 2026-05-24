@@ -82,8 +82,15 @@ function auditShowPage(path: string, sourceFile: ts.SourceFile): AuthAuditFindin
   }
 
   const pageCalls = collectCallSites(page.body);
+  const resolveShowPageAccess = firstCall(pageCalls, "resolveShowPageAccess");
   const resolveViewer = firstCall(pageCalls, "resolveViewer");
   const protectedSink = firstCall(pageCalls, "getShowForViewer");
+  if (resolveShowPageAccess) {
+    if (protectedSink && protectedSink.pos < resolveShowPageAccess.pos) {
+      findings.push(`${path}: getShowForViewer must be dominated by resolveShowPageAccess`);
+    }
+    return findings;
+  }
   if (!resolveViewer) {
     findings.push(`${path}: missing resolveViewer before protected data access`);
   }
@@ -228,7 +235,7 @@ function auditSignOutRoute(path: string, sourceFile: ts.SourceFile): AuthAuditFi
 
 export function auditM5AuthFile(path: string, source: string): AuthAuditFinding[] {
   const sourceFile = parse(path, source);
-  if (path === "app/show/[slug]/page.tsx") {
+  if (path === "app/show/[slug]/page.tsx" || path === "app/show/[slug]/[shareToken]/page.tsx") {
     return auditShowPage(path, sourceFile);
   }
   if (path === "app/me/page.tsx") {
