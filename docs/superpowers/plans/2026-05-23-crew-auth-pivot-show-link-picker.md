@@ -1815,6 +1815,15 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
     // Do NOT include the shareToken (sensitive bearer credential); do
     // include slug + crewMemberId so operators can correlate against the
     // admin/per-show audit page.
+    // R41 P-R12 Fix-2: NO `new Date()`/`Date.now()`/`performance.now()` in
+    // this log. The §10.1 grep guard bans JS clock sources in this file
+    // (the file already pins cookie.t to the DB-side observed_at_millis;
+    // adding a JS clock anywhere else in the file would trip the guard).
+    // Log aggregation (Vercel/CloudWatch) appends its own ingestion
+    // timestamp; the structured-log line itself omits the wall-clock
+    // field. Slug + crewMemberId + tamper flag are sufficient for
+    // operator triage; correlation across alerts uses the aggregation
+    // timestamp, not the application timestamp.
     console.warn(JSON.stringify({
       event: 'picker.identity_claimed',
       tamper: true,
@@ -1826,7 +1835,6 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
       // Reaching this branch means a client crafted a POST that bypassed
       // the form's deactivated state — that IS the tamper signal.
       reason: 'hand_crafted_post_bypassed_deactivated_row',
-      ts: new Date().toISOString(),
     }));
     const tokenizedUrl = `/show/${slug}/${shareToken}`;
     // redirect() throws a Next.js NEXT_REDIRECT — the Server Action client
@@ -2849,6 +2857,52 @@ Tests assert: gate renders both CTAs; tap-Skip navigates with `?gate=skip`; tap-
 git commit -m "feat(picker): SignInOrSkipGate first-contact component (C5; R41 §7.1a)"
 ```
 
+### Task C5.5: Update `lib/auth/validateNextParam.ts` allowlist for tokenized show URLs (R41 P-R12 Fix-1)
+
+**Files:**
+- Modify: `lib/auth/validateNextParam.ts`
+- Modify: `tests/auth/validateNextParam.test.ts` (extend)
+
+**Why this task exists (P-R12 Fix-1):** The pre-pivot `ALLOWED_NEXT_RE = /^\/(show\/[a-z0-9-]+|admin(\/.*)?|me(\/.*)?)$/` at `lib/auth/validateNextParam.ts:16` accepts only the legacy slug-only `/show/<slug>` form. R41 makes every crew URL `/show/<slug>/<64hex-share-token>`; sign-in callback redirects, picker-bootstrap `next` validation, and `/me`-link clicks ALL pass tokenized URLs through `validateNextParamDetailed()`. WITHOUT this update, the helper rejects every R41 tokenized URL with code `OAUTH_REDIRECT_INVALID` and falls back to `DEFAULT_AUTH_NEXT_PATH` (`/admin`) — breaking the core R41 OAuth-recovery flow before any of B3/C6/C7 even run.
+
+**Allowlist change:**
+
+```ts
+// lib/auth/validateNextParam.ts (post-pivot; P-R12 Fix-1)
+// R41 P-R12 Fix-1: accept tokenized show URLs `/show/<slug>/<64hex>` for
+// the share-token bearer-URL contract. Legacy slug-only `/show/<slug>`
+// is REMOVED — pre-pivot signed-link M9.5 surfaces (e.g., `/show/<slug>/p`
+// bootstrap surface) are dropped in Phase G; the only `/show/<slug>/...`
+// shape callers should hit is `/show/<slug>/<64hex>`.
+const ALLOWED_NEXT_RE = /^\/(show\/[a-z0-9-]+\/[0-9a-f]{64}|admin(\/.*)?|me(\/.*)?)$/;
+
+// R41 P-R12 Fix-1: explicitly reject the legacy M9.5 bootstrap surface
+// `/show/<slug>/p`. This regex was pre-pivot defensive; post-pivot the
+// surface is deleted so a stale link rendering this URL is OBSOLETE.
+// Keep the rejection for one more milestone in case a cached email
+// link is still floating around. (Promote to deletion in M-cleanup.)
+const BOOTSTRAP_SURFACE_RE = /^\/show\/[a-z0-9-]+\/p$/;
+```
+
+**Decision (P-R12 Fix-1):** the slug-only `/show/<slug>` form is REMOVED from the allowlist. R41's contract is that crew URLs ALWAYS carry the share-token; a slug-only URL hitting `validateNextParam` means either (a) a stale pre-pivot link (handled in Phase G cleanup) or (b) a hand-crafted URL bypassing the share-token contract. Either way, fall through to default → `/admin`.
+
+**Tests** (extend `tests/auth/validateNextParam.test.ts`):
+- (a) **R41 P-R12 Fix-1 happy path**: `validateNextParamDetailed('/show/sample-show/a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345')` → `{ ok: true, path: '/show/sample-show/...' }`. Hex must be exactly 64 chars (256-bit).
+- (b) **R41 P-R12 Fix-1 reject too-short token**: `/show/sample-show/abc123` (6 hex chars) → `{ ok: false, code: 'OAUTH_REDIRECT_INVALID' }`.
+- (c) **R41 P-R12 Fix-1 reject non-hex token**: `/show/sample-show/g1g2g3...` (g is not hex) → reject.
+- (d) **R41 P-R12 Fix-1 reject uppercase hex**: `/show/sample-show/ABCDEF...` → reject (regex is `[0-9a-f]` only; share tokens are lowercase per A2 task contract).
+- (e) **R41 P-R12 Fix-1 reject slug-only form**: `/show/sample-show` (no token) → reject. Pre-pivot this was accepted; assert it now rejects.
+- (f) **R41 P-R12 Fix-1 reject legacy `/p` surface**: `/show/sample-show/p` → reject (the BOOTSTRAP_SURFACE_RE regex retained as defensive guard).
+- (g) `/me` and `/admin` paths still accepted (regression assertion that R41 doesn't break the other allowed shapes).
+- (h) **Cross-task coverage**: C5/C6/C7 tests that exercise OAuth sign-in callback + picker-bootstrap MUST construct `next` values that pass this helper. The C5/C6/C7 test fixtures use real tokenized URLs (not slug-only) so they exercise the new regex path end-to-end.
+
+```bash
+git add lib/auth/validateNextParam.ts tests/auth/validateNextParam.test.ts
+git commit -m "feat(auth): validateNextParam accepts tokenized show URLs (C5.5; R41 P-R12 Fix-1)"
+```
+
+---
+
 ### Task C6: `/api/auth/picker-bootstrap` Route Handler (R41 §4.7)
 
 **Files:**
@@ -3835,15 +3889,28 @@ Record findings + dispositions in the milestone's handoff doc §12 (or DEFERRED.
 
 Per AGENTS.md mandate + the user's authorization of up to 40 additional rounds. Invoke `adversarial-review` skill on this plan. Iterate to APPROVE.
 
-Standing do-not-relitigate list (carried from spec adversarial review):
-- Reset RPC topology (SECURITY DEFINER + in-DB is_admin + cookie-bound caller + returns int)
-- Cookie mutators are only the 3 crew-side Server Actions
-- 401/410/500 API consumer matrix
-- Shows DML lockdown (grep-derived inventory)
-- /me deletion, validateGoogleSession.ts deletion, /show/[slug]/[shareToken] route only
-- decodePickerCookie validates UUID format + integer ranges + HMAC signature
-- Archived 404s for ALL viewers
-- subscriber-token { jwt, exp } with role: 'authenticated'
+Standing do-not-relitigate list (current R41 contracts as of P-R12; supersedes earlier list):
+
+**Out-of-scope (filed in BACKLOG.md):**
+- `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts:297-302` transitionManifestRow / pending_wizard_session_id CAS race — `BL-WIZARD-SESSION-CAS-TURNOVER-RACE` (M-series onboarding scope, not R41).
+
+**Ratified R41 contracts:**
+- **FIVE cookie-mutator surfaces** (not 3): `selectIdentity` Server Action (B3), `clearIdentity` Server Action (B4), `cleanupStaleEntry` Server Action (B5), `/api/auth/picker-bootstrap` Route Handler (C6 — mints `Max-Age=7776000`), `/auth/sign-out` Route (G0e0 — clears `Max-Age=0`).
+- **`/me` is RESTORED** (not deleted) as the OAuth cross-show discovery surface (R41 Resolved Decisions 15–17). Uses cookie-bound authenticated Supabase client (not service-role) to call `my_share_tokens_for_email()` RPC.
+- **`validateGoogleSession.ts` is PRESERVED** for picker-bootstrap only — `app/api/auth/picker-bootstrap/route.ts` is the SOLE allowlisted importer per §10.1 no-jwt-surface structural meta-test. All other API routes (D1/D2/D3/D4/D5) MUST NOT import it; they reject Google-session-without-picker-cookie with 401.
+- **identity_invalidated resolver arm** is a single arm with single reason `claimed_after_pick` (R41-R35 dead-code purge removed `email_ambiguous`).
+- **Schema partial UNIQUE index** `crew_members_show_email_unique ON (show_id, email) WHERE email IS NOT NULL` prevents ambiguous-email; all defenses against that state were removed in R35.
+- **§6.0 Timestamp Defense Contract** — cookie.t comes from `out_observed_at_millis` returned by `select_identity_atomic` (DB-side `clock_timestamp()` inside the advisory lock). `Date.now()`/`new Date()`/`performance.now()` are grep-banned by §10.1 meta-test in `selectIdentity.ts` AND `app/api/auth/picker-bootstrap/route.ts`.
+- **Per-row OAUTH_IDENTITY_CLAIMED emission** (P-R8 Fix-3) — one alert per claimed row with `show_id` scoped to that row. Context = `{ crew_member_id, show_id, claimed_at_millis, user_email_hash }`. The aggregate `{ user_email, claimed_count }` shape is FORBIDDEN; H7 structural test grep-bans `claimed_count` and `user_email` (raw) in OAUTH_IDENTITY_CLAIMED emission sites.
+- **Hashed-email contract for admin_alerts/logs** (P-R9 + P-R10) — every R41 admin_alerts producer (OAUTH_IDENTITY_CLAIMED, PICKER_BOOTSTRAP_RPC_FAILED, CALLBACK_CLAIM_THREW) and every structured-log line uses `hashForLog(canonicalEmail)` from `lib/email/hashForLog.ts` (Task A6.5). NEVER raw email anywhere durable.
+- **Sign-out preservation contract** (P-R10 Fix-2) — same-origin gate (R22 F2) + try/catch around `supabase.auth.signOut()` + teardownFailureHtml() response are ALL preserved in G0e0; only M9.5 `deleteSession()` is removed.
+- **Tokenized URL allowlist** (P-R12 Fix-1) — `validateNextParam.ts` accepts `/show/<slug>/<64hex>` (NOT slug-only `/show/<slug>`); legacy `/show/<slug>/p` rejected.
+- **Reset RPC topology** (SECURITY DEFINER + in-DB `is_admin()` + cookie-bound caller + returns int).
+- **API consumer 401/410/500 matrix** — every §6 API route distinguishes infra fault (500) from stale-but-knowable (410) from auth-missing (401); slug-only data API routes return 401 (NOT 404) for unknown slug per R17-F1.
+- **Shows DML lockdown** — `crew_members`, `crew_member_auth`, `shows`, `pending_syncs` REVOKE INSERT/UPDATE/DELETE from `authenticated`; all mutations flow through SECURITY DEFINER RPCs.
+- **decodePickerCookie** validates UUID format + integer ranges + HMAC signature before returning a decoded envelope.
+- **Archived shows return 404 for ALL viewers** (including admins) via the page route arms; the API consumer matrix mirrors.
+- **subscriber-token shape** `{ jwt, exp }` with `role: 'authenticated'`.
 
 ### Task I3: Execution handoff
 
