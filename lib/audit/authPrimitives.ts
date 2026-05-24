@@ -70,27 +70,21 @@ type ServerActionEntry = {
 };
 
 const BANNED_OUTSIDE_AUTH_LIB = [
-  "link_sessions",
-  "crew_member_auth",
   "revoked_links",
-  "verifyLinkJwt",
-  "__Host-fxav_session",
 ] as const;
 
 const AUTH_LIB_ALLOWLIST = [
-  "lib/auth/jwt.ts",
-  "lib/auth/validateLinkSession.ts",
   "lib/auth/validateGoogleSession.ts",
   "lib/auth/validateGoogleIdentity.ts",
   "lib/auth/requireAdmin.ts",
   "lib/auth/isAdminSession.ts",
   "lib/auth/cookies.ts",
   "lib/auth/constants.ts",
-  "lib/auth/resolveShowViewer.ts",
-  "lib/auth/validateCrewAssetSession.ts",
-  "lib/auth/bootstrapCookie.ts",
-  "app/api/auth/redeem-link/route.ts",
-  "app/show/[slug]/p/page.tsx",
+  "lib/auth/picker/cookieEnvelope.ts",
+  "lib/auth/picker/resolvePickerSelection.ts",
+  "lib/auth/picker/resolveShowPageAccess.ts",
+  "lib/auth/picker/validatePickerAssetSession.ts",
+  "app/api/auth/picker-bootstrap/route.ts",
   "middleware.ts",
 ];
 
@@ -123,11 +117,7 @@ function repoPath(filePath: string): string {
 function isAuthAllowlisted(path: string): boolean {
   const normalized = repoPath(path);
   if (AUTH_LIB_ALLOWLIST.includes(normalized)) return true;
-  return (
-    normalized.endsWith("good-allowlisted.ts") ||
-    normalized.endsWith("good-redeem-link-via-auth-lib.tsx") ||
-    normalized.endsWith("good-bootstrap-shell-mint.tsx")
-  );
+  return normalized.endsWith("good-allowlisted.ts");
 }
 
 function literalText(node: Node): string | null {
@@ -147,17 +137,14 @@ function callName(call: CallExpression): string | null {
   return expressionName(call.getExpression());
 }
 
-function normalizeValidator(name: string | null): ChainStep | "resolveShowViewer" | "validateCrewAssetSession" | null {
+function normalizeValidator(name: string | null): ChainStep | null {
   if (name === "requireAdmin" || name === "requireAdminIdentity") return "requireAdmin";
   if (
-    name === "validateLinkSession" ||
     name === "validateGoogleSession" ||
     name === "validateGoogleIdentity"
   ) {
     return name;
   }
-  if (name === "resolveShowViewer") return name;
-  if (name === "validateCrewAssetSession") return name;
   return null;
 }
 
@@ -579,8 +566,6 @@ function sourceSlice(root: Node, start: number, end: number): string {
 
 function kindChecked(root: Node, event: Event, required: "success" | "continue", before: number): boolean {
   if (event.name === "requireAdmin") return true;
-  if (event.name === "resolveShowViewer") return true;
-  if (event.name === "validateCrewAssetSession") return required === "success";
   if (!event.binding) return false;
   const window = sourceSlice(root, event.pos, before);
   const binding = event.binding.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -593,24 +578,6 @@ function previous(events: readonly Event[], pos: number, predicate: (event: Even
 
 function chainAccepted(root: Node, chain: readonly ChainStep[], events: readonly Event[], sink: Event): string | null {
   const validators = previous(events, sink.pos, (event) => event.kind === "validator");
-  if (validators.some((event) => event.name === "resolveShowViewer")) return null;
-  if (
-    chain.length === 3 &&
-    chain[0] === "validateLinkSession" &&
-    chain[1] === "validateGoogleSession" &&
-    chain[2] === "requireAdmin"
-  ) {
-    const textBeforeSink = sourceSlice(root, 0, sink.pos);
-    if (
-      /validateLinkSession\s*\(/.test(textBeforeSink) &&
-      /link\s*\.\s*kind\s*={2,3}\s*["']continue["']/.test(textBeforeSink) &&
-      /validateGoogleSession\s*\(/.test(textBeforeSink) &&
-      /google\s*\.\s*kind\s*={2,3}\s*["']continue["']/.test(textBeforeSink) &&
-      /requireAdmin(?:Identity)?\s*\(/.test(textBeforeSink)
-    ) {
-      return null;
-    }
-  }
   const positions = chain.map((step) => validators.find((event) => event.name === step));
   for (let index = 1; index < positions.length; index += 1) {
     if (positions[index] && !positions[index - 1]) return "wrong validator order";
@@ -628,21 +595,6 @@ function chainAccepted(root: Node, chain: readonly ChainStep[], events: readonly
     if (!first) return `missing validator ${chain[0]}`;
     const adminPredicate = previous(events, first.pos, (event) => event.kind === "admin-predicate").at(-1);
     if (!adminPredicate) return "requireAdmin must be under isAdminSession admin precedence guard";
-    const linkBeforeAdminPredicate = previous(events, adminPredicate.pos, (event) => event.name === "validateLinkSession");
-    if (linkBeforeAdminPredicate.length > 0) return "admin precedence violation: validateLinkSession ran before isAdminSession";
-    const linkBeforeRequireAdmin = previous(
-      events,
-      first.pos,
-      (event) => event.name === "validateLinkSession",
-    );
-    if (linkBeforeRequireAdmin.length > 0) {
-      return "admin precedence violation: requireAdmin ran after validateLinkSession";
-    }
-  } else if (chain[0] === "validateLinkSession") {
-    const first = concrete[0];
-    if (!first) return `missing validator ${chain[0]}`;
-    const adminPredicate = previous(events, first.pos, (event) => event.kind === "admin-predicate").at(-1);
-    if (!adminPredicate) return "admin precedence guard missing before validateLinkSession";
   }
   for (let index = 0; index < concrete.length; index += 1) {
     const event = concrete[index];
@@ -675,15 +627,6 @@ function auditEntry(
       sink.pos,
       (event) => event.kind === "validator" && event.name === "requireAdmin",
     ).at(-1);
-    if (
-      previous(events, sink.pos, (event) => event.name === "validateGoogleSession").length > 0 &&
-      previous(events, sink.pos, (event) => event.name === "validateLinkSession").length === 0
-    ) {
-      findings.push(
-        `${repoPath(sf.getFilePath())}: ${entry.kind} ${entry.name}: wrong validator order for ${sink.name}`,
-      );
-      continue;
-    }
     if (
       priorRequireAdmin &&
       !previous(events, priorRequireAdmin.pos, (event) => event.kind === "admin-predicate").at(-1)
@@ -796,7 +739,6 @@ export function auditAuthSource(filePath: string, source: string, options: AuthA
   }
   if (
     domain === "auth-library" ||
-    domain === "public-bootstrap" ||
     domain === "public-webhook" ||
     domain === "cron-internal" ||
     domain === "non-route"
@@ -823,7 +765,6 @@ export function auditProjectAuthChains(options: AuthAuditOptions = {}): string[]
     if (domain === "unclassified") continue;
     if (
       domain === "auth-library" ||
-      domain === "public-bootstrap" ||
       domain === "public-webhook" ||
       domain === "cron-internal" ||
       domain === "non-route"
@@ -831,13 +772,12 @@ export function auditProjectAuthChains(options: AuthAuditOptions = {}): string[]
       continue;
     }
     const source = readFileSync(file, "utf8");
-    // Existing M5/M7 routes use shared higher-level validators such as
-    // resolveViewer/resolveShowViewer/validateCrewAssetSession. The fixture
+    // Existing M5/M7 routes use shared higher-level validators. The fixture
     // suite above pins the raw primitive failure modes; live-route scanning
     // keeps the registry and banned-primitive gates active without forcing
     // route rewrites in this backend-audit task.
     if (
-      /resolveViewer\s*\(|resolveShowViewer\s*\(|validateCrewAssetSession\s*\(|requireAdmin(?:Identity)?\s*\(/.test(
+      /resolveViewer\s*\(|requireAdmin(?:Identity)?\s*\(/.test(
         source,
       )
     ) {

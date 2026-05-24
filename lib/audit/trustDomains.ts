@@ -3,7 +3,6 @@ export type TrustDomain =
   | "admin"
   | "me"
   | "auth-library"
-  | "public-bootstrap"
   | "public-webhook"
   | "cron-internal"
   | "server-action"
@@ -11,7 +10,6 @@ export type TrustDomain =
   | "unclassified";
 
 export type ChainStep =
-  | "validateLinkSession"
   | "validateGoogleSession"
   | "validateGoogleIdentity"
   | "requireAdmin";
@@ -27,15 +25,11 @@ export type RouteSpec = {
 export const CREW_SESSION_CHAINS: { anyOf: readonly ValidPath[] } = {
   anyOf: [
     ["requireAdmin"],
-    ["validateLinkSession"],
-    ["validateLinkSession", "validateGoogleSession"],
-    ["validateLinkSession", "validateGoogleSession", "requireAdmin"],
   ],
 };
 
 export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/show/[slug]/[shareToken]/page.tsx", chain: "auth-library-exception" },
-  { path: "app/show/[slug]/p/page.tsx", chain: "auth-library-exception" },
   { path: "app/me/page.tsx", chain: ["validateGoogleIdentity"] },
   { path: "app/admin/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/[slug]/page.tsx", chain: ["requireAdmin"] },
@@ -95,7 +89,6 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   },
   { path: "app/api/auth/google/start/route.ts", chain: "public" },
   { path: "app/api/auth/picker-bootstrap/route.ts", chain: "auth-library-exception" },
-  { path: "app/api/auth/redeem-link/route.ts", chain: "auth-library-exception" },
   { path: "app/api/cron/asset-recovery/route.ts", chain: "cron" },
   { path: "app/api/cron/diagram-gc/route.ts", chain: "cron" },
   { path: "app/api/cron/gc-watch/route.ts", chain: "cron" },
@@ -131,7 +124,6 @@ export function classifyTrustDomain(path: string): TrustDomain {
   if (route?.chain === "auth-library-exception") return "auth-library";
   if (route?.chain === "public") {
     if (normalized.includes("/drive/webhook/")) return "public-webhook";
-    if (normalized.includes("/show/[slug]/p/")) return "public-bootstrap";
     return "non-route";
   }
   if (route?.chain === "cron") return "cron-internal";
@@ -143,10 +135,8 @@ export function classifyTrustDomain(path: string): TrustDomain {
   }
   if (normalized.startsWith("lib/auth/")) return "auth-library";
   if (normalized === "middleware.ts") return "auth-library";
-  if (normalized.startsWith("app/api/auth/redeem-link/")) return "auth-library";
   if (normalized.startsWith("app/api/cron/")) return "cron-internal";
   if (normalized.startsWith("app/api/drive/webhook/")) return "public-webhook";
-  if (normalized.startsWith("app/show/") && normalized.includes("/p/")) return "public-bootstrap";
   if (normalized.startsWith("app/admin/")) {
     if (
       normalized.endsWith("/page.tsx") ||

@@ -27,12 +27,6 @@ export type SourceInput = {
 };
 
 const OUT_OF_SCOPE_WATERMARK_COLUMNS: readonly string[] = [
-  "crew_member_auth.current_token_version",
-  "crew_member_auth.max_issued_version",
-  "crew_member_auth.revoked_below_version",
-  "link_sessions.expires_at",
-  "link_sessions.last_active_at",
-  "link_sessions.created_at",
   "report_rate_limits.hour_bucket",
   "sync_log.occurred_at",
   "sync_audit.applied_at",

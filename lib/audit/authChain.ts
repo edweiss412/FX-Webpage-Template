@@ -83,7 +83,6 @@ function auditShowPage(path: string, sourceFile: ts.SourceFile): AuthAuditFindin
 
   const pageCalls = collectCallSites(page.body);
   const resolveShowPageAccess = firstCall(pageCalls, "resolveShowPageAccess");
-  const resolveViewer = firstCall(pageCalls, "resolveViewer");
   const protectedSink = firstCall(pageCalls, "getShowForViewer");
   if (resolveShowPageAccess) {
     if (protectedSink && protectedSink.pos < resolveShowPageAccess.pos) {
@@ -91,32 +90,7 @@ function auditShowPage(path: string, sourceFile: ts.SourceFile): AuthAuditFindin
     }
     return findings;
   }
-  if (!resolveViewer) {
-    findings.push(`${path}: missing resolveViewer before protected data access`);
-  }
-  if (protectedSink && (!resolveViewer || protectedSink.pos < resolveViewer.pos)) {
-    findings.push(`${path}: getShowForViewer must be dominated by resolveViewer`);
-  }
-
-  const resolver = findFunction(sourceFile, "resolveViewer");
-  if (!resolver?.body) {
-    findings.push(`${path}: missing resolveViewer implementation`);
-    return findings;
-  }
-
-  const resolverCalls = collectCallSites(resolver.body);
-  const admin = firstCall(resolverCalls, "isAdminSession");
-  const link = firstCall(resolverCalls, "validateLinkSession");
-  const google = firstCall(resolverCalls, "validateGoogleSession");
-  const requireAdminCalls = resolverCalls.filter((call) => call.name === "tryRequireAdmin");
-  const fallback = requireAdminCalls.at(-1);
-  if (!admin || !link || !google || !fallback) {
-    findings.push(
-      `${path}: resolveViewer must call isAdminSession, validateLinkSession, validateGoogleSession, and tryRequireAdmin`,
-    );
-  } else if (!(admin.pos < link.pos && link.pos < google.pos && google.pos < fallback.pos)) {
-    findings.push(`${path}: resolveViewer auth chain order is invalid`);
-  }
+  findings.push(`${path}: missing resolveShowPageAccess before protected data access`);
   return findings;
 }
 
@@ -140,42 +114,6 @@ function auditMePage(path: string, sourceFile: ts.SourceFile): AuthAuditFinding[
   }
   if (sink && (!identity || sink.pos < identity.pos)) {
     findings.push(`${path}: listShowsForCrew must be dominated by validateGoogleIdentity`);
-  }
-  return findings;
-}
-
-function auditPublicBootstrap(path: string, sourceFile: ts.SourceFile): AuthAuditFinding[] {
-  const findings: AuthAuditFinding[] = [];
-  const imports = importSpecifiers(sourceFile);
-  const banned = new Map([
-    ["@/lib/auth/validateLinkSession", "validateLinkSession"],
-    ["@/lib/auth/validateGoogleSession", "validateGoogleSession"],
-    ["@/lib/data/getShowForViewer", "getShowForViewer"],
-  ]);
-  for (const [specifier, label] of banned) {
-    if (imports.includes(specifier)) {
-      findings.push(`${path}: public bootstrap shell must not import ${label}`);
-    }
-  }
-  return findings;
-}
-
-function auditRedeemLinkRoute(path: string, sourceFile: ts.SourceFile): AuthAuditFinding[] {
-  const findings: AuthAuditFinding[] = [];
-  const source = sourceFile.text;
-  if (/\bwithShowAdvisoryLock\b/.test(source)) {
-    findings.push(
-      `${path}: redeem-link mutations must be inside lock-taking RPCs, not sidecar withShowAdvisoryLock callbacks`,
-    );
-  }
-  if (!/\.rpc\(\s*["']consume_bootstrap_nonce_atomic["']/.test(source)) {
-    findings.push(`${path}: bootstrap nonce consume must use consume_bootstrap_nonce_atomic`);
-  }
-  if (!/\.rpc\(\s*["']mint_link_session_if_active_kid_matches["']/.test(source)) {
-    findings.push(`${path}: link-session mint must use mint_link_session_if_active_kid_matches`);
-  }
-  if (/\.from\(\s*["']bootstrap_nonces["'][\s\S]*?\.update\s*\(/.test(source)) {
-    findings.push(`${path}: bootstrap nonce consume must not be a TS-side Supabase update`);
   }
   return findings;
 }
@@ -240,12 +178,6 @@ export function auditM5AuthFile(path: string, source: string): AuthAuditFinding[
   }
   if (path === "app/me/page.tsx") {
     return auditMePage(path, sourceFile);
-  }
-  if (path === "app/show/[slug]/p/page.tsx") {
-    return auditPublicBootstrap(path, sourceFile);
-  }
-  if (path === "app/api/auth/redeem-link/route.ts") {
-    return auditRedeemLinkRoute(path, sourceFile);
   }
   if (path === "app/auth/sign-in/page.tsx") {
     return auditSignInPage(path, sourceFile);
