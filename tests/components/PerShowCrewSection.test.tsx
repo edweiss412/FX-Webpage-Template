@@ -15,24 +15,16 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 import {
   PerShowCrewSection,
-  type CrewRowForLinkPanel,
+  type PerShowCrewRow,
 } from "@/components/admin/PerShowCrewSection";
 
 afterEach(cleanup);
 
-// Minimal CrewRowForLinkPanel fixture — M9.5 link-state fields kept
-// as sentinels so the type still matches even though the component
-// no longer reads them. §A's G0d cleanup will narrow the type after
-// loadShowCrewWithAuth is deleted.
-function makeRow(overrides: Partial<CrewRowForLinkPanel> = {}): CrewRowForLinkPanel {
+function makeRow(overrides: Partial<PerShowCrewRow> = {}): PerShowCrewRow {
   return {
     id: overrides.id ?? "row-id",
     name: overrides.name ?? "Alice Adams",
     role: overrides.role ?? "Audio A1",
-    current_token_version: overrides.current_token_version ?? 0,
-    max_issued_version: overrides.max_issued_version ?? 0,
-    revoked_below_version: overrides.revoked_below_version ?? 0,
-    authMissing: overrides.authMissing ?? false,
     ...overrides,
   };
 }

@@ -27,7 +27,7 @@ import { PerShowCrewSection } from "@/components/admin/PerShowCrewSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
-import { loadShowCrewWithAuth } from "@/lib/data/loadShowCrewWithAuth";
+import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
@@ -50,6 +50,12 @@ type PendingSyncRow = {
   warning_summary: string;
   triggered_review_items: unknown;
   parse_result: unknown;
+};
+
+type CrewMemberRow = {
+  id: string;
+  name: string;
+  role: string | null;
 };
 
 function safeStringField(value: unknown, key: string): string | null {
@@ -170,22 +176,28 @@ export default async function AdminShowPage({
     return summary ? { ...base, parseSummaryLine: summary } : base;
   });
 
-  // M10 §B Phase 3 / Cluster I-5: list crew members so each row can carry a
-  // "Preview as" entry point to /admin/show/[slug]/preview/[crewId] (§9.3).
-  //
-  // M9.5: the same crew list also drives the per-crew Issue-new /
-  // Revoke-all affordances rendered by <PerShowCrewSection>. The helper
-  // at lib/data/loadShowCrewWithAuth does a second SELECT against
-  // crew_member_auth to merge in current_token_version /
-  // max_issued_version / revoked_below_version, with a fail-closed
-  // contract (any returned-or-thrown error → crewLookupFailed=true +
-  // crew=[]). Both Preview-as below AND PerShowCrewSection consume the
-  // result. Fail-closed is intentional here — losing the crew list now
-  // also hides security-sensitive link-rotation controls.
-  const { crew, crewLookupFailed } = await loadShowCrewWithAuth(
-    supabase,
-    show.id,
-  );
+  let crew: PerShowCrewRow[] = [];
+  let crewLookupFailed = false;
+  try {
+    const { data, error } = await supabase
+      .from("crew_members")
+      .select("id, name, role")
+      .eq("show_id", show.id)
+      .order("name", { ascending: true })
+      .returns<CrewMemberRow[]>();
+    if (error) {
+      console.error("[/admin/show/[slug]] crew_members lookup failed:", error.message);
+      crewLookupFailed = true;
+    } else {
+      crew = data ?? [];
+    }
+  } catch (err) {
+    console.error(
+      "[/admin/show/[slug]] crew_members lookup threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+    crewLookupFailed = true;
+  }
 
   return (
     <main data-testid="admin-show-page" className="space-y-section-gap">

@@ -15,23 +15,20 @@
  *
  * Server Component. No client islands remain.
  *
- * Note on `CrewRowForLinkPanel`: the type still lives at
- * lib/data/loadShowCrewWithAuth — §A removes that helper in G0d.
- * Until then the component accepts the same shape and ignores the
- * M9.5-specific fields (max_issued_version, current_token_version,
- * revoked_below_version, authMissing). After G0d, §A coordinates
- * the type swap to a leaner shape.
  */
-import type { CrewRowForLinkPanel } from "@/lib/data/loadShowCrewWithAuth";
 
-export type { CrewRowForLinkPanel };
+export type PerShowCrewRow = {
+  id: string;
+  name: string;
+  role: string | null;
+};
 
 export function PerShowCrewSection({
   crew,
   crewLookupFailed = false,
 }: {
   showId?: string;
-  crew: CrewRowForLinkPanel[];
+  crew: PerShowCrewRow[];
   crewLookupFailed?: boolean;
 }) {
   if (crewLookupFailed) {
