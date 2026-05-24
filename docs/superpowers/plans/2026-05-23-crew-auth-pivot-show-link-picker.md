@@ -3860,7 +3860,25 @@ Remove all M9.5 catalog codes; assert new codes are present:
   - `OAUTH_IDENTITY_CLAIMED` — emitted by the callback claim-stamp hook (Task C7) when `claim_oauth_identity` SUCCEEDS in stamping `claimed_via_oauth_at` for ≥1 rows. The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'OAUTH_IDENTITY_CLAIMED'`) in `app/auth/callback/route.ts` (or the dedicated claim-stamp helper if extracted). **Per-row emission (P-R8 Fix-3)**: C7 emits ONE alert per row in `claim_oauth_identity` result's `claimed_rows` array; each alert is scoped to `show_id` (NOT NULL aggregate). Context shape: `{ crew_member_id: uuid, show_id: uuid, claimed_at_millis: bigint, user_email_hash: text }`. H7 asserts both (i) catalog row context-shape pinning matches this exact shape (4 named fields), AND (ii) producer-call shape pinning: `tests/auth/callback-claim-hook.test.ts` mocks `claim_oauth_identity` to return a 2-row `claimed_rows` and asserts upsertAdminAlert is called exactly twice with show_id per row. The aggregate-only `{ user_email, claimed_count }` shape is FORBIDDEN; H7 grep-asserts no `claimed_count` field appears in any OAUTH_IDENTITY_CLAIMED emission site.
 - **R41 P-R7 Fix-2 — `PICKER_IDENTITY_CLAIMED` and `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` catalog entries** (rejection + banner; both have `crewFacing` copy; `PICKER_IDENTITY_CLAIMED` carries `tamper:true` in structured logs per spec §8.4 even on the redirect path).
 
-**Producer registry pattern (H7 enforcement):** Each catalog code that admits an `admin_alerts` row gets BOTH (a) a catalog row with `dougFacing` + `crewFacing` copy + `tamper` flag if applicable, AND (b) a registered production write-site — a `file:line` location matching `upsertAdminAlert(p_code => '<CODE>'` (Postgres-named-arg form) OR `upsert_admin_alert(.*'<CODE>'` (positional Postgres form) OR `.rpc('upsert_admin_alert', { p_code: '<CODE>'` (JS form). H7 test walks the catalog and for every code with `admitsAdminAlertRow: true`, greps the production codebase for at least one matching write-site; the test fails CLOSED if any catalog code has no registered producer (i.e., the catalog row exists but no code path writes the alert — the M5 R3–R22 lesson distilled per AGENTS.md invariant 9). Conversely, a structural-test sweep finds every `upsertAdminAlert(...'CODE'...)` call site and asserts each emitted code is registered in the catalog (no orphaned producers).
+**Producer registry pattern (H7 enforcement; R41 P-R14 Fix-2):** The canonical helper is `upsertAdminAlert(input: { showId, code, context })` at `lib/adminAlerts/upsertAdminAlert.ts:33`. Call sites pass a SINGLE OBJECT argument with `code` on its own line (multi-line object literal). The H7 test cannot rely on a positional-arg grep like `upsertAdminAlert(.*'CODE'` — that pattern misses the canonical shape entirely.
+
+**Recommended implementation: TypeScript AST parsing (NOT regex).** Use `ts-morph` or the TypeScript compiler API to:
+1. Walk every `.ts`/`.tsx` file under `app/`, `lib/`, excluding test files.
+2. Find every `CallExpression` whose callee is `upsertAdminAlert` (or `.rpc('upsert_admin_alert', ...)` for direct DB calls bypassing the helper).
+3. Extract the `code:` property value from the object-literal first argument (or the `p_code:` value for the `.rpc()` direct form).
+4. Build a Set of `{ code, file, line }` triples — the **producer registry**.
+5. Walk the catalog (`lib/messages/catalog.ts`) and for every entry with `admitsAdminAlertRow: true`, assert at least one producer-registry entry exists with matching `code`. **Fail CLOSED** if any catalog code has no producer.
+6. Walk the producer registry and assert every emitted `code` is registered in the catalog. **Fail CLOSED** if any producer emits an un-cataloged code (orphan producer).
+
+**Fallback if AST parsing is not feasible: an object-form regex pattern.** If the implementer chooses regex over AST, the pattern MUST be:
+
+```regex
+upsertAdminAlert\s*\(\s*\{[\s\S]*?code:\s*['"]<CODE>['"]
+```
+
+The `[\s\S]*?` lazy multiline span handles the `showId: ...,\n          code: '<CODE>',` shape. A reverse sweep regex finding any `upsertAdminAlert\s*\(\s*\{[\s\S]*?code:\s*['"]([A-Z_]+)['"]` capture group is the producer-side enumeration. Both directions MUST use the same shape.
+
+The M5 R3–R22 lesson distilled per AGENTS.md invariant 9: catalog row without a producer is a missing-write-site silent regression; producer call site for an un-cataloged code is an orphan-alert silent regression. Both are CI-blocking. The producer registry test is the structural defense.
 
 ```bash
 git commit -am "test(meta): adminAlertCatalog updated for picker codes + R41 producers (H7)"
