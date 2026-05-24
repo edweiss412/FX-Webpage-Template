@@ -1457,10 +1457,10 @@ export type ResolvePickerSelectionResult =
   | { kind: 'no_selection' }
   | { kind: 'epoch_stale'; expectedEpoch: number; expectedCrewMemberId: string }
   | { kind: 'removed_from_roster'; expectedEpoch: number; expectedCrewMemberId: string }
-  | { kind: 'identity_invalidated';  // R41-R8 added; R41-R35 single-reason
+  | { kind: 'identity_invalidated';  // R41-R8 added; R41-R35 single-reason; P-R29 Fix-1 added 'session_mismatch'
       expectedEpoch: number;
       expectedCrewMemberId: string;
-      reason: 'claimed_after_pick' }
+      reason: 'claimed_after_pick' | 'session_mismatch' }
   | { kind: 'show_unavailable' }
   | { kind: 'infra_error'; code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
 
@@ -2029,13 +2029,15 @@ git commit -m "feat(auth): selectIdentity Server Action (R37 token validation; B
 
 ---
 
-### Task B4: `clearIdentity` Server Action (R39 — needs slug+shareToken for revalidate)
+### Task B4: `clearIdentity` Server Action + `clearIdentityAndSkip` (R39 + R41 P-R29 Fix-3)
 
 **Form/FormData pattern (R1-F1):** like `selectIdentity`, the exported `clearIdentity` accepts `FormData` (called from `<form action={clearIdentity}>` in `IdentityChip`), parses string fields, and delegates to an object-shaped `clearIdentityCore({ slug, shareToken, showId })` that unit tests exercise directly. Same pattern for `cleanupStaleEntry` (B5).
 
+**R41 P-R29 Fix-3 — `clearIdentityAndSkip` companion action.** The base `clearIdentity` calls `revalidatePath()` and returns; it does NOT navigate. The shared-device Mode-B gate (Task C5) needs an ATOMIC clear-and-skip operation — clear the stale entry AND redirect to `/show/<slug>/<shareToken>?gate=skip` in one Server Action so the user lands on the picker with the stale entry already gone. Export a parallel `clearIdentityAndSkip(formData: FormData)` from this same file: parses the same FormData shape as `clearIdentity`, calls `clearIdentityCore` internally, then `redirect('/show/${slug}/${shareToken}?gate=skip')` from `next/navigation` (throws NEXT_REDIRECT — caller receives the redirect response). The clearIdentity → revalidatePath behavior is unchanged for non-skip callers (the existing `<IdentityChip>` "Not you?" affordance). The new action is the gate's "Continue as guest" CTA target.
+
 **Files:**
-- Create: `lib/auth/picker/clearIdentity.ts`
-- Test: `tests/auth/picker/clearIdentity.test.ts`
+- Create: `lib/auth/picker/clearIdentity.ts` (exports BOTH `clearIdentity` and `clearIdentityAndSkip`)
+- Test: `tests/auth/picker/clearIdentity.test.ts` (covers both exports)
 
 - [ ] **Test cases:**
 
@@ -2270,11 +2272,11 @@ export type ResolveShowPageAccessResult =
   | { kind: 'no_auth'; showId: string; reason: 'first_contact' | 'google_mismatch' }  // P-R28 Fix-2: reason needed by SignInOrSkipGate to wire the correct Continue-as-guest action (clearIdentity for google_mismatch; same-page ?gate=skip for first_contact)
   | { kind: 'epoch_stale'; showId: string; expectedEpoch: number; expectedCrewMemberId: string }
   | { kind: 'removed_from_roster'; showId: string; expectedEpoch: number; expectedCrewMemberId: string }
-  | { kind: 'identity_invalidated';  // R41-R13 + R41-R35
+  | { kind: 'identity_invalidated';  // R41-R13 + R41-R35; P-R29 Fix-1 added 'session_mismatch'
       showId: string;
       expectedEpoch: number;
       expectedCrewMemberId: string;
-      reason: 'claimed_after_pick' }
+      reason: 'claimed_after_pick' | 'session_mismatch' }
   | { kind: 'show_unavailable' }
   | { kind: 'infra_error'; code: string };
 ```
@@ -2593,11 +2595,20 @@ export default async function ShowPage({
       // R41-R5: SignInOrSkipGate is the first-contact surface. If
       // ?gate=skip is present (user dismissed the gate), render the
       // picker directly instead.
-      if (!gateSkip) {
+      //
+      // P-R29 Fix-3 atomicity guard: only honor ?gate=skip when
+      // reason === 'first_contact'. For 'google_mismatch' the user
+      // MUST go through clearIdentityAndSkip (which clears the stale
+      // entry before redirecting with ?gate=skip from the action itself).
+      // A hand-crafted ?gate=skip on a google_mismatch URL is REJECTED
+      // and the gate re-renders — closes the bypass where an attacker
+      // could strip the Mode-B "signed in as someone else" gate by
+      // appending the query param.
+      const allowGateSkip = gateSkip && result.reason === 'first_contact';
+      if (!allowGateSkip) {
         // P-R28 Fix-2: pass showId + reason so the gate can branch
-        // its Continue-as-guest CTA (clearIdentity for google_mismatch;
-        // simple ?gate=skip for first_contact). The result.reason field
-        // was added in P-R28 to the no_auth arm.
+        // its Continue-as-guest CTA (clearIdentityAndSkip for
+        // google_mismatch; simple ?gate=skip navigation for first_contact).
         return <SignInOrSkipGate slug={slug} shareToken={shareToken} showId={result.showId} reason={result.reason} />;
       }
       let roster;
@@ -3004,8 +3015,8 @@ Pure Server Component rendered when `resolveShowPageAccess` returns `{ kind: 'no
 **Mode B — `reason: 'google_mismatch'`** (P-R27 Fix-1 shared-device defense). Google session exists but email matches no crew row on this show. Layout:
 - Brand strip + "Signed in as someone else" header strip.
 - Crew-facing copy: "You're signed in with a Google account that isn't on this show's roster. Sign in with the account for this show, or continue as guest to pick from the roster." (catalog code `SIGN_IN_OR_SKIP_PROMPT_MISMATCH` — register in C0-pre).
-- **Primary CTA "Sign in with a different account"** — initiates OAuth flow with `?prompt=select_account` so Google forces the account picker; `next` = current tokenized URL.
-- **Secondary CTA "Continue as guest"** — POSTs to `clearIdentity({ slug, shareToken, showId })` Server Action (Task B4) to clear the stale picker entry for THIS show, then navigates to current URL + `?gate=skip` so the picker renders. WITHOUT this clearIdentity call, the stale prior-user entry survives in the cookie and could re-activate on the next page load if the Google session expires.
+- **Primary CTA "Sign in with a different account"** — **R41 P-R29 Fix-2**: link directly to `/api/auth/google/start?next=<encoded tokenized URL>` (NOT `/auth/sign-in?next=...`). The `/auth/sign-in` page short-circuits if the user is already signed in (which is EXACTLY the Mode-B state — they have a stale Google session that doesn't match the show roster), so pointing the CTA there would loop them back to the same gate. Going directly to the OAuth start route bypasses the sign-in page entirely. `/api/auth/google/start` already passes `queryParams: { prompt: 'select_account' }` (verified at `app/api/auth/google/start/route.ts:59`), so Google forces the account picker every time — the user can choose a different Google account. After OAuth callback, the new session lands back on the tokenized URL via the validated `next` parameter.
+- **Secondary CTA "Continue as guest"** — **R41 P-R29 Fix-3**: POSTs to a NEW dedicated Server Action `clearIdentityAndSkip({ slug, shareToken, showId })` (extends Task B4 with a parallel exported function). The dedicated action clears the stale picker entry for THIS show AND issues a `redirect()` to `/show/<slug>/<shareToken>?gate=skip` from within the action itself (atomic clear-and-skip; no client-side navigation race). The plain `clearIdentity` exported in Task B4 stays unchanged — it only calls `revalidatePath()` and returns; it does NOT navigate. The new `clearIdentityAndSkip` re-uses `clearIdentityCore` under the hood for the cookie mutation, then appends a redirect throw. WITHOUT this dedicated action, the gate's POST flow either renders successfully (Mode B re-fires because no navigation) OR depends on client-side navigation that races with the cookie write — both unacceptable. **Additionally (P-R29 Fix-3 atomicity guard)**: in Task C1, the `gateSkip` early-render path MUST be gated on `result.reason !== 'google_mismatch'` — a hand-crafted `?gate=skip` query param on a `google_mismatch` no_auth response is REJECTED (gate re-renders); only the proper `clearIdentityAndSkip` POST can set the legitimate ?gate=skip continuation. This prevents bypass: an attacker who knows the URL pattern can't strip the Mode-B gate by appending `?gate=skip` manually — they'd see the gate re-render until they click Continue-as-guest, which runs through the cookie-clear action.
 
 Props contract:
 ```ts
@@ -3361,6 +3372,53 @@ Route accepts: (a) picker cookie + matching show_id in body, OR (b) `isAdminSess
 
 ```bash
 git commit -am "feat(api): report route auth swap (drop link/google crew arms; D4)"
+```
+
+---
+
+### Task D4.5: API picker-cookie identity-consistency check (R41 P-R29 Fix-1 CRITICAL — shared-device API defense)
+
+**Files:**
+- Modify: `lib/auth/picker/resolvePickerSelection.ts` (extend the resolver to perform the consistency check)
+- Modify: `tests/auth/picker/resolvePickerSelection.test.ts` (cover the new arm)
+- Modify: `tests/cross-cutting/picker-resolver-callsite-contract.test.ts` (allowlist `auth_email_canonical` import in resolvePickerSelection ONLY; ban it everywhere else in `app/api/**`)
+
+**The vulnerability (P-R29 Fix-1)**: P-R27 closed the shared-device identity leak on the PAGE route by making step 4(e) terminal `no_auth`. But the API routes (D1/D2/D3/D4) use cookie-only `resolvePickerSelection` and have NO awareness of the active Google session. A direct API request with `__Host-fxav_picker` (carrying Alice's signed entry) AND a Supabase session for Bob still authorizes as Alice — Bob can fetch Alice's subscriber-token, show version, asset URLs, etc. The page-route fix alone is insufficient.
+
+**The fix — cheap in-resolver consistency check using `auth_email_canonical()`**:
+
+```ts
+// lib/auth/picker/resolvePickerSelection.ts (post-D4.5)
+// After the cookie path successfully resolves to a crew_members row:
+const sessionEmail = await supabase.rpc('auth_email_canonical');  // returns text OR null if no session
+if (sessionEmail?.data) {
+  // A Supabase session IS active. The cookie's crew_members row email MUST
+  // match the session's canonical email — otherwise this is a shared-device
+  // identity-mismatch attack (Bob's session + Alice's cookie).
+  const { data: rowEmail } = await supabase
+    .from('crew_members')
+    .select('email')
+    .eq('id', cookieEntry.id)
+    .single();
+  if (rowEmail?.email !== sessionEmail.data) {
+    return { kind: 'identity_invalidated', reason: 'session_mismatch', ... };
+  }
+}
+// (When sessionEmail.data is null — anonymous request — the cookie path
+// proceeds normally; the cookie is the sole credential.)
+```
+
+**Why this doesn't violate the §10.1 no-jwt-surface ban on API routes**: the API consumers still don't import `validateGoogleSession`. Only the cookie resolver itself reads `auth_email_canonical()` (a CHEAP `auth.jwt() ->> 'email'` canonicalization with no crew_members table read of its own). The §10.1 guard's existing exemption pattern already permits resolvePickerSelection to perform the email-consistency check internally; D4.5 makes that contract explicit.
+
+**Tests**:
+- (a) **R41 P-R29 Fix-1 CRITICAL shared-device API regression**: seed picker cookie with Alice's entry for Show-X (Alice has real crew_members row, cookie is signed correctly). Construct request with Supabase session for Bob (canonical email differs from Alice's). For EACH of the 6 API consumers: assert response is 401 (NOT 200). Assert NO Alice data in response body. Without the fix, all 6 consumers return 200 with Alice's data.
+- (b) **Anonymous request happy path**: same Alice cookie, NO Supabase session. All 6 consumers return 200 with Alice's data (cookie is sole credential; the mismatch check is skipped when no session).
+- (c) **Session-matches-cookie happy path**: Alice's cookie + Alice's Supabase session. All 6 consumers return 200 (consistency check passes).
+- (d) Resolver-level unit test: assert the new `kind: 'identity_invalidated', reason: 'session_mismatch'` arm is returned when cookie+session mismatch.
+- (e) Structural test: assert `auth_email_canonical` IS imported in `lib/auth/picker/resolvePickerSelection.ts` AND is NOT imported anywhere else in `app/api/**` or `app/**` (allowlist of exactly one importer).
+
+```bash
+git commit -am "feat(auth): API shared-device identity-consistency check (D4.5; P-R29 Fix-1 CRITICAL)"
 ```
 
 ---
