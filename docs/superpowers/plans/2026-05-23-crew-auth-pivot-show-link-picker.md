@@ -2267,7 +2267,7 @@ export type ResolveShowPageAccessResult =
   | { kind: 'needs_picker_bootstrap'; intentToken: string }
   | { kind: 'resolved'; showId: string; crewMemberId: string; source: 'cookie' | 'admin' }
   | { kind: 'unpublished' }
-  | { kind: 'no_auth'; showId: string }
+  | { kind: 'no_auth'; showId: string; reason: 'first_contact' | 'google_mismatch' }  // P-R28 Fix-2: reason needed by SignInOrSkipGate to wire the correct Continue-as-guest action (clearIdentity for google_mismatch; same-page ?gate=skip for first_contact)
   | { kind: 'epoch_stale'; showId: string; expectedEpoch: number; expectedCrewMemberId: string }
   | { kind: 'removed_from_roster'; showId: string; expectedEpoch: number; expectedCrewMemberId: string }
   | { kind: 'identity_invalidated';  // R41-R13 + R41-R35
@@ -2289,11 +2289,11 @@ const intentToken = signIntentToken(intentTokenPayload, pickerCookieSigningKey()
 ```
 
 Step 4 branch logic per spec §4.1 (R41-R11/R41-R12/R41-R33/P-R27):
-- 4(a): no Google session → fall to step 5.
+- 4(a): no Google session → fall to step 5 (existing picker cookie). If step 5 finds no cookie entry either, the final terminal is `{ kind: 'no_auth', showId, reason: 'first_contact' }` (the user has never picked an identity; no Google session; classic gate scenario).
 - 4(b): id-match + row claimed + `cookie.t > floor(extract(epoch from claim_at) * 1000)::bigint` → cookie path (resolved).
 - 4(b'): id-mismatch OR row not yet claimed OR `cookie.t <= claim_epoch_millis` OR no cookie entry → `needs_picker_bootstrap`.
 - (no 4(d) — R41-R35 removed ambiguous_email arm.)
-- **4(e) — R41 P-R27 Fix-1 CRITICAL (shared-device identity leak)**: Google session exists AND email matches NO `crew_members` row on this show → return `{ kind: 'no_auth', showId }` (the page route renders `<SignInOrSkipGate>` showing "signed in as someone else / sign out to continue"). **DO NOT fall through to step 5 (existing picker cookie)**. Pre-P-R27 phrasing said "fall to step 5", which on a shared device opens an identity leak: Alice signs in to her Google account on shared phone → picks herself on Show X (cookie stamped) → signs out of Google → Bob signs in via Google on same phone → Bob visits Show X. Bob has no crew row on Show X. Pre-P-R27: step 4(e) falls through to step 5, which reads Alice's still-valid picker cookie entry, and Bob's session "resolves as Alice" — full identity leak. Post-P-R27: step 4(e) is TERMINAL — returns `no_auth`; the SignInOrSkipGate detects the mismatch between the active Google session and the would-be picker entry and shows an explicit "Sign out to continue as guest, or sign in with the account for this show" UI. The stale picker cookie is NOT cleared automatically (clearing requires a Server Action mutation; the page route's helper cannot mutate cookies per spec §4.7 component-tree contract) — instead, the SignInOrSkipGate's "Continue as guest" button POSTs to a Server Action that clears the stale entry for this show before rendering the picker.
+- **4(e) — R41 P-R27 Fix-1 CRITICAL (shared-device identity leak)**: Google session exists AND email matches NO `crew_members` row on this show → return `{ kind: 'no_auth', showId, reason: 'google_mismatch' }` (the page route renders `<SignInOrSkipGate>` showing "signed in as someone else / sign out to continue" with the Continue-as-guest CTA wired to clearIdentity — see C5 task body for the gate's branching). **DO NOT fall through to step 5 (existing picker cookie)**. Pre-P-R27 phrasing said "fall to step 5", which on a shared device opens an identity leak: Alice signs in to her Google account on shared phone → picks herself on Show X (cookie stamped) → signs out of Google → Bob signs in via Google on same phone → Bob visits Show X. Bob has no crew row on Show X. Pre-P-R27: step 4(e) falls through to step 5, which reads Alice's still-valid picker cookie entry, and Bob's session "resolves as Alice" — full identity leak. Post-P-R27: step 4(e) is TERMINAL — returns `no_auth`; the SignInOrSkipGate detects the mismatch between the active Google session and the would-be picker entry and shows an explicit "Sign out to continue as guest, or sign in with the account for this show" UI. The stale picker cookie is NOT cleared automatically (clearing requires a Server Action mutation; the page route's helper cannot mutate cookies per spec §4.7 component-tree contract) — instead, the SignInOrSkipGate's "Continue as guest" button POSTs to a Server Action that clears the stale entry for this show before rendering the picker.
 
 Exhaustiveness test exercises each of the 11 arms with fixture inputs.
 
@@ -2425,7 +2425,8 @@ The codes to register (per §8.4 of the spec, full list — R41 codes included):
   - **R41 P-R24 Fix-1 — `PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED`** (operator-only; crew-facing copy is SHARED with PICKER_BOOTSTRAP_RPC_FAILED — same "Couldn't sign you in. Please try again in a moment." 502 terminal HTML). Emitted from C6 picker-bootstrap step 3 when `resolve_show_by_slug_and_token` RPC throws OR returns an error (NOT when it returns `data: null` with no error — that's the 403 user/token-mismatch path with no alert). Context shape (email-less because session validation hasn't run yet): `{ stage: 'resolve_show', slug, rpc_error_code, rpc_error_message, route }`. H7 grep-asserts NO `user_email` / `attempted_email_hash` / `share_token` field in any PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED emission site.
   - `OAUTH_IDENTITY_CLAIMED` (admin-alert — R41-R12; emitted PER ROW with show_id-scoped context per P-R8 Fix-3)
   - **R41 P-R11 Fix-3 — `CALLBACK_CLAIM_THREW`** (admin-alert — P-R9 Fix-1 thrown-error path; emitted from C7 callback claim-stamp block when the OAuth claim throws an exception). MUST be registered HERE in C0-pre, NOT deferred to H7, because C7's `upsertAdminAlert('CALLBACK_CLAIM_THREW', ...)` call site fails typecheck against the `AdminAlertCode` union and violates the admin-alert catalog completeness invariant until the code is registered. The pattern is identical to PICKER_BOOTSTRAP_RPC_FAILED: register the code (with both `dougFacing` and any `crewFacing` copy) in `lib/messages/catalog.ts`, regenerate `lib/messages/__generated__/spec-codes.ts`, AND make sure the AdminAlertCode union (if separate from MessageCode) includes it. The H7 meta-test still ENFORCES the producer/catalog match — but the catalog row exists from C0-pre forward, not after C7.
-  - `SIGN_IN_OR_SKIP_PROMPT` (crew-facing — R41-R5 SignInOrSkipGate copy)
+  - `SIGN_IN_OR_SKIP_PROMPT` (crew-facing — R41-R5 SignInOrSkipGate Mode A first-contact copy)
+  - **R41 P-R28 Fix-2 — `SIGN_IN_OR_SKIP_PROMPT_MISMATCH`** (crew-facing — SignInOrSkipGate Mode B "signed in as someone else" shared-device copy; new in P-R28). Default copy: "You're signed in with a Google account that isn't on this show's roster. Sign in with the account for this show, or continue as guest to pick from the roster." Never admin-alert; informational only (crew sees the copy via `messageFor`).
   - `IDENTITY_DEACTIVATED_LOCK_HINT` (crew-facing — R41 deactivated-row lock icon aria-label)
   (R41-R35 REMOVED — do NOT register: `PICKER_IDENTITY_AMBIGUOUS`, `PICKER_IDENTITY_AMBIGUOUS_BANNER`. The pre-pivot `AMBIGUOUS_EMAIL_BINDING` may remain as defensive surface but R41 introduces no new emission paths.)
 
@@ -2593,7 +2594,11 @@ export default async function ShowPage({
       // ?gate=skip is present (user dismissed the gate), render the
       // picker directly instead.
       if (!gateSkip) {
-        return <SignInOrSkipGate slug={slug} shareToken={shareToken} />;
+        // P-R28 Fix-2: pass showId + reason so the gate can branch
+        // its Continue-as-guest CTA (clearIdentity for google_mismatch;
+        // simple ?gate=skip for first_contact). The result.reason field
+        // was added in P-R28 to the no_auth arm.
+        return <SignInOrSkipGate slug={slug} shareToken={shareToken} showId={result.showId} reason={result.reason} />;
       }
       let roster;
       try {
@@ -2989,13 +2994,30 @@ git commit -am "feat(ui): IdentityChip + ShowBody integration (C4)"
 - Create: `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx`
 - Test: `tests/components/sign-in-or-skip-gate.test.tsx` + Playwright at `tests/e2e/sign-in-or-skip-gate.spec.ts`
 
-Pure Server Component rendered as the first-contact surface when `resolveShowPageAccess` returns `{ kind: 'no_auth' }` AND the URL does NOT carry `?gate=skip`. Layout per spec §7.1a:
+Pure Server Component rendered when `resolveShowPageAccess` returns `{ kind: 'no_auth', showId, reason }` AND the URL does NOT carry `?gate=skip`. **P-R28 Fix-2 (Finding 2): the gate has TWO modes** distinguished by the `reason` field (P-R27/P-R28 addition):
 
+**Mode A — `reason: 'first_contact'`** (no Google session, no picker cookie entry). Classic first-visit gate. Layout per spec §7.1a:
 - Brand strip + show identifier strip (same as picker chrome).
 - **Primary CTA "Skip and pick your name"** — same-page navigation to current URL with `?gate=skip` appended (re-runs auth chain; falls through to picker render).
 - **Secondary CTA "Sign in with Google"** — initiates OAuth flow with current tokenized URL as post-callback `next` destination.
 
-Tests assert: gate renders both CTAs; tap-Skip navigates with `?gate=skip`; tap-Sign-in initiates OAuth via `/auth/sign-in?next=<encoded URL>`; the picker is NOT pre-rendered behind the gate.
+**Mode B — `reason: 'google_mismatch'`** (P-R27 Fix-1 shared-device defense). Google session exists but email matches no crew row on this show. Layout:
+- Brand strip + "Signed in as someone else" header strip.
+- Crew-facing copy: "You're signed in with a Google account that isn't on this show's roster. Sign in with the account for this show, or continue as guest to pick from the roster." (catalog code `SIGN_IN_OR_SKIP_PROMPT_MISMATCH` — register in C0-pre).
+- **Primary CTA "Sign in with a different account"** — initiates OAuth flow with `?prompt=select_account` so Google forces the account picker; `next` = current tokenized URL.
+- **Secondary CTA "Continue as guest"** — POSTs to `clearIdentity({ slug, shareToken, showId })` Server Action (Task B4) to clear the stale picker entry for THIS show, then navigates to current URL + `?gate=skip` so the picker renders. WITHOUT this clearIdentity call, the stale prior-user entry survives in the cookie and could re-activate on the next page load if the Google session expires.
+
+Props contract:
+```ts
+type Props = {
+  slug: string;
+  shareToken: string;
+  showId: string;           // P-R28: required for clearIdentity wiring in Mode B
+  reason: 'first_contact' | 'google_mismatch';
+};
+```
+
+Tests assert: (a) Mode A — gate renders Skip + Sign-in CTAs; tap-Skip navigates with `?gate=skip`; tap-Sign-in initiates OAuth via `/auth/sign-in?next=<encoded URL>`; (b) Mode A — picker NOT pre-rendered behind gate; (c) **Mode B — P-R28 Fix-2**: gate renders "Signed in as someone else" header + the two Mode-B CTAs (NOT the Mode-A CTAs); the "Continue as guest" CTA has `<form action={clearIdentity}>` with hidden inputs for `slug`, `shareToken`, `showId` matching the seeded test fixture; tap-Continue-as-guest POSTs to clearIdentity and the resulting cookie no longer contains the seeded stale entry; (d) **Mode B regression**: seed a picker cookie with Alice's entry for Show-X; render gate with `reason='google_mismatch'`; assert the rendered HTML does NOT contain Alice's name (gate is opaque to the cookie state — it doesn't read Alice's row data — so the only path to her identity was through step 4(e) fall-through, which P-R27 closed); (e) `SIGN_IN_OR_SKIP_PROMPT_MISMATCH` catalog code exists and is registered in `_metaAdminAlertCatalog.test.ts` (or the message-catalog equivalent for crew-facing copy).
 
 ```bash
 git commit -m "feat(picker): SignInOrSkipGate first-contact component (C5; R41 §7.1a)"
