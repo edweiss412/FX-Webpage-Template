@@ -3059,7 +3059,37 @@ Per spec §4.7 (R41-R6 / R41-R7 / R41-R24 / R41-R41). Flow:
 2. **Verify intent token** — format: `base64url(JSON({slug, shareToken, exp})) + '.' + base64url(HMAC-SHA256(payload, PICKER_COOKIE_SIGNING_KEY))`. Reject (403, NOT 302) on: missing `t`, malformed format, expired (`exp < now`), HMAC mismatch, OR embedded `{slug, shareToken}` not matching `next` URL's parsed values.
 3. `validateGoogleSession(req)` — no session → 302 to `next` with no cookie set.
 4. Invoke `claim_oauth_identity(canonicalize(user.email))` via service-role client.
-   - **RPC infra failure (R41-R7 fail-closed)**: return HTTP 502 with cataloged `PICKER_BOOTSTRAP_RPC_FAILED` terminal-failure HTML. NO 302 (would loop back). **ALSO emit `upsert_admin_alert(NULL show_id, 'PICKER_BOOTSTRAP_RPC_FAILED', jsonb_build_object('attempted_email_hash', hashForLog(canonicalEmail), 'rpc_error_code', error.code, 'rpc_error_message', error.message))` via the service-role client** — **R41 P-R9 Fix-2 (Finding 2)**: NEVER write the raw `canonicalEmail` to `admin_alerts.context` or structured logs. The repo's email-canonicalization audit (`lib/audit/emailCanonicalization.ts`) + cross-cutting PII guards forbid raw email in durable JSONB context. The `attempted_email_hash` field uses the same `hashForLog()` helper as C7 (R41-R19 ratified hashing); operators correlate hashes across alerts. Also emit a structured log line with the SAME hashed payload (no raw email anywhere). Tests assert: (a) HTTP 502 response; (b) `admin_alerts` row created with code `PICKER_BOOTSTRAP_RPC_FAILED`; (c) structured log emitted; (d) repeat invocations on the same canonical email produce the same `attempted_email_hash` AND increment `occurrence_count` (upsert helper handles unique-index conflict per R41-R19) — assert hash equality across two repeat invocations as the upsert-key proof; (e) **R41 P-R9 Fix-2 PII guard**: assert NO field in `admin_alerts.context` or the structured log line equals the raw canonical email (regex against the row + log payload).
+   - **RPC infra failure (R41-R7 fail-closed)**: return HTTP 502 with cataloged `PICKER_BOOTSTRAP_RPC_FAILED` terminal-failure HTML. NO 302 (would loop back). **ALSO emit `upsert_admin_alert(NULL show_id, 'PICKER_BOOTSTRAP_RPC_FAILED', jsonb_build_object('attempted_email_hash', hashForLog(canonicalEmail), 'rpc_error_code', error.code, 'rpc_error_message', error.message))` via the service-role client** — **R41 P-R9 Fix-2 (Finding 2)**: NEVER write the raw `canonicalEmail` to `admin_alerts.context` or structured logs. The repo's email-canonicalization audit (`lib/audit/emailCanonicalization.ts`) + cross-cutting PII guards forbid raw email in durable JSONB context. The `attempted_email_hash` field uses the same `hashForLog()` helper as C7 (R41-R19 ratified hashing); operators correlate hashes across alerts. Also emit a structured log line with the SAME hashed payload (no raw email anywhere). **R41 P-R21 Fix-1 (Finding 1) — alert emission MUST be inner-try-catch best-effort.** If the alert emission itself throws (rate limit, transient PostgREST 5xx, RLS misconfiguration during a degraded-dependencies window) the handler MUST STILL render the cataloged 502 terminal HTML — never bubble a framework 500. Without the inner guard, the original RPC failure is masked by the alert-emission failure and the user sees an uncataloged error instead of the fail-closed recovery page. Pattern matches B5/B6/C7 alert producers (P-R18 + P-R20 inner-catch contract). Implementation shape:
+
+```ts
+// Inside the R41-R7 fail-closed branch of app/api/auth/picker-bootstrap/route.ts:
+try {
+  await upsertAdminAlert({
+    showId: null,
+    code: 'PICKER_BOOTSTRAP_RPC_FAILED',
+    context: {
+      attempted_email_hash: hashForLog(canonicalEmail),
+      rpc_error_code: error?.code ?? 'unknown',
+      rpc_error_message: error?.message ?? 'unknown',
+      route: '/api/auth/picker-bootstrap',
+    },
+  });
+} catch (alertErr) {
+  // Alert emission failed during a degraded-dependency event. Log
+  // structured signal (hashed email only — no PII) and continue to
+  // render the cataloged 502. The user MUST see the recovery page;
+  // the alert miss is a degraded-observability tradeoff, not a
+  // user-visible failure.
+  logger.error('PICKER_BOOTSTRAP_RPC_FAILED alert emission failed', {
+    emailHash: hashForLog(canonicalEmail),
+    rpcErrorCode: error?.code ?? 'unknown',
+    alertError: alertErr instanceof Error ? { name: alertErr.name, message: alertErr.message } : String(alertErr),
+  });
+}
+return renderTerminalFailure502('PICKER_BOOTSTRAP_RPC_FAILED');
+```
+
+Tests assert: (a) HTTP 502 response; (b) `admin_alerts` row created with code `PICKER_BOOTSTRAP_RPC_FAILED`; (c) structured log emitted; (d) repeat invocations on the same canonical email produce the same `attempted_email_hash` AND increment `occurrence_count` (upsert helper handles unique-index conflict per R41-R19) — assert hash equality across two repeat invocations as the upsert-key proof; (e) **R41 P-R9 Fix-2 PII guard**: assert NO field in `admin_alerts.context` or the structured log line equals the raw canonical email (regex against the row + log payload); (f) **R41 P-R21 Fix-1 alert-emission failure regression**: mock `upsertAdminAlert` to throw `new Error('admin_alerts rate limited')`. Assert: response IS still HTTP 502 with the cataloged PICKER_BOOTSTRAP_RPC_FAILED terminal HTML body; NO `Set-Cookie: __Host-fxav_picker`; NO `Location` header (no 302); structured log captures the alert-emission failure with hashed email. The handler MUST NOT bubble a framework 500.
 5. **One-show write contract (R41-R6)**: extract target `show_id` via `resolve_show_by_slug_and_token(slug, shareToken)`. Find `result.shows` entry for target_show_id. If present: read request envelope; modify ONLY this show's entry to `{ id: crew_member_id, e: picker_epoch, t: result.mint_safe_t_millis }`; write via `cookies().set('__Host-fxav_picker', signEnvelope(envelope), PICKER_COOKIE_OPTIONS)`. If absent: write NO cookie.
 6. 302 to `next`.
 
@@ -4143,7 +4173,13 @@ Standing do-not-relitigate list (current R41 contracts as of P-R12; supersedes e
 **Ratified R41 contracts:**
 - **FIVE cookie-mutator surfaces** (not 3): `selectIdentity` Server Action (B3), `clearIdentity` Server Action (B4), `cleanupStaleEntry` Server Action (B5), `/api/auth/picker-bootstrap` Route Handler (C6 — mints `Max-Age=7776000`), `/auth/sign-out` Route (G0e0 — clears `Max-Age=0`).
 - **`/me` is RESTORED** (not deleted) as the OAuth cross-show discovery surface (R41 Resolved Decisions 15–17). Uses cookie-bound authenticated Supabase client (not service-role) to call `my_share_tokens_for_email()` RPC.
-- **`validateGoogleSession.ts` is PRESERVED** for picker-bootstrap only — `app/api/auth/picker-bootstrap/route.ts` is the SOLE allowlisted importer per §10.1 no-jwt-surface structural meta-test. All other API routes (D1/D2/D3/D4/D5) MUST NOT import it; they reject Google-session-without-picker-cookie with 401.
+- **`validateGoogleSession.ts` is PRESERVED.** Legitimate importers per the H2 allowlist + spec §10.1 no-jwt-surface structural meta-test:
+  - `app/api/auth/picker-bootstrap/route.ts` (Task C6) — uses it to detect Google-signed-in user for lazy-mint.
+  - `lib/auth/picker/resolveShowPageAccess.ts` (Task B7 helper) — uses it for the Google-session-matching-crew-row arm.
+  - `app/auth/callback/route.ts` (Task C7) — uses it for claim-stamp hook context.
+  - `app/me/page.tsx` (Task E2 cookie-bound rewrite) — uses it for OAuth cross-show discovery.
+
+  The BAN surface is the SIX §6 data API consumers — `/api/realtime/subscriber-token`, `/api/asset/diagram`, `/api/asset/reel`, `/api/asset/agenda`, `/api/show/[slug]/version`, `/api/report`. Those MUST NOT import `validateGoogleSession`; they reject Google-session-without-picker-cookie with 401. The §10.1 meta-test enforces the ban against those six file paths only — NOT against the allowed surfaces above. (P-R12 phrasing "picker-bootstrap ONLY" was too tight and contradicted the H2 allowlist; P-R21 Fix-2 restores the correct allowlist.)
 - **identity_invalidated resolver arm** is a single arm with single reason `claimed_after_pick` (R41-R35 dead-code purge removed `email_ambiguous`).
 - **Schema partial UNIQUE index** `crew_members_show_email_unique ON (show_id, email) WHERE email IS NOT NULL` prevents ambiguous-email; all defenses against that state were removed in R35.
 - **§6.0 Timestamp Defense Contract** — cookie.t comes from `out_observed_at_millis` returned by `select_identity_atomic` (DB-side `clock_timestamp()` inside the advisory lock). `Date.now()`/`new Date()`/`performance.now()` are grep-banned by §10.1 meta-test in `selectIdentity.ts` AND `app/api/auth/picker-bootstrap/route.ts`.
