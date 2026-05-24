@@ -767,14 +767,13 @@ describe("Task 2.5 applied schema introspection", () => {
         "public.is_admin",
         "public.crew_members",
         "public.shows",
-        "public.crew_member_auth",
         "public.viewer_version_token",
       ]) {
         expect(definitions).toContain(required);
       }
 
       expect(definitions).not.toMatch(
-        /\bfrom\s+(?!public\.)(shows|crew_members|crew_member_auth)\b/i,
+        /\bfrom\s+(?!public\.)(shows|crew_members)\b/i,
       );
       expect(definitions).not.toMatch(
         /\b(public\.)?(is_admin|auth_email_canonical|canonicalize_email|viewer_version_token)\b(?!\s*\()/i,

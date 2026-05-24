@@ -107,6 +107,18 @@ export const INTERNAL_CODE_ENUMS = {
   PENDING_SYNC_NOT_FOUND: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  PICKER_EPOCH_RESET: {
+    source: "admin_alerts.code"
+  },
+  PICKER_INVALID_INPUT: {
+    source: "admin_alerts.code"
+  },
+  PICKER_RESOLVER_LOOKUP_FAILED: {
+    source: "admin_alerts.code"
+  },
+  PICKER_SELECTION_RACE: {
+    source: "admin_alerts.code"
+  },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     source: "parse_warnings.code"
   },

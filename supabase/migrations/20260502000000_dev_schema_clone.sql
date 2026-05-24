@@ -84,6 +84,7 @@ create table if not exists dev.crew_members (
   date_restriction jsonb,
   stage_restriction jsonb,
   flight_info text,
+  claimed_via_oauth_at timestamptz,
   last_changed_at timestamptz not null default now(),
   unique (show_id, name),
   constraint crew_members_email_canonical check (

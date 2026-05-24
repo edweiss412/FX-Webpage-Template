@@ -50,6 +50,9 @@ function setCookieLines(response: Response): string[] {
   return header ? header.split(/,\s*(?=[^;,=]+(?:=|;))/) : [];
 }
 
+const TOKENIZED_SHOW_PATH =
+  "/show/rpas-central/a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345";
+
 describe("OAuth start route", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -66,13 +69,13 @@ describe("OAuth start route", () => {
     const { GET } = await import("@/app/api/auth/google/start/route");
 
     const response = await GET(
-      new NextRequest("https://crew.fxav.test/api/auth/google/start?next=/show/rpas-central"),
+      new NextRequest(`https://crew.fxav.test/api/auth/google/start?next=${TOKENIZED_SHOW_PATH}`),
     );
 
     expect(server.client.auth.signInWithOAuth).toHaveBeenCalledWith({
       provider: "google",
       options: {
-        redirectTo: "https://crew.fxav.test/auth/callback?next=%2Fshow%2Frpas-central",
+        redirectTo: `https://crew.fxav.test/auth/callback?next=${encodeURIComponent(TOKENIZED_SHOW_PATH)}`,
         queryParams: { prompt: "select_account" },
       },
     });
@@ -252,12 +255,12 @@ describe("OAuth callback route", () => {
     const { GET } = await import("@/app/auth/callback/route");
 
     const response = await GET(
-      new NextRequest("https://crew.fxav.test/auth/callback?code=bad&next=/show/rpas-central"),
+      new NextRequest(`https://crew.fxav.test/auth/callback?code=bad&next=${TOKENIZED_SHOW_PATH}`),
     );
 
     expect(response.status).toBe(302);
     expect(locationOf(response)).toBe(
-      "https://crew.fxav.test/auth/sign-in?code=OAUTH_STATE_INVALID&next=%2Fshow%2Frpas-central",
+      `https://crew.fxav.test/auth/sign-in?code=OAUTH_STATE_INVALID&next=${encodeURIComponent(TOKENIZED_SHOW_PATH)}`,
     );
   });
 

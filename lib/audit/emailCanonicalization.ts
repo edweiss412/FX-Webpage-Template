@@ -475,6 +475,7 @@ function auditContextExpression(path: string, expr: Expression, trail: string[])
     if (!value) continue;
     const nextTrail = [...trail, name];
     if (/email/i.test(name) && !Node.isObjectLiteralExpression(value) && !Node.isArrayLiteralExpression(value)) {
+      if (/_hash$/i.test(name)) continue;
       if (!isCanonicalizedExpression(value)) {
         findings.push(`${path}: raw_email_jsonb_context:${nextTrail.join(".")}:${prop.getStartLineNumber()}`);
       }
