@@ -4281,6 +4281,66 @@ git commit -am "test(meta): adminAlertCatalog updated for picker codes + R41 pro
 
 ---
 
+### Task H8: `tests/cross-cutting/identity-invalidated-two-reasons-doc-guard.test.ts` (R41 P-R33 structural defense)
+
+**Files:**
+- Create: `tests/cross-cutting/identity-invalidated-two-reasons-doc-guard.test.ts`
+
+**Why this task exists (P-R33 structural-defense calibration)**: P-R29/P-R30 expanded `identity_invalidated.reason` from single value `'claimed_after_pick'` to the union `'claimed_after_pick' | 'session_mismatch'`. Multiple subsequent adversarial-review rounds (P-R30, P-R31, P-R32, P-R33) surfaced stale "single reason claimed_after_pick" residue in different sections of plan + spec — even after a comprehensive grep sweep in P-R32. Per AGENTS.md "structural-defense calibration" rule: when same-vector findings persist after comprehensive re-analysis, ship a structural defense (meta-test / CI grep guard) in the next repair commit rather than waiting for another adversarial round.
+
+**The guard** — a vitest file that grep-walks `docs/superpowers/specs/2026-05-23-crew-auth-pivot-show-link-picker.md` and `docs/superpowers/plans/2026-05-23-crew-auth-pivot-show-link-picker.md` for FORBIDDEN phrasings:
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const FORBIDDEN_PATTERNS = [
+  // Sentences that say identity_invalidated has a single reason — TRUE pre-P-R29; OBSOLETE post-P-R30.
+  /identity_invalidated[^\n.]{0,80}single reason/i,
+  /single reason[^\n.]{0,80}claimed_after_pick/i,
+  // The reason union must include 'session_mismatch' or use the dual form. A type literal of ONLY 'claimed_after_pick' (with no follow-up `|`) in this kind's context is a regression.
+  /reason:\s*'claimed_after_pick'\s*\}[^|]/,  // catches { ... reason: 'claimed_after_pick' } when not followed by | (i.e., not a union)
+  // Wire-status-401 for identity_invalidated — was correct pre-P-R29; now MUST be 410 per spec §10.2 amendment.
+  /identity_invalidated[^\n.]{0,80}→\s*401/i,
+];
+
+const TARGETS = [
+  'docs/superpowers/specs/2026-05-23-crew-auth-pivot-show-link-picker.md',
+  'docs/superpowers/plans/2026-05-23-crew-auth-pivot-show-link-picker.md',
+];
+
+describe('R41 P-R33 doc-guard: identity_invalidated two-reason contract', () => {
+  for (const target of TARGETS) {
+    it(`${target} contains no stale single-reason / 401-status wording`, () => {
+      const body = readFileSync(resolve(target), 'utf8');
+      const matches: Array<{ pattern: RegExp; lineNum: number; snippet: string }> = [];
+      for (const pattern of FORBIDDEN_PATTERNS) {
+        const lines = body.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          // Skip historical narrative — lines explicitly tagged with P-R29/P-R30/P-R31/P-R32/P-R33 OR R41-R35 in their text are allowed to mention the old wording as part of explaining the amendment.
+          if (/\(P-R3[0-9]|R41-R35 simplified|R41-R35 amendment|P-R32 sweep|P-R33 doc-guard|pre-P-R29|P-R29\/P-R30 amendment/.test(lines[i])) continue;
+          if (pattern.test(lines[i])) {
+            matches.push({ pattern, lineNum: i + 1, snippet: lines[i].slice(0, 200) });
+          }
+        }
+      }
+      expect(matches).toEqual([]);
+    });
+  }
+});
+```
+
+**What it catches**: any new prose/code in plan or spec that says (a) `identity_invalidated` has a single reason, (b) only mentions `'claimed_after_pick'` without the union form, or (c) maps `identity_invalidated` to 401 (post-P-R30 it's 410). The historical-narrative exception lets amendments cite the pre-amendment wording in P-R-tagged sentences so the guard doesn't false-positive on its own change history.
+
+**Companion narrow guards (extend the existing H5 picker-resolver-callsite-contract test)**: when a `.rpc('auth_email_canonical')` or `createSupabaseServerClient` call appears in a file under `app/api/**`, fail unless that file is `lib/auth/picker/resolvePickerSelection.ts` (the single allowlisted importer per P-R30 Fix-1).
+
+```bash
+git commit -am "test(cross-cutting): identity_invalidated two-reasons + 410 doc-guard (H8; P-R33 structural defense)"
+```
+
+---
+
 ## Phase I: Impeccable v3 gate + adversarial review + close-out
 
 ### Task I0: Impeccable v3 critique + audit (R15-F3 — AGENTS.md invariant 8 mandate)
