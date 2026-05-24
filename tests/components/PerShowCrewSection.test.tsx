@@ -1,203 +1,98 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+/**
+ * tests/components/PerShowCrewSection.test.tsx (M11.5 §B Task F1)
+ *
+ * Pins the simplified post-pivot contract: heading + roster name/role
+ * rendering, empty-state, and crewLookupFailed warning. The M9.5
+ * IssueLink / RevokeAllLinks affordances are GONE per F1 — they were
+ * replaced by the section-level Reset + Rotate buttons on the admin
+ * page (Tasks F2 + F3 + F4). The leakedLinkArrival regression suite
+ * is removed alongside this rewrite — every contract it pinned is
+ * an M9.5 behavior the picker pivot deletes.
+ */
+import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 
-// Stub the client islands so PerShowCrewSection's tests exercise the
-// section's STATE MACHINE in isolation. The real islands DO exist
-// (Tasks 4.2 + 4.3); the mocks keep these tests deterministic and
-// fast. The mock surface (label + disabled) matches the production
-// island's API exactly.
-vi.mock("@/app/admin/show/[slug]/IssueLinkButton", () => ({
-  IssueLinkButton: ({
-    isFresh,
-    disabled,
-  }: {
-    isFresh: boolean;
-    disabled?: boolean;
-  }) => (
-    <button
-      type="button"
-      data-testid="stub-issue-button"
-      disabled={disabled}
-    >
-      {isFresh ? "Issue first link" : "Issue new link"}
-    </button>
-  ),
-}));
-vi.mock("@/app/admin/show/[slug]/RevokeAllLinksButton", () => ({
-  RevokeAllLinksButton: ({ disabled }: { disabled: boolean }) => (
-    <button
-      type="button"
-      data-testid="stub-revoke-button"
-      disabled={disabled}
-    >
-      Revoke all links
-    </button>
-  ),
-}));
+import {
+  PerShowCrewSection,
+  type CrewRowForLinkPanel,
+} from "@/components/admin/PerShowCrewSection";
 
-import { PerShowCrewSection } from "@/components/admin/PerShowCrewSection";
-import { type CrewRowForLinkPanel } from "@/lib/data/loadShowCrewWithAuth";
+afterEach(cleanup);
 
-afterEach(() => cleanup());
+// Minimal CrewRowForLinkPanel fixture — M9.5 link-state fields kept
+// as sentinels so the type still matches even though the component
+// no longer reads them. §A's G0d cleanup will narrow the type after
+// loadShowCrewWithAuth is deleted.
+function makeRow(overrides: Partial<CrewRowForLinkPanel> = {}): CrewRowForLinkPanel {
+  return {
+    id: overrides.id ?? "row-id",
+    name: overrides.name ?? "Alice Adams",
+    role: overrides.role ?? "Audio A1",
+    show_id: overrides.show_id ?? "11111111-1111-1111-1111-111111111111",
+    current_token_version: overrides.current_token_version ?? 0,
+    max_issued_version: overrides.max_issued_version ?? 0,
+    revoked_below_version: overrides.revoked_below_version ?? 0,
+    authMissing: overrides.authMissing ?? false,
+    ...overrides,
+  };
+}
 
-const liveRow: CrewRowForLinkPanel = {
-  id: "row-1",
-  name: "Alice",
-  role: "LEAD",
-  authMissing: false,
-  current_token_version: 2,
-  max_issued_version: 2,
-  revoked_below_version: 0,
-};
-const noLiveLinkRow: CrewRowForLinkPanel = {
-  id: "row-2",
-  name: "Bob",
-  role: "A1",
-  authMissing: false,
-  current_token_version: 1,
-  max_issued_version: 1,
-  revoked_below_version: 1,
-};
-const authMissingRow: CrewRowForLinkPanel = {
-  id: "row-4",
-  name: "Dave",
-  role: null,
-  authMissing: true,
-  current_token_version: 0,
-  max_issued_version: 0,
-  revoked_below_version: 0,
-};
-
-describe("PerShowCrewSection", () => {
-  test("renders one row per crew member with name", () => {
-    render(<PerShowCrewSection showId="show-uuid" crew={[liveRow, noLiveLinkRow]} />);
-    expect(screen.getByText("Alice")).toBeTruthy();
-    expect(screen.getByText("Bob")).toBeTruthy();
+describe("PerShowCrewSection (post-F1: picker pivot)", () => {
+  test("renders one row per crew member with name + role", () => {
+    const crew = [
+      makeRow({ id: "a", name: "Alice Adams", role: "Audio A1" }),
+      makeRow({ id: "b", name: "Bob Burns", role: "Video V2" }),
+    ];
+    render(<PerShowCrewSection showId="show-1" crew={crew} />);
+    const rows = screen.getAllByTestId("per-show-crew-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("Alice Adams");
+    expect(rows[0]?.textContent).toContain("Audio A1");
+    expect(rows[1]?.textContent).toContain("Bob Burns");
+    expect(rows[1]?.textContent).toContain("Video V2");
   });
 
-  test("live row (current > revoked, max > 1): Issue button shows 'Issue new link', Revoke enabled", () => {
-    render(<PerShowCrewSection showId="show-uuid" crew={[liveRow]} />);
-    const issueBtns = screen.getAllByTestId("stub-issue-button");
-    expect(issueBtns).toHaveLength(1);
-    expect(issueBtns[0]?.textContent?.trim()).toBe("Issue new link");
-    const revokeBtn = screen.getByTestId("stub-revoke-button") as HTMLButtonElement;
-    expect(revokeBtn.disabled).toBe(false);
-  });
-
-  test("fresh row (max_issued_version === 1 AND no-live-link): Issue label is 'Issue first link'", () => {
-    const freshNoLink: CrewRowForLinkPanel = {
-      id: "row-fresh",
-      name: "Carol",
-      role: "LD",
-      authMissing: false,
-      current_token_version: 1,
-      max_issued_version: 1,
-      revoked_below_version: 1,
-    };
-    render(<PerShowCrewSection showId="show-uuid" crew={[freshNoLink]} />);
-    expect(screen.getByTestId("stub-issue-button").textContent?.trim()).toBe(
-      "Issue first link",
-    );
-  });
-
-  test("no-live-link row: Revoke button disabled + visible no-live-link hint", () => {
-    render(<PerShowCrewSection showId="show-uuid" crew={[noLiveLinkRow]} />);
-    const revokeBtn = screen.getByTestId("stub-revoke-button") as HTMLButtonElement;
-    expect(revokeBtn.disabled).toBe(true);
-    expect(
-      screen.getByTestId("per-show-crew-no-live-link-hint"),
-    ).toBeTruthy();
-  });
-
-  test("empty crew list renders empty-state copy (no rows)", () => {
-    render(<PerShowCrewSection showId="show-uuid" crew={[]} />);
-    expect(screen.getByTestId("per-show-crew-empty")).toBeTruthy();
-    expect(screen.queryByTestId("per-show-crew-row")).toBeNull();
-  });
-
-  test("crewLookupFailed=true renders distinct warning branch + role=alert; empty-state does NOT render", () => {
+  test("role omitted when null", () => {
     render(
       <PerShowCrewSection
-        showId="show-uuid"
-        crew={[]}
+        showId="show-1"
+        crew={[makeRow({ role: null })]}
+      />,
+    );
+    const row = screen.getByTestId("per-show-crew-row");
+    expect(row.textContent).toContain("Alice Adams");
+    expect(row.textContent).not.toContain("Audio A1");
+  });
+
+  test("empty roster renders empty-state copy", () => {
+    render(<PerShowCrewSection showId="show-1" crew={[]} />);
+    expect(screen.getByTestId("per-show-crew-empty")).not.toBeNull();
+    expect(screen.queryAllByTestId("per-show-crew-row")).toHaveLength(0);
+  });
+
+  test("crewLookupFailed=true renders warning branch with role=alert and SUPPRESSES rows + empty-state", () => {
+    render(
+      <PerShowCrewSection
+        showId="show-1"
+        crew={[makeRow()]}
         crewLookupFailed
       />,
     );
-    const alert = screen.getByTestId("per-show-crew-lookup-failed");
-    expect(alert.getAttribute("role")).toBe("alert");
-    expect(alert.textContent?.toLowerCase()).toMatch(/temporarily unavailable/);
+    const warning = screen.getByTestId("per-show-crew-lookup-failed");
+    expect(warning.getAttribute("role")).toBe("alert");
+    expect(screen.queryAllByTestId("per-show-crew-row")).toHaveLength(0);
     expect(screen.queryByTestId("per-show-crew-empty")).toBeNull();
   });
 
-  test("crewLookupFailed=true takes precedence over crew rows (defensive)", () => {
-    render(
-      <PerShowCrewSection
-        showId="show-uuid"
-        crew={[liveRow]}
-        crewLookupFailed
-      />,
+  test("the F1 simplification removed IssueLink / RevokeAllLinks (regression catch)", () => {
+    // Structural: after F1, the rendered DOM must NOT contain the
+    // legacy button affordances. This guards against an accidental
+    // re-import / re-mount during the §A G-series cleanup.
+    const { container } = render(
+      <PerShowCrewSection showId="show-1" crew={[makeRow()]} />,
     );
-    expect(screen.getByTestId("per-show-crew-lookup-failed")).toBeTruthy();
-    expect(screen.queryByText("Alice")).toBeNull();
-  });
-
-  test("auth-missing row: affordances HIDDEN (impeccable critique M-4 fix); diagnostic copy visible; action layer remains authoritative gate", () => {
-    render(<PerShowCrewSection showId="show-uuid" crew={[authMissingRow]} />);
-    expect(
-      screen.getByTestId("per-show-crew-auth-missing-hint"),
-    ).toBeTruthy();
-    // Impeccable critique M-4: two greyed-out accent buttons in the
-    // authMissing branch were noise — the hint already explains. The
-    // affordance pair is now omitted from the render entirely. The
-    // Server Action layer remains the authoritative gate (any forged
-    // submit hits the crew_member_not_found data-layer branch).
-    expect(screen.queryByTestId("stub-issue-button")).toBeNull();
-    expect(screen.queryByTestId("stub-revoke-button")).toBeNull();
-    expect(
-      screen
-        .getByTestId("per-show-crew-auth-missing-hint")
-        .textContent?.toLowerCase(),
-    ).toMatch(/auth row missing/);
-  });
-
-  test("auth-missing row uses data-auth-missing=true marker on the row", () => {
-    render(<PerShowCrewSection showId="show-uuid" crew={[authMissingRow]} />);
-    const rows = screen.getAllByTestId("per-show-crew-row");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.getAttribute("data-auth-missing")).toBe("true");
-  });
-
-  test("normal row carries data-auth-missing=false + data-no-live-link reflecting state", () => {
-    render(
-      <PerShowCrewSection
-        showId="show-uuid"
-        crew={[liveRow, noLiveLinkRow]}
-      />,
-    );
-    const rows = screen.getAllByTestId("per-show-crew-row");
-    expect(rows).toHaveLength(2);
-    const liveLi = rows.find(
-      (li) => li.getAttribute("data-crew-name") === "Alice",
-    );
-    const noLiveLi = rows.find(
-      (li) => li.getAttribute("data-crew-name") === "Bob",
-    );
-    expect(liveLi?.getAttribute("data-no-live-link")).toBe("false");
-    expect(noLiveLi?.getAttribute("data-no-live-link")).toBe("true");
-    expect(liveLi?.getAttribute("data-auth-missing")).toBe("false");
-  });
-
-  test("role text renders only when role is non-null", () => {
-    const noRole: CrewRowForLinkPanel = { ...liveRow, id: "no-role", name: "Eve", role: null };
-    render(<PerShowCrewSection showId="show-uuid" crew={[liveRow, noRole]} />);
-    const liveRowEl = screen
-      .getAllByTestId("per-show-crew-row")
-      .find((li) => li.getAttribute("data-crew-name") === "Alice")!;
-    expect(within(liveRowEl).getByText("LEAD")).toBeTruthy();
-    const noRoleRowEl = screen
-      .getAllByTestId("per-show-crew-row")
-      .find((li) => li.getAttribute("data-crew-name") === "Eve")!;
-    expect(within(noRoleRowEl).queryByText("LEAD")).toBeNull();
+    expect(container.innerHTML).not.toContain("Issue ");
+    expect(container.innerHTML).not.toContain("Revoke");
   });
 });
