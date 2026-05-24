@@ -2,11 +2,47 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Spec:** `docs/superpowers/specs/2026-05-23-crew-auth-pivot-show-link-picker.md` (1046 lines; 40 rounds of cross-model adversarial review). Read it end-to-end before starting.
+**Spec:** `docs/superpowers/specs/2026-05-23-crew-auth-pivot-show-link-picker.md` (~1300 lines; 45 rounds of cross-model adversarial review — initial 40 plus R41-R1 through R41-R45). Read it end-to-end before starting. **§6.0 is the canonical Timestamp Defense Contract**; cite it from every timestamp-related task.
 
 **Goal:** Replace the M9.5 per-crew-member signed-link auth model with one-show-link + "who are you?" identity picker, per the 2026-05-23 owner determination in `PRODUCT.md:69-83`.
 
-**Architecture:** Crew URL becomes `/show/<slug>/<share-token>` where `<share-token>` is a 256-bit hex bearer credential stored in a new private `show_share_tokens` table. The picker is a Server-Component interstitial; selection persists in a single HMAC-signed `__Host-fxav_picker` host-wide cookie keyed by `show_id`. Three crew-side Server Actions (`selectIdentity`, `clearIdentity`, `cleanupStaleEntry`) are the only cookie mutators. Admin per-show panel adds Reset (bumps `shows.picker_epoch`) and Rotate (rotates token + bumps epoch + invalidates cookies, atomically). All M9.5 surfaces (JWT, redeem-link, fragment-bootstrap, leaked-link middleware, per-row Issue/Revoke, `/me`, `validateGoogleSession.ts`, `crew_member_auth`/`link_sessions`/`bootstrap_nonces`/`revoked_links` tables) are deleted in the same execution — app has not shipped, no compat window.
+**Architecture:** Crew URL becomes `/show/<slug>/<share-token>` where `<share-token>` is a 256-bit hex bearer credential stored in a new private `show_share_tokens` table. The picker is a Server-Component interstitial; selection persists in a single HMAC-signed `__Host-fxav_picker` host-wide cookie keyed by `show_id`. R41 restores Google sign-in as an OPTIONAL crew identity (Decisions 15-17): callback stamps `claimed_via_oauth_at`; `/api/auth/picker-bootstrap` Route Handler lazy-mints picker cookies for signed-in users; signed-in user's `/me` lists tokenized URLs for cross-show discovery. **FIVE cookie-mutator surfaces** (3 Server Actions + picker-bootstrap + sign-out which uniquely writes Max-Age=0). Admin per-show panel adds Reset (bumps `shows.picker_epoch`) and Rotate (rotates token + bumps epoch atomically; in-DB `is_admin()` gate). All M9.5 surfaces deleted in the same execution.
+
+---
+
+## R41 AMENDMENTS APPLIED (45 rounds of adversarial review)
+
+This plan was last revised before the R41 wave. The spec is authoritative for any detail not yet propagated here; implementers MUST cross-reference both. The R41 amendments propagated below:
+
+- **R41-R6, R41-R7, R41-R10, R41-R11, R41-R12** — auth chain: `resolveShowPageAccess` page-route-only helper with archived → admin → unpublished → Google-session-resolve → cookie chain (12 kinds → 11 per R41-R35); picker-bootstrap fail-closed 502 on RPC failure; same-user OAuth upgrade routing; callback-RPC-failure retry via bootstrap.
+- **R41-R16, R41-R17** — email canonicalization at caller boundary; `auth_email_canonical()` instead of raw `auth.email()`; viewer_version_token includes `picker_epoch` suffix.
+- **R41-R18, R41-R22, R41-R23, R41-R30, R41-R31** — §6.0 Timestamp Defense Contract: cookie.t in milliseconds (`bigint`); `clock_timestamp()` AFTER advisory-lock acquisition (NOT `now()` which returns transaction-start time); `floor(epoch * 1000)::bigint` cast (NOT `::bigint` which uses banker's rounding); strict-greater `>` for cookie-path acceptance; inclusive `<=` for bootstrap-routing and resolver invalidation (catches ties); selectIdentity goes through `select_identity_atomic` RPC under the per-show advisory lock.
+- **R41-R19** — `claim_oauth_identity` uses `upsert_admin_alert(show_id, code, context)` helper (NOT raw INSERT) for any admin alerts.
+- **R41-R20, R41-R21, R41-R41, R41-R42, R41-R44** — FIVE cookie-mutator surfaces: `selectIdentity`, `clearIdentity`, `cleanupStaleEntry`, `/api/auth/picker-bootstrap` (mints `Max-Age=7776000`), `/auth/sign-out` (clears `Max-Age=0`; R41-R41 credential-lifetime fix). `/auth/callback` is NOT a cookie mutator (DB-stamp only; lazy-mint via bootstrap on first show visit).
+- **R41-R28, R41-R29** — every SECURITY DEFINER RPC that mutates `shows.picker_epoch` OR `show_share_tokens.share_token` includes the in-function `public.is_admin()` gate. Two writers of picker_epoch: `reset_picker_epoch_atomic` AND `rotate_show_share_token`.
+- **R41-R33, R41-R34** — `select_identity_atomic(p_slug, p_share_token, p_crew_member_id)` re-validates share-token INSIDE the per-show advisory lock via two-step lookup (drive_file_id from slug → lock → resolve_show_by_slug_and_token). Closes a real race where rotation between JS pre-resolve and RPC lock could mint a cookie from an already-invalid token.
+- **R41-R35** — ambiguous-email defenses REMOVED. The live schema's partial UNIQUE index `crew_members_show_email_unique ON (show_id, email) WHERE email IS NOT NULL` (at `supabase/migrations/20260501000000_initial_public_schema.sql:49-51`) makes the duplicate-email-on-same-show state impossible. The constraint is the canonical defense; no in-RPC GROUP BY HAVING checks, no `data-ambiguous` UI states, no `PICKER_IDENTITY_AMBIGUOUS` rejection code, no `email_ambiguous` resolver arm. The pre-pivot `AMBIGUOUS_EMAIL_BINDING` code may remain as defensive surface for schema corruption, but R41 introduces no new emission paths.
+
+**New surfaces / tasks added below (not in original plan):**
+
+- Task A7: `crew_members.claimed_via_oauth_at` column.
+- Task A8: `claim_oauth_identity` SECURITY DEFINER RPC.
+- Task A9: `my_share_tokens_for_email` SECURITY DEFINER RPC.
+- Task B7: `resolveShowPageAccess` page-route-only helper (11-arm union).
+- Task C5: `<SignInOrSkipGate>` first-contact component.
+- Task C6: `/api/auth/picker-bootstrap` Route Handler.
+- Task C7: `/auth/callback` claim-stamp hook (DB-only).
+- Task G0e2: `/auth/sign-out` clears `__Host-fxav_picker` with `Max-Age=0`.
+
+**Existing tasks updated for R41 amendments:**
+
+- Task B2 `resolvePickerSelection`: discriminated union expanded with `identity_invalidated` arm (single reason `'claimed_after_pick'`); SQL uses `floor()` for epoch cast; resolver invalidates with `cookie.t <= floor(extract(epoch from claimed_via_oauth_at) * 1000)::bigint`.
+- Task B3-pre `select_identity_atomic`: signature `(p_slug, p_share_token, p_crew_member_id)`; in-lock share-token re-validation; `observed_at_millis` from `clock_timestamp()` after lock; `floor()` cast.
+- Task B3 `selectIdentity`: cookie.t sourced from `result.observed_at_millis` (NOT `Date.now()`).
+- Task B6 `rotateShareToken`: in-DB `is_admin()` gate verified (existing); direct-PostgREST regression test pinning the 42501 error.
+- Task A6 `viewer_version_token`: existing task already includes `picker_epoch` suffix per R17-F2 / R41-R17.
+
+---
 
 **Tech Stack:** Next.js 16 App Router (Server Components + Server Actions), Supabase (Postgres + Auth + Realtime), TypeScript, Vitest (unit), Playwright (browser-rendered assertions per AGENTS.md mandate for dimensional invariants).
 
@@ -667,6 +703,176 @@ git commit -m "feat(db): rewrite viewer_version_token (picker_epoch term; A6)"
 
 ---
 
+### Task A7: Add `crew_members.claimed_via_oauth_at` column (R41 OAuth identity claim)
+
+**Files:**
+- Create: `supabase/migrations/20260524000001_crew_members_claimed_via_oauth_at.sql`
+- Test: `tests/db/crew_members_claimed_via_oauth_at.test.ts`
+
+Per R41 Resolved Decision 15 + §5.1: `claimed_via_oauth_at TIMESTAMPTZ NULL` column on `public.crew_members`. Non-null means the user with that crew row's email has signed in via Google OAuth and the identity is claimed (permanently per R41 owner determination). Backfill: existing rows are naturally NULL.
+
+```sql
+alter table public.crew_members
+  add column claimed_via_oauth_at timestamptz null;
+
+comment on column public.crew_members.claimed_via_oauth_at is
+  'R41: stamped by claim_oauth_identity SECURITY DEFINER RPC on successful OAuth callback whose auth.users.email matches this row. Non-null = identity claimed; picker renders row as deactivated (§7.2). Permanent claim per Decision 15.';
+```
+
+Tests: (a) column exists; (b) NULL by default; (c) accepts TIMESTAMPTZ values; (d) the existing `crew_members_email_canonical` partial UNIQUE index at `20260501000000_initial_public_schema.sql:49-51` is untouched (R41-R35 verified: this constraint stays in place; ambiguous-email defenses are dead code BECAUSE this constraint exists).
+
+```bash
+git commit -m "feat(db): add crew_members.claimed_via_oauth_at column (A7)"
+```
+
+### Task A8: `claim_oauth_identity` SECURITY DEFINER RPC (R41 §5.3)
+
+**Files:**
+- Create: `supabase/migrations/20260524000002_claim_oauth_identity.sql`
+- Test: `tests/db/claim_oauth_identity.test.ts`
+
+Called from `/auth/callback` (DB-stamp only per R41-R6) AND from `/api/auth/picker-bootstrap` (lazy-mint retry per R41-R12). Per-show advisory locks per AGENTS.md invariant 2; clock_timestamp() AFTER all locks per R41-R23; mint_safe_t_millis return per R41-R22; UPDATE restricted to materialized locked-set per R41-R3; ambiguous-email handling REMOVED per R41-R35; canonical email at caller boundary per R41-R16 (RPC assumes input is already canonicalized).
+
+```sql
+create or replace function public.claim_oauth_identity(p_email text)
+  returns jsonb
+  language plpgsql
+  security definer
+  set search_path = public, pg_temp
+as $$
+declare
+  v_email text := p_email;  -- R41-R16: caller canonicalizes; no inline lower(trim())
+  v_locked_show_ids uuid[];
+  v_claimed_count integer := 0;
+  v_shows jsonb;
+  v_claim_at timestamptz;  -- R41-R23: clock_timestamp() AFTER locks
+  r record;
+begin
+  -- R41-R3 + R41-R23: materialize the locked show ids BEFORE acquiring locks;
+  -- ordered by drive_file_id to prevent cross-transaction deadlock.
+  with show_set as (
+    select distinct s.id as show_id, s.drive_file_id
+      from public.crew_members cm
+      join public.shows s on s.id = cm.show_id
+     where cm.email = v_email
+     order by s.drive_file_id
+  )
+  select array_agg(show_id) into v_locked_show_ids from show_set;
+
+  if v_locked_show_ids is null or array_length(v_locked_show_ids, 1) is null then
+    return jsonb_build_object('claimed_count', 0, 'shows', '[]'::jsonb,
+                              'mint_safe_t_millis',
+                                floor(extract(epoch from clock_timestamp()) * 1000)::bigint + 1);
+  end if;
+
+  -- Acquire all locks in deterministic order (R41-R10 explicit loop, NOT
+  -- set-based PERFORM which doesn't guarantee execution order).
+  for r in
+    select s.drive_file_id
+      from public.shows s
+     where s.id = any(v_locked_show_ids)
+     order by s.drive_file_id
+  loop
+    perform pg_advisory_xact_lock(hashtext('show:' || r.drive_file_id));
+  end loop;
+
+  -- R41-R23: clock_timestamp() AFTER all locks acquired. now() returns
+  -- transaction-start time and would predate lock acquisition under
+  -- contention, allowing impersonation (see spec §6.0).
+  v_claim_at := clock_timestamp();
+
+  with updated as (
+    update public.crew_members cm
+       set claimed_via_oauth_at = v_claim_at
+     where cm.email = v_email
+       and cm.show_id = any(v_locked_show_ids)
+       and cm.claimed_via_oauth_at is null
+   returning cm.id, cm.show_id
+  )
+  select count(*) into v_claimed_count from updated;
+
+  -- R41-R35: build shows result directly (no GROUP BY HAVING; ambiguous-
+  -- email defense removed because the partial UNIQUE index on (show_id,
+  -- email) makes duplicates impossible).
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'show_id', s.id,
+           'crew_member_id', cm.id,
+           'picker_epoch', s.picker_epoch
+         )), '[]'::jsonb)
+    into v_shows
+    from public.crew_members cm
+    join public.shows s on s.id = cm.show_id
+   where cm.email = v_email
+     and cm.show_id = any(v_locked_show_ids)
+     and s.published = true
+     and s.archived = false;
+
+  return jsonb_build_object(
+    'claimed_count', v_claimed_count,
+    'shows', v_shows,
+    -- R41-R22 + R41-R30: mint_safe_t_millis strictly greater than any
+    -- claim_epoch_millis; uses clock_timestamp() (R41-R23) and floor()
+    -- (R41-R30 avoids banker's rounding).
+    'mint_safe_t_millis',
+      greatest(
+        floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
+        coalesce(
+          (select floor(extract(epoch from max(claimed_via_oauth_at)) * 1000)::bigint
+             from public.crew_members
+            where email = v_email and claimed_via_oauth_at is not null),
+          0
+        )
+      ) + 1
+  );
+end;
+$$;
+
+revoke all on function public.claim_oauth_identity(text) from public;
+grant execute on function public.claim_oauth_identity(text) to service_role;
+```
+
+Tests (per spec §10.2): (a) basic happy path; (b) idempotent re-invocation (claimed_count = 0 for already-claimed rows); (c) R41-R3 locked-set integrity (concurrent INSERT on unlocked show NOT stamped); (d) R41-R10 lock ordering (two concurrent claims on overlapping show sets do NOT deadlock under repeated invocations); (e) R41-R23 lock-contention (Mallory's select_identity_atomic vs Alice's claim_oauth_identity — clock_timestamp() ordering correct; bypass cookie invalidated by resolver); (f) R41-R22 same-millisecond ties → resolver `<=` invalidation catches; (g) R41-R30 floor() vs banker's-rounding regression with fractional millisecond `claimed_via_oauth_at` values.
+
+```bash
+git commit -m "feat(db): add claim_oauth_identity SECURITY DEFINER RPC (A8)"
+```
+
+### Task A9: `my_share_tokens_for_email` SECURITY DEFINER RPC (R41 §5.3)
+
+**Files:**
+- Create: `supabase/migrations/20260524000003_my_share_tokens_for_email.sql`
+- Test: `tests/db/my_share_tokens_for_email.test.ts`
+
+Reads `public.auth_email_canonical()` internally (R41-R19; supabase/migrations/20260501002000_rls_policies.sql:11). Returns `(slug, share_token)` pairs for shows on the user's canonical email. Callers cannot pass an email — the function uses only auth_email_canonical, enforcing self-scope.
+
+```sql
+create or replace function public.my_share_tokens_for_email()
+  returns table(slug text, share_token text)
+  language sql
+  stable
+  security definer
+  set search_path = public, pg_temp
+as $$
+  select s.slug, sst.share_token
+    from public.crew_members cm
+    join public.shows s on s.id = cm.show_id
+    join public.show_share_tokens sst on sst.show_id = s.id
+   where cm.email = public.auth_email_canonical()  -- R41-R19: canonical NOT raw
+     and s.published = true
+     and s.archived = false
+   order by s.slug;
+$$;
+
+revoke all on function public.my_share_tokens_for_email() from public;
+grant execute on function public.my_share_tokens_for_email() to authenticated;
+```
+
+Tests: (a) unauthenticated caller gets empty set; (b) mixed-case Google account `Alice@Example.Com` returns rows for canonical-stored `alice@example.com`; (c) cross-user enumeration negative test (signed in as user X, function returns X's rows only); (d) only published+not-archived shows; (e) only the canonical email is used (R41-R19 invariant — no `auth.email()` raw direct usage).
+
+```bash
+git commit -m "feat(db): add my_share_tokens_for_email RPC (A9; canonical-email pin)"
+```
+
 ## Phase B: Auth helpers (lib/auth/picker/*)
 
 ### Task B1: Picker cookie envelope (HMAC-signed, R36)
@@ -1018,8 +1224,20 @@ export type ResolvePickerSelectionResult =
   | { kind: 'no_selection' }
   | { kind: 'epoch_stale'; expectedEpoch: number; expectedCrewMemberId: string }
   | { kind: 'removed_from_roster'; expectedEpoch: number; expectedCrewMemberId: string }
+  | { kind: 'identity_invalidated';  // R41-R8 added; R41-R35 single-reason
+      expectedEpoch: number;
+      expectedCrewMemberId: string;
+      reason: 'claimed_after_pick' }
   | { kind: 'show_unavailable' }
   | { kind: 'infra_error'; code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
+
+// R41-R8/R22/R30: the resolver fires `identity_invalidated` when the
+// cookie's crew_member is now OAuth-claimed AND the cookie predates
+// the claim. Comparison: cookie.t <= floor(extract(epoch from
+// claimed_via_oauth_at) * 1000)::bigint per spec §6.0 / §6.1 step 9.
+// Fail-closed on millisecond ties (<= not <); the claim_oauth_identity
+// RPC returns mint_safe_t_millis = claim_epoch + 1 for legitimate
+// post-claim cookies to strictly exceed the boundary.
 
 export async function resolvePickerSelection({
   showId,
@@ -1590,6 +1808,56 @@ git commit -am "feat(auth): cleanupStaleEntry compare-and-delete (R22; B5)"
 
 ---
 
+### Task B7: `resolveShowPageAccess` page-route-only helper (R41 §4.7)
+
+**Files:**
+- Create: `lib/auth/picker/resolveShowPageAccess.ts`
+- Test: `tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts`
+
+11-arm discriminated union per spec §4.7 (R41-R35 corrected count). Called ONLY by `app/show/[slug]/[shareToken]/page.tsx`. Imports `validateGoogleSession` from the `no-jwt-surface.test.ts` structural allowlist. **MUST NOT** import the picker cookie encoder OR `cookies` from `next/headers` (static guard in `_metaPickerCookieContract.test.ts`).
+
+Chain order: archived → admin precedence → unpublished (R41-R10 step 3.5 — before any Google-session branch to prevent bootstrap-loop) → Google-session-matching-crew-row → existing picker cookie.
+
+Return type:
+
+```ts
+export type ResolveShowPageAccessResult =
+  | { kind: 'archived' }
+  | { kind: 'admin' }
+  | { kind: 'needs_picker_bootstrap'; intentToken: string }  // R41-R3/R41-R10 carries intent token for CSRF
+  | { kind: 'resolved'; crewMemberId: string; source: 'cookie' | 'admin' }
+  | { kind: 'unpublished' }
+  | { kind: 'no_auth' }
+  | { kind: 'epoch_stale'; expectedEpoch: number; expectedCrewMemberId: string }
+  | { kind: 'removed_from_roster'; expectedEpoch: number; expectedCrewMemberId: string }
+  | { kind: 'identity_invalidated';  // R41-R13 + R41-R35
+      expectedEpoch: number;
+      expectedCrewMemberId: string;
+      reason: 'claimed_after_pick' }
+  | { kind: 'show_unavailable' }
+  | { kind: 'infra_error'; code: string };
+```
+
+For `needs_picker_bootstrap`, the helper generates the intent token in-place:
+
+```ts
+const intentTokenPayload = { slug, shareToken, exp: Math.floor(Date.now() / 1000) + 60 };
+const intentToken = signIntentToken(intentTokenPayload, pickerCookieSigningKey());
+```
+
+Step 4 branch logic per spec §4.1 (R41-R11/R41-R12/R41-R33):
+- 4(a): no Google session → fall to step 5.
+- 4(b): id-match + row claimed + `cookie.t > floor(extract(epoch from claim_at) * 1000)::bigint` → cookie path (resolved).
+- 4(b'): id-mismatch OR row not yet claimed OR `cookie.t <= claim_epoch_millis` OR no cookie entry → `needs_picker_bootstrap`.
+- (no 4(d) — R41-R35 removed ambiguous_email arm.)
+- 4(e): email matches NO crew row for this show → fall to step 5.
+
+Exhaustiveness test exercises each of the 11 arms with fixture inputs.
+
+```bash
+git commit -m "feat(auth): resolveShowPageAccess page-route helper (B7; R41 §4.7)"
+```
+
 ### Task B6: `resetPickerEpoch` + `rotateShareToken` admin Server Actions
 
 **Files:**
@@ -1699,7 +1967,7 @@ export function TerminalFailure({ code }: { code: MessageCode }) {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4">
       <h1 className="text-xl font-bold">Something went wrong</h1>
-      <p className="text-sm text-muted-foreground mt-2 max-w-[480px] text-center">
+      <p className="text-sm text-muted-foreground mt-2 max-w-120t-center">
         {entry.crewFacing ?? entry.dougFacing ?? 'Please try again.'}
       </p>
     </main>
@@ -2002,14 +2270,14 @@ export function PickerInterstitial({
   return (
     <main data-testid="picker-interstitial-root" className="min-h-screen flex flex-col items-center justify-start md:justify-center px-4">
       <div data-testid="picker-brand-strip" className="pt-6 pb-4 text-center">
-        <span className="text-[14px] font-bold text-[var(--accent)]">FXAV</span>
+        <span className="text-[14px] font-bold text-(--accent)V</span>
       </div>
       <h1 data-testid="picker-question-heading" className="text-xl font-bold">Who are you?</h1>
       <p data-testid="picker-sub-instruction" className="text-xs text-muted-foreground mt-1">
         Tap your name to open the show page.
       </p>
       {banner && (
-        <div data-testid="picker-banner" className="mt-2 mb-2 px-3 py-2 bg-orange-100 dark:bg-orange-900/30 text-xs rounded-md max-w-[360px]">
+        <div data-testid="picker-banner" className="mt-2 mb-2 px-3 py-2 bg-orange-100 dark:bg-orange-900/30 text-xs rounded-md max-w-90
           {messageFor(banner).crewFacing}
         </div>
       )}
@@ -2018,7 +2286,7 @@ export function PickerInterstitial({
           {messageFor('PICKER_EMPTY_ROSTER').crewFacing}
         </div>
       ) : (
-        <ul data-testid="picker-roster-list" className="w-full max-w-[360px] md:max-w-[480px] mt-3 space-y-[5px]">
+        <ul data-testid="picker-roster-list" className="w-full max-w-90 md:max-w-120 mt-3 space-y-1.25">
           {roster.map((c) => (
             <li key={c.id}>
               <form action={selectIdentity}>
@@ -2035,9 +2303,9 @@ export function PickerInterstitial({
                   {c.role && (
                     <span
                       className={[
-                        'text-[8px] font-semibold rounded-full px-[7px] py-[2px]',
+                        'text-[8px] font-semibold rounded-full px-1.75 py-0.5',
                         c.role_flags.includes('LEAD')
-                          ? 'bg-[var(--accent)] text-[var(--accent-foreground)]'
+                          ? 'bg-(--accent) text-(--accent-foreground)'
                           : 'bg-muted text-muted-foreground',
                       ].join(' ')}
                     >
@@ -2185,7 +2453,7 @@ export function IdentityChip({
         <input type="hidden" name="slug" value={slug} />
         <input type="hidden" name="shareToken" value={shareToken} />
         <input type="hidden" name="showId" value={showId} />
-        <button type="submit" className="text-[9px] text-[var(--accent)] underline">Not you?</button>
+        <button type="submit" className="text-[9px] text-(--accent) underline">Not you?</button>
       </form>
     </div>
   );
@@ -2199,6 +2467,81 @@ git commit -am "feat(ui): IdentityChip + ShowBody integration (C4)"
 ```
 
 ---
+
+### Task C5: `<SignInOrSkipGate>` first-contact component (R41 §7.1a)
+
+**Files:**
+- Create: `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx`
+- Test: `tests/components/sign-in-or-skip-gate.test.tsx` + Playwright at `tests/e2e/sign-in-or-skip-gate.spec.ts`
+
+Pure Server Component rendered as the first-contact surface when `resolveShowPageAccess` returns `{ kind: 'no_auth' }` AND the URL does NOT carry `?gate=skip`. Layout per spec §7.1a:
+
+- Brand strip + show identifier strip (same as picker chrome).
+- **Primary CTA "Skip and pick your name"** — same-page navigation to current URL with `?gate=skip` appended (re-runs auth chain; falls through to picker render).
+- **Secondary CTA "Sign in with Google"** — initiates OAuth flow with current tokenized URL as post-callback `next` destination.
+
+Tests assert: gate renders both CTAs; tap-Skip navigates with `?gate=skip`; tap-Sign-in initiates OAuth via `/auth/sign-in?next=<encoded URL>`; the picker is NOT pre-rendered behind the gate.
+
+```bash
+git commit -m "feat(picker): SignInOrSkipGate first-contact component (C5; R41 §7.1a)"
+```
+
+### Task C6: `/api/auth/picker-bootstrap` Route Handler (R41 §4.7)
+
+**Files:**
+- Create: `app/api/auth/picker-bootstrap/route.ts`
+- Create: `lib/auth/picker/intentToken.ts` (HMAC sign/verify helpers)
+- Test: `tests/auth/picker-bootstrap.test.ts`
+
+Per spec §4.7 (R41-R6 / R41-R7 / R41-R24 / R41-R41). Flow:
+
+1. Read `next` AND `t` (intent token) query params. Validate `next` against `validateNextParam.ts` allowlist regex `^/show/[a-z0-9-]+/[0-9a-f]{64}$`.
+2. **Verify intent token** — format: `base64url(JSON({slug, shareToken, exp})) + '.' + base64url(HMAC-SHA256(payload, PICKER_COOKIE_SIGNING_KEY))`. Reject (403, NOT 302) on: missing `t`, malformed format, expired (`exp < now`), HMAC mismatch, OR embedded `{slug, shareToken}` not matching `next` URL's parsed values.
+3. `validateGoogleSession(req)` — no session → 302 to `next` with no cookie set.
+4. Invoke `claim_oauth_identity(canonicalize(user.email))` via service-role client.
+   - **RPC infra failure (R41-R7 fail-closed)**: return HTTP 502 with cataloged `PICKER_BOOTSTRAP_RPC_FAILED` terminal-failure HTML. NO 302 (would loop back).
+5. **One-show write contract (R41-R6)**: extract target `show_id` via `resolve_show_by_slug_and_token(slug, shareToken)`. Find `result.shows` entry for target_show_id. If present: read request envelope; modify ONLY this show's entry to `{ id: crew_member_id, e: picker_epoch, t: result.mint_safe_t_millis }`; write via `cookies().set('__Host-fxav_picker', signEnvelope(envelope), PICKER_COOKIE_OPTIONS)`. If absent: write NO cookie.
+6. 302 to `next`.
+
+**CRITICAL DB-side timestamp source (R41-R24)**: cookie.t uses `result.mint_safe_t_millis` from the RPC return — NOT `Date.now()`, NOT `new Date()`, NOT `performance.now()`. The §10.1 meta-test grep-asserts no such JS-clock calls in this file.
+
+Tests per spec §10.2: 8 CSRF cases (missing/malformed/HMAC-tampered/expired/slug-mismatch token → 403; no session → 302 no-cookie; valid → 302+cookie; CSRF simulation with `<img src=...>` → 403 + no claim_oauth_identity call); R41-R7 fail-closed test (RPC throws → 502 not 302); R41-R6 one-show-write test (entries for other shows byte-identical pre/post); R41-R25 exact-value assertion (stub returns `mint_safe_t_millis = 1737028800123`; assert cookie.t equals that exactly).
+
+```bash
+git commit -m "feat(auth): picker-bootstrap Route Handler (C6; R41 §4.7 lazy-mint)"
+```
+
+### Task C7: `/auth/callback` claim-stamp hook (R41 §4.8)
+
+**Files:**
+- Modify: `app/auth/callback/route.ts`
+- Test: `tests/auth/callback-claim-stamp.test.ts`
+
+Per spec §4.8 (R41-R6 DB-only contract). AFTER `supabase.auth.exchangeCodeForSession()` succeeds:
+
+```ts
+import { canonicalize } from '@/lib/email/canonicalize';
+
+const { data: { user } } = await supabase.auth.getUser();
+if (user?.email) {
+  const canonicalEmail = canonicalize(user.email);  // R41-R16: canonicalize at boundary
+  const { data: result, error } = await serviceRole.rpc('claim_oauth_identity', { p_email: canonicalEmail });
+  if (error) {
+    logger.error('claim_oauth_identity failed', { email: canonicalEmail, error });
+    // R41-R12: bootstrap will retry on next show visit; sign-in still proceeds.
+  } else if ((result?.claimed_count ?? 0) > 0) {
+    await emitAdminAlert('OAUTH_IDENTITY_CLAIMED', { user_email: canonicalEmail, claimed_count: result.claimed_count });
+  }
+  // R41-R6: NO cookies().set('__Host-fxav_picker', ...) — callback is DB-stamp-only.
+  // The §10.1 meta-test grep-asserts this file does NOT contain that call.
+}
+```
+
+Tests: (a) exchangeCodeForSession called first; (b) claim_oauth_identity called with canonicalized email; (c) NO Set-Cookie for `__Host-fxav_picker` in response (R41-R6); (d) OAUTH_IDENTITY_CLAIMED alert emitted only when claimed_count > 0; (e) RPC failure path logs error and continues (sign-in still succeeds; bootstrap retries on next visit); (f) idempotent re-invocation: re-sign-in returns claimed_count=0, no alert spam.
+
+```bash
+git commit -m "feat(auth): callback claim-stamp hook (C7; R41 §4.8 DB-only)"
+```
 
 ## Phase D: API route auth swaps
 
@@ -2333,17 +2676,16 @@ git commit -am "refactor(auth): drop resolveShowViewer.ts (no callers post-pivot
 
 ---
 
-### Task E2: Scrub `/me` from auth chain redirects (R22 + R14-F2)
+### Task E2: ~~Scrub `/me` from auth chain redirects~~ — **OBSOLETE PER R41**
 
-**Files (broadened per R14-F2 — implementer runs the grep below BEFORE coding to confirm the full set):**
-- Modify: `lib/auth/validateNextParam.ts` (remove `/me(\/.*)?$` from allowlist regex)
-- Modify: `app/auth/sign-in/page.tsx` (redirect already-signed-in non-admins to `/`, not `/me`)
-- Modify: `app/auth/callback/route.ts` (same)
-- Modify: `app/api/auth/google/start/route.ts` (same)
-- Modify: `app/auth/clear-session/route.ts` (per R14-F2: contains its OWN local allowlist regex that still accepts `/me`; update or replace with import from `validateNextParam`)
-- Modify: `lib/messages/catalog.ts` (per R14-F2: line ~1231 OAuth error copy names `/me` as an allowed destination; rewrite the user-facing copy)
-- Regenerate: `lib/messages/__generated__/spec-codes.ts` (catalog-emitted output)
-- Test: `tests/auth/me-scrub-static.test.ts`
+**Status: REVERSED.** This task was authored when `/me` was being deleted (pre-R41). R41 Resolved Decisions 15-17 RESTORE `/me` as the OAuth cross-show discovery surface for signed-in crew. `/me` STAYS in `validateNextParam.ts` allowlist, in sign-in already-signed-in short-circuit, in callback redirect, in `google/start` redirectTo, and in `/auth/clear-session` allowed targets. `lib/messages/catalog.ts` retains `/me` references.
+
+**Instead of E2, the implementer's job is to PRESERVE the existing `/me` paths AND rewrite `app/me/page.tsx` + `lib/data/listShowsForCrew.ts` to emit tokenized URLs via the new `my_share_tokens_for_email()` RPC (Task A9).** See spec §6 routing table + §10.2 `/me preserved with tokenized URLs` test bullet for the canonical contract.
+
+**Files (rewrite, not delete):**
+- Modify: `app/me/page.tsx` — replace existing listShowsForCrew SQL with `serviceRole.rpc('my_share_tokens_for_email')` call; render entries as `/show/<slug>/<share-token>` tokenized URLs (NOT bare `/show/<slug>`).
+- Modify: `lib/data/listShowsForCrew.ts` — rewrite to wrap `my_share_tokens_for_email()` RPC.
+- Test: `tests/app/me.test.ts` — assert tokenized URL output; mixed-case email regression (R41-R19); cross-user enumeration negative test.
 - Test: `tests/auth/validateNextParam.test.ts`
 
 **Pre-coding grep (mandatory):**
@@ -2501,10 +2843,10 @@ git commit -am "refactor(data): drop loadShowCrewWithAuth (or rename to loadShow
 Pre-pivot, sign-out imports `deleteSession` from `lib/auth/validateLinkSession.ts` (line 9) and calls it (line 127) to remove the `link_sessions` row. Post-pivot:
 - `link_sessions` table is dropped (G2).
 - `__Host-fxav_session` cookie is also gone (replaced by `__Host-fxav_picker`).
-- Sign-out's job is now ONLY to clear the Supabase Auth session via `supabase.auth.signOut()`. The picker cookie is NOT cleared on sign-out (per Resolved Decision 15 — the picker cookie is a separate identity contract).
+- Sign-out's job is now to clear BOTH (a) the Supabase Auth session via `supabase.auth.signOut()` AND (b) **the `__Host-fxav_picker` cookie with `Max-Age=0` (R41-R41 credential-lifetime fix).** R41 made the picker cookie a derived credential of the signed-in user (`/api/auth/picker-bootstrap` mints it from the OAuth-matched crew row), so leaving it alive after sign-out leaks identity to the next user on a shared device.
 
 ```ts
-// app/auth/sign-out/route.ts (post-pivot)
+// app/auth/sign-out/route.ts (post-pivot; R41-R41 picker cookie clear)
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
@@ -2513,8 +2855,26 @@ export const runtime = 'nodejs';
 export async function POST() {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
-  // Picker cookie intentionally NOT cleared per Resolved Decision 15.
-  return NextResponse.redirect(new URL('/', process.env.NEXT_PUBLIC_SITE_ORIGIN!), { status: 302 });
+
+  // R41-R41 CRITICAL: clear __Host-fxav_picker with Max-Age=0.
+  // The picker cookie is a derived credential of the signed-in user
+  // (minted via /api/auth/picker-bootstrap from the OAuth-matched crew
+  // row) — leaving it alive after sign-out leaks show identity to the
+  // next user on a shared browser. R41-R41 added /auth/sign-out as
+  // the FIFTH legal picker-cookie mutator surface (uniquely writes
+  // Max-Age=0; every other mutator extends the TTL).
+  const response = NextResponse.redirect(
+    new URL('/', process.env.NEXT_PUBLIC_SITE_ORIGIN!),
+    { status: 302 }
+  );
+  response.cookies.set('__Host-fxav_picker', '', {
+    maxAge: 0,
+    path: '/',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+  });
+  return response;
 }
 
 export function GET() {
@@ -2522,7 +2882,12 @@ export function GET() {
 }
 ```
 
-Tests: (a) POST clears Supabase Auth session and 302s to `/`; (b) GET returns 405; (c) no `__Host-fxav_picker` Set-Cookie is emitted; (d) post-rewrite, `validateLinkSession` is no longer imported anywhere in `app/**`.
+Tests (per spec §10.2 R41-R41 regression):
+- (a) POST clears Supabase Auth session AND emits `Set-Cookie: __Host-fxav_picker=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`.
+- (b) GET returns 405.
+- (c) Post-rewrite, `validateLinkSession` is no longer imported anywhere in `app/**`.
+- (d) **R41-R41 shared-device regression**: fixture: user signs in → bootstrap mints picker cookie → user POSTs sign-out → simulated follow-up GET to `/show/<slug>/<token>` with NO cookies attached. Assert: the page renders `<SignInOrSkipGate>` (NOT `_ShowBody`); API consumers return 401. **Without R41-R41 fix**: the picker cookie survives sign-out and the follow-up renders as the previous user — leak.
+- (e) §10.1 `_metaPickerCookieContract.test.ts` lists `app/auth/sign-out/route.ts` in the cookie-mutator allowlist (as the fifth surface, alongside 3 Server Actions + picker-bootstrap).
 
 ```bash
 git commit -am "refactor(auth): sign-out no longer imports validateLinkSession (R15-F1; G0e0)"
