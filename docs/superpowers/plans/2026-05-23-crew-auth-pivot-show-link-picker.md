@@ -1540,6 +1540,45 @@ describe('selectIdentity FormData entry (real form submission shape)', () => {
     const result = await selectIdentity(fd);
     expect((result as any).code).toBe('PICKER_INVALID_INPUT');
   });
+
+  it('R41 P-R7 Fix-2: PICKER_IDENTITY_CLAIMED rejection throws NEXT_REDIRECT to /auth/sign-in?next=<tokenized URL>', async () => {
+    // Seed: a published show with a roster row whose claimed_via_oauth_at IS NOT NULL.
+    // Hand-crafted POST submits the claimed crew_member_id to the Server Action entry point.
+    const fd = new FormData();
+    fd.set('slug', 'claimed-show-slug');
+    fd.set('shareToken', 'b'.repeat(64));
+    fd.set('crewMemberId', '22222222-2222-2222-2222-222222222222');  // claimed roster row
+
+    // Next.js redirect() throws a NEXT_REDIRECT error with a digest containing the location.
+    // Spec §8.4 PICKER_IDENTITY_CLAIMED rejection MUST redirect (not return) so the
+    // server-side tamper path resolves into the same OAuth recovery flow as the
+    // deactivated-row UI. The structured log STILL emits tamper:true on this path.
+    let thrown: any = null;
+    try {
+      await selectIdentity(fd);
+    } catch (e: any) {
+      thrown = e;
+    }
+    expect(thrown).not.toBeNull();
+    expect(thrown.digest).toMatch(/^NEXT_REDIRECT/);
+    // The digest encodes the redirect URL; assert it points at /auth/sign-in with the
+    // tokenized URL as next= parameter (URL-encoded slug + shareToken).
+    expect(thrown.digest).toContain('/auth/sign-in?next=');
+    expect(thrown.digest).toContain(encodeURIComponent('/show/claimed-show-slug/' + 'b'.repeat(64)));
+  });
+
+  it('R41 P-R7 Fix-2: core impl still returns typed PICKER_IDENTITY_CLAIMED — only the FormData entry redirects', async () => {
+    // Unit-test the object-shaped core directly. The redirect is ONLY in the exported
+    // Server Action entry point, NOT the core. This separation lets typed assertions
+    // pin the rejection code shape without coupling to Next.js redirect machinery.
+    const result = await selectIdentityCore({
+      slug: 'claimed-show-slug',
+      shareToken: 'b'.repeat(64),
+      crewMemberId: '22222222-2222-2222-2222-222222222222',
+    });
+    expect(result.ok).toBe(false);
+    expect((result as any).code).toBe('PICKER_IDENTITY_CLAIMED');
+  });
 });
 ```
 
@@ -1554,6 +1593,7 @@ Implementation file:
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { encodePickerCookie, decodePickerCookie, COOKIE_NAME } from '@/lib/auth/picker/cookieEnvelope';
 import { pickerCookieSigningKey } from '@/lib/env/pickerCookieSigningKey';
@@ -1568,14 +1608,31 @@ export type SelectIdentityInput = { slug: string; shareToken: string; crewMember
 export type SelectIdentityResult = { ok: true } | { ok: false; code: string };
 
 // FormData entry point — what Next invokes when <form action={selectIdentity}> submits.
-export async function selectIdentity(formData: FormData): Promise<SelectIdentityResult> {
+export async function selectIdentity(formData: FormData): Promise<SelectIdentityResult | never> {
   const slug = formData.get('slug');
   const shareToken = formData.get('shareToken');
   const crewMemberId = formData.get('crewMemberId');
   if (typeof slug !== 'string' || typeof shareToken !== 'string' || typeof crewMemberId !== 'string') {
     return { ok: false, code: 'PICKER_INVALID_INPUT' };
   }
-  return selectIdentityCore({ slug, shareToken, crewMemberId });
+  const result = await selectIdentityCore({ slug, shareToken, crewMemberId });
+
+  // R41 §8.4 PICKER_IDENTITY_CLAIMED contract: hand-crafted POSTs that
+  // bypass the deactivated-row UI (which already routes to /auth/sign-in)
+  // and hit selectIdentity directly with a claimed crewMemberId get the
+  // SAME OAuth-recovery flow. The spec's "Rejection codes" section for
+  // PICKER_IDENTITY_CLAIMED mandates a redirect to /auth/sign-in?next=
+  // <tokenized URL>, NOT a returned { ok: false, code } that would
+  // strand the user.
+  if (!result.ok && result.code === 'PICKER_IDENTITY_CLAIMED') {
+    const tokenizedUrl = `/show/${slug}/${shareToken}`;
+    // redirect() throws a Next.js NEXT_REDIRECT — the Server Action client
+    // handler follows it. The structured log STILL emits the tamper flag
+    // (PICKER_IDENTITY_CLAIMED carries `tamper:true` per §8.4); the audit
+    // record is preserved even as the user is sent to OAuth recovery.
+    redirect(`/auth/sign-in?next=${encodeURIComponent(tokenizedUrl)}`);
+  }
+  return result;
 }
 
 // Object-shaped core — unit-testable; never invoked directly by <form>.
@@ -2261,7 +2318,7 @@ async function loadRoster(showId: string): Promise<RosterRow[]> {
 }
 ```
 
-**Exhaustiveness tests** (per spec §10.2 R41-R7 + Task B7): exercise each of the 11 arms with fixture inputs; assert response shape per arm (404 for archived/unpublished/show_unavailable; redirect to picker-bootstrap for needs_picker_bootstrap; SignInOrSkipGate for no_auth without `?gate=skip`; PickerInterstitial banner for stale kinds; ShowBody render for resolved/admin; TerminalFailure for infra_error). Structural test: file imports `resolveShowPageAccess` and does NOT import `resolvePickerSelection`, `validateGoogleSession`, or `cookies` (for SET). **Deactivated-row regression** (per spec §7.2 + §10.2): fixture seeds a roster with one `claimed_via_oauth_at IS NOT NULL` row + several NULL rows; assert: (a) claimed row's `<button>` has `data-claimed="true"`, lock icon, and form `action="/auth/sign-in?next=..."`; (b) NULL rows render with the normal selectIdentity form action; (c) hand-crafted POST submitting claimed crewMemberId to selectIdentity returns PICKER_IDENTITY_CLAIMED (server-side defense per Task B3-pre R41 Fix-2).
+**Exhaustiveness tests** (per spec §10.2 R41-R7 + Task B7): exercise each of the 11 arms with fixture inputs; assert response shape per arm (404 for archived/unpublished/show_unavailable; redirect to picker-bootstrap for needs_picker_bootstrap; SignInOrSkipGate for no_auth without `?gate=skip`; PickerInterstitial banner for stale kinds; ShowBody render for resolved/admin; TerminalFailure for infra_error). Structural test: file imports `resolveShowPageAccess` and does NOT import `resolvePickerSelection`, `validateGoogleSession`, or `cookies` (for SET). **Deactivated-row regression** (per spec §7.2 + §10.2): fixture seeds a roster with one `claimed_via_oauth_at IS NOT NULL` row + several NULL rows; assert: (a) claimed row's `<button>` has `data-claimed="true"`, lock icon, and form `action="/auth/sign-in?next=..."`; (b) NULL rows render with the normal selectIdentity form action; (c) hand-crafted POST submitting claimed crewMemberId to selectIdentity **throws a Next.js NEXT_REDIRECT to `/auth/sign-in?next=<encoded /show/<slug>/<shareToken>>`** — NOT a returned `{ ok: false, code: 'PICKER_IDENTITY_CLAIMED' }`. The exported Server Action special-cases this rejection code so server-side tamper attempts resolve into the same OAuth recovery flow as the deactivated-row UI (R41 P-R7 Fix-2 — spec §8.4 PICKER_IDENTITY_CLAIMED rejection contract mandates redirect to `/auth/sign-in?next=<tokenized URL>`). The underlying core impl still returns the typed `{ ok: false, code: 'PICKER_IDENTITY_CLAIMED' }` result, and unit tests against `selectIdentityCore` (NOT the exported Server Action) MUST continue asserting that shape — only the FormData entry point converts the rejection into a redirect. (d) Structured log MUST emit `picker.identity_claimed` with `tamper:true` even on the redirect path so the audit record survives.
 
 - [ ] **Step 3: Delete the old slug-only file + update consumers**
 
@@ -2660,7 +2717,7 @@ git commit -m "feat(auth): callback claim-stamp hook (C7; R41 §4.8 DB-only)"
 - **`/api/asset/{diagram,reel,agenda}/[show]/...`**: `params.show` is the show UUID per R34. No derivation needed.
 - **`/api/report`**: request body carries `show_id`.
 
-Per route, the show_id derivation step + its error handling (404 for unknown slug, 500 for infra) is the first thing the route does, BEFORE calling `resolvePickerSelection`. Each route's test matrix asserts: (a) the derivation step's outcome maps cleanly to the cataloged response codes; (b) a slug not in `shows` returns 404 from the derivation step, NOT from the resolver.
+Per route, the show_id derivation step + its error handling (**401 for unknown slug** per R17-F1 — slug-only API routes MUST NOT leak slug existence to unauthenticated callers; 500 for infra fault) is the first thing the route does, BEFORE calling `resolvePickerSelection`. Each route's test matrix asserts: (a) the derivation step's outcome maps cleanly to the cataloged response codes; (b) **a slug not in `shows` returns 401 from the derivation step** (collapsed with invalid-cookie + no-cookie into one 401 response so existence cannot be distinguished). The earlier "404 from the derivation step" wording was a self-contradiction with the R17-F1 bullets above and is replaced by this 401 rule. The page route at `/show/<slug>/<shareToken>` still uses 404 for unknown-slug (the share-token is the credential gate there, so 404 is not a slug-existence oracle).
 
 ### Task D1: Subscriber-token route — swap to picker cookie
 
@@ -3387,9 +3444,15 @@ Remove all M9.5 catalog codes; assert new codes are present:
 - `PICKER_EPOCH_RESET`, `PICKER_SELECTION_RACE` (admin-alert)
 - `PICKER_EPOCH_STALE_BANNER`, `PICKER_REMOVED_FROM_ROSTER_BANNER`, `PICKER_EMPTY_ROSTER`, `PICKER_SHOW_UNAVAILABLE` (crew-facing)
 - `PICKER_INVALID_INPUT`, `PICKER_CREW_MEMBER_NOT_FOUND`, `PICKER_CREW_MEMBER_WRONG_SHOW`, `PICKER_INVALID_SHARE_TOKEN`, `PICKER_RESOLVER_LOOKUP_FAILED` (rejection codes; all have both `dougFacing` and `crewFacing` copy per R33)
+- **R41 P-R7 Fix-3 — R41 admin-alert producers added by this pivot (MUST be in the catalog AND have registered producer write-sites):**
+  - `PICKER_BOOTSTRAP_RPC_FAILED` — emitted by `app/api/auth/picker-bootstrap/route.ts` (Task C6) when `claim_oauth_identity` returns an error OR throws (fail-closed 502 per spec §4.7 R41-R7). The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'PICKER_BOOTSTRAP_RPC_FAILED'`) in `app/api/auth/picker-bootstrap/route.ts`. Context: `{ rpc_error_code, attempted_email_hash, route: '/api/auth/picker-bootstrap' }`.
+  - `OAUTH_IDENTITY_CLAIMED` — emitted by the callback claim-stamp hook (Task C7) when `claim_oauth_identity` SUCCEEDS in stamping `claimed_via_oauth_at` for the first time (audit trail for identity claim events). The H7 test MUST register this code and its production write-site grep pattern (`upsertAdminAlert(.*'OAUTH_IDENTITY_CLAIMED'`) in `app/auth/callback/route.ts` (or the dedicated claim-stamp helper if extracted). Context: `{ crew_member_id, show_id, claimed_at_millis }`.
+- **R41 P-R7 Fix-2 — `PICKER_IDENTITY_CLAIMED` and `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` catalog entries** (rejection + banner; both have `crewFacing` copy; `PICKER_IDENTITY_CLAIMED` carries `tamper:true` in structured logs per spec §8.4 even on the redirect path).
+
+**Producer registry pattern (H7 enforcement):** Each catalog code that admits an `admin_alerts` row gets BOTH (a) a catalog row with `dougFacing` + `crewFacing` copy + `tamper` flag if applicable, AND (b) a registered production write-site — a `file:line` location matching `upsertAdminAlert(p_code => '<CODE>'` (Postgres-named-arg form) OR `upsert_admin_alert(.*'<CODE>'` (positional Postgres form) OR `.rpc('upsert_admin_alert', { p_code: '<CODE>'` (JS form). H7 test walks the catalog and for every code with `admitsAdminAlertRow: true`, greps the production codebase for at least one matching write-site; the test fails CLOSED if any catalog code has no registered producer (i.e., the catalog row exists but no code path writes the alert — the M5 R3–R22 lesson distilled per AGENTS.md invariant 9). Conversely, a structural-test sweep finds every `upsertAdminAlert(...'CODE'...)` call site and asserts each emitted code is registered in the catalog (no orphaned producers).
 
 ```bash
-git commit -am "test(meta): adminAlertCatalog updated for picker codes (H7)"
+git commit -am "test(meta): adminAlertCatalog updated for picker codes + R41 producers (H7)"
 ```
 
 ---
