@@ -127,7 +127,13 @@ type ShowRealtimeBridgeProps = {
  */
 type AuthFetchResult<T> =
   | { kind: "ok"; value: T }
-  | { kind: "auth_denied"; status: 401 | 403 }
+  // M11.5 R11-F1 / D3.5: 410 is the picker-cookie identity-consistency
+  // wire code (P-R29 Fix-1 shared-device defense) and the show-archived
+  // wire code on §6 data APIs. Both are terminal auth-loss states —
+  // recovery is the same as 401/403: drive the page through the Server
+  // Component resolver via router.refresh() so the chain re-evaluates
+  // and renders the appropriate terminal state (sign-in, notFound, etc).
+  | { kind: "auth_denied"; status: 401 | 403 | 410 }
   | { kind: "transient_failure" };
 
 async function mintSubscriberToken(slug: string): Promise<AuthFetchResult<string>> {
@@ -141,8 +147,8 @@ async function mintSubscriberToken(slug: string): Promise<AuthFetchResult<string
   } catch {
     return { kind: "transient_failure" };
   }
-  if (res.status === 401 || res.status === 403) {
-    return { kind: "auth_denied", status: res.status as 401 | 403 };
+  if (res.status === 401 || res.status === 403 || res.status === 410) {
+    return { kind: "auth_denied", status: res.status as 401 | 403 | 410 };
   }
   if (!res.ok) {
     return { kind: "transient_failure" };
@@ -163,8 +169,8 @@ async function fetchCurrentVersion(slug: string): Promise<AuthFetchResult<string
   } catch {
     return { kind: "transient_failure" };
   }
-  if (res.status === 401 || res.status === 403) {
-    return { kind: "auth_denied", status: res.status as 401 | 403 };
+  if (res.status === 401 || res.status === 403 || res.status === 410) {
+    return { kind: "auth_denied", status: res.status as 401 | 403 | 410 };
   }
   if (!res.ok) {
     return { kind: "transient_failure" };

@@ -862,6 +862,93 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleWarnSpy.mockRestore();
   });
 
+  test("M11.5 D3.5 / R11-F1 — version endpoint 410 (show_unavailable / session_mismatch) MUST force router.refresh", async () => {
+    // R11-F1: 410 is the terminal auth-loss wire code introduced in
+    // M11.5 — emitted by §6 data APIs when a show becomes archived
+    // (show_unavailable) AND by the picker-cookie identity-consistency
+    // check (P-R29 Fix-1 session_mismatch). Pre-fix the bridge only
+    // recognised 401/403 as auth_denied, so a 410 fell through to
+    // transient_failure and the page silently kept stale data.
+    // Post-fix the discriminated arm widens to 401 | 403 | 410 and
+    // the catch-up forces router.refresh().
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    pushFetchHandler(
+      (url) => /\/api\/show\/[^/]+\/version/.test(url),
+      async () =>
+        new Response(JSON.stringify({ error: "SHOW_UNAVAILABLE" }), {
+          status: 410,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    routerMock.state.refreshCalls = 0;
+
+    const channel = subscribeMock.state.currentChannel;
+    if (!channel) throw new Error("channel not registered");
+
+    await act(async () => {
+      channel.fireSystem({ event: "reconnected" });
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(routerMock.state.refreshCalls).toBeGreaterThanOrEqual(1);
+    consoleWarnSpy.mockRestore();
+  });
+
+  test("M11.5 D3.5 / R11-F1 — subscriber-token 410 MUST force router.refresh + not retry-loop", async () => {
+    // Pair regression: the renewal mint path must also recognise 410.
+    // Also pins the no-retry-loop contract — after auth_denied we
+    // expect a finite number of mint attempts; subsequent reconnects
+    // do not keep hammering the token endpoint indefinitely (the
+    // bridge defers re-evaluation to the Server Component resolver
+    // that router.refresh() drives).
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        if (mintCount === 1) {
+          return new Response(JSON.stringify({ jwt: "ok-1", exp: 9999999999 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ error: "SHOW_UNAVAILABLE" }), {
+          status: 410,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+    routerMock.state.refreshCalls = 0;
+    const mintsBefore = mintCount;
+
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    expect(routerMock.state.refreshCalls).toBeGreaterThanOrEqual(1);
+    // Not-retry-loop: after the 410 surfaces auth_denied the bridge
+    // hands off to router.refresh() rather than spinning on more
+    // renewal mints. A small fixed number of post-disconnect mints
+    // is acceptable (initial reconnect attempt), but the count must
+    // be bounded — not a runaway loop.
+    expect(mintCount - mintsBefore).toBeLessThanOrEqual(3);
+
+    consoleWarnSpy.mockRestore();
+  });
+
   test("Codex round-18 HIGH — invalidate + disconnect mid-debounce: renewal catch-up MUST still refresh", async () => {
     // Race scenario from Codex round-18 finding:
     //   1. Channel receives invalidate(T1) → schedules 100ms debounced refresh.
