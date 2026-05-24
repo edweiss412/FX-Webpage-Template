@@ -90,7 +90,7 @@ Each decision is owner-determined; cite by number from this list in the implemen
 16. **Sign-in-or-skip interstitial gate (R41 amendment).** When `/show/<slug>/<share-token>` resolves but none of {admin, Google session matching a crew row for this show, valid picker cookie} succeeds, the route renders a new gate component `<SignInOrSkipGate>`. Layout: brand strip + show identifier + two clear actions — **primary: "Skip and pick your name"** (server-driven navigation that re-enters the route with a `?gate=skip` flag the route handler reads as permission to render the picker interstitial); **secondary: "Sign in with Google"** (initiates the OAuth flow with the current tokenized URL as the post-callback destination). The skip-CTA is primary because the workflow's default audience (most crew most of the time) just wants to see their call time; sign-in is the opt-in upgrade. Anti-pattern: making sign-in feel mandatory or making skip hard to find — the gate is not a wall. Detailed UX in §7.
 
 17. **Login skips the picker entirely (R41-R6 revised — lazy-mint flow).** When a user signs in via Google OAuth, the auth callback handler stamps `claimed_via_oauth_at` on every matching `crew_members` row via `claim_oauth_identity` (under per-show advisory locks) and redirects to the validated `next` URL. **The callback does NOT mint picker cookies** (R41-R6 simplification — removes the high-frequency race surface of callback-write vs selectIdentity). Cookies are minted lazily, one show at a time, on the user's first visit to each show: `resolveShowPageAccess` detects Google-session + email-match + no-cookie → 302 to `/api/auth/picker-bootstrap` → bootstrap mints the entry → 302 back → page renders show body. The user-perceived flow is "signed in → skipped the picker" because the redirect-bootstrap-redirect chain executes server-side; the user sees one URL transition (sign-in → show page) with no intermediate picker render. The cookie's HMAC signature is the same as a `selectIdentity`-mint cookie; downstream API routes can't tell the two paths apart, which is intentional. **Edge cases — all handled by the same lazy-mint flow**: (a) Doug adds user to a new show post-sign-in → first visit triggers bootstrap (b) callback's RPC fails with infra error → bootstrap retries the RPC (idempotent) (c) cookies expire / cleared → next show visit re-triggers bootstrap (d) user signs in on a new device → bootstrap fires on first show visit on the new device. One audit-layer property: `claimed_via_oauth_at` is stamped at callback time, so every picker render after sign-in (on any device) deactivates this crew member's row in the bypass picker.
-14. **Server Action drives selection.** `selectIdentity({ slug, shareToken, crewMemberId })` (Next 16 App Router idiom). **R37 amendment**: the action MUST receive AND re-validate the share-token before minting a cookie — calling the action with `{ showId, crewMemberId }` alone would let anyone with show/crew UUIDs forge a signed picker cookie, bypassing the share-token gate the page route enforces. The action invokes `resolve_show_by_slug_and_token(slug, shareToken)` server-side and gets back the `show_id` (or NULL → reject). Then validates the `crewMemberId` is in the current roster for that `show_id`, validates the show is published + not archived, reads current `shows.picker_epoch`, mutates the cookie via `Set-Cookie` header in the response (HMAC-signed envelope per Decision 4), calls `revalidatePath`. The picker form embeds `slug` and `shareToken` as hidden inputs sourced from the route params (which the page-route resolver already validated).
+14. **Server Action drives selection (R41-R33 + R41-R34 locked-RPC contract).** `selectIdentity({ slug, shareToken, crewMemberId })` (Next 16 App Router idiom). **R37 base, R41-R33 redesign**: the action's body is a SINGLE locked RPC call — `select_identity_atomic(p_slug, p_share_token, p_crew_member_id)` — which does ALL validation INSIDE the per-show advisory lock (share-token re-resolve, crew_member roster check, claimed_via_oauth_at IS NULL check, same-show-email-count check, show published + not-archived check, picker_epoch read, observed_at_millis capture via clock_timestamp). NO pre-RPC JS-side call to `resolve_show_by_slug_and_token` (that would re-open the R41-R33 rotation race: an admin Rotate can commit between the JS pre-resolve and the locked RPC, letting a cookie be minted from an already-invalid old share-token). NO post-RPC SELECT picker_epoch outside the lock. The RPC's return value is authoritative. The picker form embeds `slug` and `shareToken` as hidden inputs sourced from the route params. The §10.1 picker-cookie meta-test grep-asserts `selectIdentity.ts` does NOT import or call `resolve_show_by_slug_and_token` AND does NOT call `.from('shows').select('picker_epoch')` post-RPC — both patterns are forbidden because they would observe state outside the locked window.
 
 ---
 
@@ -302,37 +302,52 @@ Server Action: selectIdentity({ slug, shareToken, crewMemberId })
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ lib/auth/picker/selectIdentity.ts (new)                     │
+│ lib/auth/picker/selectIdentity.ts (new — R41-R33 locked-RPC) │
 │                                                              │
-│  0. (R37 — must run BEFORE any other validation):            │
-│     showId ← resolve_show_by_slug_and_token(slug, shareToken)│
-│     If NULL → reject PICKER_INVALID_SHARE_TOKEN.             │
-│     NO cookie is emitted. NO further steps run.              │
+│  0. Syntactic validation ONLY (no DB calls): slug matches    │
+│     ^[a-z0-9-]+$; shareToken matches ^[0-9a-f]{64}$;         │
+│     crewMemberId is a UUID. Malformed → reject with          │
+│     PICKER_INVALID_INPUT.                                    │
 │                                                              │
-│  1. Validate crewMemberId ∈ current roster for showId        │
-│     (SELECT id FROM crew_members WHERE id = $1 AND show_id   │
-│      = $2; if 0 rows → reject with                           │
-│      PICKER_CREW_MEMBER_NOT_FOUND / WRONG_SHOW).             │
+│  1. Single locked RPC call (the ONE DB round-trip — R41-R33):│
+│     result = select_identity_atomic(                         │
+│       p_slug = slug,                                         │
+│       p_share_token = shareToken,                            │
+│       p_crew_member_id = crewMemberId                        │
+│     )                                                        │
+│     The RPC body (per §6.2 + §6.0): acquires the per-show    │
+│     advisory lock via the slug→drive_file_id two-step        │
+│     lookup; re-validates the share-token INSIDE the lock;    │
+│     checks crewMemberId in roster + show_id match +          │
+│     claimed_via_oauth_at IS NULL + same-show-email-count = 1 │
+│     + shows.published + NOT shows.archived; reads            │
+│     shows.picker_epoch; captures observed_at_millis via      │
+│     clock_timestamp() AFTER the lock; returns { ok: true,    │
+│     show_id, crew_member_id, picker_epoch,                   │
+│     observed_at_millis }. On any rejection: returns the      │
+│     cataloged error code (PICKER_INVALID_SHARE_TOKEN /       │
+│     PICKER_CREW_MEMBER_NOT_FOUND / WRONG_SHOW /              │
+│     IDENTITY_CLAIMED / IDENTITY_AMBIGUOUS / SHOW_UNAVAILABLE)│
+│     and NO cookie is emitted. NO pre-RPC JS-side call to     │
+│     resolve_show_by_slug_and_token (that would re-open the   │
+│     R41-R33 rotation race). NO post-RPC SELECT picker_epoch  │
+│     (that would observe stale-or-newer state outside the     │
+│     lock; the RPC return value is authoritative).            │
 │                                                              │
-│  2. Read shows.picker_epoch, shows.published, shows.archived │
-│     for showId. If !published OR archived → reject           │
-│     PICKER_SHOW_UNAVAILABLE.                                 │
-│                                                              │
-│  3. Read existing HMAC-signed cookie envelope (verify        │
+│  2. Read existing HMAC-signed cookie envelope (verify        │
 │     signature; null → start with empty envelope). Merge new  │
-│     entry { showId: { id: crewMemberId,                      │
+│     entry { result.show_id: { id: result.crew_member_id,     │
 │     e: result.picker_epoch,                                  │
 │     t: result.observed_at_millis } } using the RPC's         │
-│     DB-side observed_at_millis (per §6.0 — NOT JS Date.now() │
-│     or app-server seconds). Apply byte-budget LRU eviction   │
-│     if encoded > 3800 bytes.                                 │
+│     DB-side values verbatim (per §6.0 — NOT JS Date.now()).  │
+│     Apply byte-budget LRU eviction if encoded > 3800 bytes.  │
 │                                                              │
-│  4. Re-sign the envelope (HMAC-SHA256, PICKER_COOKIE_        │
-│     SIGNING_KEY) and emit Set-Cookie with __Host-fxav_picker,│
-│     90-day Max-Age, Path=/, HttpOnly, Secure, SameSite=Lax.  │
+│  3. Re-sign the envelope and emit Set-Cookie with            │
+│     __Host-fxav_picker, 90-day Max-Age, Path=/, HttpOnly,    │
+│     Secure, SameSite=Lax.                                    │
 │                                                              │
-│  5. revalidatePath(`/show/${slug}/${shareToken}`)            │
-│  6. Server Component re-renders into _ShowBody               │
+│  4. revalidatePath(`/show/${slug}/${shareToken}`)            │
+│  5. Server Component re-renders into _ShowBody               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
