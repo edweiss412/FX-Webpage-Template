@@ -1118,7 +1118,23 @@ export const MAX_COOKIE_VALUE_BYTES = 3800;
 export const COOKIE_NAME = '__Host-fxav_picker';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_SAFE_T = 2_000_000_000; // year 2033 — covers any reasonable unix-seconds
+// R41 P-R15 Fix-1 (CRITICAL): cookie.t is Unix MILLISECONDS per §6.0
+// Timestamp Defense Contract (R41-R18/R22/R23/R30). Current ms timestamps are
+// ~1.7e12; the pre-R41 cap of 2_000_000_000 (unix-seconds) would reject every
+// legitimate millisecond timestamp the bootstrap/select_identity_atomic mints,
+// making the cookie undecodable and forcing the user back through the picker
+// indefinitely. Cap at MAX_SAFE_INTEGER — every millisecond timestamp Number
+// can represent decodes successfully; the precision boundary (year ~287396)
+// is far beyond any realistic deployment lifetime. The lower-bound check
+// (`< 0`) is unchanged; the upper bound is now `> Number.MAX_SAFE_INTEGER`.
+//
+// **R41-R30 / R41 P-R15 Fix-1 contract**: the helper validates that `t` is
+// a finite non-negative safe-integer millisecond value. Bigint-precision
+// claim_epoch_millis values from the DB are read via the supabase client as
+// JS numbers (PostgreSQL bigint → JS number is safe up to 2^53-1 — far
+// beyond year 2033); the cookie.t field is the same JS-number millisecond
+// shape so equality / `>` / `<=` comparisons are exact.
+const MAX_SAFE_T_MILLIS = Number.MAX_SAFE_INTEGER;
 
 export type PickerEntry = { id: string; e: number; t: number };
 export type PickerEnvelope = { v: 1; selections: Record<string, PickerEntry> };
@@ -1141,7 +1157,7 @@ function isValidEntry(e: unknown): e is PickerEntry {
   const obj = e as Record<string, unknown>;
   if (typeof obj.id !== 'string' || !UUID_RE.test(obj.id)) return false;
   if (!Number.isInteger(obj.e) || (obj.e as number) < 0) return false;
-  if (!Number.isInteger(obj.t) || (obj.t as number) < 0 || (obj.t as number) > MAX_SAFE_T) return false;
+  if (!Number.isInteger(obj.t) || (obj.t as number) < 0 || (obj.t as number) > MAX_SAFE_T_MILLIS) return false;
   return true;
 }
 
@@ -1228,10 +1244,78 @@ function signTestEnvelope(payload: string, key: string): string {
 }
 ```
 
+**R41 P-R15 Fix-1 (CRITICAL) regression tests** — pin the millisecond-cap fix:
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { encodePickerCookie, decodePickerCookie } from '@/lib/auth/picker/cookieEnvelope';
+
+describe('decodePickerCookie millisecond-timestamp acceptance (P-R15 Fix-1)', () => {
+  // The pre-R41 cap of 2_000_000_000 (unix-seconds, year 2033) would reject
+  // every legitimate Unix-ms cookie.t. Without this fix, every freshly-minted
+  // picker cookie from select_identity_atomic or picker-bootstrap decodes as
+  // null and users loop back through the picker. The test pins the contract.
+  const key = 'a'.repeat(64);
+
+  it('decodes a realistic 2026-era Unix-ms timestamp (1737028800123)', () => {
+    const env = { v: 1 as const, selections: { 'show-uuid-1111-2222-3333-444444444444':
+      { id: '11111111-2222-3333-4444-555555555555', e: 1, t: 1737028800123 } } };
+    const encoded = encodePickerCookie(env, key);
+    const decoded = decodePickerCookie(encoded, key);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.selections['show-uuid-1111-2222-3333-444444444444']?.t).toBe(1737028800123);
+  });
+
+  it('decodes Number.MAX_SAFE_INTEGER as the upper bound', () => {
+    const env = { v: 1 as const, selections: { 'show-uuid-1111-2222-3333-444444444444':
+      { id: '11111111-2222-3333-4444-555555555555', e: 1, t: Number.MAX_SAFE_INTEGER } } };
+    const encoded = encodePickerCookie(env, key);
+    const decoded = decodePickerCookie(encoded, key);
+    expect(decoded).not.toBeNull();
+  });
+
+  it('REJECTS t > MAX_SAFE_INTEGER (overflow guard)', () => {
+    // Hand-craft an envelope with t = MAX_SAFE_INTEGER + 1 to ensure the
+    // cap still catches overflow attempts. JSON.parse round-trips this as
+    // a number; the integer-ness check + cap should reject.
+    const payload = JSON.stringify({ v: 1, selections: {
+      'show-uuid-1111-2222-3333-444444444444': {
+        id: '11111111-2222-3333-4444-555555555555', e: 1,
+        t: Number.MAX_SAFE_INTEGER + 1,
+      }
+    }});
+    const encoded = signTestEnvelope(payload, key);
+    expect(decodePickerCookie(encoded, key)).toBeNull();
+  });
+
+  it('REJECTS negative t', () => {
+    const payload = JSON.stringify({ v: 1, selections: {
+      'show-uuid-1111-2222-3333-444444444444': {
+        id: '11111111-2222-3333-4444-555555555555', e: 1, t: -1,
+      }
+    }});
+    const encoded = signTestEnvelope(payload, key);
+    expect(decodePickerCookie(encoded, key)).toBeNull();
+  });
+
+  it('REJECTS fractional t (non-integer)', () => {
+    const payload = JSON.stringify({ v: 1, selections: {
+      'show-uuid-1111-2222-3333-444444444444': {
+        id: '11111111-2222-3333-4444-555555555555', e: 1, t: 1737028800123.5,
+      }
+    }});
+    const encoded = signTestEnvelope(payload, key);
+    expect(decodePickerCookie(encoded, key)).toBeNull();
+  });
+});
+```
+
+The exact-value assertion (`t === 1737028800123`) is the CRITICAL contract — pre-fix, the same envelope decoded as null. If a future refactor reintroduces a unix-seconds cap, this test fails immediately.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/auth/picker/cookieEnvelope.test.ts`
-Expected: PASS (all eight tests).
+Expected: PASS (all eight original tests + the five P-R15 Fix-1 millisecond regression tests).
 
 - [ ] **Step 5: Commit**
 
