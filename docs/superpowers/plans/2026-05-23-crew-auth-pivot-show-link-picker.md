@@ -709,7 +709,7 @@ git commit -m "feat(db): rewrite viewer_version_token (picker_epoch term; A6)"
 - Create: `lib/email/hashForLog.ts`
 - Test: `tests/email/hashForLog.test.ts`
 
-**Purpose (P-R10 Fix-3):** every R41 admin_alerts producer (OAUTH_IDENTITY_CLAIMED, PICKER_BOOTSTRAP_RPC_FAILED) and every R41 structured-log line referencing a user email MUST store/log a deterministic HASH of the canonical email, NOT the raw email. The repo's email-canonicalization audit (`lib/audit/emailCanonicalization.ts`) + AGENTS.md PII discipline + the spec §8.4 catalog contract all require this. The `hashForLog` helper is the single source of truth; spec/plan references to `hashForLog(canonicalEmail)` resolve to this import.
+**Purpose (P-R10 Fix-3; P-R26 scope-correction):** the THREE email-bearing R41 admin_alerts producers (`OAUTH_IDENTITY_CLAIMED.user_email_hash`, `PICKER_BOOTSTRAP_RPC_FAILED.attempted_email_hash`, `PICKER_EPOCH_RESET.admin_email_hash`) AND every R41 structured-log line referencing a user email MUST store/log a deterministic HASH of the canonical email, NOT the raw email. The other THREE R41 producers (PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED, CALLBACK_CLAIM_THREW, PICKER_SELECTION_RACE) are structurally email-less per the P-R26 email-posture matrix (§8.4); H7 grep-asserts each email field's ABSENCE there. The repo's email-canonicalization audit (`lib/audit/emailCanonicalization.ts`) + AGENTS.md PII discipline + the spec §8.4 catalog contract all require this. The `hashForLog` helper is the single source of truth; spec/plan references to `hashForLog(canonicalEmail)` resolve to this import.
 
 **Contract:**
 
@@ -2288,12 +2288,12 @@ const intentTokenPayload = { slug, shareToken, exp: Math.floor(Date.now() / 1000
 const intentToken = signIntentToken(intentTokenPayload, pickerCookieSigningKey());
 ```
 
-Step 4 branch logic per spec §4.1 (R41-R11/R41-R12/R41-R33):
+Step 4 branch logic per spec §4.1 (R41-R11/R41-R12/R41-R33/P-R27):
 - 4(a): no Google session → fall to step 5.
 - 4(b): id-match + row claimed + `cookie.t > floor(extract(epoch from claim_at) * 1000)::bigint` → cookie path (resolved).
 - 4(b'): id-mismatch OR row not yet claimed OR `cookie.t <= claim_epoch_millis` OR no cookie entry → `needs_picker_bootstrap`.
 - (no 4(d) — R41-R35 removed ambiguous_email arm.)
-- 4(e): email matches NO crew row for this show → fall to step 5.
+- **4(e) — R41 P-R27 Fix-1 CRITICAL (shared-device identity leak)**: Google session exists AND email matches NO `crew_members` row on this show → return `{ kind: 'no_auth', showId }` (the page route renders `<SignInOrSkipGate>` showing "signed in as someone else / sign out to continue"). **DO NOT fall through to step 5 (existing picker cookie)**. Pre-P-R27 phrasing said "fall to step 5", which on a shared device opens an identity leak: Alice signs in to her Google account on shared phone → picks herself on Show X (cookie stamped) → signs out of Google → Bob signs in via Google on same phone → Bob visits Show X. Bob has no crew row on Show X. Pre-P-R27: step 4(e) falls through to step 5, which reads Alice's still-valid picker cookie entry, and Bob's session "resolves as Alice" — full identity leak. Post-P-R27: step 4(e) is TERMINAL — returns `no_auth`; the SignInOrSkipGate detects the mismatch between the active Google session and the would-be picker entry and shows an explicit "Sign out to continue as guest, or sign in with the account for this show" UI. The stale picker cookie is NOT cleared automatically (clearing requires a Server Action mutation; the page route's helper cannot mutate cookies per spec §4.7 component-tree contract) — instead, the SignInOrSkipGate's "Continue as guest" button POSTs to a Server Action that clears the stale entry for this show before rendering the picker.
 
 Exhaustiveness test exercises each of the 11 arms with fixture inputs.
 
