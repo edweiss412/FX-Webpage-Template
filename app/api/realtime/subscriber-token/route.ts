@@ -10,18 +10,17 @@
  * action.
  *   - denied    → 401 SHOW_REALTIME_BROADCAST_AUTH_FAILED
  *   - forbidden → 403 SHOW_REALTIME_CROSS_SHOW_FORBIDDEN
- *   - admin/crew_link/crew_google → mint + 200.
+ *   - admin → mint + 200.
  *
  * JWT claim shape (EXACT, per plan 03-04-tiles.md:725-830):
  *   { show_id, sub, exp, iss, role: 'authenticated', viewer_kind }
  *
- * - sub = crew_member_id for crew_link/crew_google; '<admin>' for admin.
- *   The Realtime authorization layer reads `sub` for audit; the literal
- *   '<admin>' marker keeps admin sessions distinct from real crew rows.
+ * - sub = '<admin>' for admin. Picker-auth D-series routes replace the old
+ *   crew-session mint path.
  * - exp = now + 5 minutes (stored as seconds since epoch).
  * - iss = process.env.SUPABASE_REALTIME_ISS — the Realtime issuer.
  * - role = 'authenticated' (constant, required by Supabase Realtime).
- * - viewer_kind = 'admin' | 'crew_link' | 'crew_google' (informational).
+ * - viewer_kind = 'admin' (informational).
  *
  * Signed with HS256 against process.env.SUPABASE_JWT_SECRET. Both env vars
  * are required; missing either → 500 (no JWT minted, no leak).
@@ -99,35 +98,8 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const showId = viewer.show_id;
 
-  // Exhaustive switch over the success arms. Adding a 6th `ShowViewer` arm
-  // would fail to assign the new variant to `_exhaustive: never` and break
-  // the typecheck — preventing a silent regression where the new arm
-  // either falls through to the 500 branch or, worse, gets handled by an
-  // unrelated success arm via structural coincidence. Per Task 4.16
-  // Checkpoint A code-quality review (Important 2).
-  let sub: string;
-  let viewerKind: "admin" | "crew_link" | "crew_google";
-  switch (viewer.kind) {
-    case "admin":
-      sub = "<admin>";
-      viewerKind = "admin";
-      break;
-    case "crew_link":
-      sub = viewer.crew_member_id;
-      viewerKind = "crew_link";
-      break;
-    case "crew_google":
-      sub = viewer.crew_member_id;
-      viewerKind = "crew_google";
-      break;
-    default: {
-      const _exhaustive: never = viewer;
-      void _exhaustive;
-      return new Response("Unreachable subscriber-token viewer kind", {
-        status: 500,
-      });
-    }
-  }
+  const sub = "<admin>";
+  const viewerKind = "admin";
 
   const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
 

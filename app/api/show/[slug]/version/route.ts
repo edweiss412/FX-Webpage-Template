@@ -18,7 +18,7 @@
  * Auth: resolveShowViewer is the FIRST action.
  *   - denied    → 401 SHOW_VERSION_AUTH_FAILED
  *   - forbidden → 403 SHOW_VERSION_CROSS_SHOW_FORBIDDEN
- *   - admin/crew_link/crew_google → 200 + { version_token }
+ *   - admin → 200 + { version_token }
  *
  * The codes are version-route-specific (NOT shared with the realtime
  * subscriber-token route) per plan §826. Distinct codes let admin-info logs
@@ -59,28 +59,7 @@ export async function GET(
     return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
   }
 
-  // viewer is now admin | crew_link | crew_google — all carry show_id.
-  // Exhaustive switch fence: adding a 6th `ShowViewer` arm would fail to
-  // assign the new variant to `_exhaustive: never` and break the typecheck,
-  // preventing a silent regression where the new arm either falls through
-  // to the 500 branch or gets read as one of the existing arms via
-  // structural coincidence. Per Task 4.16 Checkpoint A code-quality review
-  // (Important 2).
-  let showId: string;
-  switch (viewer.kind) {
-    case "admin":
-    case "crew_link":
-    case "crew_google":
-      showId = viewer.show_id;
-      break;
-    default: {
-      const _exhaustive: never = viewer;
-      void _exhaustive;
-      return new Response("Unreachable show-version viewer kind", {
-        status: 500,
-      });
-    }
-  }
+  const showId = viewer.show_id;
 
   const svc = createSupabaseServiceRoleClient();
   const { data, error } = await svc.rpc("viewer_version_token", {

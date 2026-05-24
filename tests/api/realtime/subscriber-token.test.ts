@@ -4,7 +4,7 @@
  * Asserts /api/realtime/subscriber-token (POST):
  *   - 401 SHOW_REALTIME_BROADCAST_AUTH_FAILED on resolveShowViewer 'denied'
  *   - 403 SHOW_REALTIME_CROSS_SHOW_FORBIDDEN on 'forbidden'
- *   - 200 + { jwt, exp } on 'admin' | 'crew_link' | 'crew_google', and the
+ *   - 200 + { jwt, exp } on 'admin', and the
  *     JWT carries the exact claim shape required by the spec:
  *       { show_id, sub, exp, iss, role: 'authenticated', viewer_kind }
  *
@@ -17,11 +17,7 @@ import { describe, expect, test, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import type { ShowViewerFixture } from "@/tests/_helpers/showViewerFixtures";
-import {
-  mockAdminViewer,
-  mockCrewGoogleViewer,
-  mockCrewLinkViewer,
-} from "@/tests/_helpers/showViewerFixtures";
+import { mockAdminViewer } from "@/tests/_helpers/showViewerFixtures";
 
 const TEST_JWT_SECRET = "test-secret-32-bytes-long-pad-pad-pad-pad-pad";
 const TEST_REALTIME_ISS = "supabase-realtime-test";
@@ -112,27 +108,6 @@ describe("POST /api/realtime/subscriber-token", () => {
     expect(payload.exp).toBeGreaterThanOrEqual(now + 4 * 60);
     expect(payload.exp).toBeLessThanOrEqual(now + 6 * 60);
     expect(body.exp).toBe(payload.exp);
-  });
-
-  test("crew_link → 200, viewer_kind=crew_link, sub=crew_member_id", async () => {
-    resolveMock.state.result = mockCrewLinkViewer("show-uuid-1", "crew-99");
-    const res = await POST(makeReq({ slug: "test-show" }));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { jwt: string };
-    const { payload } = await jwtVerify(body.jwt, new TextEncoder().encode(TEST_JWT_SECRET));
-    expect(payload.viewer_kind).toBe("crew_link");
-    expect(payload.sub).toBe("crew-99");
-    expect(payload.show_id).toBe("show-uuid-1");
-  });
-
-  test("crew_google → 200, viewer_kind=crew_google, sub=crew_member_id", async () => {
-    resolveMock.state.result = mockCrewGoogleViewer("show-uuid-1", "crew-77");
-    const res = await POST(makeReq({ slug: "test-show" }));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { jwt: string };
-    const { payload } = await jwtVerify(body.jwt, new TextEncoder().encode(TEST_JWT_SECRET));
-    expect(payload.viewer_kind).toBe("crew_google");
-    expect(payload.sub).toBe("crew-77");
   });
 
   test("missing slug in body → 400", async () => {

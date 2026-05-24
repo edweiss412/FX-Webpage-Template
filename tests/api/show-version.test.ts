@@ -4,7 +4,7 @@
  * Asserts /api/show/[slug]/version returns:
  *   - 401 when resolveShowViewer → kind: 'denied' (no/invalid creds, unknown slug)
  *   - 403 when resolveShowViewer → kind: 'forbidden' (cross-show)
- *   - 200 + { version_token } for admin / crew_link / crew_google success arms.
+ *   - 200 + { version_token } for admin success.
  *
  * resolveShowViewer is mocked so this test exercises ONLY the route's
  * status-code mapping and version_token plumbing — the 5-arm union behavior
@@ -13,11 +13,7 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
 import type { ShowViewerFixture } from "@/tests/_helpers/showViewerFixtures";
-import {
-  mockAdminViewer,
-  mockCrewGoogleViewer,
-  mockCrewLinkViewer,
-} from "@/tests/_helpers/showViewerFixtures";
+import { mockAdminViewer } from "@/tests/_helpers/showViewerFixtures";
 
 const resolveMock = vi.hoisted(() => {
   return {
@@ -134,18 +130,6 @@ describe("GET /api/show/[slug]/version", () => {
     expect(supaMock.state.rpcCalls).toHaveLength(1);
     expect(supaMock.state.rpcCalls[0]?.name).toBe("viewer_version_token");
     expect(supaMock.state.rpcCalls[0]?.args).toEqual({ p_show_id: "show-uuid-1" });
-  });
-
-  test("crew_link → 200 + version_token", async () => {
-    resolveMock.state.result = mockCrewLinkViewer("show-uuid-1", "crew-1");
-    const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
-    expect(res.status).toBe(200);
-  });
-
-  test("crew_google → 200 + version_token", async () => {
-    resolveMock.state.result = mockCrewGoogleViewer("show-uuid-1", "crew-1");
-    const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
-    expect(res.status).toBe(200);
   });
 
   test("RPC error after auth pass → 500 (does NOT leak as 200)", async () => {
