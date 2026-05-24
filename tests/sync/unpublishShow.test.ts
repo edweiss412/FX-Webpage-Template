@@ -17,8 +17,6 @@ class FakeUnpublishTx implements UnpublishShowTx {
   operations: string[] = [];
   alerts: Array<{ showId: string | null; code: string; context: Record<string, unknown> }> = [];
   broadcasts: string[] = [];
-  auth = new Map<string, { current: number; max: number; revokedBelow: number }>();
-  sessions: Array<{ showId: string; createdAt: string; deleted: boolean }> = [];
 
   constructor(readonly show: ShowRow | null, readonly held = true) {}
 
@@ -52,22 +50,6 @@ class FakeUnpublishTx implements UnpublishShowTx {
     return true;
   }
 
-  async revokeIssuedLinksForShow(showId: string, issuedSince: string): Promise<void> {
-    this.operations.push(`revokeLinks:${showId}:${issuedSince}`);
-    for (const [crewName, row] of this.auth) {
-      void crewName;
-      const nextVersion = row.current + 1;
-      row.revokedBelow = Math.max(row.revokedBelow, row.current);
-      row.current = nextVersion;
-      row.max = Math.max(row.max, nextVersion);
-    }
-    for (const session of this.sessions) {
-      if (session.showId === showId && session.createdAt >= issuedSince) {
-        session.deleted = true;
-      }
-    }
-  }
-
   async upsertAdminAlert(input: {
     showId: string | null;
     code: string;
@@ -99,14 +81,8 @@ function show(overrides: Partial<ShowRow> = {}): ShowRow {
 }
 
 describe("unpublishShow_unlocked", () => {
-  test("valid token archives, consumes token, revokes links, alerts, and broadcasts under caller lock", async () => {
+  test("valid token archives, consumes token, alerts, and broadcasts under caller lock without legacy link writes", async () => {
     const tx = new FakeUnpublishTx(show()) as LockedShowTx<FakeUnpublishTx>;
-    tx.auth.set("Alice", { current: 3, max: 3, revokedBelow: 0 });
-    tx.auth.set("Bob", { current: 1, max: 2, revokedBelow: 0 });
-    tx.sessions = [
-      { showId: "show-1", createdAt: "2026-05-08T12:30:00.000Z", deleted: false },
-      { showId: "other-show", createdAt: "2026-05-08T12:30:00.000Z", deleted: false },
-    ];
     const { unpublishShow_unlocked } = await import("@/lib/sync/unpublishShow");
 
     await expect(
@@ -119,12 +95,6 @@ describe("unpublishShow_unlocked", () => {
 
     expect(tx.show?.archived).toBe(true);
     expect(tx.show?.unpublishToken).toBeNull();
-    expect(tx.auth.get("Alice")).toEqual({ current: 4, max: 4, revokedBelow: 3 });
-    expect(tx.auth.get("Bob")).toEqual({ current: 2, max: 2, revokedBelow: 1 });
-    expect(tx.sessions).toEqual([
-      { showId: "show-1", createdAt: "2026-05-08T12:30:00.000Z", deleted: true },
-      { showId: "other-show", createdAt: "2026-05-08T12:30:00.000Z", deleted: false },
-    ]);
     expect(tx.alerts).toEqual([
       {
         showId: "show-1",
@@ -139,7 +109,6 @@ describe("unpublishShow_unlocked", () => {
     expect(tx.operations).toEqual([
       "read:client-show",
       "archiveConsume:show-1",
-      "revokeLinks:show-1:2026-05-08T12:00:00.000Z",
       "alert:SHOW_UNPUBLISHED",
       "broadcast:show-1",
     ]);

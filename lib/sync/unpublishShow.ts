@@ -24,7 +24,6 @@ export type UnpublishShowTx = LockableSyncTx & {
   readShowForUnpublish(slug: string): Promise<UnpublishShowRow | null>;
   clearUnpublishToken(showId: string): Promise<void>;
   archiveAndConsumeUnpublishToken(showId: string, token: string): Promise<boolean>;
-  revokeIssuedLinksForShow(showId: string, issuedSince: string): Promise<void>;
   upsertAdminAlert(input: {
     showId: string | null;
     code: "SHOW_UNPUBLISHED";
@@ -138,27 +137,6 @@ class PostgresUnpublishTx implements UnpublishShowTx {
     return Boolean(row);
   }
 
-  async revokeIssuedLinksForShow(showId: string, issuedSince: string): Promise<void> {
-    await this.rows(
-      `
-        update public.crew_member_auth
-           set revoked_below_version = greatest(revoked_below_version, current_token_version),
-               current_token_version = current_token_version + 1,
-               max_issued_version = greatest(max_issued_version, current_token_version + 1)
-         where show_id = $1::uuid
-      `,
-      [showId],
-    );
-    await this.rows(
-      `
-        delete from public.link_sessions
-         where show_id = $1::uuid
-           and created_at >= $2::timestamptz
-      `,
-      [showId, issuedSince],
-    );
-  }
-
   async upsertAdminAlert(input: {
     showId: string | null;
     code: "SHOW_UNPUBLISHED";
@@ -224,7 +202,6 @@ export async function unpublishShow_unlocked(
     };
   }
 
-  await tx.revokeIssuedLinksForShow(show.id, show.createdAt);
   await tx.upsertAdminAlert({
     showId: show.id,
     code: "SHOW_UNPUBLISHED",
