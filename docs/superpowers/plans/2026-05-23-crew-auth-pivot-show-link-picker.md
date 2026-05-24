@@ -3385,30 +3385,49 @@ git commit -am "feat(api): report route auth swap (drop link/google crew arms; D
 
 **The vulnerability (P-R29 Fix-1)**: P-R27 closed the shared-device identity leak on the PAGE route by making step 4(e) terminal `no_auth`. But the API routes (D1/D2/D3/D4) use cookie-only `resolvePickerSelection` and have NO awareness of the active Google session. A direct API request with `__Host-fxav_picker` (carrying Alice's signed entry) AND a Supabase session for Bob still authorizes as Alice — Bob can fetch Alice's subscriber-token, show version, asset URLs, etc. The page-route fix alone is insufficient.
 
-**The fix — cheap in-resolver consistency check using `auth_email_canonical()`**:
+**The fix — P-R30 Fix-1 (CRITICAL repair of P-R29 design flaw): resolver receives TWO clients.** The pre-P-R29 resolvePickerSelection used `createSupabaseServiceRoleClient()` (line 65 of this file) — service-role clients have NO JWT, so `auth.jwt()` returns NULL inside the DB, so `auth_email_canonical()` ALWAYS returns NULL, so the consistency check ALWAYS skips → defeats the entire CRITICAL fix. The P-R30 amendment changes the resolver contract:
 
 ```ts
-// lib/auth/picker/resolvePickerSelection.ts (post-D4.5)
-// After the cookie path successfully resolves to a crew_members row:
-const sessionEmail = await supabase.rpc('auth_email_canonical');  // returns text OR null if no session
-if (sessionEmail?.data) {
-  // A Supabase session IS active. The cookie's crew_members row email MUST
-  // match the session's canonical email — otherwise this is a shared-device
-  // identity-mismatch attack (Bob's session + Alice's cookie).
-  const { data: rowEmail } = await supabase
-    .from('crew_members')
-    .select('email')
-    .eq('id', cookieEntry.id)
-    .single();
-  if (rowEmail?.email !== sessionEmail.data) {
-    return { kind: 'identity_invalidated', reason: 'session_mismatch', ... };
+// lib/auth/picker/resolvePickerSelection.ts (post-D4.5 + P-R30 Fix-1)
+import {
+  createSupabaseServerClient,         // cookie-bound (carries the request's JWT)
+  createSupabaseServiceRoleClient,    // service-role (carries no JWT; needed for the cookie-path DB reads that bypass RLS)
+} from '@/lib/supabase/server';
+
+export async function resolvePickerSelection(input: ResolvePickerInput): Promise<ResolvePickerResult> {
+  // Service-role client for the cookie-path DB reads (existing contract).
+  const serviceRole = createSupabaseServiceRoleClient();
+  // P-R30 Fix-1: ALSO construct the cookie-bound client to read auth.jwt()
+  // for the email-consistency check. createSupabaseServerClient reads the
+  // request's Supabase auth cookie; auth.jwt() inside the DB resolves to
+  // the active session's claims; auth_email_canonical() returns the
+  // canonical email or NULL.
+  const authClient = await createSupabaseServerClient();
+  const { data: sessionEmail } = await authClient.rpc('auth_email_canonical');
+
+  // ... existing cookie-path resolution against serviceRole ...
+
+  if (sessionEmail) {
+    // A Supabase session IS active. The cookie's crew_members row email MUST
+    // match the session's canonical email — otherwise this is a shared-device
+    // identity-mismatch attack (Bob's session + Alice's cookie).
+    const { data: rowEmail } = await serviceRole
+      .from('crew_members')
+      .select('email')
+      .eq('id', cookieEntry.id)
+      .single();
+    if (rowEmail?.email !== sessionEmail) {
+      return { kind: 'identity_invalidated', reason: 'session_mismatch', ... };
+    }
   }
+  // (When sessionEmail is null — anonymous request — the cookie path
+  // proceeds normally; the cookie is the sole credential.)
 }
-// (When sessionEmail.data is null — anonymous request — the cookie path
-// proceeds normally; the cookie is the sole credential.)
 ```
 
-**Why this doesn't violate the §10.1 no-jwt-surface ban on API routes**: the API consumers still don't import `validateGoogleSession`. Only the cookie resolver itself reads `auth_email_canonical()` (a CHEAP `auth.jwt() ->> 'email'` canonicalization with no crew_members table read of its own). The §10.1 guard's existing exemption pattern already permits resolvePickerSelection to perform the email-consistency check internally; D4.5 makes that contract explicit.
+**Why this doesn't violate the §10.1 no-jwt-surface ban on API routes**: the API consumers still don't import `validateGoogleSession`. Only the cookie resolver itself constructs the cookie-bound client to read `auth_email_canonical()` (a CHEAP `auth.jwt() ->> 'email'` canonicalization with no crew_members table read of its own). The §10.1 guard's existing exemption pattern already permits resolvePickerSelection to perform the email-consistency check internally; D4.5 + P-R30 Fix-1 make that contract explicit.
+
+**Test (a) is now an INTEGRATION test (P-R30 Fix-1 addition)**: use a real request-bound test harness (Playwright or supertest with Supabase auth-cookie injection) where Bob's session is set in the cookie store BEFORE the API consumer call. Mock the resolvePickerSelection-internal `createSupabaseServerClient` to verify it's called (not service-role) for the auth.rpc call. Assert `auth_email_canonical()` returns Bob's canonical email (NOT null) inside the resolver and the consistency check fires. Without this integration test, a unit test with a mocked service-role client could pass while the production resolver is still inert.
 
 **Tests**:
 - (a) **R41 P-R29 Fix-1 CRITICAL shared-device API regression**: seed picker cookie with Alice's entry for Show-X (Alice has real crew_members row, cookie is signed correctly). Construct request with Supabase session for Bob (canonical email differs from Alice's). For EACH of the 6 API consumers: assert response is 401 (NOT 200). Assert NO Alice data in response body. Without the fix, all 6 consumers return 200 with Alice's data.

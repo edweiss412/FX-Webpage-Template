@@ -1073,7 +1073,7 @@ Tests asserting cookie.t values MUST:
 
 ### 6.1 Picker entry guards
 
-`resolvePickerSelection` operates in this order. The return type is a discriminated union of **SEVEN discriminant `kind` values, SEVEN wire outcomes** (R41-R35 simplified — `identity_invalidated.reason` is a single value `'claimed_after_pick'` now that the schema constraint makes the email-ambiguous state impossible); per AGENTS.md invariant 9 (Supabase call-boundary discipline), DB faults must be discriminable from auth/identity outcomes:
+`resolvePickerSelection` operates in this order. The return type is a discriminated union of **SEVEN discriminant `kind` values, SEVEN wire outcomes**. The `identity_invalidated` arm carries TWO reasons (P-R29/P-R30 Fix-1 amendment): the original `'claimed_after_pick'` plus the shared-device-defense `'session_mismatch'`. Per AGENTS.md invariant 9 (Supabase call-boundary discipline), DB faults must be discriminable from auth/identity outcomes:
 
 ```ts
 type ResolvePickerSelectionResult =
@@ -1084,12 +1084,21 @@ type ResolvePickerSelectionResult =
   | { kind: 'identity_invalidated';
       expectedEpoch: number;
       expectedCrewMemberId: string;
-      reason: 'claimed_after_pick' }  // R41-R8 added; R41-R35 simplified
-        // — R41-R35 removed 'email_ambiguous' reason (schema prevents the
-        // ambiguous state); identity_invalidated now has a single reason
+      reason: 'claimed_after_pick' | 'session_mismatch' }
+        // R41-R8 added 'claimed_after_pick'; R41-R35 removed 'email_ambiguous'
+        // (schema prevents); P-R29/P-R30 Fix-1 added 'session_mismatch' for
+        // the shared-device API defense — fires when a Supabase session is
+        // active AND its canonical email doesn't match the cookie's
+        // resolved crew_members row's email (Bob's session + Alice's cookie).
   | { kind: 'show_unavailable' }
   | { kind: 'infra_error'; code: 'PICKER_RESOLVER_LOOKUP_FAILED' };
 ```
+
+**P-R30 Fix-1 resolver order (extension of the order step list above)**: AFTER the cookie path successfully resolves to a crew_members row, BEFORE returning `resolved`, the resolver reads `auth_email_canonical()` via the cookie-bound auth client. If non-null AND it does NOT equal the resolved crew_members.email, return `identity_invalidated` with `reason: 'session_mismatch'` (carrying the cookie's epoch + crew_member_id as `expectedEpoch`/`expectedCrewMemberId` for the cleanup path). Anonymous requests (no session, `auth_email_canonical()` returns null) skip this check — the cookie is the sole credential.
+
+**Page-route behavior on `session_mismatch`**: same UI as `claimed_after_pick` (PickerInterstitial with the `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` banner) — the user sees "Your saved identity isn't valid; pick again or sign in" semantically. Both reasons share the same banner copy and the same cleanup flow because the recovery action is identical (re-pick from picker OR sign in / sign out). The §10.2 §6.1 test matrix asserts both reason values render the same banner.
+
+**API-consumer behavior on `session_mismatch`**: all 6 §6 API consumers receiving `identity_invalidated` return HTTP 410 (per the existing 401/410/500 matrix — stale-but-knowable, NOT auth-missing). This is the contract that closes the shared-device API leak: Bob's request with Alice's cookie consumes the cookie path, the resolver detects the email mismatch, returns `identity_invalidated/session_mismatch`, the API route returns 410 — Bob gets no Alice data.
 
 The `expectedEpoch` and `expectedCrewMemberId` fields on the two stale variants carry the EXACT entry values the resolver observed as stale. They are the only legitimate source for the `cleanupStaleEntry` form's hidden inputs — page renderers MUST NOT decode the cookie a second time to derive these values (that would split the observation across two reads with a potential race between them). The resolver provides them once; the page renders them verbatim into the auto-submit form; the action's compare-and-delete uses them to refuse stale-clobbering writes.
 
