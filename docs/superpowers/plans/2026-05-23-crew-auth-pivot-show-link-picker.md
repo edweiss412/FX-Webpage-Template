@@ -36,7 +36,7 @@ This plan was last revised before the R41 wave. The spec is authoritative for an
 
 **Existing tasks updated for R41 amendments:**
 
-- Task B2 `resolvePickerSelection`: discriminated union expanded with `identity_invalidated` arm (single reason `'claimed_after_pick'`); SQL uses `floor()` for epoch cast; resolver invalidates with `cookie.t <= floor(extract(epoch from claimed_via_oauth_at) * 1000)::bigint`.
+- Task B2 `resolvePickerSelection`: discriminated union expanded with `identity_invalidated` arm (two reasons: `'claimed_after_pick'` from R41-R8/R41-R35 + `'session_mismatch'` from P-R29/P-R30 Fix-1 shared-device API defense); SQL uses `floor()` for epoch cast; resolver invalidates with `cookie.t <= floor(extract(epoch from claimed_via_oauth_at) * 1000)::bigint`.
 - Task B3-pre `select_identity_atomic`: signature `(p_slug, p_share_token, p_crew_member_id)`; in-lock share-token re-validation; `observed_at_millis` from `clock_timestamp()` after lock; `floor()` cast.
 - Task B3 `selectIdentity`: cookie.t sourced from `result.observed_at_millis` (NOT `Date.now()`).
 - Task B6 `rotateShareToken`: in-DB `is_admin()` gate verified (existing); direct-PostgREST regression test pinning the 42501 error.
@@ -2632,9 +2632,14 @@ export default async function ShowPage({
     case 'identity_invalidated': {
       // R41-R15: all three stale-credential kinds mount StaleCleanupAutoSubmit
       // with the expectedEpoch + expectedCrewMemberId from the resolver.
-      // R41-R35: identity_invalidated has a single reason 'claimed_after_pick'
-      // (the ambiguous_email reason was removed because the schema constraint
-      // makes the state impossible).
+      // R41-R35 + P-R29/P-R30: identity_invalidated has TWO reasons —
+      // 'claimed_after_pick' (R41-R8 base) and 'session_mismatch' (P-R29
+      // Fix-1 shared-device defense — fires when a Supabase session is
+      // active AND its canonical email doesn't match the cookie's resolved
+      // crew_members.email). The ambiguous_email reason was removed in
+      // R41-R35 because the schema constraint makes that state impossible.
+      // BOTH reasons share the same cleanup flow + banner (the recovery
+      // action is identical: re-pick or sign in/out).
       let roster;
       try {
         roster = await loadRoster(result.showId);
@@ -4328,7 +4333,7 @@ Standing do-not-relitigate list (current R41 contracts as of P-R12; supersedes e
   - `app/me/page.tsx` (Task E2 cookie-bound rewrite) — uses it for OAuth cross-show discovery.
 
   The BAN surface is the SIX §6 data API consumers — `/api/realtime/subscriber-token`, `/api/asset/diagram`, `/api/asset/reel`, `/api/asset/agenda`, `/api/show/[slug]/version`, `/api/report`. Those MUST NOT import `validateGoogleSession`; they reject Google-session-without-picker-cookie with 401. The §10.1 meta-test enforces the ban against those six file paths only — NOT against the allowed surfaces above. (P-R12 phrasing "picker-bootstrap ONLY" was too tight and contradicted the H2 allowlist; P-R21 Fix-2 restores the correct allowlist.)
-- **identity_invalidated resolver arm** is a single arm with single reason `claimed_after_pick` (R41-R35 dead-code purge removed `email_ambiguous`).
+- **identity_invalidated resolver arm** is a single union arm with TWO reasons: `'claimed_after_pick'` (R41-R8/R41-R35 — fires when cookie pre-dates an OAuth claim on the same crew row) AND `'session_mismatch'` (P-R29/P-R30 Fix-1 — fires when Supabase session is active and its canonical email doesn't match the cookie's crew_members.email; closes the shared-device API leak). R41-R35 dead-code purge removed `email_ambiguous`. All 6 §6 API consumers return HTTP 410 on either reason (per spec §6.1 stale-but-knowable contract). Page route renders PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER for both reasons (banner copy semantically covers "your saved identity isn't valid; re-pick or sign in/out").
 - **Schema partial UNIQUE index** `crew_members_show_email_unique ON (show_id, email) WHERE email IS NOT NULL` prevents ambiguous-email; all defenses against that state were removed in R35.
 - **§6.0 Timestamp Defense Contract** — cookie.t comes from `out_observed_at_millis` returned by `select_identity_atomic` (DB-side `clock_timestamp()` inside the advisory lock). `Date.now()`/`new Date()`/`performance.now()` are grep-banned by §10.1 meta-test in `selectIdentity.ts` AND `app/api/auth/picker-bootstrap/route.ts`.
 - **Per-row OAUTH_IDENTITY_CLAIMED emission** (P-R8 Fix-3) — one alert per claimed row with `show_id` scoped to that row. Context = `{ crew_member_id, show_id, claimed_at_millis, user_email_hash }`. The aggregate `{ user_email, claimed_count }` shape is FORBIDDEN; H7 structural test grep-bans `claimed_count` and `user_email` (raw) in OAUTH_IDENTITY_CLAIMED emission sites.
