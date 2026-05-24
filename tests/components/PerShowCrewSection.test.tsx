@@ -29,7 +29,6 @@ function makeRow(overrides: Partial<CrewRowForLinkPanel> = {}): CrewRowForLinkPa
     id: overrides.id ?? "row-id",
     name: overrides.name ?? "Alice Adams",
     role: overrides.role ?? "Audio A1",
-    show_id: overrides.show_id ?? "11111111-1111-1111-1111-111111111111",
     current_token_version: overrides.current_token_version ?? 0,
     max_issued_version: overrides.max_issued_version ?? 0,
     revoked_below_version: overrides.revoked_below_version ?? 0,
