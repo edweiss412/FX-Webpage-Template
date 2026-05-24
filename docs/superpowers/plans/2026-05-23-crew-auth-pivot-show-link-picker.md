@@ -2315,13 +2315,20 @@ git commit -m "feat(auth): resolveShowPageAccess page-route helper (B7; R41 §4.
 // lib/auth/picker/resetPickerEpoch.ts
 'use server';
 
-import { requireAdmin } from '@/lib/auth/requireAdmin';
+// R41 P-R19 Fix-2 (Finding 2): requireAdmin() returns Promise<void> per
+// lib/auth/requireAdmin.ts:125 — it does NOT expose the admin's email.
+// For the PICKER_EPOCH_RESET admin_alert audit context, use
+// requireAdminIdentity() which returns AdminIdentity = { email: string }
+// (lib/auth/requireAdmin.ts:51,53). Both helpers gate on the same
+// is_admin() RPC; the identity variant additionally returns the
+// canonical email for downstream auditing.
+import { requireAdminIdentity } from '@/lib/auth/requireAdmin';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { upsertAdminAlert } from '@/lib/adminAlerts/upsertAdminAlert';
 import { hashForLog } from '@/lib/email/hashForLog';
 
 export async function resetPickerEpoch(input: { showId: string }) {
-  const adminCtx = await requireAdmin();  // returns the admin's identity for audit
+  const adminCtx = await requireAdminIdentity();  // { email: string } — typed identity
   const supabase = await createSupabaseServerClient(); // cookie-bound!
   // R4-F2: try/catch wraps the .rpc call so thrown faults map to a
   // typed result instead of bubbling up as an uncataloged framework
