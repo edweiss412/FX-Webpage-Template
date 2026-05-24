@@ -172,8 +172,14 @@ Crew taps `/show/<slug>/<share-token>` in group thread
 │              claimed_via_oauth_at IS NULL (callback's claim  │
 │              RPC failed; need to retry — R41-R12), OR        │
 │         (iii) cookie's `id` matches AND row is claimed BUT   │
-│               cookie.t < claim_epoch (same-user pre-claim    │
-│               upgrade — R41-R11), OR                         │
+│               NOT (cookie.t > claim_epoch_millis) — i.e.     │
+│               cookie.t <= claim_epoch_millis, covering both  │
+│               strictly-less (R41-R11 same-user pre-claim)    │
+│               AND equality at the millisecond boundary       │
+│               (R41-R25 tie-routing fix — ties must route to  │
+│               bootstrap, not fall through to step 9          │
+│               invalidation which would strand the legitimate │
+│               user on the CLAIMED_AFTER_PICK banner), OR     │
 │         (iv) NO cookie entry for this show exists at all     │
 │              (the original needs_picker_bootstrap case)      │
 │         → return needs_picker_bootstrap. Picker-bootstrap    │
@@ -938,7 +944,64 @@ Both categories already follow the AGENTS.md call-boundary discipline (typed inf
 - **Compromise response:** the Rotate share-token admin button (per §5.1 R39 amendment) is the recovery path. Doug bumps the token; the old URL stops resolving; Doug re-shares the new URL with the group thread. The Reset picker selections button is the paired recovery for "this device-set was compromised but the URL itself is fine."
 - **Threat model boundary**: anyone with Vercel log access is already an FXAV operator (Doug + Eric); browser-history exposure is limited to the device's owner (already trusted). The remaining leak vector is screenshares of the URL bar to non-crew viewers — Doug accepts this risk per the owner determination.
 
-**`/show/<slug>/<share-token>` is the canonical bookmark target.** Bookmarking after picker resolution preserves the cookie; bookmarking before resolution still bookmarks the same URL — opening the bookmark re-runs the resolver and shows the picker if needed. The slug-only URL `/show/<slug>` does NOT route to any crew surface in production code (the Next route file is at `app/show/[slug]/[shareToken]/page.tsx`; the file-system layout enforces that slug-only requests hit Next's 404).
+**`/show/<slug>/<share-token>` is the canonical bookmark target.** Bookmarking after picker resolution preserves the cookie; bookmarking before resolution still bookmarks the same URL — opening the bookmark re-runs the resolver and shows the picker if needed. The slug-only URL `/show/<slug>` does NOT route to any crew surface in production code.
+
+### 6.0 Timestamp Defense Contract (R41-R25 consolidated normative section)
+
+This section is the single source of truth for every timestamp comparator, source, precision rule, and edge-case behavior in the cookie-vs-claim defense. Any prose elsewhere in the spec that contradicts this section is incorrect and must be corrected to match.
+
+#### 6.0.1 Wire format
+
+- `cookie.t` is unix MILLISECONDS, stored as `bigint`. NEVER seconds.
+- `claimed_via_oauth_at` is PostgreSQL `TIMESTAMPTZ`. Compared via `(extract(epoch from claimed_via_oauth_at) * 1000)::bigint` to obtain millis on the read path.
+
+#### 6.0.2 Clock sources (DB-side only)
+
+Every `cookie.t` value MUST originate from a DB-side `clock_timestamp()` call captured AFTER `pg_advisory_xact_lock` has returned. Forbidden sources: `now()` / `transaction_timestamp()` (returns transaction BEGIN time, predates lock acquisition under contention — R41-R23 bug class). Forbidden sources from app-server: `Date.now()`, `new Date()`, `performance.now()`, `process.hrtime()` (clock skew between app-server and DB-server; same-millisecond race; R41-R24 bug class).
+
+| Surface | Source for cookie.t | DB function returning the value |
+|---|---|---|
+| `selectIdentity` Server Action | `observed_at_millis` | `select_identity_atomic` returns `floor(extract(epoch from clock_timestamp()) * 1000)::bigint` after acquiring per-show lock, after IS-NULL check passes |
+| `/api/auth/picker-bootstrap` Route Handler | `result.mint_safe_t_millis` | `claim_oauth_identity` returns `greatest(clock_timestamp_millis, max(claimed_via_oauth_at_millis)) + 1` after acquiring all the user's show locks |
+| `cleanupStaleEntry` Server Action | N/A (removes entry; no `t` set) | — |
+| `clearIdentity` Server Action | N/A (removes entry) | — |
+
+`/auth/callback` route handler MUST NOT set cookie.t (it never writes the picker cookie). The four mutator surfaces above are the only writers.
+
+#### 6.0.3 Comparator decisions
+
+| Comparison | Operator | Outcome |
+|---|---|---|
+| Step 4(b) cookie-path acceptance | `cookie.t > claim_epoch_millis` (STRICT) | Resolved → render show body via cookie path |
+| Step 4(b')(iii) bootstrap-routing | `cookie.t <= claim_epoch_millis` (INCLUSIVE — R41-R25 fix) | Route to picker-bootstrap to mint fresh cookie |
+| §6.1 resolver step 9 invalidation | `cookie.t <= claim_epoch_millis` (INCLUSIVE) | `identity_invalidated, claimed_after_pick` |
+| `claim_oauth_identity.mint_safe_t_millis` formula | `greatest(...) + 1` (STRICT-GREATER guarantee) | Bootstrap-minted cookie always satisfies step-4(b) acceptance |
+
+**Tie behavior (cookie.t == claim_epoch_millis):**
+- Step 4(b) REJECTS (`>` is strict). Cookie does NOT take the cookie path.
+- Step 4(b')(iii) ACCEPTS the tie via `<=` and routes to bootstrap.
+- Step 9 (cookie path) ALSO invalidates ties via `<=`.
+- This guarantees ties are NEVER incorrectly resolved AND legitimate users at tie boundaries self-heal via bootstrap (which mints a fresh cookie with t = claim_epoch_millis + 1, breaking the tie on the next visit).
+
+**Why the asymmetry between step 4(b) STRICT and step 4(b')(iii) INCLUSIVE:** the cookie path must fail closed on ties (bypass impersonation prevention); the bootstrap-routing must catch ties (legitimate self-heal). The `> X` for acceptance + `<= X` for routing is the only consistent pair of operators that satisfies both constraints with no gap and no overlap.
+
+#### 6.0.4 Why ties happen and how they self-heal
+
+- **Bypass-then-claim within the same millisecond** (Mallory picks Alice's row; Alice signs in within the same DB millisecond): `observed_at_millis (T) == claim_epoch_millis (T)` is possible at millisecond resolution under burst load. Step 9 invalidates via `<=`. Mallory's cookie rejected.
+- **Same-user upgrade within the same millisecond** (Bob picks himself; Bob's own OAuth callback fires within the same millisecond): cookie.t (Bob's pick) `==` claim_epoch_millis (Bob's claim). Step 4(b) rejects (`>` strict). Step 4(b')(iii) routes to bootstrap via `<=`. Bootstrap mints fresh cookie at `mint_safe_t_millis = claim_epoch_millis + 1`. Bob's next visit: cookie.t = claim_epoch_millis + 1 > claim_epoch_millis → step 4(b) accepts. Self-heal.
+
+#### 6.0.5 Test contract
+
+Tests asserting cookie.t values MUST:
+- Use fixture millisecond values (e.g., `1737028800123`), NOT second values.
+- For bootstrap test cases, stub `claim_oauth_identity` to return a known `mint_safe_t_millis` and assert the response cookie's `t` field EQUALS that fixture value exactly (NOT approximately, NOT `<= Date.now()`).
+- For selectIdentity test cases, stub `select_identity_atomic` to return a known `observed_at_millis` and assert the response cookie's `t` field equals that value exactly.
+- Include at least one "same-millisecond tie" regression test exercising both bypass-then-claim and same-user-upgrade tie scenarios; assert step 9 invalidates the former and step 4(b')(iii) routes the latter to bootstrap.
+
+#### 6.0.6 Static guards
+
+- §10.1 `_metaPickerCookieContract.test.ts` grep-asserts the bootstrap route handler does NOT import `Date.now`, `new Date`, `performance.now`, or `process.hrtime` AS a source for `t`. The only legal source is `result.mint_safe_t_millis` from `claim_oauth_identity`.
+- §10.1 grep-asserts no SQL file under `supabase/migrations/**` uses `now()` or `transaction_timestamp()` as the source for `claimed_via_oauth_at` UPDATE OR `observed_at_millis` RETURN — only `clock_timestamp()` is permitted on these specific surfaces.
 
 ### 6.1 Picker entry guards
 
@@ -1351,7 +1414,7 @@ The plan's TDD checklist includes:
   - **Negative test**: Google session whose email does NOT match any crew row for this show renders the SignInOrSkipGate (NOT the picker — the user is signed in but not associated with this show). The redirect-bootstrap is NOT triggered (step 4 falls through to step 5 then step 9).
 - **API routes reject Google session without picker cookie (R41-R1 Fix-3 regression)** — for EACH API consumer in §6 (`/api/realtime/subscriber-token`, `/api/asset/diagram`, `/api/asset/reel`, `/api/asset/agenda`, `/api/show/[slug]/version`, `/api/report`), construct a request with a valid Google session whose email matches a `crew_members` row on the target show, but with NO `__Host-fxav_picker` cookie. Assert: response status is 401 (NOT 200). This is the contract-level test that R41-R1 R1 HIGH demanded — if `resolvePickerSelection` ever picked up a Google-session auto-resolve, every one of these tests would flip to 200 and CI would fail. Companion structural test: grep each API-route source file for `validateGoogleSession` import → MUST be absent.
 - **OAuth-callback claim-stamp hook (R41-R6 revised, §4.8 — NO cookie writes)** — request to `/auth/callback?code=<valid-code>` after Google OAuth. Tests assert: (a) `exchangeCodeForSession()` is called first; (b) on success, `claim_oauth_identity(<user-email>)` is invoked via the service-role client; (c) every `crew_members` row whose `email = <user-email>` AND `claimed_via_oauth_at IS NULL` is updated to set `claimed_via_oauth_at = NOW()`; (d) rows already stamped are NOT re-stamped (idempotent); (e) **the response has NO `Set-Cookie: __Host-fxav_picker` header** (R41-R6 structural choice — callback is DB-stamp-only; cookies mint lazily on first show visit via picker-bootstrap); (f) the post-stamp redirect honors the `next` param; (g) **negative-regression**: a callback for a user with NO matching crew row succeeds with no UPDATE; no Set-Cookie either way; (h) **second sign-in idempotence**: re-signing-in stamps no rows (`claimed_count = 0`); no Set-Cookie emitted. The OAUTH_IDENTITY_CLAIMED admin alert is emitted ONLY when `claimed_count > 0`. **Negative regression — picker-cookie write attempt**: the `_metaPickerCookieContract` test grep-asserts the callback file does NOT contain `cookies().set('__Host-fxav_picker'` (or equivalent). If a future implementer adds bulk-mint back, CI fails immediately.
-- **Picker-bootstrap Route Handler (R41-R2 new, `/api/auth/picker-bootstrap`; R41-R5 + R41-R6 hardened)** — request to `/api/auth/picker-bootstrap?next=/show/<slug>/<share-token>&t=<intent-token>` with Google session. **All success-path tests MUST include a valid `t` parameter** (the CSRF defense bullet below covers the negative cases). Tests assert: (a) `next` validated against `validateNextParam.ts` allowlist (regex matches `^/show/[a-z0-9-]+/[0-9a-f]{64}$`); (b) intent token verified (HMAC valid + not expired + embedded slug/shareToken matches `next`) — failure → 403 not 302; (c) `resolve_show_by_slug_and_token` re-validates the slug+token pair, NULL → 302 to `/` with no cookie set; (d) `validateGoogleSession` → no session → 302 to `next` with no cookie set; (e) `validateGoogleSession` resolves + email matches exactly one crew_members row for THIS show (the target derived from `next`) → cookie's entry for THIS show_id ONLY updated with `{ id: <crewMemberId>, e: <picker_epoch>, t: <now> }`; entries for other shows in the envelope are byte-identical pre/post + 302 to `next`; (f) `validateGoogleSession` resolves but email NOT in this show's crew_members → 302 to `next` with NO cookie set (the show page renders the SignInOrSkipGate naturally); (g) the cookie set carries `Max-Age=7776000`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, name `__Host-fxav_picker`; (h) the handler is in the cookie-mutator allowlist of the picker-cookie-contract meta-test; (i) **one-show-only assertion** (R41-R6): when `claim_oauth_identity` returns `{ shows: [A, B, C] }` and `target_show_id` is A, the response envelope contains an entry for A but NOT for B or C (lazy-mint contract).
+- **Picker-bootstrap Route Handler (R41-R2 new, `/api/auth/picker-bootstrap`; R41-R5 + R41-R6 hardened; R41-R25 exact-timestamp assertion)** — request to `/api/auth/picker-bootstrap?next=/show/<slug>/<share-token>&t=<intent-token>` with Google session. **All success-path tests MUST include a valid `t` parameter**. Tests assert: (a) `next` validated against `validateNextParam.ts` allowlist (regex matches `^/show/[a-z0-9-]+/[0-9a-f]{64}$`); (b) intent token verified (HMAC valid + not expired + embedded slug/shareToken matches `next`) — failure → 403 not 302; (c) `resolve_show_by_slug_and_token` re-validates the slug+token pair, NULL → 302 to `/` with no cookie set; (d) `validateGoogleSession` → no session → 302 to `next` with no cookie set; (e) `validateGoogleSession` resolves + email matches exactly one crew_members row for THIS show (the target derived from `next`) → cookie's entry for THIS show_id ONLY updated with `{ id: <crewMemberId>, e: <picker_epoch>, t: <result.mint_safe_t_millis> }`. **R41-R25 exact-value assertion**: the test stubs `claim_oauth_identity` to return a fixture `mint_safe_t_millis` (e.g., `1737028800123`) AND asserts the Set-Cookie payload's `t` field equals that value EXACTLY, NOT approximately and NOT `<= Date.now()`. An implementation that uses `Date.now()` as the source instead of `result.mint_safe_t_millis` would produce a different (and likely earlier or later) value and FAIL this assertion, catching the R41-R24 clock-source regression at test time. Entries for other shows in the envelope are byte-identical pre/post + 302 to `next`; (f) `validateGoogleSession` resolves but email NOT in this show's crew_members → 302 to `next` with NO cookie set; (g) the cookie set carries `Max-Age=7776000`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, name `__Host-fxav_picker`; (h) the handler is in the cookie-mutator allowlist; (i) **one-show-only assertion** (R41-R6): when `claim_oauth_identity` returns `{ shows: [A, B, C] }` and `target_show_id` is A, the response envelope contains an entry for A but NOT for B or C.
 - **Deactivated row tap-redirect (R41 amendment, §7.2; R41-R6 expanded for ambiguity)** — picker rendered with a roster containing crew members in three states:
   - **State A (OAuth-claimed)**: `claimed_via_oauth_at IS NOT NULL`. Row deactivated; `data-claimed="true"`.
   - **State B (ambiguous-NULL)**: two crew rows share the same email on this show, both have `claimed_via_oauth_at IS NULL`. Both rows deactivated; both carry `data-ambiguous="true"`.
