@@ -224,9 +224,10 @@ Crew taps `/show/<slug>/<share-token>` in group thread
 │       → resolvePickerSelection({ showId, cookie })           │
 │       (the COOKIE-ONLY helper; this is the SAME helper       │
 │       imported by every API route — R41-R1 Fix-3)            │
-│         returns one of SEVEN discriminant kinds (8 outcomes │
-│         when identity_invalidated.reason is expanded —      │
-│         R41-R14 wording sync):                              │
+│         returns one of SEVEN discriminant kinds, SEVEN     │
+│         wire outcomes (R41-R35 simplified —                 │
+│         identity_invalidated.reason is single value         │
+│         'claimed_after_pick'):                              │
 │           - { kind: 'resolved', crewMemberId }               │
 │           - { kind: 'no_selection' }                         │
 │           - { kind: 'epoch_stale' }                          │
