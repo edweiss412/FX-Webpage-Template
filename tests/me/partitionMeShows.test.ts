@@ -26,7 +26,7 @@ function show(id: string, dateIso: string | null, title?: string): CrewShowSumma
     id,
     slug: `slug-${id}`,
     title: title ?? `Show ${id}`,
-    crewMemberId: `cm-${id}`,
+    shareToken: `${id.padEnd(64, "0").slice(0, 64)}`,
     venue: null,
     dates:
       dateIso === null
@@ -149,7 +149,7 @@ describe("partitionMeShows", () => {
         id: "tbd-set",
         slug: "tbd-set",
         title: "TBD set",
-        crewMemberId: "cm-tbd-set",
+        shareToken: "tbd-set",
         venue: null,
         dates: { set: "TBD", travelIn: null, showDays: [], travelOut: null },
       },
@@ -157,7 +157,7 @@ describe("partitionMeShows", () => {
         id: "tbd-traveldays",
         slug: "tbd-traveldays",
         title: "TBD travel + show days",
-        crewMemberId: "cm-tbd-traveldays",
+        shareToken: "tbd-traveldays",
         venue: null,
         dates: { set: null, travelIn: "TBA", showDays: ["N/A", ""], travelOut: null },
       },
@@ -165,7 +165,7 @@ describe("partitionMeShows", () => {
         id: "valid",
         slug: "valid",
         title: "Valid future",
-        crewMemberId: "cm-valid",
+        shareToken: "valid",
         venue: null,
         dates: { set: "2026-08-01", travelIn: null, showDays: [], travelOut: null },
       },
@@ -198,7 +198,7 @@ describe("partitionMeShows", () => {
           id: `bad-${bad}`,
           slug: `bad-${bad}`,
           title: `Bad ${bad}`,
-          crewMemberId: `cm-${bad}`,
+          shareToken: `bad${bad}`.padEnd(64, "0").slice(0, 64),
           venue: null,
           dates: { set: bad, travelIn: null, showDays: [], travelOut: null },
         },
@@ -242,7 +242,7 @@ describe("partitionMeShows", () => {
         id: "leap",
         slug: "leap",
         title: "Leap day",
-        crewMemberId: "cm-leap",
+        shareToken: "leap",
         venue: null,
         dates: { set: "2024-02-29", travelIn: null, showDays: [], travelOut: null },
       },
@@ -259,7 +259,7 @@ describe("partitionMeShows", () => {
         id: "bad-month",
         slug: "bad",
         title: "Bad month",
-        crewMemberId: "cm-bad",
+        shareToken: "bad",
         venue: null,
         dates: { set: "2026-13-99", travelIn: null, showDays: [], travelOut: null },
       },
@@ -282,7 +282,7 @@ describe("partitionMeShows", () => {
         id: "future",
         slug: "future",
         title: "Future Show",
-        crewMemberId: "cm-future",
+        shareToken: "future",
         venue: null,
         dates: { set: "2026-08-01", travelIn: null, showDays: [], travelOut: null },
       },
@@ -290,7 +290,7 @@ describe("partitionMeShows", () => {
         id: "active",
         slug: "active",
         title: "Active Multi-day",
-        crewMemberId: "cm-active",
+        shareToken: "active",
         venue: null,
         dates: {
           set: "2026-05-14", // yesterday
@@ -313,7 +313,7 @@ describe("partitionMeShows", () => {
         id: "wrap",
         slug: "wrap",
         title: "Wrap-up day",
-        crewMemberId: "cm-wrap",
+        shareToken: "wrap",
         venue: null,
         dates: {
           set: "2026-05-12",
@@ -334,7 +334,7 @@ describe("partitionMeShows", () => {
         id: "active",
         slug: "active",
         title: "Active",
-        crewMemberId: "cm-active",
+        shareToken: "active",
         venue: null,
         dates: { set: "2026-05-20", travelIn: null, showDays: [], travelOut: null },
       },
@@ -342,7 +342,7 @@ describe("partitionMeShows", () => {
         id: "ended",
         slug: "ended",
         title: "Truly ended",
-        crewMemberId: "cm-ended",
+        shareToken: "ended",
         venue: null,
         dates: {
           set: "2026-04-10",
@@ -369,7 +369,7 @@ describe("partitionMeShows", () => {
         id: "active",
         slug: "active",
         title: "Active Multi-day",
-        crewMemberId: "cm-active",
+        shareToken: "active",
         venue: null,
         dates: {
           set: "2026-05-14",
@@ -391,7 +391,7 @@ describe("partitionMeShows", () => {
         id: "ended",
         slug: "ended",
         title: "Ended",
-        crewMemberId: "cm-ended",
+        shareToken: "ended",
         venue: null,
         dates: {
           set: "2026-05-08",
@@ -427,7 +427,7 @@ describe("partitionMeShows", () => {
         id: "showLong",
         slug: "long",
         title: "Long Multi-day",
-        crewMemberId: "cm-long",
+        shareToken: "long",
         venue: null,
         dates: {
           set: "2026-04-01",
@@ -440,7 +440,7 @@ describe("partitionMeShows", () => {
         id: "showShort",
         slug: "short",
         title: "Short Show",
-        crewMemberId: "cm-short",
+        shareToken: "short",
         venue: null,
         dates: {
           set: "2026-04-20",
@@ -476,7 +476,7 @@ describe("partitionMeShows", () => {
         id: "showA",
         slug: "a",
         title: "Show A — early travel-in",
-        crewMemberId: "cm-a",
+        shareToken: "a",
         venue: null,
         dates: {
           set: "2026-05-20",
@@ -489,7 +489,7 @@ describe("partitionMeShows", () => {
         id: "showB",
         slug: "b",
         title: "Show B — earlier set",
-        crewMemberId: "cm-b",
+        shareToken: "b",
         venue: null,
         dates: {
           set: "2026-05-18",
@@ -510,7 +510,7 @@ describe("partitionMeShows", () => {
         id: "future",
         slug: "future",
         title: "Future",
-        crewMemberId: "cm-future",
+        shareToken: "future",
         venue: null,
         dates: {
           set: "2026-05-20",
@@ -539,7 +539,7 @@ describe("partitionMeShows", () => {
         id: "active",
         slug: "active",
         title: "Active Multi-day",
-        crewMemberId: "cm-active",
+        shareToken: "active",
         venue: null,
         dates: {
           set: "2026-05-14",
@@ -558,11 +558,11 @@ describe("partitionMeShows", () => {
   it("falls back through dates.set → dates.travelIn → dates.showDays[0]", () => {
     // dates.set absent → use travelIn.
     const shows: CrewShowSummary[] = [
-      { id: "a", slug: "a", title: "A", crewMemberId: "cma",
+      { id: "a", slug: "a", title: "A", shareToken: "a".repeat(64),
         venue: null,
         dates: { set: null, travelIn: "2026-05-20", showDays: [], travelOut: null } },
       // dates.set + travelIn absent → use showDays[0].
-      { id: "b", slug: "b", title: "B", crewMemberId: "cmb",
+      { id: "b", slug: "b", title: "B", shareToken: "b".repeat(64),
         venue: null,
         dates: { set: null, travelIn: null, showDays: ["2026-06-01"], travelOut: null } },
     ];

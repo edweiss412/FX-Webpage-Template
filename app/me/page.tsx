@@ -45,6 +45,7 @@ import { redirect } from "next/navigation";
 
 import { validateGoogleIdentity } from "@/lib/auth/validateGoogleIdentity";
 import { listShowsForCrew, type CrewShowSummary } from "@/lib/data/listShowsForCrew";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { messageFor } from "@/lib/messages/lookup";
 import {
   partitionMeShows,
@@ -129,16 +130,15 @@ export default async function MePage() {
   }
 
   const viewer = result.viewer;
-  // R21 F1 (round-21 §B MEDIUM): pre-fix listShowsForCrew throws
-  // (createSupabaseServiceRoleClient() / .from(...) infra throws + the
-  // explicit `throw new Error("listShowsForCrew: show lookup failed")`)
-  // escaped to Next's generic error surface — crew got an opaque
-  // framework page instead of the catalog copy + retry link. Wrap the
-  // call and route to the same cataloged terminal-failure render the
-  // chain's terminal_failure arm uses.
+  // M11.5 §B Task E2: the cookie-bound Supabase server client carries
+  // the signed-in user's JWT so the RPC `my_share_tokens_for_email`
+  // can read `auth.email()` canonically inside the SECURITY DEFINER
+  // body. Service-role clients have NO JWT and would silently return
+  // an empty set; lib/data/listShowsForCrew documents that contract.
   let shows;
   try {
-    shows = await listShowsForCrew(viewer);
+    const supabase = await createSupabaseServerClient();
+    shows = await listShowsForCrew(supabase);
   } catch {
     return renderTerminalFailure("ADMIN_SESSION_LOOKUP_FAILED");
   }
@@ -290,7 +290,7 @@ function UndatedShowRow({ show }: { show: CrewShowSummary }) {
     <li>
       <Link
         data-testid={`me-show-card-${show.slug}`}
-        href={`/show/${show.slug}`}
+        href={`/show/${show.slug}/${show.shareToken}`}
         className="flex min-h-tap-min items-center gap-3 rounded-md border border-border bg-surface px-tile-pad py-3 transition-colors hover:border-border-strong"
       >
         <div className="min-w-0 flex-1">
@@ -329,7 +329,7 @@ function NextUpCard({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
   return (
     <Link
       data-testid={`me-show-card-${show.slug}`}
-      href={`/show/${show.slug}`}
+      href={`/show/${show.slug}/${show.shareToken}`}
       className="block rounded-md border border-border bg-surface p-tile-pad py-6 shadow-tile transition-colors hover:border-border-strong sm:py-8"
     >
       {chip && (
@@ -376,7 +376,7 @@ function ShowListRow({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
     <li>
       <Link
         data-testid={`me-show-card-${show.slug}`}
-        href={`/show/${show.slug}`}
+        href={`/show/${show.slug}/${show.shareToken}`}
         className="flex min-h-tap-min items-center justify-between gap-3 rounded-md border border-border bg-surface px-tile-pad py-3 transition-colors hover:border-border-strong"
       >
         <div className="min-w-0 flex-1">
