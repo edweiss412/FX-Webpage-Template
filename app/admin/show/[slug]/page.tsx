@@ -25,6 +25,8 @@ import { ParsePanel } from "@/components/admin/ParsePanel";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { PerShowCrewSection } from "@/components/admin/PerShowCrewSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
+import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
+import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import { loadShowCrewWithAuth } from "@/lib/data/loadShowCrewWithAuth";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
@@ -377,6 +379,28 @@ export default async function AdminShowPage({
           </HelpTooltip>
         </div>
         <ParsePanel rows={rows} showId={show.id} />
+      </section>
+
+      <section
+        data-testid="admin-share-access-section"
+        aria-labelledby="admin-share-access-heading"
+        className="space-y-3"
+      >
+        <h2
+          id="admin-share-access-heading"
+          className="text-lg font-semibold text-text-strong"
+        >
+          Share &amp; access
+        </h2>
+        <p className="max-w-prose text-sm text-text-subtle">
+          One share-link reaches the whole crew. Rotate the link if it
+          leaks; reset the picker if a crew member needs to re-pick
+          their identity (e.g. they tapped the wrong name).
+        </p>
+        <div className="flex flex-col items-end gap-4">
+          <ResetPickerEpochButton showId={show.id} />
+          <RotateShareTokenButton showId={show.id} slug={show.slug} />
+        </div>
       </section>
 
       <PerShowCrewSection
