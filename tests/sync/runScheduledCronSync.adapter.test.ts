@@ -88,7 +88,7 @@ const { processOneFile, withPostgresSyncPipelineLock } =
   await import("@/lib/sync/runScheduledCronSync");
 
 describe("Postgres sync pipeline adapter", () => {
-  test("provisionAddedCrewAuth leaves freshly added crew in no-live-link state", async () => {
+  test("provisionAddedCrewAuth is a no-op after picker auth pivot", async () => {
     calls.crewAuth.clear();
     calls.sql.length = 0;
 
@@ -101,11 +101,8 @@ describe("Postgres sync pipeline adapter", () => {
       { tryOnly: true },
     );
 
-    expect(calls.crewAuth.get("show-1:New Crew")).toEqual({
-      current_token_version: 1,
-      max_issued_version: 1,
-      revoked_below_version: 1,
-    });
+    expect(calls.crewAuth.has("show-1:New Crew")).toBe(false);
+    expect(calls.sql.join("\n")).not.toMatch(/crew_member_auth/i);
   });
 
   test("production cron shape auto-wires first-published alerts to the transaction client", async () => {
