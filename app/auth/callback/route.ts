@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
+import { canonicalize } from "@/lib/email/canonicalize";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { messageFor } from "@/lib/messages/lookup";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
 
@@ -61,6 +65,85 @@ function clearPkceVerifierCookies(request: NextRequest, response: NextResponse):
   }
 }
 
+type ClaimOauthIdentityResult = {
+  claimed_count?: number;
+  claimed_rows?: Array<{
+    crew_member_id: string;
+    show_id: string;
+    claimed_at_millis: number;
+  }>;
+};
+
+function errorLogValue(error: unknown): unknown {
+  return error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : String(error);
+}
+
+async function stampOauthClaim(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+): Promise<void> {
+  try {
+    const { data: userResult, error: getUserError } = await supabase.auth.getUser();
+    if (getUserError) {
+      console.error("[auth/callback] getUser returned error", { error: errorLogValue(getUserError) });
+      return;
+    }
+
+    const canonicalEmail = canonicalize(userResult.user?.email);
+    if (!canonicalEmail) return;
+
+    const serviceRole = createSupabaseServiceRoleClient();
+    const { data: result, error: rpcError } = await serviceRole.rpc("claim_oauth_identity", {
+      p_email: canonicalEmail,
+    });
+    if (rpcError) {
+      console.error("[auth/callback] claim_oauth_identity returned error", {
+        emailHash: hashForLog(canonicalEmail),
+        error: errorLogValue(rpcError),
+      });
+      return;
+    }
+
+    const claimedRows = (result as ClaimOauthIdentityResult | null)?.claimed_rows ?? [];
+    for (const row of claimedRows) {
+      try {
+        await upsertAdminAlert({
+          showId: row.show_id,
+          code: "OAUTH_IDENTITY_CLAIMED",
+          context: {
+            crew_member_id: row.crew_member_id,
+            show_id: row.show_id,
+            claimed_at_millis: row.claimed_at_millis,
+            user_email_hash: hashForLog(canonicalEmail),
+          },
+        });
+      } catch (alertErr) {
+        console.error("[auth/callback] OAUTH_IDENTITY_CLAIMED alert emission failed", {
+          emailHash: hashForLog(canonicalEmail),
+          showId: row.show_id,
+          crewMemberId: row.crew_member_id,
+          error:
+            alertErr instanceof Error
+              ? { name: alertErr.name, message: alertErr.message }
+              : String(alertErr),
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[auth/callback] claim-stamp threw", { error: errorLogValue(err) });
+    try {
+      await upsertAdminAlert({
+        showId: null,
+        code: "CALLBACK_CLAIM_THREW",
+        context: { error_name: err instanceof Error ? err.name : "Unknown" },
+      });
+    } catch {
+      // Claim-stamp observability failed; OAuth callback still succeeds.
+    }
+  }
+}
+
 export async function GET(request: NextRequest): Promise<Response> {
   const rawNext = request.nextUrl.searchParams.get("next");
   const nextOutcome = validateNextParamDetailed(rawNext);
@@ -103,6 +186,9 @@ export async function GET(request: NextRequest): Promise<Response> {
     clearPkceVerifierCookies(request, response);
     return response;
   }
+
+  await stampOauthClaim(supabase);
+
   if (hasInvalidExplicitNext) {
     const response = signInRedirect(request, "OAUTH_REDIRECT_INVALID", nextOutcome.path);
     clearPkceVerifierCookies(request, response);
