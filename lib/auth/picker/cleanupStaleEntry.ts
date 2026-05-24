@@ -107,7 +107,7 @@ async function cleanupStaleEntryCoreImpl(
     const { upsertAdminAlert } = await import("@/lib/adminAlerts/upsertAdminAlert");
     await upsertAdminAlert({
       showId: input.showId,
-      code: "PICKER_SELECTION_RACE" as never,
+      code: "PICKER_SELECTION_RACE",
       context: {
         show_id: input.showId,
         stale_epoch: input.expectedEpoch,

@@ -1813,6 +1813,230 @@ export const MESSAGE_CATALOG = {
       "Server Action handed a (show_id, crew_name) tuple that didn't match an auth row. Most likely cause: a Drive sync ran during the page session and removed this crew member, advancing the floor for the now-absent name (spec §5.2 line 1104-1110). Refresh to see the current roster.",
     helpHref: "/help/errors#ADMIN_LINK_CREW_NOT_FOUND",
   },
+  PICKER_EPOCH_RESET: {
+    code: "PICKER_EPOCH_RESET",
+    dougFacing: "Picker selections were reset for this show. Crew will be asked to pick themselves again on their next visit.",
+    crewFacing: null,
+    followUp: "Doug → re-share the show link if needed",
+    helpfulContext:
+      "An admin reset bumped the show's picker epoch, invalidating saved per-device picker selections without changing the public share link. Existing open tabs will re-prompt on refresh or realtime invalidation.",
+    title: "Picker selections reset",
+    longExplanation:
+      "The show's picker epoch was bumped by an admin reset. Saved picker choices on crew devices are no longer accepted, so crew will choose themselves again the next time the page resolves.",
+    helpHref: "/help/errors#PICKER_EPOCH_RESET",
+  },
+  PICKER_SELECTION_RACE: {
+    code: "PICKER_SELECTION_RACE",
+    dougFacing: "A stale saved picker selection was cleaned up after the show access state changed.",
+    crewFacing: null,
+    followUp: "Informational; Eric if frequent",
+    helpfulContext:
+      "A browser submitted cleanup for a picker cookie entry whose epoch or crew member no longer matched the current show state. The compare-and-delete path removed only the stale entry and left newer selections intact.",
+    title: "Stale picker selection cleaned",
+    longExplanation:
+      "The app cleaned a stale picker-cookie entry after detecting that it no longer matched the current show access state. This is expected after resets or roster changes; repeated alerts may indicate churn.",
+    helpHref: "/help/errors#PICKER_SELECTION_RACE",
+  },
+  PICKER_EPOCH_STALE_BANNER: {
+    code: "PICKER_EPOCH_STALE_BANNER",
+    dougFacing: null,
+    crewFacing: "Doug reset access for this show — pick yourself again.",
+    followUp: "Crew → pick name",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  PICKER_REMOVED_FROM_ROSTER_BANNER: {
+    code: "PICKER_REMOVED_FROM_ROSTER_BANNER",
+    dougFacing: null,
+    crewFacing: "Your previous selection was removed by Doug — pick yourself from the current roster.",
+    followUp: "Crew → pick name or text Doug",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  PICKER_EMPTY_ROSTER: {
+    code: "PICKER_EMPTY_ROSTER",
+    dougFacing: null,
+    crewFacing: "Doug hasn't added crew yet — check back soon.",
+    followUp: "Crew → check back; Doug → update sheet",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  PICKER_SHOW_UNAVAILABLE: {
+    code: "PICKER_SHOW_UNAVAILABLE",
+    dougFacing: null,
+    crewFacing: "This show isn't available right now. Ask Doug for an updated link if you think this is a mistake.",
+    followUp: "Crew → text Doug",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  PICKER_INVALID_INPUT: {
+    code: "PICKER_INVALID_INPUT",
+    dougFacing: "A picker selection form submitted invalid input. The request was rejected before any cookie was written.",
+    crewFacing: "Something went wrong with that selection. Please try picking your name again.",
+    followUp: "Crew → try again; Eric if repeated",
+    helpfulContext:
+      "A picker form submitted malformed slug, share-token, show, epoch, or crew-member data. The server rejected the request before touching the picker cookie.",
+    title: "Picker input rejected",
+    longExplanation:
+      "The picker action received malformed form data and rejected it before writing a credential. If this repeats without a custom client or stale page, inspect the rendered hidden fields.",
+    helpHref: "/help/errors#PICKER_INVALID_INPUT",
+  },
+  PICKER_CREW_MEMBER_NOT_FOUND: {
+    code: "PICKER_CREW_MEMBER_NOT_FOUND",
+    dougFacing: "A picker selection targeted a crew row that no longer exists on the show.",
+    crewFacing: "That crew member was just removed from this show. Pick yourself from the current roster.",
+    followUp: "Crew → pick current row; Doug → refresh roster",
+    helpfulContext:
+      "The submitted crew member was present when the picker rendered but was gone by the time the selection action re-validated inside the show lock.",
+    title: "Picker crew row missing",
+    longExplanation:
+      "A selection referred to a crew row that no longer exists for the show. This usually means a sync changed the roster while the picker page was open.",
+    helpHref: "/help/errors#PICKER_CREW_MEMBER_NOT_FOUND",
+  },
+  PICKER_CREW_MEMBER_WRONG_SHOW: {
+    code: "PICKER_CREW_MEMBER_WRONG_SHOW",
+    dougFacing: "A picker selection submitted a crew member from a different show. The request was rejected as possible form tampering.",
+    crewFacing: "Something went wrong with that selection. Please try picking your name again.",
+    followUp: "Crew → try again; Eric if repeated",
+    helpfulContext:
+      "The submitted crew member exists but belongs to a different show than the share link. The action rejected it without writing a picker cookie.",
+    title: "Picker crew row wrong show",
+    longExplanation:
+      "The picker action received a crew-member id from a different show. This is treated as a tamper signal and no cookie is minted.",
+    helpHref: "/help/errors#PICKER_CREW_MEMBER_WRONG_SHOW",
+  },
+  PICKER_INVALID_SHARE_TOKEN: {
+    code: "PICKER_INVALID_SHARE_TOKEN",
+    dougFacing: "A picker selection used a share link token that no longer resolves for this show.",
+    crewFacing: "This link is out of date. Ask Doug for the current show link.",
+    followUp: "Crew → ask Doug for latest link",
+    helpfulContext:
+      "The selection action re-validated the slug and share token inside the show lock and found that the token no longer matches the show, usually because the share link was rotated.",
+    title: "Picker share token invalid",
+    longExplanation:
+      "The submitted share token no longer resolves for the show. No picker cookie was written; the crew member needs the current show link.",
+    helpHref: "/help/errors#PICKER_INVALID_SHARE_TOKEN",
+  },
+  PICKER_RESOLVER_LOOKUP_FAILED: {
+    code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    dougFacing: "The picker access resolver hit a database or session lookup error. Crew may see a temporary sign-in failure page.",
+    crewFacing: "Couldn't load your show access. Please try again in a moment.",
+    followUp: "Crew → retry; Eric if persistent",
+    helpfulContext:
+      "The picker resolver failed while reading show, crew, share-token, or session state. The app fails closed so it does not accidentally authorize the wrong person.",
+    title: "Picker resolver failed",
+    longExplanation:
+      "A database or auth lookup failed while resolving picker access. The request was stopped instead of falling back to a possibly stale credential.",
+    helpHref: "/help/errors#PICKER_RESOLVER_LOOKUP_FAILED",
+  },
+  PICKER_IDENTITY_CLAIMED: {
+    code: "PICKER_IDENTITY_CLAIMED",
+    dougFacing: "A picker selection targeted a crew identity that is already claimed by Google sign-in.",
+    crewFacing: "This name is claimed by a signed-in user. Sign in with their Google account to use it.",
+    followUp: "Crew → sign in with Google",
+    helpfulContext:
+      "A submitted crew row has already been claimed through OAuth. The picker does not mint bypass cookies for claimed identities; the user is routed to Google sign-in instead.",
+    title: "Picker identity claimed",
+    longExplanation:
+      "The selected crew identity is protected by Google sign-in. The action rejected the bypass selection and sends the user through OAuth.",
+    helpHref: "/help/errors#PICKER_IDENTITY_CLAIMED",
+  },
+  PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER: {
+    code: "PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER",
+    dougFacing: null,
+    crewFacing: "This identity is now claimed by a signed-in user. Pick yourself from the current roster or sign in to use the same identity.",
+    followUp: "Crew → pick name or sign in",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  PICKER_BOOTSTRAP_RPC_FAILED: {
+    code: "PICKER_BOOTSTRAP_RPC_FAILED",
+    dougFacing: "Google picker bootstrap could not claim the signed-in user's crew identity. The user saw a retry page.",
+    crewFacing: "Couldn't sign you in. Please try again in a moment.",
+    followUp: "Crew → retry; Eric → inspect claim_oauth_identity",
+    helpfulContext:
+      "The picker-bootstrap route had a valid Google session but the claim_oauth_identity RPC returned an error or threw. The route returned a terminal 502 instead of redirecting in a loop.",
+    title: "Picker bootstrap claim failed",
+    longExplanation:
+      "Google sign-in succeeded, but the database claim step failed. The app stopped on a retry page and emitted this alert so the failed claim can be investigated.",
+    helpHref: "/help/errors#PICKER_BOOTSTRAP_RPC_FAILED",
+  },
+  PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: {
+    code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
+    dougFacing: "Google picker bootstrap could not resolve the show link before session validation. The user saw a retry page.",
+    crewFacing: "Couldn't sign you in. Please try again in a moment.",
+    followUp: "Crew → retry; Eric → inspect resolve_show_by_slug_and_token",
+    helpfulContext:
+      "The picker-bootstrap route failed while resolving the tokenized show URL before it had a user email. The alert context is intentionally email-less and excludes the bearer share token.",
+    title: "Picker bootstrap show resolve failed",
+    longExplanation:
+      "The bootstrap route could not resolve the show from the tokenized URL before checking the Google session. It failed closed with a retry page and emitted an email-less alert.",
+    helpHref: "/help/errors#PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
+  },
+  OAUTH_IDENTITY_CLAIMED: {
+    code: "OAUTH_IDENTITY_CLAIMED",
+    dougFacing: "A crew identity was claimed through Google sign-in.",
+    crewFacing: null,
+    followUp: "Informational",
+    helpfulContext:
+      "The OAuth claim path stamped a crew row as claimed by a signed-in user. Future picker attempts for that row must route through Google sign-in.",
+    title: "Crew identity claimed",
+    longExplanation:
+      "A signed-in user's canonical email matched a crew row and the row was stamped as claimed. This prevents other devices from selecting that identity through bypass picker flow.",
+    helpHref: "/help/errors#OAUTH_IDENTITY_CLAIMED",
+  },
+  CALLBACK_CLAIM_THREW: {
+    code: "CALLBACK_CLAIM_THREW",
+    dougFacing: "The OAuth callback claim step threw before it could finish. The next show visit will retry through picker bootstrap.",
+    crewFacing: null,
+    followUp: "Eric → inspect callback claim logs",
+    helpfulContext:
+      "The OAuth callback encountered an unexpected exception while attempting to stamp crew identity claims. The callback does not mint picker cookies; the bootstrap route can retry the claim on the next show visit.",
+    title: "OAuth claim threw",
+    longExplanation:
+      "The callback's claim-stamp block threw unexpectedly. The user may still be signed in, and the lazy picker bootstrap path is responsible for retrying the claim safely.",
+    helpHref: "/help/errors#CALLBACK_CLAIM_THREW",
+  },
+  SIGN_IN_OR_SKIP_PROMPT: {
+    code: "SIGN_IN_OR_SKIP_PROMPT",
+    dougFacing: null,
+    crewFacing: "Sign in to use the same identity on every show, or skip to pick from this show's roster.",
+    followUp: "Crew → sign in or continue as guest",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  SIGN_IN_OR_SKIP_PROMPT_MISMATCH: {
+    code: "SIGN_IN_OR_SKIP_PROMPT_MISMATCH",
+    dougFacing: null,
+    crewFacing: "You're signed in with a Google account that isn't on this show's roster. Sign in with the account for this show, or continue as guest to pick from the roster.",
+    followUp: "Crew → sign out or continue as guest",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  IDENTITY_DEACTIVATED_LOCK_HINT: {
+    code: "IDENTITY_DEACTIVATED_LOCK_HINT",
+    dougFacing: null,
+    crewFacing: "Sign in to use this identity.",
+    followUp: "Crew → sign in",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   WEBHOOK_HEADERS_MISSING: {
     code: "WEBHOOK_HEADERS_MISSING",
     dougFacing: "A Drive webhook request was missing required Google headers.",

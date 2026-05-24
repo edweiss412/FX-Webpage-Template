@@ -22,7 +22,7 @@ export async function resetPickerEpoch(input: { showId: string }): Promise<Reset
     try {
       await upsertAdminAlert({
         showId: input.showId,
-        code: "PICKER_EPOCH_RESET" as never,
+        code: "PICKER_EPOCH_RESET",
         context: {
           show_id: input.showId,
           new_epoch: data,
