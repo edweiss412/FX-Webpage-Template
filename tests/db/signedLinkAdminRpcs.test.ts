@@ -106,6 +106,23 @@ function seedOrphanAuthSql(driveFileId: string, crewName: string): string {
   `;
 }
 
+function seedShowOnlySql(driveFileId: string): string {
+  // A1 revoked direct INSERT on public.shows from authenticated. Keep fixture
+  // setup under the default DB role, then switch to authenticated for the RPC.
+  return `
+    reset role;
+    insert into public.shows (title, slug, drive_file_id, client_label, template_version, published)
+    values (
+      'M9.5 test show',
+      ${sqlString(driveFileId)},
+      ${sqlString(driveFileId)},
+      'FXAV',
+      'test',
+      true
+    );
+  `;
+}
+
 describe("M9.5 signed-link admin RPCs (migration smoke)", () => {
   test("migration file exists and creates both SECURITY DEFINER lock-taking RPCs", () => {
     const sql = readFileSync(join(process.cwd(), MIGRATION_PATH), "utf8");
@@ -205,10 +222,9 @@ describe("revoke_all_links_rpc behavior", () => {
 
     const out = runPsql(`
       begin;
+      ${seedShowOnlySql(driveFileId)}
       set local role authenticated;
       set local request.jwt.claims = '${jwtAdmin()}';
-      insert into public.shows (title, slug, drive_file_id, client_label, template_version, published)
-      values ('M9.5 test show', ${sqlString(driveFileId)}, ${sqlString(driveFileId)}, 'FXAV', 'test', true);
       select 'result=' || (
         public.revoke_all_links_rpc(
           (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
@@ -316,10 +332,9 @@ describe("issue_new_link_rpc behavior", () => {
 
     const out = runPsql(`
       begin;
+      ${seedShowOnlySql(driveFileId)}
       set local role authenticated;
       set local request.jwt.claims = '${jwtAdmin()}';
-      insert into public.shows (title, slug, drive_file_id, client_label, template_version, published)
-      values ('M9.5 test show', ${sqlString(driveFileId)}, ${sqlString(driveFileId)}, 'FXAV', 'test', true);
       select 'result=' || (
         public.issue_new_link_rpc(
           (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
