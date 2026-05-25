@@ -56,6 +56,10 @@ export function ResetPickerEpochButton({ showId }: { showId: string }) {
 
   const onResetClick = () => {
     clearAutoRevert();
+    // Clear any prior result so a stale OK/refused banner doesn't reappear
+    // when the user re-enters confirm from an idle-with-banner state and
+    // then cancels — the banner would otherwise outlive its context.
+    setResult(null);
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
       setUi((prev) => (prev === "confirm" ? "idle" : prev));
@@ -113,7 +117,7 @@ export function ResetPickerEpochButton({ showId }: { showId: string }) {
             role="alert"
             className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
           >
-            <span className="font-medium">Last attempt:</span> {refusedMessage}
+            {refusedMessage}
           </p>
         )}
       </div>

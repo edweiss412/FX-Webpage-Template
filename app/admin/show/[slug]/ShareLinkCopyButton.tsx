@@ -41,15 +41,24 @@ export function ShareLinkCopyButton({ url }: { url: string }) {
   };
 
   return (
-    <button
-      type="button"
-      onClick={() => void onClick()}
-      data-testid="admin-current-share-link-copy-button"
-      aria-live="polite"
-      aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
-      className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-    >
-      {copied ? "Copied" : "Copy"}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => void onClick()}
+        data-testid="admin-current-share-link-copy-button"
+        aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+      <span
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+        data-testid="admin-current-share-link-copy-announce"
+      >
+        {copied ? "URL copied to clipboard" : ""}
+      </span>
+    </>
   );
 }

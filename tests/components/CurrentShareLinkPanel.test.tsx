@@ -176,4 +176,38 @@ describe("<CurrentShareLinkPanel>", () => {
     const root = getByTestId("admin-current-share-link-panel");
     expect(root.textContent).toMatch(/share[- ]link/i);
   });
+
+  test("URL <code> has NO title attribute (attestation HIGH: token-in-hover-tooltip)", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
+    vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
+    const { getByTestId } = render(
+      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
+    );
+    const code = getByTestId("admin-current-share-link-url");
+    expect(code.getAttribute("title")).toBeNull();
+  });
+
+  test("Copy button has NO aria-live (attestation HIGH: live region on focusable control)", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
+    vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
+    const { getByTestId } = render(
+      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
+    );
+    const btn = getByTestId("admin-current-share-link-copy-button");
+    expect(btn.getAttribute("aria-live")).toBeNull();
+  });
+
+  test("Copy announcement lives on a sibling sr-only status node (a11y pattern)", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
+    vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
+    const { getByTestId } = render(
+      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
+    );
+    const announce = getByTestId("admin-current-share-link-copy-announce");
+    expect(announce.getAttribute("role")).toBe("status");
+    expect(announce.getAttribute("aria-live")).toBe("polite");
+    expect(announce.className).toContain("sr-only");
+    // Pre-copy: empty announcement so SRs don't say anything.
+    expect(announce.textContent).toBe("");
+  });
 });

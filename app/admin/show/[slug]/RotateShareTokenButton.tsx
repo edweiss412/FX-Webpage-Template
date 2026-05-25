@@ -76,6 +76,11 @@ export function RotateShareTokenButton({
 
   const onRotateClick = () => {
     clearAutoRevert();
+    // Clear any prior result so a stale OK/refused banner doesn't reappear
+    // when the user re-enters confirm from an idle-with-banner state and
+    // then cancels — the banner would otherwise outlive its context.
+    setResult(null);
+    setCopied(false);
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
       setUi((prev) => (prev === "confirm" ? "idle" : prev));
@@ -155,11 +160,10 @@ export function RotateShareTokenButton({
               New share-link ready. Send the URL below to crew; the old
               link no longer works.
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-start gap-2">
               <code
                 data-testid="admin-rotate-share-token-url"
-                title={newUrl}
-                className="min-w-0 flex-1 truncate rounded-sm bg-surface px-2 py-1 text-xs text-text-strong"
+                className="min-w-0 flex-1 break-all rounded-sm bg-surface px-2 py-1 text-xs text-text-strong"
               >
                 {newUrl}
               </code>
@@ -167,13 +171,20 @@ export function RotateShareTokenButton({
                 type="button"
                 onClick={() => void onCopyClick(newUrl)}
                 data-testid="admin-rotate-share-token-copy-button"
-                aria-live="polite"
                 aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
                 className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
             </div>
+            <span
+              role="status"
+              aria-live="polite"
+              className="sr-only"
+              data-testid="admin-rotate-share-token-copy-announce"
+            >
+              {copied ? "URL copied to clipboard" : ""}
+            </span>
           </div>
         )}
         {refusedMessage && (
@@ -182,7 +193,7 @@ export function RotateShareTokenButton({
             role="alert"
             className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
           >
-            <span className="font-medium">Last attempt:</span> {refusedMessage}
+            {refusedMessage}
           </p>
         )}
       </div>

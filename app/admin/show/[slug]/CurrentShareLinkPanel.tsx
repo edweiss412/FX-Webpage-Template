@@ -87,11 +87,10 @@ export async function CurrentShareLinkPanel({
       <p className="text-xs text-text-subtle">
         Send this URL to the crew. Rotate to mint a new one if it leaks.
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex items-start gap-2">
         <code
           data-testid="admin-current-share-link-url"
-          title={url}
-          className="min-w-0 flex-1 truncate rounded-sm bg-surface-sunken px-2 py-1 text-xs text-text-strong"
+          className="min-w-0 flex-1 break-all rounded-sm bg-surface-sunken px-2 py-1 text-xs text-text-strong"
         >
           {url}
         </code>

@@ -122,6 +122,91 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
   });
 
+  test("success URL <code> has NO title attribute (attestation HIGH: token-in-hover-tooltip)", async () => {
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      { ok: true, new_share_token: NEW_TOKEN, new_epoch: 4 },
+    );
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const urlEl = await waitFor(() =>
+      screen.getByTestId("admin-rotate-share-token-url"),
+    );
+    expect(urlEl.getAttribute("title")).toBeNull();
+  });
+
+  test("Copy button has NO aria-live; announcement lives on a sibling sr-only status node", async () => {
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      { ok: true, new_share_token: NEW_TOKEN, new_epoch: 4 },
+    );
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const copyBtn = await waitFor(() =>
+      screen.getByTestId("admin-rotate-share-token-copy-button"),
+    );
+    expect(copyBtn.getAttribute("aria-live")).toBeNull();
+    const announce = screen.getByTestId(
+      "admin-rotate-share-token-copy-announce",
+    );
+    expect(announce.getAttribute("role")).toBe("status");
+    expect(announce.getAttribute("aria-live")).toBe("polite");
+    expect(announce.className).toContain("sr-only");
+  });
+
+  test("re-entering confirm clears any stale OK/refused banner (no zombie state)", async () => {
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },
+    );
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("admin-rotate-share-token-refused"),
+      ).toBeTruthy(),
+    );
+    vi.useFakeTimers();
+    // Re-enter confirm — the prior refused banner must NOT persist.
+    fireEvent.click(idleBtn());
+    expect(
+      screen.queryByTestId("admin-rotate-share-token-refused"),
+    ).toBeNull();
+  });
+
+  test("refused banner has no 'Last attempt:' prefix (parity with OK banner per attestation)", async () => {
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },
+    );
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const refused = await waitFor(() =>
+      screen.getByTestId("admin-rotate-share-token-refused"),
+    );
+    expect(refused.textContent).not.toMatch(/last attempt/i);
+  });
+
   test("failure result: does NOT trigger router.refresh() (no token to display)", async () => {
     (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
       { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },

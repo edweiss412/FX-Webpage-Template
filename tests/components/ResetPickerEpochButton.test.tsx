@@ -126,4 +126,47 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
       expect(refused.textContent).toContain("Couldn't reset");
     });
   });
+
+  test("refused banner has no 'Last attempt:' prefix (parity with OK banner per attestation)", async () => {
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      { ok: false, code: "PICKER_RESET_FORBIDDEN" },
+    );
+    render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const refused = await waitFor(() =>
+      screen.getByTestId("admin-reset-picker-epoch-refused"),
+    );
+    expect(refused.textContent).not.toMatch(/last attempt/i);
+  });
+
+  test("re-entering confirm clears any stale OK/refused banner (no zombie state)", async () => {
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      { ok: false, code: "PICKER_RESET_FORBIDDEN" },
+    );
+    render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("admin-reset-picker-epoch-refused"),
+      ).toBeTruthy(),
+    );
+    vi.useFakeTimers();
+    // Re-enter confirm — the prior refused banner must NOT persist.
+    fireEvent.click(idleBtn());
+    expect(
+      screen.queryByTestId("admin-reset-picker-epoch-refused"),
+    ).toBeNull();
+  });
 });
