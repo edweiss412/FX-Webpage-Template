@@ -31,7 +31,15 @@ export function extractAdminTablesFromSpec(spec: string): string[] {
   const tableDefinitions = new Set(
     Array.from(spec.matchAll(/create table ([a-z][a-z0-9_]*)/g), (match) => match[1]),
   );
-  return uniqueInOrder(names).filter((name) => tableDefinitions.has(name) && name !== "shows");
+  const removedByPickerPivot = new Set([
+    "crew_member_auth",
+    "revoked_links",
+    "link_sessions",
+    "bootstrap_nonces",
+  ]);
+  return uniqueInOrder(names).filter(
+    (name) => tableDefinitions.has(name) && name !== "shows" && !removedByPickerPivot.has(name),
+  );
 }
 
 function render(tables: readonly string[]): string {

@@ -675,7 +675,7 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
       // the fail-open posture for both auth_denied AND
       // transient_failure. Reasoning: in M4 the documented contract
       // (apply-driven-refresh.spec.ts:38-49) is that the route's
-      // resolveShowViewer-gate returns 401 because real cookie auth
+      // picker gate returns 401 because real cookie auth
       // ships in M5; forcing refresh on initial-mount auth_denied
       // would create a render→mint→refresh→render→mint loop. The
       // Server Component already authorized the page render, so we

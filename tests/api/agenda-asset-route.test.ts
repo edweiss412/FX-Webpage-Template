@@ -74,13 +74,6 @@ const routeMock = vi.hoisted(() => ({
 vi.mock("@/lib/auth/isAdminSession", () => ({
   isAdminSession: async () => routeMock.admin,
 }));
-vi.mock("@/lib/auth/validateLinkSession", () => ({
-  validateLinkSession: async () => {
-    routeMock.linkCalls += 1;
-    return routeMock.link;
-  },
-  peekLinkSessionShow: () => routeMock.peek,
-}));
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
   validateGoogleSession: async () => {
     routeMock.googleCalls += 1;
@@ -520,7 +513,7 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(res.body).toBeInstanceOf(ReadableStream);
   });
 
-  test("Codex R5 P1 + R10 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
+  test("Codex R5 P1 + R10 P1: cross-show cookie envelope → 403 WITHOUT calling destructive picker asset resolver", async () => {
     // Cross-show peek skips destructive link validator. Route still
     // attempts Google fallthrough (R10 P1); when Google also fails,
     // final response is 403.

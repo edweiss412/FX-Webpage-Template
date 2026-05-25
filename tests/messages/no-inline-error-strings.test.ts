@@ -19,13 +19,6 @@
  *   - "I refactored an existing error path and accidentally inlined
  *     the string." — the annotation is missing → fails.
  *
- * Documented exemptions (must carry an inline `// not-subject:M5-D8`
- * comment in the source file):
- *   - app/show/[slug]/p/Bootstrap.tsx: GENERIC_ERROR_COPY +
- *     NO_FRAGMENT_COPY are catch-all bootstrap-layer strings; adding
- *     a dedicated BOOTSTRAP_GENERIC catalog code requires a spec
- *     amendment per AGENTS.md §1.7 — deferred.
- *
  * The grep is structural, not behavioral; the per-surface unit tests
  * that exercise the actual error rendering remain the primary safety
  * net. This meta-test is the no-regression backstop.
@@ -95,7 +88,7 @@ describe("META no inline literal error strings (M5-D8)", () => {
     }
     expect(
       violations,
-      `Route error UI through messageFor(code) instead of inline literal strings. To exempt a single callsite, add a "// not-subject:M5-D8" comment within ±${NEARBY_LINES} lines of the match (see app/show/[slug]/p/Bootstrap.tsx and components/shared/ReportModal.tsx for canonical examples).`,
+      `Route error UI through messageFor(code) instead of inline literal strings. To exempt a single callsite, add a "// not-subject:M5-D8" comment within ±${NEARBY_LINES} lines of the match.`,
     ).toEqual([]);
   });
 });

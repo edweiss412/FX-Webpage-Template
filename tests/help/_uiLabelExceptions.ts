@@ -252,26 +252,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   },
 
   // ─── app/help/admin/sharing-links/page.mdx ───
-  // Sharing-link control labels. M9.5 shipped Issue first link / Issue new
-  // link / Revoke all links. Per Phase I R13 + user direction: the unshipped
-  // "Copy share link" name was scrubbed from the MDX in favour of a generic
-  // Doug-facing description ("a one-tap button to copy each crew member's
-  // URL is not yet built"). Internal milestone IDs no longer leak into copy.
-  {
-    label: "Issue first link",
-    file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — app/admin/show/[slug]/IssueLinkButton.tsx:49.",
-  },
-  {
-    label: "Issue new link",
-    file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — app/admin/show/[slug]/IssueLinkButton.tsx:49 (label renders when prior link version exists).",
-  },
-  {
-    label: "Revoke all links",
-    file: "app/help/admin/sharing-links/page.mdx",
-    note: "Sharing-link control — app/admin/show/[slug]/RevokeAllLinksButton.tsx:133 (per-row control; revokes every link version ever issued for that crew member).",
-  },
+  // Legacy per-row signed-link controls were removed by the picker-auth cutover.
+  // The page may still describe the operational concept, but it no longer
+  // declares shipped control labels here.
 
   // ─── app/help/tour/page.mdx ───
   // Orientation page; section headings are page-IA, not UI controls.

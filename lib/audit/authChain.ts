@@ -165,8 +165,11 @@ function auditSignOutRoute(path: string, sourceFile: ts.SourceFile): AuthAuditFi
   const postRoute = findFunction(sourceFile, "POST");
   if (!postRoute?.body) {
     findings.push(`${path}: missing POST route function`);
-  } else if (!collectCallSites(postRoute.body).some((call) => call.name === "clearSessionCookie")) {
-    findings.push(`${path}: POST must clear the FXAV session with clearSessionCookie`);
+  } else {
+    const body = postRoute.body.getText(sourceFile);
+    if (!/\bPICKER_COOKIE_NAME\b/.test(body) || !/\bMax-Age=0\b/.test(body)) {
+      findings.push(`${path}: POST must clear the picker cookie with Max-Age=0`);
+    }
   }
   return findings;
 }

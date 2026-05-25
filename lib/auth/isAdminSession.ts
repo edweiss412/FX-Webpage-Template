@@ -12,7 +12,7 @@ import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
  * crew member and silently lost their admin privileges.
  *
  * Callers that just need the bool answer can keep using `if (admin.ok)`.
- * Callers that need to surface the distinction (resolveShowViewer →
+ * Callers that need to surface the distinction (show access resolution →
  * terminal_failure, ShowPage chain → operator-visible) inspect
  * `.reason === "infra_error"`.
  */

@@ -369,7 +369,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     return gone();
   }
   // Codex R4 P1: published gate BEFORE link/google validators so an
-  // unpublished-show request never refreshes link_sessions.last_active_at.
+  // unpublished-show request never refreshes picker state.
   if (!isAdmin && data.published !== true) {
     return gone();
   }

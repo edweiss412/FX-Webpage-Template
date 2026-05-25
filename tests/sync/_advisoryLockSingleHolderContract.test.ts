@@ -162,7 +162,7 @@ const protectedPreLockMutationPatterns = [
   {
     label: "protected SQL mutation",
     pattern:
-      /\b(?:delete\s+from|insert\s+into|update)\s+(?:public\.)?(?:deferred_ingestions|pending_syncs|pending_ingestions|shows|crew_members|crew_member_auth)\b/i,
+      /\b(?:delete\s+from|insert\s+into|update)\s+(?:public\.)?(?:deferred_ingestions|pending_syncs|pending_ingestions|shows|crew_members)\b/i,
   },
 ] as const;
 

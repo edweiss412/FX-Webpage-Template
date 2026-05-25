@@ -44,30 +44,6 @@ vi.mock("postgres", () => ({
         return [{ id: "tx-alert-1" }];
       }
 
-      if (/insert into public\.crew_member_auth/i.test(sql)) {
-        const [showId, crewName] = params as [string, string];
-        const key = `${showId}:${crewName}`;
-        if (!calls.crewAuth.has(key)) {
-          calls.crewAuth.set(key, {
-            current_token_version: 1,
-            max_issued_version: 1,
-            revoked_below_version: 0,
-          });
-        }
-        return [];
-      }
-
-      if (/update public\.crew_member_auth/i.test(sql)) {
-        const [showId, names] = params as [string, string[]];
-        for (const crewName of names) {
-          const row = calls.crewAuth.get(`${showId}:${crewName}`);
-          if (!row) continue;
-          row.current_token_version = row.max_issued_version;
-          row.revoked_below_version = row.max_issued_version;
-        }
-        return [];
-      }
-
       throw new Error(`unexpected SQL: ${sql}`);
     };
 
@@ -88,7 +64,7 @@ const { processOneFile, withPostgresSyncPipelineLock } =
   await import("@/lib/sync/runScheduledCronSync");
 
 describe("Postgres sync pipeline adapter", () => {
-  test("provisionAddedCrewAuth is a no-op after picker auth pivot", async () => {
+  test("legacy auth provisioning hook is a no-op after picker auth pivot", async () => {
     calls.crewAuth.clear();
     calls.sql.length = 0;
 
@@ -102,7 +78,7 @@ describe("Postgres sync pipeline adapter", () => {
     );
 
     expect(calls.crewAuth.has("show-1:New Crew")).toBe(false);
-    expect(calls.sql.join("\n")).not.toMatch(/crew_member_auth/i);
+    expect(calls.sql.join("\n")).not.toMatch(/crew_member_/i);
   });
 
   test("production cron shape auto-wires first-published alerts to the transaction client", async () => {

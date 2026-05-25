@@ -177,7 +177,7 @@ export type ShowForViewer = {
   viewerName: string | null;
   /**
    * Monotonic millisecond high-water-mark across (shows.last_synced_at,
-   * max(crew_member_auth.last_changed_at), max(crew_members.last_changed_at)),
+   * max(shows.picker_epoch_bumped_at), max(crew_members.last_changed_at)),
    * computed by `public.viewer_version_token(uuid)` (see
    * supabase/migrations/20260501001000_internal_and_admin.sql:18-32). Used
    * by the M4 Task 4.16 Checkpoint B `<ShowRealtimeBridge>` client island

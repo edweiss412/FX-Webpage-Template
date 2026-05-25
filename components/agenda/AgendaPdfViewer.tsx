@@ -229,9 +229,9 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
               // Spec §12.4 line 2753: BOTH 410 AND 403 route to
               // AGENDA_GONE_FOR_CREW. 403 fires from cross-show or
               // otherwise-forbidden crew sessions (the agenda proxy's
-              // validateCrewAssetSession forbidden paths); the
+              // picker asset-session forbidden paths); the
               // crew-facing recovery is the same as for a 410 (the
-              // agenda is unreachable from this signed link; ask Doug
+              // agenda is unreachable from this picker session; ask Doug
               // for a fresh one).
               if (probe.status === 410 || probe.status === 403) {
                 setErrorCode("AGENDA_GONE_FOR_CREW");

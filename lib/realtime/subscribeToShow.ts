@@ -10,7 +10,7 @@
  * `show:<showId>:invalidation`. The matching server-side publishers are:
  *
  *   - public.publish_show_invalidation_after_statement() statement triggers
- *     on crew_member_auth + crew_members
+ *     on picker epoch + crew_members
  *     (supabase/migrations/20260501001000_internal_and_admin.sql:58-104).
  *   - public.publish_show_invalidation(uuid) explicit application helper
  *     (supabase/migrations/20260503000000_publish_show_invalidation_helper.sql)
@@ -23,7 +23,7 @@
  * The helper:
  *   1. Calls supabase.realtime.setAuth(jwt) — required for Realtime
  *      Authorization on private channels. The JWT is minted by
- *      /api/realtime/subscriber-token after a 5-arm resolveShowViewer pass.
+ *      /api/realtime/subscriber-token after picker auth resolution.
  *   2. Opens the channel as PRIVATE (`config: { private: true,
  *      broadcast: { self: false } }`). The `private: true` flag is the
  *      mandatory pairing for the server-side `realtime.send(..., true)`

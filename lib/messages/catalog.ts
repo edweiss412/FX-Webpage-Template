@@ -1807,7 +1807,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → refresh per-show admin page",
     helpfulContext:
-      "The (show_id, crew_name) tuple didn't match any row in `public.crew_member_auth`. Likely the crew row was removed by a sync apply between page render and click.",
+      "The submitted crew identifier no longer matches the current roster. Likely the crew row was removed by a sync apply between page render and click.",
     title: "Crew member not found",
     longExplanation:
       "Server Action handed a (show_id, crew_name) tuple that didn't match an auth row. Most likely cause: a Drive sync ran during the page session and removed this crew member, advancing the floor for the now-absent name (spec §5.2 line 1104-1110). Refresh to see the current roster.",

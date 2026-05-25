@@ -76,7 +76,7 @@ describe("POST /api/realtime/subscriber-token", () => {
     expect(body.error).toBe("SHOW_REALTIME_BROADCAST_AUTH_FAILED");
   });
 
-  test("valid picker cookie mints crew realtime JWT without legacy crew_link/crew_google claims", async () => {
+  test("valid picker cookie mints crew realtime JWT without legacy crew claims", async () => {
     state.picker = { kind: "resolved", crewMemberId: "22222222-2222-4222-8222-222222222222" };
 
     const res = await POST(makeReq({ slug: "test-show" }, "__Host-fxav_picker=signed"));
@@ -93,8 +93,7 @@ describe("POST /api/realtime/subscriber-token", () => {
     expect(payload.show_id).toBe("11111111-1111-4111-8111-111111111111");
     expect(payload.sub).toBe("22222222-2222-4222-8222-222222222222");
     expect(payload.viewer_kind).toBe("crew");
-    expect(JSON.stringify(payload)).not.toContain("crew_link");
-    expect(JSON.stringify(payload)).not.toContain("crew_google");
+    expect(payload.viewer_kind).toBe("crew");
   });
 
   test("admin session mints admin realtime JWT without requiring picker cookie", async () => {

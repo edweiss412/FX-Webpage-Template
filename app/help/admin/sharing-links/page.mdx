@@ -1,53 +1,41 @@
 # Sharing crew links
 
-Each crew member on a show has their own signed link that opens their personal crew page on whatever phone they tap it from. There's no app to install and no password to remember: opening the link is the credential. The link is scoped to one person on one show, and it stops working when the show closes, when you issue a new link for that person, or when you revoke all their links.
+Each show has one share-link for the crew. Send that URL to everyone who needs the show page. When a crew member opens it, the picker asks them to choose their own name, and the page stores that choice for future visits on the same device.
 
 <Callout type="warning">
-**Link distribution is not yet wired end-to-end in v1.** The **Issue first link**, **Issue new link**, and **Revoke all links** controls on the per-show panel modify server-side access state (token version, revocation floor) so that each crew member's URL is or isn't currently valid. The URL itself, however, is not yet surfaced by the admin UI: there is no "copy this person's link" button, and the success confirmation after issuing a link does not include the URL. In practice, link URLs reach crew via a developer-built handoff (Eric) while the new sharing model is under development. The picker model that replaces this entirely is tracked as a post-M11 milestone.
+Use the app's share-link instead of sending the raw Drive sheet URL. Crew see role-filtered show details through the app, not the sheet.
 </Callout>
 
 ## What the controls do today
 
-The crew section on the per-show panel renders one row per crew member parsed from the sheet. Each row carries:
+The per-show panel's Share & access section carries the current URL and the controls that manage it.
 
 <Step n={1}>
-**A status hint when the row has no live link.** Rows in the no-live-link state (a fresh crew member who has never had a link, or a crew member whose links have all been revoked) show a small "No live link." line beneath the name.
+**Current share-link.** This panel shows the URL for the show. Use **Copy** to put it on your clipboard, then send it through your normal crew channel.
 </Step>
 
 <Step n={2}>
-**An Issue first link / Issue new link button.** Tapping it bumps the crew member's token version server-side. On success a "New link issued. The crew member's link is now live at the bumped token version." line appears beneath the button. The button label is **Issue first link** when the row has never had a link, and **Issue new link** otherwise.
+**Rotate share-token.** Use this when the URL leaks or you want a fresh URL for the show. Rotation makes the old share-link stop working and shows a new one immediately.
 </Step>
 
 <Step n={3}>
-**A Revoke all links button.** Tapping it floors the revocation cursor to the current token version. Every outstanding link for that crew member stops working immediately. The button is disabled when the row is already in the no-live-link state.
+**Reset picker selections.** Use this when a crew member picked the wrong name or needs to choose again. It does not rotate the show URL.
 </Step>
-
-These controls matter even without an in-UI URL surface: tapping **Issue new link** retires every previously issued URL for that crew member (which Eric or a developer-built handoff has distributed). Tapping **Revoke all links** retires every URL for that crew member at once. Without these controls, there is no way to rotate a leaked link.
 
 ## What crew see
 
-When a crew member taps a link they already have, the page redirects to a clean URL with no token in the address bar, and the crew page renders for them on their phone. They see their own call time, hotel and room (if applicable), schedule, and the contact info they need for their role. The page is mobile-first; it works on whatever browser is already on their phone.
+When a crew member opens the share-link, they choose their name from the picker or sign in with Google if their identity has already been claimed. After that, the crew page renders their call time, hotel and room if applicable, schedule, and the contact info they need for their role.
 
-The link itself is single-person: it identifies who they are, but the page re-checks their role on every load. If you fix something in the sheet about that person's role between when the link was distributed and when they open it, the page reflects the new role on the next refresh.
-
-## When a link gets shared with the wrong person
-
-Links are meant to be personal, but in practice a crew member sometimes forwards their link to someone else (a friend who's curious, a partner who's helping with logistics). If you find out a link has been shared beyond its intended recipient, the fix is to issue a new link for the original crew member: that immediately retires every copy of the old link, including the forwarded ones, server-side.
-
-You don't need to track down the forwarded copy or contact whoever received it. The act of issuing a new link is the revocation. Once the new link is distributed to the original crew member (via the same developer-built handoff that delivered the original), the leak is closed.
+The picker choice is show-specific. If the sheet changes after someone first opens the link, the page re-checks the current roster and show version on later visits.
 
 ## Link expiry + revocation
 
-Links don't have a fixed calendar expiry. They stay valid as long as the show is active and as long as you haven't issued a new link or revoked all links for that crew member.
+Share-links do not have a fixed calendar expiry. They stay valid while the show is active and while the current share-token remains in place.
 
-Three things retire a link:
+Three things can block access:
 
-- **You tap Issue new link for that crew member.** The previously issued link stops working immediately.
-- **You tap Revoke all links for that crew member.** The crew member's row enters the "No live link." state and the Revoke all links button disables; tap Issue new link when you're ready to mint a fresh token version.
-- **The crew member is removed from the show's sheet.** When sync applies a sheet change that removes someone, every link for that name immediately stops working. If the same name is re-added later, you'll need to tap Issue new link to restore access.
+- **You rotate the share-token.** The previous show URL stops working immediately.
+- **You reset picker selections.** Existing picker choices are cleared, so crew members must pick again on their next visit.
+- **The crew member is removed from the show's sheet.** The roster change prevents that person from continuing through the picker for that show.
 
-When a crew member taps a retired link, they see a short page telling them the link is no longer valid and to ask Doug for a new one. There's no raw error code on the page, and no way for them to recover on their own; the recovery is for you to issue a new link and for the URL distribution channel to deliver the fresh URL.
-
-<Callout type="note">
-**You can keep working without re-issuing.** Issuing a new link for one crew member does not affect any other crew member's link. Only the affected person needs a new copy.
-</Callout>
+When someone cannot access the page, send the current share-link again or reset picker selections if they picked the wrong name.

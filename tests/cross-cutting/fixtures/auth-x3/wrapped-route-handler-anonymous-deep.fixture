@@ -1,7 +1,0 @@
-mountRoute("/api/foo", withAdmin(async (req: Request) => {
-  return supabase.from(tableName).select("*");
-}));
-
-mountRoute("/api/bar", withAdmin(async (req: Request) => {
-  return supabase.from(tableName).select("*");
-}));

@@ -4,7 +4,7 @@
  * Returns the current invalidation-version token for a show. The version
  * token is a monotonic millisecond high-water-mark across:
  *   - shows.last_synced_at
- *   - max(crew_member_auth.last_changed_at)
+ *   - shows.picker_epoch_bumped_at
  *   - max(crew_members.last_changed_at)
  *
  * (Computed by public.viewer_version_token(uuid) at

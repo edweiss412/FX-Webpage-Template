@@ -39,7 +39,6 @@ export type PublicSchemaSnapshot = {
   pendingSyncsHashes: string[];
   pendingIngestionsCount: number;
   pendingIngestionsHashes: string[];
-  crewMemberAuthCount: number;
   syncLogCount: number;
   syncAuditCount: number;
 };
@@ -70,12 +69,6 @@ export async function snapshotPublicSchema(): Promise<PublicSchemaSnapshot> {
   if (pendingIngRes.error)
     throw new Error(`pending_ingestions snapshot failed: ${pendingIngRes.error.message}`);
 
-  const cmAuthRes = await admin
-    .from("crew_member_auth")
-    .select("show_id", { count: "exact", head: true });
-  if (cmAuthRes.error)
-    throw new Error(`crew_member_auth snapshot failed: ${cmAuthRes.error.message}`);
-
   const logRes = await admin.from("sync_log").select("id", { count: "exact", head: true });
   if (logRes.error) throw new Error(`sync_log snapshot failed: ${logRes.error.message}`);
 
@@ -98,7 +91,6 @@ export async function snapshotPublicSchema(): Promise<PublicSchemaSnapshot> {
     pendingSyncsHashes,
     pendingIngestionsCount: pendingIngRes.count ?? 0,
     pendingIngestionsHashes,
-    crewMemberAuthCount: cmAuthRes.count ?? 0,
     syncLogCount: logRes.count ?? 0,
     syncAuditCount: auditRes.count ?? 0,
   };

@@ -69,9 +69,7 @@ type ServerActionEntry = {
   directiveKind: "module" | "function-scoped";
 };
 
-const BANNED_OUTSIDE_AUTH_LIB = [
-  "revoked_links",
-] as const;
+const BANNED_OUTSIDE_AUTH_LIB: readonly string[] = [];
 
 const AUTH_LIB_ALLOWLIST = [
   "lib/auth/validateGoogleSession.ts",

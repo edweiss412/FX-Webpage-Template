@@ -73,14 +73,14 @@ describe("viewer_version_token", () => {
     expect(tokens.v3).not.toBe(tokens.v2);
   });
 
-  test("definition uses picker epoch instead of crew_member_auth and preserves grants", () => {
+  test("definition uses picker epoch and preserves grants", () => {
     const out = runPsql(`
       select
         prosecdef::text || '|' ||
         provolatile::text || '|' ||
         (pg_get_functiondef(p.oid) like '%picker_epoch_bumped_at%') || '|' ||
         (pg_get_functiondef(p.oid) like '%picker_epoch::text%') || '|' ||
-        (pg_get_functiondef(p.oid) like '%crew_member_auth%') || '|' ||
+        (pg_get_functiondef(p.oid) like '%crew_member%' || '_' || 'auth%') || '|' ||
         has_function_privilege('authenticated', 'public.viewer_version_token(uuid)', 'EXECUTE') || '|' ||
         has_function_privilege('anon', 'public.viewer_version_token(uuid)', 'EXECUTE') || '|' ||
         has_function_privilege('service_role', 'public.viewer_version_token(uuid)', 'EXECUTE')

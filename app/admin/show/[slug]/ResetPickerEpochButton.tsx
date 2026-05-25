@@ -6,7 +6,7 @@
  * Section-level admin action: bump shows.picker_epoch so every device's
  * picker cookie goes stale on next visit and the picker re-prompts.
  * Mirrors the two-tap pattern (idle → confirm → resolving → idle with
- * banner) used elsewhere in the admin surface (RevokeAllLinksButton).
+ * banner) used elsewhere in the admin surface.
  *
  * Wraps the typed Server Action `resetPickerEpoch({ showId })` (Pin-2
  * contract). Invoked directly from a transition (not via <form action>)
@@ -46,7 +46,7 @@ export function ResetPickerEpochButton({ showId }: { showId: string }) {
 
   // Snap back to idle when the transition settles so the banner
   // anchors next to the original button cluster (matches the
-  // RevokeAllLinksButton M9.5 impeccable-audit precedent).
+  // Existing admin destructive-action accessibility precedent.
   useEffect(() => {
     if (!isPending && result !== null && ui === "resolving") {
       // eslint-disable-next-line react-hooks/set-state-in-effect

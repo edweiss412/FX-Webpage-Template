@@ -59,7 +59,7 @@ export async function validateGoogleSession(
   // throw on missing env / cookie-store unavailable / network failure
   // — none of those were caught and would produce an uncataloged
   // framework error path instead of the terminal_failure contract
-  // callers (resolveShowViewer, show-page chain) expect. Mirror the
+  // show-page callers expect. Mirror the
   // top-level try/catch validateGoogleIdentity uses (R15 #4).
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
@@ -96,8 +96,8 @@ export async function validateGoogleSession(
     }
     // R16 #1 (round-15 §A HIGH): pre-R16 the route collapsed any
     // getUser() error into "continue", so a transient Supabase Auth
-    // outage looked identical to "no Google credentials." Through
-    // resolveShowViewer that fell to denied/no_credentials → 401,
+    // outage looked identical to "no Google credentials." In the page
+    // auth chain that fell to denied/no_credentials → 401,
     // recreating the exact infra-as-auth masking class R15 was meant
     // to eliminate. Surface as terminal_failure 500.
     return {

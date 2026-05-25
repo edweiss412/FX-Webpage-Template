@@ -8,14 +8,10 @@
  *     "auth helper masks infrastructure fault as benign auth signal"
  *
  *   Examples patched across the milestone:
- *     - validateLinkSession swallowed Supabase delete errors → "valid session"
- *     - redeem-link route discarded Supabase read errors → CSRF_DENIED
- *     - resolveShowViewer slug lookup ignored error field → unknown_slug 401
  *     - isAdminSession `} catch { return { ok: false } }` → "not admin"
  *     - validateGoogleIdentity same catch-all pattern → "no Google identity"
  *     - validateGoogleSession ditto → "no Google credentials"
  *     - validateGoogleSession constructor throw uncaught → uncataloged 500
- *     - validateLinkSession service-role construction uncaught → uncataloged 500
  *     - requireAdmin every error → forbidden() 403
  *     - OAuth callback exchangeCodeForSession every error → OAUTH_STATE_INVALID
  *
@@ -38,16 +34,7 @@
  *     - isAdminSession              → { ok: false, reason: "infra_error" }
  *     - validateGoogleIdentity      → { kind: "terminal_failure", status: 500 }
  *     - validateGoogleSession       → { kind: "terminal_failure", status: 500 }
- *     - validateLinkSession         → { kind: "terminal_failure", status: 500 }
  *     - requireAdmin                → throws AdminInfraError (not forbidden())
- *     - resolveShowViewer           → { kind: "terminal_failure", status: 500 }
- *
- *   M5 R19 update: resolveShowViewer was previously documented as
- *   covered in this docstring but had no test rows. Codex round 19
- *   caught the gap. The describe block below now exercises the helper
- *   at its slug-lookup chokepoint (createSupabaseServiceRoleClient
- *   throw + .from().maybeSingle() throw), pinning the contract
- *   structurally instead of relying on docstring discipline.
  *
  *   Future helpers MUST register themselves below to satisfy this
  *   structural guard. Adding a new auth helper without a row in this
@@ -225,82 +212,6 @@ describe("META infra-failure contract", () => {
     });
   });
 
-  describe("validateLinkSession", () => {
-    test("server-client construction throw with cookie present → terminal_failure 500", async () => {
-      infraMock.throwOnConstruct = true;
-      const { validateLinkSession } = await import("@/lib/auth/validateLinkSession");
-      // Need a cookie present for the helper to enter the supabase path
-      // (no cookie short-circuits to "continue" before any DB work).
-      const result = await validateLinkSession(
-        new Request("http://meta.test", {
-          headers: {
-            cookie:
-              "__Host-fxav_session=" +
-              encodeURIComponent(
-                JSON.stringify({
-                  v: 1,
-                  token: "00000000-0000-4000-8000-000000000000",
-                  show_id: "11111111-1111-4111-8111-111111111111",
-                }),
-              ),
-          },
-        }),
-        { showId: "11111111-1111-4111-8111-111111111111" },
-      );
-      expect(result).toMatchObject({
-        kind: "terminal_failure",
-        status: 500,
-      });
-    });
-
-    test("from() throw with cookie present → terminal_failure 500", async () => {
-      infraMock.throwOnFrom = true;
-      const { validateLinkSession } = await import("@/lib/auth/validateLinkSession");
-      const result = await validateLinkSession(
-        new Request("http://meta.test", {
-          headers: {
-            cookie:
-              "__Host-fxav_session=" +
-              encodeURIComponent(
-                JSON.stringify({
-                  v: 1,
-                  token: "00000000-0000-4000-8000-000000000000",
-                  show_id: "11111111-1111-4111-8111-111111111111",
-                }),
-              ),
-          },
-        }),
-        { showId: "11111111-1111-4111-8111-111111111111" },
-      );
-      expect(result).toMatchObject({
-        kind: "terminal_failure",
-        status: 500,
-      });
-    });
-  });
-
-  describe("resolveShowViewer", () => {
-    test("service-role construction throw → terminal_failure 500", async () => {
-      infraMock.throwOnConstruct = true;
-      const { resolveShowViewer } = await import("@/lib/auth/resolveShowViewer");
-      const result = await resolveShowViewer(new Request("http://meta.test") as never, "any-slug");
-      expect(result).toMatchObject({
-        kind: "terminal_failure",
-        status: 500,
-      });
-    });
-
-    test("from() throw on slug lookup → terminal_failure 500", async () => {
-      infraMock.throwOnFrom = true;
-      const { resolveShowViewer } = await import("@/lib/auth/resolveShowViewer");
-      const result = await resolveShowViewer(new Request("http://meta.test") as never, "any-slug");
-      expect(result).toMatchObject({
-        kind: "terminal_failure",
-        status: 500,
-      });
-    });
-  });
-
   describe("requireAdmin", () => {
     test("server-client construction throw → AdminInfraError (not forbidden)", async () => {
       infraMock.throwOnConstruct = true;
@@ -370,44 +281,4 @@ describe("META infra-failure contract", () => {
     });
   });
 
-  // M9.5 — signed-link admin controls. These helpers are auth-surface
-  // mutations because a silent infra fault could be misreported as
-  // "links revoked" or "new link issued" while the DB row never changed.
-  describe("lib/data/signedLinks", () => {
-    test("revokeAllLinks: server-client construction throw → SignedLinksInfraError", async () => {
-      infraMock.throwOnConstruct = true;
-      const { revokeAllLinks, SignedLinksInfraError } = await import("@/lib/data/signedLinks");
-
-      await expect(
-        revokeAllLinks({ showId: "11111111-1111-4111-8111-111111111111", crewName: "Alice" }),
-      ).rejects.toBeInstanceOf(SignedLinksInfraError);
-    });
-
-    test("revokeAllLinks: rpc throw → SignedLinksInfraError", async () => {
-      infraMock.throwOnRpc = true;
-      const { revokeAllLinks, SignedLinksInfraError } = await import("@/lib/data/signedLinks");
-
-      await expect(
-        revokeAllLinks({ showId: "11111111-1111-4111-8111-111111111111", crewName: "Alice" }),
-      ).rejects.toBeInstanceOf(SignedLinksInfraError);
-    });
-
-    test("issueNewLink: server-client construction throw → SignedLinksInfraError", async () => {
-      infraMock.throwOnConstruct = true;
-      const { issueNewLink, SignedLinksInfraError } = await import("@/lib/data/signedLinks");
-
-      await expect(
-        issueNewLink({ showId: "11111111-1111-4111-8111-111111111111", crewName: "Alice" }),
-      ).rejects.toBeInstanceOf(SignedLinksInfraError);
-    });
-
-    test("issueNewLink: rpc throw → SignedLinksInfraError", async () => {
-      infraMock.throwOnRpc = true;
-      const { issueNewLink, SignedLinksInfraError } = await import("@/lib/data/signedLinks");
-
-      await expect(
-        issueNewLink({ showId: "11111111-1111-4111-8111-111111111111", crewName: "Alice" }),
-      ).rejects.toBeInstanceOf(SignedLinksInfraError);
-    });
-  });
 });

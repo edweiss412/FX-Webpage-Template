@@ -14,7 +14,7 @@
  * Coverage extended in R17 to scan the §12.4 catalog as well, since
  * R17 surfaced that the `ADMIN_LINK_*` entries' dougFacing / followUp
  * / helpfulContext / longExplanation strings are rendered LIVE by
- * IssueLinkButton and RevokeAllLinksButton through getDougFacing.
+ * the retired signed-link controls through getDougFacing.
  * Per AGENTS.md, class-sweep + structural defense at the same time:
  * the registry now treats catalog string fields as in-scope surfaces.
  *
@@ -60,7 +60,7 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
     id: "copy-each-persons-link",
     pattern: /copy each person['']s link/i,
     rationale:
-      "R14 finding 1 (tour.mdx:68). No copy-URL affordance ships in PerShowCrewSection. IssueLinkButton + RevokeAllLinksButton are the only crew-row controls; success state returns catalog copy, not a URL. Until a one-tap copy button ships, Doug shares URLs through his usual channel — prose must reflect that.",
+      "R14 finding 1 (tour.mdx:68). No copy-URL affordance ships in PerShowCrewSection. The retired signed-link controls did not expose a copyable URL. Until a one-tap copy button ships, Doug shares URLs through his usual channel — prose must reflect that.",
   },
   {
     id: "copy-each-crew-members-link",
@@ -114,7 +114,7 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
     id: "share-the-url-channel",
     pattern: /share\s+the\s+(?:crew\s+page\s+)?URL\s+(?:through|with)\s+(?:whatever|the\s+crew)/i,
     rationale:
-      "R16 finding 1 root + R17 catalog extension. The phantom-affordance class extends to the URL-distribution channel itself: signLinkJwt() exists in lib/auth/jwt.ts:123 but no production action surface calls it. issueNewLinkAction returns version counters, not a URL. Doug literally cannot extract a URL from the shipped UI, so 'share the URL through whatever channel' / 'share the crew page URL with the crew member' is structurally false. Per the M11 user-direction ('describe only what's shipped'), help docs and live §12.4 catalog strings must acknowledge URL distribution runs through a developer-built handoff in v1 until the post-M11 picker model lands.",
+      "R16 finding 1 root + R17 catalog extension. The phantom-affordance class extends to the URL-distribution channel itself: no production action surface exposes a copyable crew URL. Doug literally cannot extract a URL from the shipped UI, so 'share the URL through whatever channel' / 'share the crew page URL with the crew member' is structurally false. Per the M11 user-direction ('describe only what's shipped'), help docs and live §12.4 catalog strings must acknowledge URL distribution runs through a developer-built handoff in v1 until the post-M11 picker model lands.",
   },
   {
     id: "send-each-their-link",
@@ -183,8 +183,8 @@ describe("Forbidden-prose registry (R14 structural defense)", () => {
   it("no live §12.4 catalog string matches a known phantom-affordance phrase (R17 extension)", () => {
     // R17 root: ADMIN_LINK_ISSUED_OK / ADMIN_LINK_REVOKED_OK /
     // ADMIN_LINK_NO_LIVE_LINK carried "share the URL" / "send fresh
-    // URL" / "newly-minted JWT" phrasing that IssueLinkButton +
-    // RevokeAllLinksButton render LIVE via getDougFacing. The MDX
+    // URL" / "newly-minted JWT" phrasing that the retired signed-link
+    // controls rendered LIVE via getDougFacing. The MDX
     // sweep was insufficient. This assertion treats every catalog
     // string field as a forbidden-prose surface.
     const violations: string[] = [];

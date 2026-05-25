@@ -1,9 +1,0 @@
-export class SomeClass {
-  async retryLookup(tableName: string) {
-    try {
-      return await supabase.from(tableName).select("*");
-    } catch {
-      return await supabase.from(tableName).select("*");
-    }
-  }
-}

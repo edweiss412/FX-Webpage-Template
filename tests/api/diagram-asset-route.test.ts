@@ -68,14 +68,6 @@ vi.mock("@/lib/auth/isAdminSession", () => ({
   isAdminSession: async () => routeMock.admin,
 }));
 
-vi.mock("@/lib/auth/validateLinkSession", () => ({
-  validateLinkSession: async () => {
-    routeMock.linkCalls += 1;
-    return routeMock.link;
-  },
-  peekLinkSessionShow: () => routeMock.peek,
-}));
-
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
   validateGoogleSession: async () => {
     routeMock.googleCalls += 1;
@@ -450,8 +442,8 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     routeMock.published = false;
     const res = await getDiagram();
     expect(res.status).toBe(410);
-    // The validators have side effects (validateLinkSession refreshes
-    // link_sessions.last_active_at). Asserting zero calls pins the
+    // The validators have side effects (picker asset resolver refreshes
+    // picker state). Asserting zero calls pins the
     // page-level gate ordering into the asset route.
     expect(routeMock.linkCalls).toBe(0);
     expect(routeMock.googleCalls).toBe(0);
@@ -472,9 +464,9 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(res.status).toBe(410);
   });
 
-  test("Codex R5 P1 + R10 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
+  test("Codex R5 P1 + R10 P1: cross-show cookie envelope → 403 WITHOUT calling destructive picker asset resolver", async () => {
     // Crew member has a valid show-A link cookie but hits show-B's
-    // asset URL. The route must NOT call validateLinkSession (which
+    // asset URL. The route must NOT call picker asset resolver (which
     // would DELETE the show-A session row). The route STILL runs
     // validateGoogleSession so a same-show Google session can rescue
     // the request (R10 P1 fix); when Google also fails, the final

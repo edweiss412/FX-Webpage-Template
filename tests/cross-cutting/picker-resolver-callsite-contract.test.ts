@@ -28,9 +28,9 @@ function walkFiles(dir: string): string[] {
 }
 
 describe("picker resolver data API callsite contract", () => {
-  test("data APIs do not import Google or legacy signed-link session validators", () => {
+  test("data APIs do not import Google session validators", () => {
     for (const file of DATA_API_CONSUMERS) {
-      expect(source(file), file).not.toMatch(/validateGoogleSession|validateLinkSession/);
+      expect(source(file), file).not.toMatch(/validateGoogleSession/);
     }
   });
 

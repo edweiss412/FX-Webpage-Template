@@ -23,12 +23,6 @@ vi.mock("@/lib/auth/picker/resolvePickerSelection", () => ({
   },
 }));
 
-vi.mock("@/lib/auth/validateLinkSession", () => ({
-  validateLinkSession: vi.fn(() => {
-    throw new Error("validateLinkSession must not be called by report route");
-  }),
-}));
-
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
   validateGoogleSession: vi.fn(() => {
     throw new Error("validateGoogleSession must not be called by report route");

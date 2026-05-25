@@ -3,9 +3,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = process.cwd();
-const SIGNED_LINK_ADMIN_RPC_MIGRATION =
-  "supabase/migrations/20260520000000_signed_link_admin_rpcs.sql";
-
 function stripComments(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -16,12 +13,10 @@ function stripComments(source: string): string {
 function lockTakingRpcNames(): string[] {
   const migrationFiles = [
     "supabase/migrations/20260502000000_dev_schema_clone.sql",
-    "supabase/migrations/20260504000003_mint_link_session_atomic.sql",
-    "supabase/migrations/20260504000004_revoke_leaked_link_atomic_advisory_lock.sql",
-    "supabase/migrations/20260505000001_redeem_link_locked_rpcs.sql",
-    "supabase/migrations/20260505000002_mint_bootstrap_nonce_atomic.sql",
-    "supabase/migrations/20260505000003_recheck_link_session_mint_auth_state.sql",
-    SIGNED_LINK_ADMIN_RPC_MIGRATION,
+    "supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql",
+    "supabase/migrations/20260523000004_rotate_show_share_token.sql",
+    "supabase/migrations/20260523000007_select_identity_atomic.sql",
+    "supabase/migrations/20260524000002_claim_oauth_identity.sql",
   ];
 
   const names = new Set<string>();
@@ -41,37 +36,21 @@ function lockTakingRpcNames(): string[] {
   return [...names].sort();
 }
 
-function signedLinkAdminRpcNames(): string[] {
-  const source = stripComments(readFileSync(join(ROOT, SIGNED_LINK_ADMIN_RPC_MIGRATION), "utf8"));
-  return [
-    ...source.matchAll(/create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\(/gi),
-  ]
-    .map((match) => match[1])
-    .filter((name): name is string => Boolean(name))
-    .sort();
-}
-
 describe("advisory-lock RPC deadlock guard", () => {
   test("no Supabase RPC that takes a show advisory lock is called inside withShowAdvisoryLock", () => {
     const lockTakingNames = lockTakingRpcNames();
-    expect(lockTakingNames).toContain("revoke_leaked_link_atomic");
-    expect(lockTakingNames).toContain("consume_bootstrap_nonce_atomic");
-    expect(lockTakingNames).toContain("mint_link_session_if_active_kid_matches");
-    expect(lockTakingNames).toContain("mint_bootstrap_nonce_atomic");
-
-    const signedLinkAdminNames = signedLinkAdminRpcNames();
-    expect(signedLinkAdminNames).toHaveLength(2);
-    for (const name of signedLinkAdminNames) {
-      expect(lockTakingNames).toContain(name);
-    }
+    expect(lockTakingNames).toContain("reset_picker_epoch_atomic");
+    expect(lockTakingNames).toContain("rotate_show_share_token");
+    expect(lockTakingNames).toContain("select_identity_atomic");
+    expect(lockTakingNames).toContain("claim_oauth_identity");
 
     const sourceFiles = [
-      "app/api/auth/redeem-link/route.ts",
       "middleware.ts",
-      "app/show/[slug]/p/actions.ts",
       "lib/realtime/showInvalidation.ts",
       "app/admin/dev/actions.ts",
-      "app/admin/show/[slug]/actions.ts", // M9.5
+      "lib/auth/picker/resetPickerEpoch.ts",
+      "lib/auth/picker/rotateShareToken.ts",
+      "lib/auth/picker/selectIdentity.ts",
     ];
 
     for (const file of sourceFiles) {
@@ -89,23 +68,6 @@ describe("advisory-lock RPC deadlock guard", () => {
         }
       }
     }
-  });
-
-  test("redeem-link route does not use JS-side advisory lock around Supabase mutations", () => {
-    const source = stripComments(
-      readFileSync(join(ROOT, "app/api/auth/redeem-link/route.ts"), "utf8"),
-    );
-
-    expect(source).not.toMatch(/withShowAdvisoryLock\s*\(/);
-    expect(source).toMatch(/\.rpc\(\s*["']consume_bootstrap_nonce_atomic["']/);
-    expect(source).toMatch(/\.rpc\(\s*["']mint_link_session_if_active_kid_matches["']/);
-  });
-
-  test("bootstrap nonce mint does not use JS-side advisory lock around Supabase mutations", () => {
-    const source = stripComments(readFileSync(join(ROOT, "app/show/[slug]/p/actions.ts"), "utf8"));
-
-    expect(source).not.toMatch(/withShowAdvisoryLock\s*\(/);
-    expect(source).toMatch(/\.rpc\(\s*["']mint_bootstrap_nonce_atomic["']/);
   });
 
   test("abandoned finalize cleanup uses direct SQL locks and no lock-taking RPC boundary", () => {

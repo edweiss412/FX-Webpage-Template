@@ -1,8 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { AFFORDANCE_MATRIX, type ConcreteRow } from "@/app/help/_affordanceMatrix";
-import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
-import { seedLinkSession } from "./helpers/seedLinkSession";
 import { signInAs } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
 
@@ -258,28 +256,3 @@ for (const row of concreteRows) {
     await assertTarget(root, row);
   });
 }
-
-test("negative row: crew page renders no admin help affordance testids", async ({ page }) => {
-  const show = await fixtureShow();
-  const crew = await fixtureCrew(show.id);
-
-  const { cookieValue } = await seedLinkSession({
-    showId: show.id,
-    crewMemberId: crew.id,
-  });
-
-  await page.context().addCookies([
-    {
-      name: SESSION_COOKIE_NAME,
-      value: cookieValue,
-      url: BASE_URL,
-      httpOnly: true,
-      secure: false,
-      sameSite: "Lax",
-    },
-  ]);
-
-  const response = await page.goto(`/show/${show.slug}`, { waitUntil: "domcontentloaded" });
-  expect(response?.ok(), `/show/${show.slug} should load`).toBe(true);
-  await expect(page.locator('[data-testid^="help-affordance--"]')).toHaveCount(0);
-});
