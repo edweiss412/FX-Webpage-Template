@@ -27,6 +27,11 @@ vi.mock("@/lib/auth/picker/rotateShareToken", () => ({
   rotateShareToken: vi.fn(),
 }));
 
+const refreshMock = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: refreshMock }),
+}));
+
 import { RotateShareTokenButton } from "@/app/admin/show/[slug]/RotateShareTokenButton";
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 
@@ -112,6 +117,29 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       expect(urlEl.textContent).toContain(`/show/${SLUG}/${NEW_TOKEN}`);
       expect(urlEl.textContent).toMatch(/^https?:\/\//);
     });
+    // Success path must trigger a server re-render so the sibling
+    // <CurrentShareLinkPanel> reads the new token on the next render.
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
+  });
+
+  test("failure result: does NOT trigger router.refresh() (no token to display)", async () => {
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },
+    );
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("admin-rotate-share-token-refused"),
+      ).toBeTruthy(),
+    );
+    expect(refreshMock).not.toHaveBeenCalled();
   });
 
   test("copy button: clicking copies the URL to the clipboard + flips the label to 'Copied'", async () => {

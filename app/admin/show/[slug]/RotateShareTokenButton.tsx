@@ -18,6 +18,7 @@
  */
 
 import { AlertTriangle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
@@ -37,6 +38,7 @@ export function RotateShareTokenButton({
   showId: string;
   slug: string;
 }) {
+  const router = useRouter();
   const [ui, setUi] = useState<UiState>("idle");
   const [result, setResult] = useState<Result>(null);
   const [copied, setCopied] = useState(false);
@@ -92,6 +94,13 @@ export function RotateShareTokenButton({
     startTransition(async () => {
       const r = await rotateShareToken({ showId });
       setResult(r);
+      if (r.ok) {
+        // Re-render the admin show page server-side so
+        // <CurrentShareLinkPanel> re-reads the new share token. Rotate's
+        // own success banner shows the new URL directly; this keeps the
+        // persistent panel in sync without a hard navigation.
+        router.refresh();
+      }
     });
   };
 

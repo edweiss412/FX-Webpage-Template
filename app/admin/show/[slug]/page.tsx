@@ -25,6 +25,7 @@ import { ParsePanel } from "@/components/admin/ParsePanel";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { PerShowCrewSection } from "@/components/admin/PerShowCrewSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
+import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
 import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
@@ -409,6 +410,7 @@ export default async function AdminShowPage({
           leaks; reset the picker if a crew member needs to re-pick
           their identity (e.g. they tapped the wrong name).
         </p>
+        <CurrentShareLinkPanel showId={show.id} slug={show.slug} />
         <div className="flex flex-col items-end gap-4">
           <ResetPickerEpochButton showId={show.id} />
           <RotateShareTokenButton showId={show.id} slug={show.slug} />
