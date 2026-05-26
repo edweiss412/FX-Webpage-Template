@@ -1888,6 +1888,24 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Scope discipline:** spec + plan + handoff markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`.
 
+### Amendment R58 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `dcc6dae` (post-R57)
+- **Verdict:** **needs-attention** (1 HIGH F50 — R57 fix-round regression budget gap; migration drift-safety)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F50 | HIGH | `02-phase0-validation-state.md:141-178` (validation_state DDL idempotency) | **R57 fix-round regression budget gap — migration not drift-safe.** Canonical migration declares `last_seed_date date NULL` but uses `CREATE TABLE IF NOT EXISTS` — declaration only applies on first creation. No follow-up `ALTER COLUMN last_seed_date DROP NOT NULL`. Pre-R57 draft specified NOT NULL; any prod-equivalent OR dev stack that applied earlier M12 draft keeps NOT NULL constraint. R57 mint RPC INSERT omitting last_seed_date then fails on drift'd stacks → F49 closure path broken. **Classification:** migration discipline (per AGENTS.md "CHECK/enum migration matrix" rule: apply-twice idempotency). NOT F48-class round 3 (semantic vs migration drift-safety distinct mechanisms); threshold-3 stays armed for genuine F48-class recurrence. Repair: add idempotent `ALTER TABLE public.validation_state ALTER COLUMN last_seed_date DROP NOT NULL` immediately after CREATE TABLE block in plan 02 + spec §3.3.2 mirror; extend schema test to assert nullable on existing-NOT-NULL stack; sweep for other M12 DDL changes lacking drift-safety. |
+
+- **Same-vector status post-R58:**
+  - F50 R57 fix-round regression budget gap (migration drift-safety): 1 round; per-instance fix at R59.
+  - F48-class: 2 rounds (R54 + R56); threshold-3 trigger remains armed for genuine F48-class recurrence at R60+.
+  - F47 closed at R53; all other classes still closed.
+
+- **Repair commit:** pending R59 implementer dispatch (inline Agent; F50 ALTER COLUMN DROP NOT NULL + spec mirror + schema test extension + sweep for other M12 DDL drift-safety gaps).
+
 ---
 
 ## §10 — Cross-milestone dependencies
