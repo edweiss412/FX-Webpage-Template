@@ -1032,6 +1032,28 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R32 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `424f438` (post-R31)
+- **Verdict:** **needs-attention** (1 HIGH F31 + 1 MEDIUM F32)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F31 | HIGH | `2026-05-19-solo-dev-ux-validation-design.md:824` (spec §9.1.2 row) + `:517` (spec §4.2) | **F21-class 3rd round** — spec §9.1.2 + §4.2 still say `validation:report-fixtures` only INSERTs/UPDATEs `reports`. R31 plan rewrite changed the producer state to per-outcome (`reports` + `report_rate_limits` + `admin_alerts`) but did NOT propagate to canonical spec. **R23 commit 52 F21-class structural defense had 4 regex patterns specific to F22/F23 shapes** (no-direct-write / trigger-only-sentinel / fresh-ids / re-creates-affected-rows) — F31 is a NEW "producer table" prose-contradiction shape outside the regex set. Implementer can follow spec table + ship pre-R31 bug: rate-limit and alert-backed outcomes materialized in wrong table or not at all. Repair: update spec §4.2 + §9.1.2 to R31's per-outcome producer map (including cleanup predicates + stdout id semantics + env inputs); ratify as plan-supersedes-spec amendment per §13.2.3 model. |
+  | F32 | MEDIUM | `04-phase0-tooling-report.md:84-88` (failing test example for `rate-limit-admin`) | Test asserts `identity LIKE 'validation:%' AND count=11`. R31 (A) producer map says `report_rate_limits.identity=<canonical($VALIDATION_ADMIN_EMAIL)>` and live `enforceQuota` canonicalizes the actual admin reporter identity before UPSERT. **Test passes while real admin request increments different bucket** + never returns `REPORT_RATE_LIMITED_ADMIN`. Cleanup may miss the real admin bucket unless flag used consistently. Repair: assert canonical admin identity actually used by `enforceQuota`; declare where the identity comes from (`VALIDATION_ADMIN_EMAIL` or seeded `admin_emails`/session); require cleanup coverage via `--cleanup --include-admin-email <email>`. |
+
+- **Same-vector + structural-defense status post-R32:**
+  - **F21-class (prose-contradicts-newly-amended-contract): 3 rounds** (R20 F21 + R22 F22+F23 + R32 F31). Per AGENTS.md same-vector recurrence + threshold-3 calibration, R33 MUST do comprehensive re-analysis of F21-class surfaces. Specifically: R23 regex defense is shape-specific (4 patterns); each new amendment introduces a new shape needing a new regex (same incremental pattern as F10-class pre-R27 Option D). R33 either extends regex set (incremental) OR pivots to broader pattern (e.g., audit every amendment's plan-side changes against canonical spec sections — analogous to F10-class Option D).
+  - **Threshold-3 calibration:** if R34 surfaces another F21-class peer despite R33 re-analysis, escalate per M12 plan R5 precedent (structural-defense calibration: "if comprehensive re-analysis fails to converge, ship structural defense in the same repair commit"). R23 defense exists; R33 mandate is to EXTEND it (new regex pattern for "producer table" shape) OR refactor to broader assertion.
+  - F30-class (NEW R30): 1 round, closed at R31; no R32 recurrence.
+  - All other classes still closed.
+
+- **Repair commit:** pending R33 implementer dispatch (inline Agent; F21-class comprehensive re-analysis + per-instance F31/F32 + regex extension).
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.
