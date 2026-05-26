@@ -90,32 +90,7 @@ test.describe.skip("crew page — ShowStatusTile (Task 4.8, AC-4.1)", () => {
   });
 });
 
-// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
-// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
-// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
-// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
-// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
-// plus per-test fixture seeding. See handoff §0.
-test.describe.skip("crew page — FinancialsTile (Task 4.8, AC-4.2)", () => {
-  test("LEAD viewer sees FinancialsTile with PO / Proposal / Invoice content", async ({ page }) => {
-    const { slug, leadCrewId } = await lookupSeeded();
-    const r = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
-    expect(r?.status()).toBe(200);
-
-    const fin = page.getByTestId("financials-tile");
-    await expect(fin).toBeVisible();
-
-    // The fixture seeds at least one of PO / proposal / invoice — the
-    // tile MUST surface at least one financial label. Match on the
-    // label text (the values vary by fixture).
-    await expect(fin).toContainText(/PO|Proposal|Invoice/i);
-  });
-
-  test("non-LEAD viewer does NOT see FinancialsTile (AC-4.2)", async ({ page }) => {
-    const { slug, nonLeadCrewId } = await lookupSeeded();
-    const r = await page.goto(`/show/${slug}?crew=${nonLeadCrewId}`);
-    expect(r?.status()).toBe(200);
-
-    await expect(page.getByTestId("financials-tile")).toHaveCount(0);
-  });
-});
+// FinancialsTile (Task 4.8, AC-4.2) E2E suite removed 2026-05-25 as fully redundant
+// with `tests/visibility/scopeTiles.test.ts` (financialsVisible predicate matrix).
+// See `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/DEFERRED.md`
+// entry `M4-E2E-SUITES-MIGRATION` for the broader cleanup context.

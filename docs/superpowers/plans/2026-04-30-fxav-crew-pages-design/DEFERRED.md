@@ -28,6 +28,48 @@ When picking up a deferred item:
 
 ---
 
+### M4-E2E-SUITES-MIGRATION — M4-era `test.describe.skip` Playwright suites: triage outcome
+
+**Status:** Deferred 2026-05-25 from per-suite redundancy audit.
+**Source:** Two-stage triage of 14 hard-skipped M4-era Playwright suites in `tests/e2e/` (each had inline TODO citing the retired `?crew=/?as=admin` mock surface from Task 5.7 follow-up). Originally treated as a single blocker on `M11.5-PLAYWRIGHT-HELPERS`; the audit showed only 2 of the 14 actually need that helper layer.
+
+**Triage outcome (4 categories):**
+
+- **DELETED 2026-05-25** (2 suites — visibility predicates fully redundant with `tests/visibility/` unit layer):
+  - `tests/e2e/scope-tiles.spec.ts` (whole file — A1/V1/L1/LEAD scope-tile visibility matrix covered exhaustively by `tests/visibility/scopeTiles.test.ts` `audioScopeVisible`/`videoScopeVisible`/`lightingScopeVisible`).
+  - `tests/e2e/status-financials.spec.ts:99` FinancialsTile block (LEAD-only visibility covered by `tests/visibility/scopeTiles.test.ts` `financialsVisible` admin/LEAD/non-LEAD matrix).
+  - `playwright.config.ts` testMatch regex updated to drop `scope-tiles` from both `mobile-safari` and `desktop-chromium` projects.
+  - Note: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:2388` (§8.1-A1 amendment) cites `tests/e2e/scope-tiles.spec.ts` as a historical amendment-time artifact; left intact as historical record.
+
+- **PARKED on `M11.5-PLAYWRIGHT-HELPERS`** (2 suites — genuine signed-in/role-spoof or real-browser-layout dependencies):
+  - `tests/e2e/role-spoof.spec.ts:72` — asserts `?role=` URL param is ignored at the SSR boundary; requires signed-in identity helper from M11.5 picker-shaped helper layer.
+  - `tests/e2e/layout-dimensions.spec.ts:208` — Task 4.13 / §8.4 / AC-4.4 `getBoundingClientRect()` invariants; cannot move to jsdom per AGENTS.md "Dimensional Invariants" rule (jsdom doesn't compute real layout). Whether the assertions also need signed-in fixture or run anonymously is unresolved — pin during M11.5 helper work.
+
+- **PARTIAL-PORT — visibility predicate redundant, integration assertions are not** (3 suites — keep `test.describe.skip` in place; pick up alongside the migrate-now batch below):
+  - `tests/e2e/transport-tile.spec.ts:225` — visibility branches (driver / passenger / unrelated) covered by `tests/visibility/transportTransitions.test.ts` matrix. Unique residue: vehicle-name / passenger-sentinel rendering + the test 4 end-to-end `getShowForViewer.transportation.schedule[0].assigned_names` projection contract.
+  - `tests/e2e/empty-state.spec.ts:88` — opening_reel hide/render predicates covered by `tests/visibility/emptyState.test.ts` `shouldHideOpeningReel` and `tests/visibility/openingReelText.test.ts` `stripOpeningReelText`. `power` field hide covered by `shouldHideGenericOptional`. Unique residue: the "no `https://` or `drive.google.com` anywhere in `main` text" integration assertion + the "no `<video src="/api/asset/reel/*">` element on M4 page" deferred-to-M7 negative assertion (likely obsolete now since M7 shipped — confirm before porting).
+  - `tests/e2e/pack-list.spec.ts:219` — visibility (3 schedule phases) + cardinality cap + overflow. Subagent audit claimed `tests/visibility/packList.test.ts` covers all three; the cardinality/overflow assertions are rendering behavior and should be re-verified during port.
+
+- **FULL-MIGRATE to jsdom + RTL** (10 suites — no equivalent component-test coverage exists; estimated ~34h):
+  - `tests/e2e/right-now.spec.ts:128` (Task 4.11 RightNowCard; partial gap on `RightNowCardRecovery.test.tsx`, ~2h)
+  - `tests/e2e/right-now-transitions.spec.ts:152` (§8.2 66-pair pairwise transition audit, ~8h)
+  - `tests/e2e/right-now-transitions.spec.ts:289` (§8.2 6 compound transition audits, ~3h)
+  - `tests/e2e/theme-toggle.spec.ts:57` (data-theme flip + localStorage + no-FOUC, ~3h)
+  - `tests/e2e/status-financials.spec.ts:72` ShowStatusTile (COI status rendering, ~2h)
+  - `tests/e2e/crew-page.spec.ts:559` LodgingTile (~2h)
+  - `tests/e2e/crew-page.spec.ts:596` VenueTile (~2h)
+  - `tests/e2e/crew-page.spec.ts:619` CrewTile (~3h; existing `PerShowCrewSection.test.tsx` is admin-side, not equivalent)
+  - `tests/e2e/crew-page.spec.ts:652` ContactsTile (~2h)
+  - `tests/e2e/schedule-tile.spec.ts:123` ScheduleTile (date_restriction.kind branches, ~3h)
+  - `tests/e2e/notes-tile.spec.ts:144` NotesTile (4-source aggregation + truncation + cardinality, ~4h)
+  - `tests/e2e/crew-page.spec.ts:508` layout shell — actually a real-browser layout assertion (mobile 2-col grid via `getBoundingClientRect()`); should join `layout-dimensions.spec.ts:208` in the M11.5-helpers parked bucket rather than this migrate bucket. (Recategorize at migration-coda kickoff.)
+
+**Why deferred:** ~36h of jsdom + RTL port work is too large to land inline alongside M11.5 deployment readiness, and it does NOT block the M11.5 picker pivot (only 2 of the 14 suites have genuine auth/URL contract dependencies). The picker pivot is changing the URL/auth contract these suites currently target — migrating them to component tests *before* the pivot lands future-proofs them against the contract change (component tests with mocked props are stable across auth-flow refactors; E2E suites would need re-pointing at the new picker URL contract).
+
+**Suggested home:** Dedicated test-migration coda after M11.5 deployment readiness but before M13 v1 launch. Coda body = one task per "FULL-MIGRATE" entry above + the 3 "PARTIAL-PORT" entries (~36h total estimate). Coda explicitly does NOT include `role-spoof.spec.ts` or `layout-dimensions.spec.ts` — those stay parked under `M11.5-PLAYWRIGHT-HELPERS` for genuine signed-in / real-browser-layout helper work. Audit underlying triage in conversation log 2026-05-25; if any of the PARTIAL-PORT residue is obsolete by then (e.g., M7 `<video>` element negative-assertion), drop those without porting.
+
+---
+
 ### X6-D-1 — Branch-protection drift-detector + 7th required check deferred until team workflow exists
 
 **Status:** Deferred 2026-05-20. **Suggested home:** post-v1 milestone *if/when* FXAV onboards a second developer/admin.
