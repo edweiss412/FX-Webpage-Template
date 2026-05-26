@@ -2,7 +2,9 @@
 
 > Per spec §3.3 + §3.3.2 + §9.0 task 0.C + §9.1.2 tooling reference. Estimate: 1–2 days.
 >
-> Goal: ship the three foundational validation-tooling CLIs. They write/read `validation_state`, materialize the 16 fixture combos (10 R + 6 SW) with 11 crew_members per R-combo, lockstep crew_member_auth UPSERT, and the 116-leaf alias_map jsonb. Walks the canonical §9.1.2 contract.
+> Goal: ship the three foundational validation-tooling CLIs. They write/read `validation_state`, materialize the 16 fixture combos (10 R + 6 SW) with 9 crew_members per R-combo (post-2026-05-26 picker-pivot rebase — `alias_5a_lead_for_revoke` + `alias_5a_lead_for_query_compromise` retired with the M9.5 signed-link surface; picker pivot's destructive actions are inherently fixture-clean), and the 96-leaf alias_map jsonb. Walks the canonical §9.1.2 contract.
+>
+> **Rebase note (2026-05-26).** This file was drafted against the pre-M11.5 signed-link world (crew_member_auth UPSERT, `revoked_links`-tagged cleanup, J3-isolation aliases). The picker pivot dropped `crew_member_auth` + `revoked_links` + `link_sessions` + `bootstrap_nonces` at the G3 cutover (`supabase/migrations/20260523000099_cutover_drop_m9_5.sql`). The remaining narrative below preserves the original task structure but every reference to `crew_member_auth`, `revoked_links`, `current_token_version`, `revoked_below_version`, and the two J3-isolation aliases is **STRUCK** by the rebase — the reseed RPC writes ONLY `shows`, `crew_members`, and `validation_state.alias_map` (the `show_share_tokens` row is auto-created by the existing `shows_create_share_token_after_insert` trigger). Code blocks below that show `crew_member_auth` UPSERT or `revoked_links` DELETE are pre-rebase pseudocode; the implementer MUST omit those statements from the live RPC body. The actual fixture-mapping leaf count is **96** (10 R-combos × 9 aliases + 6 SW × 1), not 116; `check-seed` predicates that referenced `crew_member_auth` row presence or `revoked_links` poisoning are dropped.
 
 ---
 
