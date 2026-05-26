@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md";
+const DEFAULT_SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
 const ESCAPED_PIPE_SENTINEL = "<<ESCAPED-PIPE>>";
 
 function sliceSection124(markdown: string): string {

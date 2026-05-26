@@ -19,8 +19,8 @@ import {
 } from "@/lib/audit/noGlobalCursor";
 import { extractWatermarkSymbolsFromSpec } from "@/scripts/extract-watermark-symbols";
 
-const specPath = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md";
-const planPath = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/11-cross-cutting.md";
+const specPath = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
+const planPath = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md";
 const tokenFixtureRoot = "tests/cross-cutting/fixtures/no-global-cursor";
 const semanticFixtureRoot = "tests/cross-cutting/fixtures/no-global-cursor-semantic";
 const migrationPath = "supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql";

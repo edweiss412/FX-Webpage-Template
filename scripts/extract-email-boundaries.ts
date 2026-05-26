@@ -1,8 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync } from "node:fs";
 
-const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md";
-const PLAN_PATH = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/11-cross-cutting.md";
+const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
+const PLAN_PATH = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md";
 const OUT_PATH = "lib/audit/email-boundaries.generated.ts";
 
 export type EmailBoundary = {

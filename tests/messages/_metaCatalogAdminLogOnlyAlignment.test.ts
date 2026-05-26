@@ -6,7 +6,7 @@ import { extractAdminLogOnlyCodes } from "@/scripts/extract-admin-log-only-codes
 
 describe("Catalog ↔ master-spec admin-log-only alignment (test #17)", () => {
   const masterSpec = readFileSync(
-    join(process.cwd(), "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md"),
+    join(process.cwd(), "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md"),
     "utf8",
   );
   const derivedCodes = extractAdminLogOnlyCodes(masterSpec);

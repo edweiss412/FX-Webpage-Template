@@ -14,7 +14,7 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * The dev-build / prod-build approach was ratified during M3 spec review:
  * a single build with runtime-toggled env defeats the build-artifact gate.
- * See docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/03-04-tiles.md:13-19.
+ * See docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/03-04-tiles.md:13-19.
  */
 export default defineConfig({
   testDir: "tests/e2e",

@@ -2,8 +2,8 @@
 
 **Date**: 2026-05-12
 **Owner**: Eric Weiss (M9 milestone owner)
-**Spec target**: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` §12.4
-**Authorizing context**: M9 Task 9.0.A1 (handoff `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/handoffs/M9-polish.md` §3 + §A). Triggered by R2 codex adversarial review of Task 9.0 commit `49bc26b` (finding 2 — M7-D2 introducing new catalog codes requires explicit spec authorization).
+**Spec target**: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4
+**Authorizing context**: M9 Task 9.0.A1 (handoff `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9-polish.md` §3 + §A). Triggered by R2 codex adversarial review of Task 9.0 commit `49bc26b` (finding 2 — M7-D2 introducing new catalog codes requires explicit spec authorization).
 **Type**: Additive. Supersedes nothing.
 
 ## Summary
@@ -23,7 +23,7 @@ Distinct from a transient infrastructure failure (which routes through the exist
 
 ## Why now
 
-Today's `AgendaPdfViewer` collapses every PDF load failure to a single retry-able message ("couldn't open the agenda right now"). The retry-able framing is correct for transient infra faults but wrong for permanent 410 (file removed / non-PDF / drift) — retrying spins forever — and wrong for 401 (link expired) where the user has a different recovery path (reopen Doug's message). M7-D2 (deferred from M7 Task 7.9 §12 `/impeccable audit` Finding G.3, 2026-05-11; see `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/DEFERRED.md` M7-D2) routes these distinct error classes to distinct catalog rows so `messageFor(...)` returns the right copy.
+Today's `AgendaPdfViewer` collapses every PDF load failure to a single retry-able message ("couldn't open the agenda right now"). The retry-able framing is correct for transient infra faults but wrong for permanent 410 (file removed / non-PDF / drift) — retrying spins forever — and wrong for 401 (link expired) where the user has a different recovery path (reopen Doug's message). M7-D2 (deferred from M7 Task 7.9 §12 `/impeccable audit` Finding G.3, 2026-05-11; see `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md` M7-D2) routes these distinct error classes to distinct catalog rows so `messageFor(...)` returns the right copy.
 
 Per `AGENTS.md` §1.5 (no raw error codes in user-visible UI) + §1.7 (spec is canonical), adding new MessageCodes requires explicit spec authorization. This amendment is that authorization.
 
@@ -86,7 +86,7 @@ Verbatim §12.4 table rows (markdown pipe-delimited; copy into the live spec):
 
 After ratification, two things happen in order:
 
-1. The two row lines above are inserted into `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` between line 2752 (`EMBEDDED_RECOVERY_REQUIRES_RESTAGE`) and line 2757 (`DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`).
+1. The two row lines above are inserted into `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` between line 2752 (`EMBEDDED_RECOVERY_REQUIRES_RESTAGE`) and line 2757 (`DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`).
 2. This amendment file remains in place as the historical record. The §3 "ratified amendments" record in `00-overview.md` adds a reference to this file.
 
 The spec body integration commit subject: `docs(spec): integrate §12.4 amendment — AGENDA_* catalog rows`. Separate from this amendment commit so the ratification record and the spec body cut are distinguishable in git history.
@@ -109,7 +109,7 @@ The spec body integration commit subject: `docs(spec): integrate §12.4 amendmen
 3. ✅ followUp uses the "Crew → ..." convention consistent with other crew-only rows in §12.4.
 4. ✅ Section neighborhood (line 2752 ↔ 2757) doesn't break ordering ambiguity: 2752 is `EMBEDDED_RECOVERY_REQUIRES_RESTAGE`, 2757 is `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`. Both are linked-asset / Drive-derived crew-facing errors. AGENDA_* rows slot into the same theme.
 5. ✅ `helpfulContext` invariant honored: both rows have null dougFacing → no YAML appendix entry → X.1 parity test passes.
-6. ✅ Distinct from existing codes: no name collision with any current §12.4 entry (verified via `grep "AGENDA_" docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` returns no pre-existing rows).
+6. ✅ Distinct from existing codes: no name collision with any current §12.4 entry (verified via `grep "AGENDA_" docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` returns no pre-existing rows).
 7. ✅ Distinct from existing trigger semantics: the agenda PDF surface is unique to this proxy; no other §12.4 row covers the same observation.
 8. ✅ Implementation-owns-taxonomy disclaimer present (R3 amendment-review repair, codex review of SHA d34c910): the canonical rows summarize at HTTP-status level + crew-recovery level. The comprehensive trigger taxonomy lives in the implementation (the route, the validators, the catalog file, and Task 9.M7-D2's TDD checklist) — not in the amendment text. R1–R3 of the amendment review surfaced repeated factual gaps when the amendment attempted exhaustive enumeration, because runtime composed-validator + async-stream behavior is not the spec's domain.
 9. ✅ The 410-or-403 merge to one catalog row is justified inline in the Summary (proxy emits status-only bodies; user-recovery is identical; cross-show 403 follows the existing pattern of `SHOW_REALTIME_CROSS_SHOW_FORBIDDEN` security-signal codes that don't surface to crew). Splitting would require expanding the proxy contract — explicitly out of M7-D2 / v1-polish scope.

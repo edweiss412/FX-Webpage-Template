@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { extractWatermarkSymbolsFromSpec } from "./extract-watermark-symbols";
 
-export const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md";
-const PLAN_PATH = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/11-cross-cutting.md";
+export const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
+const PLAN_PATH = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md";
 const WORKFLOW_PATH = ".github/workflows/x-audits.yml";
 const OUT_PATH = "docs/superpowers/plans/coverage.md";
 

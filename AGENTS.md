@@ -2,7 +2,7 @@
 
 Project-scoped instructions for any agent harness working in this repo (Codex CLI, Claude Code, or other). This file is the source of truth for project rules; if you are also reading global guidance (e.g. `~/.claude/CLAUDE.md`), this file extends and overrides it for this repo.
 
-**Project:** Next.js 16 + Supabase web app turning Doug Larson's per-show Google Sheets into per-crew-member, mobile-first webpages. See `PRODUCT.md` (strategic), `DESIGN.md` (visual — created in M4), spec at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`, plan at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/`.
+**Project:** Next.js 16 + Supabase web app turning Doug Larson's per-show Google Sheets into per-crew-member, mobile-first webpages. See `PRODUCT.md` (strategic), `DESIGN.md` (visual — created in M4), spec at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, plan at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/`.
 
 ---
 
@@ -126,7 +126,7 @@ These rules govern how prompts, briefs, and review focus text compose across CLI
 
 ## Routing convention
 
-Every milestone has an assigned implementer model+harness, documented in `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/ROUTING.md`. When a milestone is delegated across harnesses, the handoff follows `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/HANDOFF-TEMPLATE.md`. Read both before starting any milestone.
+Every milestone has an assigned implementer model+harness, documented in `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/ROUTING.md`. When a milestone is delegated across harnesses, the handoff follows `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/HANDOFF-TEMPLATE.md`. Read both before starting any milestone.
 
 ### Hard rule: UI work is always Opus / Claude Code
 

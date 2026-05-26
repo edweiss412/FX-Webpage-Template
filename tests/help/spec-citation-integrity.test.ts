@@ -26,8 +26,9 @@
 // those are deliberate historical references, not load-bearing claims
 // about current code state.
 //
-// SCOPE. This test guards `docs/superpowers/specs/2026-05-12-user-facing-
-// docs-design.md` only. If the M12+ spec wants the same protection, copy
+// SCOPE. This test guards
+// `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md`
+// only. If the M12+ spec wants the same protection, copy
 // this test and point it at the new spec. The pattern is general — but
 // the historical-exemption phrasings here are tuned to the M11 amendment
 // vocabulary.
@@ -38,7 +39,7 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = process.cwd();
 const SPEC_PATH = join(
   REPO_ROOT,
-  "docs/superpowers/specs/2026-05-12-user-facing-docs-design.md",
+  "docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md",
 );
 
 // Extract `path/to/file.ext:N` or `path/to/file.ext:N-M` from any backtick

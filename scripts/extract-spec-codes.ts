@@ -28,7 +28,7 @@ export type ExtractedSpecCodes = {
   retiredCodes: Record<string, RetiredCodePayload>;
 };
 
-const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md";
+const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
 const OUTPUT_PATH = "lib/messages/__generated__/spec-codes.ts";
 const HELP_CONTEXT_ANCHOR = "<!-- §12.4 helpfulContext appendix";
 const CODE_RE = /^[A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*$/;

@@ -16,7 +16,7 @@
  * drag pans the image instead of navigating diagrams. Reset returns
  * to 1× via double-tap, the visible Reset chip, the `0` key, or
  * chevron navigation. See:
- *   docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/
+ *   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/
  *   shape-sessions/2026-05-13-pinch-zoom-lightbox.md
  *
  * Lives in its own file so the heavier deps (Embla,

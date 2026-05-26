@@ -25,7 +25,7 @@ describe("Catalog alignment with master-spec admin-log-only contract (Task B.3 h
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const masterSpec = readFileSync(
-      join(process.cwd(), "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md"),
+      join(process.cwd(), "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md"),
       "utf8",
     );
     derivedCodes = extractAdminLogOnlyCodes(masterSpec);

@@ -9,8 +9,8 @@ import {
   parseWorkflowFindings,
 } from "@/scripts/generate-traceability";
 
-const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md";
-const PLAN_PATH = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/11-cross-cutting.md";
+const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
+const PLAN_PATH = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md";
 const WORKFLOW_PATH = ".github/workflows/x-audits.yml";
 
 function fixture(name: string): string {

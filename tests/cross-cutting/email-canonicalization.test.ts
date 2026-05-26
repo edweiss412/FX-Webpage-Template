@@ -12,8 +12,8 @@ import {
 } from "@/lib/audit/emailCanonicalization";
 import { extractEmailBoundariesFromDocs } from "@/scripts/extract-email-boundaries";
 
-const specPath = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md";
-const planPath = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/11-cross-cutting.md";
+const specPath = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
+const planPath = "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md";
 const fixtureRoot = "tests/cross-cutting/fixtures/email-canonicalization";
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";

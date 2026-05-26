@@ -2,7 +2,7 @@
 
 This is the human-readable companion to `PRODUCT.md` (which is the AI-config version of the same content, consumed by the impeccable plugin's design skills). If you're a designer, frontend engineer, or future maintainer trying to understand the _intent_ behind visual decisions in this codebase, start here.
 
-For implementation-level specs (data model, auth chain, sync architecture), see [`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`](./superpowers/specs/2026-04-30-fxav-crew-pages-design.md). This document only covers the _visual and experiential_ decisions.
+For implementation-level specs (data model, auth chain, sync architecture), see [`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`](./superpowers/specs/2026-04-30-fxav-crew-pages-v1.md). This document only covers the _visual and experiential_ decisions.
 
 ---
 

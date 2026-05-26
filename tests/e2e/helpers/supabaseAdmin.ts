@@ -24,7 +24,7 @@ export const admin = createClient(url, serviceRoleKey, {
  * mutates while the dev panel writes to `dev.*`.
  *
  * Captures every Phase-1 surface listed in the M3 plan at lines 41-50 of
- * docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/03-04-tiles.md.
+ * docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/03-04-tiles.md.
  */
 export type PublicSchemaSnapshot = {
   showsCount: number;

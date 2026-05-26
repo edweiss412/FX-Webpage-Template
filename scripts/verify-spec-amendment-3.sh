@@ -2,7 +2,7 @@
 # Gate the M8 §13.2.3 amendment-3 spec patch.
 set -euo pipefail
 
-SPEC=docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md
+SPEC=docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
 
 extract_section() {
   local start_re="$1"

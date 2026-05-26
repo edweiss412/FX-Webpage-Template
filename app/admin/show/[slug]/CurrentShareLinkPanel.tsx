@@ -14,7 +14,7 @@
  * The Copy interaction is isolated in `<ShareLinkCopyButton>` (a sibling
  * 'use client' component) so the rest of the panel remains server-rendered.
  *
- * Spec: docs/superpowers/plans/2026-05-23-crew-auth-pivot-show-link-picker.md:3580
+ * Spec: docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3580
  *   - F2.5 component contract (admin-only, post-rotate revalidate flow).
  *   - lib/data/loadShowShareToken.ts:13 (cookie-bound RPC caller).
  *

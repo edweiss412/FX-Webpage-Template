@@ -92,5 +92,5 @@ test.describe.skip("crew page — ShowStatusTile (Task 4.8, AC-4.1)", () => {
 
 // FinancialsTile (Task 4.8, AC-4.2) E2E suite removed 2026-05-25 as fully redundant
 // with `tests/visibility/scopeTiles.test.ts` (financialsVisible predicate matrix).
-// See `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/DEFERRED.md`
+// See `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md`
 // entry `M4-E2E-SUITES-MIGRATION` for the broader cleanup context.

@@ -2,7 +2,7 @@
  * app/admin/settings/admins/page.tsx (M9 C9 / M2-D1)
  *
  * Runtime-mutable admin allow-list UI per shape brief
- * `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-14-admin-allowlist.md`.
+ * `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/shape-sessions/2026-05-14-admin-allowlist.md`.
  *
  * Server Component:
  *   - Reads `public.admin_emails` via `listAdminEmails()` (RLS-gated).

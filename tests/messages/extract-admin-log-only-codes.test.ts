@@ -60,11 +60,11 @@ describe("extractAdminLogOnlyCodes — null-cell normalization (Doug AND Crew)",
 });
 
 describe("extractAdminLogOnlyCodes — live master spec", () => {
-  it("derives a non-empty set from docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md", async () => {
+  it("derives a non-empty set from docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md", async () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const masterSpec = readFileSync(
-      join(process.cwd(), "docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md"),
+      join(process.cwd(), "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md"),
       "utf8",
     );
     const codes = extractAdminLogOnlyCodes(masterSpec);

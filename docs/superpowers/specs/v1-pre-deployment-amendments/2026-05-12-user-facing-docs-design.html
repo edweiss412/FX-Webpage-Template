@@ -1,0 +1,1241 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FXAV /help — Design Spec (M12)</title>
+<style>
+  :root {
+    --fg: #1a1a1d;
+    --fg-soft: #4a4a52;
+    --muted: #707078;
+    --bg: #fafafa;
+    --surface: #fff;
+    --surface-2: #f3f3f5;
+    --border: #e1e1e5;
+    --border-strong: #c8c8cf;
+    --accent: #f79338;
+    --accent-strong: #d97a1a;
+    --accent-soft: #fff1e0;
+    --warn-bg: #fff8ec;
+    --warn-border: #f0c47a;
+    --warn-text: #7a4a06;
+    --note-bg: #eef4ff;
+    --note-border: #b3c9ef;
+    --note-text: #1a3a78;
+    --tip-bg: #ecf7ee;
+    --tip-border: #a8d3ae;
+    --tip-text: #1a5a25;
+    --code-bg: #f3f3f5;
+    --code-fg: #1a1a1d;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.06);
+    --radius: 8px;
+  }
+  html[data-theme="dark"] {
+    --fg: #ececec;
+    --fg-soft: #c0c0c8;
+    --muted: #909098;
+    --bg: #0e0e10;
+    --surface: #161619;
+    --surface-2: #1d1d22;
+    --border: #2a2a30;
+    --border-strong: #3a3a42;
+    --accent: #ffa14a;
+    --accent-strong: #ffb56b;
+    --accent-soft: #2a1d10;
+    --warn-bg: #2a2010;
+    --warn-border: #6b4a14;
+    --warn-text: #f0c47a;
+    --note-bg: #14223e;
+    --note-border: #2a4070;
+    --note-text: #b3c9ef;
+    --tip-bg: #142a18;
+    --tip-border: #2a5030;
+    --tip-text: #a8d3ae;
+    --code-bg: #1c1c22;
+    --code-fg: #ececec;
+    --shadow: 0 1px 2px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.3);
+  }
+  @media (prefers-color-scheme: dark) {
+    html[data-theme="auto"] {
+      --fg: #ececec;
+      --fg-soft: #c0c0c8;
+      --muted: #909098;
+      --bg: #0e0e10;
+      --surface: #161619;
+      --surface-2: #1d1d22;
+      --border: #2a2a30;
+      --border-strong: #3a3a42;
+      --accent: #ffa14a;
+      --accent-strong: #ffb56b;
+      --accent-soft: #2a1d10;
+      --warn-bg: #2a2010;
+      --warn-border: #6b4a14;
+      --warn-text: #f0c47a;
+      --note-bg: #14223e;
+      --note-border: #2a4070;
+      --note-text: #b3c9ef;
+      --tip-bg: #142a18;
+      --tip-border: #2a5030;
+      --tip-text: #a8d3ae;
+      --code-bg: #1c1c22;
+      --code-fg: #ececec;
+      --shadow: 0 1px 2px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.3);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-feature-settings: 'tnum'; scroll-behavior: smooth; scroll-padding-top: 80px; }
+  body { margin: 0; background: var(--bg); color: var(--fg); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+
+  /* Top header bar */
+  header.topbar { position: sticky; top: 0; z-index: 50; background: rgba(250,250,250,.85); backdrop-filter: saturate(180%) blur(10px); border-bottom: 1px solid var(--border); }
+  html[data-theme="dark"] header.topbar, html[data-theme="auto"] header.topbar { background: rgba(14,14,16,.85); }
+  @media (prefers-color-scheme: dark) { html[data-theme="auto"] header.topbar { background: rgba(14,14,16,.85); } }
+  .topbar-inner { max-width: 1280px; margin: 0 auto; padding: .65rem 1.25rem; display: flex; align-items: center; gap: 1rem; }
+  .topbar h1 { font-size: 1rem; margin: 0; font-weight: 600; }
+  .topbar .meta-pill { font-size: .78rem; padding: .15rem .55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; letter-spacing: .02em; }
+  .topbar .spacer { flex: 1; }
+  .topbar button { font: inherit; padding: .35rem .7rem; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--fg); cursor: pointer; font-size: .85rem; }
+  .topbar button:hover { background: var(--surface-2); }
+
+  /* Hero */
+  .hero { max-width: 1280px; margin: 0 auto; padding: 2rem 1.25rem .5rem; }
+  .hero h2 { font-size: 1.95rem; margin: 0 0 .25rem; line-height: 1.15; letter-spacing: -.01em; }
+  .hero .lede { color: var(--fg-soft); max-width: 60ch; font-size: 1.05rem; margin: .25rem 0 1rem; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .5rem 1.5rem; font-size: .9rem; color: var(--muted); margin-top: 1rem; }
+  .meta-grid strong { color: var(--fg); }
+
+  /* Layout: TOC + content */
+  .layout { max-width: 1280px; margin: 0 auto; padding: 1rem 1.25rem 6rem; display: grid; grid-template-columns: 240px 1fr; gap: 2.5rem; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 1rem; } aside.toc { position: static; height: auto; } }
+
+  /* TOC */
+  aside.toc { position: sticky; top: 64px; align-self: start; max-height: calc(100vh - 80px); overflow-y: auto; padding: 1rem 0; border-right: 1px solid var(--border); padding-right: 1rem; }
+  @media (max-width: 900px) { aside.toc { border-right: none; border-bottom: 1px solid var(--border); padding: .5rem 0 1rem; padding-right: 0; } }
+  aside.toc h3 { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .5rem; font-weight: 600; }
+  aside.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+  aside.toc li { counter-increment: toc; }
+  aside.toc a { display: block; padding: .3rem .55rem .3rem 1.7rem; color: var(--fg-soft); font-size: .87rem; text-decoration: none; border-left: 2px solid transparent; border-radius: 0 4px 4px 0; position: relative; }
+  aside.toc a::before { content: counter(toc); position: absolute; left: .35rem; color: var(--muted); font-variant-numeric: tabular-nums; font-size: .78rem; top: .3rem; }
+  aside.toc a:hover { color: var(--fg); background: var(--surface-2); }
+  aside.toc a.active { color: var(--accent-strong); border-left-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+
+  /* Main content */
+  main { min-width: 0; }
+  section.spec-section { margin: 0 0 3rem; scroll-margin-top: 70px; }
+  section.spec-section > h2 { font-size: 1.5rem; margin: 0 0 .5rem; padding-bottom: .35rem; border-bottom: 2px solid var(--accent); display: inline-block; letter-spacing: -.005em; }
+  section.spec-section h3 { font-size: 1.1rem; margin: 1.5rem 0 .35rem; color: var(--fg); }
+  section.spec-section h4 { font-size: .95rem; margin: 1.25rem 0 .35rem; color: var(--fg-soft); text-transform: uppercase; letter-spacing: .04em; }
+  section.spec-section p { margin: .5rem 0 .75rem; max-width: 70ch; }
+  section.spec-section ul, section.spec-section ol { padding-left: 1.4rem; max-width: 70ch; }
+  section.spec-section li { margin: .25rem 0; }
+
+  /* Code */
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; background: var(--code-bg); color: var(--code-fg); padding: .12em .38em; border-radius: 3px; font-size: .9em; }
+  pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem 1.1rem; border-radius: var(--radius); overflow-x: auto; font-size: .85rem; border: 1px solid var(--border); margin: .8rem 0; max-width: 70ch; }
+  pre code { background: none; padding: 0; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; margin: .8rem 0; }
+  table.spec-table { width: 100%; border-collapse: collapse; font-size: .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table.spec-table th, table.spec-table td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.spec-table th { background: var(--surface-2); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; color: var(--fg-soft); }
+  table.spec-table tr:last-child td { border-bottom: none; }
+  table.spec-table td.center { text-align: center; }
+
+  /* Links */
+  a { color: var(--accent-strong); }
+  a:hover { color: var(--accent); }
+
+  /* Sitemap */
+  .sitemap { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .75rem; margin: 1rem 0; }
+  .sitemap .page-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .8rem 1rem; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+  .sitemap .page-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--card-color, var(--border)); }
+  .sitemap .page-card .group { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 .15rem; }
+  .sitemap .page-card .route { font-family: ui-monospace, monospace; font-size: .86rem; color: var(--fg); margin: 0 0 .25rem; word-break: break-all; font-weight: 600; }
+  .sitemap .page-card .desc { font-size: .82rem; color: var(--fg-soft); line-height: 1.4; }
+  .sitemap .page-card[data-group="adoption"] { --card-color: #4a8bff; }
+  .sitemap .page-card[data-group="reference"] { --card-color: var(--accent); }
+  .sitemap .page-card[data-group="tour"] { --card-color: #6a9a3e; }
+  .legend { display: flex; gap: 1rem; font-size: .82rem; color: var(--fg-soft); margin: .5rem 0 1rem; flex-wrap: wrap; }
+  .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: .35rem; }
+
+  /* Component previews */
+  .preview-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: .75rem 0; }
+  @media (max-width: 700px) { .preview-pair { grid-template-columns: 1fr; } }
+  .preview-frame { border-radius: var(--radius); padding: 1rem 1.1rem; border: 1px solid var(--border); position: relative; min-height: 100px; }
+  .preview-frame::after { content: attr(data-mode); position: absolute; top: .35rem; right: .55rem; font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; opacity: .55; }
+  .preview-frame[data-mode="light"] { background: #fafafa; color: #1a1a1d; }
+  .preview-frame[data-mode="dark"] { background: #0e0e10; color: #ececec; }
+
+  /* Faux component renderings */
+  .demo-callout { border-radius: 6px; padding: .65rem .85rem; margin: .35rem 0; font-size: .88rem; line-height: 1.5; border-left: 3px solid; display: flex; gap: .55rem; }
+  .demo-callout .icon { font-weight: 700; flex-shrink: 0; }
+  .demo-callout.note { background: var(--note-bg); color: var(--note-text); border-color: var(--note-border); }
+  .demo-callout.warning { background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-border); }
+  .demo-callout.tip { background: var(--tip-bg); color: var(--tip-text); border-color: var(--tip-border); }
+  .preview-frame[data-mode="light"] .demo-callout.note { background: #eef4ff; color: #1a3a78; border-color: #b3c9ef; }
+  .preview-frame[data-mode="light"] .demo-callout.warning { background: #fff8ec; color: #7a4a06; border-color: #f0c47a; }
+  .preview-frame[data-mode="light"] .demo-callout.tip { background: #ecf7ee; color: #1a5a25; border-color: #a8d3ae; }
+  .preview-frame[data-mode="dark"] .demo-callout.note { background: #14223e; color: #b3c9ef; border-color: #2a4070; }
+  .preview-frame[data-mode="dark"] .demo-callout.warning { background: #2a2010; color: #f0c47a; border-color: #6b4a14; }
+  .preview-frame[data-mode="dark"] .demo-callout.tip { background: #142a18; color: #a8d3ae; border-color: #2a5030; }
+
+  .demo-step { display: flex; gap: .8rem; margin: .55rem 0; align-items: flex-start; }
+  .demo-step .num { flex-shrink: 0; width: 26px; height: 26px; border-radius: 999px; background: #f79338; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: .82rem; font-variant-numeric: tabular-nums; }
+  .preview-frame[data-mode="dark"] .demo-step .num { background: #ffa14a; color: #0e0e10; }
+  .demo-step .body { line-height: 1.5; font-size: .9rem; padding-top: .15rem; }
+
+  .demo-screenshot { background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(127,127,127,.08) 6px, rgba(127,127,127,.08) 12px); border: 1px dashed var(--border-strong); border-radius: 4px; padding: 1.5rem 1rem; text-align: center; font-size: .82rem; color: var(--muted); font-style: italic; }
+
+  .demo-anchor { display: flex; align-items: center; gap: .5rem; margin: .65rem 0 .15rem; }
+  .demo-anchor h5 { margin: 0; font-size: 1rem; color: var(--accent-strong); }
+  .demo-anchor .link-icon { color: var(--muted); font-size: .85rem; opacity: .55; cursor: pointer; }
+  .demo-anchor .link-icon:hover { opacity: 1; }
+  .demo-anchor + p { font-size: .85rem; color: var(--fg-soft); margin: 0 0 .35rem; }
+
+  .demo-tip { background: var(--accent-soft); border-radius: 6px; padding: .65rem .85rem; margin: .35rem 0; font-size: .87rem; border-left: 3px solid var(--accent); }
+  .demo-tip .label { display: inline-block; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--accent-strong); font-weight: 700; margin-right: .35rem; }
+  .preview-frame[data-mode="light"] .demo-tip { background: #fff1e0; color: #7a4a06; border-color: #d97a1a; }
+  .preview-frame[data-mode="light"] .demo-tip .label { color: #d97a1a; }
+  .preview-frame[data-mode="dark"] .demo-tip { background: #2a1d10; color: #f0c47a; border-color: #ffa14a; }
+  .preview-frame[data-mode="dark"] .demo-tip .label { color: #ffa14a; }
+
+  /* SVG diagrams */
+  .diagram { display: block; max-width: 100%; height: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin: 1rem 0; padding: 1rem; }
+  .diagram text { fill: var(--fg); font-family: ui-sans-serif, system-ui, sans-serif; }
+  .diagram text.small { font-size: 11px; fill: var(--fg-soft); }
+  .diagram text.label { font-size: 13px; font-weight: 600; }
+  .diagram text.route { font-family: ui-monospace, monospace; font-size: 11px; fill: var(--accent-strong); }
+  .diagram rect.node { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1.5; }
+  .diagram rect.node-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  .diagram path.flow { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  .diagram path.flow-accent { stroke: var(--accent); stroke-width: 2; fill: none; }
+
+  /* AC checklist */
+  .ac-list { list-style: none; padding: 0; margin: 1rem 0; }
+  .ac-list li { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .65rem .8rem .65rem 2.4rem; margin: .35rem 0; display: block; position: relative; cursor: pointer; transition: background .15s, border-color .15s; }
+  .ac-list li:hover { background: var(--surface-2); }
+  .ac-list li.done { background: var(--tip-bg); border-color: var(--tip-border); }
+  .ac-list input[type="checkbox"] { position: absolute; left: .85rem; top: .85rem; width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+  .ac-list .ac-id { display: inline-block; font-family: ui-monospace, monospace; font-size: .78rem; background: var(--accent-soft); color: var(--accent-strong); padding: .1rem .4rem; border-radius: 3px; margin-right: .55rem; font-weight: 600; }
+  .ac-list .ac-text { font-size: .88rem; color: var(--fg); }
+  .ac-list li.done .ac-text { text-decoration: line-through; color: var(--muted); }
+  .ac-progress { font-size: .85rem; color: var(--fg-soft); margin: .5rem 0 .25rem; }
+  .ac-progress strong { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+
+  /* Audience-cut visual */
+  .audience-cut { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  @media (max-width: 700px) { .audience-cut { grid-template-columns: 1fr; } }
+  .audience-cut .phase { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; box-shadow: var(--shadow); }
+  .audience-cut .phase h4 { margin: 0 0 .5rem; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--accent-strong); }
+  .audience-cut .phase .row { display: flex; justify-content: space-between; padding: .35rem 0; border-bottom: 1px dashed var(--border); font-size: .88rem; }
+  .audience-cut .phase .row:last-child { border-bottom: none; }
+  .audience-cut .phase .yes { color: #2a8a3a; font-weight: 600; }
+  .audience-cut .phase .no { color: var(--muted); }
+  html[data-theme="dark"] .audience-cut .phase .yes, html[data-theme="auto"] .audience-cut .phase .yes { color: #6ac070; }
+  @media (prefers-color-scheme: dark) { html[data-theme="auto"] .audience-cut .phase .yes { color: #6ac070; } }
+
+  /* Faux /help layout mockup */
+  .mockup { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); margin: 1rem 0; font-size: .82rem; }
+  .mockup .browser-bar { background: var(--surface-2); padding: .4rem .7rem; display: flex; gap: .35rem; align-items: center; border-bottom: 1px solid var(--border); }
+  .mockup .browser-bar .dot { width: 10px; height: 10px; border-radius: 999px; background: var(--border-strong); }
+  .mockup .browser-bar .url { font-family: ui-monospace, monospace; color: var(--fg-soft); font-size: .78rem; background: var(--surface); padding: .15rem .55rem; border-radius: 4px; margin-left: .5rem; flex: 1; }
+  .mockup .frame { display: grid; grid-template-columns: 160px 1fr; min-height: 220px; }
+  .mockup .frame .side { background: var(--surface-2); padding: .75rem .6rem; border-right: 1px solid var(--border); }
+  .mockup .frame .side .group-h { font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: .5rem 0 .25rem; font-weight: 600; }
+  .mockup .frame .side .group-h:first-child { margin-top: 0; }
+  .mockup .frame .side .nav-item { font-family: ui-monospace, monospace; font-size: .75rem; padding: .2rem .35rem; border-radius: 3px; color: var(--fg-soft); }
+  .mockup .frame .side .nav-item.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+  .mockup .frame .content { padding: .9rem 1rem; }
+  .mockup .frame .content h6 { margin: 0 0 .5rem; font-size: .95rem; }
+  .mockup .frame .content p { margin: .3rem 0; font-size: .78rem; color: var(--fg-soft); }
+  .mockup .frame .content .lorem { background: linear-gradient(90deg, var(--surface-2) 60%, transparent); height: 8px; border-radius: 2px; margin: .3rem 0; }
+  .mockup .frame .content .lorem.short { width: 60%; }
+  .mockup .frame .content .lorem.mid { width: 85%; }
+  @media (max-width: 700px) { .mockup .frame { grid-template-columns: 1fr; } .mockup .frame .side { border-right: none; border-bottom: 1px solid var(--border); } }
+
+  /* Misc */
+  .pill { display: inline-block; font-size: .72rem; padding: .12rem .45rem; border-radius: 999px; background: var(--surface-2); color: var(--fg-soft); font-weight: 600; letter-spacing: .02em; }
+  .pill.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .pill.tip { background: var(--tip-bg); color: var(--tip-text); }
+  .pill.note { background: var(--note-bg); color: var(--note-text); }
+  .pill.accent { background: var(--accent-soft); color: var(--accent-strong); }
+
+  .end-note { color: var(--muted); font-style: italic; text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--border); }
+
+  /* Print */
+  @media print {
+    aside.toc, header.topbar { display: none; }
+    .layout { grid-template-columns: 1fr; padding: 0; }
+    section.spec-section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar" id="topbar">
+  <div class="topbar-inner">
+    <h1>FXAV <code>/help</code> Spec</h1>
+    <span class="meta-pill">M12 · DRAFT</span>
+    <span class="spacer"></span>
+    <button id="themeToggle" type="button" title="Toggle theme">◐ Theme</button>
+    <a href="./2026-05-12-user-facing-docs-design.md" style="font-size:.85rem;color:var(--fg-soft);text-decoration:none;border:1px solid var(--border-strong);padding:.35rem .7rem;border-radius:6px;">Markdown ↗</a>
+  </div>
+</header>
+
+<div class="hero">
+  <h2>User-facing docs at <code>/help</code></h2>
+  <p class="lede">A wiki-style site that carries Doug from his Sheets-only workflow into the FXAV-augmented one — adoption guide, capability reference, and tour, all destinationed in one place that <code>/admin</code> tooltips can deep-link into.</p>
+  <div class="meta-grid">
+    <div><strong>Spec date</strong><br>2026-05-12</div>
+    <div><strong>Milestone</strong><br>M12 (proposed)</div>
+    <div><strong>Status</strong><br>Draft — pending user + adversarial review</div>
+    <div><strong>Implementer</strong><br>Opus / Claude Code (UI surface)</div>
+    <div><strong>Primary reader</strong><br>Doug Larson (admin)</div>
+    <div><strong>Phase 2</strong><br>Crew docs at <code>/help/crew/*</code></div>
+    <div><strong>Depends on</strong><br>M10 close-out (real screenshots)</div>
+    <div><strong>Revision</strong><br>r10 (round-8 adversarial fixes)</div>
+  </div>
+</div>
+
+<div class="layout">
+
+<aside class="toc" aria-label="Table of contents">
+  <h3>Sections</h3>
+  <ol>
+    <li><a href="#s1" data-section>Goal &amp; scope</a></li>
+    <li><a href="#s2" data-section>Out of scope</a></li>
+    <li><a href="#s3" data-section>Architecture</a></li>
+    <li><a href="#s4" data-section>Content inventory</a></li>
+    <li><a href="#s5" data-section>Deep-link contract</a></li>
+    <li><a href="#s6" data-section>Components</a></li>
+    <li><a href="#s7" data-section>Testing strategy</a></li>
+    <li><a href="#s8" data-section>Plan-wide invariants</a></li>
+    <li><a href="#s9" data-section>Flag lifecycle</a></li>
+    <li><a href="#s10" data-section>Open questions</a></li>
+    <li><a href="#s11" data-section>Disagreement-loop preempt</a></li>
+    <li><a href="#s12" data-section>Existing-code citations</a></li>
+    <li><a href="#s13" data-section>Acceptance criteria</a></li>
+    <li><a href="#s14" data-section>Phase 2 appendix</a></li>
+  </ol>
+</aside>
+
+<main>
+
+<!-- ===== Section 1 ===== -->
+<section class="spec-section" id="s1">
+  <h2>1. Goal &amp; scope</h2>
+  <p>Build an in-app wiki at <code>/help</code> whose primary reader is <strong>Doug Larson</strong> (the sole admin of <code>/admin</code>). The site does three jobs at once:</p>
+  <ol>
+    <li><strong>Adoption.</strong> Carries Doug across the gap from his Sheets-only workflow into the FXAV-augmented one — explicit, narrative, finite.</li>
+    <li><strong>Reference.</strong> One page per operator-facing surface (dashboard triage, review queues, parse warnings, per-show panel, preview-as-crew, signed-link distribution, onboarding).</li>
+    <li><strong>Tour.</strong> A single capability-showcase page Doug can use to orient himself or a future successor.</li>
+  </ol>
+  <p>The crew-pages spec §9.0.1 already mandates contextual help affordances — "?" tooltips, "Take the tour", "What does this mean?" links. Those land with M4 / M9 / M10 as <strong>plain-text only</strong>. M12 builds the destination, and retrofits each affordance with a <code>Learn more →</code> link.</p>
+
+  <h3>1.1 Audience cut</h3>
+  <div class="audience-cut">
+    <div class="phase">
+      <h4>v1 (M12, this milestone)</h4>
+      <div class="row"><span>Doug (admin)</span><span class="yes">✓ all 13 pages</span></div>
+      <div class="row"><span>Crew (signed link)</span><span class="no">✗ none</span></div>
+      <div class="row"><span>Public</span><span class="no">✗ 403 across <code>/help/*</code></span></div>
+    </div>
+    <div class="phase">
+      <h4>Phase 2 (future)</h4>
+      <div class="row"><span>Doug (admin)</span><span class="yes">✓ unchanged</span></div>
+      <div class="row"><span>Crew (signed link)</span><span class="yes">✓ <code>/help/crew/*</code></span></div>
+      <div class="row"><span>Public</span><span class="yes">✓ <code>/help/crew/*</code> only</span></div>
+    </div>
+  </div>
+  <p>v1 gates all of <code>/help/*</code> to admin. Phase 2 splits via App Router route groups (<code>(admin)</code> / <code>(public)</code>) — <strong>no URLs change</strong> between phases.</p>
+</section>
+
+<!-- ===== Section 2 ===== -->
+<section class="spec-section" id="s2">
+  <h2>2. Out of scope (explicit deferrals)</h2>
+  <p>Every entry below was considered and rejected for v1. Recording so the round-N reviewer doesn't relitigate.</p>
+  <ul>
+    <li><strong>Crew-facing pages</strong> — phase 2 only. Auth gating is admin-only across the whole tree in v1.</li>
+    <li><strong>Full-text search</strong> — sidebar + Ctrl-F is sufficient for 13 pages. Phase-2 trigger: total pages &gt; ~25.</li>
+    <li><strong>In-app authoring / CMS</strong> — MDX/TSX in the repo, PR-reviewed. Doug reads; he does not edit.</li>
+    <li><strong>Versioned docs</strong> — single "latest".</li>
+    <li><strong>Changelog / release notes</strong>.</li>
+    <li><strong>Dev / internals explainers</strong> — those stay in <code>docs/superpowers/specs/*</code>.</li>
+    <li><strong>Concepts / vocabulary track</strong> — explanations live inline on operator pages.</li>
+    <li><strong>External hosting</strong> (Notion / GitBook) — rejected: divergence from <code>DESIGN.md</code> tokens, loss of in-repo review gate.</li>
+    <li><strong>Separate docs framework</strong> (Nextra / Docusaurus / Fumadocs) — rejected: too much framework for 13 pages.</li>
+  </ul>
+</section>
+
+<!-- ===== Section 3 ===== -->
+<section class="spec-section" id="s3">
+  <h2>3. Architecture</h2>
+  <h3>3.1 System overview</h3>
+  <svg class="diagram" viewBox="0 0 760 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="System overview: app/help tree, lib/messages catalog, admin surfaces and how they wire together">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+      </marker>
+      <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f79338"/>
+      </marker>
+    </defs>
+
+    <!-- app/help/ -->
+    <rect class="node-accent" x="20" y="20" width="280" height="140" rx="8"/>
+    <text class="label" x="160" y="44" text-anchor="middle">app/help/</text>
+    <text class="route" x="40" y="68">layout.tsx  (requireAdmin)</text>
+    <text class="route" x="40" y="86">page.mdx · 13 pages</text>
+    <text class="route" x="40" y="104">errors/page.tsx  (catalog →)</text>
+    <text class="route" x="40" y="122">_components/  ·  _nav.ts</text>
+    <text class="small" x="40" y="146">App Router · static · @next/mdx</text>
+
+    <!-- lib/messages -->
+    <rect class="node" x="440" y="20" width="300" height="100" rx="8"/>
+    <text class="label" x="590" y="44" text-anchor="middle">lib/messages/</text>
+    <text class="route" x="460" y="66">messageFor(code) →</text>
+    <text class="route" x="475" y="84">MessageCatalogEntry</text>
+    <text class="small" x="460" y="104">+ longExplanation, helpHref (M12)</text>
+
+    <!-- /admin surfaces -->
+    <rect class="node" x="160" y="220" width="440" height="120" rx="8"/>
+    <text class="label" x="380" y="244" text-anchor="middle">/admin surfaces (M4 / M9 / M10)</text>
+    <text class="route" x="180" y="270">dashboard tooltips  ──→  /help/admin/&lt;page&gt;</text>
+    <text class="route" x="180" y="288">parse-warning rows  ──→  /help/admin/parse-warnings#&lt;code&gt;</text>
+    <text class="route" x="180" y="306">error toasts / banners ──→  /help/errors#&lt;code&gt;</text>
+    <text class="route" x="180" y="324">"Take the tour"     ──→  /help/tour</text>
+
+    <!-- arrows -->
+    <path class="flow-accent" d="M 300 90 L 440 70" marker-end="url(#arrow-accent)"/>
+    <text class="small" x="370" y="74" text-anchor="middle">deep-link contract</text>
+
+    <path class="flow" d="M 590 120 L 590 180 L 380 180 L 380 220" marker-end="url(#arrow)"/>
+    <text class="small" x="490" y="174" text-anchor="middle">called by</text>
+
+    <path class="flow-accent" d="M 380 220 Q 200 200 160 160" marker-end="url(#arrow-accent)"/>
+  </svg>
+
+  <h3>3.2 Pipeline choice <span class="pill accent">corrected r4</span></h3>
+  <p><strong><code>@next/mdx</code> (native).</strong> Three deps, all maintained by Next.js. Integrates via <code>pageExtensions: ['ts','tsx','mdx']</code> and <code>withMDX()</code> in <code>next.config.ts</code>. Reuses <code>app/globals.css</code> Tailwind v4 theme tokens. 13 pages do not justify a framework.</p>
+  <p><strong>Compilation, not prerender.</strong> <code>pnpm build</code> <strong>compiles</strong> every <code>.mdx</code>/<code>.tsx</code> page to an RSC chunk. It does NOT pre-generate static HTML because the <code>requireAdmin()</code> gate (§3.4) forces dynamic-at-request-time rendering. Compile verifies MDX validity + component resolution; the per-request render happens on every authenticated GET. <code>app/help/layout.tsx</code> exports <code>export const dynamic = "force-dynamic"</code> to make this explicit.</p>
+
+  <h3>3.3 File layout</h3>
+  <pre><code>app/help/
+  layout.tsx                    # shared chrome: sidebar, header, theme toggle, requireAdmin
+  page.mdx                      # /help (landing)
+  getting-started/page.mdx
+  daily-rhythm/page.mdx
+  whats-different/page.mdx
+  tour/page.mdx
+  errors/page.tsx               # iterates §12.4 catalog → one &lt;RefAnchor&gt; per code
+  admin/
+    dashboard/page.mdx
+    review-queues/page.mdx
+    parse-warnings/page.mdx     # anchored sections per warning class
+    per-show-panel/page.mdx
+    preview-as-crew/page.mdx
+    sharing-links/page.mdx
+    onboarding-wizard/page.mdx
+  _components/                  # not a route (App Router private folder)
+    Screenshot.tsx              # primary: &lt;picture&gt; with light/dark WebP sources
+    ScreenshotPlaceholder.tsx   # draft-only; lint-prohibited at v1 close-out
+    Sidebar.tsx · Header.tsx · Breadcrumb.tsx · Callout.tsx · Step.tsx · RefAnchor.tsx · TipFromSheets.tsx
+  _nav.ts                       # single source: sidebar + breadcrumb + next/prev
+mdx-components.tsx              # project root, required by @next/mdx
+public/help/screenshots/        # WebP output, committed (r2)
+scripts/help-screenshots.ts             # Playwright capture entry (r2)
+scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme, waitFor } (r2)</code></pre>
+
+  <h3>3.4 Rendering posture &amp; auth <span class="pill accent">corrected r3</span></h3>
+  <p><strong>Dynamic at request time.</strong> <code>app/help/layout.tsx</code> calls <code>requireAdmin()</code>, which runs Supabase queries (<code>auth.getUser()</code> + <code>rpc("is_admin")</code>) on every request. The auth gate forces the entire <code>/help/*</code> tree out of static prerender into the dynamic / on-demand path — same posture as <code>/admin</code>. MDX content itself is statically compiled to RSC; the gate is dynamic.</p>
+  <p><strong>Client hydration only for:</strong> theme toggle, sidebar current-page highlight.</p>
+  <p><strong>Mobile-first.</strong> Single-column under 768px with sidebar collapsed (same 390px baseline as the crew page).</p>
+  <p><strong>Auth + infra-error mapping.</strong> The helper at <code>lib/auth/requireAdmin.ts:52-126</code> uses <code>forbidden()</code> for confirmed non-admin and throws <code>AdminInfraError</code> (<code>lib/auth/requireAdmin.ts:41-48</code>) for infra faults. <code>app/help/layout.tsx</code> mirrors the existing <code>app/admin/layout.tsx:47-71</code> pattern verbatim — try/catch around <code>requireAdmin()</code>, catch <code>AdminInfraError</code>, render the cataloged 500-class surface via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED")</code>. Phase 2 splits via route groups; static prerender restored for the public tree only.</p>
+
+  <h3>3.5 Screenshot harness <span class="pill accent">r2 + reproducibility hardening r3</span></h3>
+  <p>Real screenshots ship in v1. Capture is scripted, <strong>deterministic, and reproducible</strong>. r3 hardens the pipeline against round-1 finding 4.</p>
+  <h4>3.5.1 Pipeline</h4>
+  <ol>
+    <li><strong>Manifest</strong> at <code>scripts/help-screenshots.manifest.ts</code> — single source of truth. Per-entry: <code>{ key, route, fixture, viewport, theme, waitFor, captureSelector?, expectStableMs? }</code>.</li>
+    <li><strong>Capture script</strong> at <code>scripts/help-screenshots.ts</code> drives a dedicated Playwright project through the reproducibility preconditions (3.5.2) and writes WebP (q90, pinned <code>sharp</code> encoder) to <code>public/help/screenshots/&lt;key&gt;-{light,dark}.webp</code>.</li>
+    <li><strong><code>&lt;Screenshot key&gt;</code> MDX component</strong> renders <code>&lt;picture&gt;</code> with <code>&lt;source media="(prefers-color-scheme: dark)" srcset="…-dark.webp"&gt;</code> + a default light <code>&lt;img&gt;</code>. AC-12.25 is enforced by a component-level test (§7.1 test 10).</li>
+    <li><strong>Invocation:</strong> <code>pnpm screenshot:help</code> runs the full pipeline on a clean checkout.</li>
+  </ol>
+
+  <h4>3.5.2 Reproducibility preconditions (mandatory)</h4>
+  <p>The capture script MUST establish each precondition before any screenshot is taken. Without these, "idempotent / byte-stable" is not achievable.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Precondition</th><th>How</th><th>Source-of-truth</th></tr></thead>
+    <tbody>
+      <tr><td>Dedicated Playwright project</td><td>Add <code>screenshots-help</code> project to <code>playwright.config.ts</code> with its own <code>webServer</code>, <code>use.timezoneId</code>, <code>use.locale</code>, <code>use.colorScheme</code>, <code>use.viewport</code>, and a <code>globalSetup</code> running env + seed.</td><td><code>playwright.config.ts</code> existing patterns (<code>e2e-dev</code> / <code>e2e-prod</code>)</td></tr>
+      <tr><td>Test-auth env at server start</td><td><code>ENABLE_TEST_AUTH=true</code> + <code>TEST_AUTH_SECRET=&lt;fixture&gt;</code> set for the harness <code>webServer</code>.</td><td><code>tests/e2e/helpers/signInAs.ts:1-23</code></td></tr>
+      <tr><td>DB seed before capture</td><td><code>globalSetup</code> runs <code>pnpm db:seed</code>. Every manifest entry's named fixture (default <code>RPAS Central 2026</code>) at known state.</td><td>Existing E2E seed pattern</td></tr>
+      <tr><td>Sign in via reusable helper</td><td>Script calls <code>signInAs(page, adminFixture)</code> from <code>tests/e2e/helpers/signInAs.ts</code> — no parallel admin-login implementation.</td><td><code>tests/e2e/helpers/signInAs.ts:43-73</code></td></tr>
+      <tr><td>Deterministic browser settings</td><td><code>timezoneId: 'America/New_York'</code>, <code>locale: 'en-US'</code>, theme set per entry, <code>reducedMotion: 'reduce'</code>, font hinting disabled (<code>--font-render-hinting=none --disable-skia-runtime-opts</code>), animations disabled via CSS <code>addInitScript</code>.</td><td>Pinned in the <code>screenshots-help</code> project config</td></tr>
+      <tr><td>Quiescence wait</td><td>Manifest <code>waitFor</code> selector + <code>page.waitForLoadState('networkidle')</code> + optional <code>expectStableMs</code> (default 500 ms).</td><td>Manifest-driven</td></tr>
+      <tr><td>Theme application</td><td>Per entry, run twice: <code>colorScheme: 'light'</code> + <code>&lt;html data-theme="light"&gt;</code>, and the dark equivalent. Theme is imposed via <code>addInitScript</code>, not inferred.</td><td>App's existing <code>data-theme</code> mechanism</td></tr>
+      <tr><td>Output normalization</td><td>WebP via <code>sharp</code> with pinned encoder settings (<code>q=90</code>, <code>effort=4</code>, <code>smartSubsample=true</code>, <code>nearLossless=false</code>). <code>sharp</code> version pinned in <code>package.json</code>; CI uses the same.</td><td><code>package.json</code></td></tr>
+      <tr><td>Fixed clock <span class="pill accent">r4 → r5 → r6 → r7 request-scoped</span></td><td><strong><code>frozenClockInstant</code> REQUIRED per manifest entry</strong>. Browser: <code>context.clock.install({ time: frozenClockInstant })</code>. <strong>Server: request-scoped header <code>X-Screenshot-Frozen-Now: &lt;ISO&gt;</code></strong> sent via <code>page.setExtraHTTPHeaders</code>. Consumed by exactly ONE server-side utility (new <code>lib/time/now.ts</code>) via Next 16's <code>headers()</code> API. Per-request scope means each capture carries its own frozen instant against a single Next process. <strong>r6's per-entry env approach was infeasible</strong> — Playwright's <code>webServer</code> starts Next once and <code>globalSetup</code> cannot mutate <code>process.env</code> per capture. Gating: header honored only when (i) <code>ENABLE_TEST_AUTH === "true"</code> AND (ii) request includes <code>Authorization: Bearer ${TEST_AUTH_SECRET}</code> matching the existing test-auth route's verification.</td><td><code>tests/e2e/right-now.spec.ts:87-114</code>; <code>app/api/test-auth/set-session/route.ts</code> gating pattern</td></tr>
+      <tr><td>Frozen-instant fixture validation <span class="pill accent">r5 → r6 → r10 path corrected</span></td><td>Pre-capture validation parses the fixture's INFO tab DATES rows directly. <strong>Actual corpus layout (verified r10):</strong> flat <code>fixtures/shows/raw/&lt;fixture&gt;.md</code> (single-file multi-tab) and pdf-only split <code>fixtures/shows/pdf-only/&lt;fixture&gt;__INFO.md</code>. r8 incorrectly assumed nested <code>&lt;show&gt;/INFO.md</code> directories. Parser at <code>scripts/help-screenshots-fixture-range.ts</code> handles both layouts; unit-tested against every file in the corpus.</td><td><code>fixtures/shows/raw/&lt;fixture&gt;.md</code>; <code>fixtures/shows/pdf-only/&lt;fixture&gt;__INFO.md</code></td></tr>
+      <tr><td>Server-side <code>Date.now()</code> / <code>new Date()</code> migration <span class="pill accent">new r8</span></td><td>Browser clock pin doesn't reach server-rendered timestamps. Every server component reachable from a screenshot manifest route that calls <code>new Date()</code>/<code>Date.now()</code> for <strong>render-side</strong> output MUST migrate to <code>lib/time/now.ts</code>. Known render-side site at r8: <code>app/show/[slug]/page.tsx:646</code> (captured indirectly via <code>/admin/show/&lt;slug&gt;/preview/&lt;crew-id&gt;</code> per §5.6). Mutation-side sites (action timestamps) carry <code>// not-render-side: &lt;reason&gt;</code> inline waivers. Grep guard (test #16) catches new violations.</td><td><code>app/show/[slug]/page.tsx:646</code></td></tr>
+      <tr><td>CSRF / cookie stability <span class="pill accent">r4</span></td><td>Sign in once at <code>globalSetup</code>, persist <code>storageState</code>, reuse across captures. Stable cookies; no per-request CSRF nonce churn in rendered output.</td><td>Playwright <code>storageState</code> (existing E2E pattern)</td></tr>
+      <tr><td>Realtime suppression <span class="pill accent">r4</span></td><td><code>addInitScript</code> stubs <code>window.WebSocket</code> to a no-op, OR a test-only build flag disables Realtime subscribe paths. Prevents live-data flicker during the quiescence wait from producing non-deterministic captures.</td><td>Implementation picks; both reversible per-test</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>3.5.3 CI drift gate</h4>
+  <p>A CI step runs <code>pnpm screenshot:help</code> against a clean checkout, then <code>git diff --exit-code public/help/screenshots/</code>. <strong>Non-zero exit fails the PR.</strong> This is the load-bearing drift signal — UI changes that shift a documented surface cannot merge without regenerated screenshots. AC-12.19 (idempotency) is what makes this safe.</p>
+
+  <h4>3.5.4 Defaults (not relitigated)</h4>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Decision</th><th>Default</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Format</td><td>WebP q90, pinned <code>sharp</code> encoder (see 3.5.2)</td><td>Repo-committable size; reproducible encoder output</td></tr>
+      <tr><td>Density</td><td>Single representative rendition</td><td>Manifest names viewport</td></tr>
+      <tr><td>Storage</td><td><code>public/help/screenshots/</code>, committed</td><td>Version-controlled with docs</td></tr>
+      <tr><td>Theme variants</td><td><strong>Both required</strong>; light + dark always paired</td><td>PRODUCT.md "both modes first-class"</td></tr>
+      <tr><td>Viewport</td><td>Per-manifest. Default desktop 1280×800; mobile-flow 390×844</td><td>Surface-appropriate</td></tr>
+      <tr><td>Fixture</td><td><code>RPAS Central 2026</code> default; manifest may override</td><td>Most populated 2026 sheet</td></tr>
+      <tr><td>Drift detection</td><td>Git diff on WebP bytes + CI <code>git diff --exit-code</code> gate (3.5.3)</td><td>Automatic, unmissable</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>Authoring scaffold:</strong> <code>&lt;ScreenshotPlaceholder&gt;</code> is preserved as a <strong>draft-only</strong> component, lint-prohibited at v1 close-out (§7.1 test 7).</p>
+
+  <h3>3.6 Mockup — what <code>/help/admin/dashboard</code> will look like</h3>
+  <p>Roughly. Sidebar at desktop, content right. Below 768px the sidebar collapses to a top-of-page disclosure.</p>
+  <div class="mockup" aria-label="Mockup of the /help page chrome">
+    <div class="browser-bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="url">fxav.app/help/admin/dashboard</span>
+    </div>
+    <div class="frame">
+      <div class="side">
+        <div class="group-h">Get started</div>
+        <div class="nav-item">/help</div>
+        <div class="nav-item">/getting-started</div>
+        <div class="nav-item">/daily-rhythm</div>
+        <div class="nav-item">/whats-different</div>
+        <div class="group-h">Admin surface</div>
+        <div class="nav-item active">/admin/dashboard</div>
+        <div class="nav-item">/admin/review-queues</div>
+        <div class="nav-item">/admin/parse-warnings</div>
+        <div class="nav-item">…</div>
+        <div class="group-h">Reference</div>
+        <div class="nav-item">/tour</div>
+        <div class="nav-item">/errors</div>
+      </div>
+      <div class="content">
+        <h6>Reading the dashboard</h6>
+        <p>Two panels stacked top-to-bottom. The top panel lists active shows; the bottom panel collects sheets the app couldn't auto-apply.</p>
+        <div class="lorem"></div>
+        <div class="lorem mid"></div>
+        <div class="lorem short"></div>
+        <p style="margin-top:.55rem;font-size:.75rem;"><span class="pill warn">Heads up</span> Yellow status badges mean Doug needs to look at something — they don't mean anything broke.</p>
+        <div class="lorem mid"></div>
+        <div class="lorem"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Section 4 ===== -->
+<section class="spec-section" id="s4">
+  <h2>4. Content inventory (v1)</h2>
+  <p>13 pages total. Color-coded below by track: <strong>adoption</strong>, <strong>reference</strong>, <strong>tour &amp; errors</strong>.</p>
+  <div class="legend">
+    <span><span class="dot" style="background:#4a8bff;"></span>Adoption track (read once, narrative)</span>
+    <span><span class="dot" style="background:var(--accent);"></span>Capability reference (lookup)</span>
+    <span><span class="dot" style="background:#6a9a3e;"></span>Tour &amp; errors</span>
+  </div>
+
+  <div class="sitemap">
+    <div class="page-card" data-group="adoption">
+      <p class="group">Adoption · 1 of 4</p>
+      <p class="route">/help</p>
+      <p class="desc">Landing. Elevator-pitch + three jump-buttons. Also the "Take the tour" target from §9.0.1.</p>
+    </div>
+    <div class="page-card" data-group="adoption">
+      <p class="group">Adoption · 2 of 4</p>
+      <p class="route">/help/getting-started</p>
+      <p class="desc">First-time setup mirroring §9.0 wizard. Historical post-onboarding; kept for successor handoff.</p>
+    </div>
+    <div class="page-card" data-group="adoption">
+      <p class="group">Adoption · 3 of 4</p>
+      <p class="route">/help/daily-rhythm</p>
+      <p class="desc">Your new check-in routine in <code>/admin</code>. Scan active shows, glance at queues, address yellow.</p>
+    </div>
+    <div class="page-card" data-group="adoption">
+      <p class="group">Adoption · 4 of 4</p>
+      <p class="route">/help/whats-different</p>
+      <p class="desc">Explicit Sheets-vs-FXAV diff. Same / automated / new.</p>
+    </div>
+
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.1</p>
+      <p class="route">/help/admin/dashboard</p>
+      <p class="desc">Dashboard layout, status badges, the two review-queue panels.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.1</p>
+      <p class="route">/help/admin/review-queues</p>
+      <p class="desc">First-seen vs. re-stage. Apply vs. Discard semantics. The single most behaviorally-new surface.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §12.4</p>
+      <p class="route">/help/admin/parse-warnings</p>
+      <p class="desc">One anchored section per warning class — <code>#code-slug</code> URLs that <code>/admin</code> deep-links into.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.2</p>
+      <p class="route">/help/admin/per-show-panel</p>
+      <p class="desc">Sync health, manual re-sync, parse warnings, preview links.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.3</p>
+      <p class="route">/help/admin/preview-as-crew</p>
+      <p class="desc">Impersonation. Role-based hiding explained in operator terms. Covers what crew see, by proxy.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §7.2</p>
+      <p class="route">/help/admin/sharing-links</p>
+      <p class="desc">Signed crew-page links. How to send them, what crew see, wrong-recipient handling.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.0</p>
+      <p class="route">/help/admin/onboarding-wizard</p>
+      <p class="desc">§9.0 folder-share flow reference. Mostly post-hoc documentation.</p>
+    </div>
+
+    <div class="page-card" data-group="tour">
+      <p class="group">Tour</p>
+      <p class="route">/help/tour</p>
+      <p class="desc">One-paragraph-per-surface jump table. Linked from <code>/help</code> + §9.0.1 footer.</p>
+    </div>
+    <div class="page-card" data-group="tour">
+      <p class="group">Errors</p>
+      <p class="route">/help/errors</p>
+      <p class="desc">TSX page iterating §12.4 catalog. One <code>&lt;RefAnchor&gt;</code> per warning code.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:1rem;"><strong>Excluded from v1:</strong> crew pages, concepts track, dev internals explainers, versioned docs, changelog, in-app editor. See <a href="#s2">§2</a>.</p>
+</section>
+
+<!-- ===== Section 5 ===== -->
+<section class="spec-section" id="s5">
+  <h2>5. Deep-link contract</h2>
+
+  <h3>5.1 Wiring diagram</h3>
+  <svg class="diagram" viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deep-link contract: admin surfaces resolve helpHref via messageFor() and land on /help URLs">
+    <defs>
+      <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f79338"/>
+      </marker>
+    </defs>
+
+    <!-- Left column: admin surfaces -->
+    <text class="small" x="20" y="20">/admin surfaces (built in M4/M9/M10)</text>
+    <rect class="node" x="20" y="34" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="55">dashboard "?" tooltip</text>
+    <rect class="node" x="20" y="78" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="99">parse-warning row</text>
+    <rect class="node" x="20" y="122" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="143">error toast / banner</text>
+    <rect class="node" x="20" y="166" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="187">"What does this mean?"</text>
+    <rect class="node" x="20" y="210" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="231">dashboard footer link</text>
+
+    <!-- Middle: messageFor() -->
+    <rect class="node-accent" x="290" y="100" width="180" height="60" rx="8"/>
+    <text class="label" x="380" y="125" text-anchor="middle">messageFor(code)</text>
+    <text class="small" x="380" y="142" text-anchor="middle">→ MessageCatalogEntry</text>
+
+    <!-- Arrows from admin surfaces into lookup -->
+    <path class="flow-accent" d="M 220 50 Q 260 80 290 120" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 220 94 Q 260 115 290 130" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 220 138 L 290 138" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 220 182 Q 260 165 290 145" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 220 226 Q 260 190 290 155" marker-end="url(#arrow2)"/>
+
+    <!-- Right column: /help destinations -->
+    <text class="small" x="540" y="20">/help destinations (built in M12)</text>
+    <rect class="node" x="540" y="34" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="55">/help/admin/&lt;page&gt;</text>
+    <rect class="node" x="540" y="78" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="99">/help/admin/parse-warnings#X</text>
+    <rect class="node" x="540" y="122" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="143">/help/errors#X</text>
+    <rect class="node" x="540" y="166" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="187">/help/errors#X</text>
+    <rect class="node" x="540" y="210" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="231">/help/tour</text>
+
+    <!-- Arrows from lookup to /help -->
+    <path class="flow-accent" d="M 470 120 Q 510 75 540 50" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 470 130 Q 510 110 540 94" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 470 138 L 540 138" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 470 145 Q 510 165 540 182" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 470 155 Q 510 195 540 226" marker-end="url(#arrow2)"/>
+
+    <text class="small" x="380" y="285" text-anchor="middle">build-time anchor resolver fails CI on any helpHref pointing at a missing page or &lt;RefAnchor id&gt;</text>
+    <text class="small" x="380" y="302" text-anchor="middle">slug stability is a committed contract (§5.4)</text>
+  </svg>
+
+  <h3>5.2 <code>MessageCatalogEntry</code> schema extension <span class="pill accent">corrected r3</span></h3>
+  <p>The catalog uses the existing <code>messageFor</code> accessor (not a new <code>lookup</code>). Live shape:</p>
+  <pre><code>// lib/messages/lookup.ts:11
+export function messageFor(code: MessageCode, params?: MessageParams): MessageCatalogEntry;
+
+// lib/messages/catalog.ts:1-8
+export type MessageCatalogEntry = {
+  code: string;
+  severity?: "info" | "warning";
+  dougFacing: string | null;
+  crewFacing: string | null;
+  followUp: string | null;
+  helpfulContext: string | null;
+};</code></pre>
+  <p><code>messageFor</code> keeps its signature; the <strong>return type gains three new fields (r5 + r8)</strong>:</p>
+  <pre><code>export type MessageCatalogEntry = {
+  code: string;
+  severity?: "info" | "warning";
+  dougFacing: string | null;
+  crewFacing: string | null;
+  followUp: string | null;
+  helpfulContext: string | null;
+  title: string | null;             // NEW in M12 (r8) — short heading for /help/errors#&lt;code&gt;
+  longExplanation: string | null;   // NEW in M12
+  helpHref: string | null;          // NEW in M12
+};</code></pre>
+  <p>All three new fields are <code>string | null</code>. Existing callers compile unchanged.</p>
+  <p><strong><code>title</code> field (new r8):</strong> visible heading on <code>/help/errors</code>. Round 6 caught that r7 referenced "title + longExplanation" in §4.3 but never added <code>title</code> to the schema. Catalog's <code>dougFacing</code> is the full Doug-rendered message (often a sentence); raw <code>code</code> can't be used (per invariant #5).</p>
+  <p><strong><code>selfContainedAction</code> removed in r8 — catalog drift is M12's responsibility.</strong> r5/r6/r7 invented a <code>selfContainedAction</code> opt-out for codes like <code>STALE_WRITE_ABORTED</code>. Round 6 surfaced that these codes are canonically <em>master-spec admin-log-only</em> per master-spec line 2691: rows with <code>(admin log only)</code> / <code>—</code> normalize to <code>dougFacing: null</code> and never render to Doug. The runtime catalog has DRIFTED from master spec. Per AGENTS.md invariant #7 (spec is canonical), the catalog must be reconciled, not blessed.</p>
+  <p><strong>M12 catalog-alignment subtask (r8 → r11/r12 — derivation-driven, parser is canonical):</strong> M12 reconciles <code>lib/messages/catalog.ts</code> with master-spec §12.4 admin-log-only contract by running the derivation parser <code>scripts/extract-admin-log-only-codes.ts</code> (plan Task B.2) and setting <code>dougFacing</code>/<code>crewFacing</code>/<code>helpfulContext</code>/<code>title</code>/<code>longExplanation</code>/<code>helpHref</code> all to <code>null</code> on every derived code (plan Task B.3, hard gate). Codes the parser derives but that are absent from the live catalog are added as null-stub entries in the same task. Illustrative examples (the parser's output is canonical at execution time; the list below is not exhaustive): <code>STALE_WRITE_ABORTED</code>, <code>STALE_PUSH_ABORTED</code>, <code>WEBHOOK_NOOP_ALREADY_SYNCED</code>, <code>CONCURRENT_SYNC_SKIPPED</code>, <code>WIZARD_SESSION_SUPERSEDED_DURING_SCAN</code>, <code>LOCK_OWNERSHIP_ASSERTION_FAILED</code>, <code>STAGED_PARSE_REVISION_RACE</code>, <code>STAGED_PARSE_REVISION_RACE_COOLDOWN</code>, <code>ASSET_RECOVERY_REVISION_DRIFT</code>, <code>ASSET_RECOVERY_DRIFT_COOLDOWN</code>, <code>DIAGRAMS_TAB_MISSING</code>, <code>DIAGRAMS_EMBEDDED_CAP_EXCEEDED</code>, <code>PENDING_SNAPSHOT_ROLLBACK_STUCK</code>, <code>PENDING_SNAPSHOT_PROMOTE_STUCK</code>, <code>UNEXPECTED_PARENT</code>, <code>TYPO_NORMALIZED</code>.</p>
+  <p><strong>Explicitly NOT derived (r11/r12 amendments):</strong></p>
+  <ul>
+    <li><code>STALE_MANUAL_REPLAY_ABORTED</code> carries explicit Doug-facing copy at master-spec line 2724 ("This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state."). It is Doug-facing; Phase E populates <code>title</code>/<code>longExplanation</code>/<code>helpHref</code> like any other Doug-facing entry. Earlier draft text grouping it with cooldown variants was retracted in r11.</li>
+    <li><code>LINK_CROSS_SHOW_REUSE</code> uses non-canonical <code>(operator log only)</code> at master-spec line 2846 — does NOT match the parser's null-shape contract (master-spec line 2692 requires <code>—</code>, empty, or <code>(admin log only ...)</code>). M12 does not add or modify this entry; if/when master-spec is amended to the canonical shape, a future milestone aligns it.</li>
+  </ul>
+  <p>Behavior change: AlertBanner stops surfacing the derived admin-log-only codes — master-spec-correct. Drift-blessing tests break; those tests were testing drift.</p>
+  <p><strong>Required-when predicate (r8 — simplified):</strong> <code>severity !== "info"</code> AND <code>dougFacing != null</code>. The meta-test asserts a <strong>biconditional</strong> — predicate ↔ "all three M12 fields non-null." After catalog alignment, no third conjunct needed.</p>
+  <p>v1 gates all of <code>/help/*</code> to admin. Crew-only entries would link crew users to a 403. Forcing <code>helpHref</code> on those would create broken UX. r4 narrowed to admin-facing rows; r5 further excludes admin-log-only entries that don't need a destination page.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Field</th><th>Type</th><th>Required when</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>title</code> <span class="pill accent">r8</span></td><td><code>string | null</code>; non-null required</td><td><code>severity !== "info"</code> AND <code>dougFacing != null</code></td><td>Short heading on <code>/help/errors#&lt;code&gt;</code> (raw code is anchor only per invariant #5)</td></tr>
+      <tr><td><code>longExplanation</code></td><td><code>string | null</code>; non-null required</td><td>Same predicate</td><td>Long-form explanation; rendered on <code>/help/errors#&lt;code&gt;</code></td></tr>
+      <tr><td><code>helpHref</code></td><td><code>string | null</code>; non-null required</td><td>Same predicate</td><td>Deep-link target for "Learn more →"</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Info-tier entries: not required. Crew-only entries (<code>dougFacing == null</code>, <code>crewFacing != null</code>): all three M12 fields stay <code>null</code> in v1; phase 2 fills them. Master-spec admin-log-only entries: post-r8 catalog alignment, those have <code>dougFacing == null</code> and naturally fall into the not-required bucket — no separate flag.</p>
+  <p><strong>Render-side gate <span class="pill accent">r5 → r8 → r10 preview clarified</span>:</strong> The shared error renderer emits <code>Learn more →</code> only when BOTH hold: (a) <code>helpHref</code> is non-null, AND (b) rendering context is admin.</p>
+  <p><strong>Admin-context allowlist (r10):</strong> a context is "admin" when it is <code>/admin/*</code> OR <code>/help/admin/*</code> — <strong>EXCEPT <code>/admin/show/&lt;slug&gt;/preview/&lt;crew-id&gt;</code></strong> (impersonation), which is an admin URL that renders the crew page. Inside the previewed crew content the renderer MUST treat the context as CREW (no Learn-more links), so Doug's preview matches what crew actually see. The ONLY admin-context element on that surface is the sticky preview banner. Crew-facing surfaces (<code>/show/&lt;slug&gt;</code>) and previewed crew content within preview-as-crew MUST NOT emit admin-gated <code>/help</code> links. Enforced by <code>tests/messages/_metaErrorRendererGate.test.ts</code> (§7.1 test 12 — r10 expanded to 4 contexts).</p>
+
+  <h3>5.3 Affordance wiring (retrofits)</h3>
+  <p>This milestone does not change the text content of any tooltip, error message, or expansion shipped by M4/M9/M10. <strong>Link-only retrofit.</strong></p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Affordance</th><th>Spec</th><th>M12 addition</th></tr></thead>
+    <tbody>
+      <tr><td>Section header "?" tooltip</td><td>§9.0.1</td><td>Trailing <code>Learn more →</code> link to the mapped <code>/help/...</code> page. Conditional on <code>helpHref</code>; degrades cleanly.</td></tr>
+      <tr><td>Parse warning row</td><td>§9.2</td><td>Sibling <code>Learn more →</code> button next to "Report this to Eric"; resolves to <code>/help/admin/parse-warnings#&lt;code&gt;</code>.</td></tr>
+      <tr><td>Error toast / banner</td><td>§12.4</td><td>Inline <code>Learn more →</code> when <code>helpHref</code> is present.</td></tr>
+      <tr><td>Dashboard footer "Take the tour"</td><td>§9.0.1</td><td><code>&lt;Link href="/help/tour"&gt;Take the tour →&lt;/Link&gt;</code>.</td></tr>
+      <tr><td>"What does this mean?" expansion</td><td>§9.0.1</td><td>Body stays as M9/M10 shipped; appended <code>Learn more →</code> to <code>/help/errors#&lt;code&gt;</code>.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>5.4 Slug stability invariant</h3>
+  <p>Page slugs and anchor IDs under <code>/help/*</code> are <strong>committed contracts</strong>. Renaming any requires a redirect entry in the same change. The build-time anchor resolver (<a href="#s7">§7</a> test 1) fails CI on any <code>helpHref</code> that points at a missing anchor or page.</p>
+
+  <h3>5.5 Auth interaction</h3>
+  <p>A non-admin who hits a deep-linked <code>/help/...</code> URL gets the same <code>forbidden()</code> 403 as bare <code>/help</code>. Acceptable: only Doug should be following these links from inside <code>/admin</code>. Phase 2 relaxes <code>/help/crew/*</code> only. The render-side gate (§5.2) ensures crew-facing surfaces never emit admin-gated links.</p>
+
+  <h3>5.6 §9.0.1 surface affordance matrix <span class="pill accent">r4 + r5 testid mechanism</span></h3>
+  <p>Every <code>?</code> tooltip / "Learn more" / "Take the tour" / "What does this mean?" in master-spec §9.0.1 is enumerated with its target AND a stable <code>data-testid</code>. Test #13 walks the matrix by <code>data-testid</code> — no file:line citations (those rot when components move).</p>
+  <p><strong>Discovery mechanism (r5):</strong> owning milestones (M3/M9/M10) MUST add the matching <code>data-testid</code> to their components when they ship the affordance. Naming convention: <code>help-affordance--&lt;source-surface-slug&gt;--&lt;affordance-kind&gt;</code>.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Source surface</th><th>Affordance</th><th><code>data-testid</code></th><th>Target</th><th>Owning milestone</th></tr></thead>
+    <tbody>
+      <tr><td><code>/admin</code> dashboard — Active Shows header</td><td><code>?</code> tooltip</td><td><code>help-affordance--dashboard-active-shows--tooltip</code></td><td><code>/help/admin/dashboard#active-shows</code></td><td>M3 / M9</td></tr>
+      <tr><td><code>/admin</code> dashboard — "Sheets we couldn't auto-apply" header</td><td><code>?</code> tooltip</td><td><code>help-affordance--dashboard-pending-ingestion--tooltip</code></td><td><code>/help/admin/review-queues#first-seen</code></td><td>M3 / M9</td></tr>
+      <tr><td><code>/admin</code> dashboard — "Review staged changes" badge</td><td><code>?</code> tooltip</td><td><code>help-affordance--dashboard-restage-badge--tooltip</code></td><td><code>/help/admin/review-queues#re-stage</code></td><td>M9</td></tr>
+      <tr><td><code>/admin</code> dashboard footer</td><td>"Take the tour"</td><td><code>help-affordance--dashboard-footer--tour</code></td><td><code>/help/tour</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — Staged review card (re-stage)</td><td><code>?</code> tooltip on header</td><td><code>help-affordance--per-show-restage-card--tooltip</code></td><td><code>/help/admin/review-queues#re-stage</code></td><td>M9</td></tr>
+      <tr style="background:var(--accent-soft);"><td><strong><code>/admin/show/staged/&lt;stagedId&gt;</code> — first-seen staged review card <span class="pill accent">new r5</span></strong></td><td><code>?</code> tooltip on header</td><td><code>help-affordance--first-seen-review-card--tooltip</code></td><td><code>/help/admin/review-queues#first-seen</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — Sync health header</td><td><code>?</code> tooltip</td><td><code>help-affordance--per-show-sync-health--tooltip</code></td><td><code>/help/admin/per-show-panel#sync-health</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — Parse warnings header</td><td><code>?</code> tooltip</td><td><code>help-affordance--per-show-parse-warnings--tooltip</code></td><td><code>/help/admin/parse-warnings</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — individual parse-warning row</td><td><code>Learn more →</code></td><td><code>help-affordance--parse-warning-row--learn-more</code></td><td><code>/help/admin/parse-warnings#&lt;code&gt;</code> via <code>messageFor(code).helpHref</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — Crew preview links header</td><td><code>?</code> tooltip</td><td><code>help-affordance--per-show-preview-links--tooltip</code></td><td><code>/help/admin/preview-as-crew</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;/preview/&lt;crew-id&gt;</code> — sticky banner</td><td><code>?</code> icon</td><td><code>help-affordance--preview-banner--tooltip</code></td><td><code>/help/admin/preview-as-crew#impersonation-banner</code></td><td>M9</td></tr>
+      <tr><td>Onboarding wizard — Step 1 (service-account email)</td><td><code>?</code> icon</td><td><code>help-affordance--wizard-step1--tooltip</code></td><td><code>/help/admin/onboarding-wizard#service-account</code></td><td>M10</td></tr>
+      <tr><td>Onboarding wizard — Step 2 header</td><td><code>?</code> tooltip</td><td><code>help-affordance--wizard-step2--tooltip</code></td><td><code>/help/admin/onboarding-wizard#step-2</code></td><td>M10</td></tr>
+      <tr><td>Onboarding wizard — Step 3 header</td><td><code>?</code> tooltip</td><td><code>help-affordance--wizard-step3--tooltip</code></td><td><code>/help/admin/onboarding-wizard#step-3</code></td><td>M10</td></tr>
+      <tr><td><strong>(template-family row, r6 — r8 catalog-aligned)</strong> Any <code>messageFor(code)</code> error in <code>/admin/*</code> where <code>helpHref != null</code> (catalog entries matching AC-12.6 predicate; admin-log-only naturally excluded after r8 alignment)</td><td><code>Learn more →</code></td><td>Family <code>help-affordance--error-message--&lt;code&gt;--learn-more</code> (lowercase-kebab code). Walked by family rule in test #13, NOT by the AC-12.36 regex.</td><td><code>/help/errors#&lt;code&gt;</code> via <code>messageFor(code).helpHref</code></td><td>M9 / M10</td></tr>
+      <tr><td><strong>(negative-assertion row, r6 — not a matrix-walker row)</strong> Crew-facing surfaces (<code>/show/&lt;slug&gt;</code>)</td><td><strong>No</strong> <code>Learn more →</code> in v1</td><td>— (test #13 asserts no <code>data-testid^="help-affordance--"</code> exists in rendered crew page)</td><td>n/a in v1</td><td>(Phase 2)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p><strong>Class-sweep guarantee:</strong> any new <code>/admin/*</code> §9.0.1 tooltip MUST add (a) a matrix row, (b) the matching <code>data-testid</code> in the component, (c) the target <code>/help/...</code> page or anchor — all in the same PR. Test #13 fails on either direction: missing matrix row OR missing testid in code.</p>
+</section>
+
+<!-- ===== Section 6 ===== -->
+<section class="spec-section" id="s6">
+  <h2>6. Components (live previews)</h2>
+  <p>Each MDX component, rendered below as a faux preview in both light and dark frames. These are illustrative — the production tokens come from <code>app/globals.css</code>. The point: a reviewer can see what they're approving, not just read the API table.</p>
+
+  <h3>6.1 <code>&lt;Callout type="note|warning|tip"&gt;</code></h3>
+  <p>Colored block with palette token + fixed icon per type. Used for "Heads up," "If this happens…," and procedural tips.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-callout note"><span class="icon">ℹ</span><span><strong>Note.</strong> Your sheet is the source of truth. If it changes, the crew page changes — usually within five seconds.</span></div>
+      <div class="demo-callout warning"><span class="icon">⚠</span><span><strong>Heads up.</strong> A yellow "Review staged changes" badge means the app is holding new edits for your approval before crew see them.</span></div>
+      <div class="demo-callout tip"><span class="icon">✓</span><span><strong>Tip.</strong> Preview as the crew member you're about to send a link to. If something looks off, fix the sheet first.</span></div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-callout note"><span class="icon">ℹ</span><span><strong>Note.</strong> Your sheet is the source of truth. If it changes, the crew page changes — usually within five seconds.</span></div>
+      <div class="demo-callout warning"><span class="icon">⚠</span><span><strong>Heads up.</strong> A yellow "Review staged changes" badge means the app is holding new edits for your approval before crew see them.</span></div>
+      <div class="demo-callout tip"><span class="icon">✓</span><span><strong>Tip.</strong> Preview as the crew member you're about to send a link to. If something looks off, fix the sheet first.</span></div>
+    </div>
+  </div>
+
+  <h3>6.2 <code>&lt;Step n={N}&gt;</code></h3>
+  <p>Numbered procedural step. Used in the adoption track and onboarding-wizard reference.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-step"><span class="num">1</span><div class="body">In Google Drive, find the folder where you keep your show sheets — or make a new one.</div></div>
+      <div class="demo-step"><span class="num">2</span><div class="body">Click <strong>Share</strong> on the folder and paste the service-account email. Give it Viewer access.</div></div>
+      <div class="demo-step"><span class="num">3</span><div class="body">Come back here and click "I've shared the folder."</div></div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-step"><span class="num">1</span><div class="body">In Google Drive, find the folder where you keep your show sheets — or make a new one.</div></div>
+      <div class="demo-step"><span class="num">2</span><div class="body">Click <strong>Share</strong> on the folder and paste the service-account email. Give it Viewer access.</div></div>
+      <div class="demo-step"><span class="num">3</span><div class="body">Come back here and click "I've shared the folder."</div></div>
+    </div>
+  </div>
+
+  <h3>6.3 <code>&lt;Screenshot key="..."&gt;</code> <span class="pill accent">primary in r2</span></h3>
+  <p>The shipped path. Renders <code>&lt;picture&gt;</code> with light/dark WebP sources from the capture harness (§3.5). Reader's theme picks the variant automatically via <code>prefers-color-scheme</code>. Toggle this page's theme (top-right) to see the swap behavior on the example below.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <p style="font-size:.78rem;color:var(--muted);margin:.2rem 0;font-family:ui-monospace,monospace;">&lt;Screenshot key="dashboard-active-shows" alt="Active Shows panel with one row showing a yellow Review staged changes badge" /&gt;</p>
+      <!-- Faux rendering of what the dark-mode dashboard would look like inline -->
+      <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:.6rem;font-family:ui-sans-serif;font-size:.74rem;color:#333;">
+        <div style="font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:.4rem;">Active shows · light variant</div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 130px;gap:.4rem;align-items:center;padding:.35rem 0;border-bottom:1px solid #eee;">
+          <div><strong>RPAS Central 2026</strong><br><span style="color:#888;font-size:.7rem;">3/22 → 3/26/26</span></div>
+          <div style="color:#666;">Crew: 4</div>
+          <div style="color:#666;">12m</div>
+          <div><span style="background:#fff3d8;color:#7a4a06;padding:.15rem .4rem;border-radius:3px;font-weight:600;font-size:.7rem;">⚠ Review staged changes</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 130px;gap:.4rem;align-items:center;padding:.35rem 0;color:#888;">
+          <div><strong style="color:#333;">Atlantic Forum 2026</strong><br><span style="font-size:.7rem;">2/18 → 2/20/26</span></div>
+          <div>Crew: 6</div>
+          <div>2h</div>
+          <div><span style="color:#777;">✓ Up to date</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <p style="font-size:.78rem;color:var(--muted);margin:.2rem 0;font-family:ui-monospace,monospace;">&lt;Screenshot key="dashboard-active-shows" alt="Active Shows panel with one row showing a yellow Review staged changes badge" /&gt;</p>
+      <div style="background:#16161a;border:1px solid #2a2a30;border-radius:6px;padding:.6rem;font-family:ui-sans-serif;font-size:.74rem;color:#ccc;">
+        <div style="font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:.4rem;">Active shows · dark variant</div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 130px;gap:.4rem;align-items:center;padding:.35rem 0;border-bottom:1px solid #2a2a30;">
+          <div><strong style="color:#ececec;">RPAS Central 2026</strong><br><span style="color:#888;font-size:.7rem;">3/22 → 3/26/26</span></div>
+          <div style="color:#aaa;">Crew: 4</div>
+          <div style="color:#aaa;">12m</div>
+          <div><span style="background:#2a2010;color:#f0c47a;padding:.15rem .4rem;border-radius:3px;font-weight:600;font-size:.7rem;">⚠ Review staged changes</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 130px;gap:.4rem;align-items:center;padding:.35rem 0;color:#888;">
+          <div><strong style="color:#ececec;">Atlantic Forum 2026</strong><br><span style="font-size:.7rem;">2/18 → 2/20/26</span></div>
+          <div>Crew: 6</div>
+          <div>2h</div>
+          <div><span style="color:#888;">✓ Up to date</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size:.85rem;color:var(--fg-soft);margin-top:.5rem;">In production, both frames above are <strong>generated WebP files</strong> from <code>scripts/help-screenshots.ts</code>. The faux renderings here show the kind of content the harness will capture per manifest key.</p>
+
+  <h3>6.3b <code>&lt;ScreenshotPlaceholder&gt;</code> <span class="pill warn">draft-only</span></h3>
+  <p>Used when authoring a page before its underlying surface is built. <strong>Lint-prohibited in shipped v1 MDX</strong> (§7.1 test 7). Every documented surface must graduate from this placeholder to a real <code>&lt;Screenshot&gt;</code> before milestone close-out.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-screenshot">Screenshot pending — "Yellow Review staged changes badge on a row in the Active Shows panel"</div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-screenshot">Screenshot pending — "Yellow Review staged changes badge on a row in the Active Shows panel"</div>
+    </div>
+  </div>
+
+  <h3>6.4 <code>&lt;RefAnchor id="CODE"&gt;</code></h3>
+  <p>Stable-anchor heading for catalog deep-links. Renders with <code>id={id}</code> and a click-to-copy link icon. Anchor IDs must match the catalog code shape: <code>/^[A-Z_]+$/</code>.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-anchor"><h5>REPORT_HORIZON_EXPIRED</h5><span class="link-icon">🔗</span></div>
+      <p>The 24-hour retention window for this report has passed. You can resubmit the issue if it's still happening.</p>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-anchor"><h5>REPORT_HORIZON_EXPIRED</h5><span class="link-icon">🔗</span></div>
+      <p>The 24-hour retention window for this report has passed. You can resubmit the issue if it's still happening.</p>
+    </div>
+  </div>
+
+  <h3>6.5 <code>&lt;TipFromSheets&gt;</code></h3>
+  <p>Adoption-track aside. Lets the reader anchor each new concept against the Sheets workflow they already know.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-tip"><span class="label">From Sheets</span>In your old workflow, you'd email each crew member their copy of the sheet (or a PDF). Now the app generates a per-crew-member page automatically — you only send the link.</div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-tip"><span class="label">From Sheets</span>In your old workflow, you'd email each crew member their copy of the sheet (or a PDF). Now the app generates a per-crew-member page automatically — you only send the link.</div>
+    </div>
+  </div>
+
+  <h3>6.6 Component contract summary</h3>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Component</th><th>File</th><th>Required props</th></tr></thead>
+    <tbody>
+      <tr><td><code>&lt;Sidebar&gt;</code></td><td><code>app/help/_components/Sidebar.tsx</code></td><td>none (reads <code>_nav.ts</code> + <code>usePathname()</code>)</td></tr>
+      <tr><td><code>&lt;Header&gt;</code></td><td><code>app/help/_components/Header.tsx</code></td><td>none</td></tr>
+      <tr><td><code>&lt;Breadcrumb&gt;</code></td><td><code>app/help/_components/Breadcrumb.tsx</code></td><td>none</td></tr>
+      <tr><td><code>&lt;Callout&gt;</code></td><td><code>app/help/_components/Callout.tsx</code></td><td><code>type</code> · unknown values default to <code>note</code></td></tr>
+      <tr><td><code>&lt;Step&gt;</code></td><td><code>app/help/_components/Step.tsx</code></td><td><code>n</code>, <code>children</code></td></tr>
+      <tr><td><code>&lt;Screenshot&gt;</code> <span class="pill accent">primary</span></td><td><code>app/help/_components/Screenshot.tsx</code></td><td><code>key</code> (manifest entry), <code>alt</code></td></tr>
+      <tr><td><code>&lt;ScreenshotPlaceholder&gt;</code> <span class="pill warn">draft-only</span></td><td><code>app/help/_components/ScreenshotPlaceholder.tsx</code></td><td><code>alt</code>. Lint-prohibited in shipped v1.</td></tr>
+      <tr><td><code>&lt;RefAnchor&gt;</code></td><td><code>app/help/_components/RefAnchor.tsx</code></td><td><code>id</code> (regex <code>/^[A-Z_]+$/</code>, anchor-resolver enforced)</td></tr>
+      <tr><td><code>&lt;TipFromSheets&gt;</code></td><td><code>app/help/_components/TipFromSheets.tsx</code></td><td><code>children</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>All components honor <code>prefers-reduced-motion</code>. None have motion in v1. All meet WCAG AA contrast minimum per PRODUCT.md; AAA where cheap.</p>
+</section>
+
+<!-- ===== Section 7 ===== -->
+<section class="spec-section" id="s7">
+  <h2>7. Testing strategy</h2>
+  <h3>7.1 Test inventory (17 unit/integration tests + 1 CI gate)</h3>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>#</th><th>Test</th><th>File</th><th>What it catches</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><strong>Build-time anchor resolver</strong></td><td><code>tests/help/anchor-resolver.test.ts</code></td><td>Broken deep-link from catalog <code>helpHref</code> to a missing page or <code>&lt;RefAnchor&gt;</code>.</td></tr>
+      <tr><td>2</td><td><strong>Catalog meta-test</strong> <span class="pill accent">biconditional r8</span></td><td><code>tests/messages/_metaErrorCatalogDocs.test.ts</code></td><td><strong>Biconditional:</strong> predicate (<code>severity !== "info"</code> AND <code>dougFacing != null</code>) ↔ "<code>title</code>, <code>longExplanation</code>, <code>helpHref</code> all non-null (helpHref matches <code>^/help/...</code>)". Forced-fixture cases prove both directions independently. Catches accidental population of <code>helpHref</code> on non-renderable entries. r5/r6/r7's <code>selfContainedAction</code> opt-out is gone in r8 — catalog alignment naturally handles admin-log-only codes.</td></tr>
+      <tr><td>3</td><td><strong>Auth-gating + AdminInfraError mapping</strong> <span class="pill accent">corrected r4</span></td><td><code>tests/e2e/help-auth.spec.ts</code></td><td>Unauth → 403; admin → 200; crew → 403 in v1. <strong>AdminInfraError:</strong> Supabase RPC stubbed to throw → 500-class surface. Assertion text is the <strong>resolved fallback chain</strong> <code>entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."</code> (mirrors <code>app/admin/layout.tsx:58-60</code>). For live <code>ADMIN_SESSION_LOOKUP_FAILED</code> (<code>lib/messages/catalog.ts:148-154</code>, <code>dougFacing: null</code>), resolves to the <code>crewFacing</code> string. Test asserts the rendered text equals the fallback's actual output — NOT a hard-coded literal.</td></tr>
+      <tr><td>4</td><td><strong>MDX smoke</strong></td><td><code>tests/help/render.test.ts</code></td><td>Malformed MDX, missing component, broken import.</td></tr>
+      <tr><td>5</td><td><strong>Nav consistency meta-test</strong></td><td><code>tests/help/_metaNavSync.test.ts</code></td><td>Orphan page (FS but not in <code>_nav.ts</code>) or dead nav (in <code>_nav.ts</code> but not on FS).</td></tr>
+      <tr><td>6</td><td><strong>Mobile layout (Playwright)</strong></td><td><code>tests/e2e/help-mobile.spec.ts</code></td><td>Horizontal scroll at 390px, sub-44px tap targets, sidebar that doesn't collapse. Real browser only — jsdom insufficient per Tailwind v4 flex-stretch lesson.</td></tr>
+      <tr><td>7</td><td><strong>No-placeholder-in-shipped-v1 lint</strong> <span class="pill accent">r2</span></td><td><code>tests/help/no-placeholders.test.ts</code></td><td><code>&lt;ScreenshotPlaceholder</code> in <code>app/help/**/*.mdx</code> at close-out. Forces real <code>&lt;Screenshot key&gt;</code> on every documented surface.</td></tr>
+      <tr><td>8</td><td><strong>Screenshot coverage</strong> <span class="pill accent">r2</span></td><td><code>tests/help/screenshot-coverage.test.ts</code></td><td><code>&lt;Screenshot key&gt;</code> referencing a missing manifest entry, or a manifest entry missing one or both of its <code>{key}-light.webp</code> / <code>{key}-dark.webp</code> on disk.</td></tr>
+      <tr><td>9</td><td><strong>Manifest integrity meta-test</strong> <span class="pill accent">r2</span></td><td><code>tests/help/_metaScreenshotManifest.test.ts</code></td><td>Stale manifest entry (route gone but entry remains), orphan WebP (entry deleted but file remains), or fixture name not present in <code>fixtures/shows/</code>.</td></tr>
+      <tr><td>10</td><td><strong><code>&lt;Screenshot&gt;</code> <code>&lt;picture&gt;</code> contract test</strong> <span class="pill accent">r3</span></td><td><code>tests/help/screenshot-picture-contract.test.ts</code></td><td>Renders <code>&lt;Screenshot&gt;</code> against a stub manifest. Asserts the output contains <code>&lt;source media="(prefers-color-scheme: dark)" srcset="…-dark.webp"&gt;</code> and a default light <code>&lt;img&gt;</code> with the provided <code>alt</code>. Enforces AC-12.25 directly — without this, the <code>&lt;picture&gt;</code> contract has only visual fixtures to prove it works.</td></tr>
+      <tr><td>11</td><td><strong>CI drift gate</strong> <span class="pill accent">r3</span></td><td>CI workflow step</td><td>CI runs <code>pnpm screenshot:help</code> on a clean checkout (with <code>pnpm db:seed</code> precondition), then <code>git diff --exit-code public/help/screenshots/</code>. Non-zero exit → PR fails.</td></tr>
+      <tr><td>12</td><td><strong>Error-renderer gate</strong> <span class="pill accent">r4 → r10 expanded</span></td><td><code>tests/messages/_metaErrorRendererGate.test.ts</code></td><td>Renders each catalog entry through the shared error renderer in <strong>four</strong> contexts (admin, help-admin, crew, AND preview-as-crew). Admin and help-admin emit <code>Learn more →</code> when <code>helpHref</code> is non-null; crew AND preview-as-crew contexts never emit the link. r10 adds the preview case so Doug's preview view matches real crew view. Sticky preview banner tested separately as admin-context.</td></tr>
+      <tr><td>13</td><td><strong>Deep-link affordance walker</strong> <span class="pill accent">r4 → r5 → r6 → r7 unit-level family</span></td><td><code>tests/help/deep-link-walker.test.ts</code></td><td><strong>Concrete-testid rows</strong> (E2E, ~11 rows) — walked by <code>data-testid</code>; asserts affordance present and href matches matrix target. <strong>Template-family row (UNIT-LEVEL in r7):</strong> renderer is exercised via unit test feeding each catalog entry matching AC-12.6 predicate, asserting the rendered output contains the expected per-code testid + <code>Learn more →</code> with matching <code>href</code>. r6's per-code E2E navigation didn't scale (104 catalog entries). Plus ONE representative E2E smoke. <strong>Negative-assertion row</strong> (E2E) — signed-link viewer at <code>/show/&lt;slug&gt;</code> asserts no <code>data-testid^="help-affordance--"</code>. <strong>Reverse check:</strong> codebase grep.</td></tr>
+      <tr><td>14</td><td><strong>Fixture-range parser unit test</strong> <span class="pill accent">new r7</span></td><td><code>tests/help/fixture-range-parser.test.ts</code></td><td>Unit-tests <code>scripts/help-screenshots-fixture-range.ts</code> against the known fixture corpus (<code>fixtures/shows/raw/*</code>): asserts the parser returns the expected operational date range parsed from each fixture's INFO tab DATES rows. Coverage: ≥1 show per template version (2024 / 2025 / 2026 schemas per <code>fixtures/shows/_schema-diff.md</code>).</td></tr>
+      <tr><td>15</td><td><strong><code>lib/time/now.ts</code> gating unit test</strong> <span class="pill accent">new r7</span></td><td><code>tests/time/now-gate.test.ts</code></td><td>Asserts utility returns frozen instant ONLY when ALL three preconditions hold (header present, <code>ENABLE_TEST_AUTH === "true"</code>, valid <code>Authorization: Bearer</code>). Production-mode case: with <code>ENABLE_TEST_AUTH</code> unset, header is ignored. Capture-boundary case: two consecutive calls 60+ seconds apart with same frozen header return byte-identical ISO strings (per AC-12.37). Replaces r6's E2E capture-boundary check.</td></tr>
+      <tr><td>16</td><td><strong>Server-side time-call grep guard</strong> <span class="pill accent">r8 → r9 tightened</span></td><td><code>tests/help/_metaServerTimeGuard.test.ts</code></td><td><strong>Scan paths derived from <code>scripts/help-screenshots.manifest.ts</code></strong> (not hard-coded). Per-match rule: each <code>new Date()</code>/<code>Date.now()</code> match must be EITHER inside <code>lib/time/now.ts</code> itself OR carry a <strong>per-line</strong> <code>// not-render-side: &lt;reason&gt;</code> waiver. File-level utility import does NOT exempt other raw calls in the same file (r8 loophole closed). Catches mixed-mode files and future manifest-route additions.</td></tr>
+      <tr><td>17</td><td><strong>Catalog-alignment meta-test</strong> <span class="pill accent">r9 → r10 normalization clarified</span></td><td><code>tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts</code></td><td>Derives admin-log-only set via <code>scripts/extract-admin-log-only-codes.ts</code> reading master-spec §12.4 markdown. Parser normalization (r10): classifies as admin-log-only when the Doug-facing cell (trimmed) is (a) literal em-dash <code>—</code>, (b) empty cell, OR (c) parenthetical starting <code>(admin log only</code>. Other sentinels NOT recognized. For each derived code, asserts the live entry has all 6 user-facing fields <code>null</code>. Anti-tautology: two different files (master-spec md ↔ live catalog).</td></tr>
+      <tr><td>18</td><td><strong>End-to-end clock-pipeline proof</strong> <span class="pill accent">new r10</span></td><td><code>tests/playwright/help-screenshots-clock-pipeline.spec.ts</code></td><td>Captures the <code>/admin/show/&lt;slug&gt;/preview/&lt;crew-id&gt;</code> manifest entry TWICE with two different <code>frozenClockInstant</code> values; asserts the two WebP files differ byte-wise. Proves the request-scoped header actually reaches the server component's render — not just <code>lib/time/now.ts</code> in isolation. Lives in <code>screenshots-help</code> Playwright project; runs daily, not per-PR (gives AC-12.39 a concrete test home).</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>7.2 Anti-tautology guardrails</h3>
+  <ul>
+    <li>Anchor resolver reads <strong>catalog source</strong>, not the rendered page. Assertion side ≠ page-under-test.</li>
+    <li>Nav consistency reads the <strong>filesystem</strong>, not the rendered DOM.</li>
+    <li>Auth-gating asserts HTTP status, not DOM presence.</li>
+  </ul>
+
+  <h3>7.3 Out of scope for v1 testing</h3>
+  <p>Full-text search, <strong>pixel-diff regression</strong> (r2: drift detection via git diff on WebP bytes is sufficient for v1; <code>pixelmatch</code>-style thresholding is phase-1.5 if false-positive churn becomes a problem), deep a11y audit (impeccable v3's territory), Lighthouse perf (broader app pipeline).</p>
+</section>
+
+<!-- ===== Section 8 ===== -->
+<section class="spec-section" id="s8">
+  <h2>8. Plan-wide invariants this milestone interacts with</h2>
+  <p>From <code>AGENTS.md</code>. Listed here for the implementer's preflight.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Invariant</th><th>Applies?</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>#1</strong> TDD per task</td><td class="center"><span class="pill accent">yes</span></td><td>Each component + each test in its own red → green → commit loop.</td></tr>
+      <tr><td><strong>#2</strong> Per-show advisory lock</td><td class="center"><span class="pill">n/a</span></td><td><code>/help/*</code> has no DB write paths.</td></tr>
+      <tr><td><strong>#3</strong> Email canonicalization</td><td class="center"><span class="pill">n/a</span></td><td>No email handling.</td></tr>
+      <tr><td><strong>#4</strong> No global sync cursor</td><td class="center"><span class="pill">n/a</span></td><td>No sync code.</td></tr>
+      <tr><td><strong>#5</strong> No raw error codes in UI</td><td class="center"><span class="pill accent">yes</span></td><td><code>/help/errors</code> renders codes <strong>as anchor IDs only</strong>; visible heading is the catalog <code>title</code>.</td></tr>
+      <tr><td><strong>#6</strong> Commit per task</td><td class="center"><span class="pill accent">yes</span></td><td>~13–20 commits depending on slicing. <code>feat(help):</code> / <code>test(help):</code> scope.</td></tr>
+      <tr><td><strong>#7</strong> Spec is canonical</td><td class="center"><span class="pill accent">yes</span></td><td>Conflicts with crew-pages spec resolve in favor of crew-pages spec.</td></tr>
+      <tr><td><strong>#8</strong> impeccable v3 UI gate</td><td class="center"><span class="pill accent">yes</span></td><td>Every <code>/help/*</code> page is a UI surface. <code>/impeccable critique</code> + <code>/impeccable audit</code> mandatory before milestone close-out.</td></tr>
+      <tr><td><strong>#9</strong> Supabase call-boundary</td><td class="center"><span class="pill accent">applies</span></td><td><code>/help/layout.tsx</code> calls <code>requireAdmin()</code>, which queries Supabase (<code>auth.getUser()</code> + <code>rpc("is_admin")</code>). Same single-call-site pattern as <code>/admin/layout.tsx</code>. Returned-error and thrown-error paths are already distinguished inside <code>requireAdmin</code>; layout catches <code>AdminInfraError</code> and renders cataloged 500-class surface (§3.4). <code>requireAdmin</code> is already registered in <code>tests/auth/_metaInfraContract.test.ts</code> — no new registry entry required. <span class="pill accent">corrected r3</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ===== Section 9 ===== -->
+<section class="spec-section" id="s9">
+  <h2>9. Flag lifecycle table</h2>
+  <p>This milestone introduces no new boolean config flags. The new catalog fields (<code>longExplanation</code>, <code>helpHref</code>) are strings, not flags. The optional <code>?ref=&lt;source-surface&gt;</code> query param (§5.3) is read-only telemetry — no code path branches on it.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Storage</th><th>Write path</th><th>Read path</th><th>Effect on output</th></tr></thead>
+    <tbody><tr><td colspan="4" class="center" style="color:var(--muted);font-style:italic;">No new flags introduced.</td></tr></tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ===== Section 10 ===== -->
+<section class="spec-section" id="s10">
+  <h2>10. Open implementation questions</h2>
+  <p>Deferred to the writing-plans phase, not to the user. All are "consult the codebase" calls.</p>
+  <ol>
+    <li><strong>Sidebar primitive reuse.</strong> Whether <code>&lt;Sidebar&gt;</code> reuses an existing <code>/admin</code> nav primitive or is bespoke.</li>
+    <li><strong><code>_nav.ts</code> shape.</strong> Flat array of <code>{slug,title,group}</code> vs. nested groups — pick whatever reads cleanest in TS.</li>
+    <li><strong>Anchor resolver invocation.</strong> <code>prebuild</code> script vs. vitest test in CI — pick based on existing build hooks.</li>
+    <li><strong>Theme toggle reuse.</strong> Whether <code>&lt;Header&gt;</code>'s theme toggle reuses the crew-page component or duplicates the pattern.</li>
+    <li><strong><code>Learn more →</code> text vs. icon.</strong> Implementation picks based on <code>impeccable</code> audit; spec does not constrain.</li>
+    <li><strong>Recapture obligation for downstream milestones.</strong> <span class="pill accent">r2</span> Future milestones that change a documented surface must include a "regenerate screenshots" task. The CI drift gate (§3.5.3 / §7.1 item 11) is the automatic signal — PR fails until <code>pnpm screenshot:help</code> is rerun and the new bytes are committed.</li>
+  </ol>
+  <p style="font-size:.85rem;color:var(--fg-soft);"><span class="pill accent">r3 note</span> Open questions about test-auth helper reuse and screenshot-harness reproducibility shape (both flagged in round 1) are resolved upstream in §3.5.2 — <code>signInAs</code> from <code>tests/e2e/helpers/signInAs.ts:43-73</code> is the canonical helper.</p>
+</section>
+
+<!-- ===== Section 11 ===== -->
+<section class="spec-section" id="s11">
+  <h2>11. Disagreement-loop preempt</h2>
+  <p>Contracts the round-N reviewer is most likely to relitigate. Resolved here to spare the convergence loop.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Contract</th><th>Resolution</th><th>Cite</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Hosting choice</strong> (in-app vs. external)</td><td>In-app <code>/help/*</code>. External wikis considered and rejected.</td><td><a href="#s2">§2</a>, <a href="#s3">§3</a></td></tr>
+      <tr><td><strong>Framework choice</strong> (<code>@next/mdx</code> vs. Nextra/Fumadocs)</td><td>Native <code>@next/mdx</code>. Framework alternatives rejected for 13-page surface.</td><td><a href="#s2">§2</a>, <a href="#s3">§3.2</a></td></tr>
+      <tr><td><strong>Screenshots in v1</strong> <span class="pill accent">r2</span></td><td><strong>Real screenshots ship in v1</strong> via scripted Playwright harness (§3.5). Light + dark always paired via <code>&lt;picture&gt;</code> + <code>prefers-color-scheme</code>. WebP q90, committed. <code>&lt;ScreenshotPlaceholder&gt;</code> is draft-only and lint-prohibited at v1 close-out.</td><td><a href="#s3">§3.5</a>, <a href="#s6">§6.3</a>, <a href="#s7">§7.1 tests 7–9</a></td></tr>
+      <tr><td><strong>M12 milestone sequencing</strong> <span class="pill accent">r2</span></td><td>M12 starts only after <strong>M10 closes</strong>. Real screenshots require their documented surfaces (M3 / M4 / M9 / M10) to be built and stable.</td><td>(Metadata)</td></tr>
+      <tr><td><strong>Search in v1</strong></td><td>No full-text search. Sidebar + Ctrl-F is sufficient for 13 pages.</td><td><a href="#s2">§2</a></td></tr>
+      <tr><td><strong>Auth gating breadth</strong></td><td>All <code>/help/*</code> admin-gated in v1. Phase 2 splits via route groups; URLs unchanged.</td><td><a href="#s3">§3.4</a></td></tr>
+      <tr><td><strong><code>/help/errors</code> rendering</strong></td><td>TSX iterating catalog. MDX rejected (would duplicate the short message).</td><td><a href="#s4">§4</a></td></tr>
+      <tr><td><strong><code>/help/admin/parse-warnings</code> rendering</strong></td><td>MDX with anchored sections. TSX rejected (content is editorial).</td><td><a href="#s4">§4</a></td></tr>
+      <tr><td><strong>Catalog API surface</strong> <span class="pill accent">r3</span></td><td>The accessor is <code>messageFor(code): MessageCatalogEntry</code> (<code>lib/messages/lookup.ts:11</code>). M12 does NOT introduce a new <code>lookup</code> function — it extends the existing <code>MessageCatalogEntry</code> type. <strong>Per round-1 finding 1.</strong></td><td><a href="#s5">§5.2</a></td></tr>
+      <tr><td><strong>Catalog schema extension shape</strong> <span class="pill accent">r3 → r8 → r13</span></td><td><strong>Three</strong> new fields: <code>title: string | null</code>, <code>longExplanation: string | null</code>, <code>helpHref: string | null</code>. The predicate is <code>severity !== "info" AND dougFacing != null</code> (admin-only in v1; r4 narrowed crew exclusion; r13 retracted the self-referential wording). The fields are the consequent of the predicate, not part of it — implemented as <code>contractViolations(entry)</code> in <code>lib/messages/catalogDocsValidator.ts</code>. r2's <code>=== "warning"</code> predicate was wrong (round-1 finding 3); r5/r6/r7's <code>crewFacing != null</code> disjunct was wrong (round-2 finding 1); r13 single source of truth.</td><td><a href="#s5">§5.2</a></td></tr>
+      <tr><td><strong>Rendering posture</strong> <span class="pill accent">r3</span></td><td><strong>Dynamic at request time</strong> for <code>/help/*</code>. <code>requireAdmin()</code> runs Supabase queries per request. MDX content is statically compiled to RSC; the layout gate is dynamic. <strong>Per round-1 finding 2.</strong></td><td><a href="#s3">§3.4</a></td></tr>
+      <tr><td><strong><code>AdminInfraError</code> handling on <code>/help</code></strong> <span class="pill accent">r3</span></td><td>Mirrors <code>app/admin/layout.tsx:47-71</code> verbatim. Layout catches <code>AdminInfraError</code>, renders cataloged 500-class surface via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED")</code>. Test #3 verifies. <strong>Per round-1 finding 2.</strong></td><td><a href="#s3">§3.4</a>, <a href="#s7">§7.1 test 3</a></td></tr>
+      <tr><td><strong>Screenshot harness reproducibility</strong> <span class="pill accent">r3 + r4</span></td><td>Dedicated Playwright project, <code>globalSetup</code> with <code>pnpm db:seed</code>, reuses <code>signInAs</code>, pinned <code>sharp</code> encoder, deterministic browser settings, quiescence wait, <strong>fixed clock (r4)</strong>, <strong>CSRF/cookie stability via <code>storageState</code> (r4)</strong>, <strong>Realtime suppression (r4)</strong>, CI <code>git diff --exit-code</code> gate. <strong>Round-1 finding 4 + round-2 finding 3.</strong></td><td><a href="#s3">§3.5.2</a>, <a href="#s3">§3.5.3</a></td></tr>
+      <tr><td><strong>Crew-rendered errors never link to <code>/help</code></strong> <span class="pill accent">new r4</span></td><td>Predicate narrows to <code>dougFacing != null</code> in v1 + render-side gate strips <code>Learn more →</code> from crew contexts. <strong>Per round-2 finding 1.</strong> Phase 2 widens predicate + renders crew links to <code>/help/crew/*</code>.</td><td><a href="#s5">§5.2</a>, <a href="#s7">§7.1 test 12</a></td></tr>
+      <tr><td><strong>AdminInfraError rendered text is the fallback chain, not <code>dougFacing</code> literally</strong> <span class="pill accent">new r4</span></td><td><code>entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."</code> (matches <code>app/admin/layout.tsx:58-60</code>). For live <code>ADMIN_SESSION_LOOKUP_FAILED</code> (<code>dougFacing: null</code>), resolves to <code>crewFacing</code>. <strong>Per round-2 finding 2.</strong></td><td><a href="#s3">§3.5</a>, AC-12.24, <a href="#s7">§7.1 test 3</a></td></tr>
+      <tr><td><strong>Static-vs-dynamic build contract</strong> <span class="pill accent">new r4</span></td><td><code>pnpm build</code> <strong>compiles</strong> MDX to RSC chunks; does NOT prerender static HTML. <code>app/help/layout.tsx</code> exports <code>dynamic = "force-dynamic"</code>. AC-12.1 asserts compilation, not prerender. <strong>Per round-2 finding 4.</strong></td><td><a href="#s3">§3.2</a>, <a href="#s3">§3.4</a>, AC-12.1, AC-12.31</td></tr>
+      <tr><td><strong>§9.0.1 surface coverage</strong> <span class="pill accent">new r4</span></td><td>§5.6 enumerates every section header / "Learn more" / "Take the tour" affordance per master-spec §9.0.1, with explicit <code>/help/...</code> target per row. Test #13 walks the matrix. New tooltips added in <code>/admin</code> must add a matrix row in the same PR. <strong>Per round-2 finding 5.</strong></td><td><a href="#s5">§5.6</a>, <a href="#s7">§7.1 test 13</a></td></tr>
+      <tr><td><strong>Existing-code citation discipline</strong> <span class="pill accent">new r4</span></td><td>All §12 rows cite <code>file:line</code>. r3's directory-only and prose-only citations corrected (<code>app/layout.tsx:1</code>, <code>app/globals.css:1</code>). r3's "deferred to implementation" note replaced with verified citations. <strong>Per round-2 finding 6.</strong></td><td><a href="#s12">§12</a></td></tr>
+      <tr><td><strong>First-seen staged-review surface in matrix</strong> <span class="pill accent">new r5</span></td><td>§5.6 row added for <code>/admin/show/staged/&lt;stagedId&gt;</code> per master-spec §9.1 / §9.2 sub-section 0. Same review-card UI as <code>/admin/show/&lt;slug&gt;?review=</code>, slug-less variant. Target: <code>/help/admin/review-queues#first-seen</code>. <strong>Per round-3 finding 1.</strong></td><td><a href="#s5">§5.6 first-seen row</a></td></tr>
+      <tr><td><strong>Catalog drift is M12's responsibility (r8 → r12 derivation-driven)</strong> <span class="pill accent">r5 → r6 → r7 → r8 → r12</span></td><td>r5/r6/r7 tried opt-out flags (<code>adminLogOnly</code> → <code>selfContainedAction</code>) to dodge catalog-vs-master-spec drift. r8 instead <strong>reconciles the catalog</strong>; r9/r12 then made the alignment derivation-driven: AC-12.35 sets <code>dougFacing</code>/<code>crewFacing</code>/<code>helpfulContext</code>/<code>title</code>/<code>longExplanation</code>/<code>helpHref</code> all to <code>null</code> on the canonical admin-log-only set derived mechanically from every §12.4 row whose <code>Doug-facing message</code> AND <code>Crew-facing message</code> cells match the master-spec line 2692 null-shape rule (<code>—</code> | empty | <code>(admin log only ...)</code>). Master-spec line 2691 lists illustrative examples but is NOT an exhaustive hand-list — the parser (plan Task B.2 at <code>scripts/extract-admin-log-only-codes.ts</code>) is canonical for membership. After alignment, predicate <code>severity !== "info" AND dougFacing != null</code> suffices with no third conjunct. <strong>Per round-3 finding 2, round-4 findings 1-2, round-5 finding 3, round-6 finding 2, B-round-7 finding 2.</strong></td><td><a href="#s5">§5.2</a>, AC-12.35</td></tr>
+      <tr><td><strong>Walker discovery uses <code>data-testid</code>, not file:line</strong> <span class="pill accent">new r5</span></td><td>§5.6 matrix gains <code>data-testid</code> column with <code>help-affordance--*</code> naming. Test #13 walks by testid. File:line citations would rot when components move. <strong>Per round-3 finding 3.</strong></td><td><a href="#s5">§5.6</a>, <a href="#s7">§7.1 test 13</a>, AC-12.36</td></tr>
+      <tr><td><strong><code>frozenClockInstant</code> is per-entry required, no default</strong> <span class="pill accent">new r5</span></td><td>r4's <code>2026-04-15T14:30:00Z</code> default fell outside the default fixture's window (RPAS Central 2026: 3/22–3/26). r5 requires per-entry declaration, validated against fixture date window pre-capture. <strong>Per round-3 finding 4.</strong></td><td><a href="#s3">§3.5.2 Fixed clock + Frozen-instant validation</a>, AC-12.32, AC-12.34</td></tr>
+      <tr><td><strong>Fixed-clock contract <s>preserves</s> reintroduces SCREENSHOT_FROZEN_NOW (test-only, gated)</strong> <span class="pill accent">r5 → r6 reversed</span></td><td>r5's fixture-seed-only approach doesn't work because server <code>Date.now()</code> runs at real wall-clock and "X min ago" drifts. r6 reintroduces <code>SCREENSHOT_FROZEN_NOW</code> as a test-only env gated by <code>ENABLE_TEST_AUTH === "true"</code>. AC-12.16 enumerates it; AC-12.37 enforces production-build rejection + minute-boundary stability. <strong>Per round-4 finding 3.</strong></td><td><a href="#s3">§3.5.2</a>, AC-12.16, AC-12.32, AC-12.37</td></tr>
+      <tr><td><strong>Predicate-consistency + flag-enumeration history (collapsed r8)</strong></td><td>Rounds 4 and 5 surfaced individual omissions in r5/r6/r7's <code>selfContainedAction</code> opt-out (predicate inconsistency across AC/test, incomplete enumeration list). All resolved in r8 by removing the flag entirely; the catalog-alignment subtask in AC-12.35 covers the same surface canonically.</td><td>AC-12.35</td></tr>
+      <tr><td><strong>Matrix testid regex applies to concrete-testid rows only</strong> <span class="pill accent">new r6</span></td><td>Step 2 + Step 3 split into separate rows. Error-message row marked as template-family (walked by family rule). Crew row marked as negative-assertion (separate test). <strong>Per round-4 finding 4.</strong></td><td>AC-12.36, <a href="#s5">§5.6</a>, <a href="#s7">§7.1 test 13</a></td></tr>
+      <tr><td><strong>Fixture date range source is raw INFO tab, not <code>_schema-diff.md</code></strong> <span class="pill accent">new r6</span></td><td>r5 incorrectly cited <code>fixtures/shows/_schema-diff.md</code> (which documents field shapes, not ranges). r6 corrects: parser at <code>scripts/help-screenshots-fixture-range.ts</code> reads raw INFO tab DATES rows directly; unit-tested against fixture corpus. <strong>Per round-4 finding 5.</strong></td><td><a href="#s3">§3.5.2 Frozen-instant validation</a>, AC-12.34</td></tr>
+      <tr><td><strong>Catalog meta-test asserts a biconditional, not just a forward implication (r8)</strong></td><td>r4–r7's test #2 predicate kept getting out of sync with AC text. r8 reformulates as a biconditional: predicate ↔ "all three M12 fields non-null." Catches accidental population of <code>helpHref</code> on non-renderable entries. Symmetric forced fixtures prove both directions.</td><td><a href="#s7">§7.1 test 2</a></td></tr>
+      <tr><td><strong>Server-side clock is request-scoped header, not env var</strong> <span class="pill accent">new r7</span></td><td>r6's per-entry env was infeasible: Playwright's <code>webServer</code> starts Next once; <code>globalSetup</code> cannot mutate <code>process.env</code> per capture. r7 uses a request-scoped header <code>X-Screenshot-Frozen-Now</code> gated by existing <code>ENABLE_TEST_AUTH</code> + <code>Authorization: Bearer</code>. AC-12.16 simplified — no new env var. <strong>Per round-5 finding 2.</strong></td><td><a href="#s3">§3.5.2 Fixed clock r7</a>, AC-12.16, AC-12.32, AC-12.37</td></tr>
+      <tr><td><strong>r5/r6/r7's flag concept retired (r8)</strong></td><td>The <code>adminLogOnly</code>/<code>selfContainedAction</code> flag was an attempt to dodge catalog-master-spec drift. r8 retires the flag and aligns the catalog instead (AC-12.35).</td><td>(n/a — historical)</td></tr>
+      <tr><td><strong>Admin-log-only set derived from master spec, not enumerated</strong> <span class="pill accent">new r9</span></td><td>r8 enumerated 14 codes; round-7 finding 1 named 3 more (<code>DIAGRAMS_EMBEDDED_CAP_EXCEEDED</code>, <code>PENDING_SNAPSHOT_ROLLBACK_STUCK</code>, <code>PENDING_SNAPSHOT_PROMOTE_STUCK</code>) r8 missed. r9 replaces enumeration with derivation: <code>scripts/extract-admin-log-only-codes.ts</code> parses master-spec §12.4 markdown and emits canonical set. New meta-test #17 enforces. Master-spec markdown IS the source.</td><td>AC-12.35, <a href="#s7">§7.1 test 17</a></td></tr>
+      <tr><td><strong>Test #16 scan paths derive from manifest, per-line waiver rule</strong> <span class="pill accent">new r9</span></td><td>r8 hard-coded <code>app/show/</code>, <code>app/admin/</code>; r9 derives scan roots from <code>scripts/help-screenshots.manifest.ts</code> so future manifest additions widen scan automatically. Plus per-match (not per-file) waiver rule: file-level utility import doesn't exempt other raw <code>Date</code> calls in the same file. <strong>Per round-7 finding 2.</strong></td><td><a href="#s7">§7.1 test 16</a></td></tr>
+      <tr><td><strong>r7 tests live in §7.1 inventory and count in AC-12.12</strong> <span class="pill accent">new r7</span></td><td>r6 added AC-12.34/12.37 but the new tests weren't in §7.1 — implementation could pass listed tests while missing new safety checks. r7 adds test #14 (fixture-range parser) and #15 (<code>lib/time/now.ts</code> gating + boundary). AC-12.12 updated to 14 tests. <strong>Per round-5 finding 4.</strong></td><td><a href="#s7">§7.1 tests 14 + 15</a>, AC-12.12</td></tr>
+      <tr><td><strong>Per-code error-renderer check is unit-level, not E2E</strong> <span class="pill accent">new r7</span></td><td>r6's template-family iterated every catalog code via E2E (104 entries). r7 moves it to renderer-level unit test feeding mock catalog entries; one representative E2E smoke remains. <strong>Per round-5 finding 5.</strong></td><td><a href="#s7">§7.1 test 13 (Template-family row)</a></td></tr>
+      <tr><td><strong>Concept track</strong></td><td>Excluded from v1. Explanations live inline on operator pages.</td><td><a href="#s2">§2</a></td></tr>
+      <tr><td><strong>Doug as bug-report triager</strong></td><td><strong>No.</strong> Doug receives content questions from crew via existing channels (phone/text); app bug reports route to Eric via M8 GitHub pipeline. <code>/help</code> covers no bug-triage surface.</td><td>(Resolved during brainstorm.)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ===== Section 12 ===== -->
+<section class="spec-section" id="s12">
+  <h2>12. Existing-code citations</h2>
+  <p>Per AGENTS.md self-review additions: every factual claim about current code MUST cite <code>file:line</code>.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Claim</th><th>Citation</th><th class="center">Verified</th></tr></thead>
+    <tbody>
+      <tr><td><code>experimental.authInterrupts</code> is enabled, enabling <code>forbidden()</code></td><td><code>next.config.ts:17</code></td><td class="center">✅</td></tr>
+      <tr><td><code>requireAdmin()</code> + <code>requireAdminIdentity()</code> exist, throw <code>AdminInfraError</code> on infra paths, call <code>forbidden()</code> on auth-deny</td><td><code>lib/auth/requireAdmin.ts:41-48</code>, <code>:52-126</code></td><td class="center">✅</td></tr>
+      <tr><td>Existing admin layout catches <code>AdminInfraError</code> and renders cataloged 500-class surface</td><td><code>app/admin/layout.tsx:47-71</code></td><td class="center">✅</td></tr>
+      <tr><td><code>messageFor(code): MessageCatalogEntry</code> is the live accessor (NOT <code>lookup</code>)</td><td><code>lib/messages/lookup.ts:11</code></td><td class="center">✅</td></tr>
+      <tr><td><code>MessageCatalogEntry</code> shape (<code>code</code>, optional <code>severity</code>, four nullable string fields)</td><td><code>lib/messages/catalog.ts:1-8</code></td><td class="center">✅</td></tr>
+      <tr><td><code>severity</code> is OPTIONAL on entries; many user-visible codes omit it (e.g. <code>LEAKED_LINK_DETECTED</code>) and are rendered as warning-equivalent by AlertBanner</td><td><code>lib/messages/catalog.ts:46-53</code>; <code>components/admin/AlertBanner.tsx:39-50</code></td><td class="center">✅</td></tr>
+      <tr><td>Test-auth pattern: <code>signInAs</code> POSTing to <code>/api/test-auth/set-session</code> with <code>Authorization: Bearer ${TEST_AUTH_SECRET}</code></td><td><code>tests/e2e/helpers/signInAs.ts:43-73</code></td><td class="center">✅</td></tr>
+      <tr><td><code>ENABLE_TEST_AUTH</code> + <code>TEST_AUTH_SECRET</code> env vars required at server start</td><td><code>tests/e2e/helpers/signInAs.ts:1-23</code></td><td class="center">✅</td></tr>
+      <tr><td><code>ADMIN_SESSION_LOOKUP_FAILED</code> is the cataloged code thrown by <code>AdminInfraError</code></td><td><code>lib/auth/requireAdmin.ts:42</code></td><td class="center">✅</td></tr>
+      <tr><td>App Router uses <code>app/</code> not <code>pages/</code></td><td><code>app/layout.tsx:1</code> (root layout)</td><td class="center">✅</td></tr>
+      <tr><td>Tailwind v4 in use; <code>app/globals.css</code> declares <code>@theme</code> tokens</td><td><code>app/globals.css:1</code> (<code>@import "tailwindcss"</code>) + <code>@theme</code> block</td><td class="center">✅</td></tr>
+      <tr><td>Spec §9.0.1 mandates "?" / "What does this mean?" / "Take the tour" affordances</td><td><code>docs/..../2026-04-30-fxav-crew-pages-v1.md:2540–2549</code></td><td class="center">✅</td></tr>
+      <tr><td>§12.4 is the user-facing message catalog</td><td><code>docs/..../2026-04-30-fxav-crew-pages-v1.md:2681</code> heading</td><td class="center">✅</td></tr>
+      <tr><td>§9.2 parse-warnings panel is at <code>/admin/show/&lt;slug&gt;</code></td><td><code>docs/..../2026-04-30-fxav-crew-pages-v1.md:2581</code> heading</td><td class="center">✅</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;/preview/&lt;crew-id&gt;</code> is the impersonation route</td><td><code>docs/..../2026-04-30-fxav-crew-pages-v1.md:2596</code> heading</td><td class="center">✅</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>All citations in this table cite <code>file:line</code> as required by AGENTS.md self-review additions. r4 replaced r3's directory-only and prose-only citations with verified file:line evidence. Future file moves require updating the citations in the same PR.</p>
+</section>
+
+<!-- ===== Section 13 — interactive checklist ===== -->
+<section class="spec-section" id="s13">
+  <h2>13. Acceptance criteria</h2>
+  <p class="ac-progress"><strong id="acDone">0</strong> / <strong id="acTotal">39</strong> complete. State persists locally in this browser (<code>localStorage</code>).</p>
+  <ul class="ac-list" id="acList">
+    <li><input type="checkbox" id="ac1"><span class="ac-id">AC-12.1</span><span class="ac-text">All 13 pages under <code>app/help/*</code> exist and <strong>compile</strong> to RSC chunks during <code>pnpm build</code> (no static HTML prerender — see §3.2 / §3.4). At runtime each renders non-empty HTML when GET'd by an authenticated admin.</span></li>
+    <li><input type="checkbox" id="ac2"><span class="ac-id">AC-12.2</span><span class="ac-text"><code>app/help/layout.tsx</code> gates the tree via <code>requireAdmin()</code>. Unauthenticated and crew requests → 403.</span></li>
+    <li><input type="checkbox" id="ac3"><span class="ac-id">AC-12.3</span><span class="ac-text">Sidebar renders on every <code>/help/*</code> page with current-page highlight; collapses to top-of-page disclosure under 768 px.</span></li>
+    <li><input type="checkbox" id="ac4"><span class="ac-id">AC-12.4</span><span class="ac-text">Theme toggle is present in <code>&lt;Header&gt;</code> on every page and respects <code>prefers-color-scheme</code> on first paint.</span></li>
+    <li><input type="checkbox" id="ac5"><span class="ac-id">AC-12.5</span><span class="ac-text"><code>MessageCatalogEntry</code> is extended with three new fields: <code>title: string | null</code> (r8), <code>longExplanation: string | null</code>, <code>helpHref: string | null</code> per §5.2. <code>messageFor</code> signature unchanged; existing callers compile.</span></li>
+    <li><input type="checkbox" id="ac6"><span class="ac-id">AC-12.6</span><span class="ac-text">Every catalog entry where <code>severity !== "info"</code> AND <code>dougFacing != null</code> has <code>title</code>, <code>longExplanation</code>, AND <code>helpHref</code> all non-null (with <code>helpHref</code> matching <code>^/help/...</code>). Conversely, every entry where <code>dougFacing == null</code> OR <code>severity === "info"</code> has all three fields <code>null</code>. Meta-test enforces both directions (biconditional). Admin-log-only codes fall into the right-side arm via the AC-12.35 catalog-alignment subtask.</span></li>
+    <li><input type="checkbox" id="ac7"><span class="ac-id">AC-12.7</span><span class="ac-text">Build-time anchor resolver passes — every <code>helpHref</code> resolves to a real <code>&lt;RefAnchor&gt;</code>.</span></li>
+    <li><input type="checkbox" id="ac8"><span class="ac-id">AC-12.8</span><span class="ac-text">Parse-warning rows in the §9.2 panel render <code>Learn more →</code> when <code>helpHref</code> is present.</span></li>
+    <li><input type="checkbox" id="ac9"><span class="ac-id">AC-12.9</span><span class="ac-text">Dashboard tooltips render trailing <code>Learn more →</code> link when mapped.</span></li>
+    <li><input type="checkbox" id="ac10"><span class="ac-id">AC-12.10</span><span class="ac-text">Dashboard footer renders <code>Take the tour →</code> linking to <code>/help/tour</code>.</span></li>
+    <li><input type="checkbox" id="ac11"><span class="ac-id">AC-12.11</span><span class="ac-text"><code>/help/errors</code> iterates the catalog and renders one anchored section per entry matching the AC-12.6 predicate. Heading is <code>entry.title</code> (NOT the code per invariant #5). Body is <code>entry.longExplanation</code>. <strong>Trailing CTA is "If this keeps happening, tell Eric →"</strong> linking to the bug-report flow (per §4.3) — NOT a self-linking <code>Learn more →</code>. <code>Learn more →</code> lives on source surfaces only.</span></li>
+    <li><input type="checkbox" id="ac12"><span class="ac-id">AC-12.12</span><span class="ac-text">All 17 unit/integration tests in §7.1 (items 1–10 plus 12 + 13 + 14 + 15 + 16 + 17 + 18) pass. CI drift gate (item 11) is wired.</span></li>
+    <li><input type="checkbox" id="ac13"><span class="ac-id">AC-12.13</span><span class="ac-text"><code>/impeccable critique</code> + <code>/impeccable audit</code> pass on every <code>app/help/*</code> page (per invariant #8).</span></li>
+    <li><input type="checkbox" id="ac14"><span class="ac-id">AC-12.14</span><span class="ac-text">No <code>&lt;ScreenshotPlaceholder&gt;</code> references in shipped v1 MDX (lint, §7.1 test 7). Every documented surface ships with a real <code>&lt;Screenshot key&gt;</code>.</span></li>
+    <li><input type="checkbox" id="ac15"><span class="ac-id">AC-12.15</span><span class="ac-text">Mobile Playwright at 390×844 passes: sidebar collapsed, no horizontal scroll, every tap target ≥ 44×44 px.</span></li>
+    <li><input type="checkbox" id="ac16"><span class="ac-id">AC-12.16</span><span class="ac-text">No new boolean flags, no new env vars (r7 — r6's <code>SCREENSHOT_FROZEN_NOW</code> env was infeasible with the server-start env model, replaced by a request-scoped header), no new Supabase tables. The screenshot harness uses a request-scoped test-only header <code>X-Screenshot-Frozen-Now</code> plus the existing <code>Authorization: Bearer ${TEST_AUTH_SECRET}</code> for gating — honored only when <code>ENABLE_TEST_AUTH === "true"</code>. AC-12.37 enforces production-build rejection.</span></li>
+    <li><input type="checkbox" id="ac17"><span class="ac-id">AC-12.17</span><span class="ac-text">Commits in conventional-commits format (<code>feat(help):</code>, <code>test(help):</code>, etc.) per invariant #6.</span></li>
+    <li><input type="checkbox" id="ac18"><span class="ac-id">AC-12.18</span><span class="ac-text"><code>scripts/help-screenshots.manifest.ts</code> is the single source of truth. Every <code>&lt;Screenshot key&gt;</code> reference resolves to a manifest entry.</span></li>
+    <li><input type="checkbox" id="ac19"><span class="ac-id">AC-12.19</span><span class="ac-text"><code>pnpm screenshot:help</code> runs end-to-end against a clean checkout and produces every manifest entry's light + dark WebP. Idempotent: a second run on unchanged UI is byte-identical.</span></li>
+    <li><input type="checkbox" id="ac20"><span class="ac-id">AC-12.20</span><span class="ac-text"><code>&lt;Screenshot&gt;</code> renders <code>&lt;picture&gt;</code> with a <code>(prefers-color-scheme: dark)</code> <code>&lt;source&gt;</code> and default light <code>&lt;img&gt;</code>; reader's theme picks automatically.</span></li>
+    <li><input type="checkbox" id="ac21"><span class="ac-id">AC-12.21</span><span class="ac-text">Manifest-integrity meta-test (§7.1 test 9) passes: no stale entries, no orphan WebPs, every named fixture exists in <code>fixtures/shows/</code>.</span></li>
+    <li><input type="checkbox" id="ac22"><span class="ac-id">AC-12.22</span><span class="ac-text">M12 work begins only after M10 closes (sequencing constraint, recorded in milestone-routing handoff).</span></li>
+    <li><input type="checkbox" id="ac23"><span class="ac-id">AC-12.23</span><span class="ac-text"><code>/help/*</code> renders dynamically (not statically prerendered) — auth gate runs Supabase queries per request. Test #3 observes distinct responses for admin / unauthenticated / AdminInfraError-stubbed cases.</span></li>
+    <li><input type="checkbox" id="ac24"><span class="ac-id">AC-12.24</span><span class="ac-text"><code>app/help/layout.tsx</code> catches <code>AdminInfraError</code> and renders the cataloged 500-class surface using the fallback chain <code>entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."</code> (mirrors <code>app/admin/layout.tsx:58-60</code>). For live <code>ADMIN_SESSION_LOOKUP_FAILED</code> (<code>dougFacing: null</code>), this resolves to <code>crewFacing</code>. Test #3 asserts rendered text equals the fallback's actual output.</span></li>
+    <li><input type="checkbox" id="ac25"><span class="ac-id">AC-12.25</span><span class="ac-text"><code>&lt;Screenshot&gt;</code> <code>&lt;picture&gt;</code> contract test (§7.1 test 10) passes — output contains <code>&lt;source media="(prefers-color-scheme: dark)" srcset="…-dark.webp"&gt;</code> and a default light <code>&lt;img&gt;</code> with the provided <code>alt</code>.</span></li>
+    <li><input type="checkbox" id="ac26"><span class="ac-id">AC-12.26</span><span class="ac-text">CI drift gate is wired: <code>pnpm screenshot:help</code> runs against a clean checkout, then <code>git diff --exit-code public/help/screenshots/</code>. PR fails on non-zero exit.</span></li>
+    <li><input type="checkbox" id="ac27"><span class="ac-id">AC-12.27</span><span class="ac-text">The <code>screenshots-help</code> Playwright project declares: dedicated <code>webServer</code> with <code>ENABLE_TEST_AUTH=true</code> + <code>TEST_AUTH_SECRET</code> env, <code>globalSetup</code> running <code>pnpm db:seed</code>, deterministic browser settings, and reuses <code>signInAs</code> from <code>tests/e2e/helpers/signInAs.ts</code>.</span></li>
+    <li><input type="checkbox" id="ac28"><span class="ac-id">AC-12.28</span><span class="ac-text"><code>messageFor</code> signature is unchanged. Existing call sites (e.g., <code>app/admin/layout.tsx:51</code>) continue to compile and behave identically — only the return type widens.</span></li>
+    <li><input type="checkbox" id="ac29"><span class="ac-id">AC-12.29</span><span class="ac-text">Error-renderer gate test (§7.1 test 12) passes: admin / help-admin contexts emit <code>Learn more →</code> when <code>helpHref</code> is non-null; crew context never emits the link, even with <code>helpHref</code> mocked non-null on a crew-only entry.</span></li>
+    <li><input type="checkbox" id="ac30"><span class="ac-id">AC-12.30</span><span class="ac-text">Deep-link affordance walker test (§7.1 test 13) passes: every row in §5.6's matrix is wired (or explicitly absent where the matrix says so).</span></li>
+    <li><input type="checkbox" id="ac31"><span class="ac-id">AC-12.31</span><span class="ac-text"><code>app/help/layout.tsx</code> exports <code>export const dynamic = "force-dynamic"</code> to make the dynamic-rendering posture explicit to Next.js.</span></li>
+    <li><input type="checkbox" id="ac32"><span class="ac-id">AC-12.32</span><span class="ac-text">Screenshot harness pins a fixed clock per §3.5.2: <code>frozenClockInstant</code> required per manifest entry. Browser: <code>context.clock.install({ time: frozenClockInstant })</code>. Server: capture script sends <code>X-Screenshot-Frozen-Now: &lt;ISO&gt;</code> header on every request via <code>page.setExtraHTTPHeaders</code>; <code>lib/time/now.ts</code> reads via Next's <code>headers()</code>, honored only when <code>ENABLE_TEST_AUTH === "true"</code> AND valid <code>Authorization: Bearer ${TEST_AUTH_SECRET}</code>. Plus fixture timestamps anchored relative to <code>frozenClockInstant</code>.</span></li>
+    <li><input type="checkbox" id="ac33"><span class="ac-id">AC-12.33</span><span class="ac-text">Screenshot harness suppresses Supabase Realtime push during capture (per §3.5.2). Stable cookies persist across captures via <code>globalSetup</code> <code>storageState</code> reuse.</span></li>
+    <li><input type="checkbox" id="ac34"><span class="ac-id">AC-12.34</span><span class="ac-text">Frozen-instant fixture validation passes: <code>frozenClockInstant</code> falls within the named fixture's operational date range as parsed by <code>scripts/help-screenshots-fixture-range.ts</code>. Parser reads actual corpus layout — flat <code>fixtures/shows/raw/&lt;fixture&gt;.md</code> AND pdf-only split <code>fixtures/shows/pdf-only/&lt;fixture&gt;__INFO.md</code>. Unit-tested against every file in both directories.</span></li>
+    <li><input type="checkbox" id="ac35"><span class="ac-id">AC-12.35</span><span class="ac-text">M12 catalog-alignment subtask (r9 — sourcing tightened). <strong>Derivation source:</strong> admin-log-only set derived mechanically from master-spec §12.4 markdown via a new parser <code>scripts/extract-admin-log-only-codes.ts</code>. Every row whose <code>Doug-facing message</code> cell renders as <code>(admin log only ...)</code> / <code>—</code> is in the set. For each, set <code>dougFacing</code>, <code>crewFacing</code>, <code>helpfulContext</code>, <code>title</code>, <code>longExplanation</code>, <code>helpHref</code> all to <code>null</code>. r8's manual enumeration missed <code>DIAGRAMS_EMBEDDED_CAP_EXCEEDED</code>, <code>PENDING_SNAPSHOT_ROLLBACK_STUCK</code>, <code>PENDING_SNAPSHOT_PROMOTE_STUCK</code>; r9 derivation catches these and future additions. New meta-test #17 enforces.</span></li>
+    <li><input type="checkbox" id="ac36"><span class="ac-id">AC-12.36</span><span class="ac-text">Every concrete-testid row in §5.6 has a <code>data-testid</code> matching <code>^help-affordance--[a-z0-9-]+--(tooltip|tour|learn-more)$</code>. Template-family row (error-message) walked by family rule in test #13. Crew-negative row is a separate negative assertion.</span></li>
+    <li><input type="checkbox" id="ac37"><span class="ac-id">AC-12.37</span><span class="ac-text"><code>lib/time/now.ts</code> returns the frozen instant ONLY when (i) the current request carries <code>X-Screenshot-Frozen-Now</code>, (ii) <code>ENABLE_TEST_AUTH === "true"</code>, AND (iii) request includes valid <code>Authorization: Bearer ${TEST_AUTH_SECRET}</code>. Production-mode unit test: with <code>ENABLE_TEST_AUTH</code> unset, sending the header has no effect. Capture-boundary unit test: two consecutive calls 60+ seconds apart with the same frozen header return byte-identical ISO strings.</span></li>
+    <li><input type="checkbox" id="ac38"><span class="ac-id">AC-12.38</span><span class="ac-text">Server-side render-time call sites reachable from the screenshot manifest are migrated to <code>lib/time/now.ts</code> per §3.5.2 row "Server-side <code>Date.now()</code> / <code>new Date()</code> migration inventory". At write time, <code>app/show/[slug]/page.tsx:646</code> is the named site. Mutation-path sites carry inline <code>// not-render-side: &lt;reason&gt;</code> waivers. Grep guard (test #16) catches future violations.</span></li>
+    <li><input type="checkbox" id="ac39"><span class="ac-id">AC-12.39</span><span class="ac-text">One representative end-to-end screenshot capture proves the request-scoped header pipeline actually changes a rendered page (not just the utility in isolation). The manifest entry for <code>/admin/show/&lt;slug&gt;/preview/&lt;crew-id&gt;</code> captures the crew page with a <code>frozenClockInstant</code> that would render "today" as a fixture-relative date. Test asserts the captured WebP differs byte-wise when captured with a different <code>frozenClockInstant</code>.</span></li>
+  </ul>
+</section>
+
+<!-- ===== Section 14 ===== -->
+<section class="spec-section" id="s14">
+  <h2>14. Appendix — relationship to phase 2</h2>
+  <p>Phase 2 (<code>/help/crew/*</code>) is intentionally not designed here. When it lands:</p>
+  <ol>
+    <li>Route-group split: <code>app/help/(admin)/layout.tsx</code> keeps <code>requireAdmin</code>; <code>app/help/(public)/layout.tsx</code> is unguarded.</li>
+    <li>Sidebar <code>_nav.ts</code> grows a <code>visibility: 'admin' | 'public' | 'both'</code> field; rendered sidebar filters by viewer role.</li>
+    <li>Crew-facing pages reuse all existing MDX components — no component rework.</li>
+    <li>Auth-gating test splits into admin-tree and public-tree variants.</li>
+    <li>URLs established in M12 do not change.</li>
+  </ol>
+
+  <p class="end-note">End of spec.<br>Markdown twin: <a href="./2026-05-12-user-facing-docs-design.md">2026-05-12-user-facing-docs-design.md</a></p>
+</section>
+
+</main>
+</div>
+
+<script>
+  // Theme toggle: cycles auto → light → dark → auto
+  (function () {
+    const root = document.documentElement;
+    const btn = document.getElementById('themeToggle');
+    const stored = localStorage.getItem('helpSpecTheme');
+    if (stored) root.dataset.theme = stored;
+    function next() {
+      const order = ['auto','light','dark'];
+      const cur = root.dataset.theme || 'auto';
+      const nxt = order[(order.indexOf(cur) + 1) % order.length];
+      root.dataset.theme = nxt;
+      localStorage.setItem('helpSpecTheme', nxt);
+      btn.textContent = nxt === 'auto' ? '◐ Theme (auto)' : nxt === 'light' ? '☀ Light' : '☾ Dark';
+    }
+    btn.addEventListener('click', next);
+    btn.textContent = (root.dataset.theme === 'light' ? '☀ Light' : root.dataset.theme === 'dark' ? '☾ Dark' : '◐ Theme (auto)');
+  })();
+
+  // TOC scroll-spy: highlight active section
+  (function () {
+    const sections = document.querySelectorAll('section.spec-section');
+    const links = new Map();
+    document.querySelectorAll('aside.toc a[data-section]').forEach(a => {
+      links.set(a.getAttribute('href').slice(1), a);
+    });
+    const io = new IntersectionObserver((entries) => {
+      // Find the entry closest to the top of the viewport that is intersecting
+      let best = null;
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          if (!best || e.boundingClientRect.top < best.boundingClientRect.top) best = e;
+        }
+      });
+      if (best) {
+        links.forEach(a => a.classList.remove('active'));
+        const link = links.get(best.target.id);
+        if (link) link.classList.add('active');
+      }
+    }, { rootMargin: '-80px 0px -60% 0px', threshold: [0, 0.1, 0.5] });
+    sections.forEach(s => io.observe(s));
+  })();
+
+  // AC checklist: persist in localStorage, update count
+  (function () {
+    const list = document.getElementById('acList');
+    const done = document.getElementById('acDone');
+    const total = document.getElementById('acTotal');
+    const inputs = list.querySelectorAll('input[type="checkbox"]');
+    total.textContent = inputs.length;
+    function update() {
+      let n = 0;
+      inputs.forEach(i => {
+        const li = i.closest('li');
+        if (i.checked) { li.classList.add('done'); n++; } else { li.classList.remove('done'); }
+      });
+      done.textContent = n;
+    }
+    const stored = JSON.parse(localStorage.getItem('helpSpecAC') || '{}');
+    inputs.forEach(i => {
+      if (stored[i.id]) i.checked = true;
+      i.addEventListener('change', () => {
+        stored[i.id] = i.checked;
+        localStorage.setItem('helpSpecAC', JSON.stringify(stored));
+        update();
+      });
+    });
+    update();
+    // Allow clicking anywhere on the row to toggle
+    list.querySelectorAll('li').forEach(li => {
+      li.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT' && !e.target.closest('a') && !e.target.closest('code')) {
+          const cb = li.querySelector('input[type="checkbox"]');
+          cb.checked = !cb.checked;
+          cb.dispatchEvent(new Event('change'));
+        }
+      });
+    });
+  })();
+</script>
+</body>
+</html>

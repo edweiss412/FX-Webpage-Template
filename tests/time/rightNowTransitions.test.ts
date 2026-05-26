@@ -272,7 +272,7 @@ describe("RIGHT_NOW_TRANSITION_MATRIX — full enumeration cross-check", () => {
 
 /**
  * Markdown grid sentinel — guards against doc-vs-code drift in
- * `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/right-now-transition-matrix.md`.
+ * `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/right-now-transition-matrix.md`.
  *
  * Why this exists: the markdown grid is a human-readable rendering of
  * `RIGHT_NOW_TRANSITION_MATRIX`. If a future PR flips a `crossfade-body`
@@ -309,7 +309,7 @@ describe("RIGHT_NOW_TRANSITION_MATRIX — full enumeration cross-check", () => {
 describe("right-now-transition-matrix.md — markdown grid sentinel", () => {
   const MARKDOWN_PATH = join(
     process.cwd(),
-    "docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/right-now-transition-matrix.md",
+    "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/right-now-transition-matrix.md",
   );
 
   /** Map column-header abbreviations (used for table-width) to full kinds. */
