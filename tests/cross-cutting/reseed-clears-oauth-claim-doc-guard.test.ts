@@ -2025,6 +2025,58 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         explain:
           "validation-report-fixtures does NOT materialize each outcome in the `reports` table directly — per R31 producer-map (handoff §9 R31 §A), rate-limit-admin/crew materialize in `report_rate_limits` and lookup-inconclusive/orphaned-lost-lease materialize primarily in `admin_alerts`. The pre-R31 wording 'INSERTs / UPDATEs the `reports` table directly via service role' silently retires the 3-table producer set. Rewrite as 'per-outcome producer-state map per handoff §9 R31 §A' OR enumerate the 3 tables with their per-outcome routing.",
       },
+      // R37 commit 75 — F21-class regex extension (7th pattern) for
+      // R36/F35 "cleanup deletes by (kind, identity) without exact
+      // hour_bucket scope" shape. F35 was the 4th F21-class round
+      // (R20 F21 + R22 F22/F23 + R32 F31 + R36 F35). Per the R37
+      // dispatch brief Path A (incremental): ship the 7th regex
+      // catching the F35 shape; if R38 surfaces another peer not
+      // caught by 7 patterns, R39 escalates to Option (b) structural
+      // refactor.
+      //
+      // The F35 shape: prose around the `--include-admin-email` /
+      // rate-limit-admin cleanup recipe documents a `WHERE` /
+      // `DELETE` predicate that names BOTH `kind='admin'` AND
+      // `identity` / `canonicalize` BUT omits the load-bearing
+      // `hour_bucket` clause. Post-R37 the canonical contract scopes
+      // every such predicate to a specific recorded `hour_bucket`;
+      // any cleanup prose missing that scope re-introduces the F34
+      // cross-hour destructive-deletion bug.
+      //
+      // Pattern shape: match a `DELETE` / `delete` near
+      // `report_rate_limits` AND `kind` AND (`identity` OR
+      // `canonicalize`) WITHIN ~280 chars where `hour_bucket` does
+      // NOT appear in the same window. The window length is chosen
+      // to capture the entire predicate clause (canonical post-fix
+      // wording fits the bucket-scope clause within ~200 chars of
+      // the DELETE verb) without false-positive bleed into adjacent
+      // unrelated paragraphs.
+      //
+      // The historical-qualifier escape hatch
+      // (HISTORICAL_QUALIFIER_RX above — "pre-R37" / "retired" /
+      // etc.) and the WAIVER_RX inline waiver both still apply.
+      {
+        class: "cleanup-recipe:no-bucket-scope",
+        // Anchor on the cleanup-recipe verb cluster: `DELETE` /
+        // `delete` token near (within ~80 chars) BOTH `kind` (with
+        // 'admin' literal — admin-rate-limit-specific) AND a
+        // canonicalize/identity-side noun, in a ~280-char window
+        // that contains NO `hour_bucket` token. The negative-
+        // lookahead window is greedy-bounded so post-fix prose
+        // with `hour_bucket=<recorded>` immediately after the
+        // DELETE/identity cluster passes structurally; pre-fix
+        // prose that omits `hour_bucket` entirely fires.
+        //
+        // Lookbehind disambiguator avoids the "extends the
+        // `report_rate_limits` predicate to also delete `WHERE
+        // kind='admin' AND identity = canonicalize(<email>)`" F35
+        // exact shape AND the broader "cleanup ... DELETE
+        // ... kind ... canonicalize" prose. Lookahead window
+        // checks for `hour_bucket` token within ~280 chars.
+        rx: /\bdelete[^.]{0,80}\b(?:WHERE\s+)?(?:`?kind`?\s*=\s*['"]admin['"]|kind[^.]{0,40}['"]admin['"])(?=[\s\S]{0,280}?(?:\bcanonicaliz|identity))(?![\s\S]{0,280}?\bhour_bucket\b)/i,
+        explain:
+          "rate-limit-admin cleanup MUST scope its DELETE/UPDATE to the EXACT recorded `hour_bucket` per the R35 commit 73 F34 contract + R37 commit 74 spec §9.1.2 propagation (canonical source: plan 04-phase0-tooling-report.md F34 cleanup safety contract block). A `DELETE WHERE kind='admin' AND identity=canonicalize(<email>)` predicate without an `AND hour_bucket=<recorded>` clause spans all hour_buckets and erases live production admin rate-limit state in unrelated hours — the F34 cross-hour destructive-cleanup data-loss bug. Rewrite the predicate to include the exact-bucket clause OR cross-reference the plan-04 F34 contract block as the authoritative source.",
+      },
     ];
 
     const HISTORICAL_QUALIFIER_RX =
@@ -2137,6 +2189,11 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       {
         class: "producer-table:singular-failure-state",
         rx: /\b(?:materializ\w+\s+(?:the\s+named\s+failure\s+state|each\s+outcome[^.]{0,40})\s+in\s+the\s+`?reports`?\s+table\b|INSERTs?\s*\/\s*UPDATEs?\s+the\s+`?reports`?\s+table\s+directly)/i,
+      },
+      // R37 commit 75 — 7th regex (synced with main array above).
+      {
+        class: "cleanup-recipe:no-bucket-scope",
+        rx: /\bdelete[^.]{0,80}\b(?:WHERE\s+)?(?:`?kind`?\s*=\s*['"]admin['"]|kind[^.]{0,40}['"]admin['"])(?=[\s\S]{0,280}?(?:\bcanonicaliz|identity))(?![\s\S]{0,280}?\bhour_bucket\b)/i,
       },
     ];
     const HISTORICAL_QUALIFIER_RX =
@@ -2265,5 +2322,55 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     const historicalFrameF31 =
       "Pre-R31 the spec wording 'materializes the named failure state in the `reports` table' was producer-state mismatch — retired in R31 commit a5ed46f producer-map ratification.";
     expect(fixtureFiresF21Class(historicalFrameF31).fires).toBe(false);
+
+    // R37 commit 75 F35 cleanup-by-(kind, identity)-without-bucket
+    // shape — broken + corrective fixtures.
+
+    // BROKEN (pre-R37 spec §9.1.2:824 exact wording — F35 named hit).
+    // The cleanup paragraph claims `--cleanup --include-admin-email`
+    // deletes by kind+identity with NO hour_bucket scope in the
+    // ~280-char window.
+    const brokenF35PreFixSpecWording =
+      "`--cleanup --include-admin-email <email>` extends the `report_rate_limits` predicate to also delete `WHERE kind='admin' AND identity = canonicalize(<email>)` so the rate-limit-admin bucket created by the harness can be purged.";
+    const brokenF35Result = fixtureFiresF21Class(brokenF35PreFixSpecWording);
+    expect(brokenF35Result.fires).toBe(true);
+    expect(brokenF35Result.matchedPattern).toBe("cleanup-recipe:no-bucket-scope");
+
+    // PASSING — post-R37 corrective form. The same predicate exists
+    // but is now scoped to the EXACT recorded hour_bucket within the
+    // ~280-char lookahead window — the negative-lookahead for
+    // `hour_bucket` clears the pattern.
+    const correctiveF35WithBucketScope =
+      "`--cleanup --include-admin-email <email>` issues a DELETE scoped to the EXACT recorded bucket: `DELETE FROM report_rate_limits WHERE kind='admin' AND identity=canonicalize(<email>) AND hour_bucket=<recorded_hour_bucket>` per the R35 commit 73 F34 contract.";
+    expect(fixtureFiresF21Class(correctiveF35WithBucketScope).fires).toBe(false);
+
+    // PASSING — historical-frame around the pre-R37 wording.
+    const historicalFrameF35 =
+      "Pre-R37 the spec §9.1.2 cleanup paragraph said `delete WHERE kind='admin' AND identity=canonicalize(<email>)` with no exact-bucket clause — retired in R37 commit 74 propagation of plan-side R35 commit 73 F34 snapshot+restore contract.";
+    expect(fixtureFiresF21Class(historicalFrameF35).fires).toBe(false);
+
+    // PASSING — inline waiver.
+    const waiverF35 =
+      "<!-- not-f21-class: historical quote from R36 finding F35 verbatim --> Pre-fix wording: delete WHERE kind='admin' AND identity=canonicalize(<email>) (no bucket scope).";
+    expect(fixtureFiresF21Class(waiverF35).fires).toBe(false);
+
+    // PASSING — corrective UPDATE branch with bucket scope.
+    const correctiveF35UpdateBranch =
+      "If `snapshot_prior_count IS NOT NULL` → UPDATE report_rate_limits SET count = <snapshot_prior_count> WHERE kind='admin' AND identity=canonicalize(<email>) AND hour_bucket=<recorded_hour_bucket> (restores the prior count).";
+    // The pattern anchors on `delete` verb, so UPDATE-only prose does
+    // not fire even without bucket scope — but the contract still
+    // requires bucket scope on UPDATE. This test pins that the
+    // current 7th regex is scoped to DELETE/delete verbs; a future
+    // amendment narrowing to UPDATE-without-bucket would extend the
+    // pattern set.
+    expect(fixtureFiresF21Class(correctiveF35UpdateBranch).fires).toBe(false);
+
+    // PASSING — single-canonical mention without the (kind, identity)
+    // co-occurrence shape. The `report_rate_limits` table is mentioned
+    // in a non-cleanup context (e.g., "the live `enforceQuota`
+    // function writes to `report_rate_limits`") and must NOT fire.
+    const nonCleanupMention =
+      "live `enforceQuota` writes to `report_rate_limits` with `kind='admin'` for the canonicalized admin identity; the harness must seed the canonical form too.";
+    expect(fixtureFiresF21Class(nonCleanupMention).fires).toBe(false);
   });
 });
