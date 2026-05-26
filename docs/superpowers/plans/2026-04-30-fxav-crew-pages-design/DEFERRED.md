@@ -488,21 +488,21 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Why deferred:** DiagramsTile currently uses inline boolean checks (`items.length > 0`, `agendaLinks.some((link) => Boolean(link.fileId))`). Both are MEDIA-presence checks, not text-sentinel checks — they don't pattern-match the existing `shouldHideGenericOptional` (which hides "TBD" / "N/A" / "TBA"). The audit flagged this as a §1.9 meta-test coverage gap rather than a bug. v1 works correctly; the helper extraction is a discipline polish. AC-7.2 + AC-7.7 close at M7 — DiagramsTile returns null on whole-tile-missing per §8.3 already.
 **Suggested home:** M9 polish.
 
-### M11.5-IMP-1 — SignInOrSkipGate reassurance footer copy + catalog code
+### M11.5-IMP-1 — SignInOrSkipGate reassurance footer copy + catalog code — **RESOLVED 2026-05-26**
 
-**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 1 — picker chain).
+**Status:** Resolved 2026-05-26 — folded into M12 amendment scope at SHA `77687d8` (M12 amendment Commit 10 "fold M11.5-IMP-1 + IMP-2 + IMP-4 into amendment scope"). Execution lands in Phase 0.A.1 of the M12 plan (`01-phase0-infra.md` Task 0.A.1) when M12 enters its execution phase.
 **Source:** External impeccable critique, M11.5 §B close-out. Picker spec §7.1a item 7 (reassurance footer "Crew don't have to sign in. Skip works for everyone.").
 **Description:** SignInOrSkipGate currently renders header + cataloged prompt + CTA pair without the spec-mandated reassurance footer at the bottom. The footer requires a new catalog code (suggested `SIGN_IN_OR_SKIP_FOOTER_REASSURANCE`) whose crewFacing copy reassures Skip-side users that signing in is optional.
-**Why deferred:** Adding catalog codes is §A territory (`lib/messages/catalog.ts` + the `lib/messages/__generated__/spec-codes.ts` generator). M11.5 §B UI session does not own that surface. The component-side wiring is trivial once the catalog code exists.
-**Suggested home:** M11.5 §A catalog addition pass OR M12 (whichever lands first). Trigger: catalog code is registered.
+**Why deferred:** Adding catalog codes is §A territory (`lib/messages/catalog.ts` + the `lib/messages/__generated__/spec-codes.ts` generator). M11.5 §B UI session did not own that surface. The component-side wiring is trivial once the catalog code exists.
+**Suggested home:** M12 amendment scope (resolved 2026-05-26). Trigger: catalog code is registered.
 
-### M11.5-IMP-2 — Picker `picker-show-strip` (show identifier line)
+### M11.5-IMP-2 — Picker `picker-show-strip` (show identifier line) — **RESOLVED 2026-05-26**
 
-**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 1 — picker chain).
+**Status:** Resolved 2026-05-26 — folded into M12 amendment scope at SHA `77687d8` (M12 amendment Commit 10). Execution lands in Phase 0.A.2 of the M12 plan (`01-phase0-infra.md` Task 0.A.2) when M12 enters its execution phase. Implementation option (α extend resolver shape vs β separate metadata fetch) is decided at task start by the executing dev.
 **Source:** External impeccable critique, M11.5 §B close-out. Picker spec §7.1 item 2 + §7.6 inventory.
 **Description:** Spec §7.1 item 2 requires a show identifier strip with `data-testid="picker-show-strip"` between the brand strip and the "Who are you?" heading. Currently absent — PickerInterstitial has no `show.title`/`show.dates` available because `resolveShowPageAccess` returns only `showId` for the picker-rendering arms.
-**Why deferred:** Adding the strip requires extending the resolver's return shape OR adding a separate metadata fetch in the route page (which already loads roster via `loadRoster`). Both options are minor but non-trivial — shape change is §A coordination; fetch addition is §B scope but compounds the route's complexity. Better landed in a dedicated polish pass that can also revisit the picker's typographic hierarchy with real show titles in view.
-**Suggested home:** M12 UX validation. Trigger: M12 amendment session adds show metadata to picker render scope OR resolver shape is extended.
+**Why deferred:** Adding the strip requires extending the resolver's return shape OR adding a separate metadata fetch in the route page (which already loads roster via `loadRoster`). Both options are minor but non-trivial — shape change is §A coordination; fetch addition is §B scope but compounds the route's complexity.
+**Suggested home:** M12 amendment scope (resolved 2026-05-26).
 
 ### M11.5-IMP-3 — /me consumes extended TerminalFailure (deduplication)
 
@@ -512,13 +512,13 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Why deferred:** Refactor touches two render branches in /me (mid-chain failure + post-chain `listShowsForCrew` failure). Each call site has different catalog codes and slightly different copy. Out of M11.5 §B scope; mechanical follow-up that benefits from a dedicated diff.
 **Suggested home:** M12 UX validation. Trigger: M12 touches `app/me/page.tsx` for any reason.
 
-### M11.5-IMP-4 — DESIGN.md §1.2 contrast amendments for picker color pairs
+### M11.5-IMP-4 — DESIGN.md §1.2 contrast amendments for picker color pairs — **RESOLVED 2026-05-26**
 
-**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 1 — picker chain).
+**Status:** Resolved 2026-05-26 — folded into M12 amendment scope at SHA `77687d8` (M12 amendment Commit 10). Execution lands in Phase 0.A.3 of the M12 plan (`01-phase0-infra.md` Task 0.A.3) when M12 enters its execution phase.
 **Source:** External impeccable audit, M11.5 §B close-out.
 **Description:** DESIGN.md §1.2 "Contrast summary" doesn't list two color pairs the picker uses: `text-text on bg-stale-tint` (the picker banner row) and `text-text-subtle on bg-surface-sunken` (claimed-row treatment). Both pairs almost certainly hit AA body floor on the chosen tints but the table doesn't pre-compute them.
 **Why deferred:** Small mechanical doc update (compute the two ratios, add two rows to the table). Out of §B scope; lands cleanly alongside any DESIGN.md edit.
-**Suggested home:** M11.5 §C close-out OR next milestone touching DESIGN.md. Trigger: a DESIGN.md edit is on the table for any reason.
+**Suggested home:** M12 amendment scope (resolved 2026-05-26).
 
 ### M11.5-IMP-5 — Admin Reset/Rotate destructive-action UX polish set
 
