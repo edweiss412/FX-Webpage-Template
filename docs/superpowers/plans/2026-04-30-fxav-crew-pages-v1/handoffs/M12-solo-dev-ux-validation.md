@@ -1625,6 +1625,48 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R49 — 2026-05-26 (repair)
+
+- **Diff base:** `d30afdd` (post-R48 handoff row)
+- **Diff target:** commit 90 (R49 repair triplet, this amendment)
+- **Verdict:** **implementer-complete; pending R50 adversarial review**
+- **Repair commits:**
+
+  | # | Commit | Subject |
+  |---|---|---|
+  | 88 | `f47447f` | docs(plan-m12): R49 F44 — canonicalize-first procedure for Phase 0.A admin bootstrap + plan-level sweep |
+  | 89 | `6ed611e` | test(cross-cutting): R49 F44 structural defense — new sibling test scans plan/spec markdown for inline-email-normalization instructions |
+  | 90 | (this commit) | test(cross-cutting): R49 F45 — R47 8th-slot regex same-line tightening + negative fixture + plan 04:136 waiver |
+
+- **F44 repair detail:**
+  - **canonicalize.ts actual semantics** verified at `lib/email/canonicalize.ts:2-6` — the helper does `raw.trim().toLowerCase()` ONLY, returns `null` for `null`/empty after trim. Does NOT strip plus-aliases. The plan's prior claim was false.
+  - **Plan 01:30-38 rewrite** — replaced `INSERT INTO ... VALUES (lower(trim('<dev-email>')), now())` with a canonicalize-first procedure: `pnpm tsx -e "import('./lib/email/canonicalize.ts')..."` computes the canonical value via the registered helper into `$CANON_EMAIL`, then SQL inserts the canonical literal directly (no SQL-side normalization). Cites `lib/email/canonicalize.ts:2-6` for actual semantics. Removes false plus-alias claim. Cross-references both meta-tests that enforce the invariant at CI.
+  - **Plan-level class-sweep results:**
+    - `01-phase0-infra.md:30-38` → **ACTIONABLE-NEEDS-FIX** (repaired in commit 88)
+    - `00-overview.md:122` → DOCUMENTATION (live-audit walker file list; not implementer instruction)
+    - `03-phase0-tooling-reseed.md:583,864,866` → DOCUMENTATION (DEFERRED `M12-PHASE0C-EMAIL-CANON-EXT` extension contract — names forbidden patterns in order to forbid them in `scripts/validation-*.ts`)
+    - `DEFERRED.md:25,30` → DOCUMENTATION (same extension contract)
+    - Spec `2026-05-19-solo-dev-ux-validation-design.md` → CLEAN (no inline-email-normalization patterns)
+    - Plan 04 `04-phase0-tooling-report.md` → CLEAN for inline-email-norm (the `canonicalize(...)` references at :146-147 describe live `enforceQuota` canonicalization path at the RPC boundary — correct invariant-3 framing, NOT implementer-copyable inline normalization)
+  - **Structural defense decision (Option a vs b):** Option (b) ratified — new sibling test `tests/cross-cutting/no-inline-email-normalization-in-plan-doc-guard.test.ts`. Rejected Option (a) (extend existing `tests/admin/no-inline-email-normalization.test.ts`) because the existing test walks `.ts`/`.tsx` source with a TS-grammar-aware `stripComments(src)` helper depending on `/* */` and `//` semantics; markdown lacks those constructs and the forbidden patterns are SQL/prose shapes (`lower(trim(...))`, `LOWER(EMAIL)`, `<email>.toLowerCase()`) distinct from the `.toLowerCase()`/`.trim()` call patterns. Scope creep would have required parallel grammar logic.
+  - **RED→GREEN:** with commit 88's plan-file diff reverse-applied (pre-R49 broken state) the new sibling test FIRES at `01-phase0-infra.md:34` `[sql:lower-trim-email]` matched on `VALUES (lower(trim('<dev-email>')), now())`. Restoring the committed state → 10/10 tests pass.
+
+- **F45 repair detail:**
+  - **Regex tightening (commit 90)** — replaced `[\s\S]{0,140}?` with `[^\n]{0,140}?` in BOTH copies of the 8th-slot regex (`reseed-clears-oauth-claim-doc-guard.test.ts:2190` + `:2328`). Same-line constraint binds the `--alert-code` co-selector requirement to the same CLI invocation line as the `--outcome lookup-inconclusive` token. Each CLI invocation is on its own line, so same-line is the correct binding.
+  - **Negative-case fixture (commit 90)** added at `reseed-clears-oauth-claim-doc-guard.test.ts` post-`waiverF42`: bare `--outcome lookup-inconclusive` on one line + unrelated `--alert-code` on next line — MUST FIRE post-tightening. Companion `f45CanonicalSameLine` fixture (canonical post-R45 same-line form) MUST NOT fire.
+  - **Plan 04:136 disposition** — single-line documentation with `--alert-code` BEFORE `--outcome lookup-inconclusive`. Regex anchors at `--outcome lookup-inconclusive` and looks FORWARD; the prior `--alert-code` is invisible to the forward lookahead → regex FIRES on this line both pre-R49 and post-R49 (the tightening doesn't affect this single-line case). Repair: added explicit `<!-- not-f21-class: R43 F40 selector-documentation framing — this row documents the variant-selector CLI contract, not an actionable invocation -->` inline waiver immediately before the doc text. WAIVER_RX in the live walker (`<!--\s*not-f21-class:\s*[^-]`) now matches.
+  - **Regex contrast verification (offline):** OLD `[\s\S]` does NOT fire on the cross-line cross-invocation fixture (F45 bug — bypassed). NEW `[^\n]` FIRES correctly.
+
+- **Same-vector status post-R49:**
+  - **F44 — closed via per-instance fix + plan-level class-sweep + structural defense (Option b sibling test).** Future plan/spec drift toward inline-email-normalization patterns now fails CI at `tests/cross-cutting/no-inline-email-normalization-in-plan-doc-guard.test.ts`.
+  - **F45 — closed via regex same-line tightening + negative fixture + plan 04:136 waiver.** Future cross-line/cross-invocation false-negatives are pinned by the new fixture.
+  - F21-class regex set at 9 patterns / 8 structural slots (per R47 ratification); R49 tightens an existing slot, does NOT add a new pattern. Option-(b) structural-refactor threshold tracking intact.
+  - All other classes still closed.
+
+- **Meta-test regression count:** 78 passing (`tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` 52 → +2 new F45 fixtures = 54; `tests/admin/no-inline-email-normalization.test.ts` 52 unchanged… correction: existing F21-class test file 52 tests + new sibling 10 tests + existing code-side meta-test 52 tests = breakdown by file: 52 + 16 + 10 = 78 total tests passing across three meta-test files). Verified locally `pnpm test tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts tests/cross-cutting/no-inline-email-normalization-in-plan-doc-guard.test.ts tests/admin/no-inline-email-normalization.test.ts` → 78 tests, 3 files, 0 failures.
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.

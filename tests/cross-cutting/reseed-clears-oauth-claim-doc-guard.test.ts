@@ -218,7 +218,7 @@ function _evaluateCanonicalEnvVarCluster_retired_R27(
   // reason. Parse out the stated cardinality + the J3-claim-email
   // omission marker.
   const cardinalityMatch = clusterWindow.match(/\b([1-4])\s+vars?\b/i);
-  const claimedCardinality = cardinalityMatch ? Number.parseInt(cardinalityMatch[1], 10) : null;
+  const claimedCardinality = cardinalityMatch ? Number.parseInt(cardinalityMatch[1]!, 10) : null;
   const j3ClaimEmailOmitted =
     /\bJ3[-_]?claim[-_]?email[^.]{0,80}(NOT required|omitted|is omitted|excluded)/i.test(
       clusterWindow,
@@ -295,7 +295,7 @@ function evaluateCanonicalTableRow(
   // claim-email omission marker (if any), and derive the required
   // set from those.
   const cardinalityMatch = line.match(/\b([1-4])\s+vars?\b/i);
-  const claimedCardinality = cardinalityMatch ? Number.parseInt(cardinalityMatch[1], 10) : null;
+  const claimedCardinality = cardinalityMatch ? Number.parseInt(cardinalityMatch[1]!, 10) : null;
   const j3ClaimEmailOmitted =
     /\bJ3[-_]?claim[-_]?email[^.]{0,80}(NOT required|omitted|is omitted|excluded)/i.test(line);
 
@@ -453,7 +453,7 @@ describe("R12 F11 reseed clears claimed_via_oauth_at — doc-guard", () => {
     // baseline. Forbid finding only the literal `(l)` token without the
     // baseline-claim guard semantics (an empty placeholder would pass a
     // simple grep but not the contract).
-    const predicateLPattern = /\*\*\(l\).*claimed_via_oauth_at/is;
+    const predicateLPattern = /\*\*\(l\)[\s\S]*claimed_via_oauth_at/i;
     if (!predicateLPattern.test(source)) {
       expect.fail(
         `R12 F11 doc-guard: spec §3.3.2 check-seed predicates must include predicate (l) — the baseline-claim guard.\n\n` +
@@ -564,7 +564,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       const lines = source.split("\n");
 
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+        const line = lines[i]!;
         // Is this line in a rejection-list context? Tightened heuristic
         // (R15 commit 36 iteration #2): exclude bare "canonical" (matches
         // "canonicalization" — pre-existing failure-mode prose about
@@ -708,7 +708,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     );
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      const line = lines[i]!;
       if (!/^\s*\|/.test(line)) continue;
       // Must reference at least ONE canonical literal by name (not just
       // the wildcard glob "VALIDATION_*").
@@ -941,7 +941,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       const inFence: boolean[] = new Array(lines.length).fill(false);
       let fenceOpen = false;
       for (let i = 0; i < lines.length; i++) {
-        if (/^```/.test(lines[i])) {
+        if (/^```/.test(lines[i]!)) {
           fenceOpen = !fenceOpen;
           inFence[i] = fenceOpen; // the fence line itself counts as inside
           continue;
@@ -966,7 +966,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       // No flat 60-line fallback.
       const inMarkerWindow: boolean[] = new Array(lines.length).fill(false);
       for (let i = 0; i < lines.length; i++) {
-        if (!lines[i].includes(CANONICAL_SOURCE_MARKER)) continue;
+        if (!lines[i]!.includes(CANONICAL_SOURCE_MARKER)) continue;
 
         // Case (a): marker is inside a fenced block (inFence[i] is true)
         // OR the marker line is immediately ABOVE a fenced block opener
@@ -975,21 +975,21 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         if (inFence[i]) {
           // Walk back to fence start, forward to fence end.
           let s = i;
-          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1])) s--;
+          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1]!)) s--;
           let e = i;
-          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1])) e++;
+          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1]!)) e++;
           for (let k = s; k <= e; k++) inMarkerWindow[k] = true;
           continue;
         }
         // Marker line above a fenced block? Look ahead skipping blank /
         // comment-only lines until the first non-blank line.
         let probe = i + 1;
-        while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe])) probe++;
-        if (probe < lines.length && /^```/.test(lines[probe])) {
+        while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe]!)) probe++;
+        if (probe < lines.length && /^```/.test(lines[probe]!)) {
           // Whitelist the fenced block at probe.
           let s = probe;
           let e = probe;
-          while (e + 1 < lines.length && !/^```/.test(lines[e + 1])) e++;
+          while (e + 1 < lines.length && !/^```/.test(lines[e + 1]!)) e++;
           if (e + 1 < lines.length) e++; // include closing fence line
           for (let k = s; k <= e; k++) inMarkerWindow[k] = true;
           continue;
@@ -1003,18 +1003,18 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         let headStart = -1;
         let headDepth = 0;
         for (let j = i - 1; j >= 0; j--) {
-          const m = lines[j].match(/^(#{2,})\s+/);
+          const m = lines[j]!.match(/^(#{2,})\s+/);
           if (m) {
             headStart = j;
-            headDepth = m[1].length;
+            headDepth = m[1]!.length;
             break;
           }
         }
         if (headStart >= 0) {
           let scopeEnd = lines.length;
           for (let j = headStart + 1; j < lines.length; j++) {
-            const m = lines[j].match(/^(#{2,})\s+/);
-            if (m && m[1].length <= headDepth) {
+            const m = lines[j]!.match(/^(#{2,})\s+/);
+            if (m && m[1]!.length <= headDepth) {
               scopeEnd = j;
               break;
             }
@@ -1024,7 +1024,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       }
 
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+        const line = lines[i]!;
 
         // Track §9.1.2 heading scope (spec file only).
         if (/^###\s+9\.1\.2\b/.test(line)) {
@@ -1090,7 +1090,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
           // For each adjacent pair, check the inter-literal substring.
           let listProximityAdjacencies = 0;
           for (let p = 0; p < positions.length - 1; p++) {
-            const sliceStart = positions[p];
+            const sliceStart = positions[p]!;
             const nextLitStart = line.indexOf(
               lineCanonicals.find((v) => {
                 const idx = line.indexOf(v, sliceStart);
@@ -1128,10 +1128,10 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         if (inFence[i]) {
           // Walk back to fence start.
           let s = i;
-          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1])) s--;
+          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1]!)) s--;
           // Walk forward to fence end.
           let e = i;
-          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1])) e++;
+          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1]!)) e++;
           fencedBlockStart = s;
           fencedBlockEnd = e;
           const fencedText = lines.slice(s, e + 1).join("\n");
@@ -1507,7 +1507,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       {
         let fenceOpen = false;
         for (let i = 0; i < lines.length; i++) {
-          if (/^```/.test(lines[i])) {
+          if (/^```/.test(lines[i]!)) {
             fenceOpen = !fenceOpen;
             inFence[i] = fenceOpen;
             continue;
@@ -1518,23 +1518,23 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
 
       const inMarkerWindow: boolean[] = new Array(lines.length).fill(false);
       for (let i = 0; i < lines.length; i++) {
-        if (!lines[i].includes(CANONICAL_SOURCE_MARKER)) continue;
+        if (!lines[i]!.includes(CANONICAL_SOURCE_MARKER)) continue;
         // (a) Marker inside a fenced block.
         if (inFence[i]) {
           let s = i;
-          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1])) s--;
+          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1]!)) s--;
           let e = i;
-          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1])) e++;
+          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1]!)) e++;
           for (let k = s; k <= e; k++) inMarkerWindow[k] = true;
           continue;
         }
         // (a') Marker just above a fenced block.
         let probe = i + 1;
-        while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe])) probe++;
-        if (probe < lines.length && /^```/.test(lines[probe])) {
+        while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe]!)) probe++;
+        if (probe < lines.length && /^```/.test(lines[probe]!)) {
           let s = probe;
           let e = probe;
-          while (e + 1 < lines.length && !/^```/.test(lines[e + 1])) e++;
+          while (e + 1 < lines.length && !/^```/.test(lines[e + 1]!)) e++;
           if (e + 1 < lines.length) e++;
           for (let k = s; k <= e; k++) inMarkerWindow[k] = true;
           continue;
@@ -1543,18 +1543,18 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         let headStart = -1;
         let headDepth = 0;
         for (let j = i - 1; j >= 0; j--) {
-          const m = lines[j].match(/^(#{2,})\s+/);
+          const m = lines[j]!.match(/^(#{2,})\s+/);
           if (m) {
             headStart = j;
-            headDepth = m[1].length;
+            headDepth = m[1]!.length;
             break;
           }
         }
         if (headStart >= 0) {
           let scopeEnd = lines.length;
           for (let j = headStart + 1; j < lines.length; j++) {
-            const m = lines[j].match(/^(#{2,})\s+/);
-            if (m && m[1].length <= headDepth) {
+            const m = lines[j]!.match(/^(#{2,})\s+/);
+            if (m && m[1]!.length <= headDepth) {
               scopeEnd = j;
               break;
             }
@@ -1568,11 +1568,11 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       {
         let in912 = false;
         for (let i = 0; i < lines.length; i++) {
-          if (/^###\s+9\.1\.2\b/.test(lines[i])) {
+          if (/^###\s+9\.1\.2\b/.test(lines[i]!)) {
             in912 = true;
-          } else if (in912 && /^###?\s+9\.[1-9]\.[3-9]\b/.test(lines[i])) {
+          } else if (in912 && /^###?\s+9\.[1-9]\.[3-9]\b/.test(lines[i]!)) {
             in912 = false;
-          } else if (in912 && /^##\s+/.test(lines[i])) {
+          } else if (in912 && /^##\s+/.test(lines[i]!)) {
             in912 = false;
           }
           in912Scope[i] = in912;
@@ -1580,8 +1580,8 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       }
 
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const prev = i > 0 ? lines[i - 1] : "";
+        const line = lines[i]!;
+        const prev = i > 0 ? lines[i - 1]! : "";
 
         // Skip exempt scopes.
         if (in912Scope[i]) continue;
@@ -2182,12 +2182,21 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       {
         class: "outcome-enum:lookup-inconclusive-missing-alert-code",
         // Pattern A: `--outcome lookup-inconclusive` NOT followed
-        // within ~140 chars by `--alert-code`. The negative
-        // lookahead window is tight enough to fire on standalone
-        // bare-outcome invocations but permissive enough that the
-        // canonical post-R47 form (`--outcome lookup-inconclusive
-        // --alert-code inconclusive`) passes.
-        rx: /--outcome\s+lookup-inconclusive\b(?![\s\S]{0,140}?--alert-code)/i,
+        // within ~140 chars ON THE SAME LINE by `--alert-code`. The
+        // negative lookahead window is tight enough to fire on
+        // standalone bare-outcome invocations but permissive enough
+        // that the canonical post-R47 form (`--outcome lookup-
+        // inconclusive --alert-code inconclusive`) passes.
+        //
+        // R49 commit 90 F45 amendment: same-line constraint
+        // (`[^\n]{0,140}?` not `[\s\S]{0,140}?`) is the F45
+        // tightening — R48 F45 surfaced that the cross-line form
+        // let bare `--outcome lookup-inconclusive` on one line
+        // satisfy the negative lookahead via an unrelated
+        // `--alert-code` on a following line within 140 chars. Each
+        // CLI invocation is on its own line, so same-line is the
+        // correct binding.
+        rx: /--outcome\s+lookup-inconclusive\b(?![^\n]{0,140}?--alert-code)/i,
         explain:
           "actionable `--outcome lookup-inconclusive` invocations MUST be paired with `--alert-code inconclusive` (within ~140 chars) so the harness materializes the canonical `REPORT_LOOKUP_INCONCLUSIVE` admin_alerts row per `lookupAlertCode` default branch at `lib/reports/submit.ts:202-208`. Without the explicit selector, the R43 commit 81 F40 default `--alert-code bot-login-missing` produces `GITHUB_BOT_LOGIN_MISSING` — a guaranteed-fail mismatch against every dependent assertion site (Smoke 7 Step 3, Phase 0.E.3 Step 1, plan 04 rendering predicate row). Fix: add `--alert-code inconclusive` immediately after `--outcome lookup-inconclusive` per R45 commit 84 + R47 commit 85 contract. Historical narratives prefixed with `pre-R47` / `pre-R45` / `retired` pass via the F21-class HISTORICAL_QUALIFIER escape hatch.",
       },
@@ -2324,8 +2333,10 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       // F42 + F43 shapes: actionable --outcome divergence from the
       // canonical 9-outcome enum OR missing required co-selector.
       {
+        // R49 commit 90 F45 amendment: same-line constraint
+        // (`[^\n]{0,140}?` not `[\s\S]{0,140}?`).
         class: "outcome-enum:lookup-inconclusive-missing-alert-code",
-        rx: /--outcome\s+lookup-inconclusive\b(?![\s\S]{0,140}?--alert-code)/i,
+        rx: /--outcome\s+lookup-inconclusive\b(?![^\n]{0,140}?--alert-code)/i,
       },
       {
         class: "outcome-enum:bare-success-no-actor-suffix",
@@ -2602,6 +2613,26 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     const waiverF42 =
       "<!-- not-f21-class: historical quote from R46 finding F42 verbatim --> Pre-fix smoke 7: `--outcome lookup-inconclusive` with no --alert-code.";
     expect(fixtureFiresF21Class(waiverF42).fires).toBe(false);
+
+    // R49 commit 90 F45 negative-case fixture (cross-line false-negative).
+    // Pre-R49 regex `[\s\S]` accepted bare `--outcome lookup-inconclusive`
+    // on one line if ANY `--alert-code` appeared on the next line within
+    // 140 chars. R49 commit 90 tightens to `[^\n]{0,140}?` (same-line);
+    // this fixture MUST FIRE post-tightening.
+    const f45CrossLineNoSatisfy = [
+      "Step 1: Run `pnpm validation:report-fixtures --outcome lookup-inconclusive`.",
+      "Step 2: Run a separate command with --alert-code something-unrelated.",
+    ].join("\n");
+    const f45Result = fixtureFiresF21Class(f45CrossLineNoSatisfy);
+    expect(f45Result.fires).toBe(true);
+    expect(f45Result.matchedPattern).toBe(
+      "outcome-enum:lookup-inconclusive-missing-alert-code",
+    );
+
+    // R49 commit 90 F45 — canonical same-line form still PASSES.
+    const f45CanonicalSameLine =
+      "Step 2: Run `pnpm validation:report-fixtures --outcome lookup-inconclusive --alert-code inconclusive` against prod-equivalent Supabase.";
+    expect(fixtureFiresF21Class(f45CanonicalSameLine).fires).toBe(false);
 
     // F42-shape edge: documentation form where `--alert-code`
     // PRECEDES `--outcome lookup-inconclusive`. Per plan 04:136:
