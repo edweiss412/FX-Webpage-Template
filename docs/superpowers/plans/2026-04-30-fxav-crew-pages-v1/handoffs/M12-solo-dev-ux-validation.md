@@ -328,9 +328,53 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - **Resolver-outcome class (R6-R8 vector)**: structurally closed by commit 22 meta-test; held through R9 + R10.
 - **Repair commit:** pending R11 implementer dispatch.
 
-### Amendment R11 — pending
+### Amendment R11 — 2026-05-26
 
-R11 implementer dispatch: F8 dual-count comprehensive re-analysis (mandated by R9+R10 same-vector recurrence) + F9 SQL fix in mint RPC + finalizer + tz-pin meta-test example + class-sweep of all inline SQL for similar bugs.
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `0e9da3c` (post-R11 repair: 3 commits `b3ed1e8` / `6522c98` / `0e9da3c`)
+- **Verdict:** **repair landed; pending R12 adversarial review.**
+- **(A) comprehensive dual-count audit** (per same-vector mandate from R9 F6 + R10 F8): 26 occurrences of "21"/"22"/"17"/"18" across spec + plan tree, all classified prose-track vs live-track. Only 1 wrong (Task 0.B.6 Step 4 = F8). 14 prose-track occurrences correctly framed; 12 live-track occurrences correctly framed; F8 fixed in commit 26.
+- **F9 adjacent-SQL audit:** 2 broken `extract(epoch from (date - current_date))` sites (mint RPC + finalizer); both fixed in commit 27 with integer day comparison `abs(::date - current_date) > 1`. Spec §3.3.2 describes RPCs at contract-prose level only — no spec mirror needed. No other operand-type bugs in plan §0.B / §0.C / §0.E. Adjacent audit clean.
+- **NEW class surfaced by R11 audit — phantom-structural-defense-citation:**
+  - `tests/cross-cutting/validation-tooling-tz-pin.test.ts` cited as live infrastructure in handoff §6 + spec §3.3.2:337 + R5 plan-amendment narrative. Verified via `find`/`git log` — file never committed.
+  - `tests/cross-cutting/email-canonicalization.test.ts` exists but the R5-claimed extension to walk `scripts/validation-*.ts` was also never authored. Verified via `auditLiveEmailCanonicalization()` at `lib/audit/emailCanonicalization.ts:693-705` walking only `lib/parser` / `lib/sync` / `lib/reports` / `lib/auth` / `lib/data` / `lib/adminAlerts` / `app/api/admin` — no `scripts/validation-*.ts`.
+  - Both treated per `feedback_deferral_discipline` as DEFERRED entries: `M12-PHASE0C-TZ-PIN-METATEST` + `M12-PHASE0C-EMAIL-CANON-EXT` in `DEFERRED.md`; trigger = Phase 0.C `scripts/validation-reseed.ts` authoring (the meta-tests pair naturally with the script they audit).
+  - Citation reframes: handoff §2 invariant "Email canonicalization" + §6 watchpoints + §7 test commands + spec §3.3.2:337 + plan `00-overview.md` meta-test inventory — all reframed from past-tense ("(new) — greps...") to forward-looking ("(planned in Phase 0.C per DEFERRED M12-PHASE0C-*)") in commit 28.
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 26 | `b3ed1e8` | `docs(plan-m12): R11 F8 — Task 0.B.6 Step 4 expects live track 18 not prose 22` |
+  | 27 | `6522c98` | `docs(plan-m12): R11 F9 — fix Postgres date-arithmetic in mint + finalizer RPCs` |
+  | 28 | `0e9da3c` | `docs(plan-m12): R11 phantom-metatest reframe — defer tz-pin + email-canon-ext to Phase 0.C` |
+
+- **Meta-test regression:** both pre-existing structural defenses (R8 `picker-resolver-outcome-prose-guard.test.ts` + H8 `identity-invalidated-two-reasons-doc-guard.test.ts`) PASS against R11-amended prose. No regression.
+- **Class-sweep status:** F6-class dual-count drift = 2 rounds (R9+R10), closed by R11 (A) audit + single-site fix; threshold-3 calibration if R12 surfaces another F6-class hit → structural defense becomes mandate. F9-class inline SQL invalidity = 1 round, closed in R11. Phantom-structural-defense-citation class = 1 round (R11 audit surfaced 2 hits in same R5 source narrative; both deferred + reframed).
+
+### Amendment R12 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `0e9da3c` (post-R11)
+- **Verdict:** **needs-attention** (2 HIGH + 1 MEDIUM; 2 NEW classes + 1 same-vector recurrence)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F10 | HIGH | `06-phase1-matrix-walk.md:185-190` (J3 leg c claim-email reference) + plan `03-phase0-tooling-reseed.md` seed contract (fixture emails synthesized as `validation+<combo>-<alias>@example.com`) | **NEW class — J3 OAuth-walk fixture impossibility.** J3 leg (c) requires the dev to sign in to Google as `alias_5a_lead`'s identity to trigger `claim_oauth_identity`. Fixture emails are RFC-reserved `example.com` addresses; real Google OAuth cannot authenticate against that domain. The load-bearing OAuth identity-claim path is unwalk-able as designed. Repair: parameterize J3 claim identities via new env var (e.g., `VALIDATION_J3_CLAIM_EMAIL`); reseed uses the configured email for the J3-claim alias; `validation:check-seed` fails if J3 claim fixture email is still a placeholder domain; Phase 0.A env-var contract adds this var. |
+  | F11 | HIGH | `03-phase0-tooling-reseed.md:282-297` (mint RPC crew_members UPSERT) | **NEW class — reseed doesn't restore OAuth-claim baseline.** UPSERT updates email/role/flags/restrictions but does NOT reset `claimed_via_oauth_at`. After J3 leg (c) stamps `alias_5a_lead` as claimed, `validation:reseed --combo all` preserves the row through `ON CONFLICT (show_id, name) DO UPDATE`, leaving the LEAD picker row OAuth-disabled. Subsequent walks see a poisoned baseline. Tightly coupled with F10 — together they make J3 leg (c) unexecutable in practice. Repair: amend mint RPC to explicitly `SET claimed_via_oauth_at = NULL` in UPDATE clause (or DELETE+INSERT pattern); spec §3.3 seed contract gains explicit "claim state reset on every reseed" obligation; check-seed adds predicate asserting baseline picker aliases are unclaimed; regression test pins the contract. |
+  | F12 | MEDIUM | `00-overview.md:122-130` (meta-test inventory) | **Same-vector recurrence — phantom-structural-defense class round 2.** R11 closed the citation-claim-vs-reality mismatch via DEFERRED + reframe, but didn't actually schedule the deferred work as concrete Phase 0.C tasks. Meta-test inventory still says Task 0.C.4 authors the defenses; actual Phase 0.C Task 0.C.4 is the atomic RPC task. No concrete checklist step authors either structural defense. Per AGENTS.md "Same-vector recurrence" + `feedback_recurring_bug_response`: R13 MUST do comprehensive re-analysis of the phantom-trigger class BEFORE patching. Threshold-3 calibration: if R14 surfaces another phantom-trigger finding, structural defense becomes mandate (candidate: doc-guard meta-test auditing DEFERRED.md entries' triggers against live plan task list). Repair: add explicit Phase 0.C task(s) authoring `validation-tooling-tz-pin.test.ts` + `email-canonicalization.test.ts` scope extension; update meta-test inventory pointer to point at the real task IDs; include both tests in Phase 0.C close-out commands. |
+
+- **Same-vector status:**
+  - **Phantom-metatest class:** 2 rounds (R11 + R12). R13 mandate: comprehensive re-analysis before patching. R14 structural-defense triggers if recurrence.
+  - **F6-class dual-count drift:** closed via R11 (A) audit; R12 surfaced no new hits → status = held cleanly.
+  - **F9-class inline SQL:** closed in R11; R12 surfaced no new hits → status = held cleanly.
+  - **Resolver-outcome class (R6-R8):** structurally closed by commit 22 meta-test; held through R9 + R10 + R11 + R12.
+  - **F10/F11 (J3 OAuth-walk integrity):** NEW classes; round 1; per-instance fix in R13.
+- **Repair commit:** pending R13 implementer dispatch.
+
+### Amendment R13 — pending
+
+R13 implementer dispatch: F10 + F11 J3 OAuth-walk repairs (parameterize claim email + reseed RPC clears claim state + check-seed predicates + spec contract amendments) + F12 phantom-metatest class round-2 comprehensive re-analysis (audit every DEFERRED.md trigger reference against live plan task list) + Phase 0.C task additions for the deferred defenses.
 
 ---
 

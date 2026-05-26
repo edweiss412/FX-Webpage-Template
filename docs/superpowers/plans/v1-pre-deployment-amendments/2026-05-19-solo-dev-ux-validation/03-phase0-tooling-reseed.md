@@ -301,17 +301,26 @@ BEGIN
       role = EXCLUDED.role,
       role_flags = EXCLUDED.role_flags,
       date_restriction = EXCLUDED.date_restriction,
-      stage_restriction = EXCLUDED.stage_restriction
+      stage_restriction = EXCLUDED.stage_restriction,
+      -- R13 commit 31 F11 repair: every reseed restores the baseline
+      -- by setting claimed_via_oauth_at = NULL. Without this clause, a
+      -- previous J3 leg (c) walk that stamped claimed_via_oauth_at via
+      -- the live claim_oauth_identity RPC would leave the row marked
+      -- claimed through every subsequent reseed (ON CONFLICT preserves
+      -- the row by primary key; UPDATE without this clause does NOT
+      -- touch claimed_via_oauth_at). check-seed predicate (l) verifies
+      -- this discipline holds post-reseed. Per spec §3.3 picker-fixture
+      -- lockstep contract R13 amendment.
+      claimed_via_oauth_at = NULL
     RETURNING id INTO v_crew_id;
 
-    -- NOTE: claimed_via_oauth_at is intentionally NOT set here. Fresh re-seeds leave
-    -- it null so every alias is bypass-pickable. J3 leg (c)'s OAuth-claim walk
-    -- stamps it via the live claim_oauth_identity RPC during the walk; the next
-    -- --combo all re-creates the rows with fresh ids and null claimed_via_oauth_at,
-    -- restoring the baseline (since ON CONFLICT here is keyed by (show_id, name)
-    -- which preserves the row, the dev runs DELETE-then-INSERT on a full
-    -- "from-scratch" re-seed via --combo all + --reset-oauth-claims if the OAuth
-    -- claim state needs hard reset; not part of v1).
+    -- R13 commit 31 amendment: the UPSERT SET clause above now explicitly
+    -- resets claimed_via_oauth_at = NULL on every reseed. The previous
+    -- "not part of v1; needs --reset-oauth-claims" framing was the F11
+    -- finding source — J3 leg (c) stamping was sticky across reseeds,
+    -- producing a poisoned baseline on every subsequent walk session.
+    -- Subsequent --combo all reseeds now restore the bypass-pickable
+    -- baseline automatically; no manual SQL or special flag required.
 
     v_alias_map_slice := v_alias_map_slice || jsonb_build_object(v_crew_member->>'alias', v_crew_id);
   END LOOP;
@@ -494,7 +503,7 @@ COMMIT_EOF
 **Files:**
 - Modify: `scripts/validation-check-seed.ts`
 
-Per spec §3.3.2 singleton write semantics. **8 predicates (a-g, i, k)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police); R13 commit 30 adds predicate (k):
+Per spec §3.3.2 singleton write semantics. **9 predicates (a-g, i, k, l)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police); R13 commit 30 adds predicate (k); R13 commit 31 adds predicate (l):
 
 - (a) `validation_state` row missing (zero rows for `key='validation_seed'`)
 - (b) `last_seed_date != $VALIDATION_TODAY_ISO` (where `$VALIDATION_TODAY_ISO` is the canonical UTC YYYY-MM-DD value the script computes, NOT Postgres `current_date`)
@@ -505,18 +514,19 @@ Per spec §3.3.2 singleton write semantics. **8 predicates (a-g, i, k)** — the
 - (g) For any seeded show, `show_share_tokens` is missing the matching `show_id` row (sentinel for "the shows_create_share_token_after_insert trigger fired correctly")
 - (i) For ANY combo in the requested set, `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO`. Catches the partial-`--combo all` failure mode where some combos succeeded on day X and others stamped day Y (UTC midnight crossed mid-run). check-seed accepts the date as an env var or CLI flag; defaults to `new Date().toISOString().slice(0, 10)`.
 - **(k) (R13 commit 30 amendment — J3-claim-email guard)** `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (`@example.com` / `@example.org` / `@example.net` per RFC 2606) OR combo R1's `alias_5a_lead` row in `crew_members` has an `email` value matching a placeholder reserved domain (i.e., a previous run with a bad env var landed a placeholder email in the DB). Diagnostic: "VALIDATION_J3_CLAIM_EMAIL is unset or placeholder — J3 leg (c) unwalkable (Google OAuth cannot authenticate against example.com/.org/.net; see spec §3.3 step 5 R13-amendment paragraph)."
+- **(l) (R13 commit 31 amendment — baseline-claim guard)** For any baseline picker alias (every alias in `alias_map` per spec §3.2 / §3.3 inventory), `crew_members.claimed_via_oauth_at IS NOT NULL` after a fresh `--combo all` reseed. Catches the F11-class failure mode where the mint RPC's UPSERT `SET` clause drifts (e.g., a future amendment drops the `claimed_via_oauth_at = NULL` line) and a previous J3 leg (c) walk's claim stamp persists across reseed, leaving the LEAD picker row OAuth-disabled. Diagnostic: "crew_members row for <combo>.<alias> has claimed_via_oauth_at = <timestamp> after reseed — mint RPC SET clause missing `claimed_via_oauth_at = NULL`; re-check the migration body against the R13 commit 31 contract."
 
-- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g); returns exit 1 if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (predicate k, per R13 commit 30); returns exit 1 if combo R1's alias_5a_lead row in `crew_members` has a placeholder email (predicate k DB-side check).
+- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g); returns exit 1 if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (predicate k, per R13 commit 30); returns exit 1 if combo R1's alias_5a_lead row in `crew_members` has a placeholder email (predicate k DB-side check); returns exit 1 if ANY baseline picker alias has `claimed_via_oauth_at IS NOT NULL` post-reseed (predicate l, per R13 commit 31 — test this by manually `UPDATE public.crew_members SET claimed_via_oauth_at = now() WHERE ...` then re-running check-seed).
 
 - [ ] **Step 2: Run — expect FAIL** (no implementation).
 
-- [ ] **Step 3: Implement** all 8 predicates (a-g, i, k). Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
+- [ ] **Step 3: Implement** all 9 predicates (a-g, i, k, l). Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
 
 - [ ] **Step 4: Run — expect PASS.** Commit:
 
 ```bash
 git add scripts/validation-check-seed.ts tests/scripts/validation-check-seed.test.ts
-git commit -m "feat(validation): implement check-seed with 8 picker-fixture predicates (a-g, i, k incl R13 J3-claim-email guard)"
+git commit -m "feat(validation): implement check-seed with 9 picker-fixture predicates (a-g, i, k, l incl R13 J3-claim-email guard + baseline-claim guard)"
 ```
 
 ---
@@ -684,4 +694,4 @@ COMMIT_EOF
 - **Localhost rejection fires against real Supabase.** Regex for localhost is too broad; tighten per `scripts/lib/validation-target.ts`.
 - **`show_share_tokens` row missing for a seeded show (check-seed predicate g fires).** The `shows_create_share_token_after_insert` trigger only fires on INSERT, not UPDATE. If the show row already existed before the trigger was migrated in, the share-token row will be missing. Resolution: run `INSERT INTO public.show_share_tokens (show_id) SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation\_%' ESCAPE '\' ON CONFLICT (show_id) DO NOTHING` in the Supabase SQL editor (the same back-fill the M11.5 migration uses).
 - **crew_members UPSERT fails on email canonicalization CHECK.** Master spec X.5 requires email canonicalization; `validation+5a@example.com` canonicalizes to `validation@example.com` (strip-plus). The reseed script canonicalizes in TS before sending to the RPC, so this should not fire — but if it does, the canonicalize helper has changed shape; re-read `lib/email/canonicalize.ts` against the call site.
-- **J3 leg (c) OAuth-claim walk leaves `claimed_via_oauth_at` set on fixture rows.** This is expected during the walk and reversible by running `pnpm validation:reseed --combo all` AFTER the J3 walks complete (the UPSERT preserves the row via ON CONFLICT, so claimed_via_oauth_at is NOT reset). If the dev needs to fully reset the baseline (rare — only when the walk corrupted multiple identity claims), the simplest path is to manually `DELETE FROM public.crew_members WHERE show_id IN (SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation\_%' ESCAPE '\')` in the SQL editor, then re-run `--combo all`. This is not part of v1's reseed scope; document the manual procedure here and revisit if it surfaces frequently.
+- **J3 leg (c) OAuth-claim walk left `claimed_via_oauth_at` set on fixture rows (pre-R13 behavior).** R13 commit 31 F11 repair closes this failure mode: the mint RPC's UPSERT SET clause now explicitly sets `claimed_via_oauth_at = NULL` on every reseed (see SET clause + post-SET comment in `mint_validation_fixture_atomic` above). After any J3 leg (c) walk, the next `pnpm validation:reseed --combo all` (or `--combo R1` for the specific J3-walked combo) automatically restores the bypass-pickable baseline. check-seed predicate (l) (per Task 0.C.5) verifies the discipline held post-reseed by asserting all baseline picker aliases have `claimed_via_oauth_at IS NULL`. **If predicate (l) ever fires**, the mint RPC's SET clause has drifted — re-check the migration body against the R13 commit 31 contract.
