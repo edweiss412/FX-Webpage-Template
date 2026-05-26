@@ -69,17 +69,22 @@ Per spec §9.2 + dispatch brief §3.B option β (admin UI is canonical interface
 
 ---
 
-### Task 0.F.7: Smoke 7 (CONDITIONAL on Band F disposition) — Report-fixtures harness round-trip
+### Task 0.F.7: Smoke 7 (CONDITIONAL on Band F disposition) — Report-fixtures harness round-trip (R31 rewrite — `AlertBanner` rendering surface, not nonexistent admin reports route)
 
 Per spec §9.2 R24. Required when Band F deep report outcomes default to INCLUDED-via-harness. Skipped only when MATRIX-INVENTORY.md pre-dispositions every deep outcome as EXCLUDED-rely-on-structural.
 
+**R31 rewrite rationale:** prior Step 3 said "report-failure UI row renders for an admin viewing the affected show or report list" — no `app/admin/reports` route exists. The `lookup-inconclusive` outcome surfaces through `admin_alerts` → `AlertBanner` on the admin show page (per handoff §9 R31 producer map + plan `04-phase0-tooling-report.md` Task 0.E.2 R31 rewrite).
+
 - [ ] **Step 1: Check MATRIX-INVENTORY.md disposition.** If every deep report outcome is EXCLUDED-rely-on-structural with structural-test cite, skip to Phase 0.F.8. Otherwise continue.
 
-- [ ] **Step 2: Run** `pnpm validation:report-fixtures --outcome lookup-inconclusive` against prod-equivalent Supabase.
+- [ ] **Step 2: Run** `pnpm validation:report-fixtures --outcome lookup-inconclusive` against prod-equivalent Supabase. Expect exit 0 + stdout `materialized lookup-inconclusive report row <id>`.
 
-- [ ] **Step 3: Verify:** the report-failure UI row renders for an admin viewing the affected show or report list (per master spec §13.2.3 contract).
+- [ ] **Step 3: Verify rendering surface (real producer-state path).**
+  - Open `/admin/show/<fixture-slug>` while signed in as admin.
+  - Expect `AlertBanner` to render an admin alert row with code `REPORT_LOOKUP_INCONCLUSIVE` (the same code raised by `lib/reports/submit.ts:691-740` `handleLookupInconclusive`, written via `resolveStateGatedAlert` at `:643-689`). The row's `context.validation_tag` should equal `m12-fixture-lookup-inconclusive`.
+  - Cross-verify via Supabase SQL editor: `SELECT id, code, context->>'validation_tag' FROM public.admin_alerts WHERE code='REPORT_LOOKUP_INCONCLUSIVE' AND context->>'validation_tag' = 'm12-fixture-lookup-inconclusive' AND resolved_at IS NULL;` returns exactly one row.
 
-- [ ] **Step 4: Cleanup:** `pnpm validation:report-fixtures --cleanup` (Don't leave fixture rows in the prod-equivalent DB.)
+- [ ] **Step 4: Cleanup:** `pnpm validation:report-fixtures --cleanup`. Confirm zero `m12-fixture-%` rows remain in `admin_alerts`, `report_rate_limits`, OR `reports` (all three tables — cleanup order: admin_alerts → report_rate_limits → reports per handoff §9 R31).
 
 ---
 
