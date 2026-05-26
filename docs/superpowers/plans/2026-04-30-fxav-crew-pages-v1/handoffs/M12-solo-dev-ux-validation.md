@@ -1964,7 +1964,54 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F48-class still at 2 rounds; trigger remains armed.
   - All other classes still closed.
 
-- **Repair commit:** pending R61 implementer dispatch (inline Agent; F51 + F52 anti-tautology test-spec tightening).
+- **Repair commits:** R61 implementer dispatch (inline Agent; F51 + F52 anti-tautology test-spec tightening) — `e796580` (F51 3-layer defense) + `d42c5d8` (F52 migration-artifact apply).
+
+### Amendment R61 — 2026-05-26 (repair)
+
+- **Diff base:** `d0b892b`
+- **Diff target:** pending R62 cross-CLI adversarial review
+- **Verdict:** **R60 findings closed; pending R62 fresh adversarial review**
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 97 | `e796580` | `docs(plan-m12): R61 F51 — PostgREST DML lockdown test 3-layer defense` |
+  | 98 | `d42c5d8` | `docs(plan-m12): R61 F52 — drift-repair test applies actual migration artifact` |
+
+- **F51 verification quote** (3-layer defense at `02-phase0-validation-state.md:380-477`):
+  - Layer 1 (`pg_catalog.has_table_privilege` via psql): "For each role in {anon, authenticated}, for each verb in {INSERT, UPDATE, DELETE}, `has_table_privilege(role, 'public.<table>', verb) = false`. Proves REVOKE landed REGARDLESS of RLS policy state." Catches: future amendment drops the REVOKE block but leaves `admin_only` RLS in place; pre-R61 Layer 3 would falsely pass on this stack via RLS denial.
+  - Layer 2 (admin-authenticated PostgREST probe): "A client whose JWT email matches `is_admin()=true` issues INSERT/UPDATE/DELETE. Without the REVOKE block this admin would PASS the admin_only RLS USING/WITH CHECK predicate and the DML would succeed. With the REVOKE block in place the admin client receives `42501 permission denied for table` at the table-grant check, BEFORE RLS evaluates." Catches: admin-bypass surface that anon/authenticated probes structurally cannot.
+  - Layer 3 (anon + authenticated probes, tightened): "Require `permission denied for table` substring. Excludes RLS-policy violation messages (`new row violates row-level security policy` / generic `permission denied` without `for table`)." Catches: defense-in-depth at the path-end + future grant-by-role-attribute mechanism that bypasses table-grant catalog.
+  - New env var requirement: `SUPABASE_TEST_ADMIN_JWT` (Phase 0.B test bootstrap registers as required; fail-loud if unset, not skip).
+
+- **F52 verification quote** (migration-artifact apply at `02-phase0-validation-state.md:154-188`):
+  - "R61 F52 amendment — tautology audit. The pre-R61 test ran a hardcoded `ALTER TABLE ... DROP NOT NULL` inline INSIDE the test body, which independently performed the drift-repair regardless of what the migration artifact said. R61 closes the gap by routing the drift-repair through the canonical migration file — the test FAILs if the ALTER is deleted from the migration."
+  - Test body: locates migration via `readdirSync(migrationsDir).filter((f) => /_validation_state\.sql$/.test(f))` — fails loud on zero/multiple matches; regex sanity-check on migration body (`/ALTER\s+TABLE\s+public\.validation_state\s+ALTER\s+COLUMN\s+last_seed_date\s+DROP\s+NOT\s+NULL/i`); applies full migration via new `runPsqlFile` helper (`execFileSync("psql", [..., "-v", "ON_ERROR_STOP=1", "-f", filePath])`); asserts `is_nullable="YES"` post-apply; re-applies migration file for apply-twice idempotency at the migration-artifact grain.
+  - Concrete failure mode the test now catches: "a future amendment deletes the `ALTER COLUMN last_seed_date DROP NOT NULL` from the migration. The regex sanity-check AND the is_nullable assertion both FAIL — regression is pinned at the migration-artifact grain, not at the test-body grain."
+
+- **(C) Class-sweep results — "structural defense test tautology" peer audit:**
+
+  | Test spec | Verdict | Reasoning |
+  |---|---|---|
+  | R49 c89 `tests/cross-cutting/no-inline-email-normalization-in-plan-doc-guard.test.ts` | TIGHT | `readdirSync` + `readFileSync` walker over `docs/superpowers/specs/` + `docs/superpowers/plans/` + `AGENTS.md` (verified at file:65-68). Regex matches FORBIDDEN_PATTERNS against live doc content; not tautological — production prose drift triggers RED. |
+  | R51 c92 structural defense extension (F46 false-semantics class) | TIGHT | Extends c89 walker with strip-plus / false-semantics regex patterns; same live-walker mechanism; live prose drift triggers RED. |
+  | R53 c93 finalizer-TOCTOU CAS regression test at Task 0.C.4 Step 8.5 | TIGHT | TEST-ONLY wrapper `validation_finalize_all_atomic_test_with_sleep` injects `pg_sleep(2)` BETWEEN the SELECT and UPDATE in PL/pgSQL; concurrent client B mutates singleton during the sleep; asserts client A raises `CONCURRENT_MODIFICATION_RACE` matching the R53 commit 93 exception text. Deterministic DB-side interleaving; not application-layer mocked. |
+  | R55 c94 predicate (b') regression at Task 0.C.5 Step 1 | TIGHT | Exercises both halves: `--combo R1` PASSes with stale `last_seed_date` (predicate b' reads `combos_seeded_dates['R1']`); `--combo all` FAILs with predicate (b) diagnostic on the same stale-stack. Failure mode named: future amendment collapses dispatch logic → falls back to predicate (b) for any requested set → test fails on `--combo R1` PASS arm. |
+  | R57 c95 F49 mint-RPC initial-INSERT bypass regression | TIGHT | Wipes singleton (`DELETE FROM validation_state`); runs `validation:reseed --combo R1`; asserts `last_seed_date IS NULL` (mint RPC's initial INSERT must omit `last_seed_date`); positive control via `--combo all` path proves finalizer DOES stamp. Concrete failure-mode statement: future amendment re-introduces `last_seed_date` into mint RPC's INITIAL INSERT column-list. |
+  | Task 0.C.8 `validation-tooling-tz-pin.test.ts` (deferred) | TIGHT (spec) | Walker pattern mirrors `tests/cross-cutting/picker-resolver-outcome-prose-guard.test.ts` (R8 structural defense): `readdirSync` scan roots, `readFileSync` each, regex for `current_date`, check against acceptable-context regexes. Reports `file:line:context` for violations. Live source walk; not tautological. |
+  | Task 0.C.9 `email-canonicalization.test.ts` extension (deferred) | TIGHT (spec) | Extends `auditLiveEmailCanonicalization()` at `lib/audit/emailCanonicalization.ts:693-705` to walk `scripts/validation-*.ts`. Live-walker pattern same as existing audit surface. Bad-fixture (`raw email .toLowerCase().trim() without canonicalize import`) confirms RED phase. |
+
+  **Conclusion:** 5 existing test specs + 2 deferred test specs audited; **0 peers exhibit anti-tautology**. F51 + F52 are the only two anti-tautology instances in M12; per-instance fix lands at R61 commits 97 + 98. Class remains at 2 instances; structural defense (doc-guard asserting every structural defense test spec includes a "this test FAILS if <named regression>" failure-mode statement) does NOT fire under R61 (threshold-3 ladder rung 2 not reached).
+
+- **Same-vector status post-R61:**
+  - F51 + F52 closed per-instance. Anti-tautology class at 2 instances post-R61; threshold-3 ladder rung 2 (structural defense) not triggered.
+  - F50 closed at R59 + R61 (F52 test-spec strengthened to apply migration artifact, completing the F50 contract pinning).
+  - F48-class still at 2 rounds; trigger remains armed.
+  - All other classes still closed.
+
+- **Out-of-scope flags:** Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`. Per-instance test-spec edits live in the plan markdown (`02-phase0-validation-state.md`) at the test-body grain prescribed for Phase 0.B runtime authoring.
+
+- **Meta-test regression count:** 0 (no live `tests/cross-cutting/*` files modified; existing meta-tests structurally unchanged).
 
 ---
 
