@@ -2086,7 +2086,37 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F48-class still at 2 rounds; threshold-3 trigger DEFERRED to Phase 0 execution.
   - All other classes still closed.
 
-- **Repair commit:** pending R65 implementer dispatch.
+- **Repair commit:** closed in R65 (see below).
+
+### Amendment R65 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `800650f` (post-R65)
+- **Dispatch mode:** inline Agent (per-instance F54 fix only per stop-rule + same-surface rule)
+- **Verdict:** **implementer-complete; pending R66 adversarial review (new gates A+B+C apply)**
+
+- **F54 repair (commit 101 — `800650f`):**
+  - **Approach 1 ratified:** in-process JSON snapshot via `row_to_json(v)` → Vitest process variable → atomic `BEGIN; DELETE; INSERT; COMMIT;` restore using `jsonb_populate_record(NULL::public.validation_state, '<json>'::jsonb)`. Eliminates psql-process-isolation failure mode by living in Vitest memory.
+  - **Snapshot capture (test-open):** `runPsql("SELECT row_to_json(v) FROM public.validation_state v WHERE key = 'validation_seed';")` → JSON.parse to JS var
+  - **Atomic restore (finally):** `runPsqlWithSnapshot(snapshot)` helper wraps DELETE+INSERT in BEGIN/COMMIT; future column additions round-trip via jsonb→record binding (no need to enumerate column list)
+  - Inline rationale cites R64 F54 + names `execFileSync` cross-process mechanism + session-scoped TEMP-table failure mode + corrected design intent links back to F34/F36 cleanup contract
+  - Test title updated to `(R59 F50, R61 F52 strengthened, R63 F53 attempted, R65 F54 in-process JSON snapshot)`
+
+- **Repair commit:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 101 | `800650f` | docs(plan-m12): R65 F54 — drift-repair test in-process JSON snapshot (fixes psql process isolation) |
+
+- **Meta-test regression:** **163/163 PASS** (23 files, 26.09s).
+
+- **Same-vector status post-R65:**
+  - F54 closed per-instance via in-process JSON snapshot.
+  - **Same-surface rule ARMED for R66:** drift-repair test surface at 4 rounds (R59 F50 + R61 F52 + R63 F53 + R65 F54). If R66 codex review finds ANOTHER bug on this surface, orchestrator classifies as "redesign-needed + DEFERRED" → no R67 patch dispatch.
+  - F48-class still at 2 rounds; threshold-3 trigger DEFERRED to Phase 0 execution.
+  - All other classes still closed.
+
+- **R66 codex dispatch will include new stop gates A+B+C** (per user-ratified stop-rule amendment): HIGH severity only blocks; confidence < 0.80 doesn't block; same-surface recurrence → redesign-needed classification.
 
 ---
 
