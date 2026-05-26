@@ -2063,7 +2063,30 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - "Structural defense test tautology" class at 2 instances (F51 + F52); R60 + R61 closed both; if Phase 0 execution surfaces another, structural defense lands at Phase 0.B/C runtime.
   - All other classes still closed.
 
-- **R64 is FINAL adversarial review per stop-after-R62 rule.** Outcome: amendment closes regardless of R64 verdict; any R64 findings → DEFERRED.md entries with concrete Phase 0 execution-time triggers.
+- **R64 was originally framed as FINAL** per stop-after-R62 rule; R64 surfaced F54 (catastrophic test-design bug; R63 c100 snapshot+restore broken due to psql process isolation). User-ratified 2026-05-26 amendment to stop-rule: **continue iterating with hard cap R100 + new codex stop gates (A+B+C) applied to remainder-of-this-loop only (NOT codified into project conventions):**
+  - **(A) Severity gate:** only HIGH/CRITICAL findings block verdict; MEDIUM/LOW reported in notes but return APPROVE
+  - **(B) Confidence gate:** findings with confidence < 0.80 reported as "speculation" but don't block
+  - **(C) Same-surface convergence detector:** if a finding is on a surface the PREVIOUS round patched, classify as "redesign-needed" + DEFERRED — do NOT trigger another per-instance fix round
+
+### Amendment R64 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `fa336ed` (post-R63)
+- **Verdict:** **needs-attention** (1 HIGH F54; CONF 0.97)
+- **Finding:**
+
+  | # | Severity | Confidence | Section | Disposition |
+  |---|---|---|---|---|
+  | F54 | HIGH | 0.97 | `02-phase0-validation-state.md:167-263` (R63 c100 snapshot+restore) | **R63 c100 fix-round regression budget gap — snapshot+restore broken via psql process isolation.** `runPsql` shells to NEW psql process per call; PostgreSQL temp tables are session-scoped → `_r63_drift_test_snapshot` doesn't survive across `runPsql` invocations. Restore SQL `DELETE FROM validation_state WHERE key='validation_seed'; INSERT ... SELECT * FROM _r63_drift_test_snapshot;` — DELETE commits in autocommit; INSERT fails on missing temp table → singleton state PERMANENTLY DESTROYED. F53 fix reintroduces the exact destructive-state class it was meant to close. Repair: in-process JSON snapshot (snapshot row into Vitest process variable, restore from JS value in finally), OR run entire snapshot/simulate/apply/assert/restore sequence in ONE persistent psql session, OR atomic transaction wrapping DELETE+INSERT. |
+
+- **Loop continuation decision:** F54 is HIGH-severity NEW class shape (R63 c100 fix-round regression budget). Stop-rule one-time exception: user-ratified continuation with hard cap R100 + new codex stop gates A+B+C. R65 ships F54 fix; R66 fires codex review with new gates.
+
+- **Same-vector status post-R64:**
+  - F54: 1 round; per-instance fix at R65. Drift-repair test surface is now at R59 (F50) + R61 (F52) + R63 (F53) + R65 (F54) — same surface 4 rounds. Same-surface rule (C) ARMS: if R66 surfaces another bug on this surface, classify as redesign-needed + DEFERRED, do NOT dispatch R67.
+  - F48-class still at 2 rounds; threshold-3 trigger DEFERRED to Phase 0 execution.
+  - All other classes still closed.
+
+- **Repair commit:** pending R65 implementer dispatch.
 
 ---
 
