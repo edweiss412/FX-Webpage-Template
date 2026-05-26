@@ -1125,6 +1125,25 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - `VALIDATION_ADMIN_EMAIL` env var is NEW in R33 commit 68 — it adds a 4th required env var to the `report-fixtures` row in spec §9.1.2 (was 3 vars per R21 F20 — now 4 vars; J3-claim-email is still NOT required for this CLI, but ADMIN_EMAIL takes its place specifically for the rate-limit-admin outcome). Phase 0.A `.env.local.example` template MUST be extended to include `VALIDATION_ADMIN_EMAIL=` placeholder at plan 01 Task 0.A.5 — flagged for the Phase 0.A executor.
   - The R23 F21-class structural defense file at `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` has now accumulated 6 F21-class regex patterns (R23 commit 52: 4; R33 commit 70: +2). Any further regex extension beyond ~8 patterns should trigger Option (b) refactor consideration per M12 plan R5 structural-defense-calibration ladder. R34 budget gate.
 
+### Amendment R34 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `992c5bb` (post-R33)
+- **Verdict:** **needs-attention** (1 HIGH F33 + 1 MEDIUM F34)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F33 | HIGH | `01-phase0-infra.md:83-136` (Phase 0.A.5 env template + `.env.local.example` block) | **R33 fix-round regression budget gap.** R33 made `VALIDATION_ADMIN_EMAIL` required for `validation:report-fixtures --outcome rate-limit-admin` but Phase 0.A env template still says "all four validation env vars are SUPABASE trio + VALIDATION_J3_CLAIM_EMAIL" + provides NO `VALIDATION_ADMIN_EMAIL=` placeholder. Implementer following Phase 0.A.5 setup won't set ADMIN_EMAIL → Task 0.E rejects rate-limit-admin path when unset → walk-session gate blocks. **F10-class walker still has 4 canonical vars** (URL/SECRET/PROJECT_REF/J3_CLAIM_EMAIL); ADMIN_EMAIL is structurally unprotected. Repair: extend Phase 0.A.5 + `.env.local.example` to include ADMIN_EMAIL placeholder; rewrite "all four" cardinality prose; decide F10-class walker treatment (canonical-5 set vs helper-categorization with separate `<!-- not-canonical-helper-var: ADMIN_EMAIL scoped to rate-limit-admin -->` documentation + dedicated rate-limit-admin contract structural test). |
+  | F34 | MEDIUM | `04-phase0-tooling-report.md:69-94` (rate-limit-admin cleanup recipe) | **NEW class — destructive cleanup affecting prod state.** Cleanup deletes `report_rate_limits` rows by `(kind='admin', identity=canonicalize(<email>))` spanning ALL hour_buckets. PK is `(kind, identity, hour_bucket)`. Can collide with prod admin buckets in current hour + erase cross-hour legitimate rate-limit state. Repair: harness snapshots prior `(kind, identity, hour_bucket)` row before seeding; cleanup restores prior count OR deletes ONLY the exact bucket it created; test covers pre-existing admin bucket scenario. |
+
+- **Same-vector status post-R34:**
+  - **F10-class adjacency (F33):** the env-var propagation gap is structurally F10-class-adjacent — R33 added a 5th VALIDATION_* env var and didn't propagate to Phase 0.A.5 template. R33's audit was spec-scoped (R31→spec); didn't re-audit Phase 0.A setup template. **Per AGENTS.md "fix-round regression budget" rule:** when a fix patches surface S for class C, the next-round preparation must re-grep class C across S after the patch. R33 missed this for the new ADMIN_EMAIL surface. R35 must close the propagation gap + decide walker treatment.
+  - F21-class regex extension (R33 commit 70) regression-clean.
+  - NEW F34 class: destructive cleanup affecting prod state. 1 round; no priors.
+
+- **Repair commit:** pending R35 implementer dispatch (inline Agent; Phase 0.A propagation + F10-class walker decision + F34 cleanup safety).
+
 ---
 
 ## §10 — Cross-milestone dependencies
