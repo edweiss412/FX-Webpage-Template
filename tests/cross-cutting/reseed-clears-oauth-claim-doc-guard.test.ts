@@ -1983,6 +1983,48 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         explain:
           "Same as 'fresh ids' — reseed PRESERVES the stable crew_members.id; the wording 'recreates the affected rows' implies DELETE+INSERT and contradicts the canonical Cleanup contract.",
       },
+      // R33 commit 70 — F21-class regex extension for the R31/F31
+      // "producer table" prose-contradiction shape. F31 (R32 finding)
+      // surfaced that the pre-R31 spec §4.2 + §9.1.2 wording framed
+      // `reports` as the singular target of validation-report-fixtures.
+      // Per R31 producer-map ratification (handoff §9 R31 §A): the
+      // harness writes to THREE producer tables (`reports`,
+      // `report_rate_limits`, `admin_alerts`) — never just `reports`
+      // alone. These two regexes catch the singular-`reports`-target
+      // prose-contradiction shape that the prior 4 regexes (F22/F23-
+      // shape) didn't cover.
+      {
+        class: "producer-table:reports-only-target",
+        // Match prose framing the validation-report-fixtures HARNESS
+        // as `targets ONLY reports` (the pre-R31 §15:1178 historical
+        // form is preserved by stripFifteen). The negative-case
+        // fixture below ensures the regex fires on the broken shape
+        // ("harness targets ONLY `reports`") but passes the post-R33
+        // corrective form ("targets ONLY the three v1 producer
+        // tables") because the bare `reports` literal is not the
+        // immediate object after ONLY in the latter.
+        rx: /\b(?:harness\s+)?targets?\s+ONLY\s+`?reports`?\b/i,
+        explain:
+          "validation-report-fixtures writes to THREE producer tables (`reports` + `report_rate_limits` + `admin_alerts`) per R31 producer-map ratification (handoff §9 R31 §A). The 'targets ONLY `reports`' framing is producer-state mismatch — it materializes nothing observable for rate-limit-admin/crew (those write to `report_rate_limits`, not `reports`) and only a fraction of the observable surface for lookup-inconclusive/orphaned-lost-lease (those primary-surface through `admin_alerts` + `AlertBanner`). Cross-reference the producer-map at handoff §9 R31 §A.",
+      },
+      {
+        class: "producer-table:singular-failure-state",
+        // Match prose claiming validation-report-fixtures
+        // "materializes the named failure state in the `reports`
+        // table" or "INSERTs / UPDATEs the `reports` table directly".
+        // Post-R31 wording is "materializes each named failure state
+        // via the per-outcome producer-state map" — `via` not `in`,
+        // so the corrective form passes. The regex requires both the
+        // materialization verb AND the `reports`-as-sole-target
+        // wording within a bounded window to avoid false positives on
+        // prose that legitimately mentions both concepts in different
+        // contexts (e.g., the corrective spec §4.2 row mentions
+        // `materializ` and `reports` but separated by 100+ chars of
+        // producer-map enumeration).
+        rx: /\b(?:materializ\w+\s+(?:the\s+named\s+failure\s+state|each\s+outcome[^.]{0,40})\s+in\s+the\s+`?reports`?\s+table\b|INSERTs?\s*\/\s*UPDATEs?\s+the\s+`?reports`?\s+table\s+directly)/i,
+        explain:
+          "validation-report-fixtures does NOT materialize each outcome in the `reports` table directly — per R31 producer-map (handoff §9 R31 §A), rate-limit-admin/crew materialize in `report_rate_limits` and lookup-inconclusive/orphaned-lost-lease materialize primarily in `admin_alerts`. The pre-R31 wording 'INSERTs / UPDATEs the `reports` table directly via service role' silently retires the 3-table producer set. Rewrite as 'per-outcome producer-state map per handoff §9 R31 §A' OR enumerate the 3 tables with their per-outcome routing.",
+      },
     ];
 
     const HISTORICAL_QUALIFIER_RX =
@@ -2086,6 +2128,16 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         class: "stable-id:re-creates-affected-rows",
         rx: /re[\s-]?creates?\s+(?:the\s+)?affected\s+rows/i,
       },
+      // R33 commit 70 — F31 producer-table shape (synced with main
+      // F21_FORBIDDEN_PATTERNS above).
+      {
+        class: "producer-table:reports-only-target",
+        rx: /\b(?:harness\s+)?targets?\s+ONLY\s+`?reports`?\b/i,
+      },
+      {
+        class: "producer-table:singular-failure-state",
+        rx: /\b(?:materializ\w+\s+(?:the\s+named\s+failure\s+state|each\s+outcome[^.]{0,40})\s+in\s+the\s+`?reports`?\s+table\b|INSERTs?\s*\/\s*UPDATEs?\s+the\s+`?reports`?\s+table\s+directly)/i,
+      },
     ];
     const HISTORICAL_QUALIFIER_RX =
       /\b(pre-R\d+|pre-r\d+|pre-amendment|earlier\s+draft|original\s+draft|originally\s+drafted|originally\s+framed|legacy|retired|deprecated|historical|before\s+R\d+|prior\s+to\s+R\d+|the\s+pre-R\d+\s+|F\d+\s+finding\s+pre-)\b/i;
@@ -2163,5 +2215,55 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     const canonicalProse =
       "The show_share_tokens row is maintained by a dual-source sentinel: trigger on initial INSERT plus mint RPC self-heal on every UPSERT update-path reseed. Reseed PRESERVES the stable crew_members.id and resets claimed_via_oauth_at to NULL.";
     expect(fixtureFiresF21Class(canonicalProse).fires).toBe(false);
+
+    // R33 commit 70 F31 producer-table shape — broken + corrective
+    // fixtures.
+
+    // BROKEN (pre-R31 §4.2 paragraph (a) — F31 named hit).
+    const brokenF31SingularFailureState =
+      "The harness materializes the named failure state in the `reports` table (the only v1 admin-only table in this domain) by writing row shapes per master spec §13.2.3 contracts.";
+    expect(fixtureFiresF21Class(brokenF31SingularFailureState)).toEqual({
+      fires: true,
+      matchedPattern: "producer-table:singular-failure-state",
+    });
+
+    // BROKEN (pre-R31 §9.1.2 producer-state column — F31 named hit).
+    const brokenF31InsertsUpdatesReports =
+      "INSERTs / UPDATEs the `reports` table directly via service role to materialize each outcome's row shape per master spec §13.2.3";
+    expect(fixtureFiresF21Class(brokenF31InsertsUpdatesReports)).toEqual({
+      fires: true,
+      matchedPattern: "producer-table:singular-failure-state",
+    });
+
+    // BROKEN (hypothetical pre-R31 §15 historical-narrative form,
+    // stripped from real audit-trail use via stripFifteen + corrective
+    // negation in the post-R31 spec). Demonstrates the
+    // `producer-table:reports-only-target` regex fires on the bare
+    // shape.
+    const brokenF31HarnessTargetsOnlyReports =
+      "Harness targets ONLY `reports` (the v1 admin-only table) — this is producer-state mismatch.";
+    expect(fixtureFiresF21Class(brokenF31HarnessTargetsOnlyReports)).toEqual({
+      fires: true,
+      matchedPattern: "producer-table:reports-only-target",
+    });
+
+    // PASSING — post-R33 corrective form. Bare `reports` is NOT the
+    // immediate object after ONLY; the regex's `\bONLY\s+`?reports`?\b`
+    // anchor requires literal-`reports`-after-ONLY, which is the
+    // pre-R31 shape only.
+    const correctiveF31ThreeTables =
+      "The harness targets ONLY the three v1 producer tables enumerated above (`reports` + `report_rate_limits` + `admin_alerts` — all v1 admin-only tables per master spec §4.3); the producer-set is NOT singular.";
+    expect(fixtureFiresF21Class(correctiveF31ThreeTables).fires).toBe(false);
+
+    // PASSING — post-R33 corrective form using `via` (producer-map)
+    // instead of `in` (singular-table) for the materialization verb.
+    const correctiveF31ViaProducerMap =
+      "The harness materializes each named failure state via the per-outcome producer-state map (R31 ratification; canonical source at handoff §9 R31 §A).";
+    expect(fixtureFiresF21Class(correctiveF31ViaProducerMap).fires).toBe(false);
+
+    // PASSING — historical-frame around the pre-R31 wording.
+    const historicalFrameF31 =
+      "Pre-R31 the spec wording 'materializes the named failure state in the `reports` table' was producer-state mismatch — retired in R31 commit a5ed46f producer-map ratification.";
+    expect(fixtureFiresF21Class(historicalFrameF31).fires).toBe(false);
   });
 });
