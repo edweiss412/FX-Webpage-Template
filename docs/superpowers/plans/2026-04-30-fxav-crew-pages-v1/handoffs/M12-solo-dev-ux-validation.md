@@ -2176,6 +2176,27 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Scope discipline:** plan markdown only (02-phase0-validation-state + 00-overview). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`.
 
+### Amendment R68 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `f7bddf1` (post-R67)
+- **Verdict:** **needs-attention** (1 HIGH F56, conf 0.86)
+- **Stop-gate triage:** (A) HIGH ✓ blocks · (B) 0.86 ≥ 0.80 ✓ blocks · (C) NOT armed same-surface (drift-repair); F56 on createClient implementation in lockdown test surface, NOT strict same-surface as R67 LOCKED_TABLES patch
+- **Meta-pattern:** lockdown-test surface (R17 F15 + R60 F51 + R66 F55 + R68 F56) now at 4 rounds total. **Arming lockdown-test surface for R70 same-surface convergence detector**: another bug there → DEFERRED, not patch.
+- **Finding:**
+
+  | # | Severity | Confidence | Section | Disposition |
+  |---|---|---|---|---|
+  | F56 | HIGH | 0.86 | `02-phase0-validation-state.md:524-574` (R61 c97 3-layer defense; PostgREST DML lockdown test createClient calls) | **JWT passed as Supabase API key instead of Authorization header.** Test declares `SUPABASE_TEST_AUTHENTICATED_JWT` + `SUPABASE_TEST_ADMIN_JWT` as user JWTs, then passes them as the SECOND createClient argument. In supabase-js that argument IS the project API key (also sent as `apikey` header). User JWTs belong in `global.headers.Authorization = Bearer <jwt>` OR via the `accessToken` option. With current spec: Layer 2/3 probes can fail with invalid-key/auth-gateway errors rather than the intended 42501 table-grant denial → defense doesn't prove REVOKE landed. Repair: keep `anonKey` as second createClient arg for ALL clients (anon/authenticated/admin); pass user JWTs via `global.headers.Authorization`; assert errors are specifically `42501 permission denied for table ...`. |
+
+- **Same-vector status post-R68:**
+  - F56 R61 c97 fix-round regression budget gap (createClient pattern incorrect): 1 round; per-instance fix at R69.
+  - **Lockdown-test surface ARMED for R70 same-surface convergence detector** (4 rounds total).
+  - Drift-repair surface still armed (R59+R61+R63+R65 = 4 rounds).
+  - All other classes still closed.
+
+- **Repair commit:** pending R69 implementer dispatch.
+
 ---
 
 ## §10 — Cross-milestone dependencies
