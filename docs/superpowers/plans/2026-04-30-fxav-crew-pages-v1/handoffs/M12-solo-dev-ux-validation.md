@@ -1050,7 +1050,80 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F30-class (NEW R30): 1 round, closed at R31; no R32 recurrence.
   - All other classes still closed.
 
-- **Repair commit:** pending R33 implementer dispatch (inline Agent; F21-class comprehensive re-analysis + per-instance F31/F32 + regex extension).
+- **Repair commit:** closed in R33 (see below).
+
+### Amendment R33 — 2026-05-26 (F31 + F32 repair — F21-class comprehensive re-analysis + regex extension)
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `<commit-71-SHA>` (post-R33 chain; SHA-stamped after commit lands)
+- **Verdict:** **implementer-complete; pending R34 adversarial review**
+
+- **(A) F21-class comprehensive re-analysis at AMENDMENT-CROSS-SECTION scope** (mandated by R20+R22+R32 same-vector recurrence at 3 rounds — threshold-3 trigger fires per AGENTS.md cross-cutting #5 + R5 calibration). Audit covers every M12 amendment R13–R31 that landed plan-side contract changes; for each, every canonical spec section referencing the amended contract surface is greped against the post-amendment contract.
+
+  | Amendment (named-instance hit) | Contract surface | Spec section(s) audited | Plan-side surfaces audited | Verdict | Disposition |
+  |---|---|---|---|---|---|
+  | R13 F10 (J3 OAuth — VALIDATION_J3_CLAIM_EMAIL) | env-var parameterization | §3.3 step 5, §3.3.2 predicate (k), §9.1.2 row 1+2 | 01 / 03 / 06 / handoff | CLEAN | Closed at R15/R29; R27 Option D refactor made §9.1.2 the SSoT; F10-class structural-exclusivity walker in tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts (R27 commit 59 supersedes R25/R23/R15 prior defenses) regression-clean per R31 16/16 PASS. |
+  | R13 F11 (reseed clears claimed_via_oauth_at) | mint RPC SET clause + stable-id reseed contract | §3.3 lockstep, §3.3.2 predicate (l), §3.3 Cleanup contract :160 | 03 mint RPC body, 00-overview row-stability bullet :153 | CLEAN | Closed R23 (F23 stable-id + 00-overview adjacent peer). F21-class regex `stable-id:fresh-ids` + `stable-id:re-creates-affected-rows` pin both surfaces at CI time. |
+  | R15 F13/F14/Dim-3 (canonical rejected domain set) | RFC 2606/6761/6762 rejection list | §3.3 step 5, §3.3.2 predicate (k) | 03 fixture-build TS guard, 03 RPC defense-in-depth, 03 check-seed predicate (k) | CLEAN | Closed R15 + R23 (C) sweep. F14-canonical-set assertion in same test file walks every rejection-list site for ±10-line completeness. |
+  | R17 F15 (PostgREST DML lockdown for validation_state) | RPC-gated table mutation discipline | §3.3.2 | 02 migration + tests/db/postgrest-dml-lockdown.test.ts | CLEAN | Closed R17/R21. RPC + REVOKE migration + structural meta-test landed atomically. |
+  | R17 F16 (mint RPC full-replace crew_members) | mint RPC roster-write semantics | §3.3 lockstep, §3.3.2 predicate (m) | 03 mint RPC body, 03 Task 0.C.5 Step 5 | CLEAN | Closed R17/R21 lockstep + R27 SET-clause-column completeness extension. |
+  | R17 F17 (schema-test pattern swap psql ↔ supabase-js) | plan-only | — | 03 schema test scaffold | CLEAN | Plan-only; no spec surface. |
+  | R19 F18 (drive_file_id UPPERCASE in mint RPC) | combo-enum case-normalization | §3.3.2 predicate (m) | 03 mint RPC body | CLEAN | Closed R19; spec predicate (m) :351 explicitly states UPPERCASE-verbatim contract. |
+  | R19 F19 (show_share_tokens self-heal in mint RPC) | dual-source sentinel for show_share_tokens row | §3.3 lockstep, §3.3.2 | 03 opener :5 + RPC narrative :194 + commit template :584 + verification :740 + failure-mode :863 | CLEAN | Closed R23 (F22 5-surface cluster + lockstep prose rewrite). F21-class regex `dual-source-sentinel:no-direct-write` + `dual-source-sentinel:trigger-only-sentinel` pin both shapes; corrective-negation lookbehind passes post-amendment wording. |
+  | R23 F22/F23 (dual-source sentinel + stable-id) | same as R19 F19 + R13 F11 | spec :160 + :175 | 03 (5 surfaces) + 00-overview :153 | CLEAN | Closed R23 per-instance + structural defense commit 52. |
+  | R25 F25 + R27 Option D + R29 walker refinement | canonical env-var CLI table | §9.1.2 (SSoT, marked `canonical-env-var-source: keep`) | 01 .env.local.example (also marked) | CLEAN | R27 inverted model — structural exclusivity. Only 2 authorized own-enumeration surfaces; everything else cross-references §9.1.2. F10-class walker (M1+M2+M3+M4) regression-clean post-R29. |
+  | R27 F26 (predicate (b) TZ-pin) | check-seed predicate (b) date-comparison | §3.3.2 :351 predicate (b) | 03 check-seed implementation, 03 Task 0.C.8 | CLEAN | Closed R29; spec :351 explicitly cites `$VALIDATION_TODAY_ISO` (NOT `current_date`); CI structural defense `tests/cross-cutting/validation-tooling-tz-pin.test.ts` scheduled for Phase 0.C authoring per DEFERRED.md. |
+  | R27 F27 (mint RPC SET clause for archived/published + predicate (n)) | shows baseline-eligibility on reseed | §3.3.2 predicate (n) :351 | 03 mint RPC body :284 + Task 0.C.5 Step 5 | CLEAN | Closed R27 per-instance + R29 walker pass; predicate (n) is enumerated alongside (m) at the same paragraph; no other spec section references the column-set contract. |
+  | **R31 F30 (per-outcome producer map)** | report-fixtures producer-state map (3 tables: reports / report_rate_limits / admin_alerts) | **§4.2 band F paragraph (a) :517 + §9.1.2 row :824 — F31 NAMED HIT** | 04 (Tasks 0.E.1/0.E.2/0.E.3 already rewritten R31), 05 (smoke 7 already rewritten R31), handoff §9 R31 §A canonical map | **2 spec PEERS within the SAME R31 contract surface (both at the band-F producer-table-contract claim)** | Spec :517 paragraph (a) + spec :824 producer-state column both still say "the `reports` table" as the singular target. Fixed in commit 68. Plan tree + handoff already R31-correct. **No other spec/plan/handoff surface references the producer-table contract.** |
+
+  **Audit method:** for each amendment, grep the spec full-file for the named contract concept (the table name, the predicate letter, the env-var literal, the column name, the SET-clause column, etc.); cross-walk every match; verdict CLEAN when every match either (a) lives inside §15 audit-trail (stripFifteen — historical-by-design), (b) is the canonical SSoT for the contract (where the contract is defined), or (c) is a cross-reference that quotes the SSoT without restating the contract. Verdict PEER when a match restates the contract using pre-amendment wording.
+
+  **Total peers beyond F31's named-instance scope: 0.** F31 is the only amendment with un-propagated spec drift after the audit. All 4 prior F21-class-related amendments (R13 F11 / R19 F19 / R23 F22+F23 / R27 F27) had been fully propagated to the spec at amendment time OR cleaned up in subsequent class-sweep rounds. **The F31 audit produced 2 instances of ONE drift class (R31 producer-map under-propagation), both within the spec's band-F report-fixtures contract surface. No structural-defense REDESIGN (Option b) required — Option (a) regex extension is the proportionate response per the dispatch.** Commit 71 is conditional and NOT FIRED.
+
+- **(B) Per-instance fix F31 — spec §4.2 + §9.1.2 propagation of R31 producer map.** Commit 68 rewrites:
+  - **Spec §4.2 band F row :517 paragraph (a)** — replaces "materializes the named failure state in the `reports` table (the only v1 admin-only table in this domain ...)" with the per-outcome producer-map summary citing all three producer tables (`reports` for success/in-flight/lease-expired/horizon-expired; `report_rate_limits` for rate-limit-admin/rate-limit-crew; `admin_alerts` for lookup-inconclusive/orphaned-lost-lease). Cleanup-order predicate cited (admin_alerts → report_rate_limits → reports per handoff §9 R31 §A). The pre-R31 "feedback_inbox out-of-scope" note is preserved (still correct — feedback_inbox is BACKLOG-only).
+  - **Spec §9.1.2 table :824 row** — replaces the "Target DB" cell ("INSERTs / UPDATEs the `reports` table directly via service role ...") with the per-outcome producer table list + a cross-reference to handoff §9 R31 §A for the full producer-state map. The Stdout-contract cell is updated to acknowledge the polymorphic `<id>` semantics (reports.id / admin_alerts.id / report_rate_limits.(kind, identity, hour_bucket) tuple). The Idempotency cell is updated to clarify the per-table delete-by-tag predicates.
+  - **Ratified as plan-supersedes-spec amendment per §13.2.3 model.** R31 commit `a5ed46f` is the canonical ratification; R33 commit 68 is the spec propagation. Both amendments target the same contract — the producer map is canonical at handoff §9 R31 §A; spec §4.2 + §9.1.2 are now summary cross-references with the cleanup-order predicate inlined for implementer ergonomics.
+
+- **(C) Per-instance fix F32 — plan 04 :84-88 test assertion repair (commit 69).** Live `enforceQuota` (`lib/reports/rateLimit.ts:76`) canonicalizes the admin identity via `canonicalize(identity)` before UPSERT. Pre-R33 the failing-test example asserted `identity LIKE 'validation:%' AND count=11` — this matches a `validation:` prefix that the live admin path NEVER writes (the live admin path writes the canonicalized admin email). Fix:
+  - Test assertion rewritten to use the canonical admin identity: `WHERE kind='admin' AND identity = canonicalize($VALIDATION_ADMIN_EMAIL) AND count=11` (canonicalized via the project's `lib/email/canonicalize.ts` helper — single source of truth per plan-wide invariant 3).
+  - Identity-source declaration added: identity comes from the new `VALIDATION_ADMIN_EMAIL` env var (added to spec §9.1.2 report-fixtures row required-env-vars list as a 4th var — the prior "3 vars; J3-claim-email NOT required" framing is updated to "4 vars; J3-claim-email NOT required (replaced by ADMIN_EMAIL for the rate-limit-admin outcome)"). The dev's REAL admin email goes into this var so the rate-limit-admin outcome actually triggers the production quota deny path.
+  - Cleanup contract: `--cleanup` default-conservative does NOT delete real admin-email rows; `--cleanup --include-admin-email <email>` extends cleanup to the canonical admin bucket so the test harness can purge its own rate-limit state without operator intervention.
+  - The non-admin `validation:m12-fixture-<outcome>` prefix for the OTHER 7 outcomes is preserved (those use `gen_random_uuid()` suffix per plan 04 Step 5; rate-limit-crew uses a fixture-seeded crew_member_id which is also covered by the existing prefix). Only rate-limit-admin gets the real-email-with-cleanup-flag treatment.
+
+- **(D) F21-class structural-defense extension (commit 70) — Option (a) regex extension.** Per dispatch, (A) audit results favor incremental extension over Option (b) refactor (0 peers beyond F31's named-instance scope; F21-class is a 3-round, 4-regex defense, not a 5+ round case demanding model inversion like F10-class was at R27). Two new regex patterns added to `F21_FORBIDDEN_PATTERNS` in `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` to cover the F31 "producer table" prose-contradiction shape:
+  - `producer-table:reports-only-target` — matches phrasings asserting `reports` is the singular target / only / sole target of the report-fixtures harness (the pre-R31 shape). Covers "the `reports` table directly" without a producer-map cross-reference, "ONLY `reports`" in producer-table context, etc.
+  - `producer-table:singular-failure-state` — matches phrasings asserting `validation-report-fixtures` "materializes ... in the `reports` table" without acknowledging the 3-table producer set. Covers "materializes the named failure state in the `reports` table" (pre-R31 §4.2 :517 shape).
+  - Both regexes carry the same escape hatches as the prior 4 patterns: historical-qualifier lookback (~200 chars) for "pre-R31", "earlier draft", "originally drafted"; explicit `<!-- not-f21-class: -->` waiver; corrective-negation lookbehind for "NOT only" / "no longer just" / etc.
+  - **The §4.2 row's note about `feedback_inbox` BACKLOG-only** is the only pre-existing legitimate "only `reports`" prose remaining in the spec. The R33 spec rewrite (commit 68) re-frames this as "harness targets THREE producer tables (`reports`, `report_rate_limits`, `admin_alerts`) — `feedback_inbox` is NOT in v1 schema" so the rewrite uses the corrective-negation form, which the existing escape-hatch logic passes.
+
+- **(E) RED → GREEN evidence (commit 70).**
+  - RED phase (pre-commit-68 spec content + new regex on pre-R33 HEAD): assertion fires findings against spec :517 paragraph (a) wording AND spec :824 producer-table column wording.
+  - GREEN phase (post-commit-68 spec content + new regex + commit 70 negative-case fixtures): assertion passes; 4 new negative-case fixtures land in the structural-defense negative-case test (2 broken-pre-R31 fixtures fire the new regex; 2 post-R31 corrective fixtures pass via cross-reference framing).
+  - F21-class same-vector status: 3 rounds (R20 F21 + R22 F22+F23 + R32 F31); R33 closes per-instance + extends structural defense with 2 new patterns covering F31's shape. **R34 same-vector recurrence would fire the structural-defense calibration ladder rung: pivot to Option (b) (broader contract-level assertion analogous to F10-class R27 Option D refactor).** Until then, the regex-extension model is the proportionate posture.
+
+- **Commits (R33 chain):**
+
+  | # | SHA | Subject |
+  |---|---|---|
+  | 67 | `<COMMIT-67>` | docs(handoff-m12): R33 (A) F21-class comprehensive re-analysis audit table — R13–R31 amendment sweep |
+  | 68 | `<COMMIT-68>` | docs(spec-m12): R33 F31 — §4.2 + §9.1.2 per-outcome producer map propagation |
+  | 69 | `<COMMIT-69>` | docs(plan-m12): R33 F32 — rate-limit-admin test assertion fix (canonical admin identity + VALIDATION_ADMIN_EMAIL env var + cleanup flag) |
+  | 70 | `<COMMIT-70>` | test(cross-cutting): R33 F21-class regex extension — producer-table shape patterns (RED→GREEN) |
+
+- **Meta-test regression (R33 baseline):** **18/18 PASS** post-R33 (was 16/16 pre-R33; +2 = main F21-class assertion picks up 2 new regex patterns + negative-case test gains 4 new fixture pairs that count as part of the same test).
+
+- **Same-vector + structural-defense status post-R33:**
+  - **F21-class: 3 finding-rounds (R20 + R22 + R32).** R33 closed per-instance (spec §4.2 + §9.1.2 propagation) + extended structural defense with 2 new regex patterns (`producer-table:reports-only-target` + `producer-table:singular-failure-state`). Defense remains regex-based per Option (a). **If R34 surfaces an F21-class peer NOT caught by the now-6 regexes,** structural-defense REDESIGN (Option b — broader cross-amendment fact-table assertion analogous to F10-class R27 Option D) is the next escalation per AGENTS.md M12 plan R5 calibration.
+  - F30-class (NEW R30): closed at R31; no R32/R33 recurrence.
+  - F10-class: 6 rounds, closed at R29 via M3+M4 walker refinement; regression-clean post-R33.
+  - All other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R33 commit 70). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
+
+- **Out-of-scope flags for future M12 Phase 0 execution work** (read-only observations from R33 audit; not changed here):
+  - `VALIDATION_ADMIN_EMAIL` env var is NEW in R33 commit 68 — it adds a 4th required env var to the `report-fixtures` row in spec §9.1.2 (was 3 vars per R21 F20 — now 4 vars; J3-claim-email is still NOT required for this CLI, but ADMIN_EMAIL takes its place specifically for the rate-limit-admin outcome). Phase 0.A `.env.local.example` template MUST be extended to include `VALIDATION_ADMIN_EMAIL=` placeholder at plan 01 Task 0.A.5 — flagged for the Phase 0.A executor.
+  - The R23 F21-class structural defense file at `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` has now accumulated 6 F21-class regex patterns (R23 commit 52: 4; R33 commit 70: +2). Any further regex extension beyond ~8 patterns should trigger Option (b) refactor consideration per M12 plan R5 structural-defense-calibration ladder. R34 budget gate.
 
 ---
 
