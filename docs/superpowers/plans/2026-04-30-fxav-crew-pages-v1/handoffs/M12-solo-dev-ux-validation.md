@@ -1724,6 +1724,30 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R52 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `dbd3661` (post-R51)
+- **Verdict:** **needs-attention** (1 HIGH F47)
+- **R52 invocation note:** prior R52 invocation hung mid-investigation (codex worker PID 23913 died at ~21:04:37 with `git log` exit; state JSON stuck at `running`). Cancelled via `codex-companion cancel review-mpn4g4x7-wf1h1q`; re-fired fresh at `review-mpn4q5rt-ynuayv` with bounded prompt (`≤10 verification commands`). Re-fire completed cleanly.
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F47 | HIGH | `03-phase0-tooling-reseed.md:543-564` (`validation_finalize_all_atomic` RPC body) | **NEW class — RPC TOCTOU race on singleton state.** Finalizer reads `combos_seeded_dates` snapshot, validates in PL/pgSQL, then UPDATEs `last_seed_date` without (a) a shared advisory lock with `mint_validation_fixture_atomic` AND (b) a `WHERE combos_seeded_dates = <snapshot>` guard. Concurrent reseed/retry between validation+update can stamp stale `last_seed_date` for an older complete set while singleton now contains newer per-combo dates → check-seed permanently inconsistent. Repair: compare-and-swap (Option b) — `UPDATE ... WHERE key='validation_seed' AND combos_seeded_dates = v_combos_dates_snapshot`; fail/retry if zero rows updated. TOCTOU-safe + simpler than shared advisory lock. Add regression test interleaving per-combo mint between finalizer validation and update. |
+
+- **R49 commit 89 X.3 audit fix (orchestrator commit `a88883e`):** CI X.3 trust-domain audit (`tests/cross-cutting/no-m9-5-surfaces.test.ts`) flagged R49 commit 89 doc-guard for mentioning retired M9.5 surface `crew_member_auth` inside its regex alternation at line 127. Defensive inclusion was meaningless (table dropped at M11.5 G3 cutover; no current SQL can reference it). Removed `crew_member_auth` from regex; X.3 audit + R49 guard both pass (22/22). Pushed to main to unblock CI per stop-hook directive.
+
+- **Same-vector status post-R52:**
+  - F47 NEW class (RPC TOCTOU race on singleton state): 1 round; no priors. Per-instance fix at R53.
+  - F44/F45/F46 closures regression-clean (post X.3 audit fix).
+  - F21-class regex set holds at 9 patterns / 8 structural slots.
+  - All other classes still closed.
+
+- **Repair commit:** pending R53 implementer dispatch (inline Agent; F47 compare-and-swap repair + regression test spec).
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.
