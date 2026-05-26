@@ -2139,7 +2139,42 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F54 closed at R65; drift-repair surface remains armed for same-surface rule.
   - All other classes still closed.
 
-- **Repair commit:** pending R67 implementer dispatch (per-instance + sweep for adjacent M9.5 stale-reference peers).
+- **Repair commit:** closed in R67 (see below).
+
+### Amendment R67 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `65636d7` (post-R67)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R68 adversarial review (stop gates A+B+C apply)**
+
+- **F55 repair + (B) M9.5 stale-reference sweep (commit 102 — `65636d7`):**
+  - **Per-instance F55:** LOCKED_TABLES registry at plan 02:518-520 rewritten — `crew_member_auth` removed; `crew_members` + `validation_state` kept; inline comment cites M11.5 G3 cutover migration + cross-references `tests/db/cutover-drop-m9-5.test.ts` for independent retirement validation
+  - **(B) Sweep — 4 ACTIONABLE peers fixed in same commit:**
+    - plan 02:484 registry bullet list
+    - plan 02:446 PostgREST DML lockdown contract narrative
+    - plan 02:663 RED→GREEN regression-baseline narrative
+    - plan 02:681 embedded commit-message body
+    - `00-overview.md:128` meta-test routing-table description
+  - **~37 HISTORICAL references kept** (legitimate narrative: strikethrough RETIRED rows, Phase 0.D deletion rationale, §15.x audit-trail / convergence-log finding tables, retired-contract footnotes)
+
+- **Agent flagged for orchestrator decision:** 4 actionable peers ≥3-peer threshold but all mirrors of single source. Candidate structural defense: extend X.3 audit (`tests/cross-cutting/no-m9-5-surfaces.test.ts`) to scan `docs/superpowers/{plans,specs}/v1-pre-deployment-amendments/**` for M9.5 surface terms outside known-historical contexts (RETIRED markers, §15.x audit tables, strikethrough rows). **Orchestrator disposition:** DEFERRED to `DEFERRED.md` as `M12-DOCS-M9.5-SURFACE-WALKER` — Phase 0.B kickoff trigger; not shipped at R67 per stop-rule + same-surface scope discipline.
+
+- **Repair commit:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 102 | `65636d7` | docs(plan-m12): R67 F55 — remove crew_member_auth from LOCKED_TABLES registry + sweep M12 docs for M9.5 stale references |
+
+- **Meta-test regression:** **163/163 PASS** in `tests/cross-cutting/` (23 files).
+
+- **Same-vector status post-R67:**
+  - F55 closed per-instance + sweep (4 actionable peers fixed).
+  - "Stale M9.5 reference in M12 docs" class shape DEFERRED to Phase 0.B kickoff (structural defense as M12-DOCS-M9.5-SURFACE-WALKER backlog entry).
+  - Drift-repair surface still armed (R59+R61+R63+R65 = 4 rounds); same-surface rule fires if R68 finds another bug there.
+  - All other classes still closed.
+
+- **Scope discipline:** plan markdown only (02-phase0-validation-state + 00-overview). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`.
 
 ---
 
