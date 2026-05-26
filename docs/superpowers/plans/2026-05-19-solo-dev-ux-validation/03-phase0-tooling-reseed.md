@@ -2,9 +2,7 @@
 
 > Per spec §3.3 + §3.3.2 + §9.0 task 0.C + §9.1.2 tooling reference. Estimate: 1–2 days.
 >
-> Goal: ship the three foundational validation-tooling CLIs. They write/read `validation_state`, materialize the 16 fixture combos (10 R + 6 SW) with 9 crew_members per R-combo (post-2026-05-26 picker-pivot rebase — `alias_5a_lead_for_revoke` + `alias_5a_lead_for_query_compromise` retired with the M9.5 signed-link surface; picker pivot's destructive actions are inherently fixture-clean), and the 96-leaf alias_map jsonb. Walks the canonical §9.1.2 contract.
->
-> **Rebase note (2026-05-26).** This file was drafted against the pre-M11.5 signed-link world (crew_member_auth UPSERT, `revoked_links`-tagged cleanup, J3-isolation aliases). The picker pivot dropped `crew_member_auth` + `revoked_links` + `link_sessions` + `bootstrap_nonces` at the G3 cutover (`supabase/migrations/20260523000099_cutover_drop_m9_5.sql`). The remaining narrative below preserves the original task structure but every reference to `crew_member_auth`, `revoked_links`, `current_token_version`, `revoked_below_version`, and the two J3-isolation aliases is **STRUCK** by the rebase — the reseed RPC writes ONLY `shows`, `crew_members`, and `validation_state.alias_map` (the `show_share_tokens` row is auto-created by the existing `shows_create_share_token_after_insert` trigger). Code blocks below that show `crew_member_auth` UPSERT or `revoked_links` DELETE are pre-rebase pseudocode; the implementer MUST omit those statements from the live RPC body. The actual fixture-mapping leaf count is **96** (10 R-combos × 9 aliases + 6 SW × 1), not 116; `check-seed` predicates that referenced `crew_member_auth` row presence or `revoked_links` poisoning are dropped.
+> Goal: ship the three foundational validation-tooling CLIs. They write/read `validation_state`, materialize the 16 fixture combos (10 R + 6 SW) with **9 crew_members per R-combo** (the role-variant aliases from spec §3.2) and the **96-leaf alias_map jsonb**. Walks the canonical §9.1.2 contract. Picker-fixture eligibility uses `crew_members.email` + `auth_email_canonical` (no per-crew JWT versioning surface — that was retired at M11.5 G3 cutover). The `show_share_tokens` row is auto-created by the existing `shows_create_share_token_after_insert` trigger (per `supabase/migrations/20260523000002_show_share_tokens.sql`) when the reseed RPC inserts the show; no direct write to `show_share_tokens` is needed.
 
 ---
 
@@ -32,7 +30,7 @@ describe("validation-reseed CLI", () => {
 
 - [ ] **Step 2: Run — expect FAIL** (script doesn't exist yet): `pnpm vitest run tests/scripts/validation-reseed.test.ts`.
 
-- [ ] **Step 3: Create the skeleton** `scripts/validation-reseed.ts` with `parseArgs` from `node:util`, printing the usage block on `--help`. Required env vars per spec §5.3.
+- [ ] **Step 3: Create the skeleton** `scripts/validation-reseed.ts` with `parseArgs` from `node:util`, printing the usage block on `--help`. Required env vars per spec §9.1.2: `VALIDATION_SUPABASE_URL`, `VALIDATION_SUPABASE_SECRET_KEY`, `VALIDATION_SUPABASE_PROJECT_REF`.
 
 - [ ] **Step 4: Add to `package.json` scripts:**
 
@@ -97,24 +95,32 @@ git commit -m "feat(validation): target-selection guard rejects localhost"
 
 ---
 
-### Task 0.C.3: Define the fixture mapping table (16 combos × 11 crew_members)
+### Task 0.C.3: Define the fixture mapping table (16 combos × 9 role-variant crew_members)
 
 **Files:**
 - Create: `scripts/lib/validation-fixtures.ts`
 
 Per spec §3.3 owned-fixture-mappings + §3.3.1 show-wide states. Define a typed `FIXTURES` array enumerating all 16 combos with `{combo, showName, dateRestriction, stageRestriction, datesRelative, expectedTodayState, crewMembers[]}`.
 
-Each R-combo's `crewMembers` is built from:
-- 9 role-variant aliases per §3.2 (`alias_5a_lead`, `alias_5b_lead_a1`, `alias_5c_bo_lead`, `alias_6a_a1` … `alias_6f_empty`)
-- 2 J3-isolation aliases (`alias_5a_lead_for_revoke`, `alias_5a_lead_for_query_compromise`) — both LEAD role_flags
+Each R-combo's `crewMembers` is built from the **9 role-variant aliases** per spec §3.2:
 
-Each SW-* combo's `crewMembers` has only `alias_5a_lead` (1 entry).
+- `alias_5a_lead` — `["LEAD"]`
+- `alias_5b_lead_a1` — `["LEAD","A1"]`
+- `alias_5c_bo_lead` — `["BO","LEAD"]`
+- `alias_6a_a1` — `["A1"]`
+- `alias_6b_v1` — `["V1"]`
+- `alias_6c_l1` — `["L1"]`
+- `alias_6d_bo` — `["BO"]`
+- `alias_6e_a1_l1` — `["A1","L1"]`
+- `alias_6f_empty` — `[]`
+
+Each SW-* combo's `crewMembers` has only `alias_5a_lead` (1 entry) per spec §3.3.1.
 
 - [ ] **Step 1: Write a failing test** that validates the FIXTURES shape:
   - exactly 16 combos
-  - 10 R-combos each have 11 crew_members; SW-* combos each have 1
-  - total leaf aliases = 116
-  - every R-combo's crew_members includes `alias_5a_lead_for_revoke` AND `alias_5a_lead_for_query_compromise`
+  - 10 R-combos each have 9 crew_members; SW-* combos each have 1
+  - total leaf aliases = 96 (10 × 9 + 6 × 1)
+  - every R-combo's crew_members includes all 9 role-variant aliases listed above
 
 - [ ] **Step 2: Run — expect FAIL.**
 
@@ -124,7 +130,7 @@ Each SW-* combo's `crewMembers` has only `alias_5a_lead` (1 entry).
 
 ```bash
 git add scripts/lib/validation-fixtures.ts tests/scripts/validation-fixtures.test.ts
-git commit -m "feat(validation): canonical fixture mapping — 16 combos × 11 = 116 aliases"
+git commit -m "feat(validation): canonical fixture mapping — 16 combos × 9 = 96 aliases"
 ```
 
 ---
@@ -133,9 +139,11 @@ git commit -m "feat(validation): canonical fixture mapping — 16 combos × 11 =
 
 **Files:**
 - Create: `supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql`
+- Create: `supabase/migrations/<timestamp>_validation_finalize_all_atomic.sql`
 - Create: `tests/db/mint-validation-fixture-atomic.test.ts`
+- Create: `tests/db/validation-finalize-all-atomic.test.ts`
 
-Per spec invariant 2 (per-show advisory lock). **R1 P0 amendment:** the reseed script cannot acquire the lock and then do writes through `@supabase/supabase-js` PostgREST — those writes wouldn't share the transaction with the lock. Per project pattern (`supabase/migrations/20260504000003_mint_link_session_atomic.sql`, `20260504000004_revoke_leaked_link_atomic_advisory_lock.sql`), advisory-lock-protected mutations run inside a SECURITY DEFINER RPC.
+Per spec invariant 2 (per-show advisory lock). The reseed script cannot acquire the lock and then do writes through `@supabase/supabase-js` PostgREST — those writes wouldn't share the transaction with the lock. Per project pattern (`supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql`, `20260523000004_rotate_show_share_token.sql`), advisory-lock-protected mutations run inside a SECURITY DEFINER RPC.
 
 - [ ] **Step 1: Write failing test** that confirms `mint_validation_fixture_atomic(combo, payload)` does NOT exist yet:
 
@@ -143,7 +151,7 @@ Per spec invariant 2 (per-show advisory lock). **R1 P0 amendment:** the reseed s
 import { describe, it, expect } from "vitest";
 import { createClient } from "@supabase/supabase-js";
 describe("mint_validation_fixture_atomic RPC", () => {
-  it("exists and writes show/crew/crew_member_auth + alias_map atomically", async () => {
+  it("exists and writes show + crew_members + alias_map atomically", async () => {
     const supabase = createClient(process.env.VALIDATION_SUPABASE_URL!, process.env.VALIDATION_SUPABASE_SECRET_KEY!);
     const { data, error } = await supabase.rpc("mint_validation_fixture_atomic", {
       p_combo: "R1",
@@ -158,22 +166,27 @@ describe("mint_validation_fixture_atomic RPC", () => {
 - [ ] **Step 2: Run — expect FAIL** (function does not exist).
 
 - [ ] **Step 3: Author the RPC migration.** The function:
-  - Takes `(p_combo text, p_fixture_payload jsonb)` — payload contains showName, dates, date_restriction, stage_restriction, crew_members array, R-combo cleanup flags.
+  - Takes `(p_combo text, p_fixture_payload jsonb)` — payload contains showName, dates, date_restriction, stage_restriction, crew_members array, `validationTodayIso` (TZ-pinned UTC date), `seededBy`, `seededProjectRef`.
   - Synthesizes a stable `drive_file_id = 'validation_' || p_combo` deterministically.
   - Acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` BEFORE any mutation.
-  - INSIDE THE SAME TRANSACTION: UPSERT shows, UPSERT crew_members per payload, UPSERT crew_member_auth per crew_member (preserving current_token_version if already set), UPDATE validation_state.alias_map[combo] merge.
-  - For `p_combo = '__cleanup__'` (special pseudo-combo): DELETE `revoked_links WHERE revoked_reason LIKE 'validation:%'` + structural reset of every R-combo's `alias_5a_lead_for_query_compromise` (DELETE matching revoked_links + crew_member_auth version bump).
+  - INSIDE THE SAME TRANSACTION: UPSERT shows (the `shows_create_share_token_after_insert` trigger auto-creates the `show_share_tokens` row on first insert; ON CONFLICT no-op for re-seeds preserves the existing share_token), UPSERT crew_members per payload, UPDATE `validation_state.alias_map[combo]` merge.
   - Returns `jsonb` with the alias_map slice it wrote + the show_id.
 
 ```sql
 -- supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql
--- Per M12 spec invariant 2 (per-show advisory lock) + plan R1 P0 amendment.
--- R2 amendment: SQL sketch verified against live schema
--- (supabase/migrations/20260501000000_initial_public_schema.sql:3-47):
+-- Per M12 spec invariant 2 (per-show advisory lock) + spec §3.3 picker-fixture
+-- lockstep contract. SQL sketch verified against live schema
+-- (supabase/migrations/20260501000000_initial_public_schema.sql + the M11.5
+-- migrations adding show_share_tokens + claimed_via_oauth_at).
+--
 -- shows columns: drive_file_id NOT NULL UNIQUE, slug NOT NULL UNIQUE, title NOT NULL,
---   client_label NOT NULL, template_version NOT NULL, plus nullable jsonb fields.
+--   client_label NOT NULL, template_version NOT NULL, plus nullable jsonb fields +
+--   the M11.5 picker_epoch columns.
 -- crew_members columns: show_id NOT NULL, name NOT NULL, email (canonicalized),
---   role NOT NULL, role_flags NOT NULL DEFAULT '{}'.
+--   role NOT NULL, role_flags NOT NULL DEFAULT '{}', date_restriction jsonb,
+--   stage_restriction jsonb, claimed_via_oauth_at TIMESTAMPTZ NULL (M11.5).
+-- show_share_tokens is auto-populated by the
+--   shows_create_share_token_after_insert trigger — this RPC does NOT touch it.
 
 CREATE OR REPLACE FUNCTION public.mint_validation_fixture_atomic(
   p_combo text,
@@ -193,13 +206,27 @@ DECLARE
   v_crew_id uuid;
   v_crew_name text;
   v_crew_role_flags text[];
+  v_validation_today_iso text;
 BEGIN
+  -- 0. Validate TZ-pinned today (rejects extreme clock skew).
+  v_validation_today_iso := p_fixture_payload->>'validationTodayIso';
+  IF v_validation_today_iso IS NULL OR v_validation_today_iso !~ '^\d{4}-\d{2}-\d{2}$' THEN
+    RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso required (YYYY-MM-DD), got %', v_validation_today_iso;
+  END IF;
+  IF abs(extract(epoch from (v_validation_today_iso::date - current_date))) > 86400 THEN
+    RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso % differs from server current_date % by >1 day (extreme clock skew)', v_validation_today_iso, current_date;
+  END IF;
+
   -- 1. Resolve drive_file_id (stable per-combo synthetic ID) and acquire advisory lock.
   v_drive_file_id := 'validation_' || p_combo;
   v_slug := 'validation-' || lower(replace(p_combo, '_', '-'));
   PERFORM pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
 
-  -- 2. UPSERT show with all NOT NULL columns populated.
+  -- 2. UPSERT show with all NOT NULL columns populated. The shows_create_share_token_after_insert
+  --    trigger (per supabase/migrations/20260523000002_show_share_tokens.sql) fires on INSERT
+  --    and auto-creates the show_share_tokens row with a fresh 64-hex share_token; ON CONFLICT
+  --    DO UPDATE bypasses the trigger so re-seeds preserve the existing share_token (the dev's
+  --    bookmarked URL stays valid across --combo all re-runs).
   INSERT INTO public.shows (
     drive_file_id, slug, title, client_label, template_version,
     dates, archived, published, last_seen_modified_time
@@ -221,18 +248,16 @@ BEGIN
     last_seen_modified_time = now()
   RETURNING id INTO v_show_id;
 
-  -- 3. Per crew_member: UPSERT crew_members + crew_member_auth, collect alias→id.
+  -- 3. Per crew_member: UPSERT crew_members, collect alias→id.
+  --    Email is already canonicalized by the TypeScript script via
+  --    lib/email/canonicalize.ts BEFORE landing in the payload (AGENTS.md
+  --    invariant 3: canonicalize.ts is the only function that touches raw
+  --    emails). The CHECK constraint on crew_members.email acts as a safety
+  --    net; mismatches raise an error rather than silently being re-canonicalized.
   FOR v_crew_member IN SELECT * FROM jsonb_array_elements(p_fixture_payload->'crewMembers') LOOP
     v_crew_name := v_crew_member->>'name';
     v_crew_role_flags := ARRAY(SELECT jsonb_array_elements_text(v_crew_member->'roleFlags'));
-    -- R4 P0 amendment: include date_restriction + stage_restriction columns (jsonb)
-    -- from payload. The R-combo matrix depends entirely on these axes; omitting them
-    -- would seed every fixture as unrestricted, falsifying the walk.
-    -- R4 P0 amendment: email is already canonicalized by the TypeScript script via
-    -- lib/email/canonicalize.ts BEFORE landing in the payload — the RPC writes the
-    -- supplied value as-is (AGENTS.md invariant 3: canonicalize.ts is the only
-    -- function that touches raw emails). The CHECK constraint still acts as a
-    -- safety net; mismatches raise an error rather than silently being re-canonicalized.
+
     INSERT INTO public.crew_members (
       show_id, name, email, role, role_flags, date_restriction, stage_restriction
     )
@@ -240,15 +265,15 @@ BEGIN
       v_show_id,
       v_crew_name,
       v_crew_member->>'email',                       -- already canonicalized in TS
-      -- R3 amendment: derive role (NOT NULL) from role_flags per master spec §6.6
-      -- compound-role convention (e.g. ["LEAD","A1"] → "LEAD / A1"; [] → "Validation Crew").
+      -- Derive role (NOT NULL) from role_flags per master spec §6.6 compound-role convention
+      -- (e.g. ["LEAD","A1"] → "LEAD / A1"; [] → "Validation Crew").
       CASE
         WHEN array_length(v_crew_role_flags, 1) IS NULL THEN 'Validation Crew'
         ELSE array_to_string(v_crew_role_flags, ' / ')
       END,
       v_crew_role_flags,
-      v_crew_member->'dateRestriction',              -- R4: jsonb {kind, days?} per master spec §6.6 + spec §3.3
-      v_crew_member->'stageRestriction'              -- R4: jsonb {kind, stages?} per master spec §6.6 + spec §3.3
+      v_crew_member->'dateRestriction',              -- jsonb {kind, days?} per master spec §6.6 + spec §3.3
+      v_crew_member->'stageRestriction'              -- jsonb {kind, stages?} per master spec §6.6 + spec §3.3
     )
     ON CONFLICT (show_id, name) DO UPDATE SET
       email = EXCLUDED.email,
@@ -258,46 +283,38 @@ BEGIN
       stage_restriction = EXCLUDED.stage_restriction
     RETURNING id INTO v_crew_id;
 
-    INSERT INTO public.crew_member_auth (show_id, crew_name, current_token_version, revoked_below_version)
-      VALUES (v_show_id, v_crew_name, 1, 0)
-      ON CONFLICT (show_id, crew_name) DO NOTHING;   -- preserve existing current_token_version per spec §3.3
+    -- NOTE: claimed_via_oauth_at is intentionally NOT set here. Fresh re-seeds leave
+    -- it null so every alias is bypass-pickable. J3 leg (c)'s OAuth-claim walk
+    -- stamps it via the live claim_oauth_identity RPC during the walk; the next
+    -- --combo all re-creates the rows with fresh ids and null claimed_via_oauth_at,
+    -- restoring the baseline (since ON CONFLICT here is keyed by (show_id, name)
+    -- which preserves the row, the dev runs DELETE-then-INSERT on a full
+    -- "from-scratch" re-seed via --combo all + --reset-oauth-claims if the OAuth
+    -- claim state needs hard reset; not part of v1).
 
     v_alias_map_slice := v_alias_map_slice || jsonb_build_object(v_crew_member->>'alias', v_crew_id);
   END LOOP;
 
-  -- 4. UPSERT validation_state singleton: merge alias_map[combo] = slice; append combo to combos_materialized.
-  --    R5 amendment: ALL seeded-date stamps come from p_fixture_payload->>'validationTodayIso' (TZ-pinned UTC,
-  --    NOT current_date). RPC validates within ±1 day of server current_date for sanity but does NOT use
-  --    current_date directly. Eliminates Postgres-vs-script TZ skew and UTC-midnight crossing race.
-  DECLARE
-    v_validation_today_iso text;
-  BEGIN
-    v_validation_today_iso := p_fixture_payload->>'validationTodayIso';
-    IF v_validation_today_iso IS NULL OR v_validation_today_iso !~ '^\d{4}-\d{2}-\d{2}$' THEN
-      RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso required (YYYY-MM-DD), got %', v_validation_today_iso;
-    END IF;
-    IF abs(extract(epoch from (v_validation_today_iso::date - current_date))) > 86400 THEN
-      RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso % differs from server current_date % by >1 day (extreme clock skew)', v_validation_today_iso, current_date;
-    END IF;
-  END;
-
+  -- 4. UPSERT validation_state singleton: merge alias_map[combo] = slice;
+  --    stamp combos_seeded_dates[combo] = validationTodayIso (per-combo stamp;
+  --    the top-level last_seed_date is owned by validation_finalize_all_atomic).
   INSERT INTO public.validation_state (
     key, last_seed_date, combos_materialized, combos_seeded_dates, alias_map,
     seeded_by, seeded_supabase_project_ref
   )
   VALUES (
     'validation_seed',
-    (p_fixture_payload->>'validationTodayIso')::date,  -- initial; gets overwritten by finalize-all-atomic on full runs
+    v_validation_today_iso::date,           -- initial; overwritten by validation_finalize_all_atomic on full runs
     ARRAY[p_combo],
-    jsonb_build_object(p_combo, p_fixture_payload->>'validationTodayIso'),
+    jsonb_build_object(p_combo, v_validation_today_iso),
     jsonb_build_object(p_combo, v_alias_map_slice),
     p_fixture_payload->>'seededBy',
     p_fixture_payload->>'seededProjectRef'
   )
   ON CONFLICT (key) DO UPDATE SET
-    -- last_seed_date is NOT updated here (R3 amendment); finalize-all-atomic owns it.
+    -- last_seed_date is NOT updated here; validation_finalize_all_atomic owns it.
     combos_materialized = (SELECT array_agg(DISTINCT c) FROM unnest(public.validation_state.combos_materialized || ARRAY[p_combo]) c),
-    combos_seeded_dates = public.validation_state.combos_seeded_dates || jsonb_build_object(p_combo, p_fixture_payload->>'validationTodayIso'),
+    combos_seeded_dates = public.validation_state.combos_seeded_dates || jsonb_build_object(p_combo, v_validation_today_iso),
     alias_map = public.validation_state.alias_map || jsonb_build_object(p_combo, v_alias_map_slice),
     seeded_supabase_project_ref = EXCLUDED.seeded_supabase_project_ref;
 
@@ -309,106 +326,14 @@ REVOKE ALL ON FUNCTION public.mint_validation_fixture_atomic(text, jsonb) FROM p
 GRANT EXECUTE ON FUNCTION public.mint_validation_fixture_atomic(text, jsonb) TO service_role;
 ```
 
-- [ ] **Step 4: Author the companion `validation_cleanup_atomic` RPC** (R2 amendment — explicit sketch + single-entry-point clarification: the `__cleanup__` pseudo-combo on `mint_validation_fixture_atomic` is RETRACTED; cleanup goes through this separate RPC):
-
-```sql
--- supabase/migrations/<timestamp>_validation_cleanup_atomic.sql
--- Per spec §3.3 R22 + R23. Cleans validation-induced revoked_links rows AND
--- structurally resets every query-compromise alias's auth state. Per-show
--- advisory lock acquired for EACH affected show (one lock per validation show).
---
--- Validation-only predicate: revoked_links.revoked_reason LIKE 'validation:%'
--- OR (for the structural reset path) the row's (show_id, crew_name) matches
--- a query-compromise alias's identity AND the show is a validation show
--- (drive_file_id LIKE 'validation_%').
-
-CREATE OR REPLACE FUNCTION public.validation_cleanup_atomic(
-  p_validation_project_ref text  -- safety: aborts if mismatched
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_state_ref text;
-  v_show record;
-  v_qc_crew_name text;
-  v_deleted_revoked_links int := 0;
-  v_reset_auth int := 0;
-BEGIN
-  -- 0. Safety: confirm caller's project_ref matches what's stamped in validation_state.
-  SELECT seeded_supabase_project_ref INTO v_state_ref FROM public.validation_state WHERE key = 'validation_seed';
-  IF v_state_ref IS NULL OR v_state_ref <> p_validation_project_ref THEN
-    RAISE EXCEPTION 'validation_cleanup_atomic: project_ref mismatch (expected %, got %)', v_state_ref, p_validation_project_ref;
-  END IF;
-
-  -- 1. For each validation show, hold its advisory lock + do the cleanup writes.
-  FOR v_show IN
-    SELECT id AS show_id, drive_file_id
-    FROM public.shows
-    WHERE drive_file_id LIKE 'validation\_%' ESCAPE '\'
-  LOOP
-    PERFORM pg_advisory_xact_lock(hashtext('show:' || v_show.drive_file_id));
-
-    -- 1a. Validation-tagged revoked_links cleanup (spec §3.3 R22).
-    WITH d AS (
-      DELETE FROM public.revoked_links
-      WHERE show_id = v_show.show_id
-        AND revoked_reason LIKE 'validation:%'
-      RETURNING 1
-    )
-    SELECT v_deleted_revoked_links + count(*) INTO v_deleted_revoked_links FROM d;
-
-    -- 1b. Structural reset of query-compromise alias auth (spec §3.3 R23):
-    --     For every alias_5a_lead_for_query_compromise crew_member in this show:
-    --     DELETE all revoked_links rows for that (show_id, crew_name) regardless of revoked_reason
-    --     AND bump current_token_version + 1 AND zero revoked_below_version.
-    FOR v_qc_crew_name IN
-      SELECT cm.name
-      FROM public.crew_members cm
-      WHERE cm.show_id = v_show.show_id
-        AND cm.name LIKE '%_alias_5a_lead_for_query_compromise'
-    LOOP
-      DELETE FROM public.revoked_links
-        WHERE show_id = v_show.show_id AND crew_name = v_qc_crew_name;
-      -- R3 amendment: bump max_issued_version alongside current_token_version so the
-      -- invariant `current_token_version <= max_issued_version` (live auth semantics
-      -- monotonicity) is preserved. Otherwise current could exceed max and confuse
-      -- future admin-driven rotation paths.
-      UPDATE public.crew_member_auth
-        SET current_token_version = max_issued_version + 1,
-            max_issued_version = max_issued_version + 1,
-            revoked_below_version = 0,
-            last_changed_at = now()
-        WHERE show_id = v_show.show_id AND crew_name = v_qc_crew_name;
-      v_reset_auth := v_reset_auth + 1;
-    END LOOP;
-  END LOOP;
-
-  RETURN jsonb_build_object(
-    'deleted_revoked_links', v_deleted_revoked_links,
-    'reset_query_compromise_aliases', v_reset_auth
-  );
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.validation_cleanup_atomic(text) FROM public, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.validation_cleanup_atomic(text) TO service_role;
-```
-
-The reseed script calls this RPC only for `--combo all` (NOT for single-combo reseed) since query-compromise reset would otherwise blow away the J3 leg's revocation mid-test.
-
-- [ ] **Step 5: Confirm `mint_validation_fixture_atomic` does NOT handle a `__cleanup__` pseudo-combo** — that responsibility lives ONLY in `validation_cleanup_atomic`. (R2 amendment — removes the dual-entry-point ambiguity from R1's first draft.)
-
-- [ ] **Step 6 (R3 amendment): Author the `validation_finalize_all_atomic` RPC** for the `--combo all` finalization. Per-combo mint stamps `combos_seeded_dates[combo] = today`; this RPC verifies every requested combo has today's date AND only THEN updates the top-level `last_seed_date`. Without this finalizer, a partial --combo all (some combos succeed, some fail) leaves combos_seeded_dates correct per-combo but last_seed_date could remain stale or be misleadingly set.
+- [ ] **Step 4: Author the companion `validation_finalize_all_atomic` RPC** — promotes the top-level `last_seed_date` ONLY after every requested combo's per-combo seeded date matches today's pinned UTC date. Without this finalizer, a partial `--combo all` (some combos succeed, some fail) leaves combos_seeded_dates correct per-combo but last_seed_date could remain stale or be misleadingly set.
 
 ```sql
 -- supabase/migrations/<timestamp>_validation_finalize_all_atomic.sql
 
 CREATE OR REPLACE FUNCTION public.validation_finalize_all_atomic(
   p_required_combos text[],
-  p_validation_today_iso text   -- R5 amendment — pinned UTC date passed in from the script
+  p_validation_today_iso text   -- TZ-pinned UTC date passed in from the script
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -422,7 +347,7 @@ DECLARE
   v_stale text[]   := ARRAY[]::text[];
   v_combos_dates jsonb;
 BEGIN
-  -- R5 amendment: validate p_validation_today_iso shape + within ±1 day of server current_date.
+  -- Validate p_validation_today_iso shape + within ±1 day of server current_date.
   IF p_validation_today_iso IS NULL OR p_validation_today_iso !~ '^\d{4}-\d{2}-\d{2}$' THEN
     RAISE EXCEPTION 'validation_finalize_all_atomic: p_validation_today_iso required (YYYY-MM-DD), got %', p_validation_today_iso;
   END IF;
@@ -448,7 +373,7 @@ BEGIN
     RAISE EXCEPTION 'validation_finalize_all_atomic: incomplete reseed (missing: %, stale: %)', v_missing, v_stale;
   END IF;
 
-  -- All requested combos seeded today; safe to stamp top-level last_seed_date using the PINNED date.
+  -- All requested combos seeded today; safe to stamp top-level last_seed_date.
   UPDATE public.validation_state
     SET last_seed_date = p_validation_today_iso::date
     WHERE key = 'validation_seed';
@@ -461,73 +386,19 @@ REVOKE ALL ON FUNCTION public.validation_finalize_all_atomic(text[], text) FROM 
 GRANT EXECUTE ON FUNCTION public.validation_finalize_all_atomic(text[], text) TO service_role;
 ```
 
-- [ ] **Step 7 (R3 amendment): Update the reseed script's `--combo all` path** to:
-  - Loop through every combo, calling `mint_validation_fixture_atomic` per combo.
-  - At the end (no failures), call `validation_finalize_all_atomic(<the 16 combos>)`.
-  - If any per-combo mint fails, the finalizer is NOT called → top-level last_seed_date stays at its prior value → check-seed catches the partial seed (per Task 0.C.5 predicate update below).
+- [ ] **Step 5: Apply both migrations** to prod-equivalent Supabase. Re-run the failing tests — expect PASS.
 
-- [ ] **Step 5: Apply both migrations** to prod-equivalent Supabase. Re-run the failing test — expect PASS.
-
-- [ ] **Step 6: Modify `scripts/validation-reseed.ts`** to call ONLY these RPCs (no direct PostgREST mutation of shows / crew_members / crew_member_auth). The script:
+- [ ] **Step 6: Modify `scripts/validation-reseed.ts`** to call ONLY these RPCs (no direct PostgREST mutation of shows / crew_members). The script:
+  - Computes one canonical `validationTodayIso = new Date().toISOString().slice(0, 10)` value and includes it in every per-combo payload.
   - Loops over the requested combos in `FIXTURES`.
-  - Computes per-fixture payload (showName, dates relative to today, crew_members array).
+  - For each, builds a per-fixture payload (showName, dates relative to today, crew_members array with canonicalized emails).
   - Calls `supabase.rpc("mint_validation_fixture_atomic", { p_combo, p_fixture_payload })` for each.
-  - For `--combo all`: also calls `supabase.rpc("validation_cleanup_atomic", { /* args */ })`.
+  - For `--combo all`: after every per-combo mint succeeds, calls `supabase.rpc("validation_finalize_all_atomic", { p_required_combos: <all 16>, p_validation_today_iso })` to promote `last_seed_date`. If any per-combo mint fails, the finalizer is NOT called → `last_seed_date` stays at its prior value → check-seed predicate (i) catches the partial seed.
 
-- [ ] **Step 7: Extend `tests/auth/advisoryLockRpcDeadlock.test.ts`** (the canonical advisory-lock topology test per AGENTS.md invariant 2) to include the two new RPCs — proves only ONE lock-holder layer per hashkey.
-
-- [ ] **Step 8: Verify {data, error} destructuring** at every Supabase call site (per AGENTS.md invariant 9).
-
-- [ ] **Step 9: Run integration test — expect PASS.** Commit (THREE migrations now — R4 added finalize_all_atomic; R4 also added failing-first test for predicate (i) — make sure all three migrations + tests are staged):
-
-```bash
-git add \
-  supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql \
-  supabase/migrations/<timestamp>_validation_cleanup_atomic.sql \
-  supabase/migrations/<timestamp>_validation_finalize_all_atomic.sql \
-  scripts/validation-reseed.ts \
-  tests/db/mint-validation-fixture-atomic.test.ts \
-  tests/db/validation-finalize-all-atomic.test.ts \
-  tests/scripts/validation-reseed-integration.test.ts \
-  tests/scripts/validation-partial-reseed.test.ts \
-  tests/auth/advisoryLockRpcDeadlock.test.ts
-git commit -m "feat(validation): three atomic RPCs + reseed script (advisory-lock + per-combo seeded_dates + TZ-pinned today)
-
-Per M12 spec invariant 2 + plan R1-R4 amendments. ALL show/crew/auth/
-validation_state writes go through SECURITY DEFINER RPCs that hold the
-per-show advisory lock. Three RPCs:
-- mint_validation_fixture_atomic(p_combo, p_fixture_payload): per-combo
-  UPSERT (includes date_restriction + stage_restriction columns from
-  payload, R4 P0).
-- validation_cleanup_atomic(p_project_ref): --combo all cleanup
-  (validation-tagged revoked_links + structural query-compromise reset
-  with max_issued_version bump preserving current ≤ max invariant).
-- validation_finalize_all_atomic(p_required_combos): promotes
-  last_seed_date ONLY after every required combo's seeded date matches
-  validationTodayIso. Prevents partial --combo all from falsifying gate.
-
-Reseed script canonicalizes emails via lib/email/canonicalize.ts BEFORE
-RPC call (AGENTS.md invariant 3). validationTodayIso is the canonical
-'today' value passed to all RPCs (TZ-pinned, prevents Postgres-vs-
-script TZ skew).
-
-Failing-first tests cover: predicate (i) partial-reseed detection,
-restriction column persistence, max_issued_version invariant.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-"
-```
-
-- [ ] **Step 1: Write a failing integration test** at `tests/scripts/validation-reseed-integration.test.ts`. Requires VALIDATION_SUPABASE_* env vars. Runs `pnpm validation:reseed --combo R1` and asserts: 1 row in shows for R1, 11 in crew_members, 11 in crew_member_auth, validation_state row with `combos_materialized` containing 'R1', `alias_map.R1` containing all 11 alias keys.
-
-- [ ] **Step 2: Run — expect FAIL** (no seed logic yet).
-
-- [ ] **Step 3: Implement** the seed logic per the outline above. Use `@supabase/supabase-js` createClient with the service role key. All Supabase calls destructure `{ data, error }` per AGENTS.md invariant 9.
-
-**R4 P0 amendment — email canonicalization in TS (AGENTS.md invariant 3):** The reseed script MUST canonicalize fixture emails via `lib/email/canonicalize.ts` BEFORE building the RPC payload. The RPC writes the supplied canonical value as-is; never use `lower(trim(...))` in SQL (that would create a new canonicalization boundary outside the registered helper). Example:
+**Email canonicalization in TS (AGENTS.md invariant 3):** The reseed script MUST canonicalize fixture emails via `lib/email/canonicalize.ts` BEFORE building the RPC payload. The RPC writes the supplied canonical value as-is; never use `lower(trim(...))` in SQL (that would create a new canonicalization boundary outside the registered helper). Example:
 
 ```ts
-import { canonicalize } from "@/lib/email/canonicalize";   // R5 corrected — live helper is `canonicalize`, NOT `canonicalizeEmail`
+import { canonicalize } from "@/lib/email/canonicalize";   // live helper is `canonicalize`
 
 const crewMembers = fixture.crewMembers.map((c) => {
   const canonicalEmail = canonicalize(c.email);
@@ -539,37 +410,57 @@ const crewMembers = fixture.crewMembers.map((c) => {
     name: c.name,
     email: canonicalEmail,                            // ← canonicalize HERE, not in SQL
     roleFlags: c.roleFlags,
-    dateRestriction: fixture.dateRestriction,         // R4 P0: passed through to RPC
-    stageRestriction: fixture.stageRestriction,       // R4 P0: passed through to RPC
+    dateRestriction: fixture.dateRestriction,         // jsonb, passed through to RPC
+    stageRestriction: fixture.stageRestriction,       // jsonb, passed through to RPC
   };
 });
-```
 
-**R4 P1 amendment — timezone-aware "today":** The script computes ONE `validationTodayIso` value (YYYY-MM-DD, UTC) and passes it into mint/finalize/check-seed. The RPCs use `validationTodayIso` for combos_seeded_dates / last_seed_date INSTEAD of `current_date`. The RPC validates the value is parseable + within ±1 day of Postgres's `current_date` (rejects extreme clock skew). Example:
-
-```ts
 const validationTodayIso = new Date().toISOString().slice(0, 10);
 const payload = { ...fixtureBody, validationTodayIso };
 await supabase.rpc("mint_validation_fixture_atomic", { p_combo, p_fixture_payload: payload });
 ```
 
-The RPC sketch in step 3 above MUST be updated to read `p_fixture_payload->>'validationTodayIso'` instead of `current_date`. Same for `validation_finalize_all_atomic` and check-seed.
+- [ ] **Step 7: Extend `tests/auth/advisoryLockRpcDeadlock.test.ts`** (the canonical advisory-lock topology test per AGENTS.md invariant 2) to include the two new RPCs — proves only ONE lock-holder layer per hashkey.
 
-- [ ] **Step 4: Verify {data, error} destructuring pattern is used at every call site** by grepping after implementation:
+- [ ] **Step 8: Verify {data, error} destructuring** at every Supabase call site (per AGENTS.md invariant 9).
 
-```bash
-grep -n "await supabase" scripts/validation-reseed.ts
-```
-
-Confirm every line uses `const { data, error } = await ...` and checks `error` before consuming `data`.
-
-- [ ] **Step 5: Run integration test — expect PASS.**
-
-- [ ] **Step 6: Commit:**
+- [ ] **Step 9: Run integration tests — expect PASS.** Commit:
 
 ```bash
-git add scripts/validation-reseed.ts tests/scripts/validation-reseed-integration.test.ts
-git commit -m "feat(validation): implement reseed with per-show lock + alias_map UPSERT + R22/R23 cleanup"
+git add \
+  supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql \
+  supabase/migrations/<timestamp>_validation_finalize_all_atomic.sql \
+  scripts/validation-reseed.ts \
+  tests/db/mint-validation-fixture-atomic.test.ts \
+  tests/db/validation-finalize-all-atomic.test.ts \
+  tests/scripts/validation-reseed-integration.test.ts \
+  tests/auth/advisoryLockRpcDeadlock.test.ts
+git commit -m "$(cat <<'COMMIT_EOF'
+feat(validation): two atomic RPCs + reseed script (advisory-lock + per-combo seeded_dates + TZ-pinned today)
+
+Per M12 spec invariant 2 + spec §3.3 picker-fixture lockstep. ALL show/crew/
+validation_state writes go through SECURITY DEFINER RPCs that hold the
+per-show advisory lock. Two RPCs:
+- mint_validation_fixture_atomic(p_combo, p_fixture_payload): per-combo
+  UPSERT of shows + crew_members + validation_state.alias_map slice;
+  includes date_restriction + stage_restriction columns from payload;
+  show_share_tokens row auto-created by the existing
+  shows_create_share_token_after_insert trigger on first INSERT;
+  ON CONFLICT preserves existing share_token across re-seeds.
+- validation_finalize_all_atomic(p_required_combos, p_today_iso):
+  promotes last_seed_date ONLY after every required combo's seeded date
+  matches validationTodayIso. Prevents partial --combo all from
+  falsifying the check-seed gate.
+
+Reseed script canonicalizes emails via lib/email/canonicalize.ts BEFORE
+RPC call (AGENTS.md invariant 3). validationTodayIso is the canonical
+'today' value passed to all RPCs (TZ-pinned UTC YYYY-MM-DD, prevents
+Postgres-vs-script TZ skew + UTC-midnight crossing race).
+
+Failing-first tests cover: restriction column persistence, partial-reseed
+detection via predicate (i), advisory-lock topology meta-test extension.
+COMMIT_EOF
+)"
 ```
 
 ---
@@ -579,28 +470,28 @@ git commit -m "feat(validation): implement reseed with per-show lock + alias_map
 **Files:**
 - Modify: `scripts/validation-check-seed.ts`
 
-Per spec §3.3.2 singleton write semantics. **9 predicates (a-i)** (R3 amendment — predicate (i) added for per-combo seeded-date verification):
+Per spec §3.3.2 singleton write semantics. **7 predicates (a-g)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police):
+
 - (a) `validation_state` row missing (zero rows for `key='validation_seed'`)
-- (b) `last_seed_date != current_date`
+- (b) `last_seed_date != $VALIDATION_TODAY_ISO` (where `$VALIDATION_TODAY_ISO` is the canonical UTC YYYY-MM-DD value the script computes, NOT Postgres `current_date`)
 - (c) `combos_materialized` doesn't cover the requested combo set
 - (d) `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF`
-- (e) `alias_map` doesn't satisfy the §3.3 storage predicate (11 entries per R-combo × 10 + 1 per SW × 6 = 116 leaves)
-- (f) For any alias in alias_map, `crew_member_auth` is missing the matching `(show_id, crew_name)` row
-- (g) Any `current_token_version` is unset/null
-- (h) `revoked_links` has a row matching the baseline `alias_5a_lead`'s `(show_id, crew_name, current_token_version)` tagged `revoked_reason LIKE 'validation:%'`
-- (i) **R3+R5 amendment:** for ANY combo in the requested set, `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO` (where `$VALIDATION_TODAY_ISO` is the canonical UTC YYYY-MM-DD value the script computes, NOT `current_date`). check-seed accepts the date as an env var or CLI flag; defaults to `new Date().toISOString().slice(0,10)`. Catches the partial-`--combo all` failure mode where some combos succeeded on day X and others stamped day Y (UTC midnight crossed mid-run). Without this predicate AND TZ-pinned comparison, alias_map being full + last_seed_date being recent is insufficient evidence that EVERY combo's fixture is today's-date-aligned.
+- (e) `alias_map` doesn't satisfy the §3.3 storage predicate (cross-references §3.3's canonical count — currently 9 entries per R-combo × 10 + 1 per SW × 6 = 96 leaves)
+- (f) For any alias in `alias_map`, `crew_members` is missing the matching `(show_id, name)` row OR has `email IS NULL` OR has the row but the show is archived
+- (g) For any seeded show, `show_share_tokens` is missing the matching `show_id` row (sentinel for "the shows_create_share_token_after_insert trigger fired correctly")
+- (i) For ANY combo in the requested set, `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO`. Catches the partial-`--combo all` failure mode where some combos succeeded on day X and others stamped day Y (UTC midnight crossed mid-run). check-seed accepts the date as an env var or CLI flag; defaults to `new Date().toISOString().slice(0, 10)`.
 
-- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh reseed; returns exit 1 if VALIDATION_SUPABASE_PROJECT_REF env var is set to a wrong value.
+- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g).
 
 - [ ] **Step 2: Run — expect FAIL** (no implementation).
 
-- [ ] **Step 3: Implement** all 8 predicates. Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
+- [ ] **Step 3: Implement** all 7 predicates. Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
 
 - [ ] **Step 4: Run — expect PASS.** Commit:
 
 ```bash
 git add scripts/validation-check-seed.ts tests/scripts/validation-check-seed.test.ts
-git commit -m "feat(validation): implement check-seed with 8 predicates"
+git commit -m "feat(validation): implement check-seed with 7 picker-fixture predicates"
 ```
 
 ---
@@ -633,22 +524,28 @@ git commit -m "feat(validation): implement resolve-alias jsonb lookup"
 ```sql
 SELECT jsonb_object_keys(alias_map) FROM public.validation_state WHERE key = 'validation_seed';
 -- Expect 16 keys (R1..R8b + 6 SW)
+
 SELECT jsonb_object_keys(alias_map->'R1') FROM public.validation_state WHERE key = 'validation_seed';
--- Expect 11 keys
+-- Expect 9 keys (the role-variant aliases)
+
 SELECT count(*) FROM public.crew_members WHERE email LIKE 'validation+%@example.com';
--- Expect 116
-SELECT count(*) FROM public.crew_member_auth WHERE crew_name LIKE 'R%_alias_%' OR crew_name LIKE 'SW-%_alias_%';
--- Expect 116
+-- Expect 96
+
+SELECT count(*) FROM public.show_share_tokens t
+  JOIN public.shows s ON s.id = t.show_id
+  WHERE s.drive_file_id LIKE 'validation\_%' ESCAPE '\';
+-- Expect 16 (one share_token per validation show — proves the auto-create trigger fired)
 ```
 
 - [ ] **Step 5: Smoke-test the localhost rejection:** `VALIDATION_SUPABASE_URL=http://127.0.0.1:54321 pnpm validation:check-seed`. Expect exit 1 with localhost-rejected diagnostic.
-- [ ] **Step 6: Move to Phase 0.E** (`04-phase0-tooling-report.md`) — Phase 0.D deleted in 2026-05-26 picker-pivot rebase; next phase is now the report-fixtures harness.
+- [ ] **Step 6: Move to Phase 0.E** (`04-phase0-tooling-report.md`).
 
 ---
 
 ## Phase 0.C failure modes
 
-- **Reseed fails with `LINK_VERSION_MISMATCH`-like errors during smoke 6 (Phase 0.F).** crew_member_auth seed not committing alongside crew_members — fix the UPSERT ordering.
 - **Reseed succeeds but alias_map is empty.** The validation_state UPSERT path may be skipping the alias_map update. Check the jsonb merge SET clause.
 - **Localhost rejection fires against real Supabase.** Regex for localhost is too broad; tighten per `scripts/lib/validation-target.ts`.
-- **crew_members UPSERT fails on email canonicalization CHECK.** Master spec X.5 requires email canonicalization; `validation+5a@example.com` canonicalizes to `validation@example.com` (strip-plus). Either (a) sidestep with unique-without-plus emails like `validation-5a@example.com`, OR (b) accept the canonicalized form and use the alias for identity, not email. Decide before implementation.
+- **`show_share_tokens` row missing for a seeded show (check-seed predicate g fires).** The `shows_create_share_token_after_insert` trigger only fires on INSERT, not UPDATE. If the show row already existed before the trigger was migrated in, the share-token row will be missing. Resolution: run `INSERT INTO public.show_share_tokens (show_id) SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation\_%' ESCAPE '\' ON CONFLICT (show_id) DO NOTHING` in the Supabase SQL editor (the same back-fill the M11.5 migration uses).
+- **crew_members UPSERT fails on email canonicalization CHECK.** Master spec X.5 requires email canonicalization; `validation+5a@example.com` canonicalizes to `validation@example.com` (strip-plus). The reseed script canonicalizes in TS before sending to the RPC, so this should not fire — but if it does, the canonicalize helper has changed shape; re-read `lib/email/canonicalize.ts` against the call site.
+- **J3 leg (c) OAuth-claim walk leaves `claimed_via_oauth_at` set on fixture rows.** This is expected during the walk and reversible by running `pnpm validation:reseed --combo all` AFTER the J3 walks complete (the UPSERT preserves the row via ON CONFLICT, so claimed_via_oauth_at is NOT reset). If the dev needs to fully reset the baseline (rare — only when the walk corrupted multiple identity claims), the simplest path is to manually `DELETE FROM public.crew_members WHERE show_id IN (SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation\_%' ESCAPE '\')` in the SQL editor, then re-run `--combo all`. This is not part of v1's reseed scope; document the manual procedure here and revisit if it surfaces frequently.
