@@ -60,7 +60,7 @@ tests/db/admin-rls-runtime.baseline.json              # Phase 0.B (regenerated) 
 package.json                                          # Phase 0.C/E (modify) — adds 4 validation:* script entries (reseed, check-seed, resolve-alias, report-fixtures)
 
 # Local env documentation — modified in Phase 0
-.env.local.example                                    # Phase 0.A (modify) — documents 3 new VALIDATION_* env vars (URL + SECRET_KEY + PROJECT_REF; VALIDATION_JWT_SIGNING_SECRET retired with Phase 0.D)
+.env.local.example                                    # Phase 0.A (modify) — documents the new VALIDATION_* env vars per the canonical CLI command-by-command env-var contract at spec §9.1.2 (R27 commit 58 F10-class Option D refactor — §9.1.2 is the SOLE source-of-truth surface authorized to enumerate the literal env-var names; this overview row deliberately does NOT inline-list them, only states VALIDATION_JWT_SIGNING_SECRET retired with Phase 0.D)
 
 # Plan-time artifact — created in Phase 1
 docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/MATRIX-INVENTORY.md  # Phase 1 task 1 (create) — full matrix derivation per spec §4.1.1

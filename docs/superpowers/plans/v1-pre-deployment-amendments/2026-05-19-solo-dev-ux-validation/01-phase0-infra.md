@@ -15,7 +15,7 @@
 - [ ] **Step 2:** Create a NEW project (distinct from the existing dev project). Name suggestion: `fxav-crew-pages-validation`. Region: closest to dev's iPhone location (smoke test 2 latency).
 - [ ] **Step 3:** Wait for provisioning (~5 minutes). Capture the project ref (the `xxx` in `xxx.supabase.co`) and the service_role key (Settings → API → service_role secret).
 - [ ] **Step 4:** Verify project URL responds: `curl -sI https://<project-ref>.supabase.co/rest/v1/ -H "apikey: <anon-key>"` returns 200 or 401 (not DNS-fail). 200/401 means the project is live.
-- [ ] **Step 5:** Note the project ref + service_role secret. **This step captures the 3 SUPABASE_* env vars only** (3 vars; J3-claim-email NOT required here — `VALIDATION_J3_CLAIM_EMAIL` is the dev's pre-existing real Google account email and is wired in Task 0.A.5 alongside these three, not derived from the new Supabase project): `VALIDATION_SUPABASE_URL = https://<project-ref>.supabase.co`, `VALIDATION_SUPABASE_SECRET_KEY = <service_role-secret>`, `VALIDATION_SUPABASE_PROJECT_REF = <project-ref>`. The canonical per-CLI env-var contract (all 4 vars) lives in spec §9.1.2 (R21 commit 44 F20 amendment); Task 0.A.5 wires the full 4-var set into Vercel + `.env.local`.
+- [ ] **Step 5:** Note the project ref + service_role secret. **This step captures the Supabase target values ONLY** (the J3-claim-email is the dev's pre-existing real Google account email and is wired in Task 0.A.5 — not derived from the new Supabase project). The canonical per-CLI env-var contract — including the literal env-var names + which CLI needs which — lives in spec §9.1.2 (R21 commit 44 F20 amendment + R27 commit 58 F10-class Option D refactor — §9.1.2 is the SOLE source of truth for the canonical env-var literals; this Step 5 deliberately does NOT inline-list them). Task 0.A.5 wires every var named in §9.1.2 into Vercel + `.env.local`; the Supabase project ref captured here populates the `VALIDATION_SUPABASE_*` placeholders in `.env.local.example` (the only other surface authorized to carry own-enumerations, per the structural-exclusivity walker).
 
 ---
 
@@ -89,10 +89,23 @@ This makes the dev an admin on the new project. (`lib/email/canonicalize.ts` str
 # the deployment as part of M11.5; no validation CLI consumes it.)
 
 # Canonical per-CLI env-var map: spec §9.1.2 table (R21 commit 44 F20
-# amendment) is the authoritative command-by-command env-var contract.
-# reseed + check-seed need all 4 vars below; resolve-alias + report-
-# fixtures need only the 3 SUPABASE_* vars. The .env.local.example here
-# documents all 4 because the dev runs reseed + check-seed first.
+# amendment + R27 commit 58 F10-class Option D refactor) is the
+# authoritative command-by-command env-var contract — the SOLE source
+# of truth for which CLI needs which env-var literals. The block below
+# documents the literal values the dev fills in locally (template/
+# config role, not contract definition); this .env.local.example file
+# is the second of TWO surfaces authorized to carry canonical env-var
+# literal own-enumerations (the first being spec §9.1.2 itself). Every
+# other M12 doc surface MUST cross-reference §9.1.2 rather than re-
+# listing literal names — enforced at CI time by the structural-
+# exclusivity walker at tests/cross-cutting/reseed-clears-oauth-claim-
+# doc-guard.test.ts. See spec §9.1.2 for the canonical command-by-
+# command env-var contract.
+# <!-- canonical-env-var-source: keep — this .env.local.example block is
+# the operator-facing config template that holds the literal values the
+# dev fills in locally; the structural-exclusivity walker whitelists
+# blocks carrying this marker. Defense-in-depth: paired with the spec
+# §9.1.2 source-of-truth marker. -->
 VALIDATION_SUPABASE_URL=
 VALIDATION_SUPABASE_SECRET_KEY=
 VALIDATION_SUPABASE_PROJECT_REF=
@@ -134,21 +147,23 @@ VALIDATION_J3_CLAIM_EMAIL=
 ```bash
 git add .env.local.example
 git commit -m "$(cat <<'EOF'
-chore(validation): document 4 VALIDATION_* env vars in .env.local.example
+chore(validation): document VALIDATION_* env vars in .env.local.example
 
-Phase 0.A — adds VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY,
-VALIDATION_SUPABASE_PROJECT_REF, and VALIDATION_J3_CLAIM_EMAIL as
-placeholders documenting M12 validation tooling env contract (spec §3.3
-step 5; §9.1.2 post-rebase; R13 commit 30 J3 claim-email amendment).
-VALIDATION_J3_CLAIM_EMAIL closes the R12 F10 finding: placeholder/dev-only
-reserved domains (canonical rejected set per R15 commit 35 — example.com/
-.org/.net per RFC 2606; *.test/*.invalid/*.localhost/localhost per
-RFC 6761; *.local/dev.local per mDNS RFC 6762 + project-conventional)
-are not Google-OAuth-routable → J3 leg (c) unwalkable as designed. Per
-spec §1.5 "solo-dev IS the validation" the dev's real Google account
-becomes the alias_5a_lead identity for combo R1.
-VALIDATION_JWT_SIGNING_SECRET retired with Phase 0.D per 2026-05-26
-picker-pivot rebase. Actual values stay in .env.local (gitignored).
+Phase 0.A — adds the M12 validation tooling env-var placeholders per
+the canonical CLI command-by-command env-var contract at spec §9.1.2
+(R21 commit 44 F20 amendment + R27 commit 58 F10-class Option D
+refactor; §9.1.2 is the SOLE source of truth for the canonical
+literals — this commit message intentionally does not re-list them).
+The .env.local.example block carries every var the §9.1.2 contract
+names, including the R13 commit 30 J3-claim-email amendment that
+closes the R12 F10 finding (placeholder/dev-only reserved domains
+are not Google-OAuth-routable; the canonical rejected set per R15
+commit 35 covers RFC 2606 + RFC 6761 + mDNS RFC 6762 + project-
+conventional dev). Per spec §1.5 "solo-dev IS the validation" the
+dev's real Google account becomes the alias_5a_lead identity for
+combo R1. VALIDATION_JWT_SIGNING_SECRET retired with Phase 0.D per
+2026-05-26 picker-pivot rebase. Actual values stay in .env.local
+(gitignored).
 EOF
 )"
 ```
