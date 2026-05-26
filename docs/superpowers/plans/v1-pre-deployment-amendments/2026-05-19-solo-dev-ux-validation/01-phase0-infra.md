@@ -70,32 +70,51 @@ This makes the dev an admin on the new project. (`lib/email/canonicalize.ts` str
 ### Task 0.A.5: Wire env vars in Vercel + locally
 
 **Files:**
-- Modify: `.env.local.example` (document the 3 new VALIDATION_* env vars; the 2026-05-26 picker-pivot rebase removed `VALIDATION_JWT_SIGNING_SECRET` along with Phase 0.D — the M9.5 signLinkJwt consumer was retired at M11.5 G3 cutover)
+- Modify: `.env.local.example` (document the 4 new VALIDATION_* env vars; the 2026-05-26 picker-pivot rebase removed `VALIDATION_JWT_SIGNING_SECRET` along with Phase 0.D — the M9.5 signLinkJwt consumer was retired at M11.5 G3 cutover. The R13 commit 30 amendment adds `VALIDATION_J3_CLAIM_EMAIL` — the dev's real Google account email used by the J3 leg (c) OAuth-claim walk; see spec §3.3 R13-amendment paragraph and spec §1.5 "solo-dev IS the validation".)
 - No `.env.local` commit — `.env.local` is gitignored.
 
 - [ ] **Step 1: Write the .env.local.example update first (TDD-style starting point).**
 
 ```
 # .env.local.example additions for M12 validation tooling (see spec §3.3 step 5
-# + §9.1.2 post-2026-05-26 picker-pivot rebase).
+# + §9.1.2 post-2026-05-26 picker-pivot rebase + R13 commit 30 J3 claim-email
+# amendment).
 
-# All three MUST equal the Vercel Production-scope values for the project
-# backing the *.vercel.app production deployment. (Picker-pivot rebase
-# 2026-05-26 deleted VALIDATION_JWT_SIGNING_SECRET — the M9.5 signLinkJwt
-# surface that consumed it was retired at M11.5 G3 cutover. The picker
-# cookie's signing key, PICKER_COOKIE_SIGNING_KEY, is set at the Vercel
-# runtime layer for the deployment as part of M11.5; no validation CLI
-# consumes it.)
+# All four MUST be set for validation tooling to function. The three SUPABASE_*
+# vars MUST equal the Vercel Production-scope values for the project backing
+# the *.vercel.app production deployment. (Picker-pivot rebase 2026-05-26
+# deleted VALIDATION_JWT_SIGNING_SECRET — the M9.5 signLinkJwt surface that
+# consumed it was retired at M11.5 G3 cutover. The picker cookie's signing
+# key, PICKER_COOKIE_SIGNING_KEY, is set at the Vercel runtime layer for
+# the deployment as part of M11.5; no validation CLI consumes it.)
 
 VALIDATION_SUPABASE_URL=
 VALIDATION_SUPABASE_SECRET_KEY=
 VALIDATION_SUPABASE_PROJECT_REF=
+
+# R13 commit 30 J3 OAuth-walk fixture-impossibility fix: the dev's REAL
+# Google account email. J3 leg (c) (06-phase1-matrix-walk.md Task 1.6
+# leg c step 2) requires the dev to sign in to Google AS the alias_5a_lead
+# identity for combo R1 to trigger claim_oauth_identity. Google OAuth
+# cannot authenticate against the RFC 2606 reserved domains
+# (example.com / example.org / example.net), so the reseed cannot use
+# the synthesized validation+R1-alias_5a_lead@example.com placeholder
+# for THIS one specific row. Per spec §1.5 "solo-dev IS the validation":
+# the dev's personal Google account becomes the alias_5a_lead identity
+# for combo R1; the dev signs in as themselves. validation:reseed reads
+# this var and writes it as crew_members.email for combo R1's alias_5a_lead
+# (all other combos keep the synthesized validation+<combo>-<alias>@example.com
+# format — see spec §3.3 R13-amendment paragraph for combo-isolation
+# rationale). validation:check-seed predicate (k) fails if this var is
+# still set to a placeholder example.com / example.org / example.net
+# domain at seed time.
+VALIDATION_J3_CLAIM_EMAIL=
 ```
 
 - [ ] **Step 2: Verify the file change is sensible:** `git diff .env.local.example` shows only the additions, no existing-var edits.
-- [ ] **Step 3: Set the three env vars in Vercel** (Settings → Environment Variables, scope: **Production** only — NOT Preview or Development): paste the captured values from 0.A.1 + 0.A.4.
-- [ ] **Step 4: Set the three env vars locally** in `.env.local` (gitignored — do NOT commit the secrets): same values as Vercel Production scope.
-- [ ] **Step 5: Set up the existing runtime env vars** if not already in Vercel Production scope: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`, `WATCHED_FOLDER_ID`, `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY` (the M11.5 picker cookie's HMAC signing key — 64 hex chars; runtime-only), plus any other vars `.env.local.example` lists for runtime. These are the production-target deployment's normal env contract; validation only ADDS the three `VALIDATION_`-prefixed vars.
+- [ ] **Step 3: Set the four env vars in Vercel** (Settings → Environment Variables, scope: **Production** only — NOT Preview or Development): paste the captured values from 0.A.1 + 0.A.4 for the SUPABASE_* trio; set `VALIDATION_J3_CLAIM_EMAIL` to the dev's real Google account email (the one Google OAuth signs the dev in as during the J3 walk; see R13 commit 30 + spec §1.5).
+- [ ] **Step 4: Set the four env vars locally** in `.env.local` (gitignored — do NOT commit the secrets): same values as Vercel Production scope.
+- [ ] **Step 5: Set up the existing runtime env vars** if not already in Vercel Production scope: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`, `WATCHED_FOLDER_ID`, `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY` (the M11.5 picker cookie's HMAC signing key — 64 hex chars; runtime-only), plus any other vars `.env.local.example` lists for runtime. These are the production-target deployment's normal env contract; validation only ADDS the four `VALIDATION_`-prefixed vars.
 - [ ] **Step 6: Trigger another production redeploy** in Vercel so the new env vars take effect.
 - [ ] **Step 7: Verify the deployment can reach the new Supabase:** open the production URL in a browser. Click sign-in. Confirm Google OAuth lands you as admin (the email canonicalized in 0.A.2 step 4). If sign-in fails with "unauthorized", admin_emails was not seeded correctly — go back to 0.A.2.
 - [ ] **Step 8: Commit `.env.local.example`** (only the documentation update — secrets stay in `.env.local`).
@@ -103,11 +122,16 @@ VALIDATION_SUPABASE_PROJECT_REF=
 ```bash
 git add .env.local.example
 git commit -m "$(cat <<'EOF'
-chore(validation): document 3 VALIDATION_* env vars in .env.local.example
+chore(validation): document 4 VALIDATION_* env vars in .env.local.example
 
 Phase 0.A — adds VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY,
-VALIDATION_SUPABASE_PROJECT_REF as placeholders documenting M12 validation
-tooling env contract (spec §3.3 step 5; §9.1.2 post-rebase).
+VALIDATION_SUPABASE_PROJECT_REF, and VALIDATION_J3_CLAIM_EMAIL as
+placeholders documenting M12 validation tooling env contract (spec §3.3
+step 5; §9.1.2 post-rebase; R13 commit 30 J3 claim-email amendment).
+VALIDATION_J3_CLAIM_EMAIL closes the R12 F10 finding: example.com is
+RFC 2606 reserved → Google OAuth rejects → J3 leg (c) unwalkable as
+designed. Per spec §1.5 "solo-dev IS the validation" the dev's real
+Google account becomes the alias_5a_lead identity for combo R1.
 VALIDATION_JWT_SIGNING_SECRET retired with Phase 0.D per 2026-05-26
 picker-pivot rebase. Actual values stay in .env.local (gitignored).
 EOF
@@ -122,7 +146,7 @@ EOF
   1. Supabase prod project responding at `VALIDATION_SUPABASE_URL`
   2. Drive service account + shared watched folder
   3. Vercel production-target deployment at `*.vercel.app` URL
-  4. Three VALIDATION_* env vars set in Vercel Production scope AND local `.env.local`; documented in `.env.local.example` (post-2026-05-26 picker-pivot rebase — `VALIDATION_JWT_SIGNING_SECRET` retired with Phase 0.D)
+  4. Four VALIDATION_* env vars set in Vercel Production scope AND local `.env.local`; documented in `.env.local.example` (post-2026-05-26 picker-pivot rebase — `VALIDATION_JWT_SIGNING_SECRET` retired with Phase 0.D; R13 commit 30 added `VALIDATION_J3_CLAIM_EMAIL`)
 - [ ] **Step 2: Run the "admin sign-in" smoke as a Phase-0.A close-out probe** (NOT smoke 1 yet — that runs in Phase 0.F after everything is in place): sign into the Vercel production URL via Google, confirm admin role lands.
 - [ ] **Step 3: Continue to Phase 0.A.1** (M11.5 carry-over: SignInOrSkipGate footer copy + catalog code), or skip directly to Phase 0.B if the M11.5-IMP carry-over tasks are deferred.
 

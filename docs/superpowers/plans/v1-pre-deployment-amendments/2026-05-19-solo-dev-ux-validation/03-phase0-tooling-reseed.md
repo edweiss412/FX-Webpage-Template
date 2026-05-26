@@ -126,6 +126,23 @@ Each SW-* combo's `crewMembers` has only `alias_5a_lead` (1 entry) per spec §3.
 
 - [ ] **Step 3: Populate `scripts/lib/validation-fixtures.ts` with all 16 entries.** Reference spec §3.3 R-combo table and §3.3.1 show-wide state table for the per-combo `dateRestriction` / `stageRestriction` / `datesRelative` shapes. Synthesize predictable emails: `validation+<combo>-<alias>@example.com`. Synthesize stable names: `<combo>_<alias>`.
 
+  **R13 commit 30 amendment — combo R1's `alias_5a_lead.email` reads from env var.** Per spec §3.3 owned-fixture-mappings R13-amendment paragraph + spec §1.5 "solo-dev IS the validation": combo R1's `alias_5a_lead` row's `email` field is the special case — it reads from `process.env.VALIDATION_J3_CLAIM_EMAIL` at fixture-build time (the dev's real Google account email). All other aliases in R1, and `alias_5a_lead` in every other combo (R2–R8b + 6 SW-states), keep the synthesized `validation+<combo>-<alias>@example.com` format. The fixture-build code MUST abort with a clear diagnostic if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (`@example.com` / `@example.org` / `@example.net` per RFC 2606) — the validation script reaches the abort BEFORE attempting to mint the RPC payload, so the dev gets a fast actionable error rather than an opaque OAuth failure during J3 walking. Pseudocode:
+
+  ```ts
+  const claimEmail = process.env.VALIDATION_J3_CLAIM_EMAIL;
+  if (!claimEmail || /@(example\.com|example\.org|example\.net)$/i.test(claimEmail)) {
+    throw new Error(
+      "VALIDATION_J3_CLAIM_EMAIL must be set to your real Google account email — see " +
+      "spec §3.3 step 5 R13-amendment paragraph + .env.local.example. " +
+      "Got: " + (claimEmail ?? "<unset>")
+    );
+  }
+  // For combo R1's alias_5a_lead only, override the synthesized email:
+  const r1Alias5aEmail = canonicalize(claimEmail);  // canonicalize per AGENTS.md invariant 3
+  ```
+
+  The fixture-build test (TDD step 1 above) covers this path: missing env var → throw; placeholder domain → throw; valid Google email → R1's alias_5a_lead.email === canonicalize($VALIDATION_J3_CLAIM_EMAIL).
+
 - [ ] **Step 4: Run — expect PASS.** Commit:
 
 ```bash
@@ -477,7 +494,7 @@ COMMIT_EOF
 **Files:**
 - Modify: `scripts/validation-check-seed.ts`
 
-Per spec §3.3.2 singleton write semantics. **7 predicates (a-g)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police):
+Per spec §3.3.2 singleton write semantics. **8 predicates (a-g, i, k)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police); R13 commit 30 adds predicate (k):
 
 - (a) `validation_state` row missing (zero rows for `key='validation_seed'`)
 - (b) `last_seed_date != $VALIDATION_TODAY_ISO` (where `$VALIDATION_TODAY_ISO` is the canonical UTC YYYY-MM-DD value the script computes, NOT Postgres `current_date`)
@@ -487,18 +504,19 @@ Per spec §3.3.2 singleton write semantics. **7 predicates (a-g)** — the picke
 - (f) For any alias in `alias_map`, `crew_members` is missing the matching `(show_id, name)` row OR has `email IS NULL` OR has the row but the show is archived
 - (g) For any seeded show, `show_share_tokens` is missing the matching `show_id` row (sentinel for "the shows_create_share_token_after_insert trigger fired correctly")
 - (i) For ANY combo in the requested set, `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO`. Catches the partial-`--combo all` failure mode where some combos succeeded on day X and others stamped day Y (UTC midnight crossed mid-run). check-seed accepts the date as an env var or CLI flag; defaults to `new Date().toISOString().slice(0, 10)`.
+- **(k) (R13 commit 30 amendment — J3-claim-email guard)** `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (`@example.com` / `@example.org` / `@example.net` per RFC 2606) OR combo R1's `alias_5a_lead` row in `crew_members` has an `email` value matching a placeholder reserved domain (i.e., a previous run with a bad env var landed a placeholder email in the DB). Diagnostic: "VALIDATION_J3_CLAIM_EMAIL is unset or placeholder — J3 leg (c) unwalkable (Google OAuth cannot authenticate against example.com/.org/.net; see spec §3.3 step 5 R13-amendment paragraph)."
 
-- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g).
+- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g); returns exit 1 if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (predicate k, per R13 commit 30); returns exit 1 if combo R1's alias_5a_lead row in `crew_members` has a placeholder email (predicate k DB-side check).
 
 - [ ] **Step 2: Run — expect FAIL** (no implementation).
 
-- [ ] **Step 3: Implement** all 7 predicates. Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
+- [ ] **Step 3: Implement** all 8 predicates (a-g, i, k). Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
 
 - [ ] **Step 4: Run — expect PASS.** Commit:
 
 ```bash
 git add scripts/validation-check-seed.ts tests/scripts/validation-check-seed.test.ts
-git commit -m "feat(validation): implement check-seed with 7 picker-fixture predicates"
+git commit -m "feat(validation): implement check-seed with 8 picker-fixture predicates (a-g, i, k incl R13 J3-claim-email guard)"
 ```
 
 ---
