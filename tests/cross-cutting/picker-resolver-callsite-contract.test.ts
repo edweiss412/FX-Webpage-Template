@@ -41,4 +41,18 @@ describe("picker resolver data API callsite contract", () => {
 
     expect(offenders).toEqual([]);
   });
+
+  test("auth_email_canonical RPC stays isolated to resolvePickerSelection", () => {
+    const offenders = [
+      ...walkFiles(path.join(repoRoot, "app")),
+      ...walkFiles(path.join(repoRoot, "components")),
+      ...walkFiles(path.join(repoRoot, "lib")),
+      ...walkFiles(path.join(repoRoot, "tests")),
+    ].filter((file) => {
+      if (file === "lib/auth/picker/resolvePickerSelection.ts") return false;
+      return /\.rpc\(\s*["']auth_email_canonical/.test(source(file));
+    });
+
+    expect(offenders.sort()).toEqual([]);
+  });
 });
