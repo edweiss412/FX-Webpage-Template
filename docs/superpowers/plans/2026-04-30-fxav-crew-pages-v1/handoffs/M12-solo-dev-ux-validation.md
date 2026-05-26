@@ -1906,6 +1906,46 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Repair commit:** pending R59 implementer dispatch (inline Agent; F50 ALTER COLUMN DROP NOT NULL + spec mirror + schema test extension + sweep for other M12 DDL drift-safety gaps).
 
+### Amendment R59 — 2026-05-26
+
+- **Diff base:** `da1f2b3` (post-R58 handoff)
+- **Diff target:** commit 96 (R59 repair)
+- **Verdict:** **implementer-complete; pending R60 adversarial review**
+- **Repair (per F50 instructions):**
+
+  | Surface | Change |
+  |---|---|
+  | `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:141-178` | Inserted idempotent drift-repair `ALTER TABLE public.validation_state ALTER COLUMN last_seed_date DROP NOT NULL;` immediately after `CREATE TABLE IF NOT EXISTS` block, with inline comment citing R59 F50 + AGENTS.md apply-twice idempotency rule. Sequence: CREATE TABLE IF NOT EXISTS → ALTER COLUMN DROP NOT NULL (R59 drift-repair) → DO $$ DROP/ADD CONSTRAINT (R12 enum-drift) → ALTER COLUMNs (R16 alias_map/combos_seeded_dates drift-repair). |
+  | `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:232+` | Mirrored the same drift-repair stanza into spec §3.3.2 canonical DDL block with parallel inline rationale. Spec and plan DDL are now byte-equivalent on this stanza. |
+  | `02-phase0-validation-state.md` Task 0.B.2 Step 1 schema test (`tests/db/validation-state.test.ts` body) | Added a second `test()` block `ALTER COLUMN DROP NOT NULL drift-repair on pre-R57 NOT NULL stack (R59 F50)`. Setup forces `SET NOT NULL` (simulating pre-R57 stack), asserts is_nullable="NO", applies the canonical migration's `DROP NOT NULL`, asserts is_nullable="YES", then re-applies to verify apply-twice idempotency (no-op on already-nullable column). |
+
+- **(B) sweep — other M12 DDL drift-safety gaps:**
+
+  | Surface | Type | Classification | Action |
+  |---|---|---|---|
+  | Plan 02 §validation_state DDL — `last_seed_date` nullability | Column constraint changed across R-rounds (R57: NOT NULL → NULL) | **DRIFT-UNSAFE** → repaired this round | ALTER COLUMN DROP NOT NULL added (this commit) |
+  | Plan 02 §validation_state DDL — `alias_map`, `combos_seeded_dates` | Column added mid-amendment (R12 alias_map, R3 combos_seeded_dates) | DRIFT-SAFE | Already use `ADD COLUMN IF NOT EXISTS` + `ALTER COLUMN SET DEFAULT` + `ALTER COLUMN SET NOT NULL` + DO $$ type-drift fail-loud. No change needed. |
+  | Plan 02 §validation_state DDL — `validation_state_combos_check` CHECK enum | Enum list changed across R-rounds (R8 split R7/R8, R11 added SW-SHOW_LAST) | DRIFT-SAFE | Already uses `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` inside DO $$. No change needed. |
+  | Plan 02 §validation_state DDL — admin_only RLS policy | Policy shape changed across R-rounds (R9, R15 fold-in) | DRIFT-SAFE | Already uses `DROP POLICY IF EXISTS` + `CREATE POLICY`. No change needed. |
+  | Plan 02 §validation_state DDL — REVOKE/GRANT block | Added R17 F15 PostgREST DML lockdown | DRIFT-SAFE | `REVOKE`/`GRANT` are inherently idempotent (PostgreSQL no-ops on identical grant state). No change needed. |
+  | Plan 03 `mint_validation_fixture_atomic` function body | Function definition (DDL via `CREATE OR REPLACE FUNCTION`) | DRIFT-SAFE | Function bodies use `CREATE OR REPLACE FUNCTION` which replaces whole body atomically; no in-place column/constraint mutation. SET clause changes (R27 F27 archived/published) operate on row data via UPDATE, not on schema. No change needed. |
+  | Plan 03 `validation_finalize_all_atomic` function body | Function definition | DRIFT-SAFE | Same as above. R53 F47 CAS predicate operates on row data, not schema. No change needed. |
+  | Plan 03 / Plan 04 — table CREATE/ALTER statements | None (verified via grep — only existing-table references) | N/A — no DDL | M12 amendment scope does not introduce or modify any table other than `validation_state`. Pre-existing CHECK constraints (`crew_members.email`, `show_share_tokens.share_token`) are read-only references, not modified. |
+  | Spec §3.3.2 DDL block | Mirror of plan 02 DDL | **DRIFT-UNSAFE** → repaired this round | ALTER COLUMN DROP NOT NULL added (this commit). |
+
+  **(B) sweep result:** 1 surface drift-unsafe (`last_seed_date` nullability — the F50 instance). 0 peers. Per F50 instructions, peer count < 3 → **per-instance fix only at R59; no structural defense ships this round**. Structural defense for "migration drift-safety for column constraint changes" remains deferred until threshold-3 (3+ peers) is reached. The (B) sweep table itself is preserved in the R59 row so a future reviewer surfacing a peer can see the audit trail.
+
+- **Structural defense decision:** **deferred** (1 peer < threshold-3). The drift-safety class is round 1 of a new class shape; per the AGENTS.md recurring-bug response ladder, structural defenses (doc-guard scanning every M12 plan DDL with `CREATE TABLE IF NOT EXISTS` for follow-up ALTER coverage on mid-amendment column-constraint changes) ship at 3+ rounds. A future R-round surfacing another DDL drift-safety hit triggers the doc-guard; document the class in the AGENTS.md "CHECK/enum migration matrix" rule body as the candidate structural defense.
+
+- **Meta-test regression:** **23 test files / 163 tests PASS** in `tests/cross-cutting/` (no test changes this round; markdown-only repair). The new schema-test block lands in `tests/db/validation-state.test.ts` when Phase 0.B executes — it is not a `tests/cross-cutting/` member.
+
+- **Same-vector status post-R59:**
+  - F50 (migration drift-safety): closed at R59 via per-instance fix + (B) sweep covering all M12 DDL surfaces. 0 peers found. Structural defense deferred per threshold-3 ladder. If R60+ surfaces another DDL drift-safety hit, doc-guard structural defense fires per AGENTS.md recurring-bug ladder rung 2.
+  - F48-class: 2 rounds (R54 + R56); threshold-3 trigger remains armed.
+  - F47 closed at R53; F46/F45/F44/F40-F43 closures regression-clean; F21-class regex set holds at 9 patterns / 8 slots; all other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`. The schema-test extension lives in the plan markdown's prescribed test body (Task 0.B.2 Step 1) — not in a tracked test file under `tests/`.
+
 ---
 
 ## §10 — Cross-milestone dependencies

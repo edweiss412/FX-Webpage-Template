@@ -119,6 +119,68 @@ describe("validation_state", () => {
     // R4 amendment: confirm total column count = 8 (was 7 pre-R3 combos_seeded_dates).
     expect(Object.keys(colMap)).toHaveLength(8);
   });
+
+  // R59 commit 96 F50 — drift-safety verification on pre-R57 (NOT NULL) stack.
+  // Pre-R57 draft declared last_seed_date NOT NULL; CREATE TABLE IF NOT EXISTS
+  // does not re-declare existing columns, so the migration must carry an
+  // explicit ALTER COLUMN ... DROP NOT NULL to drift-repair the constraint.
+  // This test simulates an existing-NOT-NULL stack, applies the migration,
+  // and asserts the column is nullable post-apply.
+  test("ALTER COLUMN DROP NOT NULL drift-repair on pre-R57 NOT NULL stack (R59 F50)", () => {
+    // Setup: force NOT NULL constraint (simulating a stack that applied an
+    // earlier M12 draft). Wrapped in DO block so re-running the suite is safe.
+    runPsql(`
+      DO $$
+      BEGIN
+        BEGIN
+          ALTER TABLE public.validation_state
+            ALTER COLUMN last_seed_date SET NOT NULL;
+        EXCEPTION
+          WHEN check_violation OR not_null_violation THEN
+            -- Cannot SET NOT NULL while a NULL value exists; clear first
+            -- (validation singleton; safe in test harness).
+            DELETE FROM public.validation_state WHERE last_seed_date IS NULL;
+            ALTER TABLE public.validation_state
+              ALTER COLUMN last_seed_date SET NOT NULL;
+        END;
+      END $$;
+    `);
+
+    // Confirm setup landed (constraint is NOT NULL).
+    const before = runPsql(`
+      SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='validation_state'
+         AND column_name='last_seed_date';
+    `).trim();
+    expect(before).toBe("NO");
+
+    // Apply the drift-repair statement from the canonical migration body.
+    runPsql(`
+      ALTER TABLE public.validation_state
+        ALTER COLUMN last_seed_date DROP NOT NULL;
+    `);
+
+    // Assert drift-repair landed: column is now nullable.
+    const after = runPsql(`
+      SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='validation_state'
+         AND column_name='last_seed_date';
+    `).trim();
+    expect(after).toBe("YES");
+
+    // Apply-twice idempotency: re-running DROP NOT NULL on already-nullable
+    // column is a no-op (no error).
+    runPsql(`
+      ALTER TABLE public.validation_state
+        ALTER COLUMN last_seed_date DROP NOT NULL;
+    `);
+    const afterTwice = runPsql(`
+      SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='validation_state'
+         AND column_name='last_seed_date';
+    `).trim();
+    expect(afterTwice).toBe("YES");
+  });
 });
 ```
 
@@ -148,6 +210,20 @@ CREATE TABLE IF NOT EXISTS public.validation_state (
   seeded_supabase_project_ref      text NOT NULL,
   seeded_at                        timestamptz NOT NULL DEFAULT now()
 );
+
+-- R59 commit 96 F50 drift-repair (post-R57 nullability change).
+-- Idempotent drift-repair (R59 F50 fix). Pre-R57 draft specified
+-- `last_seed_date date NOT NULL`; `CREATE TABLE IF NOT EXISTS` above only
+-- applies the new column declaration on FIRST creation, so any dev / staging /
+-- prod-equivalent stack that ran an earlier M12 draft retains the NOT NULL
+-- constraint. Without this ALTER, the R57 mint RPC INSERT — which omits
+-- last_seed_date — fails on drift'd stacks with `null value in column
+-- "last_seed_date" violates not-null constraint`, breaking the F49 closure
+-- path. Per AGENTS.md "CHECK/enum migration matrix" apply-twice idempotency
+-- rule: ALTER COLUMN ... DROP NOT NULL is inherently idempotent (re-applying
+-- on an already-nullable column is a no-op), so no DO $$ guard is needed.
+ALTER TABLE public.validation_state
+  ALTER COLUMN last_seed_date DROP NOT NULL;
 
 DO $$
 BEGIN

@@ -231,6 +231,22 @@ CREATE TABLE IF NOT EXISTS public.validation_state (
   seeded_at                        timestamptz NOT NULL DEFAULT now()
 );
 
+-- R59 commit 96 F50 drift-repair (post-R57 nullability change).
+-- Idempotent drift-repair (R59 F50 fix). Pre-R57 draft specified
+-- `last_seed_date date NOT NULL`; the `CREATE TABLE IF NOT EXISTS` above only
+-- applies the new column declaration on FIRST creation. Any stack (dev /
+-- staging / prod-equivalent) that ran an earlier M12 draft retains the
+-- pre-R57 NOT NULL constraint, on which the R57 mint RPC INSERT (which omits
+-- last_seed_date) would fail with `null value in column "last_seed_date"
+-- violates not-null constraint`, breaking the F49 closure path. Per
+-- AGENTS.md "CHECK/enum migration matrix" apply-twice idempotency rule,
+-- `ALTER COLUMN ... DROP NOT NULL` is inherently idempotent (re-applying on
+-- an already-nullable column is a no-op), so no DO $$ / IF EXISTS guard is
+-- needed. This ALTER guarantees nullability regardless of which M12 draft
+-- the target stack ran first.
+ALTER TABLE public.validation_state
+  ALTER COLUMN last_seed_date DROP NOT NULL;
+
 -- R12 amendment — CHECK constraint uses drop-and-recreate inside DO block.
 -- The R11 duplicate_object pattern was apply-twice safe ONLY for an unchanged
 -- constraint; if the enum list changes (e.g., new combo added in a future
