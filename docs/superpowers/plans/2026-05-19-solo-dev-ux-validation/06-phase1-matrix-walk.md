@@ -245,9 +245,9 @@ Per spec §7.1.
 
 ---
 
-### Task 1.10: Phase 1 close → iteration loop (Phase 8)
+### Task 1.10: Phase 1 close → iteration loop (Phase 7 — renamed from 8 in 2026-05-26 rebase)
 
-If MUST-FIX list is non-empty, proceed to `08-iteration-and-final-sweep.md`. If MUST-FIX is empty after the initial sweep (unlikely but possible), proceed directly to "final sweep + sign-off" sections of Phase 8.
+If MUST-FIX list is non-empty, proceed to `07-iteration-and-final-sweep.md`. If MUST-FIX is empty after the initial sweep (unlikely but possible), proceed directly to "final sweep + sign-off" sections of Phase 7.
 
 ---
 

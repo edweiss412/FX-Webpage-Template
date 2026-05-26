@@ -642,7 +642,7 @@ SELECT count(*) FROM public.crew_member_auth WHERE crew_name LIKE 'R%_alias_%' O
 ```
 
 - [ ] **Step 5: Smoke-test the localhost rejection:** `VALIDATION_SUPABASE_URL=http://127.0.0.1:54321 pnpm validation:check-seed`. Expect exit 1 with localhost-rejected diagnostic.
-- [ ] **Step 6: Move to Phase 0.D** (`04-phase0-tooling-link.md`).
+- [ ] **Step 6: Move to Phase 0.E** (`04-phase0-tooling-report.md`) — Phase 0.D deleted in 2026-05-26 picker-pivot rebase; next phase is now the report-fixtures harness.
 
 ---
 

@@ -98,7 +98,7 @@ The harness's value is rendering — does the live UI show the failure-state row
 
 - [ ] **Step 2: Verify cleanup works:** `pnpm validation:report-fixtures --cleanup`. Confirm DELETE removed validation-tagged rows.
 
-- [ ] **Step 3: Move to Phase 0.F** (`06-phase0-smokes.md`).
+- [ ] **Step 3: Move to Phase 0.F** (`05-phase0-smokes.md` — renamed from `06` in 2026-05-26 picker-pivot rebase).
 
 ---
 
