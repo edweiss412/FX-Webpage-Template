@@ -111,7 +111,12 @@ export default async function ShowPage({
     // falls through
 
     case "infra_error":
-      return <TerminalFailure code={result.code as never} />;
+      return (
+        <TerminalFailure
+          code={result.code as never}
+          retryHref={`/show/${slug}/${shareToken}`}
+        />
+      );
 
     case "needs_picker_bootstrap": {
       // Server Components cannot mint cookies; redirect to the Route

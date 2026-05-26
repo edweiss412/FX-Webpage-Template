@@ -81,6 +81,18 @@ describe("<TerminalFailure>", () => {
     expect(queryByTestId).toBeDefined();
   });
 
+  test("'Try again' link has min-w-tap-min + min-h-tap-min (44×44 floor regardless of copy length)", () => {
+    const { getByTestId } = render(
+      <TerminalFailure
+        code="PICKER_RESOLVER_LOOKUP_FAILED"
+        retryHref="/show/sample-show/a"
+      />,
+    );
+    const retry = getByTestId("terminal-failure-retry") as HTMLAnchorElement;
+    expect(retry.className).toContain("min-w-tap-min");
+    expect(retry.className).toContain("min-h-tap-min");
+  });
+
   test("falls back to dougFacing when crewFacing is null", () => {
     // Find a real catalog entry where crewFacing is null AND dougFacing
     // is populated. If none exists in the current catalog, that's
