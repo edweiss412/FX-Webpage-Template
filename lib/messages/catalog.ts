@@ -355,7 +355,7 @@ export const MESSAGE_CATALOG = {
     code: "AGENDA_UNAUTHENTICATED",
     dougFacing: null,
     crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
-    followUp: "Crew → reopen Doug's latest show URL",
+    followUp: "Crew → reopen signed link",
     helpfulContext: null,
     title: null,
     longExplanation: null,
@@ -1622,30 +1622,6 @@ export const MESSAGE_CATALOG = {
     title: "Drive sync step timed out",
     longExplanation: "A Drive read or enrichment step exceeded its per-step timeout while the show sync lock was held. We'll retry on the next run.",
     helpHref: "/help/errors#SYNC_STEP_TIMEOUT",
-  },
-  ADMIN_LINK_SHOW_NOT_FOUND: {
-    code: "ADMIN_LINK_SHOW_NOT_FOUND",
-    dougFacing: "The show you tried to act on couldn't be found. Refresh and try again.",
-    crewFacing: null,
-    followUp: "Doug → refresh per-show admin page",
-    helpfulContext:
-      "The show ID in the form submission didn't match any row in `public.shows`. Likely the show was archived or deleted between page render and click.",
-    title: "Show not found",
-    longExplanation:
-      "Server Action handed a show_id to the RPC that returned no match. Most likely cause: the page was open while the show was archived or unpublished elsewhere. Refresh the per-show admin page to see the current state.",
-    helpHref: "/help/errors#ADMIN_LINK_SHOW_NOT_FOUND",
-  },
-  ADMIN_LINK_CREW_NOT_FOUND: {
-    code: "ADMIN_LINK_CREW_NOT_FOUND",
-    dougFacing: "The crew member you tried to act on couldn't be found. Refresh and try again.",
-    crewFacing: null,
-    followUp: "Doug → refresh per-show admin page",
-    helpfulContext:
-      "The submitted crew identifier no longer matches the current roster. Likely the crew row was removed by a sync apply between page render and click.",
-    title: "Crew member not found",
-    longExplanation:
-      "Server Action handed a (show_id, crew_name) tuple that didn't match an auth row. Most likely cause: a Drive sync ran during the page session and removed this crew member, advancing the floor for the now-absent name (spec §5.2 line 1104-1110). Refresh to see the current roster.",
-    helpHref: "/help/errors#ADMIN_LINK_CREW_NOT_FOUND",
   },
   PICKER_EPOCH_RESET: {
     code: "PICKER_EPOCH_RESET",

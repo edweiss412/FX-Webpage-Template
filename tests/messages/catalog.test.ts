@@ -140,7 +140,7 @@ describe("message catalog", () => {
       code: "AGENDA_UNAUTHENTICATED",
       dougFacing: null,
       crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
-      followUp: "Crew → reopen Doug's latest show URL",
+      followUp: "Crew → reopen signed link",
       helpfulContext: null,
     });
   });

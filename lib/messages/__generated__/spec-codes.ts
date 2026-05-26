@@ -44,18 +44,6 @@ export const SPEC_CODES = {
     "followUp": "Doug → sign in again",
     "helpfulContext": "Admin-only endpoints return this when the request does not carry a valid admin session.",
   },
-  "ADMIN_LINK_CREW_NOT_FOUND": {
-    "crewFacing": null,
-    "dougFacing": "The crew member you tried to act on couldn't be found. Refresh and try again.",
-    "followUp": "Doug → refresh per-show admin page",
-    "helpfulContext": "The (show_id, crew_name) tuple didn't match any row in `public.crew_member_auth`. Likely the crew row was removed by a sync apply between page render and click.",
-  },
-  "ADMIN_LINK_SHOW_NOT_FOUND": {
-    "crewFacing": null,
-    "dougFacing": "The show you tried to act on couldn't be found. Refresh and try again.",
-    "followUp": "Doug → refresh per-show admin page",
-    "helpfulContext": "The show ID in the form submission didn't match any row in `public.shows`. Likely the show was archived or deleted between page render and click.",
-  },
   "ADMIN_SESSION_LOOKUP_FAILED": {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
     "dougFacing": null,
@@ -796,9 +784,9 @@ export const SPEC_CODES = {
   },
   "SHOW_FIRST_PUBLISHED": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ is now live for crew. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](signed-link) within 24h.",
+    "dougFacing": "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](share-token-url) within 24h.",
     "followUp": null,
-    "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live and signed links you send out will work. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and kill any links you've already sent.",
+    "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and stop the share-token URL from resolving.",
   },
   "SHOW_REALTIME_BROADCAST_AUTH_FAILED": {
     "crewFacing": null,
@@ -832,9 +820,9 @@ export const SPEC_CODES = {
   },
   "SHOW_UNPUBLISHED": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ has been unpublished. Crew links no longer work. Drag the sheet back into your watched folder when you're ready to publish again.",
+    "dougFacing": "_<sheet-name>_ has been unpublished. Its share-token URL no longer works. Drag the sheet back into your watched folder when you're ready to publish again.",
     "followUp": "Doug → optionally re-share when ready",
-    "helpfulContext": "You clicked Unpublish on a recently-published show. The show is now archived, any signed links you sent in the last 24h have been revoked, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
+    "helpfulContext": "You clicked Unpublish on a recently-published show. The show is now archived, its share-token URL no longer resolves, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
   },
   "SHOW_VERSION_AUTH_FAILED": {
     "crewFacing": null,

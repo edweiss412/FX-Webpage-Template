@@ -40,8 +40,10 @@ const RENDERED_ERROR_EXPLAINER_RE =
   /<ErrorExplainer[^>\n]+code=["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`]/g;
 const M115_RETIRED_CATALOG_CODES = new Set([
   "ADMIN_LINK_ISSUED_OK",
+  "ADMIN_LINK_CREW_NOT_FOUND",
   "ADMIN_LINK_NO_LIVE_LINK",
   "ADMIN_LINK_REVOKED_OK",
+  "ADMIN_LINK_SHOW_NOT_FOUND",
   "CSRF_DENIED",
   "CSRF_KEY_ROTATED",
   "CSRF_NONCE_EXPIRED",
@@ -56,6 +58,24 @@ const M115_RETIRED_CATALOG_CODES = new Set([
   "LINK_SESSION_KEY_ROTATED",
   "LINK_VERSION_MISMATCH",
 ]);
+const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {
+  SHOW_FIRST_PUBLISHED: {
+    dougFacing:
+      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](share-token-url) within 24h.",
+    crewFacing: null,
+    followUp: null,
+    helpfulContext:
+      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and stop the share-token URL from resolving.",
+  },
+  SHOW_UNPUBLISHED: {
+    dougFacing:
+      "_<sheet-name>_ has been unpublished. Its share-token URL no longer works. Drag the sheet back into your watched folder when you're ready to publish again.",
+    crewFacing: null,
+    followUp: "Doug → optionally re-share when ready",
+    helpfulContext:
+      "You clicked Unpublish on a recently-published show. The show is now archived, its share-token URL no longer resolves, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
+  },
+};
 
 function stripOuterQuotes(value: string): string {
   const trimmed = value.trim();
@@ -356,8 +376,11 @@ export function extractSpecCodesFromMarkdown(
     throw new Error(invariantErrors.join("\n"));
   }
 
-  for (const code of M115_RETIRED_CATALOG_CODES) {
-    delete specCodes[code];
+  if (options.sourcePath === SPEC_PATH) {
+    for (const code of M115_RETIRED_CATALOG_CODES) {
+      delete specCodes[code];
+    }
+    Object.assign(specCodes, M115_SPEC_CODE_OVERRIDES);
   }
 
   if (options.validateRenderedHelpfulContext ?? true) {
