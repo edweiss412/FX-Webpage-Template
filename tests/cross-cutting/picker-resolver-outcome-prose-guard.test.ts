@@ -33,15 +33,19 @@ type Finding = {
 // F3 — iPhone post-claim mis-attribution: iPhone + claimed_after_pick within 400
 // chars on the same line. Acceptable qualifier on same line: needs_picker_bootstrap,
 // resolveShowPageAccess.ts:20X, or explicit "no Google session" precondition.
-const F3_VIOLATION_RX = /(?:iPhone[^\n]{0,400}claimed_after_pick|claimed_after_pick[^\n]{0,400}iPhone)/i;
-const F3_ACCEPTABLE_RX = /needs_picker_bootstrap|resolveShowPageAccess\.ts:20[0-9]|no (?:active )?Google session/i;
+// Reason-value tokens (`claimed_after_pick`, `session_mismatch`) are matched
+// CASE-SENSITIVE — they are the exact literal lowercase string values from the
+// resolver union types at lib/auth/picker/resolvePickerSelection.ts. Catalog
+// banner code names like `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` embed the
+// reason name in uppercase; case-sensitive matching correctly skips those.
+const F3_VIOLATION_RX = /iPhone[^\n]{0,400}claimed_after_pick|claimed_after_pick[^\n]{0,400}iPhone/;
+const F3_ACCEPTABLE_RX = /needs_picker_bootstrap|resolveShowPageAccess\.ts:20[0-9]|no (?:active )?Google session/;
 
 // F4 — Reset action + session_mismatch within 200 chars on same line.
 // Acceptable: explicit "NOT ... session_mismatch" disambiguation or epoch_stale
 // / epoch arm / epoch check qualifier in the same line.
-const F4_TRIGGER_RX = /\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b/i;
-const F4_VIOLATION_RX = /(?:\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b)[^\n]{0,200}session_mismatch|session_mismatch[^\n]{0,200}(?:\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b)/i;
-const F4_ACCEPTABLE_RX = /\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\n]{0,40}\bNOT\b|epoch_stale|epoch arm|epoch check/i;
+const F4_VIOLATION_RX = /(?:\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b)[^\n]{0,200}session_mismatch|session_mismatch[^\n]{0,200}(?:\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b)/;
+const F4_ACCEPTABLE_RX = /\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\n]{0,40}\bNOT\b|epoch_stale|epoch arm|epoch check/;
 
 // F5 — bare session_mismatch without API-route qualifier in ±5-line proximity.
 // Wider window because the closing-paragraph framing for API-route reachability
@@ -49,12 +53,12 @@ const F4_ACCEPTABLE_RX = /\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\
 // Acceptable qualifiers include the API-route reachability disclaimers AND
 // explicit "NOT session_mismatch" disambiguation (the prose contrasts the
 // correct outcome with what it is NOT — same shape as F4's NOT qualifier).
-const F5_ACCEPTABLE_RX = /API[\s-]route|\/api\/|auth_email_canonical|resolvePickerSelection\.ts:122-143|API-route-only|not from (?:the )?page-route|page-route forecloses|reachable only via|unreachable from (?:the )?page-route|documentation contract|\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\n]{0,40}\bNOT\b/i;
+const F5_ACCEPTABLE_RX = /API[\s-]route|\/api\/|auth_email_canonical|resolvePickerSelection\.ts:122-143|API-route-only|not from (?:the )?page-route|page-route forecloses|reachable only via|unreachable from (?:the )?page-route|documentation contract|\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\n]{0,40}\bNOT\b/;
 
 // Paranoia — Rotate action + claimed_after_pick within 200 chars on same line.
 // No acceptable qualifier (flat-forbidden). Word boundaries prevent matching
 // the past-participle "rotated" in casual prose.
-const PARANOIA_VIOLATION_RX = /(?:\bRotate(?:ShareToken)?(?:Button)?\b|\brotate_show_share_token\b)[^\n]{0,200}claimed_after_pick|claimed_after_pick[^\n]{0,200}(?:\bRotate(?:ShareToken)?(?:Button)?\b|\brotate_show_share_token\b)/i;
+const PARANOIA_VIOLATION_RX = /(?:\bRotate(?:ShareToken)?(?:Button)?\b|\brotate_show_share_token\b)[^\n]{0,200}claimed_after_pick|claimed_after_pick[^\n]{0,200}(?:\bRotate(?:ShareToken)?(?:Button)?\b|\brotate_show_share_token\b)/;
 
 function collectMarkdown(target: string): string[] {
   const full = join(ROOT, target);
@@ -98,6 +102,16 @@ function f5Window(lines: string[], i: number): string {
     .join("\n");
 }
 
+// Local chunk around an F4 violation match — ±60 chars on each side of the
+// matched `Reset...session_mismatch` window. Restricts the acceptable check to
+// the immediate vicinity so an unrelated `epoch_stale` mention elsewhere in
+// the same markdown-table-row line cannot exonerate a misattribution.
+function localChunk(line: string, match: RegExpExecArray): string {
+  const start = Math.max(0, match.index - 60);
+  const end = Math.min(line.length, match.index + match[0].length + 60);
+  return line.substring(start, end);
+}
+
 function scan(file: string, source: string): Finding[] {
   const findings: Finding[] = [];
   const rawLines = source.split("\n");
@@ -131,14 +145,16 @@ function scan(file: string, source: string): Finding[] {
       });
     }
 
-    if (/session_mismatch/i.test(ln)) {
-      // F4 — Reset action + session_mismatch (no NOT/epoch_stale qualifier).
-      if (F4_VIOLATION_RX.test(ln) && !F4_ACCEPTABLE_RX.test(ln)) {
+    if (/session_mismatch/.test(ln)) {
+      // F4 — Reset action + session_mismatch (no NOT/epoch_stale qualifier
+      // within the local chunk around the matched violation).
+      const f4match = ln.match(F4_VIOLATION_RX);
+      if (f4match && f4match.index !== undefined && !F4_ACCEPTABLE_RX.test(localChunk(ln, f4match as RegExpExecArray))) {
         findings.push({
           file,
           line: i + 1,
           subclass: "F4",
-          pattern: "Reset action + session_mismatch within 200 chars (no NOT/epoch_stale qualifier on same line)",
+          pattern: "Reset action + session_mismatch within 200 chars (no NOT/epoch_stale qualifier in local chunk)",
           suggestion:
             "Picker-epoch reset returns `epoch_stale + PICKER_EPOCH_STALE_BANNER` per resolvePickerSelection.ts:88-90 (epoch arm fires before the claim and session-email arms); the cookie's stale `e` short-circuits the resolver. Never `session_mismatch`.",
         });
