@@ -1748,6 +1748,56 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R53 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `6359bdc` (post-R52 handoff row + X.3 audit fix at `a88883e`)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R53 adversarial review**
+
+- **F47 repair (commit 93):** plan `03-phase0-tooling-reseed.md` finalizer RPC body rewritten — compare-and-swap (CAS) defense added at the UPDATE block:
+  - DECLARE block extended with `v_rowcount integer` for `GET DIAGNOSTICS ... ROW_COUNT` capture.
+  - UPDATE clause extended with `AND combos_seeded_dates = v_combos_dates` (matches the snapshot the FOREACH validation loop read). If a concurrent `mint_validation_fixture_atomic` merged a new key into `combos_seeded_dates` between the finalizer's SELECT and UPDATE, the equality check fails and UPDATE returns 0 rows.
+  - Post-UPDATE `GET DIAGNOSTICS v_rowcount = ROW_COUNT` + zero-rowcount RAISE EXCEPTION `'validation_finalize_all_atomic: combos_seeded_dates changed between snapshot and update; concurrent mint_validation_fixture_atomic detected — retry the finalize call. (TOCTOU defense per R52 F47 + R53 commit 93 compare-and-swap repair)'`.
+  - Block comment (~35 lines) added BEFORE the SELECT — documents the TOCTOU surface (read-then-write straddles statements within one PL/pgSQL block, distinct from mint RPC's atomic per-statement UPSERT under per-show advisory lock), CAS rationale, and explicit shared-advisory-lock rejection rationale (would either serialize all mints contra spec §3.3 parallelism contract OR leave mint side unlocked at the new key preserving TOCTOU).
+
+- **(B) Regression test spec (plan 03 Task 0.C.4 Step 8.5 — new step inserted between Step 8 and Step 9):** `tests/db/validation-finalize-all-atomic.test.ts` extended with 5-substep DB-side integration test exercising the CAS surface:
+  1. Setup baseline mint of R1 — assert `combos_seeded_dates = {R1: $TODAY_ISO}`.
+  2. N=10 concurrent trial runs: client A `validation_finalize_all_atomic(['R1'], $TODAY_ISO)` raced against client B `mint_validation_fixture_atomic('R2', <R2_payload>)`; asserts EITHER CAS-RAISE on at least one trial OR consistent post-state when no race observed. Test FAILs only on inconsistent post-state (last_seed_date stamped while singleton lost R1, OR rowcount 0 without exception).
+  3. **Deterministic CAS-fire variant** via TEST-ONLY wrapper `validation_finalize_all_atomic_test_with_sleep` that injects `pg_sleep(2)` between SELECT and UPDATE phases (CREATE in test setup, DROP in `afterAll`). Client A starts wrapper, test waits 500ms, client B mutates singleton, client A awaited — asserts `CONCURRENT_MODIFICATION_RACE` exception message matches R53 commit 93 string verbatim.
+  4. Concrete-failure-mode prose documents what the test catches (CAS WHERE-clause omitted, GET DIAGNOSTICS absent, UPDATE silently 0-row).
+  5. Idempotency probe: two consecutive identical finalizer calls (no intervening mint) MUST both succeed.
+  - DB-side rationale: TOCTOU surface lives in PL/pgSQL local state (`v_combos_dates`); application-level mock cannot exercise the race.
+
+- **(C) Class-sweep — TOCTOU surfaces on singleton state across M12 plan RPCs:**
+
+  | RPC | Pattern | Verdict |
+  |---|---|---|
+  | `mint_validation_fixture_atomic` (`03:213-505`) | Single-statement UPSERT with `ON CONFLICT (key) DO UPDATE SET combos_seeded_dates = public.validation_state.combos_seeded_dates \|\| jsonb_build_object(p_combo, ...)`. NO prior SELECT/snapshot of singleton state; the merge happens server-side inside a single statement under PostgreSQL row-level locking on the ON CONFLICT path. PLUS holds `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` per spec invariant 2. | **SAFE — atomic primitive** (no read-then-write pattern). |
+  | `validation_finalize_all_atomic` (`03:543-564`) | SELECT into v_combos_dates → FOREACH validate → UPDATE last_seed_date. Read-then-write straddles statements; mutating singleton between SELECT and UPDATE is the TOCTOU race. | **TOCTOU-RISK — needs CAS (closed at R53 commit 93).** |
+  | `validation-resolve-alias` (`03:716-731`) | Read-only jsonb lookup against `validation_state.alias_map`. No write path. | **NO-PATTERN — not read-then-write.** |
+  | Other M12-plan RPCs touching `validation_state` | None — the only writers are the two RPCs above. `tests/db/admin-rls-runtime.test.ts` (X.6) reads via information_schema (no write); admin UI surfaces (M11.5) do not touch `validation_state`. | **N/A — no other RPC writes the singleton.** |
+
+  Class-sweep result: **1 TOCTOU-risk peer (the finalizer itself), 0 additional peers, 1 SAFE neighbor, 1 NO-PATTERN neighbor.** Per AGENTS.md cross-cutting #5 "class-sweep before patching adversarial findings": F47 is a 1-of-1 instance, not a class with 3+ peers → per-instance fix sufficient at R53. Structural defense (e.g., a doc-guard meta-test asserting every RPC reading `validation_state` singleton followed by UPDATE carries a CAS-WHERE clause) NOT shipped at R53 — threshold not met. If a future M12 amendment adds a SECOND RPC with the same read-then-write pattern, the structural-defense calibration rule (AGENTS.md "structural defenses... ship in that round's repair commit") applies at that point.
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 93 | _pending_ | docs(plan-m12): R53 F47 — validation_finalize_all_atomic compare-and-swap repair + regression test spec + class-sweep |
+
+- **Meta-test regression:** **163 tests / 23 files PASS** for `pnpm test tests/cross-cutting/` (no test files modified at R53; spec/plan markdown only). The 3 doc-guard test files cited in the R51 row (`no-inline-email-normalization-in-plan-doc-guard.test.ts`, `reseed-clears-oauth-claim-doc-guard.test.ts`, `tests/admin/no-inline-email-normalization.test.ts`) hold at their R51 counts within the larger 23-file suite. No structural defense added (class-sweep returned 1-of-1).
+
+- **Same-vector status post-R53:**
+  - F47 NEW class (RPC TOCTOU race on singleton state): 1 round, 1 peer, per-instance closure via CAS. Threshold for structural defense (3+ peers OR 3+ rounds) not met.
+  - F44/F45/F46 closures regression-clean.
+  - F21-class regex set holds at 9 patterns / 8 structural slots.
+  - All other classes still closed.
+
+- **Scope discipline:** plan + handoff markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/`.
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.

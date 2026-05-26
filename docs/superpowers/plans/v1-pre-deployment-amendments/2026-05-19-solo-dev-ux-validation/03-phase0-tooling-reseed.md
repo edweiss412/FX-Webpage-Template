@@ -528,6 +528,7 @@ DECLARE
   v_missing text[] := ARRAY[]::text[];
   v_stale text[]   := ARRAY[]::text[];
   v_combos_dates jsonb;
+  v_rowcount integer;             -- R53 commit 93 F47 CAS guard rowcount
 BEGIN
   -- Validate p_validation_today_iso shape + within ±1 day of server current_date.
   IF p_validation_today_iso IS NULL OR p_validation_today_iso !~ '^\d{4}-\d{2}-\d{2}$' THEN
@@ -540,6 +541,42 @@ BEGIN
     RAISE EXCEPTION 'validation_finalize_all_atomic: p_validation_today_iso % differs from server current_date % by >1 day', p_validation_today_iso, current_date;
   END IF;
 
+  -- R53 commit 93 F47 amendment — TOCTOU defense via compare-and-swap (CAS).
+  -- The finalizer reads `combos_seeded_dates` once into v_combos_dates, validates
+  -- in PL/pgSQL (the FOREACH loop below), then UPDATEs `last_seed_date`. Without
+  -- a CAS guard, a concurrent `mint_validation_fixture_atomic('<combo>', ...)`
+  -- call interleaved between the SELECT and the UPDATE could mutate
+  -- combos_seeded_dates (per-combo stamp at the mint RPC's section 4 ON CONFLICT
+  -- DO UPDATE block) — the finalizer would then stamp `last_seed_date` for the
+  -- OLD snapshot's complete-set semantic while the singleton's combos_seeded_dates
+  -- already reflects a NEWER set. check-seed predicates (b) (`last_seed_date !=
+  -- $VALIDATION_TODAY_ISO`) and (i) (`combos_seeded_dates[combo] !=
+  -- $VALIDATION_TODAY_ISO`) would disagree in opposite directions →
+  -- permanently-inconsistent gate.
+  --
+  -- The mint RPC's per-statement UPSERT is atomic per-row (PostgreSQL serializes
+  -- ON CONFLICT resolution under row-level locking, and the mint RPC additionally
+  -- holds `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` per spec
+  -- invariant 2), but the FINALIZER's read-then-write straddles statements within
+  -- one PL/pgSQL block — that's the TOCTOU surface. Repair = compare-and-swap:
+  -- the UPDATE's WHERE clause requires `combos_seeded_dates = v_combos_dates`
+  -- (the snapshot at SELECT time). If a concurrent mint mutated the singleton
+  -- between SELECT and UPDATE, the WHERE clause fails to match and UPDATE
+  -- returns 0 rows; GET DIAGNOSTICS reads the rowcount and RAISEs a
+  -- CONCURRENT_MODIFICATION_RACE exception. The script's caller treats this as
+  -- a retriable error (re-invoke `validation_finalize_all_atomic` with a fresh
+  -- snapshot read on next attempt). TOCTOU-safe + simpler than introducing a
+  -- shared advisory-lock surface across the two RPCs.
+  --
+  -- Rationale for CAS vs shared advisory lock: the mint RPC holds a per-show
+  -- lock (`hashtext('show:' || drive_file_id)`), not a singleton-state lock,
+  -- because per-combo mints are intentionally parallelizable per spec §3.3.
+  -- Introducing a singleton-state lock at the finalizer side would either
+  -- (a) require the mint RPC to ALSO acquire it (serializing all mints, breaking
+  -- the parallelism contract + adding a multi-holder topology that
+  -- `tests/auth/advisoryLockRpcDeadlock.test.ts` would need to pin), or
+  -- (b) leave the mint side unlocked at the new key, preserving the TOCTOU.
+  -- CAS sidesteps both: zero new lock surface, fail-fast on race detection.
   SELECT combos_seeded_dates INTO v_combos_dates FROM public.validation_state WHERE key = 'validation_seed';
   IF v_combos_dates IS NULL THEN
     RAISE EXCEPTION 'validation_state.combos_seeded_dates not initialized — run mint_validation_fixture_atomic first';
@@ -558,10 +595,18 @@ BEGIN
     RAISE EXCEPTION 'validation_finalize_all_atomic: incomplete reseed (missing: %, stale: %)', v_missing, v_stale;
   END IF;
 
-  -- All requested combos seeded today; safe to stamp top-level last_seed_date.
+  -- All requested combos seeded in the snapshot; stamp top-level last_seed_date
+  -- with CAS guard (R53 commit 93 F47 TOCTOU defense — see block comment above).
+  -- The WHERE clause's `combos_seeded_dates = v_combos_dates` requires the
+  -- singleton's current value to equal the snapshot we just validated against.
   UPDATE public.validation_state
     SET last_seed_date = p_validation_today_iso::date
-    WHERE key = 'validation_seed';
+    WHERE key = 'validation_seed'
+      AND combos_seeded_dates = v_combos_dates;
+  GET DIAGNOSTICS v_rowcount = ROW_COUNT;
+  IF v_rowcount = 0 THEN
+    RAISE EXCEPTION 'validation_finalize_all_atomic: combos_seeded_dates changed between snapshot and update; concurrent mint_validation_fixture_atomic detected — retry the finalize call. (TOCTOU defense per R52 F47 + R53 commit 93 compare-and-swap repair)';
+  END IF;
 
   RETURN jsonb_build_object('finalized_combos', p_required_combos, 'last_seed_date', p_validation_today_iso);
 END;
@@ -608,6 +653,16 @@ await supabase.rpc("mint_validation_fixture_atomic", { p_combo, p_fixture_payloa
 - [ ] **Step 7: Extend `tests/auth/advisoryLockRpcDeadlock.test.ts`** (the canonical advisory-lock topology test per AGENTS.md invariant 2) to include the two new RPCs — proves only ONE lock-holder layer per hashkey.
 
 - [ ] **Step 8: Verify {data, error} destructuring** at every Supabase call site (per AGENTS.md invariant 9).
+
+- [ ] **Step 8.5: Add the F47 finalizer-TOCTOU regression test (R53 commit 93 amendment)** at `tests/db/validation-finalize-all-atomic.test.ts`. The test exercises the compare-and-swap (CAS) defense in `validation_finalize_all_atomic` end-to-end against the prod-equivalent Supabase target. **DB-side interleaving is mandatory** — the TOCTOU race lives between the finalizer's `SELECT combos_seeded_dates INTO v_combos_dates` and the subsequent UPDATE, both inside the SECURITY DEFINER RPC body. An application-level mock cannot exercise this surface (the snapshot value is held in PL/pgSQL local state, not in TypeScript-observable client state); the only way to interleave a concurrent mint between the SELECT and the UPDATE is to issue both RPC calls as concurrent Supabase clients and rely on PostgreSQL's transaction visibility semantics. Bundle with the existing `tests/db/validation-finalize-all-atomic.test.ts` integration test (created at Step 1 of this task).
+  1. **Setup baseline:** call `mint_validation_fixture_atomic('R1', <R1_payload>)` against prod-equivalent Supabase with `validationTodayIso = $TODAY_ISO`. Assert exit 0. Read `combos_seeded_dates` from `validation_state` — assert it contains exactly `{R1: $TODAY_ISO}` (or whatever singleton row is canonical at this point in the test — assert against the actual fixture state, not hardcoded).
+  2. **Interleave a concurrent mint:** issue two RPC calls concurrently via two independent Supabase clients —
+     - Client A: `validation_finalize_all_atomic(['R1'], $TODAY_ISO)` — the finalizer call under test.
+     - Client B: `mint_validation_fixture_atomic('R2', <R2_payload>)` — a concurrent per-combo mint that mutates `combos_seeded_dates` by merging `{R2: $TODAY_ISO}` (per the mint RPC section 4 ON CONFLICT DO UPDATE SET `combos_seeded_dates = ... || jsonb_build_object(p_combo, ...)`).
+     - The test does NOT need deterministic ordering — PostgreSQL's transaction-isolation semantics handle the race naturally. EITHER (a) Client A's SELECT lands before Client B's UPSERT commits (Client A sees the old snapshot, then the CAS UPDATE finds the singleton mutated → raises CONCURRENT_MODIFICATION_RACE), OR (b) Client A's SELECT lands after Client B's UPSERT commits (Client A sees the new snapshot containing R2, validates only R1, the CAS UPDATE matches the post-Client-B singleton → succeeds OR fails predicate-(i)-shape if R2 wasn't requested — both branches are acceptable end-states for the test). The test asserts: **at least one of the following holds across N=10 trial runs** — (a) Client A's call RAISEd `CONCURRENT_MODIFICATION_RACE` (the CAS guard fired), OR (b) Client A's call succeeded AND post-state `last_seed_date = $TODAY_ISO` AND `combos_seeded_dates` includes both R1 + R2 with matching dates (the no-race-observed-this-run case). The test FAILs only if Client A succeeds AND the post-state singleton is inconsistent (e.g., `last_seed_date = $TODAY_ISO` while `combos_seeded_dates` doesn't include R1 anymore, OR the CAS UPDATE returned 0 rows but no exception was RAISEd).
+  3. **Direct CAS-fire variant (deterministic):** for a deterministic CAS-fire trigger, the test can use a service-role connection to manually `UPDATE public.validation_state SET combos_seeded_dates = combos_seeded_dates || '{"manual_probe": "2099-01-01"}'::jsonb WHERE key='validation_seed'` BETWEEN the finalizer's SELECT and UPDATE phases. PostgreSQL's PL/pgSQL doesn't expose a hook to pause mid-function, so this variant uses an `pg_sleep(2)` injection in a TEST-ONLY wrapper RPC `validation_finalize_all_atomic_test_with_sleep` (created via `CREATE OR REPLACE FUNCTION ... AS $$ ... PERFORM pg_sleep(2) BETWEEN SELECT AND UPDATE ... $$` in the test setup, DROPped in afterAll). The test then: (a) starts the wrapper RPC in client A (returns a promise), (b) waits 500ms (so client A is inside `pg_sleep`), (c) issues the singleton mutation from client B, (d) awaits client A — asserts client A's call RAISEd `CONCURRENT_MODIFICATION_RACE` matching the R53 commit 93 exception message. This variant proves the CAS branch deterministically; the N=10 concurrent variant proves the no-race-observed branch doesn't false-positive.
+  4. **Concrete failure mode the test catches:** the finalizer's UPDATE WHERE clause is omitted, malformed (e.g., dropped the `combos_seeded_dates = v_combos_dates` predicate during a future refactor), OR the GET DIAGNOSTICS rowcount check is absent (UPDATE returns 0 rows but the function returns success regardless) → concurrent mint between SELECT and UPDATE produces inconsistent singleton state → check-seed predicates (b) and (i) disagree permanently → walk-session gate falsely PASSes (last_seed_date stamped) or falsely FAILs (last_seed_date stale) depending on the race direction. The test's invariant is "the finalizer's last_seed_date stamp is consistent with combos_seeded_dates at the moment of UPDATE — either both reflect the post-mint state OR the finalizer raises CONCURRENT_MODIFICATION_RACE." Commit alongside the F16 / F19 / F27 regressions.
+  5. **Idempotency probe:** a `validation_finalize_all_atomic(['R1'], $TODAY_ISO)` call followed immediately by an identical second call (no intervening mint) MUST succeed both times — the CAS guard fires only on TRUE concurrent mutation, not on stable singleton state. Assert exit 0 for both calls.
 
 - [ ] **Step 9: Run integration tests — expect PASS.** Commit:
 
