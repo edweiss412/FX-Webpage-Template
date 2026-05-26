@@ -6,11 +6,25 @@
 >
 > Plan-wide invariants 8 (singleton + drift-safe DDL) and 9 (atomic master-spec amendment) are load-bearing here.
 
+> **Rebase note (2026-05-26).** This file was drafted against pre-M11.5 master-spec line numbers + a test surface (`tests/db/rls.test.ts`, `tests/cross-cutting/auth.test.ts`) that doesn't match live state. The 2026-05-26 amendment's stale-citation sweep (spec §15.26) corrects every cite. Live deltas:
+>
+> | Stale claim in this file | Live corrected value |
+> |---|---|
+> | Master §4.3 prose: `line 605` | **`line 610`** (drifted +5 since the original 2026-05-19 draft) |
+> | Master AC-2.5: `line 3489` | **`line 3536`** (drifted +47) |
+> | Master §4.3 nominal count: `21 → 22` | Same numerically — the prose count IS still nominally `21`, but per the picker-pivot (α + γ-footnote) hybrid the prose track stays at 21→22 AND a footnote is added per spec §3.3.2 step 3a documenting that live `ADMIN_TABLES.length = 18 = 22 − 4 dropped` (the M11.5 G3 cutover filtered 4 M9.5 tables via `scripts/generate-admin-tables.ts:31-34`'s `removedByPickerPivot` array) |
+> | `tests/db/rls.test.ts` (lines 163-164: `21 → 22`) | **FILE DOES NOT EXIST** — drop this task entirely |
+> | `tests/db/admin-rls-runtime.test.ts` ("7 refs on lines 4 / 9 / 21 / 111 / 112 / 213 / 218 carrying `21`") | **4 refs on lines 4 / 21 / 111 / 112 carrying `17`** (post-M11.5 G3 cutover baseline). Update each `17` → `18`, NOT `21` → `22`. |
+> | `tests/cross-cutting/auth.test.ts` line 203 ADMIN_TABLES literal-list | **FILE DOES NOT EXIST** + no `ADMIN_TABLES` literal-list assertion exists in any test (the registry is consumed structurally via the generated import). Drop this task entirely. |
+> | "Phase 0.D" reference in close-out narrative | Phase 0.D was DELETED in the 2026-05-26 rebase; move directly from Phase 0.B → Phase 0.C |
+>
+> The stale tasks below (0.B.3 master-spec edit, 0.B.5 AC-2.5 edit, 0.B.7 rls.test.ts, 0.B.8 admin-rls-runtime line list, 0.B.10 auth.test.ts) MUST be interpreted against this rebase-corrections table; the implementer applies the live values, not the stale values. A future cleanup pass may inline-rewrite each task body — this commit lands the corrections-table as load-bearing per Q3's "silent rewrite + consolidated §15.26 note" posture.
+
 ---
 
 ### Task 0.B.1: Pre-verify live state matches the spec's atomic-checklist line refs
 
-The spec §3.3.2 atomic checklist cites specific lines in master spec and test files. Before editing, verify each line still says what the spec says it says (the codebase may have evolved since the spec was written).
+The spec §3.3.2 atomic checklist cites specific lines in master spec and test files. Before editing, verify each line still says what the spec says it says (the codebase may have evolved since the spec was written). **The rebase-corrections table above is the authoritative live-value source; the steps below reference the original stale citations for narrative continuity but the implementer applies live values.**
 
 - [ ] **Step 1: Verify master spec §4.3 line 605 (21 admin-only tables count).**
 
