@@ -565,6 +565,80 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - All previous classes still closed (resolver-outcome R6-R8, F6/F7/F9, phantom-metatest R11+R12, F10-class, F11-class, F15/F17 R16-R17).
 - **Scope discipline:** Spec + plan + handoff markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `tests/`, `supabase/migrations/` (mint RPC body is plan-spec'd inline; runtime authoring is Phase 0.C execution work per existing plan cadence).
 
+### Amendment R20 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `2f6c742` (post-R19)
+- **Verdict:** **needs-attention** (2 HIGH; F20 = F10-class THRESHOLD-3 BREACH + F21 = R19 class-sweep miss)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F20 | HIGH | `2026-05-19-solo-dev-ux-validation-design.md:814-819` (spec §9.1.2 canonical CLI env-var table) | **F10-class same-vector recurrence (3rd round). THRESHOLD-3 BREACH.** §9.1.2 declares itself "single authoritative tooling contract"; reseed row lists only `VALIDATION_SUPABASE_URL` + `VALIDATION_SUPABASE_SECRET_KEY` + `VALIDATION_SUPABASE_PROJECT_REF`; other commands inherit "Same three env vars." Contradicts R13/J3 contract requiring `VALIDATION_J3_CLAIM_EMAIL`. Implementer following table can omit Google email from reseed/check-seed → R1.alias_5a_lead remains placeholder OR predicate (k) unenforced; J3 unwalkable or falsely green. **R15 (A) audit had 5 dimensions but didn't include "canonical CLI env-var enumeration TABLE" as a surface — the F10-parameterization-integrity doc-guard was prose-scoped, didn't extend to markdown tables.** |
+  | F21 | HIGH | `2026-05-19-solo-dev-ux-validation-design.md:168-178` (spec §3.3 picker-fixture lockstep prose) | **R19 class-sweep miss — F19 surface incomplete.** §3.3 lockstep says reseed "does NOT write show_share_tokens directly" + frames predicate (g) as trigger-only sentinel. §3.3.2 R19-amendment requires mint RPC self-heal via `INSERT INTO public.show_share_tokens ... ON CONFLICT DO NOTHING`. AGENTS.md says spec is canonical → implementer can follow §3.3 prose, omit self-heal block, ship R19 exact failure mode. R19's (A) audit enumerated mint-RPC write surfaces (tables) but didn't sweep prose contradicting the newly-amended contract. |
+
+- **THRESHOLD-3 BREACH ACKNOWLEDGMENT:** F10-class is at **3 rounds** (R12 F10 + R14 F13/F14 + R20 F20). Per M12 plan R5 precedent + R15 row explicit promise: "if R16 surfaces another F10-class hit, structural defense is insufficient and a deeper redesign is required." Strict reading: F10-class threshold-3 trigger is round-counted (not consecutive-counted); R20 IS the 3rd round. **R15 doc-guard (`reseed-clears-oauth-claim-doc-guard.test.ts` F10-parameterization-integrity assertion) was prose-scoped grep; MISSED markdown TABLE surfaces.** R21 MUST:
+  1. Ship **deeper structural-defense redesign** (not per-instance patch): either extend R15 guard to enumerate markdown-table VALIDATION_* literals + assert 4-var completeness, OR author new `tests/cross-cutting/m12-canonical-tables-completeness-guard.test.ts` that scans every spec §-numbered table referencing VALIDATION_* env vars and asserts all 4 are present.
+  2. Run **enlarged (A) audit** on F10-class: original 5 dimensions PLUS new Dim 6 (canonical contract tables — §9.1.2 + any other §-numbered enumeration tables) PLUS Dim 7 (cross-section prose contradictions — every spec section that references an env-var contract surface must agree on the contract's full shape).
+  3. Per-instance fix F20: §9.1.2 table reseed/check-seed rows explicitly list `VALIDATION_J3_CLAIM_EMAIL`; clarify which read-only commands don't need it (no "Same three env vars" shorthand).
+
+- **F21 disposition:** treat as R19 class-sweep-miss. The prose-contradiction-after-amendment pattern is broader than F10-class — it's a general "amend §X.Y, sweep §X.* + other sections that reference §X.Y" discipline. R21 must:
+  1. Per-instance fix F21: rewrite §3.3 lockstep prose to match §3.3.2 (trigger creates row on first INSERT; mint RPC always self-heals via idempotent INSERT...ON CONFLICT after shows UPSERT; remove "does NOT write" wording; remove troubleshooting paths that treat manual backfill as normal repair).
+  2. Class-sweep all R13-R19 amendments for prose-contradiction peers: every section the amendment touched, audit ALL OTHER sections that reference the same contract surface. Specifically: R13 F10 (J3 OAuth + VALIDATION_J3_CLAIM_EMAIL); R15 F13/F14 (rejected domain canonical set); R17 F15 (PostgREST DML lockdown contract); R17 F16 (mint RPC full-replace); R17 F17 (schema-test pattern); R19 F18 (drive_file_id case); R19 F19 (show_share_tokens self-heal).
+  3. If class-sweep surfaces 3+ peers beyond F21, ship structural defense for prose-contradiction class (candidate: new `tests/cross-cutting/m12-amendment-prose-consistency-guard.test.ts` that grep-asserts every §-numbered section referencing an amended contract uses the post-amendment prose).
+
+- **Same-vector status post-R20:**
+  - **F10-class: 3 rounds, threshold-3 BREACHED.** R21 mandate: deeper structural defense + enlarged (A) audit. Failure to ship deeper defense at R21 → escalate to deeper redesign (contract-level inline assertions, etc.).
+  - **F19-class (prose-contradicts-newly-amended-contract):** R20 surfaced this as an R19 sweep gap. Could be classified as F19-class extension OR new "amendment-prose-consistency" class. Per same-vector ladder: R21 patches per-instance + sweeps R13-R19 amendments for peers. If 3+ peers found, structural defense at R21 per M12 plan R5 precedent.
+  - F18-class still closed (no R20 hit).
+  - All previous classes (resolver-outcome R6-R8, F6/F7/F9, phantom-metatest R11+R12, F11-class, F15/F17, F16-class R16-R19) still closed.
+
+- **Repair commit:** R21 amendment session 2026-05-26 (inline Agent dispatch). 4 commits landed (commit 48 conditional NOT FIRED — class-sweep peers <3 threshold):
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 44 | `dd9e013` | `docs(spec-m12): R21 F20 — §9.1.2 canonical CLI table 4-var completeness per row` |
+  | 45 | `e9f252e` | `docs(spec-m12): R21 F21 — §3.3 lockstep prose rewrite to match §3.3.2 R19 self-heal` |
+  | 46 | `5e0aa95` | `docs(spec-m12)+docs(plan-m12): R21 (C) class-sweep — R13-R19 amendment prose-consistency peers` |
+  | 47 | `c957622` | `test(cross-cutting): R21 F10-class DEEPER structural defense — canonical-tables-completeness guard` |
+
+  **(B) Enlarged F10-class (A) audit — Dim 1-7 results:**
+  - Dim 1 (parameterization integrity, 6 prose surfaces): PASS (R15 guard).
+  - Dim 2 (canonical rejected-domain set across peers): PASS (R15 Dim-3 sweep).
+  - Dim 3 (predicate (k) verb form): PASS.
+  - Dim 4 (test fixture-vs-RPC enforcement parity): PASS.
+  - Dim 5 (claim baseline reset on every reseed): PASS.
+  - **Dim 6 (canonical contract TABLES — §-numbered tables enumerating VALIDATION_* env vars):** **FAIL pre-R21 commit 44** — §9.1.2 table at lines 814-819 had reseed row listing 3 vars + 3 rows using "Same three env vars" shorthand; missing VALIDATION_J3_CLAIM_EMAIL on all 4 rows. **PASS post-R21 commit 44** — every row enumerates its env vars explicitly (4 vars for reseed + check-seed; 3 vars + explicit subset reason for resolve-alias + report-fixtures).
+  - **Dim 7 (cross-section prose vs amendment consistency):** **FAIL pre-R21 commit 45** for F21 surface (§3.3 lockstep prose contradicted §3.3.2 R19 self-heal contract). **PASS post-R21 commits 45 + 46** — §3.3 lockstep rewritten as dual-source sentinel (initial-INSERT trigger + mint RPC self-heal); F16 full-replace peer surface also patched into §3.3 lockstep.
+
+  **(C) F21-class class-sweep — R13-R19 amendment peers:**
+
+  | Amendment | Contract surface | Peers in OTHER sections | Status |
+  |---|---|---|---|
+  | R13 F10 | J3 OAuth + VALIDATION_J3_CLAIM_EMAIL parameterization | §9.1.2 table (F20 itself; covered Dim 6) | Fixed commit 44 |
+  | R13 F11 | reseed clears claimed_via_oauth_at on every reseed | §3.3 lines 169 + 175 — already uses "RESET TO NULL on every reseed" verb post-R13 | CLEAN |
+  | R15 F13/F14 | canonical rejected-domain set (RFC 2606 + 6761 + mDNS) | swept across 6 surfaces in R15 commit 35 | CLEAN |
+  | R17 F15 | PostgREST DML lockdown for validation_state | §3.3.2 carries full contract at line 330; DDL has REVOKE block | CLEAN |
+  | R17 F16 | mint RPC full-replace DELETE-BEFORE-UPSERT for crew_members | §3.3 lockstep was silent on full-replace (peer) | **Fixed commit 46** |
+  | R17 F17 | schema-test pattern psql vs supabase-js | plan-only surface, no spec prose to drift | CLEAN |
+  | R19 F18 | drive_file_id UPPERCASE canonical case | §3.3.2 predicate (m) carries clarification; no other section references | CLEAN |
+  | R19 F19 | show_share_tokens self-heal in mint RPC | §3.3 lockstep contradicted §3.3.2 (F21 itself) | Fixed commit 45 |
+
+  **Peers beyond F21 itself: 2** (R17 F16 lockstep silence + canonical-env-var-map cross-link ambiguity). Below 3-peer threshold → commit 48 (prose-consistency structural defense) NOT FIRED. If R22 surfaces another prose-contradiction peer, structural defense for the prose-contradiction class fires at R23.
+
+  **F10-class structural-defense redesign — assertion design + RED→GREEN evidence:**
+  - Surface targeted: every spec table-body row enumerating at least one canonical `VALIDATION_*` env var literal by name (not the wildcard `VALIDATION_*` glob which appears in prose like "Set VALIDATION_* env vars in Vercel").
+  - Contract: such a row MUST EITHER (a) list all 4 canonical vars verbatim, OR (b) carry an explicit subset reason inline (`3 vars` + `J3-claim-email NOT required` / `J3-claim-email is omitted` / `not-subject-to-meta: <reason>`).
+  - RED verify: stashed §9.1.2 patch and re-ran — assertion fails at `:816` reseed row with `missing: VALIDATION_J3_CLAIM_EMAIL`. Restored spec.
+  - GREEN verify: post-R21 commits 44 + 46, assertion passes against current HEAD.
+  - Meta-test regression: 9/9 pass (baseline 8/8 + new F20-canonical-tables-completeness assertion = 9 total).
+
+- **Same-vector status post-R21:**
+  - **F10-class: 3 rounds, threshold-3 BREACHED at R20.** R21 shipped deeper structural defense (canonical-tables-completeness guard) + enlarged (A) audit (Dim 6 + 7). If R22 surfaces another F10-class hit, the structural defense was incomplete → escalate to contract-level inline assertions OR multi-table grep + 4-var enumeration walker.
+  - **F19-class / prose-contradiction-after-amendment class:** R20 surfaced; R21 patched F21 per-instance + swept R13-R19 amendments (2 peers found: R17 F16 lockstep + cross-link). Below 3-peer threshold; per-instance defense for now. R22+ same-vector hit → structural defense at that round.
+  - F18-class still closed.
+  - All previous classes still closed (resolver-outcome R6-R8, F6/F7/F9, phantom-metatest R11+R12, F11-class, F15/F17, F16-class R16-R19).
+
 ---
 
 ## §10 — Cross-milestone dependencies
