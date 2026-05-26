@@ -42,31 +42,23 @@ grep -n "84 assertions" docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
 
 Expected: line containing "**21 tables × 4 verbs = 84 assertions**". If shifted, adapt.
 
-- [ ] **Step 3: Verify `tests/db/rls.test.ts` line 163-164 hardcodes 21.**
+- [ ] **Step 3: Verify `tests/db/admin-rls-runtime.test.ts` has 4 references to `17` on lines 4/21/111/112** (post-M11.5 G3 cutover live baseline; the pre-rebase plan's claim of "7 references on lines 4/9/21/111/112/213/218" is stale — see front-loaded rebase-corrections table + R10 F6 repair + spec §3.3.2 step 6).
 
 ```bash
-grep -n "21 admin-only\|toHaveLength(21)" tests/db/rls.test.ts | head -5
+grep -n "17 admin\|toHaveLength(17)\|17 tables\|17 admin-gated" tests/db/admin-rls-runtime.test.ts
 ```
 
-Expected: lines matching the spec's claim.
+Expected: 4 lines mentioning `17` at lines 4 / 21 / 111 / 112 (header comment, classification comment, derivation comment, assertion). If the count has shifted away from `17`, adapt Task 0.B.8's sed recipe accordingly.
 
-- [ ] **Step 4: Verify `tests/db/admin-rls-runtime.test.ts` has 7 references to "21".**
+- [ ] **Step 4: Confirm there is NO live `ADMIN_TABLES` literal-list expectation in any test** (the pre-rebase plan's references to `tests/db/rls.test.ts` + `tests/cross-cutting/auth.test.ts` are stale — both files do not exist; verified at the 2026-05-26 amendment + R10 F6 repair).
 
 ```bash
-grep -n "21" tests/db/admin-rls-runtime.test.ts | head -10
+grep -rln 'ADMIN_TABLES.*toEqual\|ADMIN_TABLES.*toHaveLength' tests/ 2>/dev/null
 ```
 
-Expected: 7 lines mentioning 21 (per spec — comments + assertions).
+Expected: zero hits. `ADMIN_TABLES` is consumed structurally via the generated `lib/audit/admin-tables.generated.ts` import; no per-element literal expectation needs maintenance. Tasks 0.B.7 + 0.B.10 in this plan file are DELETED per R10 F6 repair — see those task headers.
 
-- [ ] **Step 5: Verify `tests/cross-cutting/auth.test.ts` line 203 has the ADMIN_TABLES literal list.**
-
-```bash
-sed -n '195,225p' tests/cross-cutting/auth.test.ts
-```
-
-Expected: an array literal containing the existing 21 admin-only table names.
-
-- [ ] **Step 6: NO commit** — this step is verification only. If any line refs are stale, update the M12 spec atomic checklist (with R26 amendment note) and re-derive deltas.
+- [ ] **Step 5: NO commit** — this step is verification only. If any line refs are stale, update the M12 spec atomic checklist (with R26 amendment note) and re-derive deltas.
 
 ---
 
@@ -221,7 +213,7 @@ Expected: clean apply.
 pnpm vitest run tests/db/validation-state.test.ts
 ```
 
-Expected: PASS — all 7 columns present with correct types.
+Expected: PASS — all 8 columns present with correct types (including `combos_seeded_dates` per R3 amendment / R10 spec sync — see spec §15.27).
 
 - [ ] **Step 7: Verify apply-twice idempotency:**
 
@@ -362,46 +354,40 @@ Expected: 22 (one quoted string per table).
 
 ---
 
-### Task 0.B.7: Update `tests/db/rls.test.ts` baseline (21 → 22)
+### Task 0.B.7: DELETED (2026-05-26 R10 F6 repair)
 
-**Files:**
-- Modify: `tests/db/rls.test.ts` lines 163-164
-
-- [ ] **Step 1: Edit lines 163-164** — change `21 admin-only tables` → `22 admin-only tables` (test name string), and `toHaveLength(21)` → `toHaveLength(22)`.
-
-- [ ] **Step 2: Run the rls test against the new Supabase:**
-
-```bash
-pnpm vitest run tests/db/rls.test.ts
-```
-
-Expected: PASS — the test now expects 22 tables AND the new admin_only policy on validation_state exists.
-
-- [ ] **Step 3: NO commit yet** — bundle.
+The pre-rebase draft of this task targeted `tests/db/rls.test.ts` (21 → 22). That file does NOT exist post-M11.5 G3 cutover (and likely never existed in the consolidated form the pre-rebase plan assumed). Per spec §3.3.2 step 6 (lines 338-339), `tests/db/rls.test.ts` is **DROPPED** from M12's test-baseline update set; no live equivalent carries the 21-tables literal. The R8 commit-13 03-reseed inline-rewrite + R10 F6 repair together close the class of "file-head correction note claims a fix the task body doesn't reflect" — this task is removed from the Phase 0.B sequence, not rewritten in place.
 
 ---
 
-### Task 0.B.8: Update `tests/db/admin-rls-runtime.test.ts` baseline (7 references: 21 → 22)
+### Task 0.B.8: Update `tests/db/admin-rls-runtime.test.ts` count baseline (4 references: 17 → 18)
 
 **Files:**
-- Modify: `tests/db/admin-rls-runtime.test.ts` lines 4, 9, 21, 111, 112, 213, 218
+- Modify: `tests/db/admin-rls-runtime.test.ts` lines 4, 21, 111, 112 (live 4 references, NOT the pre-rebase plan's claim of 7 refs on lines 4 / 9 / 21 / 111 / 112 / 213 / 218 — see front-loaded rebase-corrections table at the top of this file + spec §3.3.2 step 6 + §15.26 stale-citation paragraph)
 
-- [ ] **Step 1: Use sed to update all 7 references in one pass:**
+**Count math (per α + γ-footnote hybrid; see spec §3.3.2:323).** The live track baseline is **17** (post-M11.5 G3 cutover dropped 4 retired tables via `scripts/generate-admin-tables.ts`'s `removedByPickerPivot` filter); adding `validation_state` bumps it to **18**. The master-spec prose track is 21 → 22 (Tasks 0.B.3 + 0.B.5), but the live track does NOT use 22 — Phase 0.B updates the live track via 17 → 18 only.
+
+- [ ] **Step 1: Verify the live state** (the test file's header comments + assertion + parity check are the 4 references):
 
 ```bash
-# Verify the line numbers first
-grep -n "21" tests/db/admin-rls-runtime.test.ts | head -10
-# Then update via sed only on the specific lines
-sed -i.bak -e '4s/21/22/' -e '9s/21/22/' -e '21s/21/22/' -e '111s/21/22/' -e '112s/21/22/' -e '213s/21/22/' -e '218s/21/22/' tests/db/admin-rls-runtime.test.ts && rm tests/db/admin-rls-runtime.test.ts.bak
+grep -n "17 admin\|toHaveLength(17)\|17 tables\|17 admin-gated" tests/db/admin-rls-runtime.test.ts
 ```
 
-- [ ] **Step 2: Verify the test still parses:** `pnpm vitest --typecheck tests/db/admin-rls-runtime.test.ts`.
+Expected: 4 matches on lines 4, 21, 111, 112. If the count has drifted, adapt the sed command in step 2 accordingly.
 
-- [ ] **Step 3: Regenerate the baseline JSON** (next task).
+- [ ] **Step 2: Use sed to update all 4 references in one pass:**
+
+```bash
+sed -i.bak -e '4s/17/18/' -e '21s/17/18/' -e '111s/17/18/' -e '112s/17/18/' tests/db/admin-rls-runtime.test.ts && rm tests/db/admin-rls-runtime.test.ts.bak
+```
+
+- [ ] **Step 3: Verify the test still parses:** `pnpm vitest --typecheck tests/db/admin-rls-runtime.test.ts`.
+
+- [ ] **Step 4: Regenerate the baseline JSON** (next task).
 
 ---
 
-### Task 0.B.9: Regenerate `tests/db/admin-rls-runtime.baseline.json`
+### Task 0.B.9: Regenerate `tests/db/admin-rls-runtime.baseline.json` (18 × 4 = 72 rows)
 
 **Files:**
 - Modify (regenerated): `tests/db/admin-rls-runtime.baseline.json`
@@ -414,12 +400,11 @@ grep -n "baseline\|UPDATE_BASELINE\|--update" tests/db/admin-rls-runtime.test.ts
 
 - [ ] **Step 2: Regenerate** using whichever mechanism the test file documents (commonly `UPDATE_BASELINE=1` env var OR a dedicated `pnpm` script). If neither is in place, the dev re-creates the baseline manually by running the test once and copying the actual values from the failure diff into the baseline file. Confirm exact procedure before mass-editing the JSON.
 
-- [ ] **Step 3: Verify the baseline now has 22 entries × 4 verbs = 88 rows:**
+- [ ] **Step 3: Verify the baseline now has 18 entries × 4 verbs = 72 rows** (live track post-`validation_state` insertion; the master-spec prose track of 22 × 4 = 88 is NOT used here — see spec §3.3.2:323 dual-mode count discipline + the front-loaded rebase-corrections table):
 
 ```bash
 jq 'length' tests/db/admin-rls-runtime.baseline.json
-# or
-grep -c '"' tests/db/admin-rls-runtime.baseline.json | head -1
+# expect 72
 ```
 
 - [ ] **Step 4: Re-run the test against the new baseline:**
@@ -434,30 +419,9 @@ Expected: PASS.
 
 ---
 
-### Task 0.B.10: Update `tests/cross-cutting/auth.test.ts` ADMIN_TABLES literal (line 203)
+### Task 0.B.10: DELETED (2026-05-26 R10 F6 repair)
 
-**Files:**
-- Modify: `tests/cross-cutting/auth.test.ts` line 203 (the ADMIN_TABLES literal-list expectation)
-
-- [ ] **Step 1: Read the existing expectation:**
-
-```bash
-sed -n '195,220p' tests/cross-cutting/auth.test.ts
-```
-
-The expectation is an array of admin-only table names in alphabetical order.
-
-- [ ] **Step 2: Edit line 203 area** to insert `'validation_state'` in alphabetical position. Verify against live `lib/audit/admin-tables.generated.ts` at edit time — post-M11.5 picker-pivot, the live ADMIN_TABLES list is filtered by `scripts/generate-admin-tables.ts`'s `removedByPickerPivot` array (drops `crew_member_auth`, `revoked_links`, `link_sessions`, `bootstrap_nonces`), so `'sync_audit'` is the immediate alphabetical predecessor to `'validation_state'` post-insert. (The pre-rebase draft of this task suggested `'revoked_links' / 'shows_internal'` as alternate neighbors; that branch is stale — `revoked_links` is no longer in the live array.)
-
-- [ ] **Step 3: Run the test:**
-
-```bash
-pnpm vitest run tests/cross-cutting/auth.test.ts
-```
-
-Expected: PASS — ADMIN_TABLES (from `lib/audit/admin-tables.generated.ts`) now matches the updated literal.
-
-- [ ] **Step 4: NO commit yet** — bundle.
+The pre-rebase draft of this task targeted `tests/cross-cutting/auth.test.ts` line 203 (the ADMIN_TABLES literal-list expectation). That file does NOT exist, and no `ADMIN_TABLES` literal-list expectation exists in any current test (verified via `grep -rln 'ADMIN_TABLES.*toEqual\|ADMIN_TABLES.*toHaveLength' tests/` — zero hits). `ADMIN_TABLES` is consumed structurally via the generated `lib/audit/admin-tables.generated.ts` import; no per-element literal expectation needs maintenance. Per spec §3.3.2 step 6 (line 339), this task is **DROPPED** from M12's test-baseline update set. The R10 F6 repair removes it from the Phase 0.B sequence rather than rewriting it to a non-existent live equivalent.
 
 ---
 
@@ -465,10 +429,8 @@ Expected: PASS — ADMIN_TABLES (from `lib/audit/admin-tables.generated.ts`) now
 
 Per spec §3.3.2 atomicity gate: Phase 0.B does NOT close until these all pass.
 
-- [ ] **Step 1: Run rls.test.ts:** `pnpm vitest run tests/db/rls.test.ts` — expect PASS (22 tables).
-- [ ] **Step 2: Run admin-rls-runtime.test.ts:** `pnpm vitest run tests/db/admin-rls-runtime.test.ts` — expect PASS (88 assertions).
-- [ ] **Step 3: Run auth.test.ts:** `pnpm vitest run tests/cross-cutting/auth.test.ts` — expect PASS (ADMIN_TABLES literal matches generated registry).
-- [ ] **Step 4: Run X.6 traceability locally** (R1 P2 amendment — verified live `package.json` script name):
+- [ ] **Step 1: Run admin-rls-runtime.test.ts:** `pnpm vitest run tests/db/admin-rls-runtime.test.ts` — expect PASS (18 tables × 4 verbs = 72 assertions; live track).
+- [ ] **Step 2: Run X.6 traceability locally** (R1 P2 amendment — verified live `package.json` script name):
 
 ```bash
 pnpm test:audit:traceability
@@ -476,7 +438,7 @@ pnpm test:audit:traceability
 
 Expected: no `MISSING` rows; parity assertions pass against the updated master spec §4.3 + AC-2.5.
 
-- [ ] **Step 5: Run X.3 trust-domain audit:**
+- [ ] **Step 3: Run X.3 trust-domain audit:**
 
 ```bash
 pnpm test:audit:x3-trust-domain
@@ -484,7 +446,7 @@ pnpm test:audit:x3-trust-domain
 
 Expected: PROTECTED_SINKS regenerated to include validation_state (auto from §4.3 via `pnpm gen:admin-tables` which the script chains).
 
-- [ ] **Step 6: If any gate fails, repair the missing piece and re-run.** Do NOT commit until all gates pass.
+- [ ] **Step 4: If any gate fails, repair the missing piece and re-run.** Do NOT commit until all gates pass.
 
 ---
 
@@ -496,22 +458,30 @@ Expected: PROTECTED_SINKS regenerated to include validation_state (auto from §4
 git status
 ```
 
-Expected: pending edits to master spec (§4.1, §4.3, AC-2.5), `lib/audit/admin-tables.generated.ts`, 4 test files. Plus the already-committed migration + validation-state test from 0.B.2.
+Expected: pending edits to master spec (§4.1, §4.3, AC-2.5), `lib/audit/admin-tables.generated.ts`, and 2 test artifacts (`tests/db/admin-rls-runtime.test.ts` + `tests/db/admin-rls-runtime.baseline.json`). Plus the already-committed migration + validation-state test from 0.B.2. The pre-rebase plan included `tests/db/rls.test.ts` + `tests/cross-cutting/auth.test.ts` in this bundle; both files do not exist post-M11.5 and their Phase 0.B tasks are DELETED (R10 F6 repair — see Tasks 0.B.7 + 0.B.10).
 
 - [ ] **Step 2: Stage and commit the atomic bundle:**
 
 ```bash
-git add docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md lib/audit/admin-tables.generated.ts tests/db/rls.test.ts tests/db/admin-rls-runtime.test.ts tests/db/admin-rls-runtime.baseline.json tests/cross-cutting/auth.test.ts
+git add docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md lib/audit/admin-tables.generated.ts tests/db/admin-rls-runtime.test.ts tests/db/admin-rls-runtime.baseline.json
 git commit -m "$(cat <<'EOF'
 docs+test(master-spec,audit): atomic update for validation_state addition
 
 Per M12 spec §3.3.2. Adds validation_state to master spec §4.3
-admin-only table list (21→22), §4.1 schema-section CREATE TABLE
-block, AC-2.5 assertion count (21→22 tables / 84→88 assertions).
-Regenerates lib/audit/admin-tables.generated.ts. Updates test
-baselines: rls.test.ts (21→22), admin-rls-runtime.test.ts (7 refs
-21→22), admin-rls-runtime.baseline.json (+validation_state × 4
-verbs), auth.test.ts ADMIN_TABLES literal.
+admin-only table list (prose track 21→22 per α + γ-footnote hybrid;
+live `ADMIN_TABLES.length` 17→18 via the picker-pivot filter),
+§4.1 schema-section CREATE TABLE block, AC-2.5 assertion count
+(prose track 21→22 tables / 84→88 assertions; cross-references the
+§4.3 footnote that documents the live-vs-prose count math).
+Regenerates lib/audit/admin-tables.generated.ts (live 18-entry array).
+Updates test baselines: admin-rls-runtime.test.ts (4 refs on lines
+4/21/111/112: 17→18 live track), admin-rls-runtime.baseline.json
+(+validation_state × 4 verbs → 18 × 4 = 72 rows).
+
+`tests/db/rls.test.ts` + `tests/cross-cutting/auth.test.ts` do NOT
+exist post-M11.5 (no live ADMIN_TABLES literal-list expectation
+anywhere in the test tree); their pre-rebase Phase 0.B tasks were
+deleted in the M12 amendment per spec §3.3.2 step 6 + §15.27.
 
 All X.3/X.6/admin-table tests pass locally before this commit lands.
 
