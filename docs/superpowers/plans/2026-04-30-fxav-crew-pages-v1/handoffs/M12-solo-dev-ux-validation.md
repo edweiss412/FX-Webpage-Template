@@ -1838,6 +1838,25 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   |---|---|---|
   | 94 | `727afeb` | `docs(plan-m12)+docs(spec-m12): R55 F48 — Option (b) single-combo dispatch + predicate (b') + smoke 6 prerequisite + regression test spec` |
 
+### Amendment R56 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `140cbc5` (post-R55)
+- **Verdict:** **needs-attention** (1 HIGH F49 — F48-class round 2)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F49 | HIGH | `03-phase0-tooling-reseed.md:483-501` (mint RPC initial INSERT) | **F48-class round 2 same-vector.** R55 Option (b) closed predicate-side semantic ("`last_seed_date` stamped only by `validation_finalize_all_atomic`"); R56 surfaces INSERT-side bypass — mint RPC's initial `validation_state` singleton creation stamps `last_seed_date = v_validation_today_iso` on first use. If first operation is `validation:reseed --combo R1`, global all-combos stamp is set without finalizer ever running. After enough single-combo reseeds same day → `check-seed --combo all` predicate (b) PASSES without `validation_finalize_all_atomic`. F47 CAS contract bypassed. Repair: make mint RPC initial INSERT incapable of stamping fresh all-combos date. Recommended Option (ii) — `last_seed_date NULL` on initial INSERT; predicate (b) treats NULL as stale (`last_seed_date IS NULL OR last_seed_date != $VALIDATION_TODAY_ISO`); DDL bumps `last_seed_date` from NOT NULL → nullable. Add regression: start from no validation_state row → `reseed --combo R1` → assert `last_seed_date IS NULL` AND `check-seed --combo all` FAILS until `validation_finalize_all_atomic` executes. |
+
+- **Same-vector status post-R56:**
+  - **F48-class: 2 rounds** (R54 F48 predicate-side + R56 F49 INSERT-side). Below threshold-3; per-instance fix at R57. If R58 surfaces another F48-class hit, structural defense mandate fires.
+  - F47 closed at R53; F46/F45/F44 regression-clean.
+  - F21-class regex set holds at 9 patterns / 8 slots.
+  - All other classes still closed.
+
+- **Repair commit:** pending R57 implementer dispatch (inline Agent; F49 mint RPC INSERT-side fix — NULL `last_seed_date` until finalize + predicate (b) NULL handling + DDL nullable + regression test spec).
+
 ---
 
 ## §10 — Cross-milestone dependencies
