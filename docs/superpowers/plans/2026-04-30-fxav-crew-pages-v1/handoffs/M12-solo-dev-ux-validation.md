@@ -713,6 +713,24 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Scope discipline:** spec + plan + handoff markdown + 2 commits to `tests/cross-cutting/` (R23 commits 50 + 52). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
 
+### Amendment R24 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `1f7f6d1` (post-R23 + R22/R23 handoff rows)
+- **Verdict:** **needs-attention** (1 HIGH — F25 = F10-class **4th-round** same-vector hit)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F25 | HIGH | `03-phase0-tooling-reseed.md:33` (Task 0.C.1 `scripts/validation-reseed.ts` env-var enumeration) | **F10-class 4th-round same-vector hit.** Task 0.C.1 enumerates only 3 env vars (URL + SECRET_KEY + PROJECT_REF) for the reseed script; contradicts canonical §9.1.2 contract requiring `VALIDATION_J3_CLAIM_EMAIL` so R1 `alias_5a_lead` is seeded with real Google account and predicate (k) fails early. **Implementer following the plan can ship a reseed skeleton/help/env-parser without claim email, leaving J3 unwalkable or failing late.** Codex's exact phrasing: "The new F20 guard does not catch this because it scans spec table rows, not plan prose." Repair: add `VALIDATION_J3_CLAIM_EMAIL` to Task 0.C.1 env list AND extend the F10-class structural defense to cover plan-side per-command env-var prose. |
+
+- **F10-class structural-defense calibration escalation:**
+  - F10-class is now at **4 rounds** (R12 F10 + R14 F13/F14 + R20 F20 + R24 F25). Per AGENTS.md "Structural-defense calibration (M12 plan R5 amendment)": "if the round after the comprehensive re-analysis STILL surfaces a finding on the same vector, the analysis was incomplete — stop patching, declare the vector unresolved, and deep-dive until convergence is structural (not per-instance)."
+  - Honest diagnosis: each F10-class round revealed a NEW syntactic-form dimension that prior defenses didn't cover. R15 defense scoped to PROSE (J3-OAuth-claim sites); R21 defense scoped to spec markdown TABLES (§9.1.2); F25 surfaces plan-side TASK env-var enumerations (Task 0.C.1 list-item-style). Each defense was correct WITHIN its scoped surface but the class is broader than per-syntactic-form coverage can incrementally close.
+  - **R25 mandate: contract-level structural defense** — single canonical env-var contract surface + cross-reference validation OR exhaustive walker over the UNION of all surfaces that can name VALIDATION_* env vars (spec tables + plan task lists + plan prose + .env templates + commit templates + failure-mode catalogs). Per-syntactic-form regex extensions have proven inadequate over 4 rounds.
+
+- **Repair commit:** pending R25 implementer dispatch (inline Agent).
+
 ---
 
 ## §10 — Cross-milestone dependencies
