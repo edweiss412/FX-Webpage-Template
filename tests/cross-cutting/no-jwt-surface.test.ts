@@ -17,6 +17,28 @@ const ALLOWED_JWT_SURFACES = [
   "app/me/page.tsx",
 ];
 
+const JWT_CUTOVER_SCAN_ROOTS = ["app", "lib", "components"] as const;
+const JWT_CUTOVER_TOP_LEVEL_FILES = ["middleware.ts"] as const;
+const CUTOVER_MIGRATION_TIMESTAMP = "20260523000099";
+
+export const FORBIDDEN_JWT_CUTOVER_SUBSTRINGS = [
+  "LEAKED_LINK_DETECTED",
+  "CSRF_DENIED",
+  "CSRF_NONCE_EXPIRED",
+  "CSRF_KEY_ROTATED",
+  "LINK_REVOKED_FLOOR",
+  "LINK_REVOKED_SURGICAL",
+  "LINK_EXPIRED",
+  "LINK_VERSION_MISMATCH",
+  "LINK_NO_CREW_MATCH",
+  "LINK_SESSION_KEY_ROTATED",
+  "LINK_REDEEM_KEY_ROTATED",
+  "LINKED_ASSET_DRIFTED",
+  "current_token_version",
+  "revoked_below_version",
+  "max_issued_version",
+] as const;
+
 function filesUnder(relDir: string): string[] {
   const out: string[] = [];
   const abs = join(ROOT, relDir);
@@ -27,6 +49,22 @@ function filesUnder(relDir: string): string[] {
     else if (/\.(ts|tsx)$/.test(rel)) out.push(rel);
   }
   return out;
+}
+
+function jwtCutoverScanFiles(): string[] {
+  return [
+    ...JWT_CUTOVER_SCAN_ROOTS.flatMap(filesUnder),
+    ...JWT_CUTOVER_TOP_LEVEL_FILES,
+  ].filter((file) => /\.(ts|tsx)$/.test(file));
+}
+
+function migrationFilesAfterCutover(): string[] {
+  return filesUnder("supabase/migrations")
+    .filter((file) => /\.sql$/.test(file))
+    .filter((file) => {
+      const timestamp = file.match(/\/(\d{14})_/)?.[1];
+      return timestamp ? timestamp > CUTOVER_MIGRATION_TIMESTAMP : false;
+    });
 }
 
 describe("no JWT / Google-session surface on data APIs", () => {
@@ -41,5 +79,19 @@ describe("no JWT / Google-session surface on data APIs", () => {
     for (const file of ALLOWED_JWT_SURFACES) {
       expect(readFileSync(join(ROOT, file), "utf8").length, `${file} exists`).toBeGreaterThan(0);
     }
+  });
+
+  test("M9.5 signed-link and JWT cutover strings stay out of production source", () => {
+    const offenders: string[] = [];
+    for (const file of [...jwtCutoverScanFiles(), ...migrationFilesAfterCutover()]) {
+      const source = readFileSync(join(ROOT, file), "utf8");
+      for (const forbidden of FORBIDDEN_JWT_CUTOVER_SUBSTRINGS) {
+        if (source.includes(forbidden)) {
+          offenders.push(`${file}: ${forbidden}`);
+        }
+      }
+    }
+
+    expect(offenders.sort()).toEqual([]);
   });
 });

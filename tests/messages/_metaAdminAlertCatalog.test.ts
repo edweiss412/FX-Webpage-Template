@@ -44,6 +44,14 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
+const ROOT = process.cwd();
+
+function adminAlertCodeUnionMembers(): string[] {
+  const source = readFileSync(join(ROOT, "lib/adminAlerts/upsertAdminAlert.ts"), "utf8");
+  const union = source.match(/export type AdminAlertCode =([\s\S]*?);/)?.[1] ?? "";
+  return [...union.matchAll(/\|\s+"([A-Z0-9_]+)"/g)].map((match) => match[1]!).sort();
+}
+
 // Registry: every catalog code currently used in a production
 // admin_alerts.upsert call. Keep in sync with grep findings.
 const ADMIN_ALERTS_CODES = [
@@ -333,5 +341,12 @@ describe("META admin_alerts catalog contract", () => {
     expect(entries.ROLE_FLAGS_NOTICE?.severity).toBe("info");
     expect(entries.SHOW_FIRST_PUBLISHED?.severity).toBe("info");
     expect(entries.LIVE_ROW_CONFLICT?.severity ?? "warning").toBe("warning");
+  });
+
+  test("every admin-alert catalog code has a registered production write-site", () => {
+    const registered = new Set<string>(ADMIN_ALERTS_CODES);
+    const orphanCodes = adminAlertCodeUnionMembers().filter((code) => !registered.has(code));
+
+    expect(orphanCodes).toEqual([]);
   });
 });
