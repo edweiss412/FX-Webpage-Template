@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Picker-pivot rebase (2026-05-26).** This plan was drafted 2026-05-19 against the pre-M11.5 per-crew signed-link auth model. M11.5 closed 2026-05-25 ratifying a pivot to one share-token per show + identity picker + optional OAuth claim. The amendment dispatch brief at [`handoffs/M12-amendment-dispatch-brief.md`](handoffs/M12-amendment-dispatch-brief.md) and the spec's §15.26 audit-trail entry record the rebase decisions; this overview reflects the post-rebase state. The M11.5 close-out delta-list at [`../2026-04-30-fxav-crew-pages-design/handoffs/M11.5-delta-for-m12.md`](../2026-04-30-fxav-crew-pages-design/handoffs/M11.5-delta-for-m12.md) is the authoritative diff source. **Phase 0.D was deleted entirely** (Q2 = β decision) — the M11.5 admin UI (`CurrentShareLinkPanel` / `ShareLinkCopyButton` / `RotateShareTokenButton` / `ResetPickerEpochButton`) is the canonical share-link interface; no CLI parity is in M12 scope. Old `04-phase0-tooling-link.md` deleted; old `05`/`06`/`07`/`08` renumbered to `04`/`05`/`06`/`07`.
+> **Picker-pivot rebase (2026-05-26).** This plan was drafted 2026-05-19 against the pre-M11.5 per-crew signed-link auth model. M11.5 closed 2026-05-25 ratifying a pivot to one share-token per show + identity picker + optional OAuth claim. The rebase + amendment scope decisions live in the milestone handoff at [`../2026-04-30-fxav-crew-pages-design/handoffs/M12-solo-dev-ux-validation.md`](../2026-04-30-fxav-crew-pages-design/handoffs/M12-solo-dev-ux-validation.md) and the spec's §15.26 audit-trail entry. The M11.5 close-out delta-list at [`../2026-04-30-fxav-crew-pages-design/handoffs/M11.5-delta-for-m12.md`](../2026-04-30-fxav-crew-pages-design/handoffs/M11.5-delta-for-m12.md) is the authoritative diff source. **Phase 0.D was deleted entirely** (Q2 = β decision) — the M11.5 admin UI (`CurrentShareLinkPanel` / `ShareLinkCopyButton` / `RotateShareTokenButton` / `ResetPickerEpochButton`) is the canonical share-link interface; no CLI parity is in M12 scope. Old `04-phase0-tooling-link.md` deleted; old `05`/`06`/`07`/`08` renumbered to `04`/`05`/`06`/`07`.
 
 **Goal:** Solo-dev gate where the developer personally exercises every surface in the FXAV crew-pages product before any real user (Doug, real crew) touches it. Phase 0 stands up the prod-equivalent stack + 4 validation CLIs + atomic master-spec/admin-table updates for the new `validation_state` table. Phase 1 walks the matrix (≈650-850 cells across 8 personas × 6 surface bands × 9 role variants × 10 R-combos × 6 SW-states), runs 4 cross-surface journeys (including the three-leg picker-walk J3 per spec §5.3), runs the cold-start /help-as-map pass, iterates fixes, runs final sweep, signs off. Exit gate: MUST-FIX list empty AND dev signs the one-paragraph subjective gate ("I'd be proud to show Doug").
 
@@ -27,7 +27,7 @@
 2. **Work phase-by-phase, top-to-bottom within each file.** Phase order is strictly **0.A → 0.B → 0.C → 0.E → 0.F → Phase 1 → Iteration → Final sweep → Sign-off**, per spec §9.0 (Phase 0.D deleted in 2026-05-26 rebase; old file names renumbered: 05→04 report-fixtures, 06→05 smokes, 07→06 matrix walk, 08→07 iteration/sweep). No parallelization — Phase 0 builds the prerequisites for Phase 1; Phase 1's fixes feed back through targeted re-exercise.
 3. **TDD per task** (AGENTS.md invariant #1) for every code-producing task. Each: failing test → minimal implementation → passing test → commit. Phase 1's walk-the-product tasks are NOT TDD — they're manual exercise; the dev keeps informal working notes but the only required output is SIGN-OFF.md per spec §8.1.
 4. **Commit per task** (AGENTS.md invariant #6). Conventional-commits style `<type>(<scope>): <summary>`. Common scopes: `validation` (tooling scripts), `db` (validation_state migration), `master-spec` (master-spec amendments per §3.3.2), `signoff` (Phase 1/iteration/final sweep). The bare `m12:` form is acceptable for cross-cutting commits where no scope adds clarity.
-5. **Routing.** Per `ROUTING.md`, M12 plan execution is Opus/Claude Code for UI-touching work AND for the validation tooling scripts. Master-spec amendments and migrations follow the same routing. Codex (cross-CLI) runs adversarial review on the plan (this document tree) per AGENTS.md mandatory step. Post-2026-05-26 rebase, the next adversarial round resumes at R6 in `handoffs/round-06.md`.
+5. **Routing.** Per `ROUTING.md`, M12 plan execution is Opus/Claude Code for UI-touching work AND for the validation tooling scripts. Master-spec amendments and migrations follow the same routing. Codex (cross-CLI) runs adversarial review on the plan (this document tree) per AGENTS.md mandatory step. Post-2026-05-26 rebase, the next adversarial round resumes at R6 (= amendment R1) — audit trail lives inline in the milestone handoff's Convergence log.
 
 ---
 
@@ -82,11 +82,11 @@ docs/superpowers/plans/2026-05-19-solo-dev-ux-validation/
   06-phase1-matrix-walk.md                    # Phase 1: matrix walk + 4 journeys (including three-leg picker J3) + cold-start pass; renamed from 07
   07-iteration-and-final-sweep.md             # Iteration loop + final sweep + sign-off; renamed from 08
   DEFERRED.md                                 # Per-plan deferred items (any SHOULD-FIX routed here)
-  HANDOFF-TEMPLATE.md                         # Round-by-round audit trail template (for the plan's own adversarial review)
   README.md                                   # Plan catalog entry
   ROUTING.md                                  # Implementer assignment
-  handoffs/                                   # Per-round handoff docs; rounds 01-05 are pre-rebase (archived obsolete); round-06 onward post-rebase
 ```
+
+> **Milestone handoff** lives at [`../2026-04-30-fxav-crew-pages-design/handoffs/M12-solo-dev-ux-validation.md`](../2026-04-30-fxav-crew-pages-design/handoffs/M12-solo-dev-ux-validation.md) per project convention (single milestone handoff in the master plan's handoffs dir, mirroring `M11.5-crew-auth-pivot.md`). Round-by-round adversarial-review audit lives inline in that doc's Convergence log — no per-round files.
 
 ---
 

@@ -20,9 +20,8 @@
 - `06-phase1-matrix-walk.md` (renamed from `07`) — MATRIX-INVENTORY.md derivation + matrix walk + 4 journeys (J3 = three-leg picker walk per spec §5.3) + cold-start pass.
 - `07-iteration-and-final-sweep.md` (renamed from `08`) — fix loop + final sweep + sign-off.
 - `DEFERRED.md` — per-plan deferred items.
-- `HANDOFF-TEMPLATE.md` — round-by-round audit trail template (for the plan's own adversarial review).
 - `ROUTING.md` — implementer/reviewer assignment per phase.
-- `handoffs/` — per-round handoff docs (rounds 01-05 are pre-rebase / archived obsolete; round-06.md onward is post-rebase).
+- **Milestone handoff** lives at [`../2026-04-30-fxav-crew-pages-design/handoffs/M12-solo-dev-ux-validation.md`](../2026-04-30-fxav-crew-pages-design/handoffs/M12-solo-dev-ux-validation.md) (project convention: single milestone handoff in the master plan's handoffs dir; round-by-round adversarial-review audit lives inline in that doc's Convergence log).
 - `MATRIX-INVENTORY.md` — generated in Phase 1 Task 1.0 (plan-time, frozen before walk).
 - `SIGN-OFF.md` — generated in Phase 7 (renamed from 8) Task 2.6 (the single required exercise artifact).
 
