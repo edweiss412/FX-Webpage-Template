@@ -1832,11 +1832,11 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F47 CAS pattern (R53 commit 93) untouched and regression-clean (Option b ratification preserves the all-combos-only CAS topology).
   - F21-class regex set holds.
   - All other classes still closed.
-- **Repair commit:** commit 94 (pending SHA).
+- **Repair commit:** commit 94 (`727afeb`).
 
   | # | SHA | Title |
   |---|---|---|
-  | 94 | _pending_ | `docs(plan-m12)+docs(spec-m12): R55 F48 — Option (b) single-combo dispatch + predicate (b') + smoke 6 prerequisite + regression test spec` |
+  | 94 | `727afeb` | `docs(plan-m12)+docs(spec-m12): R55 F48 — Option (b) single-combo dispatch + predicate (b') + smoke 6 prerequisite + regression test spec` |
 
 ---
 
