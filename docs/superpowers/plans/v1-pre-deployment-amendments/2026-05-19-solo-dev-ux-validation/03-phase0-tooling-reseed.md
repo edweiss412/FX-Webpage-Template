@@ -126,22 +126,27 @@ Each SW-* combo's `crewMembers` has only `alias_5a_lead` (1 entry) per spec §3.
 
 - [ ] **Step 3: Populate `scripts/lib/validation-fixtures.ts` with all 16 entries.** Reference spec §3.3 R-combo table and §3.3.1 show-wide state table for the per-combo `dateRestriction` / `stageRestriction` / `datesRelative` shapes. Synthesize predictable emails: `validation+<combo>-<alias>@example.com`. Synthesize stable names: `<combo>_<alias>`.
 
-  **R13 commit 30 amendment — combo R1's `alias_5a_lead.email` reads from env var.** Per spec §3.3 owned-fixture-mappings R13-amendment paragraph + spec §1.5 "solo-dev IS the validation": combo R1's `alias_5a_lead` row's `email` field is the special case — it reads from `process.env.VALIDATION_J3_CLAIM_EMAIL` at fixture-build time (the dev's real Google account email). All other aliases in R1, and `alias_5a_lead` in every other combo (R2–R8b + 6 SW-states), keep the synthesized `validation+<combo>-<alias>@example.com` format. The fixture-build code MUST abort with a clear diagnostic if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (`@example.com` / `@example.org` / `@example.net` per RFC 2606) — the validation script reaches the abort BEFORE attempting to mint the RPC payload, so the dev gets a fast actionable error rather than an opaque OAuth failure during J3 walking. Pseudocode:
+  **R13 commit 30 amendment — combo R1's `alias_5a_lead.email` reads from env var.** Per spec §3.3 owned-fixture-mappings R13-amendment paragraph + spec §1.5 "solo-dev IS the validation": combo R1's `alias_5a_lead` row's `email` field is the special case — it reads from `process.env.VALIDATION_J3_CLAIM_EMAIL` at fixture-build time (the dev's real Google account email). All other aliases in R1, and `alias_5a_lead` in every other combo (R2–R8b + 6 SW-states), keep the synthesized `validation+<combo>-<alias>@example.com` format. The fixture-build code MUST abort with a clear diagnostic if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches any placeholder/dev-only reserved domain in the **canonical rejected set** (R15 commit 34 F14 amendment — RFC 2606 + RFC 6761 + project-conventional dev; see check-seed predicate (k) below for the canonical regex source) — the validation script reaches the abort BEFORE attempting to mint the RPC payload, so the dev gets a fast actionable error rather than an opaque OAuth failure during J3 walking. Pseudocode:
 
   ```ts
+  // R15 commit 34 F14 canonical rejected domain set (RFC 2606 + RFC 6761 + mDNS):
+  const REJECTED_DOMAIN_RX = /@(example\.com|example\.org|example\.net|[^@\s]+\.test|[^@\s]+\.invalid|localhost|[^@\s]+\.localhost|[^@\s]+\.local|dev\.local)$/i;
+
   const claimEmail = process.env.VALIDATION_J3_CLAIM_EMAIL;
-  if (!claimEmail || /@(example\.com|example\.org|example\.net)$/i.test(claimEmail)) {
+  if (!claimEmail || REJECTED_DOMAIN_RX.test(claimEmail)) {
     throw new Error(
-      "VALIDATION_J3_CLAIM_EMAIL must be set to your real Google account email — see " +
-      "spec §3.3 step 5 R13-amendment paragraph + .env.local.example. " +
-      "Got: " + (claimEmail ?? "<unset>")
+      "VALIDATION_J3_CLAIM_EMAIL must be set to your real Google account email — Google OAuth " +
+      "cannot authenticate against placeholder/dev-only reserved domains (example.com/.org/.net " +
+      "per RFC 2606; *.test/*.invalid/*.localhost/localhost per RFC 6761; *.local/dev.local per " +
+      "mDNS RFC 6762 + project-conventional). See spec §3.3 step 5 R13-amendment paragraph + " +
+      ".env.local.example. Got: " + (claimEmail ?? "<unset>")
     );
   }
   // For combo R1's alias_5a_lead only, override the synthesized email:
   const r1Alias5aEmail = canonicalize(claimEmail);  // canonicalize per AGENTS.md invariant 3
   ```
 
-  The fixture-build test (TDD step 1 above) covers this path: missing env var → throw; placeholder domain → throw; valid Google email → R1's alias_5a_lead.email === canonicalize($VALIDATION_J3_CLAIM_EMAIL).
+  The fixture-build test (TDD step 1 above) covers this path: missing env var → throw; any placeholder/dev-only domain from the canonical rejected set → throw; valid Google email → R1's alias_5a_lead.email === canonicalize($VALIDATION_J3_CLAIM_EMAIL).
 
 - [ ] **Step 4: Run — expect PASS.** Commit:
 
@@ -278,6 +283,24 @@ BEGIN
   FOR v_crew_member IN SELECT * FROM jsonb_array_elements(p_fixture_payload->'crewMembers') LOOP
     v_crew_name := v_crew_member->>'name';
     v_crew_role_flags := ARRAY(SELECT jsonb_array_elements_text(v_crew_member->'roleFlags'));
+
+    -- R15 commit 34 F14 defense-in-depth (RPC-side): for combo R1's
+    -- alias_5a_lead row specifically, reject any email whose domain
+    -- matches the canonical placeholder/dev-only rejected set (RFC 2606
+    -- + RFC 6761 + mDNS RFC 6762 + project-conventional). If the
+    -- TypeScript fixture-build guard (Task 0.C.3) slipped or was
+    -- bypassed, the RPC catches the bad config at the latest possible
+    -- moment before the seed lands. Defense-in-depth alongside the
+    -- TS-side abort + check-seed predicate (k). Canonical regex
+    -- matches the predicate (k) source — keep both in sync (the
+    -- structural defense at tests/cross-cutting/reseed-clears-oauth-
+    -- claim-doc-guard.test.ts pins this discipline at CI time).
+    IF p_combo = 'R1'
+       AND v_crew_member->>'alias' = 'alias_5a_lead'
+       AND v_crew_member->>'email' ~* '@(example\.com|example\.org|example\.net|[^@[:space:]]+\.test|[^@[:space:]]+\.invalid|localhost|[^@[:space:]]+\.localhost|[^@[:space:]]+\.local|dev\.local)$'
+    THEN
+      RAISE EXCEPTION 'mint_validation_fixture_atomic: R1.alias_5a_lead.email % matches a placeholder/dev-only reserved domain (RFC 2606 + RFC 6761 + mDNS RFC 6762 + project-conventional) — set VALIDATION_J3_CLAIM_EMAIL to your real Google account email (see spec §3.3 step 5 R13-amendment paragraph + .env.local.example).', v_crew_member->>'email';
+    END IF;
 
     INSERT INTO public.crew_members (
       show_id, name, email, role, role_flags, date_restriction, stage_restriction
@@ -513,7 +536,11 @@ Per spec §3.3.2 singleton write semantics. **9 predicates (a-g, i, k, l)** — 
 - (f) For any alias in `alias_map`, `crew_members` is missing the matching `(show_id, name)` row OR has `email IS NULL` OR has the row but the show is archived
 - (g) For any seeded show, `show_share_tokens` is missing the matching `show_id` row (sentinel for "the shows_create_share_token_after_insert trigger fired correctly")
 - (i) For ANY combo in the requested set, `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO`. Catches the partial-`--combo all` failure mode where some combos succeeded on day X and others stamped day Y (UTC midnight crossed mid-run). check-seed accepts the date as an env var or CLI flag; defaults to `new Date().toISOString().slice(0, 10)`.
-- **(k) (R13 commit 30 amendment — J3-claim-email guard)** `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (`@example.com` / `@example.org` / `@example.net` per RFC 2606) OR combo R1's `alias_5a_lead` row in `crew_members` has an `email` value matching a placeholder reserved domain (i.e., a previous run with a bad env var landed a placeholder email in the DB). Diagnostic: "VALIDATION_J3_CLAIM_EMAIL is unset or placeholder — J3 leg (c) unwalkable (Google OAuth cannot authenticate against example.com/.org/.net; see spec §3.3 step 5 R13-amendment paragraph)."
+- **(k) (R13 commit 30 amendment — J3-claim-email guard; R15 commit 34 — canonical domain set extension per F14 finding)** `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches any placeholder/dev-only reserved domain in the canonical rejected set, OR combo R1's `alias_5a_lead` row in `crew_members` has an `email` value matching the canonical rejected set (i.e., a previous run with a bad env var landed a placeholder email in the DB). **Canonical rejected domain set** (RFC 2606 + RFC 6761 + project-conventional dev): `@example.com`, `@example.org`, `@example.net` (RFC 2606); `*.test`, `*.invalid`, `*.localhost`, bare `localhost` (RFC 6761); `*.local`, `dev.local` (mDNS RFC 6762 + project-conventional). The regex shape (TS + SQL POSIX):
+  ```
+  /@(example\.com|example\.org|example\.net|[^@\s]+\.test|[^@\s]+\.invalid|localhost|[^@\s]+\.localhost|[^@\s]+\.local|dev\.local)$/i
+  ```
+  Diagnostic: "VALIDATION_J3_CLAIM_EMAIL is unset or matches a placeholder/dev-only reserved domain (canonical set: example.com/.org/.net per RFC 2606; *.test/*.invalid/*.localhost/localhost per RFC 6761; *.local/dev.local per mDNS RFC 6762 + project-conventional) — J3 leg (c) unwalkable (Google OAuth cannot authenticate against any of these). Set VALIDATION_J3_CLAIM_EMAIL to your real Google account email per spec §3.3 step 5 R13-amendment paragraph."
 - **(l) (R13 commit 31 amendment — baseline-claim guard)** For any baseline picker alias (every alias in `alias_map` per spec §3.2 / §3.3 inventory), `crew_members.claimed_via_oauth_at IS NOT NULL` after a fresh `--combo all` reseed. Catches the F11-class failure mode where the mint RPC's UPSERT `SET` clause drifts (e.g., a future amendment drops the `claimed_via_oauth_at = NULL` line) and a previous J3 leg (c) walk's claim stamp persists across reseed, leaving the LEAD picker row OAuth-disabled. Diagnostic: "crew_members row for <combo>.<alias> has claimed_via_oauth_at = <timestamp> after reseed — mint RPC SET clause missing `claimed_via_oauth_at = NULL`; re-check the migration body against the R13 commit 31 contract."
 
 - [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g); returns exit 1 if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (predicate k, per R13 commit 30); returns exit 1 if combo R1's alias_5a_lead row in `crew_members` has a placeholder email (predicate k DB-side check); returns exit 1 if ANY baseline picker alias has `claimed_via_oauth_at IS NOT NULL` post-reseed (predicate l, per R13 commit 31 — test this by manually `UPDATE public.crew_members SET claimed_via_oauth_at = now() WHERE ...` then re-running check-seed).
