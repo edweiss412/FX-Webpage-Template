@@ -372,9 +372,55 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - **F10/F11 (J3 OAuth-walk integrity):** NEW classes; round 1; per-instance fix in R13.
 - **Repair commit:** pending R13 implementer dispatch.
 
-### Amendment R13 — pending
+### Amendment R13 — 2026-05-26
 
-R13 implementer dispatch: F10 + F11 J3 OAuth-walk repairs (parameterize claim email + reseed RPC clears claim state + check-seed predicates + spec contract amendments) + F12 phantom-metatest class round-2 comprehensive re-analysis (audit every DEFERRED.md trigger reference against live plan task list) + Phase 0.C task additions for the deferred defenses.
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `748cbbd` (post-R13 repair: 4 commits `b8c6b01` / `d34f7bc` / `8b42668` / `748cbbd`)
+- **Verdict:** **repair landed; pending R14 adversarial review.**
+- **(A) comprehensive phantom-trigger audit** (per same-vector mandate from R11+R12): 10 audit surfaces; 4 F12-class hits all converging on a single repair surface (Task 0.C.4 mis-attribution in DEFERRED entries + meta-test inventory peers); 0 additional phantom-trigger peers beyond named hits. M11.5-IMP-3 + M11.5-IMP-5 correctly classified as execution-scope-ambient triggers (NOT F12-class). Other 4 DEFERRED carryovers verified pointing at real Task 0.A.1/2/3 or ambient walk note at 06-phase1-matrix-walk.md:86.
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 29 | `b8c6b01` | `docs(plan-m12): R13 F12 — schedule deferred structural defenses as concrete Phase 0.C tasks` |
+  | 30 | `d34f7bc` | `docs(spec-m12)+docs(plan-m12): R13 F10 — parameterize J3 claim email via VALIDATION_J3_CLAIM_EMAIL` |
+  | 31 | `8b42668` | `docs(spec-m12)+docs(plan-m12): R13 F11 — reseed clears claimed_via_oauth_at` |
+  | 32 | `748cbbd` | `test(cross-cutting): R13 F11 regression — reseed-clears-oauth-claim doc-guard` |
+
+- **F10 repair:** new env var `VALIDATION_J3_CLAIM_EMAIL` documented in Phase 0.A.5 env-var contract; spec §3.3 seed contract amended (alias_5a_lead for combo R1 reads its fixture email from `VALIDATION_J3_CLAIM_EMAIL`); mint RPC uses the configured email; check-seed predicate fails if J3 claim email is still a placeholder domain; J3 walk procedure references the env var. Spec §3.3 carries the "WHY-this-exists" framing — per spec §1.5, solo-dev IS the validation; the dev's personal Google email IS the load-bearing alias_5a_lead identity; Google OAuth cannot authenticate against RFC 2606 reserved domains.
+- **F11 repair:** mint RPC `crew_members` UPSERT's `DO UPDATE SET` clause now explicitly includes `claimed_via_oauth_at = NULL`; spec §3.3 picker-fixture lockstep contract gains explicit obligation; check-seed gains predicate (l) — "for any baseline picker alias enumerated in §3.2, `crew_members.claimed_via_oauth_at IS NULL` after a fresh `--combo all` reseed." R13 commit 32 lands a TDD regression test at `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` (RED phase failed on assertions 1+2 against pre-commit-31 HEAD `d34f7bc`; GREEN phase passes against R13 HEAD `748cbbd`; assertion 3 prose-completeness passed pre-fix legitimately because §3.3 cleanup contract already covered that surface).
+- **F12 repair:** Phase 0.C task list extended with Task 0.C.8 (`tests/cross-cutting/validation-tooling-tz-pin.test.ts` authoring; TDD with RED against live `scripts/validation-*.ts` + `supabase/migrations/*.sql` set without TZ-pin discipline pin) + Task 0.C.9 (`tests/cross-cutting/email-canonicalization.test.ts` audit-scope extension to `scripts/validation-*.ts` via `auditLiveEmailCanonicalization()` walk-root extension). DEFERRED.md entries M12-PHASE0C-TZ-PIN-METATEST + M12-PHASE0C-EMAIL-CANON-EXT now cite concrete Task 0.C.8 / 0.C.9 (NOT the previous generic Task 0.C.4 mis-attribution). Meta-test inventory at 00-overview.md:122-130 points at the real task IDs. Phase 0.F Task 0.F.8 close-out gate Step 1a requires both new structural defenses green before Phase 0 closes.
+- **Meta-test regression:** all 3 structural defenses PASS against R13 HEAD (`picker-resolver-outcome-prose-guard.test.ts` + `identity-invalidated-two-reasons-doc-guard.test.ts` + new `reseed-clears-oauth-claim-doc-guard.test.ts`).
+- **Class-sweep status:**
+  - Phantom-metatest class: R11 + R12 = 2 rounds; R13 closes per-instance via concrete Task 0.C.8/0.C.9 + DEFERRED + inventory + Phase 0.F gate. Threshold-3: if R14 surfaces another, structural defense becomes mandate.
+  - F10 (J3-OAuth-walk-fixture-impossibility): 1 round; closed.
+  - F11 (Reseed-claim-baseline-poisoning): 1 round; closed + R13 commit 32 IS the F11 structural defense (pre-emptively landed per dispatch's (D) regression-test scope, not waiting for round-2).
+  - All previous classes still closed.
+
+### Amendment R14 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `748cbbd` (post-R13)
+- **Verdict:** **needs-attention** (1 HIGH + 1 MEDIUM; both F10-class peers — class-sweep miss within R13 commit 30)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F13 | HIGH | `03-phase0-tooling-reseed.md:566-567` (Phase 0.C verification count query) | **F10-class class-sweep miss.** Query asserts `email LIKE 'validation+%@example.com'` count = 96, but R13 F10 repair parameterized combo R1's alias_5a_lead to `VALIDATION_J3_CLAIM_EMAIL` (a real Google email, NOT example.com). Correct seed post-F10: 95 synthesized example.com rows + 1 real Google email = 96 total, but only 95 match the LIKE pattern. Implementers either fail a correct implementation OR regress F10 by reverting alias_5a_lead to example.com placeholder. Repair: rewrite query to assert (a) total seeded aliases via alias_map/crew_members join = 96; (b) synthesized example.com rows = 95; (c) `R1.alias_5a_lead.email = canonicalize(VALIDATION_J3_CLAIM_EMAIL)`. |
+  | F14 | MEDIUM | `03-phase0-tooling-reseed.md:516-519` (check-seed predicate (k)) | **F10-class — predicate implementation too narrow.** Only rejects unset + example.com/.org/.net (RFC 2606). Misses RFC 6761 reserved TLDs (.test, .invalid, .localhost) + project-conventional dev domains (.local, dev.local, localhost). Implementer can configure an OAuth-unsignable email like `dev@dev.local` and check-seed passes; J3 walk fails late at OAuth-sign-in instead of at the seed gate. Repair: extend both fixture-build and check-seed predicates to reject .test/.invalid/.local/.localhost/localhost/dev.local domains; keep DB-side R1 alias email check in sync. |
+
+- **Same-vector status:**
+  - **F10-class (J3 OAuth-walk integrity): 2 rounds** (R12 F10 + R14 F13/F14). Per AGENTS.md "Same-vector recurrence" + `feedback_recurring_bug_response`, **R15 MUST do comprehensive re-analysis** of F10-class surfaces BEFORE patching. Threshold-3 calibration: if R16 surfaces another F10-class hit, structural defense mandate fires. Per M12 plan R5 precedent (structural-defense calibration), R15 pre-emptively ships structural defense IF (A) audit surfaces 3+ peers beyond F13/F14.
+  - **Phantom-metatest class:** closed in R13 (R14 surfaced no new hits → held cleanly).
+  - **F11-class (reseed-claim-baseline-poisoning):** closed in R13 + R13 commit 32 doc-guard held (R14 surfaced no new hits).
+  - **Resolver-outcome class (R6-R8):** structurally closed by R8 commit 22 (held through R9-R14).
+  - **F6 / F7 / F9 classes:** all closed in earlier rounds; held through R14.
+- **Class-sweep discipline note:** R13 (A) audit was scoped to F12 class only. F10/F11 repairs in commits 30+31 did NOT include adjacent class-sweeps. R15 dispatch MUST mandate comprehensive F10-class (A) audit BEFORE patching commits land. AGENTS.md cross-cutting #5 ("class-sweep before patching") applies pre-emptively, not just after the second same-vector finding.
+- **Repair commit:** pending R15 implementer dispatch.
+
+### Amendment R15 — pending
+
+R15 implementer dispatch: F10-class comprehensive (A) audit (mandated by R12+R14 same-vector recurrence) → audit every fixture-email pattern reference + every count assertion involving 96/95 + every placeholder-domain rejection list + every alias_5a_lead-specific reference; F13 + F14 per-instance fixes; pre-emptive structural defense IF audit surfaces 3+ peers beyond named hits (per M12 plan R5 precedent). Defense candidate: extend R13 commit 32 `reseed-clears-oauth-claim-doc-guard.test.ts` with F10-class assertions OR new `j3-claim-email-parameterization-guard.test.ts`.
 
 ---
 

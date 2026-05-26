@@ -92,22 +92,29 @@ VALIDATION_SUPABASE_URL=
 VALIDATION_SUPABASE_SECRET_KEY=
 VALIDATION_SUPABASE_PROJECT_REF=
 
-# R13 commit 30 J3 OAuth-walk fixture-impossibility fix: the dev's REAL
+# R13 commit 30 J3 OAuth-walk fixture-impossibility fix (R15 commit 35
+# canonical rejected-domain set extension per F14 finding): the dev's REAL
 # Google account email. J3 leg (c) (06-phase1-matrix-walk.md Task 1.6
 # leg c step 2) requires the dev to sign in to Google AS the alias_5a_lead
 # identity for combo R1 to trigger claim_oauth_identity. Google OAuth
-# cannot authenticate against the RFC 2606 reserved domains
-# (example.com / example.org / example.net), so the reseed cannot use
-# the synthesized validation+R1-alias_5a_lead@example.com placeholder
-# for THIS one specific row. Per spec §1.5 "solo-dev IS the validation":
-# the dev's personal Google account becomes the alias_5a_lead identity
-# for combo R1; the dev signs in as themselves. validation:reseed reads
-# this var and writes it as crew_members.email for combo R1's alias_5a_lead
-# (all other combos keep the synthesized validation+<combo>-<alias>@example.com
-# format — see spec §3.3 R13-amendment paragraph for combo-isolation
-# rationale). validation:check-seed predicate (k) fails if this var is
-# still set to a placeholder example.com / example.org / example.net
-# domain at seed time.
+# cannot authenticate against placeholder/dev-only reserved domains —
+# the CANONICAL REJECTED SET (single source of truth, mirrored across
+# spec §3.3 step 5 R13-amendment paragraph + plan §0.C.5 predicate (k)
+# + plan §0.C.3 fixture-build TS guard + plan §0.C.4 mint RPC defense-
+# in-depth):
+#   - example.com, example.org, example.net  (RFC 2606)
+#   - *.test, *.invalid, *.localhost, bare localhost  (RFC 6761)
+#   - *.local, dev.local  (mDNS RFC 6762 + project-conventional)
+# So the reseed cannot use the synthesized validation+R1-alias_5a_lead@example.com
+# placeholder for THIS one specific row. Per spec §1.5 "solo-dev IS the
+# validation": the dev's personal Google account becomes the alias_5a_lead
+# identity for combo R1; the dev signs in as themselves. validation:reseed
+# reads this var and writes it as crew_members.email for combo R1's
+# alias_5a_lead (all other combos keep the synthesized
+# validation+<combo>-<alias>@example.com format — see spec §3.3
+# R13-amendment paragraph for combo-isolation rationale).
+# validation:check-seed predicate (k) fails if this var is still set to
+# ANY domain in the canonical rejected set at seed time.
 VALIDATION_J3_CLAIM_EMAIL=
 ```
 
@@ -128,10 +135,13 @@ Phase 0.A — adds VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY,
 VALIDATION_SUPABASE_PROJECT_REF, and VALIDATION_J3_CLAIM_EMAIL as
 placeholders documenting M12 validation tooling env contract (spec §3.3
 step 5; §9.1.2 post-rebase; R13 commit 30 J3 claim-email amendment).
-VALIDATION_J3_CLAIM_EMAIL closes the R12 F10 finding: example.com is
-RFC 2606 reserved → Google OAuth rejects → J3 leg (c) unwalkable as
-designed. Per spec §1.5 "solo-dev IS the validation" the dev's real
-Google account becomes the alias_5a_lead identity for combo R1.
+VALIDATION_J3_CLAIM_EMAIL closes the R12 F10 finding: placeholder/dev-only
+reserved domains (canonical rejected set per R15 commit 35 — example.com/
+.org/.net per RFC 2606; *.test/*.invalid/*.localhost/localhost per
+RFC 6761; *.local/dev.local per mDNS RFC 6762 + project-conventional)
+are not Google-OAuth-routable → J3 leg (c) unwalkable as designed. Per
+spec §1.5 "solo-dev IS the validation" the dev's real Google account
+becomes the alias_5a_lead identity for combo R1.
 VALIDATION_JWT_SIGNING_SECRET retired with Phase 0.D per 2026-05-26
 picker-pivot rebase. Actual values stay in .env.local (gitignored).
 EOF
