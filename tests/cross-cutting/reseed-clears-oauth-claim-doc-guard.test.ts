@@ -186,7 +186,16 @@ type ClusterFinding = {
 // omission / waiver markers, since prose enumerations sometimes
 // split the cardinality marker from the var list across adjacent
 // lines or formatting tokens).
-function evaluateCanonicalEnvVarCluster(
+// R27 commit 59 — RETIRED. The R25 contract-level walker used this
+// helper for per-cluster satisfiability checks (full 4 / waiver / valid
+// subset). R27's structural-exclusivity walker SUPERSEDES that model —
+// any own-enumeration outside the two authorized surfaces fails
+// unconditionally, no satisfiability check needed. The helper is kept
+// for historical reference (the R25 commit 54 design rationale comment
+// block at line 794 above cites it) but marked unused with a `_` prefix
+// to satisfy lint. If a future amendment ever re-introduces a
+// satisfiability model, this is the starting point.
+function _evaluateCanonicalEnvVarCluster_retired_R27(
   clusterWindow: string,
   canonicalVars: readonly string[],
 ): ClusterFinding | null {
@@ -791,22 +800,67 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     expect(noVarsResult).not.toBeNull();
   });
 
-  // R25 commit 54 — F10-class CONTRACT-LEVEL structural defense walker.
-  // F25 (R24 finding) was Task 0.C.1 Step 3 enumerating only 3 env vars
-  // — a plan-prose enumeration that the R15 (prose) + R21 (spec table)
-  // defenses didn't cover. Per AGENTS.md "Structural-defense calibration
-  // (M12 plan R5 amendment)": after the round following a comprehensive
-  // re-analysis STILL surfaces a finding on the same vector, ship a
-  // structural defense whose scope is the contract surface (NOT another
-  // per-syntactic-form regex extension).
+  // R27 commit 59 — F10-class CONTRACT-LEVEL structural-EXCLUSIVITY walker.
+  // SUPERSEDES the R25 commit 54 contract-level walker. F10-class hit
+  // 5 rounds (R12 F10 + R14 F13/F14 + R20 F20 + R24 F25 + R26 F28) —
+  // each round revealed a NEW syntactic form not covered by prior
+  // per-syntactic-form regex defenses (R25's COLON_LIST_FRAME_RX
+  // couldn't catch F28's cardinality-only / wildcard-only shape).
   //
-  // This walker scans EVERY M12 doc surface (spec + plan tree + handoff
-  // excluding §15 audit-trail and EXCLUDED_PATHS historical-record
-  // sections) for env-var enumeration clusters and asserts each cluster
-  // EITHER lists all 4 canonical env vars OR cross-references spec §9.1.2
-  // within ±10 lines OR carries a recognised subset reason OR is itself
-  // a §9.1.2 table row (already validated by F20 / F24).
-  test("F25-class contract-level walker: every env-var enumeration cluster across M12 doc surfaces lists 4 canonical vars OR cross-refs §9.1.2 OR carries subset reason", () => {
+  // Per AGENTS.md "Structural-defense calibration (M12 plan R5
+  // amendment)" + R25 documented escalation ladder: the F10-class
+  // converges structurally only via Option D refactor (single source
+  // of truth + structural exclusivity). The refactor at R27 commit 58
+  // retired own-enumerations from every M12 doc surface EXCEPT spec
+  // §9.1.2 + plan 01 .env.local.example template. This walker enforces
+  // that exclusivity: ANY cluster of ≥2 distinct canonical literals
+  // outside the two whitelisted surfaces fails.
+  //
+  // Walker design (replaces the R25 COLON_LIST_FRAME_RX +
+  // evaluateCanonicalEnvVarCluster satisfiability model):
+  //
+  //   1. Scan every M12 doc surface (spec + plan tree + handoff,
+  //      with §15 audit-trail stripped + EXCLUDED handoff + SELF).
+  //   2. For each line: count distinct canonical literals. If 0, skip.
+  //   3. Build a ±5-line cluster window. Count distinct canonical
+  //      literals in the window. If <2, skip (single-var paragraphs
+  //      like "set VALIDATION_J3_CLAIM_EMAIL to your Google email"
+  //      are fine).
+  //   4. Cluster has ≥2 distinct canonical literals → potentially a
+  //      problem. EXCEPT (any one suffices):
+  //      (a) Cluster is inside spec §9.1.2 heading scope (validated
+  //          by F20 / F24).
+  //      (b) Cluster window contains the literal phrase
+  //          "canonical-env-var-source: keep" (the explicit whitelist
+  //          marker; carried by spec §9.1.2 + plan 01 .env.local.example
+  //          per R27 commit 58 refactor).
+  //      (c) ALL canonical-literal occurrences in the cluster appear
+  //          inside `process.env.X` references (real TypeScript code
+  //          referencing the env var, NOT prose enumerating the env-
+  //          var contract — these legitimately appear in plan 03 mint-
+  //          RPC integration test snippets).
+  //      (d) Cluster is inside a fenced code block (```...```) that
+  //          is NOT in a whitelisted surface — exempts SQL exception
+  //          messages that mention an env-var name in their diagnostic
+  //          text (single-literal SQL strings; the cluster-window
+  //          rule already excludes single-literal lines, but adjacent
+  //          fenced-code lines naming different literals can land in
+  //          the same window).
+  //      (e) Cluster window contains an explicit `<!-- not-f28-class:
+  //          <reason> -->` waiver (escape hatch for future legitimate
+  //          historical-quote needs).
+  //   5. Otherwise: FAIL with diagnostic naming the cluster's literals
+  //      and the cross-reference fix instruction.
+  //
+  // This walker is intentionally STRICTER than R25's: it does NOT
+  // satisfiability-check (4 vars OR subset reason OR waiver); it
+  // enforces structural exclusivity (the only places canonical
+  // literals may co-occur are §9.1.2 + .env.local.example +
+  // exempted code / waivers). Each new round-find of a syntactic
+  // form not yet covered would have meant another walker extension
+  // under R25's model; under R27 it requires no walker change —
+  // the offending site fails as an unauthorized own-enumeration.
+  test("F28-class structural-exclusivity walker: clusters of ≥2 canonical VALIDATION_* literals live ONLY in spec §9.1.2 or the .env.local.example template (everything else is a contract-drift hit)", () => {
     const CANONICAL_VARS = [
       "VALIDATION_SUPABASE_URL",
       "VALIDATION_SUPABASE_SECRET_KEY",
@@ -814,52 +868,20 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       "VALIDATION_J3_CLAIM_EMAIL",
     ];
 
-    // Enumeration-context signal (R25 walker — refined to high-signal
-    // syntactic frames to avoid false positives on per-predicate
-    // narratives that happen to mention multiple env vars in
-    // different contexts):
+    // R27 walker — structural-exclusivity. The R25 walker tried to
+    // satisfiability-check every cluster (4 vars OR subset reason OR
+    // waiver); R26 F28 demonstrated that approach can be silently
+    // bypassed by cardinality-only / wildcard-only patterns the regex
+    // doesn't recognise. R27 inverts the model: ANY cluster of ≥2
+    // canonical literals outside the two authorized surfaces fails.
     //
-    //   The line MUST be an env-var CONTRACT enumeration — a
-    //   colon-then-list shape OR a checklist-step-with-enumeration-
-    //   phrase shape. Just naming multiple canonical vars on the
-    //   same line is NOT sufficient (e.g., spec §3.3.2 predicate
-    //   narratives name VALIDATION_PROJECT_REF in predicate (d) and
-    //   VALIDATION_J3_CLAIM_EMAIL in predicate (k) — those are
-    //   per-predicate citations, not env-var contract enumerations).
-    //
-    //   High-signal frames (any one suffices):
-    //   (i)   "Required env vars [...] : VAR1, VAR2, VAR3..." — the
-    //         colon-then-comma-list shape; F25's exact shape.
-    //   (ii)  Bullet/list/heading line with "Required env vars" or
-    //         "env vars per" phrase + ≥2 canonical literals after
-    //         a colon on the same line.
-    //   (iii) A line in a contiguous fenced .env.local-style block
-    //         (handled separately below — see ENV_TEMPLATE_BLOCK
-    //         detection).
-    const ENUMERATION_PHRASE_RX =
-      /\b(required\s+env\s+vars?|env\s+vars?\s+per\b|MUST\s+be\s+set|all\s+four\s+env|all\s+4\s+env|four\s+VALIDATION_\*?|four\s+new\s+VALIDATION_|the\s+(?:4|four)\s+(?:new\s+)?VALIDATION_|four\s+env\s+vars?)\b/i;
-    // Colon-then-list shape: "Required env vars: VAR1, VAR2, VAR3" or
-    // "env vars per spec §9.1.2: VAR1, VAR2, VAR3" — the line must
-    // contain the enumeration phrase followed by a colon followed by
-    // at least one canonical literal.
-    const COLON_LIST_FRAME_RX =
-      /\b(required\s+env\s+vars?|env\s+vars?\s+per\b|MUST\s+be\s+set|all\s+four\s+env|four\s+VALIDATION_|four\s+new\s+VALIDATION_|four\s+env\s+vars?)\b[^:]{0,80}:\s*[`'"]?VALIDATION_/i;
+    // The two authorized surfaces are detected via the explicit marker
+    // phrase below — paired with the markers landed in commit 58 at
+    // spec §9.1.2 + plan 01 .env.local.example template block.
+    const CANONICAL_SOURCE_MARKER = "canonical-env-var-source: keep";
+    const F28_WAIVER_RX = /<!--\s*not-f28-class:\s*[^-]/i;
 
-    // Note (R25 walker design): an earlier draft of this walker
-    // included a §9.1.2 cross-reference exemption — clusters that
-    // cited "spec §9.1.2" within ±10 lines were exempted. That
-    // exemption was REMOVED because F25 itself contained the cross-
-    // reference ("Required env vars per spec §9.1.2:") on the same
-    // line as a 3-var enumeration — the citation didn't prevent the
-    // implementer from reading the (incomplete) inline list. The
-    // colon-list-frame gate above filters to own-enumeration sites;
-    // any own-enumeration must satisfy the contract regardless of
-    // whether it also cites §9.1.2.
-
-    // Files where contract-drift wording is legitimately quoted as part
-    // of historical convergence-log finding tables. Same posture as the
-    // F20 / F21-class EXCLUDED_PATHS.
-    const F25_EXCLUDED_PATHS = new Set([
+    const F28_EXCLUDED_PATHS = new Set([
       "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md",
       SELF,
     ]);
@@ -872,10 +894,35 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md",
     ];
 
+    // Helper: are ALL canonical-literal occurrences in this cluster
+    // inside `process.env.X` references? Real TypeScript code
+    // legitimately co-locates multiple env vars (e.g.,
+    // `createClient(process.env.VALIDATION_SUPABASE_URL!,
+    // process.env.VALIDATION_SUPABASE_SECRET_KEY!)`). Those are NOT
+    // contract enumerations — they're real code. Walker skips.
+    function allCanonicalsInProcessEnvCode(
+      clusterWindow: string,
+      canonicalVars: readonly string[],
+    ): boolean {
+      let anyMatched = false;
+      for (const v of canonicalVars) {
+        const regex = new RegExp(v.replace(/_/g, "_"), "g");
+        for (const m of clusterWindow.matchAll(regex)) {
+          anyMatched = true;
+          const idx = m.index ?? 0;
+          // Check ~24 chars before for `process.env.` prefix (allows
+          // for `process.env.X` and `process.env. X` spacing variants).
+          const lookback = clusterWindow.substring(Math.max(0, idx - 24), idx);
+          if (!/process\.env\.\s*$/.test(lookback)) return false;
+        }
+      }
+      return anyMatched;
+    }
+
     const findings: string[] = [];
 
     for (const file of SCAN_FILE_LIST) {
-      if (F25_EXCLUDED_PATHS.has(file)) continue;
+      if (F28_EXCLUDED_PATHS.has(file)) continue;
       let raw: string;
       try {
         raw = readFileSync(join(ROOT, file), "utf8");
@@ -885,16 +932,40 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       const source = stripFifteen(raw);
       const lines = source.split("\n");
 
-      // Track whether we're inside the §9.1.2 canonical CLI table —
-      // those rows are validated by F20 / F24, not here.
-      let inCanonicalTable = false;
+      // Track §9.1.2 heading scope (spec file only). Inside §9.1.2:
+      // canonical literals are authorized (and the table-body rows
+      // are additionally validated by F20 / F24 above).
       let in912Heading = false;
+      // Track which lines (zero-indexed) are inside a fenced code
+      // block. A toggle: lines starting with ``` flip the state.
+      const inFence: boolean[] = new Array(lines.length).fill(false);
+      let fenceOpen = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (/^```/.test(lines[i])) {
+          fenceOpen = !fenceOpen;
+          inFence[i] = fenceOpen; // the fence line itself counts as inside
+          continue;
+        }
+        inFence[i] = fenceOpen;
+      }
+
+      // Track lines (zero-indexed) within range of the explicit
+      // canonical-env-var-source marker. The marker authorizes its
+      // section/block to carry own-enumerations. Whitelist window:
+      // marker line + the next 60 lines (covers spec §9.1.2 table +
+      // plan .env.local.example multi-var block).
+      const inMarkerWindow: boolean[] = new Array(lines.length).fill(false);
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes(CANONICAL_SOURCE_MARKER)) {
+          const end = Math.min(lines.length, i + 60);
+          for (let k = i; k < end; k++) inMarkerWindow[k] = true;
+        }
+      }
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
-        // Track §9.1.2 heading scope (spec file only; plan files have
-        // no §9.1.2 heading).
+        // Track §9.1.2 heading scope (spec file only).
         if (/^###\s+9\.1\.2\b/.test(line)) {
           in912Heading = true;
         } else if (in912Heading && /^###?\s+9\.[1-9]\.[3-9]\b/.test(line)) {
@@ -903,153 +974,284 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
           in912Heading = false;
         }
 
-        // Within §9.1.2 heading: if the line is a markdown table row
-        // mentioning a canonical literal, it's covered by F20 — skip.
-        if (in912Heading && /^\s*\|/.test(line)) {
-          continue;
-        }
-
         // Does this line mention any canonical literal?
-        const lineCanonicalCount = CANONICAL_VARS.filter((v) => line.includes(v)).length;
-        if (lineCanonicalCount === 0) continue;
+        const lineCanonicals = CANONICAL_VARS.filter((v) => line.includes(v));
+        if (lineCanonicals.length === 0) continue;
 
-        // High-signal enumeration-context detection. The line MUST
-        // carry the colon-then-list frame (F25's exact syntactic shape)
-        // — a contract-enumeration phrase followed by a colon followed
-        // by ≥1 canonical literal on the same line. This is tight by
-        // design: per-predicate narratives that name VALIDATION_*
-        // vars in different contexts (e.g., spec §3.3.2 predicate (d)
-        // + (k)) are NOT contract enumerations and must not fire the
-        // walker. The walker's job is to catch sites where the prose
-        // says "here are the env vars this CLI needs: <list>" and
-        // the list is short.
-        const isColonListFrame = COLON_LIST_FRAME_RX.test(line);
-        if (!isColonListFrame) {
-          // Not a contract enumeration. Skip.
-          // (The .env.local.example template block is covered by the
-          // §9.1.2 cross-reference on line 91-92 of 01-phase0-infra.md
-          // — "Canonical per-CLI env-var map: spec §9.1.2 table" —
-          // which the cross-ref check below will detect.)
-          continue;
+        // The structural-exclusivity rule fires on TRUE own-enumeration
+        // — a single logical entity (line or fenced block) that names
+        // ≥2 distinct canonical literals together. Distributed
+        // per-predicate / per-checklist citations where each line
+        // happens to name ONE canonical literal but its neighbours
+        // name a DIFFERENT one are NOT own-enumerations — they're
+        // narrative co-incidence within a ±5 line window. The
+        // walker's job is to catch "Required env vars: VAR1, VAR2"
+        // and ".env.local.example multi-line var blocks", NOT
+        // "predicate (d) cites PROJECT_REF on this line; predicate
+        // (k) cites J3_CLAIM_EMAIL three lines later."
+        //
+        // Two detection modes:
+        //   (M1) Same-line co-occurrence: this line itself names ≥2
+        //        distinct canonical literals. F25's exact shape, F20
+        //        spec-table-row shape, and the structural-exclusivity
+        //        rule's primary target.
+        //   (M2) Contiguous-line co-occurrence in a fenced template
+        //        block: ≥2 distinct canonical literals appear on
+        //        consecutive lines (or with at most a single blank-
+        //        or-comment line between them) inside a code-fence —
+        //        the .env.local.example template shape. The fence
+        //        boundary defines the logical entity.
+        //
+        // Both modes use the SAME cluster window for waiver / marker
+        // detection (±5 lines), so existing escape hatches still apply.
+
+        // (M1) Same-line: count distinct canonicals on this line.
+        // But require enumeration intent — the canonicals must be in
+        // LIST PROXIMITY (separated only by short connectors like
+        // `,` `;` `+` ` ` `\`` and at most ~40 chars of inter-literal
+        // text). Distant co-occurrence on the same line ("predicate
+        // (d) cites PROJECT_REF ... predicate (k) cites
+        // J3_CLAIM_EMAIL") is narrative, not enumeration, and must
+        // NOT fire the walker. Two literals separated by a sentence
+        // boundary (`. ` followed by capital) or a `predicate (X)`
+        // citation marker between them are explicitly disqualified.
+        const sameLineCount = (() => {
+          if (lineCanonicals.length < 2) return lineCanonicals.length;
+          // Find the indices of canonical-literal occurrences in this
+          // line and check the inter-literal text for narrative
+          // disqualifiers.
+          const positions: number[] = [];
+          for (const v of lineCanonicals) {
+            const idx = line.indexOf(v);
+            if (idx >= 0) positions.push(idx + v.length); // end of literal
+          }
+          positions.sort((a, b) => a - b);
+          // For each adjacent pair, check the inter-literal substring.
+          let listProximityAdjacencies = 0;
+          for (let p = 0; p < positions.length - 1; p++) {
+            const sliceStart = positions[p];
+            const nextLitStart = line.indexOf(
+              lineCanonicals.find((v) => {
+                const idx = line.indexOf(v, sliceStart);
+                return idx >= 0;
+              }) ?? "",
+              sliceStart,
+            );
+            if (nextLitStart < 0) continue;
+            const inter = line.substring(sliceStart, nextLitStart);
+            const interLen = inter.length;
+            // Narrative disqualifiers: predicate citation, sentence
+            // boundary, long prose, parenthesized R-commit citation
+            // shape, or a predicate-letter marker.
+            const isNarrative =
+              /predicate\s*\([a-z]\)/i.test(inter) ||
+              /\*\*\([a-z]\)/i.test(inter) ||
+              /\.\s+[A-Z]/.test(inter) ||
+              /\bif\s+(?:`|the\b)/i.test(inter) ||
+              /\bcheck-seed\b/i.test(inter) ||
+              /\bdiagnostic\b/i.test(inter) ||
+              interLen > 80;
+            if (!isNarrative) listProximityAdjacencies++;
+          }
+          // Require at least one list-proximity adjacency to call
+          // this an enumeration.
+          return listProximityAdjacencies > 0 ? lineCanonicals.length : 1;
+        })();
+
+        // (M2) Fenced-block contiguous: if this line is inside a code
+        // fence, look at the contiguous fence block and count
+        // distinct canonicals across its lines.
+        let fencedBlockCount = 0;
+        let fencedBlockStart = i;
+        let fencedBlockEnd = i;
+        if (inFence[i]) {
+          // Walk back to fence start.
+          let s = i;
+          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1])) s--;
+          // Walk forward to fence end.
+          let e = i;
+          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1])) e++;
+          fencedBlockStart = s;
+          fencedBlockEnd = e;
+          const fencedText = lines.slice(s, e + 1).join("\n");
+          fencedBlockCount = CANONICAL_VARS.filter((v) => fencedText.includes(v)).length;
         }
-        // Mark for diagnostics that this is in fact an enumeration line.
-        void ENUMERATION_PHRASE_RX; // intentionally retained for readability
 
-        // Build the cluster window for evaluation. The cluster window is
-        // ±5 lines around the colon-list-frame line — wide enough to
-        // capture multi-line enumerations (e.g., the .env.local.example
-        // template's 4 var lines spread across SUPABASE_* + comment
-        // block + J3_CLAIM_EMAIL) and any subset/cardinality marker
-        // that lives a few lines before the var list.
-        const clusterStart = Math.max(0, i - 5);
-        const clusterEnd = Math.min(lines.length, i + 6);
+        const isOwnEnumeration = sameLineCount >= 2 || fencedBlockCount >= 2;
+        if (!isOwnEnumeration) continue;
+
+        // Cluster window for waiver / marker / process.env / fence
+        // checks. For fenced-block mode, the window is the block
+        // itself; for same-line mode, ±5 lines around the line.
+        const clusterStart =
+          fencedBlockCount >= 2 ? Math.max(0, fencedBlockStart - 5) : Math.max(0, i - 5);
+        const clusterEnd =
+          fencedBlockCount >= 2
+            ? Math.min(lines.length, fencedBlockEnd + 6)
+            : Math.min(lines.length, i + 6);
         const clusterWindow = lines.slice(clusterStart, clusterEnd).join("\n");
+        const clusterCanonicals = CANONICAL_VARS.filter((v) => clusterWindow.includes(v));
 
-        const clusterFinding = evaluateCanonicalEnvVarCluster(clusterWindow, CANONICAL_VARS);
+        // Exemption (a): §9.1.2 heading scope (validated by F20 / F24).
+        if (in912Heading) continue;
 
-        // Cluster passes outright (4 vars present / waiver / valid
-        // subset). The cross-reference exemption does NOT apply when
-        // the cluster is itself a colon-then-list own-enumeration:
-        // citing "§9.1.2" while listing 3 of 4 vars is the exact F25
-        // failure mode (the implementer reads the line's enumeration,
-        // not the cross-reference). Cross-reference exemption only
-        // applies to pure narrative references that don't enumerate
-        // any vars — but those are filtered out by the colon-list-
-        // frame gate above, so all clusters reaching this point are
-        // own-enumerations that must satisfy the contract.
-        if (clusterFinding === null) continue;
+        // Exemption (b): explicit marker whitelist.
+        if (inMarkerWindow[i]) continue;
 
-        // Otherwise: this is an own-enumeration cluster that drops
-        // canonical vars without a subset reason. Record a finding.
+        // Exemption (e): explicit per-finding waiver.
+        if (F28_WAIVER_RX.test(clusterWindow)) continue;
+
+        // Exemption (c): ALL canonical-literal occurrences are
+        // inside `process.env.X` real-code references.
+        if (allCanonicalsInProcessEnvCode(clusterWindow, CANONICAL_VARS)) continue;
+
+        // Exemption (d): for same-line mode, exempt if the line is
+        // inside a fenced code block AND none of the canonical-
+        // mentions have prose-context companions outside the fence.
+        // (Fenced-block mode is itself exempt only via the marker —
+        // the .env.local.example template carries the marker.)
+        if (sameLineCount >= 2 && inFence[i]) continue;
+
+        // No exemption applies → contract-drift hit.
+        const mode = fencedBlockCount >= 2 && sameLineCount < 2 ? "fenced-block" : "same-line";
         findings.push(
-          `  ${file}:${i + 1} (${clusterFinding.reason})\n` +
+          `  ${file}:${i + 1} [${mode}] (unauthorized own-enumeration of ${clusterCanonicals.length} canonical VALIDATION_* literals outside §9.1.2 / .env.local.example)\n` +
             `      line:    ${line.substring(0, 240)}${line.length > 240 ? "..." : ""}\n` +
-            `      present: ${
-              clusterFinding.presentVars.length === 0
-                ? "(none in cluster window)"
-                : clusterFinding.presentVars.join(", ")
-            }\n` +
-            `      missing: ${clusterFinding.missingVars.join(", ")}`,
+            `      cluster canonicals: ${clusterCanonicals.join(", ")}`,
         );
       }
     }
 
     if (findings.length > 0) {
       expect.fail(
-        `R25 commit 54 F10-class contract-level walker: ${findings.length} env-var enumeration cluster(s) across M12 doc surfaces drop canonical env vars without a recognised subset reason.\n\n` +
+        `R27 commit 59 F10-class structural-exclusivity walker: ${findings.length} cluster(s) of ≥2 canonical VALIDATION_* literals found OUTSIDE the two authorized surfaces (spec §9.1.2 + plan 01-phase0-infra.md .env.local.example template block).\n\n` +
           findings.join("\n\n") +
-          `\n\nCanonical env vars (single source of truth — spec §9.1.2 R21 commit 44 F20 amendment):\n  ${CANONICAL_VARS.join("\n  ")}\n\n` +
-          `Fix options for each cluster:\n` +
-          `  (a) List all 4 canonical env vars in the cluster (or its ±5 line window).\n` +
-          `  (b) Document a subset: write "<N> vars" (e.g., "3 vars") AND "J3-claim-email NOT required" / "omitted" with rationale, AND list all non-omitted vars.\n` +
-          `  (c) Add an inline "not-subject-to-meta: <reason>" waiver.\n` +
-          `  (d) Rephrase the colon-then-list frame: if the line is meant as a narrative reference rather than an own-enumeration, drop the var-list and replace with "see spec §9.1.2 for the canonical per-CLI env-var map" (no inline list).\n\n` +
-          `This walker is the CONTRACT-LEVEL F10-class defense (R25 commit 54). The R15 (prose) + R21 (spec table) + R23 (cardinality) defenses each closed a per-syntactic-form gap; this walker closes the class regardless of syntactic form by detecting the colon-then-list frame ("Required env vars [...]: VAR1, VAR2, VAR3") that is the universal shape of an own-enumeration.`,
+          `\n\nCanonical env vars (single source of truth — spec §9.1.2 R21 commit 44 F20 amendment + R27 commit 58 Option D refactor):\n  ${CANONICAL_VARS.join("\n  ")}\n\n` +
+          `Per R27 Option D refactor: the ONLY two M12 doc surfaces authorized to carry own-enumerations of ≥2 canonical literals are\n` +
+          `  (1) spec §9.1.2 canonical CLI table (heading scope is auto-exempt; markers required for prose around it)\n` +
+          `  (2) plan 01-phase0-infra.md .env.local.example template block (carries the explicit "canonical-env-var-source: keep" marker)\n\n` +
+          `Fix options for each finding:\n` +
+          `  (a) Rewrite the cluster as a cross-reference to spec §9.1.2 (e.g., "per the canonical CLI env-var contract at §9.1.2"). Do NOT inline-restate the literal env-var names.\n` +
+          `  (b) If the canonical literals appear inside real TypeScript code (\`process.env.X\`), the walker should already auto-exempt; check the cluster window for non-code prose contamination.\n` +
+          `  (c) If the canonical literals appear inside fenced code blocks (script/SQL bodies / exception messages), the walker should already auto-exempt; check the cluster window for prose lines outside the fence.\n` +
+          `  (d) Add an inline <!-- not-f28-class: <reason> --> waiver comment within ±5 lines of the cluster.\n` +
+          `  (e) If the cluster is meant to be a NEW canonical-source surface, add the <!-- canonical-env-var-source: keep --> marker explicitly (DESIGN CHANGE — requires updating the F10-class contract; not the default repair).\n\n` +
+          `This walker SUPERSEDES the R25 contract-level satisfiability walker. Per the AGENTS.md "Structural-defense calibration (M12 plan R5 amendment)" + R25 documented escalation ladder: F10-class converges structurally only via Option D (single source of truth + structural exclusivity), NOT via further per-syntactic-form regex extensions.`,
       );
     }
   });
 
-  // R25 commit 54 negative-case test — synthetic broken-cluster fixtures
-  // must trigger the walker logic; synthetic valid fixtures (full 4 /
-  // cross-ref / subset reason / waiver) must pass. Pins the helper
-  // semantics at CI time so future edits to evaluateCanonicalEnvVarCluster()
-  // can't relax the contract by accident.
-  test("F25-class walker negative case: synthetic broken-cluster fixtures fire; synthetic valid fixtures pass", () => {
+  // R27 commit 59 negative-case test for the structural-exclusivity
+  // walker. Pins the new semantics at CI time so future edits cannot
+  // relax structural exclusivity without explicit intent. The fixture
+  // shapes test (1) the basic ≥2-canonical-co-occurrence rule, (2)
+  // the §9.1.2 / marker / waiver / code / fence exemptions, and (3)
+  // the cardinality-only / wildcard-only shape F28 named (which the
+  // R25 walker silently missed).
+  test("F28-class structural-exclusivity walker negative case: ≥2-canonical clusters outside authorized surfaces FIRE; exempted clusters PASS", () => {
+    // Pure unit-evaluator mirroring the walker's per-cluster decision
+    // logic (without filesystem I/O). Returns true iff the cluster
+    // would fire the walker.
     const CANONICAL_VARS = [
       "VALIDATION_SUPABASE_URL",
       "VALIDATION_SUPABASE_SECRET_KEY",
       "VALIDATION_SUPABASE_PROJECT_REF",
       "VALIDATION_J3_CLAIM_EMAIL",
     ];
+    const CANONICAL_SOURCE_MARKER = "canonical-env-var-source: keep";
+    const F28_WAIVER_RX = /<!--\s*not-f28-class:\s*[^-]/i;
 
-    // BROKEN fixtures (F25-shaped pre-R25 prose).
+    function clusterFires(opts: {
+      window: string;
+      in912Heading?: boolean;
+      hasMarker?: boolean;
+      allInFence?: boolean;
+    }): boolean {
+      const window = opts.window;
+      const clusterCanonicals = CANONICAL_VARS.filter((v) => window.includes(v));
+      if (clusterCanonicals.length < 2) return false;
+      if (opts.in912Heading) return false;
+      if (opts.hasMarker || window.includes(CANONICAL_SOURCE_MARKER)) return false;
+      if (F28_WAIVER_RX.test(window)) return false;
+      // All-in-process.env check.
+      let anyMatched = false;
+      let allCode = true;
+      for (const v of CANONICAL_VARS) {
+        for (const m of window.matchAll(new RegExp(v, "g"))) {
+          anyMatched = true;
+          const idx = m.index ?? 0;
+          const lookback = window.substring(Math.max(0, idx - 24), idx);
+          if (!/process\.env\.\s*$/.test(lookback)) allCode = false;
+        }
+      }
+      if (anyMatched && allCode) return false;
+      if (opts.allInFence) return false;
+      return true;
+    }
 
-    // F25 itself: Task 0.C.1 Step 3 pre-R25 form.
-    const brokenF25Cluster =
-      "Required env vars per spec §9.1.2: `VALIDATION_SUPABASE_URL`, `VALIDATION_SUPABASE_SECRET_KEY`, `VALIDATION_SUPABASE_PROJECT_REF`.";
-    const f25Result = evaluateCanonicalEnvVarCluster(brokenF25Cluster, CANONICAL_VARS);
-    expect(f25Result).not.toBeNull();
-    expect(f25Result?.missingVars).toContain("VALIDATION_J3_CLAIM_EMAIL");
+    // BROKEN fixtures (would fire the walker).
 
-    // F25-shape with "MUST be set" enumeration phrase + 3 vars.
-    const brokenMustBeSet =
-      "All three MUST be set for validation: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF.";
-    expect(evaluateCanonicalEnvVarCluster(brokenMustBeSet, CANONICAL_VARS)).not.toBeNull();
+    // F28 base shape — 2 canonicals co-occurring in prose, no exemption.
+    const f28BasicCluster =
+      "Required env vars: `VALIDATION_SUPABASE_URL`, `VALIDATION_SUPABASE_SECRET_KEY` for the new CLI.";
+    expect(clusterFires({ window: f28BasicCluster })).toBe(true);
+
+    // F25 shape — pre-R25 enumeration of 3 vars; structural-exclusivity
+    // walker fires regardless of cardinality semantics (R25 satisfiability
+    // logic retired).
+    const f25Cluster =
+      "Required env vars per spec §9.1.2: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF.";
+    expect(clusterFires({ window: f25Cluster })).toBe(true);
+
+    // F20 shape — full 4 vars listed in a non-canonical surface.
+    // Under R25 the satisfiability check passed (all 4 listed); under
+    // R27 the structural-exclusivity rule fires unconditionally
+    // because the surface is not §9.1.2 and lacks the marker.
+    const f20ShapeUnauthorizedSurface =
+      "Full enumeration: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF, VALIDATION_J3_CLAIM_EMAIL.";
+    expect(clusterFires({ window: f20ShapeUnauthorizedSurface })).toBe(true);
 
     // PASSING fixtures.
 
-    // (a) Full 4-var enumeration.
-    const validFullFour =
-      "Required env vars: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF, VALIDATION_J3_CLAIM_EMAIL.";
-    expect(evaluateCanonicalEnvVarCluster(validFullFour, CANONICAL_VARS)).toBeNull();
+    // (a) §9.1.2 heading scope.
+    expect(clusterFires({ window: f25Cluster, in912Heading: true })).toBe(false);
 
-    // (c) Subset with J3-claim-email NOT required + 3 SUPABASE_* vars.
-    const validSubset =
-      "3 vars; J3-claim-email NOT required (read-only lookup): VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF.";
-    expect(evaluateCanonicalEnvVarCluster(validSubset, CANONICAL_VARS)).toBeNull();
+    // (b) Explicit canonical-source marker.
+    const markedCluster =
+      "<!-- canonical-env-var-source: keep --> VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY";
+    expect(clusterFires({ window: markedCluster })).toBe(false);
 
-    // (c-broken) Subset with J3-omission marker BUT only 1 of 3 SUPABASE_*
-    // vars listed — must fire (anti-tautology).
-    const brokenSubsetMissingSupabase =
-      "3 vars; J3-claim-email NOT required: VALIDATION_SUPABASE_URL only listed.";
-    const brokenSubsetResult = evaluateCanonicalEnvVarCluster(
-      brokenSubsetMissingSupabase,
-      CANONICAL_VARS,
-    );
-    expect(brokenSubsetResult).not.toBeNull();
-    expect(brokenSubsetResult?.missingVars).toContain("VALIDATION_SUPABASE_SECRET_KEY");
+    // (c) All canonicals inside process.env code references.
+    const processEnvCode =
+      "const client = createClient(process.env.VALIDATION_SUPABASE_URL!, process.env.VALIDATION_SUPABASE_SECRET_KEY!);";
+    expect(clusterFires({ window: processEnvCode })).toBe(false);
 
-    // (d) Waiver — passes regardless of var count.
-    const validWaiver =
-      "<!-- not-subject-to-meta: this is a single-var citation about VALIDATION_SUPABASE_URL only --> the localhost smoke uses VALIDATION_SUPABASE_URL.";
-    expect(evaluateCanonicalEnvVarCluster(validWaiver, CANONICAL_VARS)).toBeNull();
+    // (d) Fenced code block (entire cluster inside ```).
+    expect(clusterFires({ window: f25Cluster, allInFence: true })).toBe(false);
 
-    // Cardinality mismatch: cluster claims "4 vars" but lists only 3.
-    const brokenCardinality =
-      "4 vars: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF.";
-    const cardinalityResult = evaluateCanonicalEnvVarCluster(brokenCardinality, CANONICAL_VARS);
-    expect(cardinalityResult).not.toBeNull();
-    expect(cardinalityResult?.missingVars).toContain("VALIDATION_J3_CLAIM_EMAIL");
+    // (e) Explicit waiver.
+    const waiverCluster =
+      "<!-- not-f28-class: quoting pre-R27 finding F25 verbatim --> Required env vars per spec §9.1.2: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY.";
+    expect(clusterFires({ window: waiverCluster })).toBe(false);
+
+    // Single-canonical cluster — passes regardless.
+    const singleCanonical =
+      "set VALIDATION_J3_CLAIM_EMAIL to your real Google account email.";
+    expect(clusterFires({ window: singleCanonical })).toBe(false);
+
+    // F28 cardinality-only shape — no canonical literals present.
+    // The walker is only counts distinct canonicals; this cluster
+    // has zero, so it does not fire (and the surface should be
+    // refactored to drop the cardinality claim per the R27 commit 58
+    // refactor — which is the per-instance F28 fix).
+    const cardinalityOnly = "documents 3 new VALIDATION_* env vars";
+    expect(clusterFires({ window: cardinalityOnly })).toBe(false);
+
+    // Sanity: process.env code mixed with prose enumeration fires.
+    // (Code-mix-with-prose isn't a real-code reference.)
+    const mixedCodeAndProse =
+      "Per spec §9.1.2: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY. Also process.env.VALIDATION_SUPABASE_PROJECT_REF in the script.";
+    expect(clusterFires({ window: mixedCodeAndProse })).toBe(true);
   });
 
   test("F13-conflation-prevention: no Phase 0.C verification query asserts `email LIKE '%@example.com'` count = 96", () => {
