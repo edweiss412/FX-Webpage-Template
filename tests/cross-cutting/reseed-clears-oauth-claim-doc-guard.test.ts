@@ -738,4 +738,265 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       );
     }
   });
+
+  // R23 commit 52 — F21-class prose-consistency structural defense.
+  // F21-class is the "prose contradicts a newly-amended contract"
+  // failure mode (R20 F21 + R22 F22/F23). R21 (C) class-sweep was
+  // spec-and-§-section scoped and missed plan-side surfaces (summary
+  // openers, commit-message templates, failure-mode catalogs,
+  // narrative paragraphs across plan files, the milestone handoff).
+  // R22 surfaced 2 distinct F21-class peers in one round (F22+F23);
+  // R23 (A) comprehensive re-analysis surfaced 1 additional peer at
+  // 00-overview.md:153, breaching the 3-peer threshold and firing
+  // this structural defense per M12 plan R5 precedent.
+  //
+  // The assertion grep-walks every M12 doc surface (spec + plan tree
+  // + milestone handoff, excluding §15 audit-trail and EXCLUDED_PATHS
+  // historical-record sections) for two contract-drift wording
+  // classes:
+  //
+  //   (1) Dual-source-sentinel drift — wording that frames the
+  //       show_share_tokens row as trigger-only OR asserts the reseed
+  //       does NOT write the row OR points operators at manual SQL
+  //       backfill as a normal repair path. Per spec §3.3 lockstep +
+  //       §3.3.2 R19 commit 43 + R21 commit 45 + R23 commit 48: the
+  //       row is maintained by a dual-source sentinel (trigger on
+  //       initial INSERT + mint RPC self-heal on every UPSERT update-
+  //       path reseed). Forbidden wording: "no direct write to
+  //       show_share_tokens is needed", "trigger only", "trigger-
+  //       only sentinel", "manual SQL backfill" as a recurring
+  //       repair step.
+  //
+  //   (2) Stable-id drift — wording that implies reseed DELETEs +
+  //       INSERTs (recreates rows with fresh ids) the claimed rows.
+  //       Per spec §3.3 Cleanup contract + R13 commit 31 F11 + R23
+  //       commit 49 F23 + R23 commit 51: the mint RPC's ON CONFLICT
+  //       (show_id, name) DO UPDATE preserves the stable
+  //       crew_members.id and only resets claimed_via_oauth_at to
+  //       NULL. Devices holding stale cookies remain valid because
+  //       the id is unchanged. Forbidden wording: "fresh ids" /
+  //       "fresh crew_members.id" / "re-creates the affected rows" /
+  //       "creates affected rows with fresh ids" in the context of
+  //       reseed/OAuth-claim reset.
+  //
+  // Each match must EITHER be inside a recognised "historical
+  // narrative" frame (a sentence that explicitly cites a pre-R19/
+  // pre-R13 / "pre-R23" / "pre-amendment" / "earlier draft" /
+  // "originally" qualifier within ~120 chars before the match), OR
+  // carry an inline `<!-- not-f21-class: <reason> -->` waiver
+  // comment within ~200 chars before the match. Anything else is a
+  // contract-drift hit and fails the assertion.
+  test("F21-class prose-consistency: dual-source-sentinel + stable-id contracts hold across all M12 prose surfaces", () => {
+    const F21_FORBIDDEN_PATTERNS: Array<{ class: string; rx: RegExp; explain: string }> = [
+      {
+        class: "dual-source-sentinel:no-direct-write",
+        rx: /no\s+direct\s+write\s+to\s+`?show_share_tokens`?\s+is\s+needed/i,
+        explain:
+          "show_share_tokens IS written by the mint RPC's section 2.6 self-heal INSERT...ON CONFLICT DO NOTHING on every reseed (R19 commit 43 + R21 commit 45 + R23 commit 48). The trigger-only framing is retired.",
+      },
+      {
+        class: "dual-source-sentinel:trigger-only-sentinel",
+        // Require positive framing — exclude phrasing where the
+        // assertion is explicitly negated ("NOT a trigger-only
+        // sentinel" / "not trigger-only" / "no longer trigger-only").
+        // The negation form is the post-amendment corrective wording
+        // (it tells the implementer what the contract is NOT) and
+        // should pass.
+        rx: /(?<!\b(?:not|no\s+longer|never)\s+(?:a\s+)?)trigger[\s-]*only\s+sentinel/i,
+        explain:
+          "Predicate (g) is a DUAL-source sentinel (trigger on initial INSERT AND mint RPC self-heal on UPSERT update-path), not trigger-only.",
+      },
+      {
+        class: "stable-id:fresh-ids",
+        rx: /\bfresh\s+(?:crew_members\.id|ids)\b/i,
+        explain:
+          "Reseed PRESERVES crew_members.id via ON CONFLICT (show_id, name) DO UPDATE; only claimed_via_oauth_at is reset to NULL. The 'fresh ids' wording implies DELETE+INSERT semantics and contradicts the row-stability contract J3's multi-step walk relies on (R13 commit 31 + R23 commit 49 + R23 commit 51).",
+      },
+      {
+        class: "stable-id:re-creates-affected-rows",
+        rx: /re[\s-]?creates?\s+(?:the\s+)?affected\s+rows/i,
+        explain:
+          "Same as 'fresh ids' — reseed PRESERVES the stable crew_members.id; the wording 'recreates the affected rows' implies DELETE+INSERT and contradicts the canonical Cleanup contract.",
+      },
+    ];
+
+    const HISTORICAL_QUALIFIER_RX =
+      /\b(pre-R\d+|pre-r\d+|pre-amendment|earlier\s+draft|original\s+draft|originally\s+drafted|originally\s+framed|legacy|retired|deprecated|historical|before\s+R\d+|prior\s+to\s+R\d+|the\s+pre-R\d+\s+|F\d+\s+finding\s+pre-)\b/i;
+    const WAIVER_RX = /<!--\s*not-f21-class:\s*[^-]/i;
+    // For prose like "M11.5-delta-for-m12" or list items quoting
+    // historical fixture vocabulary (alias_5a_lead_for_revoke), the
+    // historical-qualifier check above is the primary gate. The
+    // waiver comment is the explicit escape hatch.
+
+    const SCAN_FILE_LIST = [
+      SPEC_FILE,
+      ...collectMarkdown(
+        "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation",
+      ),
+      "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md",
+    ];
+
+    // Files where contract-drift wording is legitimately quoted as
+    // part of the convergence-log finding tables (the milestone
+    // handoff records every finding verbatim, including the broken
+    // wording the patch repaired). The §15 audit-trail in the spec
+    // is also history-by-design. stripFifteen() handles §15; we
+    // exclude the handoff file wholesale here (same posture as
+    // EXCLUDED_PATHS above).
+    const F21_EXCLUDED_PATHS = new Set([
+      "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md",
+      SELF,
+    ]);
+
+    const findings: string[] = [];
+
+    for (const file of SCAN_FILE_LIST) {
+      if (F21_EXCLUDED_PATHS.has(file)) continue;
+      let raw: string;
+      try {
+        raw = readFileSync(join(ROOT, file), "utf8");
+      } catch {
+        continue;
+      }
+      const source = stripFifteen(raw);
+
+      for (const pattern of F21_FORBIDDEN_PATTERNS) {
+        const matches = [...source.matchAll(new RegExp(pattern.rx.source, pattern.rx.flags + "g"))];
+        for (const m of matches) {
+          const idx = m.index!;
+          const linesBefore = source.substring(0, idx).split("\n");
+          const lineNum = linesBefore.length;
+          const lookbackStart = Math.max(0, idx - 200);
+          const lookbackWindow = source.substring(lookbackStart, idx + m[0].length);
+
+          if (HISTORICAL_QUALIFIER_RX.test(lookbackWindow)) continue;
+          if (WAIVER_RX.test(lookbackWindow)) continue;
+
+          findings.push(
+            `  ${file}:${lineNum} [${pattern.class}]\n` +
+              `      matched: "${m[0]}"\n` +
+              `      context: ${(source.split("\n")[lineNum - 1] ?? "").substring(0, 200)}...\n` +
+              `      reason:  ${pattern.explain}`,
+          );
+        }
+      }
+    }
+
+    if (findings.length > 0) {
+      expect.fail(
+        `R23 commit 52 F21-class prose-consistency guard: ${findings.length} contract-drift wording site(s) detected across the M12 prose surfaces.\n\n` +
+          findings.join("\n\n") +
+          `\n\nFix options for each finding:\n` +
+          `  (a) Rewrite the prose to match the canonical contract (dual-source sentinel for show_share_tokens; stable crew_members.id with claimed_via_oauth_at-only reset).\n` +
+          `  (b) Frame the wording as a historical-narrative quote by prefixing within ~120 chars: "pre-R19 / pre-R13 / earlier draft / originally drafted / retired / historical".\n` +
+          `  (c) Add an inline <!-- not-f21-class: <reason> --> waiver comment within ~200 chars before the match.\n\n` +
+          `This guard codifies the F21-class structural defense per R23 dispatch + M12 plan R5 precedent. The F21-class same-vector has now closed at the contract level: future prose drift fails CI at write time.`,
+      );
+    }
+  });
+
+  // R23 commit 52 F21-class structural-defense negative-case test.
+  // Mirrors the F24 negative-case pattern: synthetic fixtures with
+  // the forbidden wording MUST trigger the regex/historical-window
+  // logic; synthetic fixtures with the corrective negation OR a
+  // historical-qualifier prefix OR an inline waiver MUST pass.
+  //
+  // This pins the regex semantics at CI time so future edits to
+  // the F21-class assertion cannot relax the contract by accident.
+  test("F21-class structural-defense negative case: synthetic broken-prose fixtures trigger the regex; corrective-negation + historical-frame + waiver fixtures pass", () => {
+    const F21_FORBIDDEN_PATTERNS: Array<{ class: string; rx: RegExp }> = [
+      {
+        class: "dual-source-sentinel:no-direct-write",
+        rx: /no\s+direct\s+write\s+to\s+`?show_share_tokens`?\s+is\s+needed/i,
+      },
+      {
+        class: "dual-source-sentinel:trigger-only-sentinel",
+        rx: /(?<!\b(?:not|no\s+longer|never)\s+(?:a\s+)?)trigger[\s-]*only\s+sentinel/i,
+      },
+      {
+        class: "stable-id:fresh-ids",
+        rx: /\bfresh\s+(?:crew_members\.id|ids)\b/i,
+      },
+      {
+        class: "stable-id:re-creates-affected-rows",
+        rx: /re[\s-]?creates?\s+(?:the\s+)?affected\s+rows/i,
+      },
+    ];
+    const HISTORICAL_QUALIFIER_RX =
+      /\b(pre-R\d+|pre-r\d+|pre-amendment|earlier\s+draft|original\s+draft|originally\s+drafted|originally\s+framed|legacy|retired|deprecated|historical|before\s+R\d+|prior\s+to\s+R\d+|the\s+pre-R\d+\s+|F\d+\s+finding\s+pre-)\b/i;
+    const WAIVER_RX = /<!--\s*not-f21-class:\s*[^-]/i;
+
+    function fixtureFiresF21Class(
+      text: string,
+    ): { fires: boolean; matchedPattern: string | null } {
+      for (const pattern of F21_FORBIDDEN_PATTERNS) {
+        const m = text.match(pattern.rx);
+        if (!m || m.index === undefined) continue;
+        const idx = m.index;
+        const lookbackStart = Math.max(0, idx - 200);
+        const lookbackWindow = text.substring(lookbackStart, idx + m[0].length);
+        if (HISTORICAL_QUALIFIER_RX.test(lookbackWindow)) continue;
+        if (WAIVER_RX.test(lookbackWindow)) continue;
+        return { fires: true, matchedPattern: pattern.class };
+      }
+      return { fires: false, matchedPattern: null };
+    }
+
+    // BROKEN fixtures (pre-R23 F22/F23/00-overview style).
+
+    const brokenF22Opener =
+      "The show_share_tokens row is auto-created by the existing trigger when the reseed RPC inserts the show; no direct write to `show_share_tokens` is needed.";
+    expect(fixtureFiresF21Class(brokenF22Opener)).toEqual({
+      fires: true,
+      matchedPattern: "dual-source-sentinel:no-direct-write",
+    });
+
+    const brokenTriggerOnlySentinel =
+      "Predicate (g) of check-seed is the trigger-only sentinel — it fires when ANY seeded show is missing its show_share_tokens row.";
+    expect(fixtureFiresF21Class(brokenTriggerOnlySentinel)).toEqual({
+      fires: true,
+      matchedPattern: "dual-source-sentinel:trigger-only-sentinel",
+    });
+
+    const brokenF23FreshIds =
+      "The next --combo all after an OAuth-claim walk re-creates the affected rows with fresh ids and null claimed_via_oauth_at, restoring the baseline.";
+    const brokenF23Result = fixtureFiresF21Class(brokenF23FreshIds);
+    expect(brokenF23Result.fires).toBe(true);
+    expect([
+      "stable-id:fresh-ids",
+      "stable-id:re-creates-affected-rows",
+    ]).toContain(brokenF23Result.matchedPattern);
+
+    const brokenOverviewRow =
+      "Re-seed has no equivalent cleanup; --combo all is the structural reset for OAuth-claim state (fresh crew_members.id with null claimed_via_oauth_at)";
+    expect(fixtureFiresF21Class(brokenOverviewRow)).toEqual({
+      fires: true,
+      matchedPattern: "stable-id:fresh-ids",
+    });
+
+    // PASSING fixtures (corrective negation / historical frame /
+    // waiver). MUST NOT fire.
+
+    const correctiveNegationOfTriggerOnly =
+      "The self-heal is a load-bearing part of the reseed contract — NOT a trigger-only sentinel.";
+    expect(fixtureFiresF21Class(correctiveNegationOfTriggerOnly).fires).toBe(false);
+
+    const historicalFrameFreshIds =
+      "Pre-R19 the spec described --combo all as re-creating the affected rows with fresh ids — that framing was retired in R13 commit 31 F11 amendment.";
+    expect(fixtureFiresF21Class(historicalFrameFreshIds).fires).toBe(false);
+
+    const waiverFreshIds =
+      "<!-- not-f21-class: quoting historical finding F11 verbatim --> the pre-rebase wording said 'fresh ids' here.";
+    expect(fixtureFiresF21Class(waiverFreshIds).fires).toBe(false);
+
+    // Edge case: corrective negation with "no longer" prefix.
+    const noLongerTriggerOnly =
+      "Predicate (g) is no longer a trigger-only sentinel — see R19 commit 43 self-heal amendment.";
+    expect(fixtureFiresF21Class(noLongerTriggerOnly).fires).toBe(false);
+
+    // Edge case: canonical prose with no forbidden patterns.
+    const canonicalProse =
+      "The show_share_tokens row is maintained by a dual-source sentinel: trigger on initial INSERT plus mint RPC self-heal on every UPSERT update-path reseed. Reseed PRESERVES the stable crew_members.id and resets claimed_via_oauth_at to NULL.";
+    expect(fixtureFiresF21Class(canonicalProse).fires).toBe(false);
+  });
 });
