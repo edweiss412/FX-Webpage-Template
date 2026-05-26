@@ -18,7 +18,7 @@
  * §12.4 catalog parity tests.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 
 import { TileServerFallback } from "@/components/shared/TileServerFallback";
 
@@ -112,7 +112,7 @@ describe("TileServerFallback — server-side render isolation", () => {
   test("non-Error throw is normalized (string thrown)", async () => {
     const element = await TileServerFallback({
       load: async () => {
-        throw "raw string error"; // eslint-disable-line @typescript-eslint/only-throw-error
+        throw "raw string error";
       },
       render: () => <span />,
       tileId: "test-tile",

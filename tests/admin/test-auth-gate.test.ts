@@ -44,7 +44,6 @@
  * rejection coverage into the always-deterministic layer.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import { admin } from "../e2e/helpers/supabaseAdmin";
 
 // Layer 2's pre-clean needs a REAL Supabase admin client against the live DB.
 // The vi.mock("@supabase/supabase-js") below stubs createClient for Layer 1

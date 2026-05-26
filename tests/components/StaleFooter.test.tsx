@@ -18,7 +18,7 @@
  * appear in user-visible text.
  */
 import { describe, expect, test } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach } from "vitest";
 
 import { StaleFooter } from "@/components/shared/StaleFooter";
