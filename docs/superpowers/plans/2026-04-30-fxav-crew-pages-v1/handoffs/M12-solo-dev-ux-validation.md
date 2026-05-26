@@ -2030,7 +2030,40 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F48-class still at 2 rounds; threshold-3 trigger DEFERRED to Phase 0 execution (will be assessed at runtime authoring).
   - All other classes still closed.
 
-- **Repair commit:** pending R63 implementer dispatch (FINAL repair round per stop-rule).
+- **Repair commit:** closed in R63 (see below).
+
+### Amendment R63 — 2026-05-26 (FINAL repair per stop-after-R62 rule)
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `4861ee2` (post-R63)
+- **Dispatch mode:** inline Agent (FINAL repair round; bounded scope to F53 fix only)
+- **Verdict:** **implementer-complete; pending R64 FINAL adversarial review**
+
+- **F53 repair (commit 100 — `4861ee2`):**
+  - Snapshot+restore pattern at plan 02:167-265 (mirrors F34/F36 cleanup contract per orchestrator design):
+  - **Pre-test snapshot:** `CREATE TEMP TABLE _r63_drift_test_snapshot AS SELECT * FROM public.validation_state WHERE key = 'validation_seed'`
+  - **During test:** existing simulation preserved (DELETE + SET NOT NULL → apply migration artifact → assert is_nullable="YES")
+  - **Post-test restore (finally):** `DELETE FROM validation_state WHERE key='validation_seed'; INSERT INTO validation_state SELECT * FROM _r63_drift_test_snapshot; DROP TABLE IF EXISTS _r63_drift_test_snapshot`
+  - Inline rationale at plan 02:143-158 explicitly cross-references F34/F36 cleanup contract pattern
+  - Test title updated to `(R59 F50, R61 F52 strengthened, R63 F53 non-destructive)`
+
+- **Repair commit:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 100 | `4861ee2` | docs(plan-m12): R63 F53 — drift-repair test snapshot+restore (non-destructive of legitimate singleton state) |
+
+- **Meta-test regression:** **163/163 PASS** in `tests/cross-cutting/` (25.03s).
+
+- **Out-of-scope flags (FINAL):** none. R63 implementer kept scope bounded to F53 per stop-rule mandate.
+
+- **Same-vector status post-R63 (FINAL):**
+  - F53 closed per-instance via snapshot+restore.
+  - F48-class threshold-3 trigger DEFERRED to Phase 0 execution.
+  - "Structural defense test tautology" class at 2 instances (F51 + F52); R60 + R61 closed both; if Phase 0 execution surfaces another, structural defense lands at Phase 0.B/C runtime.
+  - All other classes still closed.
+
+- **R64 is FINAL adversarial review per stop-after-R62 rule.** Outcome: amendment closes regardless of R64 verdict; any R64 findings → DEFERRED.md entries with concrete Phase 0 execution-time triggers.
 
 ---
 
