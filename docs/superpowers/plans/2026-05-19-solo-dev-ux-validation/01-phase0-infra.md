@@ -124,7 +124,88 @@ EOF
   3. Vercel production-target deployment at `*.vercel.app` URL
   4. Three VALIDATION_* env vars set in Vercel Production scope AND local `.env.local`; documented in `.env.local.example` (post-2026-05-26 picker-pivot rebase — `VALIDATION_JWT_SIGNING_SECRET` retired with Phase 0.D)
 - [ ] **Step 2: Run the "admin sign-in" smoke as a Phase-0.A close-out probe** (NOT smoke 1 yet — that runs in Phase 0.F after everything is in place): sign into the Vercel production URL via Google, confirm admin role lands.
-- [ ] **Step 3: Move to Phase 0.B** (`02-phase0-validation-state.md`) — the validation_state migration + master-spec amendments + test baseline updates.
+- [ ] **Step 3: Continue to Phase 0.A.1** (M11.5 carry-over: SignInOrSkipGate footer copy + catalog code), or skip directly to Phase 0.B if the M11.5-IMP carry-over tasks are deferred.
+
+---
+
+### Task 0.A.1: M11.5-IMP-1 — `SIGN_IN_OR_SKIP_FOOTER_REASSURANCE` catalog code + SignInOrSkipGate footer wire-up
+
+Per dispatch brief §3.C item 1 + DEFERRED.md `M11.5-IMP-1` (2026-05-24 deferred from M11.5 §B impeccable v3 attestation). Picker spec §7.1a item 7 mandates a reassurance footer on the SignInOrSkipGate ("Crew don't have to sign in. Skip works for everyone."). The component does not currently render it; the catalog code does not exist.
+
+**Files:**
+- Modify: `lib/messages/catalog.ts` (add new code)
+- Regenerate: `lib/messages/__generated__/spec-codes.ts` (the spec-codes generator picks up the new catalog entry)
+- Modify: `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx` (render the footer via `messageFor()`)
+
+- [ ] **Step 1: TDD — write failing component test** at `tests/components/auth/SignInOrSkipGate.test.tsx`: render the component in Mode A, assert the reassurance footer text "Crew don't have to sign in" appears, and the catalog code `SIGN_IN_OR_SKIP_FOOTER_REASSURANCE` is wired via the messageFor() helper. Expect FAIL.
+- [ ] **Step 2: Add the catalog entry** to `lib/messages/catalog.ts` in alphabetical position (between `SHOW_*` entries). Shape per picker-pivot spec §7.1a item 7: `crewFacing` = "Crew don't have to sign in. Skip works for everyone." (or the dev's final-pass copy per picker-pivot spec UX contract). `dougFacing` = null. `helpHref` = "/help/picker#sign-in-or-skip" (verify that fragment anchor exists in `/help/picker` or add it in this task). `title` / `longExplanation` = null (footer is inline, not a banner).
+- [ ] **Step 3: Run `pnpm gen:spec-codes`** to regenerate `lib/messages/__generated__/spec-codes.ts`. Confirm the new code appears.
+- [ ] **Step 4: Wire the component:** in `_SignInOrSkipGate.tsx`, render `messageFor('SIGN_IN_OR_SKIP_FOOTER_REASSURANCE').crewFacing` inside a footer element below the CTAs (Skip primary + Sign-in secondary). Style per `DESIGN.md` typographic hierarchy (smaller than CTAs, text-text-subtle on bg-surface tint).
+- [ ] **Step 5: Test passes.** Run impeccable v3 critique + audit pair on the diff (external attestation per `feedback_impeccable_external_attestation_required` — fresh subagent OR user-invoked, NOT the same Opus session that wrote the change).
+- [ ] **Step 6: Commit.**
+
+```bash
+git add lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx tests/components/auth/SignInOrSkipGate.test.tsx
+git commit -m "feat(catalog): add SIGN_IN_OR_SKIP_FOOTER_REASSURANCE; wire SignInOrSkipGate footer (M11.5-IMP-1)"
+```
+
+- [ ] **Step 7: Update DEFERRED.md** — mark `M11.5-IMP-1` as `**RESOLVED <SHA>**` with the commit SHA per the de facto practice.
+
+---
+
+### Task 0.A.2: M11.5-IMP-2 — picker-show-strip with show metadata
+
+Per dispatch brief §3.C item 2 + DEFERRED.md `M11.5-IMP-2` (trigger explicitly names: "M12 amendment session adds show metadata to picker render scope OR resolver shape is extended"). Picker spec §7.1 item 2 + §7.6 inventory require a show identifier strip with `data-testid="picker-show-strip"` between the brand strip and the "Who are you?" heading. Currently absent.
+
+**Files:**
+- Modify: `lib/auth/picker/resolveShowPageAccess.ts` (extend the picker-rendering arms to carry `showTitle` + `showDates`) OR `app/show/[slug]/[shareToken]/page.tsx` (add a separate metadata fetch alongside the existing `loadRoster`)
+- Modify: `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` (render the strip)
+
+**Decision point at task start:** the dev picks ONE of:
+
+- **Option α — extend resolver shape.** Add `show: { title: string; dates: string }` to each picker-rendering arm of `ResolveShowPageAccessResult` (the `no_auth/first_contact`, `epoch_stale`, `removed_from_roster`, `identity_invalidated` arms — the ones that render the picker). The resolver fetches `shows.title` + `shows.dates` in the same query that reads `shows.published` + `shows.archived`. Pros: structurally cleanest; one query path. Cons: shape change touches the resolver contract + the H8 doc-guard exhaustiveness test (`tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts`).
+- **Option β — separate metadata fetch.** In `app/show/[slug]/[shareToken]/page.tsx`, add a `loadShowMetadata(showId)` helper called alongside `loadRoster`. Pros: no resolver-shape churn; H8 doc-guard untouched. Cons: an extra DB round-trip per picker render; the page route now has two parallel fetches.
+
+Recommend α. Document choice in the task close-out commit.
+
+- [ ] **Step 1: TDD — write failing component test** at `tests/components/picker/PickerInterstitial-show-strip.test.tsx`: render PickerInterstitial with mock show metadata, assert the element with `data-testid="picker-show-strip"` exists between the brand strip (data-testid="picker-brand-strip") and the "Who are you?" heading; verify the rendered text matches the mock title + dates. Expect FAIL.
+- [ ] **Step 2: Implement** the chosen option (α or β):
+  - **α:** edit `lib/auth/picker/resolveShowPageAccess.ts` to add `show: { title, dates }` to the four picker-rendering arms; update the test exhaustiveness fixture to cover the new field; update the page-route consumer in `app/show/[slug]/[shareToken]/page.tsx` to pass `result.show` through to `<PickerInterstitial show={...} />`.
+  - **β:** add `lib/data/loadShowMetadata.ts` (`requireAdmin()` NOT needed — show metadata is publicly visible by design); call it alongside loadRoster in the page route; pass `show` to `<PickerInterstitial>`.
+- [ ] **Step 3: Edit `_PickerInterstitial.tsx`** to render the `picker-show-strip` element between brand strip and heading. Style per `DESIGN.md` typographic hierarchy (small heading scale, text-text on bg-surface tint).
+- [ ] **Step 4: Test passes.** Run impeccable v3 critique + audit pair on the diff (external attestation per AGENTS.md invariant 8).
+- [ ] **Step 5: Commit + mark DEFERRED.md `M11.5-IMP-2` as RESOLVED.**
+
+```bash
+git commit -m "feat(picker): render picker-show-strip with show metadata (M11.5-IMP-2; option {α|β})"
+```
+
+---
+
+### Task 0.A.3: M11.5-IMP-4 — DESIGN.md §1.2 contrast amendments for picker color pairs
+
+Per dispatch brief §3.C item 3 + DEFERRED.md `M11.5-IMP-4` (2026-05-24 deferred from M11.5 §B impeccable v3 attestation). DESIGN.md §1.2 "Contrast summary" doesn't list two color pairs the picker uses: `text-text on bg-stale-tint` (picker banner row) and `text-text-subtle on bg-surface-sunken` (claimed-row treatment). Both pairs almost certainly hit AA body floor on the chosen tints but the table doesn't pre-compute them.
+
+**Files:**
+- Modify: `DESIGN.md` (add two rows to §1.2 "Contrast summary" table)
+
+- [ ] **Step 1: Compute the contrast ratios.** Use a WCAG contrast calculator (e.g., `https://webaim.org/resources/contrastchecker/`) against the live tokens in `app/globals.css` `@theme` block. The two pairs:
+  - `text-text on bg-stale-tint` — read both color values from `app/globals.css`, compute ratio.
+  - `text-text-subtle on bg-surface-sunken` — same procedure.
+- [ ] **Step 2: Add two rows to DESIGN.md §1.2** following the existing table format (Light mode ratio | Dark mode ratio | WCAG level | Notes).
+- [ ] **Step 3: Verify each ratio meets AA body floor (4.5:1).** If either fails, the task surfaces a DESIGN.md amendment that must be discussed before commit — the picker tints would need adjustment in `app/globals.css`. (Not an expected outcome — the tints were chosen against AA — but the computation is the verification step that gives certainty.)
+- [ ] **Step 4: Impeccable v3 critique + audit pair on DESIGN.md** (external attestation per AGENTS.md invariant 8 — DESIGN.md changes are UI-quality artifacts).
+- [ ] **Step 5: Commit + mark DEFERRED.md `M11.5-IMP-4` as RESOLVED.**
+
+```bash
+git commit -m "docs(design): add contrast rows for picker stale-tint + surface-sunken pairs (M11.5-IMP-4)"
+```
+
+---
+
+### Task 0.A.7: Move to Phase 0.B
+
+- [ ] **Step 1: Move to Phase 0.B** (`02-phase0-validation-state.md`) — the validation_state migration + master-spec amendments + test baseline updates.
 
 ---
 
