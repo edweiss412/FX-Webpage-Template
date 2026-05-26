@@ -96,10 +96,11 @@ Skeleton:
 MATRIX-INVENTORY.md. ≈<N> cells exercised across <K> sessions.
 
 **Assertion 2 — Journeys completed.** J1 (cold-start admin via /help),
-J2 (pending-sync triage), J3 (signed-link real-iPhone, including
-expired/revoked/query-compromise negative-auth legs), J4 (preview-as-
-crew double-check) all run end-to-end on both light+desktop and
-dark+mobile. J3's real-iPhone leg ran on my physical iPhone <model>.
+J2 (pending-sync triage), J3 (share-link + picker real-iPhone, three legs:
+share-token rotation / picker-epoch reset / OAuth-claim identity-
+exclusivity per spec §5.3 post-rebase), J4 (preview-as-crew double-
+check) all run end-to-end on both light+desktop and dark+mobile. J3's
+real-iPhone leg ran on my physical iPhone <model>.
 
 **Assertion 3 — Cold-start pass.** Ran 2+ times with 24h+ cooldown:
 once during initial sweep, once during final sweep.

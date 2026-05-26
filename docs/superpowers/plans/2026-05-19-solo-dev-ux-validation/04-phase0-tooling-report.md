@@ -106,4 +106,4 @@ The harness's value is rendering — does the live UI show the failure-state row
 
 - **Harness INSERT fails CHECK constraint.** The reports table has invariants (status enum, FK to other tables). The harness must write SHAPE-correct rows — re-read master spec §13.2.3 row contracts.
 - **Row materialized but UI doesn't render.** Either the UI predicate doesn't match the harness's row shape (the harness is incomplete), OR the `messageFor()` lookup is wrong. Diagnose by reading the admin UI's render code.
-- **Cleanup misses rows.** Validation-tag the rows on INSERT; the cleanup pattern matches `WHERE <tag-column> LIKE 'validation:%'` (analogous to revoked_links cleanup in §3.3).
+- **Cleanup misses rows.** Validation-tag the rows on INSERT; the cleanup pattern matches `WHERE <tag-column> LIKE 'validation:%'` — a tag-and-LIKE selective cleanup pattern (the picker pivot's `--combo all` reseed is the structural cleanup for crew-row state per spec §3.3 picker-cleanup contract; `--cleanup` on the report-fixtures harness is the analogous selective cleanup for the `reports` table).

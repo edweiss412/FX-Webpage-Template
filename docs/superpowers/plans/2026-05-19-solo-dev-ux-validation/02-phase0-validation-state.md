@@ -447,7 +447,7 @@ sed -n '195,220p' tests/cross-cutting/auth.test.ts
 
 The expectation is an array of admin-only table names in alphabetical order.
 
-- [ ] **Step 2: Edit line 203 area** to insert `'validation_state'` in alphabetical position. Likely between `'recovery_drift_cooldowns'` and `'report_rate_limits'` OR between `'revoked_links'` and `'shows_internal'` depending on the exact list order.
+- [ ] **Step 2: Edit line 203 area** to insert `'validation_state'` in alphabetical position. Verify against live `lib/audit/admin-tables.generated.ts` at edit time — post-M11.5 picker-pivot, the live ADMIN_TABLES list is filtered by `scripts/generate-admin-tables.ts`'s `removedByPickerPivot` array (drops `crew_member_auth`, `revoked_links`, `link_sessions`, `bootstrap_nonces`), so `'sync_audit'` is the immediate alphabetical predecessor to `'validation_state'` post-insert. (The pre-rebase draft of this task suggested `'revoked_links' / 'shows_internal'` as alternate neighbors; that branch is stale — `revoked_links` is no longer in the live array.)
 
 - [ ] **Step 3: Run the test:**
 
