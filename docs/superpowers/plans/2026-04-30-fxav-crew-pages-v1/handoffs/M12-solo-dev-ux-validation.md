@@ -786,6 +786,29 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Open question (flagged by implementer):** "The (B) peer at `01-phase0-infra.md:18` is BORDERLINE — the walker's tight `COLON_LIST_FRAME_RX` does NOT catch the 'for [section-ref] env vars:' shape. The peer fix is defensive (adds explicit subset marker) but a future regression in that exact syntactic form would not be CI-caught. Trade-off: broadening the regex risks false positives on legitimate cross-references."
 
+### Amendment R26 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `f131bdb` (post-R25 + R25 handoff row)
+- **Verdict:** **needs-attention** (2 HIGH + 1 MEDIUM)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F26 | HIGH | `2026-05-19-solo-dev-ux-validation-design.md:351` (spec predicate (b)) | **NEW TZ-pin class — spec-level contract drift.** Predicate (b) text says check-seed fails when `last_seed_date != current_date`; same paragraph promotes `$VALIDATION_TODAY_ISO` (CLI-pinned UTC). Implementer following canonical sentence can reintroduce TZ-skew class around UTC/local midnight. Task 0.C.8 `validation-tooling-tz-pin.test.ts` is plan-spec'd to catch this at Phase 0.C execution, but spec is canonical → per-instance fix mandatory at R27. Repair: replace `current_date` with `$VALIDATION_TODAY_ISO` in predicate (b); extend Task 0.C.8 tz-pin test scope to flag `current_date` in check-seed contract. |
+  | F27 | HIGH | `03-phase0-tooling-reseed.md:284-288` (mint RPC ON CONFLICT UPDATE SET clause) | **F16-class same-vector recurrence (3rd round, NEW sub-shape — SET-clause-column completeness).** Mint RPC INSERTs with `archived=false` + `published=true` but ON CONFLICT UPDATE only refreshes `title/dates/last_seen_modified_time`. If validation show is archived/unpublished during manual exercise, reseed can't restore baseline; predicate (f) blocks walks. **R19 (A) F16-class audit was trigger-focused; missed SET-clause-column completeness dimension.** Per AGENTS.md same-vector rule, R27 MUST do comprehensive re-analysis of F16-class at SET-clause-column scope (enumerate every `public.shows` column the mint RPC writes; verify each is in UPDATE SET or carries documented exception). |
+  | F28 | MEDIUM | `00-overview.md:63` (M12 file inventory) | **F10-class 5th round** — cardinality-only "3 new VALIDATION_* vars" omits J3_CLAIM_EMAIL. R25 walker (`COLON_LIST_FRAME_RX` + canonical literals) can't catch this because there are no canonical literals to evaluate (wildcard `VALIDATION_*` + cardinality alone). Per R25 documented escalation ladder + AGENTS.md "structural-defense calibration" rule: F10-class converging structurally only via **Option D refactor** (single source of truth + structural exclusivity). **Orchestrator decision 2026-05-26: Option D adopted; R27 refactors all own-enumerations outside §9.1.2 + `.env.local.example` to cross-references; walker redesigned to assert structural exclusivity.** |
+
+- **Same-vector + structural-defense status post-R26:**
+  - **F10-class: 5 rounds (R12 + R14 + R20 + R24 + R26).** R25's contract-level cluster-walker had a documented gap (cardinality-only patterns); R26 surfaced exactly that shape. Per R25 row's documented ladder + AGENTS.md "structural-defense calibration": Option D refactor mandate fires at R27. **No more walker-extension rounds.** Walker redesigned to enforce "no own-enumeration outside canonical §9.1.2 + `.env.local.example`."
+  - **F16-class: 3 rounds (R16 F16 crew_members orphan + R18 F19 share-token trigger-bypass + R26 F27 SET-clause-column).** Each round revealed a NEW sub-shape (DELETE-stale-rows vs trigger-bypass vs SET-clause completeness). R19 (A) audit was trigger-scoped — F27 surfaces the SET-clause dimension. R27 MUST do comprehensive re-analysis at SET-clause-column scope. Threshold-3 calibration: if R28 surfaces another F16-class hit, structural-defense mandate (per M12 plan R5 precedent — defense in same commit series).
+  - **NEW class: TZ-pin contract drift between write-side and read-side (F26).** Plan-spec'd test at Task 0.C.8 will close this at Phase 0.C execution; R27 ships per-instance fix + extends Task 0.C.8 scope.
+  - F21-class structural defense (R23 commit 52) regression-clean.
+  - F18-class still closed.
+  - All other classes still closed.
+
+- **Repair commit:** pending R27 implementer dispatch (inline Agent; Option D refactor).
+
 ---
 
 ## §10 — Cross-milestone dependencies
