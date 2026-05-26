@@ -1485,7 +1485,49 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F38-class closed at R43 (per-instance + (B) audit).
   - All other classes still closed.
 
-- **Repair commit:** pending R45 implementer dispatch (inline Agent; F41 per-instance + dependent-assertion sweep).
+- **Repair commit:** closed in R45 (see below).
+
+### Amendment R45 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `08e7b8d` (post-R45)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R46 adversarial review**
+
+- **(A) `--alert-code` selector → catalog code mapping** (verified vs `lib/reports/submit.ts:203-207`):
+
+  | selector flag | LookupInconclusiveCode | catalog code |
+  |---|---|---|
+  | `--alert-code bot-login-missing` (default) | `BOT_LOGIN_MISSING` | `GITHUB_BOT_LOGIN_MISSING` |
+  | `--alert-code duplicate-live-matches` | `DUPLICATE_LIVE_MATCHES` | `REPORT_DUPLICATE_LIVE_MATCHES` |
+  | `--alert-code open-orphan-label` | `OPEN_ISSUE_WITH_ORPHAN_LABEL` | `REPORT_OPEN_ORPHAN_LABEL` |
+  | `--alert-code inconclusive` | (default branch — no enum match) | `REPORT_LOOKUP_INCONCLUSIVE` |
+
+- **F41 alignment direction:** Option 1 (explicit `--alert-code inconclusive` at all assertion sites expecting `REPORT_LOOKUP_INCONCLUSIVE`). Justification: Smoke 7's intent IS the canonical "lookup inconclusive" surface (default branch of `lookupAlertCode`). Keeping safe CLI default + explicit happy-path testing aligns with fixture context AND smoke documented intent.
+
+- **F41 per-instance fix + sweep (commit 84):** 4 sites PATCHED, 3 CLEAN.
+  - `05-phase0-smokes.md:80` Smoke 7 Step 2 seed: added `--alert-code inconclusive` + R45 note
+  - `05-phase0-smokes.md:84` Smoke 7 Step 3 assertion: selector cite for default branch
+  - `04-phase0-tooling-report.md:196` rendering predicate row: selector variant prose + R45 note
+  - `04-phase0-tooling-report.md:215` Phase 0.E.3 Step 1: `--alert-code inconclusive` to seed cmd + R45 note
+  - `04-phase0-tooling-report.md:24` mapping doc reference: CLEAN (documentation, not assertion)
+  - `04-phase0-tooling-report.md:71` producer-map row: CLEAN (documents all 4 mappings)
+  - `spec §9.1.2:824` selector definition: CLEAN (mapping documentation)
+  - Sweep verification: `rg '\-\-outcome lookup-inconclusive(?!.*--alert-code)'` returns ZERO post-patch
+
+- **Structural defense decision:** NOT shipped at R45. F41 is fix-round regression budget gap (R43 commit 81 didn't sweep dependents), not class recurrence. R46 proves class recurrence if a new alert-code-selector-vs-assertion gap appears; 8th regex pattern in F21-class defense would hit R37/R39's ~8-pattern Option-(b) threshold — defer until class proves recurrent. Per-instance + sweep is proportional.
+
+- **Repair commit:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 84 | `08e7b8d` | docs(plan-m12): R45 F41 — align --outcome lookup-inconclusive with explicit --alert-code inconclusive at dependent assertion sites |
+
+- **Meta-test regression:** **22 test files / 142 tests PASS** in `tests/cross-cutting/` (full suite unchanged).
+
+- **Same-vector status post-R45:** F41 (R43 fix-round regression budget gap) closed per-instance. No same-vector trigger. All structural defenses regression-clean.
+
+- **Scope discipline:** plan markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`. Live `lib/reports/submit.ts:202-208` read for codebase grounding only.
 
 ---
 
