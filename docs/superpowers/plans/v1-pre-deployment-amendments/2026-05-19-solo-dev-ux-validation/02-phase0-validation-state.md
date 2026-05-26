@@ -523,8 +523,8 @@ import { execFileSync } from "node:child_process";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const authKey = process.env.SUPABASE_TEST_AUTHENTICATED_JWT!;   // signed JWT with role='authenticated', random non-admin email
-const adminKey = process.env.SUPABASE_TEST_ADMIN_JWT!;          // R61 F51 amendment: signed JWT with role='authenticated' whose email IS the admin email so public.is_admin() returns true. WITHOUT table-level REVOKE this client would pass the admin_only RLS USING/WITH CHECK and the DML would succeed; WITH the REVOKE block it must fail at the table-grant check with 42501 BEFORE RLS evaluates. This is the load-bearing probe that proves the REVOKE landed — the anon/authenticated probes alone are tautological because admin_only RLS already denies them irrespective of grants.
+const authenticatedJwt = process.env.SUPABASE_TEST_AUTHENTICATED_JWT!;   // signed JWT with role='authenticated', random non-admin email
+const adminJwt = process.env.SUPABASE_TEST_ADMIN_JWT!;                   // R61 F51 amendment: signed JWT with role='authenticated' whose email IS the admin email so public.is_admin() returns true. WITHOUT table-level REVOKE this client would pass the admin_only RLS USING/WITH CHECK and the DML would succeed; WITH the REVOKE block it must fail at the table-grant check with 42501 BEFORE RLS evaluates. This is the load-bearing probe that proves the REVOKE landed — the anon/authenticated probes alone are tautological because admin_only RLS already denies them irrespective of grants.
 const DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 /**
@@ -569,9 +569,23 @@ function assertNoTablePrivilege(role: "anon" | "authenticated", table: string, v
 describe("PostgREST DML lockdown — RPC-gated tables (3-layer defense)", () => {
   for (const { table, closed_at } of LOCKED_TABLES) {
     describe(`${table} (closed at ${closed_at})`, () => {
+      // R69 F56 amendment — supabase-js convention: the SECOND createClient arg is the project
+      // API key (sent as the `apikey` header). User JWTs are NOT API keys — they belong in
+      // `global.headers.Authorization = Bearer <jwt>` so PostgREST resolves the role from the
+      // JWT while keeping the apikey header valid. Pre-R69 the test passed JWTs as the second
+      // arg, which would either reject the request with an invalid-API-key auth-gateway error
+      // OR succeed with the anon role (depending on PostgREST validation) — either failure mode
+      // surfaces as a non-42501 error and defeats the structural-defense purpose (the test
+      // would falsely fail OR falsely pass without exercising the table-grant REVOKE).
       const anon = createClient(url, anonKey, { auth: { persistSession: false } });
-      const authed = createClient(url, authKey, { auth: { persistSession: false } });
-      const admin = createClient(url, adminKey, { auth: { persistSession: false } });
+      const authed = createClient(url, anonKey, {
+        auth: { persistSession: false },
+        global: { headers: { Authorization: `Bearer ${authenticatedJwt}` } },
+      });
+      const admin = createClient(url, anonKey, {
+        auth: { persistSession: false },
+        global: { headers: { Authorization: `Bearer ${adminJwt}` } },
+      });
 
       // Layer 1: has_table_privilege false for anon/authenticated × INSERT/UPDATE/DELETE.
       // Proves REVOKE actually landed at the table-grant layer, independent of RLS policy state.
