@@ -366,57 +366,147 @@ const LOCKED_TABLES = [
   { table: "validation_state",  closed_at: "supabase/migrations/<timestamp>_validation_state.sql (R17 commit 37 F15 REVOKE block)" },
 ] as const;
 
+import { execFileSync } from "node:child_process";
+
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const authKey = process.env.SUPABASE_TEST_AUTHENTICATED_JWT!;  // signed JWT with role='authenticated', random email
+const authKey = process.env.SUPABASE_TEST_AUTHENTICATED_JWT!;   // signed JWT with role='authenticated', random non-admin email
+const adminKey = process.env.SUPABASE_TEST_ADMIN_JWT!;          // R61 F51 amendment: signed JWT with role='authenticated' whose email IS the admin email so public.is_admin() returns true. WITHOUT table-level REVOKE this client would pass the admin_only RLS USING/WITH CHECK and the DML would succeed; WITH the REVOKE block it must fail at the table-grant check with 42501 BEFORE RLS evaluates. This is the load-bearing probe that proves the REVOKE landed — the anon/authenticated probes alone are tautological because admin_only RLS already denies them irrespective of grants.
+const DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
-describe("PostgREST DML lockdown — RPC-gated tables", () => {
+/**
+ * R61 F51 amendment — three-layer defense the test verifies.
+ *
+ * Layer 1 (pg_catalog.has_table_privilege via psql):
+ *   For each role in {anon, authenticated}, for each verb in {INSERT, UPDATE, DELETE},
+ *   has_table_privilege(role, 'public.<table>', verb) = false.
+ *   Proves REVOKE landed REGARDLESS of RLS policy state — catches the case
+ *   where a future amendment drops the REVOKE block but leaves admin_only RLS
+ *   in place (the anon/authenticated PostgREST probes would still surface a
+ *   permission-denied-shaped error because RLS denies them, masking the
+ *   regression).
+ *
+ * Layer 2 (admin-authenticated PostgREST probe):
+ *   A client whose JWT email matches is_admin() = true issues INSERT/UPDATE/DELETE.
+ *   Without the REVOKE block this admin would PASS the admin_only RLS USING/WITH
+ *   CHECK predicate and the DML would succeed (or fail for some unrelated reason
+ *   like a CHECK constraint, NOT 42501). With the REVOKE block in place the admin
+ *   client receives 42501 "permission denied for table <table>" at the table-grant
+ *   check, BEFORE RLS evaluates. Catches the admin-bypass surface that anon/
+ *   authenticated probes structurally cannot.
+ *
+ * Layer 3 (anon + authenticated PostgREST probes, tightened error matching):
+ *   The existing probes are kept as the path-end check, but the error-message
+ *   match is tightened to require "permission denied for table" wording. RLS
+ *   policy violations return "new row violates row-level security policy" /
+ *   generic "permission denied" without "for table" — distinguishing the two
+ *   error shapes prevents the original tautology (any 42501 / generic permission
+ *   denied previously passed irrespective of which layer denied).
+ */
+
+// Helper: assert has_table_privilege returns false for role × table × verb via psql.
+// Uses execFileSync (no shell) for safety; role / table / verb come from the static
+// LOCKED_TABLES registry + literal arrays below — no untrusted input.
+function assertNoTablePrivilege(role: "anon" | "authenticated", table: string, verb: "INSERT" | "UPDATE" | "DELETE") {
+  const sql = `SELECT has_table_privilege('${role}', 'public.${table}', '${verb}')`;
+  const out = execFileSync("psql", [DATABASE_URL, "-t", "-A", "-c", sql], { encoding: "utf8" }).trim();
+  expect(out).toBe("f");
+}
+
+describe("PostgREST DML lockdown — RPC-gated tables (3-layer defense)", () => {
   for (const { table, closed_at } of LOCKED_TABLES) {
     describe(`${table} (closed at ${closed_at})`, () => {
       const anon = createClient(url, anonKey, { auth: { persistSession: false } });
       const authed = createClient(url, authKey, { auth: { persistSession: false } });
+      const admin = createClient(url, adminKey, { auth: { persistSession: false } });
 
-      test("anon INSERT denied", async () => {
+      // Layer 1: has_table_privilege false for anon/authenticated × INSERT/UPDATE/DELETE.
+      // Proves REVOKE actually landed at the table-grant layer, independent of RLS policy state.
+      test("Layer 1: anon × INSERT no privilege", () => assertNoTablePrivilege("anon", table, "INSERT"));
+      test("Layer 1: anon × UPDATE no privilege", () => assertNoTablePrivilege("anon", table, "UPDATE"));
+      test("Layer 1: anon × DELETE no privilege", () => assertNoTablePrivilege("anon", table, "DELETE"));
+      test("Layer 1: authenticated × INSERT no privilege", () => assertNoTablePrivilege("authenticated", table, "INSERT"));
+      test("Layer 1: authenticated × UPDATE no privilege", () => assertNoTablePrivilege("authenticated", table, "UPDATE"));
+      test("Layer 1: authenticated × DELETE no privilege", () => assertNoTablePrivilege("authenticated", table, "DELETE"));
+
+      // Layer 2: admin-authenticated PostgREST probe — fails with 42501 "permission denied for table"
+      // BECAUSE table-grants are revoked, NOT because admin_only RLS denies the admin (which it would not).
+      // This is the load-bearing probe that distinguishes "REVOKE landed" from "RLS denies non-admin".
+      test("Layer 2: admin INSERT denied at table-grant layer (not RLS)", async () => {
+        const { error } = await admin.from(table).insert({});
+        expect(error).not.toBeNull();
+        expect(error?.code).toBe("42501");
+        // "permission denied for table <name>" is the table-grant denial wording.
+        // RLS policy violations return "new row violates row-level security policy" — NO "for table" substring.
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
+        expect(error?.message?.toLowerCase()).not.toContain("row-level security");
+      });
+      test("Layer 2: admin UPDATE denied at table-grant layer (not RLS)", async () => {
+        const { error } = await admin.from(table).update({}).neq("key" as never, "__sentinel__");
+        expect(error).not.toBeNull();
+        expect(error?.code).toBe("42501");
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
+        expect(error?.message?.toLowerCase()).not.toContain("row-level security");
+      });
+      test("Layer 2: admin DELETE denied at table-grant layer (not RLS)", async () => {
+        const { error } = await admin.from(table).delete().neq("key" as never, "__sentinel__");
+        expect(error).not.toBeNull();
+        expect(error?.code).toBe("42501");
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
+        expect(error?.message?.toLowerCase()).not.toContain("row-level security");
+      });
+
+      // Layer 3: anon + authenticated PostgREST probes (path-end check; tightened error matching).
+      // R61 F51 amendment: require "permission denied for table" wording specifically — excludes RLS-policy
+      // violation messages ("new row violates row-level security policy" / generic "permission denied" without
+      // the "for table" substring). Tightening prevents the original tautology where ANY 42501/permission-denied
+      // string passed, including the RLS denial that admin_only already provides irrespective of REVOKE.
+      test("Layer 3: anon INSERT denied with table-grant message", async () => {
         const { error } = await anon.from(table).insert({});
         expect(error).not.toBeNull();
-        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+        expect(error?.code).toBe("42501");
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
       });
-
-      test("anon UPDATE denied", async () => {
+      test("Layer 3: anon UPDATE denied with table-grant message", async () => {
         const { error } = await anon.from(table).update({}).neq("key" as never, "__sentinel__");
         expect(error).not.toBeNull();
-        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+        expect(error?.code).toBe("42501");
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
       });
-
-      test("anon DELETE denied", async () => {
+      test("Layer 3: anon DELETE denied with table-grant message", async () => {
         const { error } = await anon.from(table).delete().neq("key" as never, "__sentinel__");
         expect(error).not.toBeNull();
-        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+        expect(error?.code).toBe("42501");
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
       });
-
-      test("authenticated INSERT denied (no admin JWT-role bypass at table layer)", async () => {
+      test("Layer 3: authenticated INSERT denied with table-grant message", async () => {
         const { error } = await authed.from(table).insert({});
         expect(error).not.toBeNull();
-        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+        expect(error?.code).toBe("42501");
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
       });
-
-      test("authenticated UPDATE denied", async () => {
+      test("Layer 3: authenticated UPDATE denied with table-grant message", async () => {
         const { error } = await authed.from(table).update({}).neq("key" as never, "__sentinel__");
         expect(error).not.toBeNull();
-        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+        expect(error?.code).toBe("42501");
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
       });
-
-      test("authenticated DELETE denied", async () => {
+      test("Layer 3: authenticated DELETE denied with table-grant message", async () => {
         const { error } = await authed.from(table).delete().neq("key" as never, "__sentinel__");
         expect(error).not.toBeNull();
-        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+        expect(error?.code).toBe("42501");
+        expect(error?.message?.toLowerCase()).toContain("permission denied for table");
       });
     });
   }
 });
 ```
 
-  **RED→GREEN verification:** before applying the R17 commit 37 REVOKE block, the three `validation_state` assertions FAIL (PostgREST returns success or an RLS-policy error rather than a table-grant permission error, because at the table-grant layer authenticated retained INSERT/UPDATE/DELETE). After applying the REVOKE block, all assertions PASS — the failure mode is now an unambiguous `42501 permission denied for table validation_state` returned at the table-grant check, BEFORE the admin_only RLS USING/WITH CHECK predicate evaluates. The two existing rows (`crew_member_auth`, `crew_members`) must stay GREEN throughout (regression baseline).
+  **R61 F51 amendment — tautology audit.** The pre-R61 test accepted ANY error whose code was `42501` OR whose message contained `"permission denied"`. The `admin_only` RLS policy at every row (`USING (public.is_admin())`) ALREADY denies non-admin INSERT/UPDATE/DELETE irrespective of table-grant state, so the pre-R61 test PASSed on a hypothetical stack where the REVOKE block was deleted but the RLS policy remained — defeating the structural-defense purpose. R61 closes the gap with three orthogonal layers: (Layer 1) `pg_catalog.has_table_privilege` directly inspects the table-grant catalog, independent of RLS; (Layer 2) an admin-authenticated probe exercises the surface that `admin_only` RLS WOULD pass — so the only thing left to deny is the table-grant check, with the unambiguous `permission denied for table` wording; (Layer 3) tightened anon/authenticated probes require the `for table` substring to distinguish table-grant denial from RLS denial.
+
+  **R61 F51 amendment — environment requirements.** The test now requires four env vars: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` (existing — anon client), `SUPABASE_TEST_AUTHENTICATED_JWT` (existing — non-admin authenticated role), `SUPABASE_TEST_ADMIN_JWT` (new — authenticated role whose email matches `public.is_admin()`'s admin allow-list), and `TEST_DATABASE_URL` (existing — direct psql for Layer 1). The admin JWT's email must be in the live admin allow-list at test-database setup time (the Phase 0.A.5 `.env.local.example` template documents the convention). If `SUPABASE_TEST_ADMIN_JWT` is unset, Layer 2 must fail loud (not skip) — the Phase 0.B test bootstrap registers the env var as required.
+
+  **RED→GREEN verification (R61 F51 strengthened).** Before applying the R17 commit 37 REVOKE block, Layer 1's `has_table_privilege` probes return `t` for at least one (role, verb) pair (FAIL); Layer 2's admin client successfully completes INSERT/UPDATE/DELETE (or fails with a non-42501 reason — also FAIL because the test expects 42501); Layer 3's anon/authenticated probes return an RLS policy violation message that lacks `"for table"` substring (FAIL on tightened match). After applying the REVOKE block, all three layers PASS. The two existing rows (`crew_member_auth`, `crew_members`) must stay GREEN throughout (regression baseline). **Failure mode each layer catches:** Layer 1 — a future amendment drops the REVOKE block but leaves `admin_only` RLS in place; pre-R61 Layer 3 would falsely pass on this stack via RLS denial. Layer 2 — same regression, plus the case where a new admin-specific RLS policy is added that would pass admin INSERT/UPDATE/DELETE. Layer 3 — defense in depth at the path-end (catches the case where Layers 1+2 false-negative due to env-var mis-config or a future grant-by-role-attribute mechanism that bypasses table-grant catalog).
 
 - [ ] **Step 9: Commit** (the migration + both new tests — master-spec edits land in subsequent tasks, all together in the same PR):
 
