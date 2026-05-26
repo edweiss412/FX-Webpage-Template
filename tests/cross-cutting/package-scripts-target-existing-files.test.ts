@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 const repoRoot = process.cwd();
-const EXPLICIT_TEST_PATH_RE = /(?:^|\s)([^\s"'`]+\.test\.tsx?)(?=\s|$)/g;
+const EXPLICIT_TEST_PATH_RE =
+  /(?:^|\s)(?:"([^"]+\.test\.tsx?)"|'([^']+\.test\.tsx?)'|`([^`]+\.test\.tsx?)`|([^\s"'`]+\.test\.tsx?))(?=\s|$)/g;
 const AUDIT_SCRIPT_SYMBOLS: Record<string, readonly string[]> = {
   "test:audit:x1-catalog-parity": ["MESSAGE_CATALOG", "SPEC_CODES"],
   "test:audit:x2-no-raw-codes": ["auditNoRawCodesInSourceFiles"],
@@ -20,12 +21,23 @@ const AUDIT_SCRIPT_SYMBOLS: Record<string, readonly string[]> = {
 function explicitVitestTestPaths(script: string): string[] {
   if (!/\bvitest\b/.test(script)) return [];
   return [...script.matchAll(EXPLICIT_TEST_PATH_RE)]
-    .map((match) => match[1])
+    .map((match) => match[1] ?? match[2] ?? match[3] ?? match[4])
     .filter((path): path is string => Boolean(path))
     .filter((path) => !path.includes("*"));
 }
 
 describe("package.json vitest script targets", () => {
+  test.each([
+    ["vitest run tests/x.test.ts"],
+    ['vitest run "tests/x.test.ts"'],
+    ["vitest run 'tests/x.test.ts'"],
+    ["vitest run `tests/x.test.ts`"],
+    ["vitest --run tests/x.test.ts"],
+    ["DEBUG=1 vitest run tests/x.test.ts"],
+  ])("extracts explicit test-file target from %s", (script) => {
+    expect(explicitVitestTestPaths(script)).toEqual(["tests/x.test.ts"]);
+  });
+
   test("explicit test-file targets exist", () => {
     const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
       scripts?: Record<string, string>;
