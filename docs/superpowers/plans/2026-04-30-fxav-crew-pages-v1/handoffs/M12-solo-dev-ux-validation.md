@@ -807,7 +807,72 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F18-class still closed.
   - All other classes still closed.
 
-- **Repair commit:** pending R27 implementer dispatch (inline Agent; Option D refactor).
+- **Repair commit:** closed in R27 (see below).
+
+### Amendment R27 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `cb9c319` (post-R27)
+- **Dispatch mode:** inline Agent (HEAVIEST round: Option D refactor + F16-class comprehensive re-analysis at SET-clause-column scope + 3 per-instance fixes)
+- **Verdict:** **implementer-complete; pending R28 adversarial review**
+- **F10-class Option D refactor (mandated by orchestrator decision 2026-05-26 per R25 escalation ladder + 5-round same-vector recurrence):**
+
+  | Surface refactored | Form |
+  |---|---|
+  | spec :144 (§3.3 step 5 Target selection) | 4-var inline list → cross-ref to §9.1.2 + `not-subject-to-meta` waiver on lone SUPABASE_URL mention in localhost-rejection clause |
+  | plan 03:33 (Task 0.C.1 Step 3) | 4-var enumeration → cross-ref; "§9.1.2 is the SOLE source of truth ... no inline-list" |
+  | plan 01:18 (Task 0.A.4 Step 5) | 3-var capture-values shorthand → cross-ref; "Step 5 deliberately does NOT inline-list" |
+  | plan 01:139-150 (commit-msg template) | 4-var multi-line → cross-ref; "this commit message intentionally does not re-list them" |
+  | plan 00-overview.md:63 (F28 named) | "3 new VALIDATION_* vars" cardinality-only → cross-ref to §9.1.2 |
+  | **EXEMPTIONS** with `<!-- canonical-env-var-source: keep -->` marker | spec §9.1.2 canonical table (IS the source of truth); plan 01:91-123 `.env.local.example` template block (operator-facing config with literal values) |
+
+- **F10-class walker REDESIGN (commit 59):** structural-exclusivity model (replaces R25 contract-level satisfiability):
+  - **M1 same-line detection**: line names ≥2 distinct canonical literals AND literals are in list proximity (≤80 chars short-connector text between; sentence boundaries / `predicate (X)` citations / `diagnostic` / `check-seed` markers disqualify).
+  - **M2 fenced-block detection**: cluster lives inside contiguous fenced code block with ≥2 distinct canonicals.
+  - **Exemptions** (5 types): §9.1.2 heading scope; `canonical-env-var-source: keep` marker within ±60 lines; ALL canonical-mentions are `process.env.X` real-code references; same-line cluster inside fenced code block; explicit `<!-- not-f28-class: -->` waiver.
+  - **RED phase verified**: stashed commit 58; walker fired **7 findings** (plan 01:18 same-line + plan 01:96/97/98/123/143 fenced-block + plan 03:33 same-line).
+  - **GREEN phase**: post-refactor HEAD → 0 findings.
+  - Retired R25 helper kept with `_evaluateCanonicalEnvVarCluster_retired_R27` prefix for design-evolution documentation.
+
+- **(B) F16-class comprehensive re-analysis at SET-clause-column scope** (mandated by 3-round same-vector recurrence; R19 (A) audit was trigger-scoped):
+
+  | Column | INSERT? | UPDATE SET? | Disposition |
+  |---|---|---|---|
+  | `id` / `drive_file_id` / `created_at` | (varies) | no | auto-generated / PK conflict target / audit-trail immutable |
+  | `slug` / `client_label` / `template_version` | YES | no | exception: deterministic constant or hard-coded value (never drifts) |
+  | `title` / `dates` / `last_seen_modified_time` | YES | YES | refreshed correctly |
+  | **`archived` / `published`** | YES (`false`/`true`) | **NO → R27 ADDED in commit 57** | **F27 FIX** |
+  | `picker_epoch` / `picker_epoch_bumped_at` | no | no | **DELIBERATE exception**: admin may rotate during M11.5 admin-action walks; reseed MUST NOT reset (owned by `reset_picker_epoch_atomic` RPC) |
+  | venue/event_details/agenda_links/diagrams/coi_status/pull_sheet/last_sync_*/opening_reel_*/unpublish_*/client_contact | no | no | n/a — never written by mint RPC |
+
+  **Peers beyond F27 named: 0** (audit found ONLY archived + published needing SET clause addition; all other INSERT-only columns have documented exceptions). Below 3-additional-column threshold → structural-defense-acceleration NOT fired. Per-column audit table added inline at plan 03 line 284 area as living documentation.
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 56 | `e1fd08d` | docs(spec-m12)+docs(plan-m12): R27 F26 — predicate (b) TZ-pin fix + Task 0.C.8 scope extension |
+  | 57 | `e6416c6` | docs(plan-m12)+docs(spec-m12): R27 F27 — mint RPC SET clause adds archived/published + predicate (n) baseline-eligibility + per-column audit + regression spec |
+  | 58 | `a2f852c` | docs(spec-m12)+docs(plan-m12): R27 F10-class Option D refactor — own-enumerations → cross-references at all surfaces except §9.1.2 + .env.local.example |
+  | 59 | `cb9c319` | test(cross-cutting): R27 F10-class walker REDESIGN — structural-exclusivity assertion + F20 waiver on §3.3 cross-ref row |
+
+- **F26 repair (commit 56):** spec :351 predicate (b) rewritten — "`last_seed_date != $VALIDATION_TODAY_ISO` (R27 commit 56 F26 amendment — TZ-pin alignment with predicate (i); prior `current_date` framing read Postgres server clock and reintroduced UTC-vs-local-midnight skew class. DB-side `current_date` reserved for bounded-skew sanity check inside mint RPC per R11 F9 fix at plan 03 line 242)." Task 0.C.8 `validation-tooling-tz-pin.test.ts` scope-extended at plan 03:766 to scan `scripts/validation-check-seed.ts` predicate bodies for `current_date` vs `$VALIDATION_TODAY_ISO`.
+
+- **F27 repair (commit 57):** mint RPC ON CONFLICT UPDATE SET clause (plan 03:284-289) adds `archived = false` + `published = true` with inline comment ("R27 commit 57 F27 amendment — restore baseline eligibility"). Predicate (n) added to spec §3.3.2: "For every seeded validation show, `archived = false AND published = true` after fresh `--combo all` reseed; catches F16-class failure where mint RPC ON CONFLICT UPDATE SET omits these." Predicate count: 10 → 11 (a-g, i, k, l, m, **n**). Regression spec at plan 03 Task 0.C.5 Step 1 + Step 5 — set `archived = true` before reseed → reseed → assert post-reseed `(archived=false, published=true)` AND check-seed PASS.
+
+- **F28 repair (commit 58, folded into Option D refactor):** plan 00-overview.md:63 → ".env.local.example ... documents the new VALIDATION_* env vars per the canonical CLI command-by-command env-var contract at spec §9.1.2 (R27 commit 58 F10-class Option D refactor — §9.1.2 is the SOLE source-of-truth surface authorized to enumerate the literal env-var names; this overview row deliberately does NOT inline-list them, only states VALIDATION_JWT_SIGNING_SECRET retired with Phase 0.D)."
+
+- **Meta-test regression:** **14/14 PASS** (was 14/14 baseline pre-R27; walker REDESIGN replaced R25 satisfiability 2 tests with R27 structural-exclusivity 2 tests; total count preserved).
+
+- **Same-vector + structural-defense status post-R27:**
+  - **F10-class: 5 rounds; Option D refactor + structural-exclusivity walker shipped at R27.** Class structurally closed at the prose-level: only §9.1.2 + `.env.local.example` may have own-enumerations; everything else is a cross-reference. If R28 surfaces an F10-class peer DESPITE structural exclusivity, the walker's detection rules (M1+M2 + 5 exemptions) need refinement OR the structural exclusivity is being bypassed via a syntactic form the walker doesn't recognize as an own-enumeration.
+  - **F16-class: 3 rounds; comprehensive re-analysis at SET-clause-column scope shipped at R27.** Per-column audit found 0 additional invariant-bearing columns needing SET clause addition. **Threshold-3 calibration:** if R28 surfaces another F16-class hit, structural-defense mandate (defense in same commit series; candidate: doc-guard asserting every-INSERT-column-also-in-UPDATE-SET-or-documented-exception).
+  - **NEW TZ-pin class (R26 F26):** per-instance fix landed; Task 0.C.8 plan-spec'd test scope extended to enforce at Phase 0.C execution.
+  - F21-class structural defense (R23 commit 52) regression-clean.
+  - F18-class still closed.
+  - All other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R27 commit 59). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `.env.local.example` (the template file's content was NOT modified — Option D refactor only added the `canonical-env-var-source: keep` marker comment at the enclosing plan §-block).
 
 ---
 
