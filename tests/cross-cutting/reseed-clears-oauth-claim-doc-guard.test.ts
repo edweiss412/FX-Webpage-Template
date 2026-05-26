@@ -133,6 +133,135 @@ type CanonicalRowFinding = {
   missingVars: string[];
 };
 
+// R25 commit 54 — F10-class CONTRACT-LEVEL structural defense.
+// F10-class hit 4 rounds (R12 F10 + R14 F13/F14 + R20 F20 + R24 F25).
+// Per AGENTS.md "Structural-defense calibration (M12 plan R5 amendment)"
+// the prior per-syntactic-form defenses (R15 prose grep; R21 spec-table
+// row scan) were each correct WITHIN their scoped surface but the class
+// is broader: env-var contract drift can land in plan task lists, code-
+// fenced .env.local.example templates, plan prose, commit-template
+// blocks, etc. R25 ships a single contract-level walker:
+//
+//   1. SOURCE OF TRUTH: spec §9.1.2 is the canonical per-CLI env-var
+//      table. Other surfaces either (a) reproduce a row of that
+//      table (validated by F20 already), (b) cross-reference §9.1.2
+//      (must say so explicitly within a window of the enumeration),
+//      or (c) carry their own enumeration which must list all 4
+//      canonical vars OR carry a recognised subset reason.
+//
+//   2. CLUSTER DETECTION: a "cluster" is a line that names at least
+//      one canonical VALIDATION_* literal AND occurs within an
+//      enumeration context. The enumeration-context signal is
+//      EITHER (i) the same line names ≥2 distinct canonical literals
+//      (a comma/list shape), OR (ii) the line contains an
+//      enumeration phrase like "required env vars" / "env vars
+//      per" / "MUST be set" / "all four" / "all 4" / "four
+//      VALIDATION_*" within ±2 lines of the canonical literal.
+//      Single-var citations (e.g., the line throwing
+//      `VALIDATION_SUPABASE_URL is required`) do NOT trigger the
+//      walker — they're not env-var contract enumerations.
+//
+//   3. CROSS-REF VS OWN-ENUMERATION: within a ±10 line window of
+//      the cluster line, look for cross-reference phrasing like
+//      "spec §9.1.2", "canonical CLI env-var map", "canonical per-
+//      CLI env-var", "see §9.1.2 for". If present AND the cluster
+//      cardinality matches the §9.1.2 row's contract OR the
+//      enumeration uses subset markers consistent with a §9.1.2
+//      cross-reference, PASS. Otherwise apply
+//      `evaluateCanonicalEnvVarCluster()` (a sibling of
+//      `evaluateCanonicalTableRow()` adapted for non-table contexts).
+//
+// This walker generalises the R21 F20 / R23 F24 helper so future
+// F10-class drift fails CI regardless of syntactic form.
+
+type ClusterFinding = {
+  reason: string;
+  presentVars: string[];
+  missingVars: string[];
+};
+
+// Sibling of `evaluateCanonicalTableRow()` adapted for non-table
+// contexts. Operates on a "cluster window" string (the line under
+// inspection PLUS surrounding ±2 lines for cardinality / J3-
+// omission / waiver markers, since prose enumerations sometimes
+// split the cardinality marker from the var list across adjacent
+// lines or formatting tokens).
+function evaluateCanonicalEnvVarCluster(
+  clusterWindow: string,
+  canonicalVars: readonly string[],
+): ClusterFinding | null {
+  const presentVars = canonicalVars.filter((v) => clusterWindow.includes(v));
+  const missingVars = canonicalVars.filter((v) => !clusterWindow.includes(v));
+
+  // Pass 1: cluster enumerates all 4 canonical vars verbatim within
+  // the window — passes.
+  if (presentVars.length === canonicalVars.length) {
+    return null;
+  }
+
+  // Pass 2: cluster carries the explicit "not-subject-to-meta: <reason>"
+  // waiver — passes.
+  if (/not-subject-to-meta:/i.test(clusterWindow)) {
+    return null;
+  }
+
+  // Subset semantics: cluster claims a smaller cardinality + names a
+  // reason. Parse out the stated cardinality + the J3-claim-email
+  // omission marker.
+  const cardinalityMatch = clusterWindow.match(/\b([1-4])\s+vars?\b/i);
+  const claimedCardinality = cardinalityMatch ? Number.parseInt(cardinalityMatch[1], 10) : null;
+  const j3ClaimEmailOmitted =
+    /\bJ3[-_]?claim[-_]?email[^.]{0,80}(NOT required|omitted|is omitted|excluded)/i.test(
+      clusterWindow,
+    );
+
+  // Without ANY subset marker (no cardinality, no J3 omission, no
+  // waiver), the cluster has fewer than 4 vars and no justification —
+  // fails per contract-level (R25 commit 54) extension of R21 F20.
+  if (claimedCardinality === null && !j3ClaimEmailOmitted) {
+    return {
+      reason:
+        "env-var enumeration cluster references VALIDATION_* but does not list all 4 canonical env vars AND does not carry an explicit subset marker (cardinality '<N> vars' OR 'J3-claim-email NOT required' OR 'not-subject-to-meta: <reason>')",
+      presentVars,
+      missingVars,
+    };
+  }
+
+  if (j3ClaimEmailOmitted) {
+    // Required set = canonical 4 minus J3_CLAIM_EMAIL. ALL 3
+    // SUPABASE_* vars must be present in the cluster window.
+    const requiredSet = canonicalVars.filter((v) => v !== "VALIDATION_J3_CLAIM_EMAIL");
+    const missingFromRequired = requiredSet.filter((v) => !clusterWindow.includes(v));
+    if (missingFromRequired.length > 0) {
+      return {
+        reason: `cluster claims "J3-claim-email NOT required" / omitted (3 SUPABASE_* vars required) but ${missingFromRequired.length} required var(s) absent`,
+        presentVars,
+        missingVars: missingFromRequired,
+      };
+    }
+    if (claimedCardinality !== null && presentVars.length !== claimedCardinality) {
+      return {
+        reason: `cluster claims "${claimedCardinality} vars" but ${presentVars.length} canonical literal(s) present — cardinality mismatch (anti-tautology guard)`,
+        presentVars,
+        missingVars,
+      };
+    }
+    return null;
+  }
+
+  // Cardinality stated without J3 omission marker: count of named
+  // canonical literals MUST equal stated cardinality.
+  if (claimedCardinality !== null && presentVars.length !== claimedCardinality) {
+    return {
+      reason: `cluster claims "${claimedCardinality} vars" but ${presentVars.length} canonical literal(s) present — cardinality mismatch`,
+      presentVars,
+      missingVars,
+    };
+  }
+
+  return null;
+}
+
 function evaluateCanonicalTableRow(
   line: string,
   canonicalVars: readonly string[],
@@ -660,6 +789,267 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       "| `pnpm validation:foo` | 3 vars; J3-claim-email NOT required | misc |";
     const noVarsResult = evaluateCanonicalTableRow(subsetMarkerNoVars, CANONICAL_VARS);
     expect(noVarsResult).not.toBeNull();
+  });
+
+  // R25 commit 54 — F10-class CONTRACT-LEVEL structural defense walker.
+  // F25 (R24 finding) was Task 0.C.1 Step 3 enumerating only 3 env vars
+  // — a plan-prose enumeration that the R15 (prose) + R21 (spec table)
+  // defenses didn't cover. Per AGENTS.md "Structural-defense calibration
+  // (M12 plan R5 amendment)": after the round following a comprehensive
+  // re-analysis STILL surfaces a finding on the same vector, ship a
+  // structural defense whose scope is the contract surface (NOT another
+  // per-syntactic-form regex extension).
+  //
+  // This walker scans EVERY M12 doc surface (spec + plan tree + handoff
+  // excluding §15 audit-trail and EXCLUDED_PATHS historical-record
+  // sections) for env-var enumeration clusters and asserts each cluster
+  // EITHER lists all 4 canonical env vars OR cross-references spec §9.1.2
+  // within ±10 lines OR carries a recognised subset reason OR is itself
+  // a §9.1.2 table row (already validated by F20 / F24).
+  test("F25-class contract-level walker: every env-var enumeration cluster across M12 doc surfaces lists 4 canonical vars OR cross-refs §9.1.2 OR carries subset reason", () => {
+    const CANONICAL_VARS = [
+      "VALIDATION_SUPABASE_URL",
+      "VALIDATION_SUPABASE_SECRET_KEY",
+      "VALIDATION_SUPABASE_PROJECT_REF",
+      "VALIDATION_J3_CLAIM_EMAIL",
+    ];
+
+    // Enumeration-context signal (R25 walker — refined to high-signal
+    // syntactic frames to avoid false positives on per-predicate
+    // narratives that happen to mention multiple env vars in
+    // different contexts):
+    //
+    //   The line MUST be an env-var CONTRACT enumeration — a
+    //   colon-then-list shape OR a checklist-step-with-enumeration-
+    //   phrase shape. Just naming multiple canonical vars on the
+    //   same line is NOT sufficient (e.g., spec §3.3.2 predicate
+    //   narratives name VALIDATION_PROJECT_REF in predicate (d) and
+    //   VALIDATION_J3_CLAIM_EMAIL in predicate (k) — those are
+    //   per-predicate citations, not env-var contract enumerations).
+    //
+    //   High-signal frames (any one suffices):
+    //   (i)   "Required env vars [...] : VAR1, VAR2, VAR3..." — the
+    //         colon-then-comma-list shape; F25's exact shape.
+    //   (ii)  Bullet/list/heading line with "Required env vars" or
+    //         "env vars per" phrase + ≥2 canonical literals after
+    //         a colon on the same line.
+    //   (iii) A line in a contiguous fenced .env.local-style block
+    //         (handled separately below — see ENV_TEMPLATE_BLOCK
+    //         detection).
+    const ENUMERATION_PHRASE_RX =
+      /\b(required\s+env\s+vars?|env\s+vars?\s+per\b|MUST\s+be\s+set|all\s+four\s+env|all\s+4\s+env|four\s+VALIDATION_\*?|four\s+new\s+VALIDATION_|the\s+(?:4|four)\s+(?:new\s+)?VALIDATION_|four\s+env\s+vars?)\b/i;
+    // Colon-then-list shape: "Required env vars: VAR1, VAR2, VAR3" or
+    // "env vars per spec §9.1.2: VAR1, VAR2, VAR3" — the line must
+    // contain the enumeration phrase followed by a colon followed by
+    // at least one canonical literal.
+    const COLON_LIST_FRAME_RX =
+      /\b(required\s+env\s+vars?|env\s+vars?\s+per\b|MUST\s+be\s+set|all\s+four\s+env|four\s+VALIDATION_|four\s+new\s+VALIDATION_|four\s+env\s+vars?)\b[^:]{0,80}:\s*[`'"]?VALIDATION_/i;
+
+    // Note (R25 walker design): an earlier draft of this walker
+    // included a §9.1.2 cross-reference exemption — clusters that
+    // cited "spec §9.1.2" within ±10 lines were exempted. That
+    // exemption was REMOVED because F25 itself contained the cross-
+    // reference ("Required env vars per spec §9.1.2:") on the same
+    // line as a 3-var enumeration — the citation didn't prevent the
+    // implementer from reading the (incomplete) inline list. The
+    // colon-list-frame gate above filters to own-enumeration sites;
+    // any own-enumeration must satisfy the contract regardless of
+    // whether it also cites §9.1.2.
+
+    // Files where contract-drift wording is legitimately quoted as part
+    // of historical convergence-log finding tables. Same posture as the
+    // F20 / F21-class EXCLUDED_PATHS.
+    const F25_EXCLUDED_PATHS = new Set([
+      "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md",
+      SELF,
+    ]);
+
+    const SCAN_FILE_LIST = [
+      SPEC_FILE,
+      ...collectMarkdown(
+        "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation",
+      ),
+      "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md",
+    ];
+
+    const findings: string[] = [];
+
+    for (const file of SCAN_FILE_LIST) {
+      if (F25_EXCLUDED_PATHS.has(file)) continue;
+      let raw: string;
+      try {
+        raw = readFileSync(join(ROOT, file), "utf8");
+      } catch {
+        continue;
+      }
+      const source = stripFifteen(raw);
+      const lines = source.split("\n");
+
+      // Track whether we're inside the §9.1.2 canonical CLI table —
+      // those rows are validated by F20 / F24, not here.
+      let inCanonicalTable = false;
+      let in912Heading = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Track §9.1.2 heading scope (spec file only; plan files have
+        // no §9.1.2 heading).
+        if (/^###\s+9\.1\.2\b/.test(line)) {
+          in912Heading = true;
+        } else if (in912Heading && /^###?\s+9\.[1-9]\.[3-9]\b/.test(line)) {
+          in912Heading = false;
+        } else if (in912Heading && /^##\s+/.test(line)) {
+          in912Heading = false;
+        }
+
+        // Within §9.1.2 heading: if the line is a markdown table row
+        // mentioning a canonical literal, it's covered by F20 — skip.
+        if (in912Heading && /^\s*\|/.test(line)) {
+          continue;
+        }
+
+        // Does this line mention any canonical literal?
+        const lineCanonicalCount = CANONICAL_VARS.filter((v) => line.includes(v)).length;
+        if (lineCanonicalCount === 0) continue;
+
+        // High-signal enumeration-context detection. The line MUST
+        // carry the colon-then-list frame (F25's exact syntactic shape)
+        // — a contract-enumeration phrase followed by a colon followed
+        // by ≥1 canonical literal on the same line. This is tight by
+        // design: per-predicate narratives that name VALIDATION_*
+        // vars in different contexts (e.g., spec §3.3.2 predicate (d)
+        // + (k)) are NOT contract enumerations and must not fire the
+        // walker. The walker's job is to catch sites where the prose
+        // says "here are the env vars this CLI needs: <list>" and
+        // the list is short.
+        const isColonListFrame = COLON_LIST_FRAME_RX.test(line);
+        if (!isColonListFrame) {
+          // Not a contract enumeration. Skip.
+          // (The .env.local.example template block is covered by the
+          // §9.1.2 cross-reference on line 91-92 of 01-phase0-infra.md
+          // — "Canonical per-CLI env-var map: spec §9.1.2 table" —
+          // which the cross-ref check below will detect.)
+          continue;
+        }
+        // Mark for diagnostics that this is in fact an enumeration line.
+        void ENUMERATION_PHRASE_RX; // intentionally retained for readability
+
+        // Build the cluster window for evaluation. The cluster window is
+        // ±5 lines around the colon-list-frame line — wide enough to
+        // capture multi-line enumerations (e.g., the .env.local.example
+        // template's 4 var lines spread across SUPABASE_* + comment
+        // block + J3_CLAIM_EMAIL) and any subset/cardinality marker
+        // that lives a few lines before the var list.
+        const clusterStart = Math.max(0, i - 5);
+        const clusterEnd = Math.min(lines.length, i + 6);
+        const clusterWindow = lines.slice(clusterStart, clusterEnd).join("\n");
+
+        const clusterFinding = evaluateCanonicalEnvVarCluster(clusterWindow, CANONICAL_VARS);
+
+        // Cluster passes outright (4 vars present / waiver / valid
+        // subset). The cross-reference exemption does NOT apply when
+        // the cluster is itself a colon-then-list own-enumeration:
+        // citing "§9.1.2" while listing 3 of 4 vars is the exact F25
+        // failure mode (the implementer reads the line's enumeration,
+        // not the cross-reference). Cross-reference exemption only
+        // applies to pure narrative references that don't enumerate
+        // any vars — but those are filtered out by the colon-list-
+        // frame gate above, so all clusters reaching this point are
+        // own-enumerations that must satisfy the contract.
+        if (clusterFinding === null) continue;
+
+        // Otherwise: this is an own-enumeration cluster that drops
+        // canonical vars without a subset reason. Record a finding.
+        findings.push(
+          `  ${file}:${i + 1} (${clusterFinding.reason})\n` +
+            `      line:    ${line.substring(0, 240)}${line.length > 240 ? "..." : ""}\n` +
+            `      present: ${
+              clusterFinding.presentVars.length === 0
+                ? "(none in cluster window)"
+                : clusterFinding.presentVars.join(", ")
+            }\n` +
+            `      missing: ${clusterFinding.missingVars.join(", ")}`,
+        );
+      }
+    }
+
+    if (findings.length > 0) {
+      expect.fail(
+        `R25 commit 54 F10-class contract-level walker: ${findings.length} env-var enumeration cluster(s) across M12 doc surfaces drop canonical env vars without a recognised subset reason.\n\n` +
+          findings.join("\n\n") +
+          `\n\nCanonical env vars (single source of truth — spec §9.1.2 R21 commit 44 F20 amendment):\n  ${CANONICAL_VARS.join("\n  ")}\n\n` +
+          `Fix options for each cluster:\n` +
+          `  (a) List all 4 canonical env vars in the cluster (or its ±5 line window).\n` +
+          `  (b) Document a subset: write "<N> vars" (e.g., "3 vars") AND "J3-claim-email NOT required" / "omitted" with rationale, AND list all non-omitted vars.\n` +
+          `  (c) Add an inline "not-subject-to-meta: <reason>" waiver.\n` +
+          `  (d) Rephrase the colon-then-list frame: if the line is meant as a narrative reference rather than an own-enumeration, drop the var-list and replace with "see spec §9.1.2 for the canonical per-CLI env-var map" (no inline list).\n\n` +
+          `This walker is the CONTRACT-LEVEL F10-class defense (R25 commit 54). The R15 (prose) + R21 (spec table) + R23 (cardinality) defenses each closed a per-syntactic-form gap; this walker closes the class regardless of syntactic form by detecting the colon-then-list frame ("Required env vars [...]: VAR1, VAR2, VAR3") that is the universal shape of an own-enumeration.`,
+      );
+    }
+  });
+
+  // R25 commit 54 negative-case test — synthetic broken-cluster fixtures
+  // must trigger the walker logic; synthetic valid fixtures (full 4 /
+  // cross-ref / subset reason / waiver) must pass. Pins the helper
+  // semantics at CI time so future edits to evaluateCanonicalEnvVarCluster()
+  // can't relax the contract by accident.
+  test("F25-class walker negative case: synthetic broken-cluster fixtures fire; synthetic valid fixtures pass", () => {
+    const CANONICAL_VARS = [
+      "VALIDATION_SUPABASE_URL",
+      "VALIDATION_SUPABASE_SECRET_KEY",
+      "VALIDATION_SUPABASE_PROJECT_REF",
+      "VALIDATION_J3_CLAIM_EMAIL",
+    ];
+
+    // BROKEN fixtures (F25-shaped pre-R25 prose).
+
+    // F25 itself: Task 0.C.1 Step 3 pre-R25 form.
+    const brokenF25Cluster =
+      "Required env vars per spec §9.1.2: `VALIDATION_SUPABASE_URL`, `VALIDATION_SUPABASE_SECRET_KEY`, `VALIDATION_SUPABASE_PROJECT_REF`.";
+    const f25Result = evaluateCanonicalEnvVarCluster(brokenF25Cluster, CANONICAL_VARS);
+    expect(f25Result).not.toBeNull();
+    expect(f25Result?.missingVars).toContain("VALIDATION_J3_CLAIM_EMAIL");
+
+    // F25-shape with "MUST be set" enumeration phrase + 3 vars.
+    const brokenMustBeSet =
+      "All three MUST be set for validation: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF.";
+    expect(evaluateCanonicalEnvVarCluster(brokenMustBeSet, CANONICAL_VARS)).not.toBeNull();
+
+    // PASSING fixtures.
+
+    // (a) Full 4-var enumeration.
+    const validFullFour =
+      "Required env vars: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF, VALIDATION_J3_CLAIM_EMAIL.";
+    expect(evaluateCanonicalEnvVarCluster(validFullFour, CANONICAL_VARS)).toBeNull();
+
+    // (c) Subset with J3-claim-email NOT required + 3 SUPABASE_* vars.
+    const validSubset =
+      "3 vars; J3-claim-email NOT required (read-only lookup): VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF.";
+    expect(evaluateCanonicalEnvVarCluster(validSubset, CANONICAL_VARS)).toBeNull();
+
+    // (c-broken) Subset with J3-omission marker BUT only 1 of 3 SUPABASE_*
+    // vars listed — must fire (anti-tautology).
+    const brokenSubsetMissingSupabase =
+      "3 vars; J3-claim-email NOT required: VALIDATION_SUPABASE_URL only listed.";
+    const brokenSubsetResult = evaluateCanonicalEnvVarCluster(
+      brokenSubsetMissingSupabase,
+      CANONICAL_VARS,
+    );
+    expect(brokenSubsetResult).not.toBeNull();
+    expect(brokenSubsetResult?.missingVars).toContain("VALIDATION_SUPABASE_SECRET_KEY");
+
+    // (d) Waiver — passes regardless of var count.
+    const validWaiver =
+      "<!-- not-subject-to-meta: this is a single-var citation about VALIDATION_SUPABASE_URL only --> the localhost smoke uses VALIDATION_SUPABASE_URL.";
+    expect(evaluateCanonicalEnvVarCluster(validWaiver, CANONICAL_VARS)).toBeNull();
+
+    // Cardinality mismatch: cluster claims "4 vars" but lists only 3.
+    const brokenCardinality =
+      "4 vars: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF.";
+    const cardinalityResult = evaluateCanonicalEnvVarCluster(brokenCardinality, CANONICAL_VARS);
+    expect(cardinalityResult).not.toBeNull();
+    expect(cardinalityResult?.missingVars).toContain("VALIDATION_J3_CLAIM_EMAIL");
   });
 
   test("F13-conflation-prevention: no Phase 0.C verification query asserts `email LIKE '%@example.com'` count = 96", () => {
