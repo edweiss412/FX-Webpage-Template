@@ -23,7 +23,7 @@
     "verify:spec-amendment": "scripts/verify-spec-amendment-3.sh",
     "test:audit:x1-catalog-parity": "pnpm gen:spec-codes && vitest run tests/cross-cutting/codes.test.ts tests/cross-cutting/extract-spec-codes.test.ts",
     "test:audit:x2-no-raw-codes": "pnpm gen:internal-code-enums && vitest run tests/cross-cutting/no-raw-codes.test.ts",
-    "test:audit:x3-trust-domain": "pnpm gen:admin-tables && vitest run tests/cross-cutting/auth.test.ts",
+    "test:audit:x3-trust-domain": "pnpm gen:admin-tables && vitest run tests/cross-cutting/no-jwt-surface.test.ts tests/cross-cutting/no-m9-5-surfaces.test.ts tests/cross-cutting/picker-resolver-callsite-contract.test.ts tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts",
     "test:audit:x4-no-global-cursor": "pnpm gen:watermark-symbols && vitest run tests/cross-cutting/no-global-cursor.test.ts",
     "test:audit:x5-email-canonicalization": "pnpm gen:email-boundaries && vitest run tests/cross-cutting/email-canonicalization.test.ts",
     "test:audit:traceability": "pnpm gen:traceability && vitest run tests/cross-cutting/traceability.test.ts",
