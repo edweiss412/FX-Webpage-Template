@@ -284,8 +284,56 @@ BEGIN
   ON CONFLICT (drive_file_id) DO UPDATE SET
     title = EXCLUDED.title,
     dates = EXCLUDED.dates,
+    archived = false,                -- R27 commit 57 F27 amendment — restore baseline eligibility
+    published = true,                -- R27 commit 57 F27 amendment — restore baseline eligibility
     last_seen_modified_time = now()
   RETURNING id INTO v_show_id;
+  -- R27 commit 57 F27 amendment — SET-clause-column completeness audit.
+  -- Reseed restores baseline eligibility (archived=false, published=true)
+  -- so that manual archive/unpublish during exercise (admin UI smokes,
+  -- failed-state probes, M11.5 admin-action walks) doesn't strand the
+  -- walk-session gate. check-seed predicate (f) treats archived shows as
+  -- not-yet-eligible for the matching crew-member row (the (`alias IS NOT
+  -- NULL` + `for the show is archived`) clause); a stale archived=true
+  -- after reseed would falsely fail predicate (f) for every alias bound
+  -- to the show. published=false is symmetrically problematic for the
+  -- M11.5 picker route which short-circuits unpublished shows.
+  --
+  -- (B) Per-column SET-clause completeness audit (R27 F16-class
+  -- comprehensive re-analysis at SET-clause-column scope; supersedes the
+  -- R19 (A) trigger-scoped audit):
+  --   * drive_file_id — PK conflict target, cannot be UPDATEd (exception).
+  --   * slug          — INSERT value is deterministic from p_combo
+  --                     ('validation-' || lower(replace(p_combo, '_', '-')))
+  --                     and is a UNIQUE column; UPSERT input is constant
+  --                     across reseeds of the same combo, so omitting
+  --                     from SET cannot drift (exception: deterministic
+  --                     constant from input).
+  --   * title         — in SET (refreshes from EXCLUDED.title).
+  --   * client_label  — INSERT hard-codes 'M12 Validation'; constant
+  --                     across reseeds (exception: hard-coded constant).
+  --   * template_version — INSERT hard-codes 'v4'; constant across
+  --                     reseeds (exception: hard-coded constant).
+  --   * dates         — in SET (refreshes from EXCLUDED.dates).
+  --   * archived      — R27 commit 57 F27 ADDED to SET (was INSERT-only).
+  --   * published     — R27 commit 57 F27 ADDED to SET (was INSERT-only).
+  --   * last_seen_modified_time — in SET (refreshes to now()).
+  -- All other shows columns are NULL/DEFAULT-ON-INSERT (client_contact,
+  -- venue, event_details, agenda_links, diagrams, opening_reel_*,
+  -- coi_status, pull_sheet, last_synced_at, last_sync_status,
+  -- last_sync_error, unpublish_token, unpublish_token_expires_at,
+  -- picker_epoch, picker_epoch_bumped_at, id, created_at) — never
+  -- written by the mint RPC. Notable deliberate exceptions:
+  --   * picker_epoch / picker_epoch_bumped_at — admin may have rotated
+  --     these intentionally during exercise; reseed MUST NOT reset to
+  --     the default 1 / now() (that would silently invalidate cookies
+  --     the dev's M11.5 admin-action walks are testing). Owned by the
+  --     reset_picker_epoch_atomic RPC at migration 20260523000003.
+  --   * created_at — `DEFAULT now()`; never overwritten (audit-trail
+  --     immutability).
+  --   * unpublish_token / unpublish_token_expires_at — issued by the
+  --     unpublish flow; reseed does not touch them. Stale tokens
+  --     expire via the existing CHECK constraint.
 
   -- 2.6. R19 commit 43 F19 amendment — show_share_tokens self-heal.
   --      The shows_create_share_token_after_insert trigger (per migration
@@ -614,7 +662,7 @@ COMMIT_EOF
 **Files:**
 - Modify: `scripts/validation-check-seed.ts`
 
-Per spec §3.3.2 singleton write semantics. **10 predicates (a-g, i, k, l, m)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police); R13 commit 30 adds predicate (k); R13 commit 31 adds predicate (l); R17 commit 39 adds predicate (m):
+Per spec §3.3.2 singleton write semantics. **11 predicates (a-g, i, k, l, m, n)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police); R13 commit 30 adds predicate (k); R13 commit 31 adds predicate (l); R17 commit 39 adds predicate (m); R27 commit 57 adds predicate (n):
 
 - (a) `validation_state` row missing (zero rows for `key='validation_seed'`)
 - (b) `last_seed_date != $VALIDATION_TODAY_ISO` (where `$VALIDATION_TODAY_ISO` is the canonical UTC YYYY-MM-DD value the script computes, NOT Postgres `current_date`)
@@ -630,22 +678,24 @@ Per spec §3.3.2 singleton write semantics. **10 predicates (a-g, i, k, l, m)** 
   ```
   Diagnostic: "VALIDATION_J3_CLAIM_EMAIL is unset or matches a placeholder/dev-only reserved domain (canonical set: example.com/.org/.net per RFC 2606; *.test/*.invalid/*.localhost/localhost per RFC 6761; *.local/dev.local per mDNS RFC 6762 + project-conventional) — J3 leg (c) unwalkable (Google OAuth cannot authenticate against any of these). Set VALIDATION_J3_CLAIM_EMAIL to your real Google account email per spec §3.3 step 5 R13-amendment paragraph."
 - **(l) (R13 commit 31 amendment — baseline-claim guard)** For any baseline picker alias (every alias in `alias_map` per spec §3.2 / §3.3 inventory), `crew_members.claimed_via_oauth_at IS NOT NULL` after a fresh `--combo all` reseed. Catches the F11-class failure mode where the mint RPC's UPSERT `SET` clause drifts (e.g., a future amendment drops the `claimed_via_oauth_at = NULL` line) and a previous J3 leg (c) walk's claim stamp persists across reseed, leaving the LEAD picker row OAuth-disabled. Diagnostic: "crew_members row for <combo>.<alias> has claimed_via_oauth_at = <timestamp> after reseed — mint RPC SET clause missing `claimed_via_oauth_at = NULL`; re-check the migration body against the R13 commit 31 contract."
+- **(n) (R27 commit 57 amendment — shows baseline-eligibility guard for F16-class SET-clause-column completeness recurrence)** For every seeded validation show, `archived = false AND published = true` after a fresh `--combo all` reseed. Catches the F16-class failure mode where the mint RPC's ON CONFLICT UPDATE SET clause omits `archived = false` and/or `published = true`, leaving a manually-archived or manually-unpublished validation show stranded across reseeds — check-seed predicate (f) treats archived rows as not-yet-eligible for the matching crew-member, and the M11.5 picker route short-circuits unpublished shows, so the walk-session gate fails opaquely. Diagnostic: "validation show <C> has archived=<a> published=<p> after reseed — mint RPC ON CONFLICT UPDATE SET clause missing `archived = false` and/or `published = true`; re-check the migration body at plan 03 line 284 against the R27 commit 57 contract." Concrete SQL: `SELECT drive_file_id, archived, published FROM shows WHERE drive_file_id LIKE 'validation_%' AND (archived = true OR published = false)`; predicate fails iff the result set is non-empty.
+
 - **(m) (R17 commit 39 amendment — full-replace orphan guard for F16 finding; R19 commit 42 F18 case-normalization fix)** For every seeded validation show, the DISTINCT `(combo, alias)` identity set materialized as `crew_members` rows for that show MUST equal the canonical fixture identity set enumerated in `validation_state.alias_map[combo]` for the same combo. **Canonical case for `drive_file_id` is UPPERCASE combo enum verbatim** — the mint RPC writes `v_drive_file_id := 'validation_' || p_combo` at Step 2 above with no `lower()` coercion, so combo enum values `R1`/`R7b`/`SW-POST_SHOW` produce `validation_R1`/`validation_R7b`/`validation_SW-POST_SHOW` respectively. Concretely: for each combo C in `validation_state.combos_materialized`, `SELECT count(*) FROM crew_members cm WHERE cm.show_id = (SELECT id FROM shows WHERE drive_file_id = 'validation_' || C)` MUST equal `jsonb_object_keys_count(validation_state.alias_map[C])`, AND every `crew_members.name` for that show MUST appear as a `name` field in the canonical fixture body for combo C (after the TS-side fixture-build computes it). Catches the F16-class failure mode where the mint RPC's UPSERT pattern lands new aliases but never DELETEs stale ones from prior fixture revisions or manual SQL probes — the picker (which reads `crew_members` directly, NOT `alias_map`) would surface orphan rows that aren't in the canonical fixture, expanding the test surface beyond the canonical 96-leaf scope and potentially exercising identities outside the validation spec. Diagnostic: "validation show <C> has orphan crew_members row(s) <names> not enumerated in validation_state.alias_map[<C>] — mint_validation_fixture_atomic full-replace DELETE-before-UPSERT did not fire OR a manual write landed a stale row; re-run `pnpm validation:reseed --combo <C>` to clear." **R19 commit 42 amendment:** the R17 commit 39 prose used `'validation_' || lower(C)` which mis-aligned with the mint RPC's actual `'validation_' || p_combo` formula (no lowercase coercion); a correct R1 reseed wrote `validation_R1` while predicate (m) and the regression test resolved via `validation_r1`, leaving the predicate's `show_id` lookup NULL and the orphan-INSERT regression INSERTing against NULL `show_id`. R19 normalizes to UPPER everywhere (mint RPC write + predicate (m) read + regression test snippets).
 
-- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g); returns exit 1 if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (predicate k, per R13 commit 30); returns exit 1 if combo R1's alias_5a_lead row in `crew_members` has a placeholder email (predicate k DB-side check); returns exit 1 if ANY baseline picker alias has `claimed_via_oauth_at IS NOT NULL` post-reseed (predicate l, per R13 commit 31 — test this by manually `UPDATE public.crew_members SET claimed_via_oauth_at = now() WHERE ...` then re-running check-seed); returns exit 1 if a manually-INSERTed stale `crew_members` row exists for a seeded validation show whose `name` is not enumerated in `validation_state.alias_map[combo]` (predicate m, per R17 commit 39 + R19 commit 42 F18 case-normalization fix — test this by manually `INSERT INTO public.crew_members (show_id, name, role, ...) VALUES ((SELECT id FROM shows WHERE drive_file_id='validation_R1'), 'orphan_stale_lead', 'LEAD', ...)` — note **UPPERCASE** `R1` matches the mint RPC's `'validation_' || p_combo` formula at Step 2 above — then re-running check-seed; the predicate (m) DIAG should name the orphan row). Additionally: a `pnpm validation:reseed --combo R1` immediately followed by `pnpm validation:check-seed --combo R1` MUST resolve a non-null R1 show_id via predicate (m)'s `'validation_' || C` lookup and PASS — this exercises the F18 case-normalization round-trip end-to-end (mint writes `validation_R1`; check-seed predicate (m) reads `'validation_' || 'R1'`; the two must match).
+- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g); returns exit 1 if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (predicate k, per R13 commit 30); returns exit 1 if combo R1's alias_5a_lead row in `crew_members` has a placeholder email (predicate k DB-side check); returns exit 1 if ANY baseline picker alias has `claimed_via_oauth_at IS NOT NULL` post-reseed (predicate l, per R13 commit 31 — test this by manually `UPDATE public.crew_members SET claimed_via_oauth_at = now() WHERE ...` then re-running check-seed); returns exit 1 if a manually-INSERTed stale `crew_members` row exists for a seeded validation show whose `name` is not enumerated in `validation_state.alias_map[combo]` (predicate m, per R17 commit 39 + R19 commit 42 F18 case-normalization fix — test this by manually `INSERT INTO public.crew_members (show_id, name, role, ...) VALUES ((SELECT id FROM shows WHERE drive_file_id='validation_R1'), 'orphan_stale_lead', 'LEAD', ...)` — note **UPPERCASE** `R1` matches the mint RPC's `'validation_' || p_combo` formula at Step 2 above — then re-running check-seed; the predicate (m) DIAG should name the orphan row). **R27 commit 57 F27 regression — predicate (n) shows baseline-eligibility guard:** returns exit 1 if a seeded validation show has `archived = true` (manually-archived during exercise) — test this by manually `UPDATE public.shows SET archived = true WHERE drive_file_id = 'validation_R1'` then re-running check-seed BEFORE reseed; expect exit 1 with predicate (n) DIAG. Then run `pnpm validation:reseed --combo R1` and re-run check-seed; expect exit 0 with `archived` restored to false (the R27 SET-clause amendment refreshes archived + published on every reseed). Symmetric test for `published = false`. Additionally: a `pnpm validation:reseed --combo R1` immediately followed by `pnpm validation:check-seed --combo R1` MUST resolve a non-null R1 show_id via predicate (m)'s `'validation_' || C` lookup and PASS — this exercises the F18 case-normalization round-trip end-to-end (mint writes `validation_R1`; check-seed predicate (m) reads `'validation_' || 'R1'`; the two must match).
 
 - [ ] **Step 2: Run — expect FAIL** (no implementation).
 
-- [ ] **Step 3: Implement** all 10 predicates (a-g, i, k, l, m). Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
+- [ ] **Step 3: Implement** all 11 predicates (a-g, i, k, l, m, n). Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
 
 - [ ] **Step 4: Run — expect PASS.** Commit:
 
 ```bash
 git add scripts/validation-check-seed.ts tests/scripts/validation-check-seed.test.ts
-git commit -m "feat(validation): implement check-seed with 10 picker-fixture predicates (a-g, i, k, l, m incl R17 full-replace orphan guard)"
+git commit -m "feat(validation): implement check-seed with 11 picker-fixture predicates (a-g, i, k, l, m, n incl R17 full-replace orphan guard + R27 baseline-eligibility guard)"
 ```
 
-- [ ] **Step 5: Add the F16 full-replace + F19 share-token self-heal regression tests** at `tests/db/mint-validation-fixture-atomic-full-replace.test.ts` (or extend the mint-RPC integration test authored in Task 0.C.4 Step 9). The test exercises BOTH the F16 contract AND the F19 share-token self-heal end-to-end against the prod-equivalent Supabase target. **R19 commit 43 F19 amendment:** the predicate (g) regression below pins the mint RPC's section 2.6 self-heal (INSERT INTO show_share_tokens ON CONFLICT DO NOTHING) — without it, a manual DELETE of the share-token row leaves smoke 6 / J3 unwalkable forever (the trigger only fires on shows INSERT, not on UPSERT update-path). The two regressions share fixture setup; bundle them in one test block for execution efficiency.
+- [ ] **Step 5: Add the F16 full-replace + F19 share-token self-heal + F27 baseline-eligibility regression tests** at `tests/db/mint-validation-fixture-atomic-full-replace.test.ts` (or extend the mint-RPC integration test authored in Task 0.C.4 Step 9). The test exercises ALL THREE contracts (F16 full-replace + F19 share-token self-heal + F27 baseline-eligibility) end-to-end against the prod-equivalent Supabase target. **R19 commit 43 F19 amendment:** the predicate (g) regression below pins the mint RPC's section 2.6 self-heal (INSERT INTO show_share_tokens ON CONFLICT DO NOTHING) — without it, a manual DELETE of the share-token row leaves smoke 6 / J3 unwalkable forever (the trigger only fires on shows INSERT, not on UPSERT update-path). **R27 commit 57 F27 amendment — predicate (n) baseline-eligibility regression:** the test sets a seeded validation show's `archived = true` (or `published = false`) via direct service-role UPDATE BEFORE the reseed call; runs `mint_validation_fixture_atomic('R1', payload)` (the per-combo entry point); asserts post-reseed `SELECT archived, published FROM shows WHERE drive_file_id = 'validation_R1'` returns `(false, true)`. A test variant covers the symmetric `published = false` case. Without the R27 SET-clause amendment (archived + published in UPDATE SET), the assertion FAILs because UPDATE SET preserves the stale archived=true / published=false value. The three regressions share fixture setup; bundle them in one test block for execution efficiency.
 
   1. Run `pnpm validation:reseed --combo R1` (mint baseline R1 fixture). Assert exit 0; assert `pnpm validation:check-seed --combo R1` exit 0.
   2. Via service-role psql / supabase-js, INSERT an orphan crew_members row into the R1 validation show: `INSERT INTO public.crew_members (show_id, name, email, role, role_flags, date_restriction, stage_restriction) VALUES ((SELECT id FROM shows WHERE drive_file_id='validation_R1'), 'orphan_stale_lead', 'orphan@example.test', 'LEAD', ARRAY['LEAD']::text[], '{"kind":"all_days"}'::jsonb, '{"kind":"all_stages"}'::jsonb)` — **UPPERCASE `R1` per R19 commit 42 F18 case-normalization fix** (the mint RPC writes `'validation_' || p_combo` verbatim with no lowercase coercion; a lowercase `validation_r1` lookup resolves to NULL `show_id` and the orphan would be INSERTed against NULL, falsifying the regression).
