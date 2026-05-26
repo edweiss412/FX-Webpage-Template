@@ -1142,7 +1142,61 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F21-class regex extension (R33 commit 70) regression-clean.
   - NEW F34 class: destructive cleanup affecting prod state. 1 round; no priors.
 
-- **Repair commit:** pending R35 implementer dispatch (inline Agent; Phase 0.A propagation + F10-class walker decision + F34 cleanup safety).
+- **Repair commit:** closed in R35 (see below).
+
+### Amendment R35 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `7ff3bcb` (post-R35)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R36 adversarial review**
+
+- **F33 repair (commit 71) — Phase 0.A.5 propagation:**
+  - Phase 0.A.5 env template extended with `VALIDATION_ADMIN_EMAIL=` placeholder + multi-line comment naming R33/R35 lineage + `lib/reports/rateLimit.ts:76` canonicalize boundary + per-outcome scoping
+  - "All four MUST be set" prose → "All validation env vars per spec §9.1.2 MUST be set" (cardinality-drift-free cross-reference; F10-class walker M3 evasion strategy)
+  - NEW R35 amendment paragraph (plan 01:93-102) classifies ADMIN_EMAIL as per-outcome helper var + explicitly states "do NOT count ADMIN_EMAIL inside the canonical cardinality"
+  - Step 5 stale "the four `VALIDATION_`-prefixed vars" rewritten to §9.1.2 cross-ref
+
+- **F10-class walker decision — HELPER-CATEGORIZATION** (orchestrator-recommended; implementer-adopted):
+  - Walker `canonicalVars` array UNCHANGED (still URL/SECRET/PROJECT_REF/J3_CLAIM_EMAIL); ADMIN_EMAIL is NOT canonical
+  - Rationale: ADMIN_EMAIL is scoped to ONE outcome (rate-limit-admin) within ONE CLI (validation:report-fixtures); NOT part of the broader validation tooling contract governing reseed/check-seed/resolve-alias. Canonical-5 expansion would propagate to every §9.1.2 row + .env.local.example + commit-msg templates + every "3 vars; J3 omitted" subset-reason row — heavy surface already F10-class-cleaned across R12-R29.
+  - **Dedicated rate-limit-admin contract test ships:** new file `tests/cross-cutting/rate-limit-admin-helper-var-doc-guard.test.ts` (333 lines, 2 tests). Scans M12 doc surfaces for `rate-limit-admin` OR `REPORT_RATE_LIMITED_ADMIN`; contract-discussion detection ±10 lines via 12 marker keywords (`report_rate_limits`, `identity`, `canonicaliz`, `harness`, `cleanup`, `bucket`, `outcome`, `producer`, `enforceQuota`, `fixture-`, `validation:report-fixtures`, `--outcome`); each cluster MUST cite `VALIDATION_ADMIN_EMAIL` literal OR cross-ref (`spec §9.1.2`, `handoff §9`, `R31 commit/producer/§A`, `R33 commit 68/69/70`). 5 escape hatches: `<!-- not-rate-limit-admin-class: -->` waiver; historical qualifier (`pre-R33` / `originally drafted` / `F32 finding` / `retired`); §9.1.2 heading scope; fenced blocks with `canonical-env-var-source: keep` marker. RED phase fired 1 finding at plan 04:129; GREEN after commit 72 amendment.
+
+- **F34 repair (commit 73) — snapshot+restore cleanup:**
+  - rate-limit-admin per-outcome producer map row rewritten with Snapshot → Seed → Record three-step recipe
+  - NEW 5-item F34 contract block after tagging-convention: (1) snapshot SELECT before seed; (2) UPSERT at recorded bucket; (3) cleanup branches (NULL prior → DELETE exact bucket; non-NULL prior → UPDATE SET count=prior at exact bucket); (4) snapshot persistence options (file at `.validation-state/rate-limit-admin-snapshot.json` OR `validation_state` row at key `rate_limit_admin_snapshot`); (5) defense-in-depth refusal absent snapshot + `--force-cleanup-without-snapshot --hour-bucket <ISO>` emergency escape hatch
+  - F34 regression test mandatory: pre-INSERT same-hour sentinel (count=4) + cross-hour sentinel (-2h, count=7); post-cleanup same-hour sentinel restored, cross-hour sentinel untouched
+  - Phase 0.E.3 Step 2 + failure-modes catalog updated
+
+- **(C) ADMIN_EMAIL sweep across M12 docs:**
+  - 8 surfaces AMENDED (Phase 0.A.5 + Phase 0.E producer map + tagging + Step 5 + cleanup test + identity recipe + rendering predicate + failure modes + Phase 0.E.3 verification)
+  - Plans 00-overview / 02 / 03 / 05 / 06 / 07: CLEAN (no rate-limit-admin / ADMIN_EMAIL refs)
+  - Pre-M12 surfaces (M8 plan + master spec + M8 handoff) carry REPORT_RATE_LIMITED_ADMIN production-rendering contract refs — OUT-OF-SCOPE (correctly excluded by walker PLAN_TREE constant; not validation harness contract)
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 71 | `4d822ed` | docs(plan-m12): R35 F33 — Phase 0.A.5 + .env.local.example ADMIN_EMAIL placeholder |
+  | 72 | `2ac7453` | test(cross-cutting): R35 F33 — helper-categorization walker + cross-ref propagation (RED→GREEN) |
+  | 73 | `7ff3bcb` | docs(plan-m12): R35 F34 — rate-limit cleanup snapshot+restore (non-destructive of prod state) |
+
+- **Meta-test regression:**
+  - 4 cross-cutting prose-guard files: **18/18 PASS** (was 16 pre-R35; +2 new dedicated `rate-limit-admin-helper-var-doc-guard.test.ts`)
+  - Full `tests/cross-cutting/` suite: **140/140 PASS**
+
+- **Same-vector status post-R35:**
+  - F10-class adjacency (F33 propagation gap): closed at R35 via helper-categorization walker + Phase 0.A.5 + .env.local.example propagation. ADMIN_EMAIL now has scoped structural protection in dedicated walker.
+  - F34 NEW class (destructive cleanup): per-instance fix (snapshot+restore) + regression test spec; 1 round; no priors.
+  - F21-class regex extension (R33 commit 70) regression-clean.
+  - All other classes still closed.
+
+- **Open items flagged by implementer:**
+  - Phase 0.E.1 executor must pick ONE snapshot-persistence strategy (file vs `validation_state` row); plan presents both options without prescribing.
+  - New `--force-cleanup-without-snapshot --hour-bucket <ISO>` emergency-recovery flag.
+  - Walker regex pattern accumulation: F10-class M3+M4 (5 patterns) + F21-class (6 patterns) + new rate-limit-admin (12 markers + 5 escape hatches). All under ~8-pattern Option-(b)-refactor threshold but worth monitoring.
+
+- **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R35 commit 72, NEW test file). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
 
 ---
 
