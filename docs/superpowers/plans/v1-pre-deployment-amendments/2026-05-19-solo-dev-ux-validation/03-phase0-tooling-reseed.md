@@ -2,7 +2,7 @@
 
 > Per spec §3.3 + §3.3.2 + §9.0 task 0.C + §9.1.2 tooling reference. Estimate: 1–2 days.
 >
-> Goal: ship the three foundational validation-tooling CLIs. They write/read `validation_state`, materialize the 16 fixture combos (10 R + 6 SW) with **9 crew_members per R-combo** (the role-variant aliases from spec §3.2) and the **96-leaf alias_map jsonb**. Walks the canonical §9.1.2 contract. Picker-fixture eligibility uses `crew_members.email` + `auth_email_canonical` (no per-crew JWT versioning surface — that was retired at M11.5 G3 cutover). The `show_share_tokens` row is auto-created by the existing `shows_create_share_token_after_insert` trigger (per `supabase/migrations/20260523000002_show_share_tokens.sql`) when the reseed RPC inserts the show; no direct write to `show_share_tokens` is needed.
+> Goal: ship the three foundational validation-tooling CLIs. They write/read `validation_state`, materialize the 16 fixture combos (10 R + 6 SW) with **9 crew_members per R-combo** (the role-variant aliases from spec §3.2) and the **96-leaf alias_map jsonb**. Walks the canonical §9.1.2 contract. Picker-fixture eligibility uses `crew_members.email` + `auth_email_canonical` (no per-crew JWT versioning surface — that was retired at M11.5 G3 cutover). The `show_share_tokens` row is maintained by a **dual-source sentinel** (per spec §3.3 lockstep + §3.3.2 R19 commit 43 self-heal contract; see also R21 commit 45 F21 amendment and R23 commit 48 F22 amendment): **initial INSERT path** — the existing `shows_create_share_token_after_insert` AFTER INSERT trigger (per `supabase/migrations/20260523000002_show_share_tokens.sql`) fires on the first `shows` INSERT and creates the share-token row; **UPSERT update-path / self-heal path** — every subsequent reseed runs `INSERT INTO public.show_share_tokens (show_id) VALUES (v_show_id) ON CONFLICT (show_id) DO NOTHING` inside the `mint_validation_fixture_atomic` RPC (Task 0.C.4 below, section 2.6) immediately after the `shows` UPSERT. The self-heal is a load-bearing part of the reseed contract — NOT a trigger-only sentinel. If predicate (g) of check-seed fires, the first move is to verify the mint RPC body matches the §3.3.2 self-heal contract; **manual `INSERT INTO public.show_share_tokens (show_id) SELECT ...` SQL backfill is NOT a normal repair path** — it papers over a contract bug rather than fixing it (the backfill SQL exists only as the M11.5 one-shot migration's bridge for validation shows that pre-existed the trigger and should not be a recurring step in the M12 walk loop).
 
 ---
 
@@ -191,7 +191,7 @@ describe("mint_validation_fixture_atomic RPC", () => {
   - Takes `(p_combo text, p_fixture_payload jsonb)` — payload contains showName, dates, date_restriction, stage_restriction, crew_members array, `validationTodayIso` (TZ-pinned UTC date), `seededBy`, `seededProjectRef`.
   - Synthesizes a stable `drive_file_id = 'validation_' || p_combo` deterministically.
   - Acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` BEFORE any mutation.
-  - INSIDE THE SAME TRANSACTION: UPSERT shows (the `shows_create_share_token_after_insert` trigger auto-creates the `show_share_tokens` row on first insert; ON CONFLICT no-op for re-seeds preserves the existing share_token), UPSERT crew_members per payload, UPDATE `validation_state.alias_map[combo]` merge.
+  - INSIDE THE SAME TRANSACTION: UPSERT shows (the `shows_create_share_token_after_insert` trigger fires on the FIRST insert and creates the `show_share_tokens` row; for subsequent reseeds the trigger does NOT re-fire — section 2.6 below self-heals via `INSERT INTO public.show_share_tokens (show_id) VALUES (v_show_id) ON CONFLICT (show_id) DO NOTHING`, which preserves the existing share-token in the happy path and restores a fresh 64-hex token via the column DEFAULT if the row was removed out-of-band), self-heal `show_share_tokens` per section 2.6 (dual-source sentinel — R19 commit 43 F19 amendment), UPSERT crew_members per payload, UPDATE `validation_state.alias_map[combo]` merge.
   - Returns `jsonb` with the alias_map slice it wrote + the show_id.
 
 ```sql
@@ -581,9 +581,16 @@ per-show advisory lock. Two RPCs:
 - mint_validation_fixture_atomic(p_combo, p_fixture_payload): per-combo
   UPSERT of shows + crew_members + validation_state.alias_map slice;
   includes date_restriction + stage_restriction columns from payload;
-  show_share_tokens row auto-created by the existing
-  shows_create_share_token_after_insert trigger on first INSERT;
-  ON CONFLICT preserves existing share_token across re-seeds.
+  show_share_tokens row maintained by a DUAL-SOURCE SENTINEL —
+  shows_create_share_token_after_insert trigger creates the row on
+  initial INSERT, AND section 2.6 of this RPC self-heals via
+  INSERT...ON CONFLICT DO NOTHING after the shows UPSERT on every
+  subsequent reseed (R19 commit 43 F19 amendment + R21 commit 45 F21
+  spec-lockstep alignment + R23 commit 48 F22 plan-prose alignment).
+  ON CONFLICT DO NOTHING preserves the existing share_token in the
+  happy path; the column DEFAULT mints a fresh 64-hex token if the
+  row was removed out-of-band. The self-heal is load-bearing — NOT
+  trigger-only. Manual SQL backfill is NOT a normal repair path.
 - validation_finalize_all_atomic(p_required_combos, p_today_iso):
   promotes last_seed_date ONLY after every required combo's seeded date
   matches validationTodayIso. Prevents partial --combo all from
@@ -737,7 +744,11 @@ SELECT cm.email
 SELECT count(*) FROM public.show_share_tokens t
   JOIN public.shows s ON s.id = t.show_id
   WHERE s.drive_file_id LIKE 'validation\_%' ESCAPE '\';
--- Expect 16 (one share_token per validation show — proves the auto-create trigger fired)
+-- Expect 16 (one share_token per validation show — proves the dual-source sentinel held:
+--   the shows_create_share_token_after_insert trigger fired on initial INSERT AND/OR the
+--   mint RPC's section 2.6 self-heal INSERT...ON CONFLICT DO NOTHING fired on UPSERT update-path
+--   per spec §3.3 lockstep + §3.3.2 R19 commit 43 F19 amendment; see also R21 commit 45 F21
+--   and R23 commit 48 F22 amendments)
 ```
 
 - [ ] **Step 5: Smoke-test the localhost rejection:** `VALIDATION_SUPABASE_URL=http://127.0.0.1:54321 pnpm validation:check-seed`. Expect exit 1 with localhost-rejected diagnostic.
@@ -860,6 +871,6 @@ COMMIT_EOF
 
 - **Reseed succeeds but alias_map is empty.** The validation_state UPSERT path may be skipping the alias_map update. Check the jsonb merge SET clause.
 - **Localhost rejection fires against real Supabase.** Regex for localhost is too broad; tighten per `scripts/lib/validation-target.ts`.
-- **`show_share_tokens` row missing for a seeded show (check-seed predicate g fires).** The `shows_create_share_token_after_insert` trigger only fires on INSERT, not UPDATE. If the show row already existed before the trigger was migrated in, the share-token row will be missing. Resolution: run `INSERT INTO public.show_share_tokens (show_id) SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation\_%' ESCAPE '\' ON CONFLICT (show_id) DO NOTHING` in the Supabase SQL editor (the same back-fill the M11.5 migration uses).
+- **`show_share_tokens` row missing for a seeded show (check-seed predicate g fires).** The `shows_create_share_token_after_insert` trigger only fires on INSERT, not on UPSERT update-path. Per the dual-source sentinel contract (spec §3.3 lockstep + §3.3.2 R19 commit 43 F19 amendment + R21 commit 45 F21 + R23 commit 48 F22), this gap is closed by the mint RPC's section 2.6 self-heal block (`INSERT INTO public.show_share_tokens (show_id) VALUES (v_show_id) ON CONFLICT (show_id) DO NOTHING` after the shows UPSERT). **Resolution: re-run `pnpm validation:reseed --combo <C>` for the affected show — the self-heal block re-creates the share-token row on the next reseed (the ON CONFLICT DO NOTHING clause is idempotent; happy-path reseeds are a no-op for the token row, corrupted-path reseeds restore a fresh 64-hex token via the column DEFAULT).** Before reaching for manual SQL, verify the mint RPC body matches the §3.3.2 self-heal contract — if the self-heal block is omitted, malformed, or scoped wrong (e.g., before the shows UPSERT, wrong ON CONFLICT target, missing DO NOTHING), the contract has drifted and the right fix is to repair the RPC body, NOT to backfill the table by hand. Manual `INSERT INTO public.show_share_tokens (show_id) SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation\_%' ESCAPE '\' ON CONFLICT (show_id) DO NOTHING` SQL exists only as the M11.5 one-shot migration's bridge for validation shows that pre-existed the trigger; it is **NOT** a recurring repair step in the M12 walk loop.
 - **crew_members UPSERT fails on email canonicalization CHECK.** Master spec X.5 requires email canonicalization; `validation+5a@example.com` canonicalizes to `validation@example.com` (strip-plus). The reseed script canonicalizes in TS before sending to the RPC, so this should not fire — but if it does, the canonicalize helper has changed shape; re-read `lib/email/canonicalize.ts` against the call site.
 - **J3 leg (c) OAuth-claim walk left `claimed_via_oauth_at` set on fixture rows (pre-R13 behavior).** R13 commit 31 F11 repair closes this failure mode: the mint RPC's UPSERT SET clause now explicitly sets `claimed_via_oauth_at = NULL` on every reseed (see SET clause + post-SET comment in `mint_validation_fixture_atomic` above). After any J3 leg (c) walk, the next `pnpm validation:reseed --combo all` (or `--combo R1` for the specific J3-walked combo) automatically restores the bypass-pickable baseline. check-seed predicate (l) (per Task 0.C.5) verifies the discipline held post-reseed by asserting all baseline picker aliases have `claimed_via_oauth_at IS NULL`. **If predicate (l) ever fires**, the mint RPC's SET clause has drifted — re-check the migration body against the R13 commit 31 contract.
