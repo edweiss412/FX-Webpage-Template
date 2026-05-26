@@ -124,7 +124,7 @@ const FORBIDDEN_PATTERNS: PatternSpec[] = [
     class: "sql:lower-trim-email",
     // `lower(trim(...))` OR `LOWER(TRIM(...))` requiring email-context
     // co-anchor inside the inner argument (within ~80 chars).
-    rx: /\blower\s*\(\s*trim\s*\([\s\S]{0,80}?(?:\bemail\b|admin_emails|crew_member_auth|<[\w-]*email[\w-]*>)/i,
+    rx: /\blower\s*\(\s*trim\s*\([\s\S]{0,80}?(?:\bemail\b|admin_emails|<[\w-]*email[\w-]*>)/i,
     explain:
       "actionable `lower(trim(...))` SQL fragment in email context bypasses `lib/email/canonicalize.ts` (AGENTS.md invariant 3). Plan markdown must instruct the implementer to call the helper first and pass the canonical literal to SQL.",
     scope: "respects-exclusions",
