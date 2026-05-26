@@ -2447,4 +2447,253 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       "live `reporterFor` at lib/reports/submit.ts:168 writes `identity=auth.crewMemberId` (raw UUID) for `kind='crew'` quota — synthetic prefix cannot intercept the production quota path.";
     expect(fixtureFiresF21Class(nonCleanupMentionCrew).fires).toBe(false);
   });
+
+  // R43 commit 82 — F34-class CONTRACT-LEVEL structural defense (round 3
+  // threshold trigger). F34-class hit 3 rounds (R34 F34 admin destructive
+  // cleanup + R38 F36 crew not covered + R42 F39 snapshot file overwrite
+  // race) — per AGENTS.md "Same-vector recurrence" + M12 plan R5
+  // structural-defense calibration precedent ("ship structural defenses
+  // in that round's repair commit — do NOT wait for another adversarial
+  // round to confirm the analysis was incomplete"), R43 ships defense
+  // in the same commit series as the F39 per-instance fix.
+  //
+  // The F34-class converged at the schema CHECK at R39 for destructive-
+  // DELETE shapes (the kind enum is binary; both kinds have snapshot+
+  // restore). But F39 exposed a SEPARATE destructive mechanism the
+  // schema constraint cannot bound: the snapshot persistence file is
+  // not under the schema's protection. Future drift can re-introduce
+  // the race by adding a new snapshot-protocol block that omits the
+  // refuse-existing-snapshot guard OR by deleting the guard from an
+  // existing block.
+  //
+  // The structural defense: any snapshot-protocol block in plan 04 OR
+  // spec §9.1.2 MUST cite refuse-existing-snapshot semantics (file-
+  // presence-based refusal at seed time) OR an equivalent keyed-
+  // snapshot scheme. A block whose marker pattern matches (snapshot+
+  // restore, .validation-state/, --include-admin-email, --include-
+  // crew-id, prior_count persistence, etc.) but does NOT carry one of
+  // the protection markers below FAILS this assertion.
+  //
+  // The walker reads a ~3500-char window around each detected snapshot-
+  // protocol seed marker and looks for at least one protection marker.
+  // The walker fires on the broken shape (regression to the pre-R43
+  // contract); the corrective shape (post-R43) passes.
+  test("F34-class round 3 snapshot-protocol guard: every snapshot-protocol block in plan 04 + spec §9.1.2 cites refuse-existing-snapshot OR equivalent overwrite-race protection", () => {
+    // The seed markers that identify a snapshot-protocol block. If a
+    // file/section contains any of these phrases AND they refer to the
+    // active contract (NOT a historical-narrative quote stripped by
+    // stripFifteen / framed by HISTORICAL_QUALIFIER_RX), the surrounding
+    // ~3500-char window MUST contain at least one PROTECTION marker.
+    const SNAPSHOT_PROTOCOL_SEED_MARKERS: RegExp[] = [
+      /\bsnapshot\s+at\s+seed\s+time\b/i,
+      /\bsnapshot\+restore\b/i,
+      /\.validation-state\/rate-limit-(?:admin|crew)-snapshot\.json/i,
+      /\bSnapshot\s+persistence\b/,
+    ];
+
+    // The protection markers — any one of which satisfies the F34-class
+    // round 3 structural defense. The R43 commit 80 amendment lands the
+    // refuse-existing-snapshot semantics at every snapshot-protocol
+    // block; future amendments could legitimately switch to a keyed-
+    // snapshot scheme (where each seed writes a uniquely-named file so
+    // multiple seeds can coexist) — both shapes satisfy the contract.
+    const PROTECTION_MARKERS: RegExp[] = [
+      /\brefuse[\s-]existing[\s-]snapshot\b/i,
+      /\bkeyed[\s-]snapshot/i,
+      /\bexisting[\s-]snapshot\s+guard\b/i,
+      /--force-overwrite-snapshot/,
+      /refuses?\s+to\s+seed\s+if\s+(?:a\s+)?snapshot\s+(?:file\s+)?(?:already\s+)?(?:is\s+)?present/i,
+      /snapshot\s+file\s+already\s+present/i,
+      /refuse[\s-]to[\s-]seed/i,
+    ];
+
+    // The seed-time + protection-required surfaces. Listed explicitly so
+    // a future amendment that introduces a new snapshot-protocol
+    // surface (e.g., a fourth real-identity kind, a different table
+    // surface) is forced to either extend this list OR cite a
+    // protection marker. Future surfaces NOT listed here are not
+    // covered — the walker scans only the listed files.
+    const SNAPSHOT_PROTOCOL_SURFACES = [
+      "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/04-phase0-tooling-report.md",
+      SPEC_FILE,
+    ];
+
+    // Historical-qualifier escape hatch identical to F21-class above —
+    // wording prefixed with "pre-R43" / "earlier draft" / "retired" /
+    // etc. is a historical-narrative quote and exempt from the guard.
+    const HISTORICAL_QUALIFIER_RX =
+      /\b(pre-R\d+|pre-r\d+|pre-amendment|earlier\s+draft|original\s+draft|originally\s+drafted|originally\s+framed|legacy|retired|deprecated|historical|before\s+R\d+|prior\s+to\s+R\d+|the\s+pre-R\d+\s+)\b/i;
+    const WAIVER_RX = /<!--\s*not-f34-class:\s*[^-]/i;
+
+    const findings: string[] = [];
+
+    // File-level invariant: if a snapshot-protocol surface CONTAINS at
+    // least one snapshot-protocol seed marker (not framed historically
+    // / not waivered), the SAME FILE must also contain at least one
+    // protection marker. This is structurally simpler than per-window
+    // pairing (which fails on table-cell layouts where the seed
+    // markers cluster in the producer-map row 8000 chars before the
+    // F34/F36 contract block carries the protection) and just as
+    // sound — the contract is "any plan or spec section that documents
+    // snapshot+restore protocol MUST also document the overwrite-race
+    // guard." Once a file lacks the guard prose, the file fails;
+    // future surface added to SNAPSHOT_PROTOCOL_SURFACES must carry
+    // its own protection prose.
+    for (const file of SNAPSHOT_PROTOCOL_SURFACES) {
+      let raw: string;
+      try {
+        raw = readFileSync(join(ROOT, file), "utf8");
+      } catch {
+        continue;
+      }
+      const source = stripFifteen(raw);
+
+      // Find at least ONE seed-marker hit not framed historically.
+      let firstActiveSeedHit: { marker: string; lineNum: number; context: string } | null = null;
+      outer: for (const seedMarker of SNAPSHOT_PROTOCOL_SEED_MARKERS) {
+        const matches = [...source.matchAll(new RegExp(seedMarker.source, seedMarker.flags + "g"))];
+        for (const m of matches) {
+          const idx = m.index!;
+          const lookbackStart = Math.max(0, idx - 220);
+          const lookbackWindow = source.substring(lookbackStart, idx + m[0].length);
+          if (HISTORICAL_QUALIFIER_RX.test(lookbackWindow)) continue;
+          if (WAIVER_RX.test(lookbackWindow)) continue;
+          const linesBefore = source.substring(0, idx).split("\n");
+          firstActiveSeedHit = {
+            marker: m[0],
+            lineNum: linesBefore.length,
+            context: (source.split("\n")[linesBefore.length - 1] ?? "").substring(0, 200),
+          };
+          break outer;
+        }
+      }
+      if (firstActiveSeedHit === null) continue; // file has no active snapshot-protocol surface
+
+      // File-level protection check: at least one protection marker
+      // somewhere in the file.
+      const fileHasProtection = PROTECTION_MARKERS.some((rx) => rx.test(source));
+      if (fileHasProtection) continue;
+
+      findings.push(
+        `  ${file} (file-level)\n` +
+          `      seed marker:  "${firstActiveSeedHit.marker}" at ${file}:${firstActiveSeedHit.lineNum}\n` +
+          `      context:      ${firstActiveSeedHit.context}...\n` +
+          `      missing:      no refuse-existing-snapshot / --force-overwrite-snapshot / keyed-snapshot / equivalent protection marker anywhere in the file`,
+      );
+    }
+
+    if (findings.length > 0) {
+      expect.fail(
+        `R43 commit 82 F34-class round 3 snapshot-protocol guard: ${findings.length} snapshot-protocol block(s) lack refuse-existing-snapshot OR equivalent overwrite-race protection.\n\n` +
+          findings.join("\n\n") +
+          `\n\nF34-class hit 3 rounds (R34 F34 admin destructive cleanup; R38 F36 crew not covered; R42 F39 snapshot file overwrite race). Per AGENTS.md same-vector recurrence + M12 plan R5 structural-defense calibration, every snapshot-protocol block MUST cite a protection marker so future drift cannot silently reintroduce the snapshot-overwrite race.\n\n` +
+          `Fix options:\n` +
+          `  (a) Add the refuse-existing-snapshot guard step (R43 commit 80 contract) to the block — harness exits 1 if snapshot file exists; --force-overwrite-snapshot is the explicit escape hatch.\n` +
+          `  (b) Switch the block to a keyed-snapshot scheme (filename includes kind+identity+hour_bucket so multiple seeds coexist); cite "keyed-snapshot" in the prose.\n` +
+          `  (c) Frame the wording as a historical-narrative quote by prefixing within ~220 chars: "pre-R43 / earlier draft / retired / historical".\n` +
+          `  (d) Add an inline <!-- not-f34-class: <reason> --> waiver comment within ~220 chars before the seed marker.\n\n` +
+          `This guard codifies the F34-class round 3 structural defense per AGENTS.md "Structural-defense calibration (M12 plan R5 amendment)": ship defense in the same commit series as the per-instance fix, not in a later round.`,
+      );
+    }
+  });
+
+  // R43 commit 82 — F34-class round 3 structural-defense NEGATIVE-CASE
+  // test. Mirrors the F24 / F21-class negative-case pattern: synthetic
+  // fixtures with the broken (pre-R43) wording MUST fire the assertion;
+  // synthetic fixtures with the corrective post-R43 wording OR
+  // historical-frame OR waiver MUST pass.
+  //
+  // This pins the regex semantics at CI time so future edits to the
+  // F34-class round 3 guard above cannot relax the contract by accident.
+  test("F34-class round 3 snapshot-protocol guard negative case: synthetic broken snapshot-protocol fixtures fire the assertion; corrective + historical + waiver fixtures pass", () => {
+    const SNAPSHOT_PROTOCOL_SEED_MARKERS: RegExp[] = [
+      /\bsnapshot\s+at\s+seed\s+time\b/i,
+      /\bsnapshot\+restore\b/i,
+      /\.validation-state\/rate-limit-(?:admin|crew)-snapshot\.json/i,
+      /\bSnapshot\s+persistence\b/,
+    ];
+    const PROTECTION_MARKERS: RegExp[] = [
+      /\brefuse[\s-]existing[\s-]snapshot\b/i,
+      /\bkeyed[\s-]snapshot/i,
+      /\bexisting[\s-]snapshot\s+guard\b/i,
+      /--force-overwrite-snapshot/,
+      /refuses?\s+to\s+seed\s+if\s+(?:a\s+)?snapshot\s+(?:file\s+)?(?:already\s+)?(?:is\s+)?present/i,
+      /snapshot\s+file\s+already\s+present/i,
+      /refuse[\s-]to[\s-]seed/i,
+    ];
+    const HISTORICAL_QUALIFIER_RX =
+      /\b(pre-R\d+|pre-r\d+|pre-amendment|earlier\s+draft|original\s+draft|originally\s+drafted|originally\s+framed|legacy|retired|deprecated|historical|before\s+R\d+|prior\s+to\s+R\d+|the\s+pre-R\d+\s+)\b/i;
+    const WAIVER_RX = /<!--\s*not-f34-class:\s*[^-]/i;
+
+    // File-level fire semantics matching the live walker: any active
+    // (non-historical, non-waivered) seed marker triggers; protection
+    // is checked against the whole text body.
+    function fixtureFiresF34Round3(text: string): { fires: boolean; reason: string | null } {
+      let firstActiveMarker: string | null = null;
+      outer: for (const seedMarker of SNAPSHOT_PROTOCOL_SEED_MARKERS) {
+        const matches = [...text.matchAll(new RegExp(seedMarker.source, seedMarker.flags + "g"))];
+        for (const m of matches) {
+          const idx = m.index!;
+          const lookbackStart = Math.max(0, idx - 220);
+          const lookbackWindow = text.substring(lookbackStart, idx + m[0].length);
+          if (HISTORICAL_QUALIFIER_RX.test(lookbackWindow)) continue;
+          if (WAIVER_RX.test(lookbackWindow)) continue;
+          firstActiveMarker = seedMarker.source;
+          break outer;
+        }
+      }
+      if (firstActiveMarker === null) return { fires: false, reason: null };
+      if (PROTECTION_MARKERS.some((rx) => rx.test(text))) return { fires: false, reason: null };
+      return { fires: true, reason: firstActiveMarker };
+    }
+
+    // BROKEN — pre-R43 wording: snapshot-protocol seed marker present but
+    // no refuse-existing-snapshot / force-overwrite / keyed-snapshot
+    // protection marker.
+    const brokenPreR43Admin =
+      "Before the harness UPSERTs the rate-limit-admin row, it does a snapshot at seed time of the current bucket. The snapshot is persisted at .validation-state/rate-limit-admin-snapshot.json so cleanup can restore the prior state.";
+    const brokenAdminResult = fixtureFiresF34Round3(brokenPreR43Admin);
+    expect(brokenAdminResult.fires).toBe(true);
+
+    // BROKEN — pre-R43 crew wording.
+    const brokenPreR43Crew =
+      "Snapshot persistence (crew): the file-backed snapshot at .validation-state/rate-limit-crew-snapshot.json carries (snapshot_prior_count_crew, recorded_hour_bucket_crew, crew_member_id_uuid) across the CLI-invocation boundary.";
+    const brokenCrewResult = fixtureFiresF34Round3(brokenPreR43Crew);
+    expect(brokenCrewResult.fires).toBe(true);
+
+    // PASSING — post-R43 wording with the refuse-existing-snapshot guard
+    // inside the ±3500 char window.
+    const correctivePostR43Admin =
+      "Snapshot at seed time. Before the harness UPSERTs the rate-limit-admin row at .validation-state/rate-limit-admin-snapshot.json, the harness checks for an existing file: refuse-existing-snapshot semantics — exit 1 with 'snapshot file already present' stderr unless --force-overwrite-snapshot is passed.";
+    expect(fixtureFiresF34Round3(correctivePostR43Admin).fires).toBe(false);
+
+    // PASSING — keyed-snapshot alternative wording.
+    const correctiveKeyedSnapshot =
+      "Snapshot persistence: every seed at .validation-state/rate-limit-admin-snapshot.json uses a keyed-snapshot filename including (kind, identity, hour_bucket) so multiple seeds coexist without overwrite.";
+    expect(fixtureFiresF34Round3(correctiveKeyedSnapshot).fires).toBe(false);
+
+    // PASSING — historical-frame around the pre-R43 wording.
+    const historicalFramePreR43 =
+      "Pre-R43 the snapshot at seed time recipe had no refuse-existing-snapshot guard — that gap was closed in R43 commit 80 F39 amendment.";
+    expect(fixtureFiresF34Round3(historicalFramePreR43).fires).toBe(false);
+
+    // PASSING — inline waiver.
+    const waiverPreR43 =
+      "<!-- not-f34-class: historical quote from F39 finding verbatim --> The pre-fix wording: snapshot at seed time without any refuse-existing-snapshot guard.";
+    expect(fixtureFiresF34Round3(waiverPreR43).fires).toBe(false);
+
+    // PASSING — canonical post-R43 prose with the --force-overwrite-snapshot
+    // mention (which itself is a protection marker per the F34-class
+    // round 3 list).
+    const canonicalForceOverwriteFlag =
+      "Snapshot persistence at .validation-state/rate-limit-admin-snapshot.json — file-backed only. The --force-overwrite-snapshot flag is the explicit crash-recovery escape hatch for the refuse-existing-snapshot guard.";
+    expect(fixtureFiresF34Round3(canonicalForceOverwriteFlag).fires).toBe(false);
+
+    // PASSING — non-snapshot mention. The `.validation-state/` directory
+    // is mentioned in a non-snapshot-protocol context (gitignore prose)
+    // and must NOT fire.
+    const nonSnapshotProtocolMention =
+      "The .validation-state/ directory is gitignored at the repo root per R41 commit 78. Files written under it carry no special semantics outside the snapshot-protocol surfaces.";
+    expect(fixtureFiresF34Round3(nonSnapshotProtocolMention).fires).toBe(false);
+  });
 });
