@@ -949,16 +949,77 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         inFence[i] = fenceOpen;
       }
 
-      // Track lines (zero-indexed) within range of the explicit
-      // canonical-env-var-source marker. The marker authorizes its
-      // section/block to carry own-enumerations. Whitelist window:
-      // marker line + the next 60 lines (covers spec §9.1.2 table +
-      // plan .env.local.example multi-var block).
+      // R29 commit 63 — marker semantics tightened. Pre-R29 the
+      // `canonical-env-var-source: keep` marker carried a flat ±60-line
+      // window. R28 surfaced that a flat window can silently exempt
+      // adjacent prose if literals are added later (e.g., new
+      // checklist steps inserted within ±60 lines of the .env.local.example
+      // template would inherit the whitelist regardless of whether they
+      // intended to be canonical). The tightened semantics:
+      //   (a) marker INSIDE or IMMEDIATELY ABOVE a fenced code block —
+      //       exempts ONLY that fenced block (the .env.local.example
+      //       template carries it this way at plan 01:104).
+      //   (b) marker INSIDE a §-numbered heading scope (e.g., just below
+      //       `### 9.1.2`) — exempts until the next same/higher heading
+      //       (so spec §9.1.2 stays exempt for its entire body, regardless
+      //       of how long the table+prose grows).
+      // No flat 60-line fallback.
       const inMarkerWindow: boolean[] = new Array(lines.length).fill(false);
       for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes(CANONICAL_SOURCE_MARKER)) {
-          const end = Math.min(lines.length, i + 60);
-          for (let k = i; k < end; k++) inMarkerWindow[k] = true;
+        if (!lines[i].includes(CANONICAL_SOURCE_MARKER)) continue;
+
+        // Case (a): marker is inside a fenced block (inFence[i] is true)
+        // OR the marker line is immediately ABOVE a fenced block opener
+        // (next non-blank line starts with ```). Whitelist only the
+        // enclosing/adjacent fenced block.
+        if (inFence[i]) {
+          // Walk back to fence start, forward to fence end.
+          let s = i;
+          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1])) s--;
+          let e = i;
+          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1])) e++;
+          for (let k = s; k <= e; k++) inMarkerWindow[k] = true;
+          continue;
+        }
+        // Marker line above a fenced block? Look ahead skipping blank /
+        // comment-only lines until the first non-blank line.
+        let probe = i + 1;
+        while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe])) probe++;
+        if (probe < lines.length && /^```/.test(lines[probe])) {
+          // Whitelist the fenced block at probe.
+          let s = probe;
+          let e = probe;
+          while (e + 1 < lines.length && !/^```/.test(lines[e + 1])) e++;
+          if (e + 1 < lines.length) e++; // include closing fence line
+          for (let k = s; k <= e; k++) inMarkerWindow[k] = true;
+          continue;
+        }
+
+        // Case (b): marker inside a §-numbered heading scope. Look back
+        // for the nearest `###`-or-deeper heading; whitelist from that
+        // heading until the next same-or-higher heading. (Spec §9.1.2
+        // marker lands at line 812, just below the `### 9.1.2` heading
+        // at 808.)
+        let headStart = -1;
+        let headDepth = 0;
+        for (let j = i - 1; j >= 0; j--) {
+          const m = lines[j].match(/^(#{2,})\s+/);
+          if (m) {
+            headStart = j;
+            headDepth = m[1].length;
+            break;
+          }
+        }
+        if (headStart >= 0) {
+          let scopeEnd = lines.length;
+          for (let j = headStart + 1; j < lines.length; j++) {
+            const m = lines[j].match(/^(#{2,})\s+/);
+            if (m && m[1].length <= headDepth) {
+              scopeEnd = j;
+              break;
+            }
+          }
+          for (let k = headStart; k < scopeEnd; k++) inMarkerWindow[k] = true;
         }
       }
 
@@ -1252,6 +1313,518 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     const mixedCodeAndProse =
       "Per spec §9.1.2: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY. Also process.env.VALIDATION_SUPABASE_PROJECT_REF in the script.";
     expect(clusterFires({ window: mixedCodeAndProse })).toBe(true);
+  });
+
+  // R29 commit 63 — F10-class walker REFINEMENT (M3 + M4 + marker tightening).
+  // F10-class hit 6 rounds (R12 F10 + R14 F13/F14 + R20 F20 + R24 F25 +
+  // R26 F28 + R28 F29). The R27 Option D MODEL — structural exclusivity:
+  // only spec §9.1.2 + plan .env.local.example template carry canonical
+  // env-var contract references of ANY syntactic form — remains correct.
+  // What R28 surfaced is a DETECTION refinement: the R27 walker (M1 ≥2-
+  // canonical proximity + M2 fenced-block) catches LITERAL-enumeration
+  // shapes but misses three additional syntactic shapes that still
+  // reference the contract:
+  //
+  //   (M3) Cardinality + wildcard prose: "the four env vars", "Set 3
+  //        VALIDATION_* env vars", "Four VALIDATION_* env vars",
+  //        "SUPABASE_* trio", "all four env vars".
+  //   (M4) Single-canonical-literal in CONTRACT-PROSE context: naming
+  //        VALIDATION_J3_CLAIM_EMAIL (or any other single canonical
+  //        literal) in a checklist paragraph that ALSO references the
+  //        env-var contract (markers like "env vars", "environment
+  //        variables", "credentials", "the four", "trio",
+  //        "VALIDATION_*"). DISAMBIGUATED from operational instructions
+  //        like "set X to your Google account email" or "throw if X is
+  //        undefined" — those name the var but do NOT enumerate the
+  //        contract.
+  //
+  // Both M3 and M4 fire ONLY outside the two authorized surfaces (spec
+  // §9.1.2 heading scope and the .env.local.example fenced block,
+  // detected via the `canonical-env-var-source: keep` marker with the
+  // R29-tightened semantics: structural — enclosing fence OR enclosing
+  // heading scope, NOT a ±60-line flat window).
+  test("F29-class walker M3 + M4: cardinality/wildcard prose + single-canonical-in-contract-prose outside authorized surfaces FIRE; operational-instruction citations + authorized surfaces PASS", () => {
+    const CANONICAL_VARS = [
+      "VALIDATION_SUPABASE_URL",
+      "VALIDATION_SUPABASE_SECRET_KEY",
+      "VALIDATION_SUPABASE_PROJECT_REF",
+      "VALIDATION_J3_CLAIM_EMAIL",
+    ];
+    const CANONICAL_SOURCE_MARKER = "canonical-env-var-source: keep";
+    const F29_WAIVER_RX = /<!--\s*not-f29-class:\s*[^-]/i;
+
+    // ---- M3 detection: cardinality + wildcard prose -----------------
+    //
+    // Patterns the walker must catch (each pattern represents a way to
+    // reference the env-var contract WITHOUT naming canonical literals
+    // — which is why the R27 ≥2-literal walker missed them):
+    //   • "[0-9]+ VALIDATION_*" (e.g., "3 VALIDATION_*", "4 new VALIDATION_*")
+    //   • "[0-9]+ new VALIDATION" + (" env vars" within ~40 chars)
+    //   • "(three|four|all four|all three|the four|the three) (env|VALIDATION)"
+    //   • "SUPABASE_* trio" / "VALIDATION_SUPABASE_* trio"
+    //   • "all (four|three) (canonical|env|VALIDATION)"
+    //
+    // The detection is line-level. Operational instructions about
+    // "all four artifacts" / "all four stages" / etc. (where the noun
+    // after the cardinality is NOT env/VALIDATION) do NOT fire — the
+    // group-2 capture pin keeps the detection contract-scoped.
+    // R29 commit 63: cardinality must be DIRECTLY adjacent to the
+    // VALIDATION_* wildcard or to the "env vars" noun phrase (at most
+    // one short qualifier word in between like "new"/"canonical"/
+    // "validation"). The earlier 40-char-window pattern was too
+    // permissive — citation digits like "Phase 0.A" or "R27 commit 58"
+    // anywhere on a line would falsely trigger.
+    const M3_PATTERNS: Array<{ class: string; rx: RegExp }> = [
+      {
+        class: "M3:numeric-cardinality + wildcard",
+        // "3 VALIDATION_*" / "4 new VALIDATION_*" / "Four VALIDATION_*"
+        // / "the four VALIDATION_*". Cardinality + (optional 1-2 short
+        // qualifiers like "new"/"canonical"/"validation") + VALIDATION_*.
+        // Word boundary on cardinality prevents matching "0.A" / "58".
+        rx: /\b(?:[1-9]|three|four|all\s+three|all\s+four|the\s+three|the\s+four|Three|Four|All\s+Three|All\s+Four|The\s+Three|The\s+Four)\s+(?:(?:new|canonical|validation|additional)\s+){0,2}VALIDATION_\*/,
+      },
+      {
+        class: "M3:numeric/word-cardinality + env-vars noun",
+        // "the four env vars" / "all four env vars" / "Four env vars"
+        // / "Set 3 env vars" / "Set the three env vars".
+        // Single-digit cardinality only (no [0-9]+ — citations like
+        // "58 env vars in §9" shouldn't fire if the digit is itself
+        // a citation; the env-vars-noun adjacency keeps it scoped).
+        rx: /\b(?:[1-9]|three|four|all\s+three|all\s+four|the\s+three|the\s+four|Three|Four|All\s+Three|All\s+Four|The\s+Three|The\s+Four)\s+(?:new\s+|canonical\s+|VALIDATION_?\s+|validation\s+)?(?:env|environment)\s+(?:vars?|variables?)\b/,
+      },
+      {
+        class: "M3:wildcard trio shorthand",
+        // "SUPABASE_* trio" / "VALIDATION_SUPABASE_* trio".
+        rx: /\b(?:VALIDATION_)?SUPABASE_\*\s+trio\b/i,
+      },
+    ];
+
+    // ---- M4 detection: single-canonical-literal in contract-prose ----
+    //
+    // The line contains EXACTLY ONE canonical literal (so it's not
+    // already caught by M1 / structural-exclusivity), AND the line
+    // (or its immediate predecessor) contains a CONTRACT-PROSE marker:
+    //   • "env vars" / "environment variables"
+    //   • "credentials"
+    //   • "VALIDATION_*" (wildcard reference)
+    //   • "the (four|three) (env|VALIDATION|canonical)"
+    //   • "trio"
+    //   • "canonical CLI env-var" / "canonical env-var contract"
+    //
+    // Disambiguation: the line is EXEMPT if it carries an OPERATIONAL-
+    // INSTRUCTION shape:
+    //   • "set X to <something>" / "set X to your <something>"
+    //   • "throw if X is undefined" / "X is required" / "X must be set"
+    //     (single-var validation code)
+    //   • "X is gitignored" / "X must equal <something>"
+    //   • "X reads from <something>"
+    //   • Operational-note: a line that explicitly labels itself
+    //     "Operational note" / "operational instruction".
+    // R29 commit 63: contract-prose markers are deliberately the
+    // COLLECTIVE-CONTRACT shapes — "the four", "trio", "all four", etc.
+    // Bare "env var" is too common in legitimate narrative prose
+    // ("reads from env var X", "via env var X") and would fire M4 on
+    // operational rationale paragraphs. The F29 trap is referencing the
+    // env-var CONTRACT as a collective (cardinality + named-group),
+    // not naming a single var alongside the word "env var."
+    const CONTRACT_PROSE_MARKERS = [
+      /VALIDATION_\*/,
+      /\b(?:the\s+|all\s+)?(?:four|three)\s+(?:env|VALIDATION|canonical|new|validation)\b/i,
+      /\b(?:SUPABASE|VALIDATION)_\*\s+trio\b/i,
+      /\bcanonical\s+(?:CLI\s+)?env[-\s]?var\s+(?:contract|map)\b/i,
+      /\bcanonical\s+env[-\s]?var\s+contract\b/i,
+    ];
+    const OPERATIONAL_INSTRUCTION_RX_LIST: RegExp[] = [
+      // "set <VAR> to your real Google account email" — must have <VAR>
+      // followed by "to" + an object noun phrase.
+      /\bset\s+(?:`)?VALIDATION_[A-Z_0-9]+(?:`)?\s+to\s+/i,
+      // "throw if VAR is undefined" / "VAR is required" / "VAR must be set".
+      /\bVALIDATION_[A-Z_0-9]+\s+is\s+(?:undefined|required|missing|absent|empty|null)\b/i,
+      /\bVALIDATION_[A-Z_0-9]+\s+must\s+(?:be|equal)\b/i,
+      // "VAR reads from <X>" / "VAR comes from <X>".
+      /\bVALIDATION_[A-Z_0-9]+\s+(?:reads|comes|sourced)\s+from\b/i,
+      // "VAR is gitignored" / "VAR is not committed".
+      /\bVALIDATION_[A-Z_0-9]+\s+is\s+(?:gitignored|not\s+committed|local-only)\b/i,
+      // Explicit label of operational-note framing.
+      /\boperational\s+(?:note|instruction)\b/i,
+      // "responding at VAR" / "values for VAR" — narrative pointer
+      // rather than contract enumeration.
+      /\bresponding\s+at\s+(?:`)?VALIDATION_/i,
+      /\bvalues?\s+for\s+(?:`)?VALIDATION_/i,
+    ];
+
+    function lineFiresM4(line: string, prevLine: string): boolean {
+      const canonicalsOnLine = CANONICAL_VARS.filter((v) => line.includes(v));
+      if (canonicalsOnLine.length !== 1) return false;
+      // Operational-instruction shape disqualifies.
+      for (const rx of OPERATIONAL_INSTRUCTION_RX_LIST) {
+        if (rx.test(line)) return false;
+      }
+      // Contract-prose marker on this line OR the immediate predecessor.
+      const ctx = line + "\n" + prevLine;
+      const hasContractMarker = CONTRACT_PROSE_MARKERS.some((rx) => rx.test(ctx));
+      return hasContractMarker;
+    }
+
+    function lineFiresM3(line: string): { fires: boolean; matchedClass: string | null } {
+      for (const pattern of M3_PATTERNS) {
+        if (pattern.rx.test(line)) return { fires: true, matchedClass: pattern.class };
+      }
+      return { fires: false, matchedClass: null };
+    }
+
+    // ---- Walk all M12 doc surfaces ----------------------------------
+    const F29_EXCLUDED_PATHS = new Set([
+      "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md",
+      SELF,
+    ]);
+    const SCAN_FILE_LIST = [
+      SPEC_FILE,
+      ...collectMarkdown(
+        "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation",
+      ),
+      "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md",
+    ];
+
+    const findings: string[] = [];
+
+    for (const file of SCAN_FILE_LIST) {
+      if (F29_EXCLUDED_PATHS.has(file)) continue;
+      let raw: string;
+      try {
+        raw = readFileSync(join(ROOT, file), "utf8");
+      } catch {
+        continue;
+      }
+      const source = stripFifteen(raw);
+      const lines = source.split("\n");
+
+      // Build the same fence-tracking + marker-window arrays the R27
+      // walker uses (so we apply the SAME structural-exclusivity
+      // exemption surfaces: §9.1.2 heading scope OR enclosing fence
+      // marked with canonical-env-var-source: keep).
+      const inFence: boolean[] = new Array(lines.length).fill(false);
+      {
+        let fenceOpen = false;
+        for (let i = 0; i < lines.length; i++) {
+          if (/^```/.test(lines[i])) {
+            fenceOpen = !fenceOpen;
+            inFence[i] = fenceOpen;
+            continue;
+          }
+          inFence[i] = fenceOpen;
+        }
+      }
+
+      const inMarkerWindow: boolean[] = new Array(lines.length).fill(false);
+      for (let i = 0; i < lines.length; i++) {
+        if (!lines[i].includes(CANONICAL_SOURCE_MARKER)) continue;
+        // (a) Marker inside a fenced block.
+        if (inFence[i]) {
+          let s = i;
+          while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1])) s--;
+          let e = i;
+          while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1])) e++;
+          for (let k = s; k <= e; k++) inMarkerWindow[k] = true;
+          continue;
+        }
+        // (a') Marker just above a fenced block.
+        let probe = i + 1;
+        while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe])) probe++;
+        if (probe < lines.length && /^```/.test(lines[probe])) {
+          let s = probe;
+          let e = probe;
+          while (e + 1 < lines.length && !/^```/.test(lines[e + 1])) e++;
+          if (e + 1 < lines.length) e++;
+          for (let k = s; k <= e; k++) inMarkerWindow[k] = true;
+          continue;
+        }
+        // (b) Marker inside a §-numbered heading scope.
+        let headStart = -1;
+        let headDepth = 0;
+        for (let j = i - 1; j >= 0; j--) {
+          const m = lines[j].match(/^(#{2,})\s+/);
+          if (m) {
+            headStart = j;
+            headDepth = m[1].length;
+            break;
+          }
+        }
+        if (headStart >= 0) {
+          let scopeEnd = lines.length;
+          for (let j = headStart + 1; j < lines.length; j++) {
+            const m = lines[j].match(/^(#{2,})\s+/);
+            if (m && m[1].length <= headDepth) {
+              scopeEnd = j;
+              break;
+            }
+          }
+          for (let k = headStart; k < scopeEnd; k++) inMarkerWindow[k] = true;
+        }
+      }
+
+      // §9.1.2 heading-scope auto-exemption (spec only).
+      const in912Scope: boolean[] = new Array(lines.length).fill(false);
+      {
+        let in912 = false;
+        for (let i = 0; i < lines.length; i++) {
+          if (/^###\s+9\.1\.2\b/.test(lines[i])) {
+            in912 = true;
+          } else if (in912 && /^###?\s+9\.[1-9]\.[3-9]\b/.test(lines[i])) {
+            in912 = false;
+          } else if (in912 && /^##\s+/.test(lines[i])) {
+            in912 = false;
+          }
+          in912Scope[i] = in912;
+        }
+      }
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const prev = i > 0 ? lines[i - 1] : "";
+
+        // Skip exempt scopes.
+        if (in912Scope[i]) continue;
+        if (inMarkerWindow[i]) continue;
+        // Per-finding waiver (look ±5 lines).
+        const wStart = Math.max(0, i - 5);
+        const wEnd = Math.min(lines.length, i + 6);
+        const window = lines.slice(wStart, wEnd).join("\n");
+        if (F29_WAIVER_RX.test(window)) continue;
+
+        // M3 detection.
+        const m3 = lineFiresM3(line);
+        if (m3.fires) {
+          findings.push(
+            `  ${file}:${i + 1} [${m3.matchedClass}]\n` +
+              `      line: ${line.substring(0, 240)}${line.length > 240 ? "..." : ""}`,
+          );
+          continue;
+        }
+
+        // M4 detection.
+        if (lineFiresM4(line, prev)) {
+          const matchedLiteral = CANONICAL_VARS.find((v) => line.includes(v));
+          findings.push(
+            `  ${file}:${i + 1} [M4:single-canonical-in-contract-prose]\n` +
+              `      line:    ${line.substring(0, 240)}${line.length > 240 ? "..." : ""}\n` +
+              `      literal: ${matchedLiteral}`,
+          );
+          continue;
+        }
+      }
+    }
+
+    if (findings.length > 0) {
+      expect.fail(
+        `R29 commit 63 F10-class walker refinement (M3 + M4): ${findings.length} contract-reference site(s) outside the two authorized surfaces (spec §9.1.2 + plan .env.local.example fenced block).\n\n` +
+          findings.join("\n\n") +
+          `\n\nDetection rules:\n` +
+          `  M3 — cardinality + wildcard prose ("4 VALIDATION_*", "Four env vars", "SUPABASE_* trio", "all four env vars").\n` +
+          `  M4 — single canonical literal in a contract-prose paragraph (markers: "env vars", "credentials", "VALIDATION_*", "the four/three", "trio", "canonical env-var contract"). Disambiguated from operational instructions ("set X to <value>", "throw if X is undefined", "X must be set", "X reads from Y", "responding at X", "values for X", explicit "Operational note" label).\n\n` +
+          `Fix options:\n` +
+          `  (a) Rewrite to a pure cross-reference: "per spec §9.1.2 canonical CLI env-var contract" — NO cardinality, NO wildcard, NO canonical literal restatement.\n` +
+          `  (b) If the var has operational meaning, split it onto its own line labeled "Operational note:" so the M4 disambiguation rule passes.\n` +
+          `  (c) Add an inline <!-- not-f29-class: <reason> --> waiver within ±5 lines of the cluster.\n\n` +
+          `Per R28 honest diagnosis + AGENTS.md "Structural-defense calibration": the R27 Option D MODEL (single source of truth + structural exclusivity) is correct; M3 + M4 are DETECTION refinements catching syntactic shapes the literal-co-occurrence walker can't see.`,
+      );
+    }
+  });
+
+  // R29 commit 63 negative-case test for M3 + M4 + disambiguation +
+  // marker-tightening. Pins the new semantics at CI time. Mirrors the
+  // F28 negative-case pattern: synthetic broken fixtures fire; synthetic
+  // exempt fixtures pass.
+  test("F29-class walker M3 + M4 negative case: cardinality/wildcard/contract-prose shapes fire; operational-instruction citations + authorized surfaces pass", () => {
+    const CANONICAL_VARS = [
+      "VALIDATION_SUPABASE_URL",
+      "VALIDATION_SUPABASE_SECRET_KEY",
+      "VALIDATION_SUPABASE_PROJECT_REF",
+      "VALIDATION_J3_CLAIM_EMAIL",
+    ];
+
+    // Mirror of the live-scan walker's M3 patterns + CONTRACT_PROSE_MARKERS
+    // (kept in sync with the walker test above — same regexes,
+    // duplicated only because this negative-case test exercises a
+    // pure-evaluator function rather than the live scan).
+    const M3_PATTERNS: RegExp[] = [
+      /\b(?:[1-9]|three|four|all\s+three|all\s+four|the\s+three|the\s+four|Three|Four|All\s+Three|All\s+Four|The\s+Three|The\s+Four)\s+(?:(?:new|canonical|validation|additional)\s+){0,2}VALIDATION_\*/,
+      /\b(?:[1-9]|three|four|all\s+three|all\s+four|the\s+three|the\s+four|Three|Four|All\s+Three|All\s+Four|The\s+Three|The\s+Four)\s+(?:new\s+|canonical\s+|VALIDATION_?\s+|validation\s+)?(?:env|environment)\s+(?:vars?|variables?)\b/,
+      /\b(?:VALIDATION_)?SUPABASE_\*\s+trio\b/i,
+    ];
+
+    const CONTRACT_PROSE_MARKERS: RegExp[] = [
+      /VALIDATION_\*/,
+      /\b(?:the\s+|all\s+)?(?:four|three)\s+(?:env|VALIDATION|canonical|new|validation)\b/i,
+      /\b(?:SUPABASE|VALIDATION)_\*\s+trio\b/i,
+      /\bcanonical\s+(?:CLI\s+)?env[-\s]?var\s+(?:contract|map)\b/i,
+      /\bcanonical\s+env[-\s]?var\s+contract\b/i,
+    ];
+    const OPERATIONAL_INSTRUCTION_RX_LIST: RegExp[] = [
+      /\bset\s+(?:`)?VALIDATION_[A-Z_0-9]+(?:`)?\s+to\s+/i,
+      /\bVALIDATION_[A-Z_0-9]+\s+is\s+(?:undefined|required|missing|absent|empty|null)\b/i,
+      /\bVALIDATION_[A-Z_0-9]+\s+must\s+(?:be|equal)\b/i,
+      /\bVALIDATION_[A-Z_0-9]+\s+(?:reads|comes|sourced)\s+from\b/i,
+      /\bVALIDATION_[A-Z_0-9]+\s+is\s+(?:gitignored|not\s+committed|local-only)\b/i,
+      /\boperational\s+(?:note|instruction)\b/i,
+      /\bresponding\s+at\s+(?:`)?VALIDATION_/i,
+      /\bvalues?\s+for\s+(?:`)?VALIDATION_/i,
+    ];
+
+    function firesM3(line: string): boolean {
+      return M3_PATTERNS.some((rx) => rx.test(line));
+    }
+    function firesM4(line: string, prevLine = ""): boolean {
+      const count = CANONICAL_VARS.filter((v) => line.includes(v)).length;
+      if (count !== 1) return false;
+      for (const rx of OPERATIONAL_INSTRUCTION_RX_LIST) {
+        if (rx.test(line)) return false;
+      }
+      const ctx = line + "\n" + prevLine;
+      return CONTRACT_PROSE_MARKERS.some((rx) => rx.test(ctx));
+    }
+
+    // ===== M3 FIRES (broken — pre-R29 docs) ===================
+
+    // F29 case: "the four env vars"
+    expect(firesM3("Step 3: Set the four env vars in Vercel.")).toBe(true);
+    // F29 case: "SUPABASE_* trio"
+    expect(firesM3("paste captured values from 0.A.1 + 0.A.4 for the SUPABASE_* trio")).toBe(true);
+    // 00-overview.md:175 pre-R29: "Set 3 VALIDATION_* env vars"
+    expect(firesM3("Set 3 VALIDATION_* env vars locally + in Vercel.")).toBe(true);
+    // 01-phase0-infra.md:73 pre-R29: "the 4 new VALIDATION_* env vars"
+    expect(firesM3("document the 4 new VALIDATION_* env vars")).toBe(true);
+    // 01-phase0-infra.md:179 pre-R29: "Four VALIDATION_* env vars"
+    expect(firesM3("Four VALIDATION_* env vars set in Vercel Production scope")).toBe(true);
+    // Compound cardinality + env-vars-noun:
+    expect(firesM3("all four env vars set per the contract")).toBe(true);
+    expect(firesM3("the three env vars MUST be set")).toBe(true);
+
+    // ===== M3 PASSES (legitimate non-contract uses) ============
+
+    // "all four artifacts" — noun is "artifacts", NOT env/VALIDATION.
+    expect(firesM3("Confirm all four Phase 0.A artifacts exist:")).toBe(false);
+    // "all four journeys" — noun is "journeys".
+    expect(firesM3("all four journeys (J1–J4) were run end-to-end")).toBe(false);
+    // "all four stages" (master spec language).
+    expect(firesM3("explicit with all four stages")).toBe(false);
+    // Wildcard-only (no cardinality):
+    expect(firesM3("Set VALIDATION_* env vars in Vercel + locally.")).toBe(false);
+    expect(firesM3("VALIDATION_* env vars in .env.local.example")).toBe(false);
+
+    // ===== M4 FIRES (contract-prose context with single literal) ==
+
+    // F29 case: "names VALIDATION_J3_CLAIM_EMAIL alongside the trio for the four env vars"
+    expect(
+      firesM4(
+        "names VALIDATION_J3_CLAIM_EMAIL alongside the SUPABASE_* trio for the four env vars",
+      ),
+    ).toBe(true);
+    // F29 case: "the four env vars including VALIDATION_J3_CLAIM_EMAIL"
+    expect(firesM4("the four env vars including VALIDATION_J3_CLAIM_EMAIL")).toBe(true);
+    // Pre-R29 plan 01:73-style fragment with CARDINALITY+collective
+    // marker + single literal — fires M4 (the canonical literal is
+    // being named alongside a contract-cardinality marker, NOT just
+    // alongside the bare phrase "env var").
+    expect(
+      firesM4(
+        "documents the 4 new VALIDATION_* env vars including VALIDATION_J3_CLAIM_EMAIL",
+      ),
+    ).toBe(true);
+    // Previous-line carries the contract-prose marker (the four):
+    expect(
+      firesM4(
+        "this row requires VALIDATION_SUPABASE_URL for target validation.",
+        "Required: the four env vars listed below.",
+      ),
+    ).toBe(true);
+    // VALIDATION_* wildcard reference + single literal on same line:
+    expect(
+      firesM4(
+        "the VALIDATION_* env vars (including VALIDATION_J3_CLAIM_EMAIL) follow the §9.1.2 contract",
+      ),
+    ).toBe(true);
+
+    // ===== M4 PASSES (operational instructions) =================
+
+    // Operational: "set X to your Google account email"
+    expect(
+      firesM4(
+        "set VALIDATION_J3_CLAIM_EMAIL to the dev's real Google account email.",
+      ),
+    ).toBe(false);
+    // Operational: "throw if X is undefined"
+    expect(firesM4("throw if VALIDATION_J3_CLAIM_EMAIL is undefined")).toBe(false);
+    // Operational: "X is required"
+    expect(firesM4("VALIDATION_SUPABASE_URL is required for the reseed script.")).toBe(false);
+    // Operational: "X must be set"
+    expect(firesM4("VALIDATION_SUPABASE_PROJECT_REF must be set.")).toBe(false);
+    // Operational: "X reads from .env.local"
+    expect(firesM4("VALIDATION_J3_CLAIM_EMAIL reads from your local .env.local.")).toBe(false);
+    // Operational-note label:
+    expect(
+      firesM4(
+        "Operational note: set VALIDATION_J3_CLAIM_EMAIL to a real Google email.",
+      ),
+    ).toBe(false);
+    // "responding at VALIDATION_SUPABASE_URL" — narrative pointer
+    expect(firesM4("Supabase prod project responding at VALIDATION_SUPABASE_URL")).toBe(false);
+    // Single literal but NO contract-prose marker on this OR prev line:
+    expect(firesM4("Tap the alias_5a_lead row to mint the picker cookie.")).toBe(false);
+    expect(firesM4("logs the resolved UUID for VALIDATION_SUPABASE_URL inspection")).toBe(false);
+    // R29 narrower M4 — bare "env var" + single literal in narrative
+    // prose is NOT contract enumeration. R13-amendment / R15 rationale
+    // paragraphs in spec §3.3 and plan 03 that explain "the reseed
+    // reads env var X and writes it as Y" must PASS — they're
+    // operational narrative, not contract enumeration. The F29 trap
+    // is COLLECTIVE references ("the four", "trio", "all four") not
+    // any mention of "env var" near a single literal.
+    expect(
+      firesM4(
+        "the reseed reads this env var VALIDATION_J3_CLAIM_EMAIL at fixture-build time and writes it",
+      ),
+    ).toBe(false);
+    expect(
+      firesM4(
+        "via a new env var VALIDATION_J3_CLAIM_EMAIL the dev sets in Phase 0.A",
+      ),
+    ).toBe(false);
+    expect(
+      firesM4(
+        "predicate (k) fails if VALIDATION_J3_CLAIM_EMAIL is still a placeholder reserved domain at seed time",
+      ),
+    ).toBe(false);
+    // Bare "credentials" + single literal — also legitimate narrative.
+    expect(
+      firesM4("the credentials are stored under VALIDATION_SUPABASE_SECRET_KEY in Vercel"),
+    ).toBe(false);
+
+    // ===== Combined: legitimate spec-§9.1.2 cross-references PASS ==
+
+    // The post-R29 plan 01:73 wording should NOT fire either rule.
+    const postR29Plan01Line73 =
+      "Modify: `.env.local.example` (document the M12 validation env vars per spec §9.1.2 — the canonical CLI command-by-command env-var contract; §9.1.2 is the SOLE source of truth and this row deliberately does NOT inline-restate the literal env-var names.";
+    // M3: no cardinality+wildcard / cardinality+env-vars-noun shape
+    // (the standalone "env vars" mention isn't preceded by a
+    // cardinality token like "four"/"3"/"the four").
+    expect(firesM3(postR29Plan01Line73)).toBe(false);
+    // M4: no canonical literal on the line.
+    expect(firesM4(postR29Plan01Line73)).toBe(false);
+
+    // Step 3a post-R29: "Operational note" frame.
+    const postR29Step3a =
+      "Operational note — set `VALIDATION_J3_CLAIM_EMAIL` to the dev's real Google account email.";
+    expect(firesM3(postR29Step3a)).toBe(false);
+    expect(firesM4(postR29Step3a)).toBe(false);
+
+    // Step 3 post-R29: pure cross-ref.
+    const postR29Step3 =
+      "Set the M12 validation env vars in Vercel Production scope per the canonical CLI command-by-command env-var contract at spec §9.1.2.";
+    // M3: "the M12 validation env vars" — "M12" is not a cardinality
+    // token so the cardinality+env-vars-noun pattern does not match.
+    expect(firesM3(postR29Step3)).toBe(false);
+    // M4: no single canonical literal on the line.
+    expect(firesM4(postR29Step3)).toBe(false);
   });
 
   test("F13-conflation-prevention: no Phase 0.C verification query asserts `email LIKE '%@example.com'` count = 96", () => {
