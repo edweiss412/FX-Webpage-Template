@@ -1392,6 +1392,27 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R42 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `c96a533` (post-R41)
+- **Verdict:** **needs-attention** (1 HIGH F39 + 1 MEDIUM F40; F34-class threshold-3 triggered)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F39 | HIGH | `04-phase0-tooling-report.md:83-111` (rate-limit snapshot persistence) | **F34-class round 3 — snapshot file overwrite race.** Plan snapshots before every rate-limit seed + persists to one fixed file per kind (`.validation-state/rate-limit-{admin,crew}-snapshot.json`), then cleanup restores from that file. NO guard for existing snapshot. A second `rate-limit-admin` seed before cleanup overwrites original pre-seed count with already-forced count=11; a second `rate-limit-crew --combo X` overwrites first crew UUID's snapshot with another UUID. Cleanup restores WRONG state OR leaves first seeded quota row behind. **R39 mechanical-convergence claim was schema-CHECK-bounded only**; snapshot persistence is a SEPARATE destructive mechanism the audit missed. Repair: refuse-existing-snapshot (simpler, prevents the race) OR keyed-snapshots by kind+identity+hour (preserves first-snapshot semantics). Add regression test for duplicate-seed-before-cleanup. |
+  | F40 | MEDIUM | `04-phase0-tooling-report.md:58-70` (CLI `--outcome` contract) + `2026-05-19-solo-dev-ux-validation-design.md:824` (spec §9.1.2) | **F38-class class-sweep miss in R41 (C) audit.** Spec §9.1.2 + R31 producer map distinguish "success (admin)" + "success (crew)" as 2 distinct rows (different `reported_by_kind`, different UI/body). CLI exposes only `--outcome success` — no actor selector. R41 (C) sweep claimed "success (admin/crew): synthetic via validation_tag — no gap" but missed the actor distinction. Implementer can't know which row shape to materialize → one success surface silently unwalked. Repair: split `--outcome success` → `--outcome success-admin` + `--outcome success-crew`, OR add required `--actor admin\|crew` selector. Update spec §9.1.2 row + MATRIX-INVENTORY instructions + stdout contract + tests. |
+
+- **Same-vector + structural-defense status post-R42:**
+  - **F34-class: 3 rounds, threshold-3 TRIGGERED** (R34 F34 admin destructive cleanup + R38 F36 crew not covered + R42 F39 snapshot file race). Per M12 plan R5 precedent, R43 MUST ship structural defense in same commit series. Defense candidate: doc-guard asserting every snapshot-protocol section has refuse-existing-snapshot OR keyed-snapshots protection. R39 mechanical-convergence claim retracted — was schema-CHECK-bounded only; snapshot file races are a separate destructive mechanism outside the schema constraint scope.
+  - **F38-class: 2 rounds** (R38 F36 crew not covered + R42 F40 success actor-selector gap). Per same-vector recurrence, R43 must audit ALL outcomes for hidden actor-distinction / row-shape-variant gaps. R41 (C) audit was scoped narrowly; R43 audit must enumerate per-outcome **row-shape distinct values** (not just identity-source).
+  - All other classes still closed.
+
+- **Repair commit:** pending R43 implementer dispatch (inline Agent; F39 + F40 per-instance + F34-class structural defense + F38-class re-analysis).
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.
