@@ -639,6 +639,80 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F18-class still closed.
   - All previous classes still closed (resolver-outcome R6-R8, F6/F7/F9, phantom-metatest R11+R12, F11-class, F15/F17, F16-class R16-R19).
 
+### Amendment R22 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `9e7e6fc` (post-R21)
+- **Verdict:** **needs-attention** (2 HIGH F21-class peers + 1 MEDIUM anti-tautology on R21 structural defense)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F22 | HIGH | `03-phase0-tooling-reseed.md:7` (Phase 0.C plan summary + commit template + failure-mode prose) | **F21-class same-vector recurrence (round 2).** Plan opens with "no direct write to show_share_tokens is needed" — direct contradiction of R19 F19 + R21 F21 self-heal contract. Same file also has trigger-only commit template + failure-mode pointing operator to manual SQL backfill. **R21 (C) class-sweep audited SPEC peers but missed PLAN summary/template/failure-mode prose surfaces.** Implementer following the plan summary or commit template can omit the self-heal block or paper over a missing block with manual SQL → exact F19 failure mode regressed. |
+  | F23 | HIGH | `2026-05-19-solo-dev-ux-validation-design.md:160` (spec OAuth-claim reversibility prose) | **F21-class same-vector recurrence (round 2, second peer).** Spec :160 says "next --combo all creates affected rows with fresh ids"; :175-area canonical cleanup contract says reseed preserves stable id + resets `claimed_via_oauth_at` to NULL. Actual mint RPC uses `ON CONFLICT (show_id, name) DO UPDATE` (ids preserved). **R21 (C) class-sweep reported "R13 F11 CLEAN" — missed the fresh-id/recreate wording at :160.** Spec-canonical contradiction can lead implementer to DELETE+INSERT claimed rows or write tests expecting cookie invalidation, breaking the row-stability contract J3 walk relies on. |
+  | F24 | MEDIUM | `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts:490-495` (F20-canonical-tables-completeness assertion) | **Anti-tautology gap in R21 structural defense.** Subset row with explicit marker passes if ≥1 canonical literal present; doesn't verify ALL non-omitted vars. A future row "3 vars; J3-claim-email NOT required: VALIDATION_SUPABASE_URL" would pass while silently omitting 2 of 3 required Supabase vars — the same incomplete-CLI-contract class the guard is meant to prevent. Repair: derive expected set from stated reason; require all non-omitted canonical vars present; add negative fixture/assertion. |
+
+- **Same-vector status post-R22:**
+  - **F21-class (prose-contradicts-newly-amended-contract): 2 rounds** (R20 F21 + R22 F22+F23). R22 surfaced 2 distinct F21-class peers in ONE round → R21 (C) sweep demonstrably incomplete. R23 MUST do comprehensive re-analysis of F21-class surfaces at DEEPER scope (plan summary openers + commit templates + failure-mode catalogs + spec narrative outside §-amended subsections + handoff sections + .env templates).
+  - Threshold-3 calibration: if R23 (A) audit surfaces 1+ more F21-class peer beyond F22+F23, **structural defense mandate fires** per M12 plan R5 precedent (defense in same commit series). Given R21's sweep missed multiple obvious surfaces, trigger is **likely** to fire at R23.
+  - F10-class threshold-3 BREACH closed in R21; F24 is permissiveness gap WITHIN the R21 assertion (anti-tautology), not a missed F10-class surface.
+  - All other classes still closed.
+
+- **Repair commit:** closed in R23 (see below).
+
+### Amendment R23 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `e0eee2c` (post-R23 HEAD)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R24 adversarial review**
+- **(A) F21-class comprehensive re-analysis at DEEPER scope** (mandated by R20+R22 same-vector recurrence; audit went beyond R21 (C)'s spec-only/per-section coverage to include plan summary openers, RPC narrative, commit templates, failure-mode catalogs, spec narrative outside §-amended subsections, handoff §6/§11, .env templates):
+
+  | Amendment | Peer surface(s) found | Status |
+  |---|---|---|
+  | R13 F10 | none | CLEAN |
+  | R13 F11 (reseed PRESERVES id + RESETs claim) | spec :160 "fresh ids" / "re-creates affected rows" (**F23 named**); 00-overview.md:153 "fresh crew_members.id" (**adjacent peer**) | Fixed commits 49 + 51 |
+  | R15 F13/F14/Dim-3 | none | CLEAN |
+  | R17 F15 | none | CLEAN |
+  | R17 F16 | none | CLEAN |
+  | R17 F17 | none (plan-only surface) | CLEAN |
+  | R19 F18 | none | CLEAN |
+  | R19 F19 (show_share_tokens self-heal) | plan 03:5 opener + :194 RPC narrative + :584-586 commit template + :740 verification + :863 failure-mode (**F22 named** — 5 sub-surfaces in one file as one finding) | Fixed commit 48 |
+
+  **Total F21-class peers in R23 audit: 3** (F22 multi-surface cluster + F23 + 00-overview.md adjacent). **Threshold-3 fired** → structural defense ships in same commit series per M12 plan R5 precedent (commit 52).
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 48 | `a204054` | docs(plan-m12): R23 F22 — plan §03 dual-source-sentinel rewrite across 5 surfaces |
+  | 49 | `555ae16` | docs(spec-m12): R23 F23 — spec :160 stable-id alignment with canonical cleanup contract |
+  | 50 | `75c3095` | test(cross-cutting): R23 F24 — F20 subset-cardinality fix + negative-case assertion |
+  | 51 | `78b1152` | docs(plan-m12): R23 (A) F23-class adjacent peer — 00-overview.md row-stability alignment |
+  | 52 | `e0eee2c` | test(cross-cutting): R23 F21-class structural defense — dual-source-sentinel + stable-id prose-consistency guard |
+
+- **F22 repair (commit 48):** plan `03-phase0-tooling-reseed.md` 5 surfaces rewritten as dual-source sentinel — opener :5 ("show_share_tokens row maintained by **dual-source sentinel** — trigger on initial INSERT + mint RPC self-heal on UPSERT update-path; manual SQL backfill is NOT a normal repair path"); RPC narrative :194; commit template :584-586 ("DUAL-SOURCE SENTINEL" / "self-heal is load-bearing — NOT trigger-only"); verification comment :740; failure-mode :863 (resolution = re-run `pnpm validation:reseed`; manual SQL NOT a recurring repair step). All references aligned with §3.3.2 / §3.3 lockstep / mint RPC body contract.
+
+- **F23 repair (commit 49):** spec :160 rewritten to align with canonical cleanup at :175 — "ON CONFLICT (show_id, name) DO UPDATE SET ..., claimed_via_oauth_at = NULL clause **preserves the stable crew_members.id while resetting claimed_via_oauth_at to NULL** ... devices holding stale cookies remain valid." Cross-links R13 commit 31 F11 + R23 commit 49 F23.
+
+- **F24 repair (commit 50):** F20-canonical-tables-completeness assertion extracted into pure `evaluateCanonicalTableRow(line, canonicalVars)` helper with cardinality logic. 5 rules: (1) full 4-var → passes; (2) `not-subject-to-meta:` waiver → passes; (3) J3-omission marker requires ALL 3 SUPABASE_* vars present; (4) `<N> vars` cardinality must equal canonical-literals count; (5) cardinality + omission cross-checked. 5 negative-case fixtures inline (broken-subset, full-claim-with-missing, subset-marker-zero-vars, etc.) — all fail as expected. RED→GREEN: pre-R23 helper (`presentVars.length >= 1`) returned null for broken-subset; post-R23 helper returns finding with `missingVars=[SECRET_KEY, PROJECT_REF]`.
+
+- **00-overview.md:153 adjacent peer (commit 51):** "fresh crew_members.id with null claimed_via_oauth_at" → "ON CONFLICT...DO UPDATE clause, which **preserves the stable `crew_members.id`** while resetting `claimed_via_oauth_at` to NULL." Cites R13 commit 31 + R23 commit 51.
+
+- **F21-class structural defense (commit 52):** 2 new tests in `reseed-clears-oauth-claim-doc-guard.test.ts`:
+  - **Live-spec assertion** (`F21-class prose-consistency`): grep-walks every M12 doc surface (spec + plan tree + handoff with §15 audit-trail + EXCLUDED_PATHS exclusions) for 4 forbidden-pattern regexes (no-direct-write / trigger-only-sentinel / fresh-ids / re-creates-affected-rows). Escape hatches: corrective-negation lookbehind `(?<!\b(?:not|no\s+longer|never)\s+(?:a\s+)?)`; historical-qualifier lookback ~200 chars; explicit `<!-- not-f21-class: -->` waiver. PASSES against R23 HEAD.
+  - **Negative-case unit test**: 4 broken fixtures trigger the regex; 5 passing fixtures (corrective negation / historical frame / waiver / `no longer` prefix / canonical) pass.
+  - RED demonstration witnessed during authoring: commit-48 rewrite contained "NOT a trigger-only sentinel"; regex initially fired (false positive); tightened with corrective-negation lookbehind; converged GREEN. Iteration itself = structural-defense RED→GREEN witness.
+
+- **Meta-test regression:** **12/12 PASS** (was 9 pre-R23; +F24 negative-case + F21-class main + F21-class negative-case = 12).
+
+- **Same-vector status post-R23:**
+  - **F21-class: 2 finding-rounds (R20 + R22).** R23 closed per-instance (F22 + F23 + 00-overview adjacent) + shipped structural defense at threshold-3 trigger. Defense is regex-based with corrective-negation/historical/waiver escape hatches. **If R24 surfaces an F21-class peer NOT caught by the 4 regexes,** structural-defense extension (additional regex / fact-table assertion) is next escalation per M12 plan R5 calibration.
+  - F10-class threshold-3 BREACH closed in R21; F24 was anti-tautology gap within the R21 assertion; R23 commit 50 tightened with cardinality logic + negative-case.
+  - All other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown + 2 commits to `tests/cross-cutting/` (R23 commits 50 + 52). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
+
 ---
 
 ## §10 — Cross-milestone dependencies
