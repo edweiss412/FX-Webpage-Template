@@ -163,9 +163,9 @@ function scanFileForRateLimitAdminContract(
   if (file === SPEC_FILE) {
     let in912 = false;
     for (let i = 0; i < lines.length; i++) {
-      if (/^###\s+9\.1\.2\b/.test(lines[i])) in912 = true;
-      else if (in912 && /^###?\s+9\.[1-9]\.[3-9]\b/.test(lines[i])) in912 = false;
-      else if (in912 && /^##\s+/.test(lines[i])) in912 = false;
+      if (/^###\s+9\.1\.2\b/.test(lines[i]!)) in912 = true;
+      else if (in912 && /^###?\s+9\.[1-9]\.[3-9]\b/.test(lines[i]!)) in912 = false;
+      else if (in912 && /^##\s+/.test(lines[i]!)) in912 = false;
       if (in912) markerExempt[i] = true;
     }
   }
@@ -175,7 +175,7 @@ function scanFileForRateLimitAdminContract(
   const inFence: boolean[] = new Array(lines.length).fill(false);
   let fenceOpen = false;
   for (let i = 0; i < lines.length; i++) {
-    if (/^```/.test(lines[i])) {
+    if (/^```/.test(lines[i]!)) {
       fenceOpen = !fenceOpen;
       inFence[i] = fenceOpen;
       continue;
@@ -183,22 +183,22 @@ function scanFileForRateLimitAdminContract(
     inFence[i] = fenceOpen;
   }
   for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].includes(CANONICAL_SOURCE_MARKER)) continue;
+    if (!lines[i]!.includes(CANONICAL_SOURCE_MARKER)) continue;
     // Marker inside / immediately above a fence — exempt the whole fence.
     if (inFence[i]) {
       let s = i;
-      while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1])) s--;
+      while (s > 0 && inFence[s - 1] && !/^```/.test(lines[s - 1]!)) s--;
       let e = i;
-      while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1])) e++;
+      while (e < lines.length - 1 && inFence[e + 1] && !/^```/.test(lines[e + 1]!)) e++;
       for (let k = s; k <= e; k++) markerExempt[k] = true;
     } else {
       // Look ahead past blank / comment lines for a fence opener.
       let probe = i + 1;
-      while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe])) probe++;
-      if (probe < lines.length && /^```/.test(lines[probe])) {
+      while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe]!)) probe++;
+      if (probe < lines.length && /^```/.test(lines[probe]!)) {
         let s = probe;
         let e = probe;
-        while (e + 1 < lines.length && !/^```/.test(lines[e + 1])) e++;
+        while (e + 1 < lines.length && !/^```/.test(lines[e + 1]!)) e++;
         if (e + 1 < lines.length) e++;
         for (let k = s; k <= e; k++) markerExempt[k] = true;
       }
@@ -207,7 +207,7 @@ function scanFileForRateLimitAdminContract(
 
   for (let i = 0; i < lines.length; i++) {
     if (markerExempt[i]) continue;
-    const line = lines[i];
+    const line = lines[i]!;
     // Trigger on either token.
     if (!/rate-limit-admin\b/.test(line) && !/REPORT_RATE_LIMITED_ADMIN/.test(line)) continue;
 

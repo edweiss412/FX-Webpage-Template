@@ -266,19 +266,19 @@ describe("R49 commit 89 F44 — no inline email normalization in plan/spec markd
   // Synthetic broken fixtures — must FIRE.
   test("synthetic broken fixture: bare lower(trim) SQL FIRES", () => {
     const fixture = `INSERT INTO public.admin_emails (email, added_at) VALUES (lower(trim('<dev-email>')), now())`;
-    const sqlLowerTrimEmail = FORBIDDEN_PATTERNS[0].rx;
+    const sqlLowerTrimEmail = FORBIDDEN_PATTERNS[0]!.rx;
     expect(sqlLowerTrimEmail.test(fixture)).toBe(true);
   });
 
   test("synthetic broken fixture: bare lower(<email>) SQL FIRES", () => {
     const fixture = `WHERE email = lower('Ed.Weiss@Gmail.com')`;
-    const sqlLowerEmailRx = FORBIDDEN_PATTERNS[1].rx;
+    const sqlLowerEmailRx = FORBIDDEN_PATTERNS[1]!.rx;
     expect(sqlLowerEmailRx.test(fixture)).toBe(true);
   });
 
   test("synthetic broken fixture: rawEmail.toLowerCase() TS FIRES", () => {
     const fixture = `const norm = rawEmail.toLowerCase();`;
-    const tsEmailLower = FORBIDDEN_PATTERNS[2].rx;
+    const tsEmailLower = FORBIDDEN_PATTERNS[2]!.rx;
     expect(tsEmailLower.test(fixture)).toBe(true);
   });
 
@@ -299,7 +299,7 @@ describe("R49 commit 89 F44 — no inline email normalization in plan/spec markd
 
   test("synthetic passing fixture: HISTORICAL_QUALIFIER lookback bypasses regex", () => {
     const fixture = `Pre-R49 the plan said lower(trim('<dev-email>')) for admin bootstrap — retired in R49 commit 88 F44 amendment.`;
-    const m = FORBIDDEN_PATTERNS[0].rx.exec(fixture);
+    const m = FORBIDDEN_PATTERNS[0]!.rx.exec(fixture);
     expect(m).not.toBeNull();
     if (m && m.index !== undefined) {
       const lookback = fixture.substring(
@@ -312,7 +312,7 @@ describe("R49 commit 89 F44 — no inline email normalization in plan/spec markd
 
   test("synthetic passing fixture: inline waiver bypasses regex", () => {
     const fixture = `<!-- not-inline-email-norm: historical quote from F44 verbatim --> lower(trim('<dev-email>'))`;
-    const m = FORBIDDEN_PATTERNS[0].rx.exec(fixture);
+    const m = FORBIDDEN_PATTERNS[0]!.rx.exec(fixture);
     expect(m).not.toBeNull();
     if (m && m.index !== undefined) {
       const lookback = fixture.substring(
@@ -325,12 +325,12 @@ describe("R49 commit 89 F44 — no inline email normalization in plan/spec markd
 
   test("synthetic passing fixture: non-email-context lower(trim()) does NOT fire", () => {
     const fixture = `SELECT lower(trim(symbol_name)) FROM frequency_symbols;`;
-    const sqlLowerTrimEmailRx = FORBIDDEN_PATTERNS[0].rx;
+    const sqlLowerTrimEmailRx = FORBIDDEN_PATTERNS[0]!.rx;
     expect(sqlLowerTrimEmailRx.test(fixture)).toBe(false);
   });
 
   test("control: lower(trim(email)) sample matches pattern A", () => {
     const sample = `lower(trim(email))`;
-    expect(FORBIDDEN_PATTERNS[0].rx.test(sample)).toBe(true);
+    expect(FORBIDDEN_PATTERNS[0]!.rx.test(sample)).toBe(true);
   });
 });
