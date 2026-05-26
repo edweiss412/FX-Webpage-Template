@@ -1468,6 +1468,25 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **R44 watch:** if R44 adversarial review still surfaces F34-class findings (snapshot protocol OR adjacent destructive-cleanup peer), the analysis was incomplete — escalate per AGENTS.md "Structural-defense calibration" same-commit-series rule. Likely candidates: validation-state row-locking patterns for the in-progress claim path (off-scope here); other JSON-file persistence in `.validation-state/` if Phase 0.C/0.F adds any.
 
+### Amendment R44 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `95fbc02` (post-R43)
+- **Verdict:** **needs-attention** (1 HIGH F41 — R43 fix-round regression budget gap)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F41 | HIGH | `05-phase0-smokes.md:80-85` (Smoke 7) + `04-phase0-tooling-report.md:191-196 + :215` (rendering assertion table) + Phase 0.E.3 | Smoke 7 invokes `pnpm validation:report-fixtures --outcome lookup-inconclusive` with no `--alert-code` flag (R43 default = `bot-login-missing`); Step 3 asserts `admin_alerts.code='REPORT_LOOKUP_INCONCLUSIVE'`. Same stale assertion appears at plan 04 rendering table + Phase 0.E.3. **R43 commit 81 fix-round regression budget gap** — added selector + default but didn't sweep dependent assertions. Per-instance fix: pick alignment (explicit `--alert-code inconclusive` everywhere the assertion expects `REPORT_LOOKUP_INCONCLUSIVE`, OR keep defaults + update assertions to `REPORT_DUPLICATE_LIVE_MATCHES` / `REPORT_OPEN_ORPHAN_LABEL` / `GITHUB_BOT_LOGIN_MISSING` matching bot-login-missing variant). Sweep all dependent sites. Optionally add doc-guard rejecting bare `--outcome lookup-inconclusive` paired with `REPORT_LOOKUP_INCONCLUSIVE` assertion in the same window. |
+
+- **Same-vector status post-R44:**
+  - F41 fix-round regression budget gap (R43 commit 81): per-instance scoped; sweep dependent assertions. NOT a new class.
+  - F34-class round 3 structural defense (R43 commit 82) regression-clean.
+  - F38-class closed at R43 (per-instance + (B) audit).
+  - All other classes still closed.
+
+- **Repair commit:** pending R45 implementer dispatch (inline Agent; F41 per-instance + dependent-assertion sweep).
+
 ---
 
 ## §10 — Cross-milestone dependencies
