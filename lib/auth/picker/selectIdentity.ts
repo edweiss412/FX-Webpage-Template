@@ -75,10 +75,10 @@ async function selectIdentityCoreImpl(input: SelectIdentityInput): Promise<Selec
     return { ok: false, code: "PICKER_INVALID_INPUT" };
   }
 
-  const supabase = createSupabaseServiceRoleClient();
   let data: SelectIdentityRpcRow | null = null;
   let error: unknown = null;
   try {
+    const supabase = createSupabaseServiceRoleClient();
     const response = await supabase
       .rpc("select_identity_atomic", {
         p_slug: input.slug,

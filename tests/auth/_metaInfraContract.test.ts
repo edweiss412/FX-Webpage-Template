@@ -137,6 +137,7 @@ const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "lib/auth/picker/resolvePickerSelection.ts",
   "lib/auth/picker/resetPickerEpoch.ts",
   "lib/auth/picker/rotateShareToken.ts",
+  "lib/auth/picker/selectIdentity.ts",
 ] as const;
 
 const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE =
