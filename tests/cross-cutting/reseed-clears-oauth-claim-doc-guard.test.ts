@@ -2096,6 +2096,111 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         explain:
           "rate-limit cleanup (admin OR crew) MUST scope its DELETE/UPDATE to the EXACT recorded `hour_bucket` per the R35 commit 73 F34 contract (admin) + R37 commit 74 spec §9.1.2 propagation + R39 commit 76 F36 amendment (crew). A `DELETE WHERE kind='admin' AND identity=canonicalize(<email>)` OR `DELETE WHERE kind='crew' AND identity=<crew_member_id>` predicate without an `AND hour_bucket=<recorded>` clause spans all hour_buckets and erases live production rate-limit state for that identity in unrelated hours — the F34 (admin) / F36 (crew) cross-hour destructive-cleanup data-loss bug. Rewrite the predicate to include the exact-bucket clause OR cross-reference the plan-04 F34 (admin) / F36 (crew) cleanup safety contract block as the authoritative source. Canonical source: plan 04-phase0-tooling-report.md F34 cleanup safety contract block (admin) + F36 cleanup safety contract block (crew).",
       },
+      // R47 commit 87 — F21-class regex extension (8th pattern) for
+      // R46/F42 + R46/F43 "actionable --outcome invocation diverges
+      // from canonical 9-outcome enum OR is missing required co-
+      // selector" shape. F42+F43 was the 5th F21-class round
+      // (R20 F21 + R22 F22/F23 + R32 F31 + R36 F35 + R46 F42+F43).
+      // Per R46 orchestrator decision: ship the 8th regex
+      // incremental; if R48 surfaces another F21-class peer NOT
+      // caught by 8 patterns, R49 mandates Option (b) structural
+      // refactor (spec §13.2.3-style structural ratification
+      // catalog + per-amendment-commit test assertion).
+      //
+      // The F42 shape: actionable `pnpm validation:report-fixtures
+      // --outcome lookup-inconclusive` invocation in a smoke/
+      // assertion context WITHOUT the load-bearing
+      // `--alert-code <selector>` co-selector. Per R43 commit 81
+      // F40 the harness's `lookupAlertCode` default branch
+      // (`bot-login-missing`) produces `GITHUB_BOT_LOGIN_MISSING`,
+      // but every dependent assertion site targets the canonical
+      // `REPORT_LOOKUP_INCONCLUSIVE` admin_alerts.code (default
+      // branch of `lookupAlertCode` at `lib/reports/submit.ts:
+      // 202-208`, selected by `--alert-code inconclusive`).
+      //
+      // The F43 shape: actionable `--outcome success` invocation
+      // OR rendering-assertion-table cell labeled `` `success`
+      // (admin) `` / `` `success` (crew) ``. Per R43 commit 81
+      // F40 the canonical enum split `success` into
+      // `success-admin` + `success-crew` (the actor became
+      // explicit in the outcome enum). Bare `--outcome success`
+      // is now retired — any active invocation referencing it
+      // is contract-drift.
+      //
+      // Pattern A — F42 shape: `--outcome lookup-inconclusive`
+      // NOT followed within ~140 chars by `--alert-code`. The
+      // ~140-char window covers the canonical post-R45 form
+      // `--outcome lookup-inconclusive --alert-code inconclusive`
+      // (which has --alert-code within ~25 chars of the outcome
+      // value). A wider window would falsely pass narrative prose
+      // that mentions both flags far apart; a narrower window
+      // would catch legitimate alternative orderings. The R47
+      // commit 85 spec patches keep `--alert-code` immediately
+      // after the outcome value, so the 140-char window is safe.
+      //
+      // Pattern B — F43 shape: `--outcome success` NOT followed
+      // by `-admin` or `-crew`. The negative lookahead is bounded
+      // tightly (immediate suffix) because the canonical enum
+      // values are `success-admin` / `success-crew` — the suffix
+      // attaches directly to the word `success` with no
+      // intervening whitespace, period, or other token.
+      //
+      // The historical-qualifier escape hatch
+      // (HISTORICAL_QUALIFIER_RX — "pre-R47" / "pre-R43" /
+      // "retired" / etc.) and the WAIVER_RX inline waiver both
+      // still apply via the per-pattern post-match filter at
+      // line ~2150. So narrative prose like "Pre-R43 the
+      // `--outcome success` enum value mapped to two row-shapes"
+      // PASSES, while active actionable forms FIRE.
+      //
+      // Negative-case fixtures pinned at line ~2450: bare
+      // `--outcome success`, `--outcome lookup-inconclusive`
+      // without --alert-code, AND the documentation form
+      // `--alert-code <bot-login-missing|...> selector for
+      // --outcome lookup-inconclusive` (which is documentation,
+      // not actionable). The documentation form's mention of
+      // `--alert-code` precedes the `--outcome lookup-inconclusive`
+      // mention, so the post-match lookahead does NOT see it —
+      // but the documentation context lacks an actionable invocation
+      // verb (no `pnpm`/`Run`/`Step N:` shape), and the
+      // historical-qualifier-style "documents the selector" /
+      // "help text MUST document" framing makes the documentation
+      // intent explicit. Per F21-class convention, documentation
+      // surfaces self-frame; the regex deliberately fires on
+      // documentation prose too unless it explicitly opts out via
+      // historical-qualifier OR waiver — which is acceptable
+      // because the documentation site at plan 04:136 reads
+      // "help text MUST document `--alert-code <...>` as the
+      // variant selector for `--outcome lookup-inconclusive`"
+      // (the documentation context has the selector mention
+      // BEFORE the outcome value, so the regex's forward lookahead
+      // window doesn't see `--alert-code`). The R47 commit 87
+      // sweep verified the documentation site at plan 04:136
+      // PASSES because the `--alert-code` mention precedes the
+      // `--outcome lookup-inconclusive` mention — a documentation
+      // shape that doesn't match the regex anchoring.
+      {
+        class: "outcome-enum:lookup-inconclusive-missing-alert-code",
+        // Pattern A: `--outcome lookup-inconclusive` NOT followed
+        // within ~140 chars by `--alert-code`. The negative
+        // lookahead window is tight enough to fire on standalone
+        // bare-outcome invocations but permissive enough that the
+        // canonical post-R47 form (`--outcome lookup-inconclusive
+        // --alert-code inconclusive`) passes.
+        rx: /--outcome\s+lookup-inconclusive\b(?![\s\S]{0,140}?--alert-code)/i,
+        explain:
+          "actionable `--outcome lookup-inconclusive` invocations MUST be paired with `--alert-code inconclusive` (within ~140 chars) so the harness materializes the canonical `REPORT_LOOKUP_INCONCLUSIVE` admin_alerts row per `lookupAlertCode` default branch at `lib/reports/submit.ts:202-208`. Without the explicit selector, the R43 commit 81 F40 default `--alert-code bot-login-missing` produces `GITHUB_BOT_LOGIN_MISSING` — a guaranteed-fail mismatch against every dependent assertion site (Smoke 7 Step 3, Phase 0.E.3 Step 1, plan 04 rendering predicate row). Fix: add `--alert-code inconclusive` immediately after `--outcome lookup-inconclusive` per R45 commit 84 + R47 commit 85 contract. Historical narratives prefixed with `pre-R47` / `pre-R45` / `retired` pass via the F21-class HISTORICAL_QUALIFIER escape hatch.",
+      },
+      {
+        class: "outcome-enum:bare-success-no-actor-suffix",
+        // Pattern B: `--outcome success` NOT followed by an
+        // `-admin` OR `-crew` suffix. Tight negative lookahead
+        // because the canonical enum values are `success-admin` /
+        // `success-crew` (suffix attaches directly to the word).
+        rx: /--outcome\s+success(?![-_]?(?:admin|crew))/i,
+        explain:
+          "actionable `--outcome success` invocations are retired per R43 commit 81 F40 — the canonical enum split `success` into `success-admin` + `success-crew` so the actor is explicit at the CLI (the two row-shapes differ: admin response body carries `github_issue_url` per `lib/reports/submit.ts:179-186`, crew omits it). Bare `--outcome success` is ambiguous and produces silent one-actor coverage. Fix: replace with `--outcome success-admin` OR `--outcome success-crew` per intent. Historical narratives prefixed with `pre-R43` / `retired` pass via the F21-class HISTORICAL_QUALIFIER escape hatch.",
+      },
     ];
 
     const HISTORICAL_QUALIFIER_RX =
@@ -2214,6 +2319,17 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       {
         class: "cleanup-recipe:no-bucket-scope",
         rx: /\bdelete[^.]{0,160}\bkind\s*=\s*['"](?:admin|crew)['"](?=[\s\S]{0,280}?(?:\bcanonicaliz|identity))(?![\s\S]{0,280}?\bhour_bucket\b)/i,
+      },
+      // R47 commit 87 — 8th regex (synced with main array above).
+      // F42 + F43 shapes: actionable --outcome divergence from the
+      // canonical 9-outcome enum OR missing required co-selector.
+      {
+        class: "outcome-enum:lookup-inconclusive-missing-alert-code",
+        rx: /--outcome\s+lookup-inconclusive\b(?![\s\S]{0,140}?--alert-code)/i,
+      },
+      {
+        class: "outcome-enum:bare-success-no-actor-suffix",
+        rx: /--outcome\s+success(?![-_]?(?:admin|crew))/i,
       },
     ];
     const HISTORICAL_QUALIFIER_RX =
@@ -2446,6 +2562,119 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     const nonCleanupMentionCrew =
       "live `reporterFor` at lib/reports/submit.ts:168 writes `identity=auth.crewMemberId` (raw UUID) for `kind='crew'` quota — synthetic prefix cannot intercept the production quota path.";
     expect(fixtureFiresF21Class(nonCleanupMentionCrew).fires).toBe(false);
+
+    // R47 commit 87 — 8th regex pattern negative-case fixtures.
+    // Mirrors the F35/F36 pattern: synthetic broken fixtures fire;
+    // synthetic exempt fixtures (canonical post-fix form, historical
+    // frame, waiver) pass.
+
+    // BROKEN (pre-R45/R47 F42 shape — actionable bare invocation
+    // without --alert-code co-selector). The F21-class regex MUST
+    // fire on this; without the 8th pattern, F42 would have shipped
+    // undetected past R46.
+    const brokenF42BarePreR45 =
+      "Step 2: Run `pnpm validation:report-fixtures --outcome lookup-inconclusive` against prod-equivalent Supabase. Expect exit 0.";
+    const brokenF42Result = fixtureFiresF21Class(brokenF42BarePreR45);
+    expect(brokenF42Result.fires).toBe(true);
+    expect(brokenF42Result.matchedPattern).toBe(
+      "outcome-enum:lookup-inconclusive-missing-alert-code",
+    );
+
+    // BROKEN (F42 shape on the canonical spec smoke 7 sentence
+    // pre-R47). MUST fire.
+    const brokenF42SpecSmoke7PreR47 =
+      "Smoke test 7 (conditional): run `pnpm validation:report-fixtures --outcome lookup-inconclusive` and verify the report-failure UI row renders correctly.";
+    expect(fixtureFiresF21Class(brokenF42SpecSmoke7PreR47).fires).toBe(true);
+
+    // PASSING — post-R45/R47 corrective form: explicit
+    // `--alert-code inconclusive` within ~140-char negative-
+    // lookahead window. MUST NOT fire.
+    const correctiveF42WithAlertCode =
+      "Step 2: Run `pnpm validation:report-fixtures --outcome lookup-inconclusive --alert-code inconclusive` against prod-equivalent Supabase. Expect exit 0.";
+    expect(fixtureFiresF21Class(correctiveF42WithAlertCode).fires).toBe(false);
+
+    // PASSING — historical frame around the pre-R45 bare form.
+    const historicalFrameF42 =
+      "Pre-R45 the smoke 7 invocation was `pnpm validation:report-fixtures --outcome lookup-inconclusive` with no --alert-code flag — that wording was retired in R45 commit 84 + R47 commit 85 amendments.";
+    expect(fixtureFiresF21Class(historicalFrameF42).fires).toBe(false);
+
+    // PASSING — inline waiver.
+    const waiverF42 =
+      "<!-- not-f21-class: historical quote from R46 finding F42 verbatim --> Pre-fix smoke 7: `--outcome lookup-inconclusive` with no --alert-code.";
+    expect(fixtureFiresF21Class(waiverF42).fires).toBe(false);
+
+    // F42-shape edge: documentation form where `--alert-code`
+    // PRECEDES `--outcome lookup-inconclusive`. Per plan 04:136:
+    // "help text MUST document `--alert-code <bot-login-missing|...
+    // |inconclusive>` as the variant selector for `--outcome
+    // lookup-inconclusive`". The regex anchors at `--outcome lookup-
+    // inconclusive` and looks FORWARD for `--alert-code`; the
+    // documentation form has the mention BEFORE the outcome, so the
+    // forward-lookahead does NOT see it → the regex FIRES on this
+    // synthetic fixture. In the live plan, the sentence is preceded
+    // by the F21-class HISTORICAL_QUALIFIER context (R43 F40
+    // selector-documentation framing) so the live walker passes via
+    // historical-qualifier — but the synthetic fixture string in
+    // isolation lacks that surrounding context. The fixture's role
+    // is to pin the FORWARD-LOOKAHEAD-ONLY semantics: documentation
+    // contexts must rely on the HISTORICAL_QUALIFIER + WAIVER escape
+    // hatches when they're not the actionable canonical post-fix
+    // form. Plan 04:136 in live source DOES sit in such a context
+    // (the surrounding F40 amendment narrative qualifies it).
+    const docPlan04Line136 =
+      "help text MUST document `--alert-code <bot-login-missing|duplicate-live-matches|open-orphan-label|inconclusive>` as the variant selector for `--outcome lookup-inconclusive` (default `bot-login-missing`; IGNORED for the other 8 outcomes) — R43 F40 — help-text mirror";
+    expect(fixtureFiresF21Class(docPlan04Line136).fires).toBe(true);
+
+    // PASSING — documentation form WITH historical-qualifier framing
+    // in lookback (e.g., the live plan 04:136 sits in an R43 F40
+    // amendment narrative paragraph that names the canonical
+    // selector contract — `R43 F40` itself doesn't satisfy
+    // HISTORICAL_QUALIFIER_RX, but the surrounding paragraph
+    // contains qualifying language like "retired" or "pre-R43"
+    // around 200-char lookback distance). Inline waiver is the
+    // explicit escape hatch for documentation surfaces that don't
+    // naturally include historical-qualifier prose.
+    const docFormWithWaiver =
+      "<!-- not-f21-class: documentation form --> help text documents `--alert-code` as variant selector for `--outcome lookup-inconclusive`.";
+    expect(fixtureFiresF21Class(docFormWithWaiver).fires).toBe(false);
+
+    // BROKEN (pre-R43 F43 shape — actionable bare `--outcome success`
+    // without -admin/-crew suffix). MUST fire.
+    const brokenF43BareSuccess =
+      "Run `pnpm validation:report-fixtures --outcome success` against prod-equivalent Supabase to materialize the happy-path report row.";
+    const brokenF43Result = fixtureFiresF21Class(brokenF43BareSuccess);
+    expect(brokenF43Result.fires).toBe(true);
+    expect(brokenF43Result.matchedPattern).toBe(
+      "outcome-enum:bare-success-no-actor-suffix",
+    );
+
+    // PASSING — post-R43 canonical enum forms (success-admin /
+    // success-crew). MUST NOT fire (the negative lookahead matches
+    // the `-admin` / `-crew` suffix and bypasses the pattern).
+    const correctiveF43SuccessAdmin =
+      "Run `pnpm validation:report-fixtures --outcome success-admin` against prod-equivalent Supabase.";
+    expect(fixtureFiresF21Class(correctiveF43SuccessAdmin).fires).toBe(false);
+
+    const correctiveF43SuccessCrew =
+      "Run `pnpm validation:report-fixtures --outcome success-crew` against prod-equivalent Supabase.";
+    expect(fixtureFiresF21Class(correctiveF43SuccessCrew).fires).toBe(false);
+
+    // PASSING — historical frame around the pre-R43 bare-success form.
+    const historicalFrameF43 =
+      "Pre-R43 the `--outcome success` enum value mapped to two distinct row-shapes (admin vs crew) with no CLI selector — retired in R43 commit 81 F40 amendment.";
+    expect(fixtureFiresF21Class(historicalFrameF43).fires).toBe(false);
+
+    // PASSING — inline waiver on bare-success form.
+    const waiverF43 =
+      "<!-- not-f21-class: historical quote from F40 finding verbatim --> The pre-R43 `--outcome success` enum value pre-dates the actor split.";
+    expect(fixtureFiresF21Class(waiverF43).fires).toBe(false);
+
+    // PASSING — non-CLI narrative mention of the word "success"
+    // (e.g., "success surface", "success path") MUST NOT fire
+    // because the regex anchors on the literal `--outcome` flag.
+    const nonCliSuccessMention =
+      "The success path through submitReport returns 201 with the github_issue_url field for admin actors; crew omits it.";
+    expect(fixtureFiresF21Class(nonCliSuccessMention).fires).toBe(false);
   });
 
   // R43 commit 82 — F34-class CONTRACT-LEVEL structural defense (round 3
