@@ -1411,6 +1411,63 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Repair commit:** pending R43 implementer dispatch (inline Agent; F39 + F40 per-instance + F34-class structural defense + F38-class re-analysis).
 
+### Amendment R43 — 2026-05-26 (repair)
+
+- **Diff base:** `7f2c188` (post-R42 handoff row)
+- **Diff target:** `4bec1ac` (post-R43 commits 80–82)
+- **Verdict:** **closed** (F39 + F40 per-instance fixes landed; F34-class round 3 structural defense shipped in same commit series per M12 plan R5 precedent; F38-class re-analysis surfaced ONE additional peer (lookup-inconclusive) which received per-instance `--alert-code` selector — total 2 F38-class peers, below the 3-peer threshold for sibling structural defense per the brief's conditional (E))
+
+- **(B) R43 per-outcome variant audit (canonical source for F38-class re-analysis):**
+
+  | `--outcome` | Distinct row-shape variants | Variant differentiator | CLI selector? | R43 disposition |
+  |---|---|---|---|---|
+  | `success` (pre-R43) | 2 (admin / crew) | `reported_by_kind`, response body shape (admin carries `github_issue_url` per `lib/reports/submit.ts:179-186`; crew omits) | **NO — F40 HIT** | **SPLIT** → `success-admin` + `success-crew` (commit 81) |
+  | `in-flight` | 1 | — | N/A | unchanged |
+  | `rate-limit-admin` | 1 | — | N/A (env-var-sourced identity) | unchanged |
+  | `rate-limit-crew` | 1 | — | N/A (`--combo` selector exists per R41 F38) | unchanged |
+  | `lookup-inconclusive` | **4** (BOT_LOGIN_MISSING / DUPLICATE_LIVE_MATCHES / OPEN_ISSUE_WITH_ORPHAN_LABEL / generic) | `admin_alerts.code` per `lookupAlertCode` at `lib/reports/submit.ts:202-208` | **NO — F40-CLASS PEER** | **SELECTOR** → `--alert-code <bot-login-missing\|duplicate-live-matches\|open-orphan-label\|inconclusive>` (commit 81; default `bot-login-missing` matches pre-R43 fixture context) |
+  | `lease-expired` | 1 | — | N/A | unchanged |
+  | `horizon-expired` | 1 | — | N/A | unchanged |
+  | `orphaned-lost-lease` | 1 | — | N/A | unchanged |
+
+  **Total: 2 F40-class peers (success + lookup-inconclusive); below 3-peer threshold for sibling F38-class structural defense per brief's conditional (E). Per-instance fixes in commit 81 close both.**
+
+- **F39 repair (commit 80):** plan 04 F34 (admin) + F36 (crew) contract blocks each gain a (4a) refuse-existing-snapshot guard step; new `--force-overwrite-snapshot` flag is the explicit crash-recovery escape hatch (warns about lost pre-seed `prior_count`); cleanup steps gain unlink-on-cleanup-success semantics; Step 1 test list adds 6 assertions (help-text mirror; duplicate-admin-seed-refuses; duplicate-crew-seed-refuses; force-overwrite-admin-accepts; force-overwrite-crew-accepts; force-overwrite-non-rate-limit-rejects); Step 4 implementation wires (a0) F39 guard alongside F34 + F36 lifecycles; F39 regression-test block covers duplicate-seed-without-cleanup-refuses + force-overwrite-with-warning + unlink-on-cleanup + cross-combo-clobber-also-refuses; new failure-mode bullet; spec §9.1.2:824 row gains `[--force-overwrite-snapshot]` in CLI args column + (7) refuse-existing-snapshot block in both admin and crew contract paragraphs + new exit-1 case.
+
+- **F40 repair (commit 81):** plan 04:58 outcome enum updated to 9 values (`success` → `success-admin` + `success-crew`); `--alert-code` selector documented with 4-variant default `bot-login-missing` matching pre-R43 fixture context; producer-map rows 66/67 renamed to `success-admin` / `success-crew`; producer-map row 71 (lookup-inconclusive) extended with `--alert-code` selector + `lookupAlertCode` cite; Step 1 test list adds 4 assertions (help-text mirror for both selectors; `--alert-code <invalid>` rejected; each of 4 variants materializes correct `admin_alerts.code`); Task 0.E.0 MATRIX-INVENTORY band F slice updated to 9 rows; count references propagated ("other 7 outcomes" → "other 8 outcomes"; "8 outcomes total = 2 + 6" → "9 outcomes total = 2 + 7"; "All other 6 outcomes" → "All other 7 outcomes"); new failure-mode bullet (F40 silent variant under-coverage); spec §9.1.2:824 row gains 9-outcome enum + `[--alert-code <variant>]` flag + updated 2+7 split commentary + exit-1 case for unknown alert-code.
+
+- **F34-class round 3 structural defense (commit 82 — MANDATORY per threshold-3 trigger):** two new tests extend `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` under the existing R15 F10-class describe block.
+  - Live-scan test: every snapshot-protocol surface in `{plan 04, spec §9.1.2}` that documents seed markers (`snapshot+restore`, `.validation-state/rate-limit-{admin,crew}-snapshot.json`, `snapshot at seed time`, `Snapshot persistence`) MUST also document at least one protection marker (`refuse-existing-snapshot`, `--force-overwrite-snapshot`, `keyed-snapshot`, `refuses to seed if snapshot present`, `snapshot file already present`, `refuse-to-seed`, `existing-snapshot guard`). File-level invariant (NOT per-±N-char window) because table-cell layouts cluster seed markers ~5k chars from the protection paragraph. Historical-qualifier + `<!-- not-f34-class: -->` waiver are the escape hatches.
+  - Negative-case test: synthetic pre-R43 fixtures (seed markers present, no protection) FIRE (`expect(...fires).toBe(true)`); synthetic post-R43 fixtures (refuse-existing-snapshot, keyed-snapshot, `--force-overwrite-snapshot`, historical-frame, waiver, non-snapshot-protocol mention) PASS. Pins regex semantics so future edits cannot relax the contract — mirrors the F24 / F21-class negative-case pattern.
+
+- **F34-class round 3 RED→GREEN evidence:**
+  - Pre-commits-80–81 (synthetic equivalents in the negative-case fixtures): walker FIRES with 8 file-level findings on the live plan + spec. ✓
+  - Post-commits-80–81 (live plan + spec carry refuse-existing-snapshot + `--force-overwrite-snapshot` prose): walker PASSES. ✓
+  - Negative-case fixture `brokenPreR43Admin` (pre-R43 wording): `fires=true` ✓
+  - Negative-case fixture `correctivePostR43Admin` (post-R43 wording): `fires=false` ✓
+  - All 7 escape-hatch fixtures (corrective + historical + waiver + canonical + non-snapshot mention): `fires=false` ✓
+
+- **(E) F38-class re-analysis defensive bundle decision:** per the brief's conditional ("If (B) audit surfaces 3+ outcomes with row-shape gaps, ship F38-class structural defense... If only success (and maybe lookup-inconclusive) hit, per-instance fixes suffice"), R43 (B) audit found exactly 2 F40-class peers (success + lookup-inconclusive). Below the 3-peer threshold. Per-instance fixes in commit 81 close both. **No sibling structural defense shipped for F38-class — defer until R44+ surfaces a third peer.**
+
+- **Same-vector + structural-defense status post-R43:**
+  - **F34-class: 3 rounds, structural defense LANDED in same commit series per M12 plan R5 precedent.** R39 mechanical-convergence claim retracted at R42; R43 ships the contract-level doc-guard. Future drift on either snapshot file OR a new snapshot-protocol surface added to the live walker's `SNAPSHOT_PROTOCOL_SURFACES` list (without protection prose) fails CI structurally. The class is closed at the contract level pending R44 confirmation no peer surfaces.
+  - **F38-class: 2 rounds, per-instance fixes; below 3-peer threshold for structural defense.** R43 (B) audit enumerated all 8 outcomes (pre-R43) × all row-shape variants and found 2 peers — both received per-instance CLI fixes (split for success; selector for lookup-inconclusive). If R44 surfaces a third F40-class peer (e.g., a future amendment introduces a new outcome with multiple variants), structural defense becomes mandatory.
+  - All other classes still closed.
+
+- **Repair commit series:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 80 | `0e03d7c` | docs(plan-m12)+docs(spec-m12): R43 F39 — refuse-existing-snapshot guard + --force-overwrite-snapshot flag + regression spec |
+  | 81 | `79986bd` | docs(plan-m12)+docs(spec-m12): R43 F40 — split --outcome success → success-admin + success-crew + --alert-code selector for lookup-inconclusive |
+  | 82 | `4bec1ac` | test(cross-cutting): R43 F34-class round 3 structural defense — snapshot-protocol guard (RED→GREEN) |
+
+- **Meta-test counts post-R43:**
+  - `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts`: 14 → **16** (+2 — live-scan + negative-case)
+  - `tests/cross-cutting/*` aggregate: 140 → **142** (+2)
+
+- **R44 watch:** if R44 adversarial review still surfaces F34-class findings (snapshot protocol OR adjacent destructive-cleanup peer), the analysis was incomplete — escalate per AGENTS.md "Structural-defense calibration" same-commit-series rule. Likely candidates: validation-state row-locking patterns for the in-progress claim path (off-scope here); other JSON-file persistence in `.validation-state/` if Phase 0.C/0.F adds any.
+
 ---
 
 ## §10 — Cross-milestone dependencies
