@@ -2205,6 +2205,45 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 - **Meta-test regression:** **163/163 PASS** in `tests/cross-cutting/` (25.47s).
 - **Same-vector status post-R69:** F56 closed per-instance. Lockdown-test surface ARMED for R70 same-surface convergence detector (4 rounds total). Drift-repair surface also armed. All other classes still closed.
 
+### Amendment R70 — 2026-05-26 — **🟢 APPROVE — AMENDMENT CONVERGED**
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `1df2d2d` (post-R69)
+- **Verdict:** **APPROVE** under stop gates A+B+C (no blocking HIGH findings)
+- **Codex summary:** "No blocking HIGH/CRITICAL findings supported from the whole-diff pass. The remaining suspicious surfaces I inspected are either already on the armed same-surface list or do not rise above the stop gates."
+
+## 🟢 M12 AMENDMENT SIGN-OFF — 2026-05-26
+
+- **Final HEAD:** `1df2d2d`
+- **Diff base:** `b4b2c38` (M11.5 close-out)
+- **Total rounds:** R6 → R70 (65 codex adversarial-review rounds + R0-R5 setup)
+- **Total commits:** 105+ (b4b2c38..1df2d2d)
+- **Class closures:** F10 / F11 / F16 / F18 / F21 / F26 / F30 / F34 / F38 / F46 / F47 / F48 / F49 / F50 / F51 / F52 / F53 / F54 / F55 / F56 — 20 class shapes closed
+- **Structural defenses landed:**
+  - `tests/cross-cutting/picker-resolver-outcome-prose-guard.test.ts` (R8)
+  - `tests/cross-cutting/identity-invalidated-two-reasons-doc-guard.test.ts` (pre-R6 H8)
+  - `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` — accumulated structural defense:
+    - R13 c32 F11 + R15 c36 F10-class (3 assertions) + R21 c47 F20-canonical-tables + R23 c52 F21-class (4 patterns) + R25 c87 cluster walker + R27 c59 Option D structural-exclusivity walker + R29 c63 M3+M4 + R31 c81 outcome-enum + R33 c70 producer-table + R37 c75 cleanup-recipe + R39 c77 generalized + R47 c87 8th-slot + R49 c89/c90 + R51 c92 + R59 c96 F50 + R61 c98 F52 + R63 c100 F53 + R65 c101 F54 — TOTAL: 16 prose-class assertions
+  - `tests/cross-cutting/rate-limit-admin-helper-var-doc-guard.test.ts` (R35 c72)
+  - `tests/cross-cutting/no-inline-email-normalization-in-plan-doc-guard.test.ts` (R49 c89 + R51 c92)
+- **Final regression:** 163/163 cross-cutting tests PASS at `1df2d2d`
+- **CI:** main green at `a88883e` (X audits); subsequent commits local-only pending push
+
+### Closure decisions (DEFERRED → Phase 0)
+
+- **M12-DOCS-M9.5-SURFACE-WALKER:** structural defense to extend X.3 audit (`tests/cross-cutting/no-m9-5-surfaces.test.ts`) to scan `docs/superpowers/{plans,specs}/v1-pre-deployment-amendments/**` for M9.5 surface terms outside known-historical contexts. **Phase 0.B kickoff trigger.**
+- **F48-class threshold-3 trigger ARMED:** if Phase 0 execution surfaces another `last_seed_date` semantic gap (predicate-side or write-path-side), structural defense mandate fires.
+- **Drift-repair test surface ARMED (4 rounds R59-R65):** if Phase 0.B authoring surfaces another bug on the snapshot+restore design, the test design itself needs redesign, not patch.
+- **Lockdown-test surface ARMED (4 rounds R17/R60/R66/R68):** if Phase 0.B authoring surfaces another bug on the 3-layer DML lockdown defense, the test design itself needs redesign, not patch.
+
+### Stop gates (this loop only; NOT codified into project conventions)
+
+User-ratified 2026-05-26 stop gates applied at R66+: (A) HIGH severity blocks; (B) confidence ≥ 0.80 blocks; (C) same-surface recurrence → redesign-needed. These gates were SCOPED TO THIS LOOP; the project's standard codex-companion adversarial-review pattern remains unchanged for M13+.
+
+### Hand-off to Phase 0
+
+The M12 amendment is execution-ready. Phase 0.A executor reads handoff §11 (Future-orchestrator notes) + §"Convergence log" R70 row + DEFERRED.md for residuals before starting Phase 0.A.1.
+
 ---
 
 ## §10 — Cross-milestone dependencies
