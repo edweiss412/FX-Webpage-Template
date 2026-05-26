@@ -1946,6 +1946,26 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Scope discipline:** spec + plan + handoff markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`. The schema-test extension lives in the plan markdown's prescribed test body (Task 0.B.2 Step 1) — not in a tracked test file under `tests/`.
 
+### Amendment R60 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `4af844d` (post-R59)
+- **Verdict:** **needs-attention** (2 HIGH; both anti-tautology on test specs)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F51 | HIGH | `02-phase0-validation-state.md:369-400` (R17 F15 PostgREST DML lockdown test, plan-spec'd for Phase 0.B Step 8 runtime authoring) | **Anti-tautology gap.** Test uses generic authenticated JWT + accepts ANY 42501/error as success. Without REVOKE block, `admin_only` RLS policy already denies non-admin INSERT/UPDATE/DELETE → test passes irrespective of whether REVOKE actually landed. **Admin-authenticated bypass path uncovered** — admin with table grants could go around the RPC/advisory-lock topology and test wouldn't catch. Repair: assert table-level privileges DIRECTLY via `pg_catalog.has_table_privilege` for `anon`/`authenticated` (3 verbs: INSERT, UPDATE, DELETE — verify false); add admin-authenticated probe that fails SPECIFICALLY because privileges are revoked (not because RLS denies non-admin). |
+  | F52 | HIGH | `02-phase0-validation-state.md:157-160` (R59 commit 96 schema test) | **Anti-tautology gap.** Test simulates pre-R57 NOT NULL stack → runs hard-coded ALTER inside test → asserts is_nullable="YES". Hardcoded ALTER independently performs the repair, so a future migration regression (deleting ALTER from validation_state DDL) STILL passes. Repair: run actual migration artifact against test database (e.g., apply `02-phase0-validation-state.md` DDL or generated migration SQL file), then assert is_nullable="YES". |
+
+- **Same-vector status post-R60:**
+  - F51 + F52 share class shape "structural defense test tautology" (2 instances in same round). Per-instance fix at R61; if R62 surfaces another anti-tautology gap on a different structural defense test, the class enters threshold-3 territory.
+  - F50 closed at R59 per-instance (drift-repair landed); but F52 surfaces the test-for-drift-repair was tautological.
+  - F48-class still at 2 rounds; trigger remains armed.
+  - All other classes still closed.
+
+- **Repair commit:** pending R61 implementer dispatch (inline Agent; F51 + F52 anti-tautology test-spec tightening).
+
 ---
 
 ## §10 — Cross-milestone dependencies
