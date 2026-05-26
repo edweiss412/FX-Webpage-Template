@@ -1603,6 +1603,28 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R48 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `aee054f` (post-R47)
+- **Verdict:** **needs-attention** (1 HIGH F44 + 1 MEDIUM F45)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F44 | HIGH | `01-phase0-infra.md:30-38` (Phase 0.A admin bootstrap) | **AGENTS.md invariant 3 violation** — plan instructs `lower(trim('<dev-email>'))` in SQL for admin email canonicalization. Bypasses `lib/email/canonicalize.ts` (the ONLY function that touches raw emails before entering system per invariant 3). Plan also falsely claims canonicalize.ts strips plus aliases (live helper only trims + lowercases). Implementer following this can seed admin email that doesn't match OAuth identity → blocked admin access. **NEW class — plan-level inline-email-normalization instruction.** Existing meta-test `tests/admin/no-inline-email-normalization.test.ts` catches code at execution but not plan markdown. Repair: rewrite to canonicalize-first procedure (small `tsx` invocation that imports `canonicalize.ts` and prints canonical value, then SQL inserts that canonical literal); remove false plus-alias claim. Class-sweep all plan instructions for inline email-normalization patterns (`lower(`, `trim(`, `LOWER(EMAIL)`, etc.). |
+  | F45 | MEDIUM | `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts:2184-2190` (R47 8th-slot regex) | **R47 regex false-negative.** `(?![\s\S]{0,140}?--alert-code)` lookahead accepts bare `--outcome lookup-inconclusive` if ANY `--alert-code` appears within 140 chars, even if it's a separate command/line. Plan 04:136 documentation `--outcome lookup-inconclusive` + plan 04:137 unrelated `--alert-code <invalid>` mask each other; guard doesn't fire on the unwaived doc line. Repair: constrain selector to same inline code span / table cell / line as the `--outcome` token; add negative fixture (unrelated following line contains `--alert-code` → must FIRE); explicit waiver or rewrite for plan 04:136 doc line. |
+
+- **Same-vector status post-R48:**
+  - **F44 NEW class** — plan-level inline-email-normalization instruction violating AGENTS.md invariant 3. 1 round; no priors. R49 ships per-instance fix + class-sweep + decide whether existing `no-inline-email-normalization.test.ts` extends to plan markdown OR new sibling test.
+  - **F45 R47 fix-round regression budget gap** — R47 regex too loose. 1 round. Per-instance tightening sufficient.
+  - F21-class regex set at 9 patterns / 8 structural slots (per R47 ratification). F45 is a R47 implementation gap not a new F21-class round — keeps Option-(b) threshold tracking intact.
+  - All other classes still closed.
+
+- **Repair commit:** pending R49 implementer dispatch (inline Agent; F44 per-instance + plan-level sweep + F45 regex tightening + negative fixture).
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.
