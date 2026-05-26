@@ -67,30 +67,42 @@ Expected: zero hits. `ADMIN_TABLES` is consumed structurally via the generated `
 **Files:**
 - Create: `supabase/migrations/<YYYYMMDDHHMMSS>_validation_state.sql` — timestamp matches `date +%Y%m%d%H%M%S` at file-creation time
 
-- [ ] **Step 1: Write a failing-first test that confirms `validation_state` does NOT exist.** Add a new test file `tests/db/validation-state.test.ts`:
+- [ ] **Step 1: Write a failing-first test that confirms `validation_state` does NOT exist.** Add a new test file `tests/db/validation-state.test.ts`.
+
+**R17 commit 40 F17 amendment — pattern swap from supabase-js to psql.** The prior R-series draft of this test used supabase-js `.from("information_schema.columns" as never)`, which the R16 review correctly identified as unfit for the harness: PostgREST exposes only `public` / `graphql_public` / `dev` schemas; `information_schema` is unreachable via the supabase-js builder even with the service-role key. The test would fail post-migration on harness rather than schema. The new shape mirrors the canonical pattern at `tests/db/admin-rls-runtime.test.ts:55-79` and `tests/db/admin-rls-runtime.test.ts:74-79` — `psql` against `TEST_DATABASE_URL` via `execFileSync`, parsing the resulting tab-separated output. This is the established Phase 0 harness for any test that needs `information_schema` / `pg_catalog` introspection.
 
 ```ts
-import { describe, it, expect } from "vitest";
-import { createClient } from "@supabase/supabase-js";
+import { execFileSync } from "node:child_process";
+import { describe, expect, test } from "vitest";
+
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+
+function runPsql(sql: string): string {
+  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At", "-F\t"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
+}
 
 describe("validation_state", () => {
-  it("table exists with admin_only RLS policy + singleton CHECK + alias_map jsonb", async () => {
-    const url = process.env.VALIDATION_SUPABASE_URL;
-    const key = process.env.VALIDATION_SUPABASE_SECRET_KEY;
-    if (!url || !key) throw new Error("VALIDATION_SUPABASE_URL + VALIDATION_SUPABASE_SECRET_KEY required");
-    const supabase = createClient(url, key, { auth: { persistSession: false } });
+  test("table exists with the 8 columns and types per M12 spec §3.3.2", () => {
+    const out = runPsql(`
+      SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'validation_state'
+       ORDER BY ordinal_position;
+    `);
 
-    // Introspect via information_schema (service-role bypasses RLS for this read).
-    const { data: cols, error } = await supabase
-      .from("information_schema.columns" as never)
-      .select("column_name, data_type, is_nullable")
-      .eq("table_schema", "public")
-      .eq("table_name", "validation_state");
+    // Parse tab-separated rows.
+    const rows = out.split("\n").filter((line) => line.length > 0).map((line) => {
+      const [column_name, data_type, is_nullable] = line.split("\t");
+      return { column_name, data_type, is_nullable };
+    });
 
-    expect(error).toBeNull();
-    expect(cols).toBeDefined();
+    const colMap = Object.fromEntries(rows.map((r) => [r.column_name, r]));
 
-    const colMap = Object.fromEntries((cols ?? []).map((c: { column_name: string; data_type: string; is_nullable: string }) => [c.column_name, c]));
     expect(colMap.key?.data_type).toBe("text");
     expect(colMap.last_seed_date?.data_type).toBe("date");
     expect(colMap.combos_materialized?.data_type).toBe("ARRAY");
@@ -106,6 +118,8 @@ describe("validation_state", () => {
   });
 });
 ```
+
+The test depends on `psql` being on PATH (the same dependency the existing `admin-rls-runtime.test.ts` and `picker_epoch_columns.test.ts` already carry — see the Phase 0 harness requirements in `tests/db/admin-rls-runtime.test.ts:55-79`). Pre-migration, the SELECT returns zero rows and the column-map is empty, so every `expect(colMap.<name>?.data_type)` is `undefined !== expected` and the test FAILs. Post-migration, all 8 columns return their expected types and the test PASSes. Apply-twice idempotency (Step 7) does not change the row count, so the test stays GREEN across re-applies.
 
 - [ ] **Step 2: Run the test — expect FAIL** (validation_state does not yet exist):
 
