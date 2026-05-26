@@ -1666,6 +1666,25 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Meta-test regression count:** 78 passing (`tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` 52 → +2 new F45 fixtures = 54; `tests/admin/no-inline-email-normalization.test.ts` 52 unchanged… correction: existing F21-class test file 52 tests + new sibling 10 tests + existing code-side meta-test 52 tests = breakdown by file: 52 + 16 + 10 = 78 total tests passing across three meta-test files). Verified locally `pnpm test tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts tests/cross-cutting/no-inline-email-normalization-in-plan-doc-guard.test.ts tests/admin/no-inline-email-normalization.test.ts` → 78 tests, 3 files, 0 failures.
 
+### Amendment R50 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `5109d1e` (post-R49 close-out)
+- **Verdict:** **needs-attention** (1 HIGH F46)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F46 | HIGH | `03-phase0-tooling-reseed.md:925` (Phase 0.C failure-mode guidance) | **R49 fix-round regression budget gap + NEW class shape.** Plan 03:925 failure-mode entry says "validation+5a@example.com canonicalizes to validation@example.com via strip-plus" — same false plus-alias claim R49 commit 88 fixed in plan 01:30-38, but NOT swept across plan 03. R49 (B) plan-level sweep classified plan 03:583/864/866 as DOCUMENTATION (correctly — those describe DEFERRED extension contract) but **missed :925** which carries the same FALSE-SEMANTICS-CLAIM. Implementer following this troubleshooting guidance can misdiagnose seed CHECK failures as helper-shape changes or alter fixtures/helper toward a non-existent strip-plus contract. R49 commit 89 structural defense catches inline-normalization patterns but doesn't catch false claims about canonicalize.ts semantics — **DIFFERENT class shape**. Repair: rewrite :925 to actual contract (`validation+5a@example.com` canonicalizes to itself except for case/outer whitespace; troubleshooting hint: inspect for payload path that skipped `canonicalize()` or supplied non-canonical value). Sweep ALL plan + spec for similar `strip-plus` / `canonicalizes to.*@example.com` / "strips plus aliases" / equivalent false-semantics claims. Consider extending R49 commit 89 structural defense with new regex pattern for false-semantics-claim shape. |
+
+- **Same-vector status post-R50:**
+  - F46 NEW class shape (false-semantics-claim about registered helper) — 1 round; no priors. Per-instance + sweep at R51.
+  - F44 / F45 closed at R49 regression-clean.
+  - F21-class regex set holds at 9 patterns / 8 structural slots.
+  - All other classes still closed.
+
+- **Repair commit:** pending R51 implementer dispatch (inline Agent; F46 per-instance + plan/spec sweep + decide structural defense extension).
+
 ---
 
 ## §10 — Cross-milestone dependencies
