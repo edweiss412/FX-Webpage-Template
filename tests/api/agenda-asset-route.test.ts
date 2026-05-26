@@ -228,6 +228,11 @@ async function getAgenda(
   return GET(req, { params: Promise.resolve({ show: showId, id: fileId }) });
 }
 
+async function expectPickerShowUnavailable(response: Response): Promise<void> {
+  expect(response.status).toBe(410);
+  await expect(response.json()).resolves.toMatchObject({ error: "PICKER_SHOW_UNAVAILABLE" });
+}
+
 beforeEach(() => {
   vi.resetModules();
   routeMock.admin = { ok: false, reason: "not_admin" };
@@ -363,7 +368,7 @@ describe("/api/asset/agenda/[show]/[id]", () => {
       agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
     };
     const res = await getAgenda();
-    expect(res.status).toBe(410);
+    await expectPickerShowUnavailable(res);
     expect(routeMock.filesGetCalls).toEqual([]);
   });
 
@@ -374,7 +379,7 @@ describe("/api/asset/agenda/[show]/[id]", () => {
       agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
     };
     const res = await getAgenda();
-    expect(res.status).toBe(410);
+    await expectPickerShowUnavailable(res);
     expect(routeMock.filesGetCalls).toEqual([]);
   });
 

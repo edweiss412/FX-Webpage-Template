@@ -345,6 +345,11 @@ async function headDiagram(
   });
 }
 
+async function expectPickerShowUnavailable(response: Response): Promise<void> {
+  expect(response.status).toBe(410);
+  await expect(response.json()).resolves.toMatchObject({ error: "PICKER_SHOW_UNAVAILABLE" });
+}
+
 beforeEach(() => {
   vi.resetModules();
   routeMock.admin = { ok: false, reason: "not_admin" };
@@ -434,7 +439,7 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
   test("Codex R1 P1 class-sweep: non-admin viewer on unpublished show → 410 (no Storage call)", async () => {
     routeMock.published = false;
     const res = await getDiagram();
-    expect(res.status).toBe(410);
+    await expectPickerShowUnavailable(res);
     expect(routeMock.storageDownloads).toEqual([]);
   });
 

@@ -229,6 +229,11 @@ async function getReel(init?: { headers?: Record<string, string> }): Promise<Res
   return await GET(req, { params: Promise.resolve({ show: showId }) });
 }
 
+async function expectPickerShowUnavailable(response: Response): Promise<void> {
+  expect(response.status).toBe(410);
+  await expect(response.json()).resolves.toMatchObject({ error: "PICKER_SHOW_UNAVAILABLE" });
+}
+
 beforeEach(() => {
   vi.resetModules();
   routeMock.admin = { ok: false, reason: "not_admin" };
@@ -333,7 +338,7 @@ describe("/api/asset/reel/[show]", () => {
   test("Codex R1 P1 class-sweep: non-admin viewer on unpublished show → 410 (no Drive call)", async () => {
     routeMock.show = { ...routeMock.show, published: false };
     const res = await getReel();
-    expect(res.status).toBe(410);
+    await expectPickerShowUnavailable(res);
     expect(routeMock.driveCalls).toEqual([]);
   });
 
