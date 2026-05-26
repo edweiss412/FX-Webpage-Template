@@ -80,7 +80,11 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     expect(negativeRows).toHaveLength(1);
     expect(negativeRows[0]).toMatchObject({
       sourceSurface: expect.stringContaining("Crew page"),
-      sourceRoute: expect.stringMatching(/^\/show\/[^/]+$/),
+      // M11.5 R3 fix: crew route is /show/<slug>/<shareToken> (P-R12).
+      // validateNextParam.ts:13-16 rejects slug-only crew next targets;
+      // matrix must document the tokenized form so the negative assertion
+      // pins the live route shape, not the retired one.
+      sourceRoute: expect.stringMatching(/^\/show\/[^/]+\/[^/]+$/),
       assertion: expect.stringContaining("help-affordance--"),
     });
   });
