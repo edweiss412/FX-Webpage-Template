@@ -2034,48 +2034,67 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       // caught by 7 patterns, R39 escalates to Option (b) structural
       // refactor.
       //
-      // The F35 shape: prose around the `--include-admin-email` /
-      // rate-limit-admin cleanup recipe documents a `WHERE` /
-      // `DELETE` predicate that names BOTH `kind='admin'` AND
-      // `identity` / `canonicalize` BUT omits the load-bearing
-      // `hour_bucket` clause. Post-R37 the canonical contract scopes
-      // every such predicate to a specific recorded `hour_bucket`;
-      // any cleanup prose missing that scope re-introduces the F34
-      // cross-hour destructive-deletion bug.
+      // R39 commit 77 — kind-agnostic generalization. R38 F36
+      // surfaced the same destructive-cleanup shape on the
+      // rate-limit-crew surface (R35 patched admin only; F34-class
+      // round 2). The pre-R39 regex hardcoded `kind='admin'` so
+      // the crew-shape drift could not have been caught structurally;
+      // per the R38 dispatch brief, R39 generalizes the kind value
+      // alternation to `(?:admin|crew)` so future drift on either
+      // kind fails CI. Per AGENTS.md same-vector recurrence + R39
+      // F34-class comprehensive re-analysis, the schema enum is
+      // binary (`('admin', 'crew')` per supabase/migrations/
+      // 20260501001000_internal_and_admin.sql:329 — verified
+      // 2026-05-26); no third kind exists. The regex stays at the
+      // 7-pattern count (no new addition; generalizes existing).
       //
-      // Pattern shape: match a `DELETE` / `delete` near
-      // `report_rate_limits` AND `kind` AND (`identity` OR
-      // `canonicalize`) WITHIN ~280 chars where `hour_bucket` does
-      // NOT appear in the same window. The window length is chosen
-      // to capture the entire predicate clause (canonical post-fix
-      // wording fits the bucket-scope clause within ~200 chars of
-      // the DELETE verb) without false-positive bleed into adjacent
-      // unrelated paragraphs.
+      // The F35/F36 shape: prose around the `--include-admin-email`
+      // / `--include-crew-id` cleanup recipe documents a `WHERE`
+      // / `DELETE` predicate that names BOTH `kind='<admin|crew>'`
+      // AND `identity` / `canonicalize` BUT omits the load-bearing
+      // `hour_bucket` clause. Post-R37 (admin) + R39 (crew) the
+      // canonical contract scopes every such predicate to a specific
+      // recorded `hour_bucket`; any cleanup prose missing that scope
+      // re-introduces the F34 cross-hour destructive-deletion bug.
+      //
+      // Pattern shape: match a `DELETE` / `delete` verb within ~160
+      // chars of a `kind='admin'` OR `kind='crew'` literal predicate,
+      // followed within ~280 chars by `identity` / `canonicalize`
+      // (the load-bearing predicate cluster), where `hour_bucket`
+      // does NOT appear in the same window. The window length is
+      // chosen to capture the entire predicate clause (canonical
+      // post-fix wording fits the bucket-scope clause within ~200
+      // chars of the DELETE verb) without false-positive bleed into
+      // adjacent unrelated paragraphs. The DELETE-verb proximity
+      // window is widened from the pre-R39 80-char limit to 160-char
+      // because the F35 broken wording places `report_rate_limits`
+      // (the table name, mentioned by name) between `delete` and
+      // `kind='admin'`, so the closer window missed the legitimate
+      // hit.
       //
       // The historical-qualifier escape hatch
-      // (HISTORICAL_QUALIFIER_RX above — "pre-R37" / "retired" /
-      // etc.) and the WAIVER_RX inline waiver both still apply.
+      // (HISTORICAL_QUALIFIER_RX above — "pre-R37" / "pre-R39" /
+      // "retired" / etc.) and the WAIVER_RX inline waiver both still
+      // apply.
       {
         class: "cleanup-recipe:no-bucket-scope",
         // Anchor on the cleanup-recipe verb cluster: `DELETE` /
-        // `delete` token near (within ~80 chars) BOTH `kind` (with
-        // 'admin' literal — admin-rate-limit-specific) AND a
-        // canonicalize/identity-side noun, in a ~280-char window
+        // `delete` token near (within ~160 chars) a `kind='admin'`
+        // OR `kind='crew'` literal predicate, with a canonicalize/
+        // identity-side noun within ~280 chars, in a ~280-char window
         // that contains NO `hour_bucket` token. The negative-
         // lookahead window is greedy-bounded so post-fix prose
         // with `hour_bucket=<recorded>` immediately after the
         // DELETE/identity cluster passes structurally; pre-fix
         // prose that omits `hour_bucket` entirely fires.
         //
-        // Lookbehind disambiguator avoids the "extends the
-        // `report_rate_limits` predicate to also delete `WHERE
-        // kind='admin' AND identity = canonicalize(<email>)`" F35
-        // exact shape AND the broader "cleanup ... DELETE
-        // ... kind ... canonicalize" prose. Lookahead window
-        // checks for `hour_bucket` token within ~280 chars.
-        rx: /\bdelete[^.]{0,80}\b(?:WHERE\s+)?(?:`?kind`?\s*=\s*['"]admin['"]|kind[^.]{0,40}['"]admin['"])(?=[\s\S]{0,280}?(?:\bcanonicaliz|identity))(?![\s\S]{0,280}?\bhour_bucket\b)/i,
+        // Kind-agnostic (R39 commit 77): matches `kind='admin'` OR
+        // `kind='crew'` literally; live `report_rate_limits.kind`
+        // CHECK accepts only those two values per
+        // supabase/migrations/20260501001000_internal_and_admin.sql:329.
+        rx: /\bdelete[^.]{0,160}\bkind\s*=\s*['"](?:admin|crew)['"](?=[\s\S]{0,280}?(?:\bcanonicaliz|identity))(?![\s\S]{0,280}?\bhour_bucket\b)/i,
         explain:
-          "rate-limit-admin cleanup MUST scope its DELETE/UPDATE to the EXACT recorded `hour_bucket` per the R35 commit 73 F34 contract + R37 commit 74 spec §9.1.2 propagation (canonical source: plan 04-phase0-tooling-report.md F34 cleanup safety contract block). A `DELETE WHERE kind='admin' AND identity=canonicalize(<email>)` predicate without an `AND hour_bucket=<recorded>` clause spans all hour_buckets and erases live production admin rate-limit state in unrelated hours — the F34 cross-hour destructive-cleanup data-loss bug. Rewrite the predicate to include the exact-bucket clause OR cross-reference the plan-04 F34 contract block as the authoritative source.",
+          "rate-limit cleanup (admin OR crew) MUST scope its DELETE/UPDATE to the EXACT recorded `hour_bucket` per the R35 commit 73 F34 contract (admin) + R37 commit 74 spec §9.1.2 propagation + R39 commit 76 F36 amendment (crew). A `DELETE WHERE kind='admin' AND identity=canonicalize(<email>)` OR `DELETE WHERE kind='crew' AND identity=<crew_member_id>` predicate without an `AND hour_bucket=<recorded>` clause spans all hour_buckets and erases live production rate-limit state for that identity in unrelated hours — the F34 (admin) / F36 (crew) cross-hour destructive-cleanup data-loss bug. Rewrite the predicate to include the exact-bucket clause OR cross-reference the plan-04 F34 (admin) / F36 (crew) cleanup safety contract block as the authoritative source. Canonical source: plan 04-phase0-tooling-report.md F34 cleanup safety contract block (admin) + F36 cleanup safety contract block (crew).",
       },
     ];
 
@@ -2190,10 +2209,11 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         class: "producer-table:singular-failure-state",
         rx: /\b(?:materializ\w+\s+(?:the\s+named\s+failure\s+state|each\s+outcome[^.]{0,40})\s+in\s+the\s+`?reports`?\s+table\b|INSERTs?\s*\/\s*UPDATEs?\s+the\s+`?reports`?\s+table\s+directly)/i,
       },
-      // R37 commit 75 — 7th regex (synced with main array above).
+      // R37 commit 75 + R39 commit 77 — 7th regex (synced with main
+      // array above; kind-agnostic post-R39).
       {
         class: "cleanup-recipe:no-bucket-scope",
-        rx: /\bdelete[^.]{0,80}\b(?:WHERE\s+)?(?:`?kind`?\s*=\s*['"]admin['"]|kind[^.]{0,40}['"]admin['"])(?=[\s\S]{0,280}?(?:\bcanonicaliz|identity))(?![\s\S]{0,280}?\bhour_bucket\b)/i,
+        rx: /\bdelete[^.]{0,160}\bkind\s*=\s*['"](?:admin|crew)['"](?=[\s\S]{0,280}?(?:\bcanonicaliz|identity))(?![\s\S]{0,280}?\bhour_bucket\b)/i,
       },
     ];
     const HISTORICAL_QUALIFIER_RX =
@@ -2372,5 +2392,59 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     const nonCleanupMention =
       "live `enforceQuota` writes to `report_rate_limits` with `kind='admin'` for the canonicalized admin identity; the harness must seed the canonical form too.";
     expect(fixtureFiresF21Class(nonCleanupMention).fires).toBe(false);
+
+    // R39 commit 77 F36 cleanup-by-(kind, identity)-without-bucket
+    // CREW-shape broken + corrective fixtures. F36 was F34-class
+    // round 2: R35 patched the admin destructive-cleanup surface
+    // but missed the parallel crew surface (same shape, same data-
+    // loss class). The pre-R39 7th regex hardcoded `kind='admin'`
+    // so the crew-shape drift could not have been caught
+    // structurally. R39 generalized the kind value alternation to
+    // (?:admin|crew); these fixtures pin that semantics at CI time.
+
+    // BROKEN (hypothetical pre-R39 spec/plan wording that names
+    // crew kind + identity but omits hour_bucket scope — same shape
+    // as F35 broken admin wording, parameterized on kind='crew').
+    // R39 generalized regex MUST fire on this; the pre-R39 hardcoded-
+    // admin regex would have silently passed (F36 finding).
+    const brokenF36CrewPreFixWording =
+      "`--cleanup --include-crew-id <uuid>` extends the `report_rate_limits` predicate to also delete `WHERE kind='crew' AND identity = <crew_member_id_uuid>` so the rate-limit-crew bucket created by the harness can be purged.";
+    const brokenF36CrewResult = fixtureFiresF21Class(brokenF36CrewPreFixWording);
+    expect(brokenF36CrewResult.fires).toBe(true);
+    expect(brokenF36CrewResult.matchedPattern).toBe("cleanup-recipe:no-bucket-scope");
+
+    // BROKEN — alternate crew-shape wording (DELETE phrasing, no
+    // historical-qualifier prefix, no waiver). MUST fire.
+    const brokenF36CrewAltWording =
+      "Cleanup invocation runs DELETE FROM report_rate_limits WHERE kind='crew' AND identity=<fixture_crew_member_id> across all matching rows for the fixture crew member.";
+    const brokenF36CrewAltResult = fixtureFiresF21Class(brokenF36CrewAltWording);
+    expect(brokenF36CrewAltResult.fires).toBe(true);
+    expect(brokenF36CrewAltResult.matchedPattern).toBe("cleanup-recipe:no-bucket-scope");
+
+    // PASSING — post-R39 corrective crew form. The same predicate
+    // exists but is now scoped to the EXACT recorded hour_bucket
+    // within the ~280-char lookahead window — the negative-lookahead
+    // for `hour_bucket` clears the pattern.
+    const correctiveF36CrewWithBucketScope =
+      "`--cleanup --include-crew-id <uuid>` issues a DELETE scoped to the EXACT recorded bucket: `DELETE FROM report_rate_limits WHERE kind='crew' AND identity=<crew_member_id_uuid> AND hour_bucket=<recorded_hour_bucket>` per the R39 commit 76 F36 contract.";
+    expect(fixtureFiresF21Class(correctiveF36CrewWithBucketScope).fires).toBe(false);
+
+    // PASSING — historical-frame around the pre-R39 crew wording.
+    const historicalFrameF36Crew =
+      "Pre-R39 the spec §9.1.2 cleanup paragraph said `delete WHERE kind='crew' AND identity=<crew_member_id_uuid>` with no exact-bucket clause — retired in R39 commit 76 F36 amendment (F34-class round 2; parallels F34 admin contract).";
+    expect(fixtureFiresF21Class(historicalFrameF36Crew).fires).toBe(false);
+
+    // PASSING — inline waiver on crew shape.
+    const waiverF36Crew =
+      "<!-- not-f21-class: historical quote from R38 finding F36 verbatim --> Pre-fix wording: delete WHERE kind='crew' AND identity=<crew_member_id_uuid> (no bucket scope).";
+    expect(fixtureFiresF21Class(waiverF36Crew).fires).toBe(false);
+
+    // PASSING — non-cleanup mention of crew kind. The
+    // `report_rate_limits` table + `kind='crew'` are mentioned in a
+    // non-cleanup context (live reporterFor / enforceQuota) and must
+    // NOT fire.
+    const nonCleanupMentionCrew =
+      "live `reporterFor` at lib/reports/submit.ts:168 writes `identity=auth.crewMemberId` (raw UUID) for `kind='crew'` quota — synthetic prefix cannot intercept the production quota path.";
+    expect(fixtureFiresF21Class(nonCleanupMentionCrew).fires).toBe(false);
   });
 });
