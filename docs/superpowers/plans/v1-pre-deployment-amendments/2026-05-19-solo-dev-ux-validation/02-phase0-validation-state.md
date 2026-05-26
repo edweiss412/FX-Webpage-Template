@@ -342,13 +342,13 @@ grep "validation_state" lib/audit/admin-tables.generated.ts
 
 Expected: 1+ matches.
 
-- [ ] **Step 4: Verify total table count = 22:**
+- [ ] **Step 4: Verify total table count = 18 (live track):**
 
 ```bash
 grep -c '"[a-z_]*"' lib/audit/admin-tables.generated.ts
 ```
 
-Expected: 22 (one quoted string per table).
+Expected: **18** (one quoted string per table; live track post-`validation_state` insert per the M11.5 `removedByPickerPivot` filter — `17` prior + `validation_state` = `18`). The master-spec prose track of `22` is the §4.3 nominal count edited in Tasks 0.B.3 + 0.B.5 and is NOT what the live generator emits — see Task 0.B.8 + spec §3.3.2:323 dual-mode count discipline.
 
 - [ ] **Step 5: NO commit yet** — bundle.
 
