@@ -188,8 +188,8 @@ The harness's value is rendering. **R31 rewrite (was-versus-is):** the prior ste
 
 | `--outcome` | Rendering-predicate assertion |
 |---|---|
-| `success` (admin) | `reports` row with `github_issue_url IS NOT NULL` exists; `ReportModal` succeeded-state shows the url. Unit-test asserts: API response body shape `{ ok: true, status: 'created'\|'duplicate'\|'recovered', github_issue_url: <string> }` per `lib/reports/submit.ts:179-186`. |
-| `success` (crew) | Same as admin success minus `github_issue_url` field in body. |
+| `success-admin` (R47 commit 86 F43 amendment — canonical enum value per R43 commit 81 F40 split; pre-R47 wording was `success` (admin)) | `reports` row with `github_issue_url IS NOT NULL` exists; `ReportModal` succeeded-state shows the url. Unit-test asserts: API response body shape `{ ok: true, status: 'created'\|'duplicate'\|'recovered', github_issue_url: <string> }` per `lib/reports/submit.ts:179-186`. |
+| `success-crew` (R47 commit 86 F43 amendment — canonical enum value per R43 commit 81 F40 split; pre-R47 wording was `success` (crew)) | Same as admin success minus `github_issue_url` field in body. |
 | `in-flight` | `messageFor('IDEMPOTENCY_IN_FLIGHT').dougFacing` is non-null (catalog `lib/messages/catalog.ts:154-162`). |
 | `rate-limit-admin` | `messageFor('REPORT_RATE_LIMITED_ADMIN').dougFacing` is non-null (catalog `:846-854`); `report_rate_limits` row count for the canonical admin identity is exactly 11 after harness write. The canonical admin identity = `canonicalize($VALIDATION_ADMIN_EMAIL)` per spec §9.1.2 report-fixtures row (R33 commit 68 + R35 commit 71 F33). |
 | `rate-limit-crew` | `messageFor('REPORT_RATE_LIMITED_CREW').dougFacing` is non-null (catalog `:856-...`); `report_rate_limits` row count for the fixture crew identity is exactly 4. |
