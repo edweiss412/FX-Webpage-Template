@@ -172,7 +172,7 @@ Per AGENTS.md "Same-vector recurrence triggers comprehensive re-analysis": if th
 
 | Phase file | Purpose | Estimate |
 | --- | --- | --- |
-| `01-phase0-infra.md` | Stand up Vercel project (prod-target, no domain), Supabase prod project, Drive service account + watched folder. Set 3 VALIDATION_* env vars locally + in Vercel. | 0.5–1 day |
+| `01-phase0-infra.md` | Stand up Vercel project (prod-target, no domain), Supabase prod project, Drive service account + watched folder. Set the M12 validation env vars per spec §9.1.2 (the canonical CLI command-by-command env-var contract) locally + in Vercel. | 0.5–1 day |
 | `02-phase0-validation-state.md` | Atomic PR: migration + master-spec §4.3 (line 610 prose-track 21→22 + drift footnote) + §4.1 CREATE TABLE block + AC-2.5 (line 3536, 84→88 + cross-reference footnote) + admin-tables generator regen (post-regen ADMIN_TABLES.length = 18) + 1 test baseline update (admin-rls-runtime.test.ts 4 refs 17→18 + baseline.json regen). | 0.5–1 day |
 | `03-phase0-tooling-reseed.md` | `scripts/validation-reseed.ts` + `validation:check-seed` + `validation:resolve-alias`. Run reseed --combo all + check-seed against prod-equivalent. (Picker-fixture lockstep — crew_members + auth_email_canonical eligibility only; no crew_member_auth UPSERT.) | 1–2 days |
 | ~~`04-phase0-tooling-link.md`~~ | **DELETED 2026-05-26 picker-pivot rebase** — Phase 0.D removed; the M9.5 signLinkJwt + revoked_links surfaces it wrapped were dropped at M11.5 G3 cutover; admin UI is canonical share-link interface. | — |

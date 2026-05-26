@@ -70,7 +70,7 @@ This makes the dev an admin on the new project. (`lib/email/canonicalize.ts` str
 ### Task 0.A.5: Wire env vars in Vercel + locally
 
 **Files:**
-- Modify: `.env.local.example` (document the 4 new VALIDATION_* env vars; the 2026-05-26 picker-pivot rebase removed `VALIDATION_JWT_SIGNING_SECRET` along with Phase 0.D — the M9.5 signLinkJwt consumer was retired at M11.5 G3 cutover. The R13 commit 30 amendment adds `VALIDATION_J3_CLAIM_EMAIL` — the dev's real Google account email used by the J3 leg (c) OAuth-claim walk; see spec §3.3 R13-amendment paragraph and spec §1.5 "solo-dev IS the validation".)
+- Modify: `.env.local.example` (document the M12 validation env vars per spec §9.1.2 — the canonical CLI command-by-command env-var contract; §9.1.2 is the SOLE source of truth and this row deliberately does NOT inline-restate the literal env-var names. The 2026-05-26 picker-pivot rebase retired `VALIDATION_JWT_SIGNING_SECRET` along with Phase 0.D — the M9.5 signLinkJwt consumer was retired at M11.5 G3 cutover. See spec §1.5 "solo-dev IS the validation" + spec §3.3 R13-amendment paragraph for the rationale behind the J3 claim-email contract — but for the literal env-var names, follow §9.1.2.)
 - No `.env.local` commit — `.env.local` is gitignored.
 
 - [ ] **Step 1: Write the .env.local.example update first (TDD-style starting point).**
@@ -137,8 +137,9 @@ VALIDATION_J3_CLAIM_EMAIL=
 ```
 
 - [ ] **Step 2: Verify the file change is sensible:** `git diff .env.local.example` shows only the additions, no existing-var edits.
-- [ ] **Step 3: Set the four env vars in Vercel** (Settings → Environment Variables, scope: **Production** only — NOT Preview or Development): paste the captured values from 0.A.1 + 0.A.4 for the SUPABASE_* trio; set `VALIDATION_J3_CLAIM_EMAIL` to the dev's real Google account email (the one Google OAuth signs the dev in as during the J3 walk; see R13 commit 30 + spec §1.5).
-- [ ] **Step 4: Set the four env vars locally** in `.env.local` (gitignored — do NOT commit the secrets): same values as Vercel Production scope.
+- [ ] **Step 3: Set the M12 validation env vars in Vercel Production scope** (Settings → Environment Variables, scope: **Production** only — NOT Preview or Development) per the canonical CLI command-by-command env-var contract at spec §9.1.2. Paste the captured Supabase values from 0.A.1 + 0.A.4 into the corresponding rows the §9.1.2 reseed row names.
+- [ ] **Step 3a: Operational note** — set `VALIDATION_J3_CLAIM_EMAIL` to the dev's real Google account email (the one Google OAuth signs the dev in as during the J3 walk). This is an operational instruction for one specific row of the §9.1.2 contract, NOT a re-enumeration of the contract — see R13 commit 30 + spec §1.5 for why the J3 OAuth-claim walk needs a real Google email rather than a synthesized placeholder.
+- [ ] **Step 4: Mirror those env-var values into `.env.local`** (gitignored — do NOT commit the secrets) so local CLIs read the same values as Vercel Production scope.
 - [ ] **Step 5: Set up the existing runtime env vars** if not already in Vercel Production scope: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`, `WATCHED_FOLDER_ID`, `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY` (the M11.5 picker cookie's HMAC signing key — 64 hex chars; runtime-only), plus any other vars `.env.local.example` lists for runtime. These are the production-target deployment's normal env contract; validation only ADDS the four `VALIDATION_`-prefixed vars.
 - [ ] **Step 6: Trigger another production redeploy** in Vercel so the new env vars take effect.
 - [ ] **Step 7: Verify the deployment can reach the new Supabase:** open the production URL in a browser. Click sign-in. Confirm Google OAuth lands you as admin (the email canonicalized in 0.A.2 step 4). If sign-in fails with "unauthorized", admin_emails was not seeded correctly — go back to 0.A.2.
@@ -176,7 +177,7 @@ EOF
   1. Supabase prod project responding at `VALIDATION_SUPABASE_URL`
   2. Drive service account + shared watched folder
   3. Vercel production-target deployment at `*.vercel.app` URL
-  4. Four VALIDATION_* env vars set in Vercel Production scope AND local `.env.local`; documented in `.env.local.example` (post-2026-05-26 picker-pivot rebase — `VALIDATION_JWT_SIGNING_SECRET` retired with Phase 0.D; R13 commit 30 added `VALIDATION_J3_CLAIM_EMAIL`)
+  4. M12 validation env vars set in Vercel Production scope AND mirrored to local `.env.local`; documented in `.env.local.example` — per the canonical CLI command-by-command env-var contract at spec §9.1.2 (post-2026-05-26 picker-pivot rebase retired `VALIDATION_JWT_SIGNING_SECRET` with Phase 0.D; the R13 commit 30 J3-claim-email amendment is captured in the §9.1.2 reseed row's contract).
 - [ ] **Step 2: Run the "admin sign-in" smoke as a Phase-0.A close-out probe** (NOT smoke 1 yet — that runs in Phase 0.F after everything is in place): sign into the Vercel production URL via Google, confirm admin role lands.
 - [ ] **Step 3: Continue to Phase 0.A.1** (M11.5 carry-over: SignInOrSkipGate footer copy + catalog code), or skip directly to Phase 0.B if the M11.5-IMP carry-over tasks are deferred.
 
