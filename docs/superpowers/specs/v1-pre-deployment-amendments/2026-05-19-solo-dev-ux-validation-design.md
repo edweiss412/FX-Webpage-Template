@@ -218,6 +218,7 @@ CREATE TABLE IF NOT EXISTS public.validation_state (
   key                              text PRIMARY KEY CHECK (key = 'validation_seed'),
   last_seed_date                   date NOT NULL,
   combos_materialized              text[] NOT NULL,
+  combos_seeded_dates              jsonb NOT NULL DEFAULT '{}'::jsonb,   -- R3 pre-rebase plan amendment / R10 spec sync — per-combo seeded dates so partial --combo all reseed cannot falsify the check-seed gate (predicate (i) below); `mint_validation_fixture_atomic` stamps this on every per-combo mint; `validation_finalize_all_atomic` owns the top-level last_seed_date
   alias_map                        jsonb NOT NULL DEFAULT '{}'::jsonb,   -- R12 amendment — alias→crew_id map for J3/J4 link generation
   seeded_by                        text NOT NULL,                         -- script user/process identity
   seeded_supabase_project_ref      text NOT NULL,                         -- R9 amendment — verifies target consistency
@@ -257,6 +258,17 @@ ALTER TABLE public.validation_state
   ALTER COLUMN alias_map SET DEFAULT '{}'::jsonb;
 ALTER TABLE public.validation_state
   ALTER COLUMN alias_map SET NOT NULL;
+
+-- R3 pre-rebase plan amendment / R10 spec sync — `combos_seeded_dates`
+-- schema-evolution-safe. Mirrors the alias_map idempotency pattern: ADD COLUMN
+-- IF NOT EXISTS + explicit DEFAULT/NOT NULL normalization. Apply-twice safe
+-- AND drift-safe against any early-draft column with different shape.
+ALTER TABLE public.validation_state
+  ADD COLUMN IF NOT EXISTS combos_seeded_dates jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.validation_state
+  ALTER COLUMN combos_seeded_dates SET DEFAULT '{}'::jsonb;
+ALTER TABLE public.validation_state
+  ALTER COLUMN combos_seeded_dates SET NOT NULL;
 
 -- R16 type-drift fail-loud — if column type isn't jsonb, fail with a clear
 -- diagnostic rather than silently mis-behaving downstream.
@@ -303,7 +315,7 @@ CREATE POLICY admin_only ON public.validation_state
 -- because they're admin-authenticated.
 ```
 
-**Migration idempotency at a glance.** The DDL block above is the canonical and complete migration body. Every statement is apply-twice safe: `CREATE TABLE IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT` (drift-safe per R12), `ADD COLUMN IF NOT EXISTS` (alias_map idempotency), inherently-idempotent `GRANT`s, and `DROP POLICY IF EXISTS + CREATE POLICY` (R15 fold-in). No standalone amendment snippets — implementers apply the block as-is.
+**Migration idempotency at a glance.** The DDL block above is the canonical and complete 8-column migration body (R10 spec sync — `combos_seeded_dates` added per R3 pre-rebase plan amendment; see §15.27 audit-trail). Every statement is apply-twice safe: `CREATE TABLE IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT` (drift-safe per R12), `ADD COLUMN IF NOT EXISTS` (alias_map idempotency AND combos_seeded_dates idempotency — both columns carry the same ADD COLUMN + SET DEFAULT + SET NOT NULL idempotency stanza), inherently-idempotent `GRANT`s, and `DROP POLICY IF EXISTS + CREATE POLICY` (R15 fold-in). No standalone amendment snippets — implementers apply the block as-is.
 
 **Master-spec discipline mapping (per AGENTS.md project-scoped additions):**
 
@@ -311,12 +323,18 @@ CREATE POLICY admin_only ON public.validation_state
 |---|---|
 | Tier × domain | Admin-only (operational tooling). Should be added to the master spec's §4.3 admin-only tables list at the moment this migration lands. |
 | CHECK constraint | `validation_state_combos_check` enumerates the allowed combo names (10 R-combos after R8 split: R1–R6 + R7a/R7b/R8a/R8b, plus 6 show-wide states after R11 split: SW-PRE_TRAVEL / SW-TRAVEL_IN / SW-SHOW_1 / SW-SHOW_INTERIOR / SW-SHOW_LAST / SW-POST_SHOW). Adding a new combo requires migrating the CHECK constraint (using the R12 DROP+ADD drift-safe pattern) AND extending the script's mapping table in lockstep. |
-| Migration idempotency | The DDL block above uses `CREATE TABLE IF NOT EXISTS` for the table, `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` (R12 amendment — drift-safe; the R11 duplicate_object pattern only handled "constraint already present" but didn't migrate enum drift), and `ADD COLUMN IF NOT EXISTS` for the alias_map column. Apply-twice safe AND enum-drift safe per AGENTS.md. |
+| Migration idempotency | The DDL block above uses `CREATE TABLE IF NOT EXISTS` for the table, `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` (R12 amendment — drift-safe; the R11 duplicate_object pattern only handled "constraint already present" but didn't migrate enum drift), and `ADD COLUMN IF NOT EXISTS` for BOTH the `alias_map` column AND the `combos_seeded_dates` column (R3 pre-rebase plan amendment / R10 spec sync — both columns carry mirror-shape ADD COLUMN + SET DEFAULT + SET NOT NULL idempotency stanzas). Apply-twice safe AND enum-drift safe per AGENTS.md. |
 | RLS | Enabled with `admin_only FOR ALL` policy (R9 amendment — matches master spec §4.3 contract for all admin-only tables; service role bypasses RLS so the script writes work; admin session reads work for any future audit UI; non-admin sessions denied across all 4 verbs as AC-2.5 requires). |
 | Supabase call-boundary | Script's `{ data, error }` destructure is mandatory per AGENTS.md invariant 9. The check-seed command uses `select`'s error branch to distinguish "table not present" (Phase 0 incomplete) from "table empty / stale" (re-seed required). |
 | Meta-test | If a `tests/db/` test enumerates admin-only tables, `validation_state` is added to that registry per the AGENTS.md meta-test inventory rule. The M12 plan declares this in its meta-test inventory section. |
 
-**Singleton write semantics.** The re-seed script writes the singleton via `INSERT INTO validation_state (key, ...) VALUES ('validation_seed', ...) ON CONFLICT (key) DO UPDATE SET ...` (upsert). The `validation:check-seed` command reads exactly the `key = 'validation_seed'` row and fails if (a) zero rows, (b) `last_seed_date != current_date`, (c) `combos_materialized` doesn't cover the combos needed by the next walk (16 combos for `--combo all`), (d) `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF` (R9 amendment — target-consistency), OR (e) `alias_map` does not satisfy the §3.3 alias-map storage predicate (see §3.3 for the canonical count — currently **9 alias entries per R-combo × 10 R-combos + 1 alias per SW-state × 6 = 96 total leaves** post-2026-05-26 picker-pivot rebase; predicate cross-references §3.3 rather than restating the value, so future count drift updates only §3.3). See §3.3 for the canonical alias-map contract.
+**Singleton write semantics.** The re-seed script writes the singleton via two SECURITY DEFINER RPCs (per AGENTS.md invariant 2 advisory-lock contract; PostgREST `from('validation_state').upsert(...)` cannot share a transaction with `pg_advisory_xact_lock`, so all writes go through RPCs):
+
+1. **`mint_validation_fixture_atomic(p_combo, p_fixture_payload)`** — invoked per-combo by `validation:reseed`. Acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))`, then within the SAME transaction: UPSERTs `shows` (the `shows_create_share_token_after_insert` trigger auto-creates the `show_share_tokens` row on first insert; ON CONFLICT no-op for re-seeds preserves the existing share-token), UPSERTs `crew_members` per payload, merges the alias-map slice into `validation_state.alias_map`, AND stamps `combos_seeded_dates[p_combo] = $validationTodayIso` for the per-combo gate (see predicate (i) below). Does NOT touch `last_seed_date`.
+
+2. **`validation_finalize_all_atomic(p_required_combos, p_validation_today_iso)`** — invoked ONLY by `validation:reseed --combo all` after every per-combo `mint_validation_fixture_atomic` call succeeds. Promotes `last_seed_date = p_validation_today_iso` and confirms `combos_materialized ⊇ p_required_combos`. If any per-combo mint failed earlier, the finalizer is NOT called → `last_seed_date` stays at its prior value → check-seed predicate (i) catches the partial seed at the next walk-session gate. The two-RPC split is the structural defense against the partial-`--combo all` falsifies-gate failure mode (R3 pre-rebase plan amendment; R10 spec sync).
+
+The `validation:check-seed` command reads exactly the `key = 'validation_seed'` row and fails if (a) zero rows, (b) `last_seed_date != current_date`, (c) `combos_materialized` doesn't cover the combos needed by the next walk (16 combos for `--combo all`), (d) `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF` (R9 amendment — target-consistency), (e) `alias_map` does not satisfy the §3.3 alias-map storage predicate (see §3.3 for the canonical count — currently **9 alias entries per R-combo × 10 R-combos + 1 alias per SW-state × 6 = 96 total leaves** post-2026-05-26 picker-pivot rebase; predicate cross-references §3.3 rather than restating the value, so future count drift updates only §3.3), OR (i) for ANY combo in the requested set, `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO` — catches the partial-`--combo all` failure mode where some combos succeeded on day X and others stamped day Y (UTC midnight crossed mid-run) OR some combos succeeded and others failed (the finalizer never ran). check-seed accepts the date as an env var or CLI flag; defaults to `new Date().toISOString().slice(0, 10)` (TZ-pinned UTC date per `tests/cross-cutting/validation-tooling-tz-pin.test.ts`). See §3.3 for the canonical alias-map contract.
 
 **Plan-time deliverable — atomic with master-spec amendment (R7+R8 amendment; 2026-05-26 picker-pivot rebase per (α) + footnote per (γ) hybrid).** The M12 plan's Phase 0 sub-task that authors the re-seed script ALSO authors the `validation_state` migration AND atomically updates the master spec + admin-tables registry + every hardcoded baseline.
 
@@ -1330,3 +1348,25 @@ User selected **(α) + a footnote per (γ)** — bump 21→22 + add `validation_
 - Class-sweep on amendment vocabulary: pre-amendment baseline 187 hits across 12 files (71 in spec). Post-amendment residual: see the milestone handoff's Convergence log (R6 row). Acceptable residuals: (a) §15.x audit-trail entries that name the retired vocabulary as part of historical findings (e.g., §15.21–§15.25's references to `alias_5a_lead_for_revoke`, `signLinkJwt`, `revoked_links` in the round-N findings tables are historical record); (b) the §3.3 owned-fixture-mapping "Pre-M11.5 historical note" paragraph that explains the rebase; (c) the §3 persona-inventory rebase note; (d) plan-tree rebase-note paragraphs in `00-overview.md`'s disagreement-loop preempt table (RETIRED rows), `01-phase0-infra.md`'s env-var contract note, `02-phase0-validation-state.md`'s rebase-corrections table, `04-phase0-tooling-report.md`'s validation-tag cleanup analogy. `03-phase0-tooling-reseed.md` was inline-rewritten in commit 13 (residual hits 29 → 0); `04-phase0-tooling-link.md` was deleted entirely (Phase 0.D deletion). R6 surfaced two HIGH live-operational-prose hits the initial class-sweep missed (§9.2 smokes 2/5/6 + J1/J2 prose); R7 repair pending.
 
 **Why this is an amendment and not a 26th review round.** Per user R0 authorization carried forward from §15.25 (and the milestone handoff's §4 do-not-relitigate item 23), the spec proceeded to plan-writing after R25 without formal APPROVE. The 26th adversarial round was structurally not the convergence path — the picker pivot ratified between R25 (2026-05-19) and M11.5 close-out (2026-05-25) changed the rebase target. The amendment is the resolution; review resumes at R6 (= post-rebase R1) against the rebased spec + plan. R6 audit lives inline in the milestone handoff's Convergence log.
+
+### 15.27 R10 sync — `combos_seeded_dates` + finalize_all RPC + check-seed predicate (i) (2026-05-26)
+
+**Round trigger.** R9 adversarial review (HEAD `68c5807`) surfaced F7: spec §3.3.2 DDL (7 columns) lagged the M12 plan tree's DDL (8 columns) by one column — `combos_seeded_dates jsonb NOT NULL DEFAULT '{}'::jsonb`. The R3 pre-rebase plan amendment that added this column also added: (a) the `validation_finalize_all_atomic` SECURITY DEFINER RPC that owns `last_seed_date` promotion (split from `mint_validation_fixture_atomic` which owns per-combo stamping), and (b) check-seed predicate (i) — `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO` for any required combo — which catches the partial-`--combo all` failure mode where some per-combo mints succeed and others fail (the finalizer is never called, so `last_seed_date` stays stale, BUT predicate (b) alone wouldn't catch it because some combos were just stamped today). The three deltas (DDL column + RPC contract + check-seed predicate) are interlocking: the column is the gate's state, the predicate reads it, the RPC pair writes it.
+
+**Orchestrator decision (2026-05-26).** Option (a) — amend spec to catch up to plan — chosen over option (b) — remove the column from plan to re-converge on the 7-column spec. Removing the column would re-introduce the partial-`--combo all`-falsifies-gate bug that R3 fixed. The plan side carries the bug fix; the spec catches up.
+
+**Sections amended:**
+- §3.3.2 DDL block (lines 217-225 → 8 columns): added `combos_seeded_dates jsonb NOT NULL DEFAULT '{}'::jsonb` between `combos_materialized` and `alias_map` with inline R3/R10 attribution + finalize_all RPC cross-reference.
+- §3.3.2 DDL idempotency stanza: added `ADD COLUMN IF NOT EXISTS combos_seeded_dates` + `ALTER COLUMN SET DEFAULT/NOT NULL` block mirroring the `alias_map` idempotency stanza (R12+R16 pattern).
+- §3.3.2 "Migration idempotency at a glance" sentence: updated to "canonical and complete 8-column migration body"; "BOTH columns carry the same ADD COLUMN + SET DEFAULT + SET NOT NULL idempotency stanza" annotation.
+- §3.3.2 "Migration idempotency" table row: updated to name both `alias_map` AND `combos_seeded_dates` as the ADD COLUMN IF NOT EXISTS columns.
+- §3.3.2 "Singleton write semantics" paragraph: completely rewritten — was 1 paragraph naming "the re-seed script writes the singleton via INSERT...UPSERT"; now 3 paragraphs naming the TWO SECURITY DEFINER RPCs (`mint_validation_fixture_atomic` per-combo + `validation_finalize_all_atomic` --combo-all-finalizer), the AGENTS.md invariant 2 advisory-lock contract that drove the RPC split (PostgREST builder cannot share a transaction with `pg_advisory_xact_lock`), the per-combo stamping of `combos_seeded_dates`, and the check-seed predicate (i) that catches partial-`--combo all` falsifies-gate. Predicates list bumped from (a)-(e) to (a)-(e) + (i). The R3 amendment is now spec-canonical.
+
+**Class-sweep audit (R10 mandate).** Per the orchestrator's R10 dispatch, every plan §0.B + §0.C DDL/RPC/CHECK/policy/GRANT reference was audited against spec §3.3.2 + §3.3. Two additional spec-vs-plan drifts surfaced (both adjacent to F7, not standalone findings):
+
+- `validation_finalize_all_atomic` RPC contract — plan `03-phase0-tooling-reseed.md:142` + `:300+` describes the function shape; spec had no mention. Now added to §3.3.2 "Singleton write semantics" paragraph.
+- check-seed predicate (i) — plan `03-phase0-tooling-reseed.md:482` describes the partial-reseed gate; spec §3.3.2 listed (a)-(e) only. Now added to §3.3.2 "Singleton write semantics" paragraph as predicate (i).
+
+No other plan-vs-spec DDL/RPC/CHECK/policy/GRANT divergence found in §0.B or §0.C. All other plan-side R4/R5 pre-rebase amendments are spec-mirrored.
+
+**Sister F6 finding (handled in plan-side R10 commit, NOT spec).** The R9 round also surfaced F6: Phase 0.B Tasks 0.B.7 + 0.B.10 still modify deleted test files (`tests/db/rls.test.ts` + `tests/cross-cutting/auth.test.ts`) despite the §15.26 stale-citation paragraph claiming "every M12 cite is rewritten to point at `tests/db/admin-rls-runtime.test.ts`." The header note documented a fix the body didn't reflect — same class shape as the pre-R6 03-reseed file-head-rebase-note bug. F6 is repaired in the R10 plan-side commit via Phase 0.B task-body inline-rewrite (delete Task 0.B.7, delete Task 0.B.10, fix 0.B.8 ref count + line list, fix 0.B.9 baseline row count, remove deleted-task commands from 0.B.11 gate + 0.B.12 commit recipe). Spec was not modified by F6; the spec already correctly declared the test files DROPPED at §3.3.2 step 6 (lines 338-339).
