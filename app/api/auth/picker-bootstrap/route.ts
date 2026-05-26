@@ -153,9 +153,10 @@ export async function GET(request: Request): Promise<Response> {
     return htmlResponse("OAUTH_REDIRECT_INVALID", 403);
   }
 
-  const serviceRole = createSupabaseServiceRoleClient();
+  let serviceRole: ReturnType<typeof createSupabaseServiceRoleClient>;
   let targetShowId: string | null = null;
   try {
+    serviceRole = createSupabaseServiceRoleClient();
     const { data, error } = await serviceRole.rpc("resolve_show_by_slug_and_token", {
       p_slug: parsedNext.slug,
       p_share_token: parsedNext.shareToken,

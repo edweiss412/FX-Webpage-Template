@@ -11,9 +11,9 @@ type ResetPickerEpochResult =
 
 export async function resetPickerEpoch(input: { showId: string }): Promise<ResetPickerEpochResult> {
   const adminCtx = await requireAdminIdentity();
-  const supabase = await createSupabaseServerClient();
 
   try {
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("reset_picker_epoch_atomic", { p_show_id: input.showId });
     if (error || typeof data !== "number") {
       return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };

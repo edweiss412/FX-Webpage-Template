@@ -120,11 +120,17 @@ export async function GET(
 
   const showId = viewer.showId;
 
-  const svc = createSupabaseServiceRoleClient();
-  const { data, error } = await svc.rpc("viewer_version_token", {
-    p_show_id: showId,
-  });
-  if (error) {
+  let data: unknown = null;
+  try {
+    const svc = createSupabaseServiceRoleClient();
+    const { data: versionToken, error } = await svc.rpc("viewer_version_token", {
+      p_show_id: showId,
+    });
+    if (error) {
+      return NextResponse.json({ error: "SHOW_VERSION_TOKEN_RPC_FAILED" }, { status: 500 });
+    }
+    data = versionToken;
+  } catch {
     return NextResponse.json({ error: "SHOW_VERSION_TOKEN_RPC_FAILED" }, { status: 500 });
   }
 

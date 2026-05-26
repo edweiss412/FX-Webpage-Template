@@ -23,9 +23,9 @@ export async function rotateShareToken(input: {
   previousShareToken?: string;
 }): Promise<RotateShareTokenResult> {
   await requireAdmin();
-  const supabase = await createSupabaseServerClient();
 
   try {
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("rotate_show_share_token", { p_show_id: input.showId }).single();
     if (error || !isRotateShareTokenRow(data)) {
       return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
