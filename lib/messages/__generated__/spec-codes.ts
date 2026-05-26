@@ -48,7 +48,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "The crew member you tried to act on couldn't be found. Refresh and try again.",
     "followUp": "Doug → refresh per-show admin page",
-    "helpfulContext": "The selected crew member no longer exists on the show's active roster. Likely the crew row was removed by a sync apply between page render and click.",
+    "helpfulContext": "The submitted crew identifier no longer matches the current roster. Likely the crew row was removed by a sync apply between page render and click.",
   },
   "ADMIN_LINK_ISSUED_OK": {
     "crewFacing": null,

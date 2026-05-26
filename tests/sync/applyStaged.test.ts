@@ -1471,15 +1471,6 @@ describe("applyStaged live-scope", () => {
     expect(source).toContain("{ tryOnly: false }");
   });
 
-  test("auth floor bump keeps Issue New Link single-click recoverable", () => {
-    const source = readFileSync(join(process.cwd(), "lib/sync/applyStaged.ts"), "utf8");
-
-    expect(source).toMatch(
-      /set\s+revoked_below_version\s*=\s*greatest\(\s*revoked_below_version,\s*current_token_version\s*\)/i,
-    );
-    expect(source).not.toMatch(/revoked_below_version\s*=\s*[^;\n]*current_token_version\s*\+\s*1/i);
-  });
-
   test("wizard-scope Apply approves the staged row and manifest without Phase 2", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const readWizardPendingSyncForApply = vi.fn(async () =>

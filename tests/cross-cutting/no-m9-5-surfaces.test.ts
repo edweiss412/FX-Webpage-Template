@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 const ROOTS = ["app", "lib", "components", "tests"];
-const SELF = "tests/cross-cutting/no-m9-5-surfaces.test.ts";
+const ALLOWED_FILES = new Set([
+  "tests/cross-cutting/no-m9-5-surfaces.test.ts",
+  "tests/db/cutover-drop-m9-5.test.ts",
+]);
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"]);
 
 const TERMS = [
@@ -31,7 +34,7 @@ function filesUnder(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
-    if (path === SELF) continue;
+    if (ALLOWED_FILES.has(path)) continue;
     const stat = statSync(path);
     if (stat.isDirectory()) {
       if (path.includes("__snapshots__")) continue;

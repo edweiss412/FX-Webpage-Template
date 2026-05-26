@@ -27,12 +27,6 @@ INSERT INTO _allowed_watermark_columns (table_name, column_name) VALUES
   -- Column exists at supabase/migrations/20260501001000_internal_and_admin.sql:197.
   ('pending_ingestions', 'last_seen_modified_time'),
   ('deferred_ingestions', 'deferred_at'),
-  ('crew_member_auth', 'current_token_version'),
-  ('crew_member_auth', 'max_issued_version'),
-  ('crew_member_auth', 'revoked_below_version'),
-  ('link_sessions', 'expires_at'),
-  ('link_sessions', 'last_active_at'),
-  ('link_sessions', 'created_at'),
   ('report_rate_limits', 'hour_bucket'),
   ('sync_log', 'occurred_at'),
   ('sync_audit', 'applied_at'),

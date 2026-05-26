@@ -1,0 +1,23 @@
+{
+  "captured_at_sha": "m11.5-g3-cutover",
+  "captured_at": "2026-05-25T00:00:00.000Z",
+  "class_a_tables": [
+    "admin_alerts",
+    "app_settings",
+    "deferred_ingestions",
+    "drive_watch_channels",
+    "onboarding_scan_manifest",
+    "pending_ingestions",
+    "pending_snapshot_uploads",
+    "pending_syncs",
+    "recovery_drift_cooldowns",
+    "report_rate_limits",
+    "reports",
+    "revision_race_cooldowns",
+    "shows_internal",
+    "shows_pending_changes",
+    "sync_audit",
+    "sync_log",
+    "wizard_finalize_checkpoints"
+  ]
+}

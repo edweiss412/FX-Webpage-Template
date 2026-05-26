@@ -1,12 +1,12 @@
 /**
  * tests/db/admin-rls-runtime.test.ts (M9 C9.0.5 / closes M2-D2)
  *
- * Runtime RLS behavioral-parity probe for the 21 admin-gated tables
+ * Runtime RLS behavioral-parity probe for the 17 admin-gated tables
  * (Class A: `admin_only FOR ALL` policies that consume
  * `public.is_admin()`). C9 replaced the body of `public.is_admin()`
  * from a hardcoded `array['dlarson@fxav.net','edweiss412@gmail.com']`
  * lookup to a runtime `EXISTS` subquery against
- * `public.admin_emails`. The 21 tables' policies were not modified,
+ * `public.admin_emails`. The table policies were not modified,
  * but a bug in the new is_admin() body, the admin_emails grants, or
  * the email_shape CHECK could silently flip admin/non-admin behavior
  * on any table. This probe fires the matrix at runtime so a future
@@ -18,7 +18,7 @@
  * enters the matrix.
  *
  * Scope (post-R3):
- *   - Class A only (21 tables; FOR ALL admin_only policies).
+ *   - Class A only (17 tables after the M11.5 G3 cutover; FOR ALL admin_only policies).
  *   - 2 roles: admin (JWT-role bypass) + non-admin (random email).
  *   - BEHAVIORAL SELECT: admin gets a SELECT response (count ≥ 0, no
  *     permission denied); non-admin gets 0 rows.
@@ -108,8 +108,8 @@ function nonAdminJwtClaims(): string {
 }
 
 describe("Class A runtime RLS behavioral parity (M9 C9.0.5 — closes M2-D2)", () => {
-  test("derived table count matches the 21 admin_only FOR ALL tables", () => {
-    expect(CLASS_A_TABLES).toHaveLength(21);
+  test("derived table count matches the 17 admin_only FOR ALL tables", () => {
+    expect(CLASS_A_TABLES).toHaveLength(17);
   });
 
   test("zero drift from baseline (M2-D2 regression gate)", () => {
@@ -210,12 +210,12 @@ describe("Class A runtime RLS behavioral parity (M9 C9.0.5 — closes M2-D2)", (
 /**
  * Scope note for the M2-D2 closure contract:
  *
- * The handoff Task 9.C9.0.5 originally specified a 4-verb × 21-table
+ * The handoff Task 9.C9.0.5 originally specified a 4-verb × table
  * × 2-role matrix (168 cells) plus Class B coverage. The probe here
  * implements that contract via the structural + behavioral combo
  * rather than per-cell mutation behavior because:
  *
- *   1. The 21 admin_only policies are FOR ALL — one predicate
+ *   1. The admin_only policies are FOR ALL — one predicate
  *      (`is_admin()`) gates all four verbs in BOTH the USING and
  *      WITH CHECK clauses. Pinning the predicate at both the read
  *      gate (qual) AND the write gate (with_check) AND asserting

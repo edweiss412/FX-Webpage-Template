@@ -101,7 +101,7 @@ describe("AC-X.1 §12.4 catalog parity", () => {
 
   test("producer-site discovery is code-shape based and finds committed producer literals", () => {
     const producerCodes = codeProducerLiterals();
-    expect(producerCodes.has("LEAKED_LINK_DETECTED")).toBe(true);
+    expect(producerCodes.has("OAUTH_IDENTITY_CLAIMED")).toBe(true);
     expect(producerCodes.has("REPORT_PIPELINE_FAILED")).toBe(true);
   });
 
