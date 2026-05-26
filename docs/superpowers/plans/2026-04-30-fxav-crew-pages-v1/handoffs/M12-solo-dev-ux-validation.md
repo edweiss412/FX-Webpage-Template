@@ -1218,7 +1218,48 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Path A (incremental) ratified at R37 dispatch:** ship per-instance F35 fix + 7th regex pattern; monitor F21-class accumulation. If R38 surfaces another F21-class peer despite the 7th pattern, R39 mandates Option (b) — no further regex extensions.
 
-- **Repair commit:** pending R37 implementer dispatch (inline Agent; spec §9.1.2 cleanup-recipe propagation + 7th regex + R34/R35 plan-side amendment audit for residual propagation gaps).
+- **Repair commit:** closed in R37 (see below).
+
+### Amendment R37 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `db7f416` (post-R37)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R38 adversarial review**
+
+- **F35 repair (commit 74):** spec §9.1.2:824 cleanup paragraph rewritten to mirror R35 commit 73 F34 plan-side contract — 6 contract elements (snapshot before seed, exact-bucket UPSERT, branch-on-prior-count cleanup, persistence options, refusal-without-snapshot, `--force-cleanup-without-snapshot --hour-bucket <ISO>` emergency flag). Pre-R37 destructive `DELETE WHERE kind='admin' AND identity=canonicalize(...)` wording explicitly retired.
+
+- **F21-class 7th regex pattern (commit 75) — `cleanup-recipe:no-bucket-scope`:**
+  - Regex: matches `DELETE` verb + `kind='admin'` within 80 chars + positive-lookahead for `canonicaliz|identity` within 280 chars + negative-lookahead asserting `hour_bucket` NOT present in same window
+  - Backtick-handling fix-up during authoring: initial draft excluded backticks (markdown inline-code fences) but blocked matches across fence boundaries; removed exclusion to match through fences
+  - **RED phase:** pre-R37 HEAD spec §9.1.2:824 fires 1 finding (`matched: "delete \`WHERE kind='admin'"`)
+  - **GREEN phase:** post-R37 spec → 0 findings
+  - Negative-case fixtures: F35-pre-fix-wording (fires); F35-corrective-with-bucket (passes); historical-frame (passes via HISTORICAL_QUALIFIER_RX); waiver (passes via WAIVER_RX); UPDATE-only-no-DELETE (passes); non-cleanup-narrative (passes)
+
+- **(C) plan-side amendment propagation audit** (per fix-round regression budget rule):
+
+  | Amendment | Propagation status |
+  |---|---|
+  | R35 commit 71 (Phase 0.A.5 + .env.local.example ADMIN_EMAIL) | CLEAN — spec §9.1.2:824 already names ADMIN_EMAIL (R33 commit 68); spec §9.1.2:810 already cross-references plan §0.A.5 |
+  | R35 commit 72 (walker test file) | CLEAN — test-only, no spec implications |
+  | R35 commit 73 (cleanup safety) | PEER (F35) — CLOSED by R37 commit 74; all 6 contract elements propagated |
+
+  Total residual propagation gaps: 0. Commit 76 (adjacent peer fixes) NOT NEEDED.
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 74 | `8b7149d` | docs(spec-m12): R37 F35 — §9.1.2 validation:report-fixtures cleanup snapshot+restore propagation |
+  | 75 | `db7f416` | test(cross-cutting): R37 F21-class 7th regex pattern — cleanup-by-kind-identity-without-bucket (RED→GREEN) |
+
+- **Meta-test regression:** **18/18 PASS** maintained (7th regex extends existing F21-class assertion; no new test additions).
+
+- **Same-vector + structural-defense status post-R37:**
+  - **F21-class: 4 rounds; defense at 7 regex patterns.** Per R33 row Option-(b) threshold flag (~8 patterns), 1 pattern below trigger. **If R38 surfaces another F21-class peer NOT caught by 7 patterns, R39 MUST escalate to Option (b) refactor — no further regex extensions.** Candidate Option (b): spec §13.2.3-style structural assertion mapping every plan-side amendment to a canonical spec ratification entry.
+  - All other classes still closed.
+
+- **Scope discipline:** spec markdown + 1 commit to `tests/cross-cutting/`. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
 
 ---
 
