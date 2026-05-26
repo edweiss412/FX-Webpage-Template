@@ -2195,7 +2195,15 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - Drift-repair surface still armed (R59+R61+R63+R65 = 4 rounds).
   - All other classes still closed.
 
-- **Repair commit:** pending R69 implementer dispatch.
+- **Repair commit:** closed in R69 (commit 103 `48e642a`).
+
+### Amendment R69 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `48e642a` (post-R69)
+- **F56 repair (commit 103):** plan 02:524-574 createClient pattern fixed — all 3 clients (anon/authenticated/admin) use `anonKey` as second arg (API key → `apikey` header); user JWTs flow via `global.headers.Authorization = Bearer <jwt>`. Local consts renamed `authKey`→`authenticatedJwt`, `adminKey`→`adminJwt` to match semantic. Inline rationale cites R69 F56 + supabase-js convention.
+- **Meta-test regression:** **163/163 PASS** in `tests/cross-cutting/` (25.47s).
+- **Same-vector status post-R69:** F56 closed per-instance. Lockdown-test surface ARMED for R70 same-surface convergence detector (4 rounds total). Drift-repair surface also armed. All other classes still closed.
 
 ---
 
