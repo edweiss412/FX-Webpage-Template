@@ -8,7 +8,7 @@ Per memory `feedback_deferral_discipline.md`. Three buckets:
 
 ## Open deferrals
 
-_(empty at plan-write time; populated during Phase 8 iteration as SHOULD-FIX items get triaged)_
+_(empty at plan-write time; populated during Phase 7 iteration as SHOULD-FIX items get triaged)_
 
 ## Closed deferrals
 

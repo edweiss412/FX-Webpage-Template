@@ -174,7 +174,7 @@ If between sign-off and the v1-launch milestone the dev encounters a MUST-FIX th
 
 ---
 
-## Phase 8 failure modes
+## Phase 7 failure modes
 
 - **The final sweep keeps surfacing new MUST-FIX.** Each iteration introduces new issues. Possible causes: (a) targeted re-exercise scope is too narrow — escalate to full sweep more often; (b) the fix is introducing regressions — slow down, review the fix more carefully; (c) the matrix coverage was too thin in initial sweep — accept that the M12 budget is non-trivial.
 - **The dev cannot write the subjective sign-off sentence.** The milestone is NOT done. Continue iteration. The sentence's purpose is to force a confidence check that a bug-list cannot.

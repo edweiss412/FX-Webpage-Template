@@ -11,7 +11,7 @@ Per AGENTS.md "UI work is always Opus" hard rule + the project's standard routin
 | 0.E — Report-fixtures harness | Opus / Claude Code | Codex — cross-CLI adversarial review | Service-role write tooling; same routing as `lib/data/` work. |
 | 0.F — Phase 0 smokes | Opus / Claude Code | (no per-phase review — manual smoke runs) | Manual exercise of the prod-equivalent stack. |
 | Phase 1 — Matrix walk + journeys + cold-start | Opus / Claude Code | (no per-phase review — manual exercise) | The dev (Opus driver) IS the exercise; not a code-review surface. |
-| Phase 8 — Iteration + final sweep + sign-off | Opus / Claude Code | Codex — cross-CLI adversarial review on fixes (per-fix; matches M0–M10 pattern) | Fixes are code; same routing as the surfaces being fixed. |
+| Phase 7 — Iteration + final sweep + sign-off | Opus / Claude Code | Codex — cross-CLI adversarial review on fixes (per-fix; matches M0–M10 pattern) | Fixes are code; same routing as the surfaces being fixed. |
 
 **Plan tree adversarial review** (this directory's 00-overview + phase files): Codex runs up to 40 rounds per user R0 authorization. Each round is fresh-eyes, anchored on milestone-base.
 
