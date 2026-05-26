@@ -129,6 +129,49 @@ beforeEach(() => {
   infraMock.throwOnFrom = false;
 });
 
+const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
+  "app/api/auth/picker-bootstrap/route.ts",
+  "app/api/show/[slug]/version/route.ts",
+  "app/auth/callback/route.ts",
+  "app/auth/sign-out/route.ts",
+  "lib/auth/picker/resolvePickerSelection.ts",
+  "lib/auth/picker/resetPickerEpoch.ts",
+  "lib/auth/picker/rotateShareToken.ts",
+] as const;
+
+const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE =
+  /\bcreateSupabase(?:ServiceRole|Server)Client\s*\(/;
+
+function braceDelta(line: string): number {
+  const withoutLineComment = line.replace(/\/\/.*$/, "");
+  return (withoutLineComment.match(/\{/g) ?? []).length - (withoutLineComment.match(/\}/g) ?? []).length;
+}
+
+function supabaseConstructorCallsOutsideTry(source: string): Array<{ line: number; text: string }> {
+  const lines = source.split("\n");
+  const outsideTry: Array<{ line: number; text: string }> = [];
+  const tryDepths: number[] = [];
+  let depth = 0;
+
+  lines.forEach((line, index) => {
+    const opensTryBlock = /\btry\s*\{/.test(line);
+    if (opensTryBlock) {
+      tryDepths.push(depth + 1);
+    }
+
+    if (SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE.test(line) && tryDepths.length === 0) {
+      outsideTry.push({ line: index + 1, text: line.trim() });
+    }
+
+    depth += braceDelta(line);
+    while (tryDepths.length > 0 && depth < tryDepths[tryDepths.length - 1]!) {
+      tryDepths.pop();
+    }
+  });
+
+  return outsideTry;
+}
+
 describe("META infra-failure contract", () => {
   describe("R41 Supabase boundary source registry", () => {
     test("picker-bootstrap destructures both RPC boundaries", () => {
@@ -152,6 +195,18 @@ describe("META infra-failure contract", () => {
       const source = readFileSync("lib/auth/picker/resolvePickerSelection.ts", "utf8");
       expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+authClient\.rpc\("auth_email_canonical"\)/);
       expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("crew_members"\)[\s\S]*?\.select\("email"\)/);
+    });
+
+    test("registered Supabase client constructors are inside try blocks", () => {
+      const violations = SUPABASE_CONSTRUCTOR_CONTRACT_FILES.flatMap((file) => {
+        const source = readFileSync(file, "utf8");
+        return supabaseConstructorCallsOutsideTry(source).map((violation) => ({
+          file,
+          ...violation,
+        }));
+      });
+
+      expect(violations).toEqual([]);
     });
   });
 
