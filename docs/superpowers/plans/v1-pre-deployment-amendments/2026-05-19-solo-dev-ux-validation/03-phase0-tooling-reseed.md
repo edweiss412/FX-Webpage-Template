@@ -252,7 +252,20 @@ BEGIN
   --    trigger (per supabase/migrations/20260523000002_show_share_tokens.sql) fires on INSERT
   --    and auto-creates the show_share_tokens row with a fresh 64-hex share_token; ON CONFLICT
   --    DO UPDATE bypasses the trigger so re-seeds preserve the existing share_token (the dev's
-  --    bookmarked URL stays valid across --combo all re-runs).
+  --    bookmarked URL stays valid across --combo all re-runs). **R19 commit 43 F19 amendment:**
+  --    the trigger-bypass-on-UPSERT-update-path is benign WHEN the show_share_tokens row already
+  --    exists, but if the row has been manually cleaned up (test corruption, failed earlier
+  --    migration apply, manual SQL probe) the trigger does NOT re-fire on a subsequent reseed
+  --    and the show_share_tokens row stays missing. check-seed predicate (g) treats missing
+  --    share_token as a blocking failure, so smoke 6 / J3 walks become unwalkable until manual
+  --    intervention. Section 2.6 below (post-show-UPSERT, pre-crew_members) self-heals the
+  --    invariant: every reseed INSERTs the show_share_tokens row with ON CONFLICT DO NOTHING,
+  --    re-creating it (with a fresh 64-hex token) if missing while preserving the existing
+  --    token if present. This closes the F16-class same-vector recurrence (R16 F16 crew_members
+  --    orphan deletion + R18 F19 show_share_tokens missing-row self-heal) — both arise from
+  --    the same trigger-bypass-on-UPSERT-update-path semantic; the comprehensive R19 (A) audit
+  --    surveyed every table the mint RPC writes (directly or via trigger) and confirmed
+  --    show_share_tokens is the only remaining peer (see handoff §"Convergence log" R19 row).
   INSERT INTO public.shows (
     drive_file_id, slug, title, client_label, template_version,
     dates, archived, published, last_seen_modified_time
@@ -273,6 +286,36 @@ BEGIN
     dates = EXCLUDED.dates,
     last_seen_modified_time = now()
   RETURNING id INTO v_show_id;
+
+  -- 2.6. R19 commit 43 F19 amendment — show_share_tokens self-heal.
+  --      The shows_create_share_token_after_insert trigger (per migration
+  --      20260523000002_show_share_tokens.sql) auto-creates the
+  --      show_share_tokens row with a fresh 64-hex share_token ONLY on INSERT.
+  --      The UPSERT update-path above bypasses the trigger by design (preserves
+  --      the existing share_token across reseeds so the dev's bookmarked URL
+  --      stays valid). BUT if the show_share_tokens row has been removed out-of-
+  --      band — manual cleanup, failed earlier migration apply, test corruption —
+  --      the UPSERT update-path does NOT re-fire the trigger and the row stays
+  --      missing. check-seed predicate (g) treats missing show_share_tokens as
+  --      a blocking failure (smoke 6 / J3 walks unwalkable). The self-heal
+  --      INSERT below re-creates the row with a fresh 64-hex token (the
+  --      show_share_tokens.share_token column DEFAULT is
+  --      encode(gen_random_bytes(32), 'hex') per the migration); the
+  --      ON CONFLICT (show_id) DO NOTHING clause preserves the existing token
+  --      when present (idempotent across reseeds — the dev's bookmarked URL
+  --      stays valid in the happy path; the F19 self-heal only writes when
+  --      the row is genuinely missing).
+  --
+  --      Ordering: AFTER the shows UPSERT (so v_show_id exists), BEFORE the
+  --      crew_members operations (so the show row's invariants are complete
+  --      before fixture data lands — readers acquiring the advisory lock after
+  --      this RPC commits never observe a show without its share-token row).
+  --      ON CONFLICT target (show_id) matches the show_share_tokens_pkey
+  --      primary key per supabase/migrations/20260523000002_show_share_tokens.sql:27
+  --      (`add constraint show_share_tokens_pkey primary key (show_id)`).
+  INSERT INTO public.show_share_tokens (show_id)
+  VALUES (v_show_id)
+  ON CONFLICT (show_id) DO NOTHING;
 
   -- 2.5. R17 commit 39 F16 amendment — FULL-REPLACE SEMANTICS for crew_members.
   --      The spec contract (§3.3 picker-fixture lockstep + §3.3.2 "Singleton write
@@ -572,7 +615,7 @@ Per spec §3.3.2 singleton write semantics. **10 predicates (a-g, i, k, l, m)** 
 - (d) `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF`
 - (e) `alias_map` doesn't satisfy the §3.3 storage predicate (cross-references §3.3's canonical count — currently 9 entries per R-combo × 10 + 1 per SW × 6 = 96 leaves)
 - (f) For any alias in `alias_map`, `crew_members` is missing the matching `(show_id, name)` row OR has `email IS NULL` OR has the row but the show is archived
-- (g) For any seeded show, `show_share_tokens` is missing the matching `show_id` row (sentinel for "the shows_create_share_token_after_insert trigger fired correctly")
+- (g) For any seeded show, `show_share_tokens` is missing the matching `show_id` row (sentinel for "the shows_create_share_token_after_insert trigger fired correctly on initial INSERT AND/OR the R19 commit 43 F19 self-heal INSERT in mint RPC section 2.6 fired on a subsequent reseed if the row was removed out-of-band")
 - (i) For ANY combo in the requested set, `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO`. Catches the partial-`--combo all` failure mode where some combos succeeded on day X and others stamped day Y (UTC midnight crossed mid-run). check-seed accepts the date as an env var or CLI flag; defaults to `new Date().toISOString().slice(0, 10)`.
 - **(k) (R13 commit 30 amendment — J3-claim-email guard; R15 commit 34 — canonical domain set extension per F14 finding)** `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches any placeholder/dev-only reserved domain in the canonical rejected set, OR combo R1's `alias_5a_lead` row in `crew_members` has an `email` value matching the canonical rejected set (i.e., a previous run with a bad env var landed a placeholder email in the DB). **Canonical rejected domain set** (RFC 2606 + RFC 6761 + project-conventional dev): `@example.com`, `@example.org`, `@example.net` (RFC 2606); `*.test`, `*.invalid`, `*.localhost`, bare `localhost` (RFC 6761); `*.local`, `dev.local` (mDNS RFC 6762 + project-conventional). The regex shape (TS + SQL POSIX):
   ```
@@ -595,13 +638,21 @@ git add scripts/validation-check-seed.ts tests/scripts/validation-check-seed.tes
 git commit -m "feat(validation): implement check-seed with 10 picker-fixture predicates (a-g, i, k, l, m incl R17 full-replace orphan guard)"
 ```
 
-- [ ] **Step 5: Add the F16 full-replace regression test** at `tests/db/mint-validation-fixture-atomic-full-replace.test.ts` (or extend the mint-RPC integration test authored in Task 0.C.4 Step 9). The test exercises the F16 contract end-to-end against the prod-equivalent Supabase target:
+- [ ] **Step 5: Add the F16 full-replace + F19 share-token self-heal regression tests** at `tests/db/mint-validation-fixture-atomic-full-replace.test.ts` (or extend the mint-RPC integration test authored in Task 0.C.4 Step 9). The test exercises BOTH the F16 contract AND the F19 share-token self-heal end-to-end against the prod-equivalent Supabase target. **R19 commit 43 F19 amendment:** the predicate (g) regression below pins the mint RPC's section 2.6 self-heal (INSERT INTO show_share_tokens ON CONFLICT DO NOTHING) — without it, a manual DELETE of the share-token row leaves smoke 6 / J3 unwalkable forever (the trigger only fires on shows INSERT, not on UPSERT update-path). The two regressions share fixture setup; bundle them in one test block for execution efficiency.
 
   1. Run `pnpm validation:reseed --combo R1` (mint baseline R1 fixture). Assert exit 0; assert `pnpm validation:check-seed --combo R1` exit 0.
   2. Via service-role psql / supabase-js, INSERT an orphan crew_members row into the R1 validation show: `INSERT INTO public.crew_members (show_id, name, email, role, role_flags, date_restriction, stage_restriction) VALUES ((SELECT id FROM shows WHERE drive_file_id='validation_R1'), 'orphan_stale_lead', 'orphan@example.test', 'LEAD', ARRAY['LEAD']::text[], '{"kind":"all_days"}'::jsonb, '{"kind":"all_stages"}'::jsonb)` — **UPPERCASE `R1` per R19 commit 42 F18 case-normalization fix** (the mint RPC writes `'validation_' || p_combo` verbatim with no lowercase coercion; a lowercase `validation_r1` lookup resolves to NULL `show_id` and the orphan would be INSERTed against NULL, falsifying the regression).
   3. Run `pnpm validation:check-seed --combo R1`. Expected: exit 1, predicate (m) diagnostic naming `orphan_stale_lead`.
   4. Run `pnpm validation:reseed --combo R1` (re-mint).
   5. Assert: (a) the orphan row is gone — `SELECT count(*) FROM crew_members WHERE show_id=(SELECT id FROM shows WHERE drive_file_id='validation_R1') AND name='orphan_stale_lead'` returns 0; (b) check-seed predicate (m) now passes — `pnpm validation:check-seed --combo R1` exits 0; (c) the canonical fixture roster is intact — every alias in `validation_state.alias_map['R1']` resolves to a `crew_members` row for the R1 show. This proves the DELETE-before-UPSERT ordering at the mint RPC body's section 2.5 fires correctly AND that no canonical fixture row is accidentally swept by the DELETE's keep-list construction. **Concrete failure mode the test catches:** the mint RPC's section 2.5 DELETE block is omitted, malformed, or scoped wrong (e.g., wrong show_id JOIN, wrong column comparison) → orphan row survives reseed → picker continues to surface it → walk session can exercise a non-canonical identity. The test's invariant is "the validation-show roster after a reseed contains EXACTLY the canonical fixture aliases" — derived from the fixture body's `crewMembers[].name` array length, not hardcoded. Commit alongside the mint RPC integration test.
+
+  **F19 share-token self-heal regression (R19 commit 43 amendment — extends predicate (g) regression):**
+
+  6. Capture the existing share_token before mutation: `SELECT share_token FROM public.show_share_tokens WHERE show_id=(SELECT id FROM shows WHERE drive_file_id='validation_R1')` — assert exactly 1 row returned + token shape `^[0-9a-f]{64}$` (the migration `20260523000002_show_share_tokens.sql:40-41` CHECK constraint). Save the token value as `v_original_token` for later comparison.
+  7. Via service-role psql / supabase-js, DELETE the share-token row for the R1 validation show: `DELETE FROM public.show_share_tokens WHERE show_id=(SELECT id FROM shows WHERE drive_file_id='validation_R1')`. Assert exactly 1 row affected.
+  8. Run `pnpm validation:check-seed --combo R1`. Expected: exit 1, predicate (g) diagnostic naming the missing share-token row for the R1 show. This confirms predicate (g) detects the missing-row state (sentinel test for the predicate itself).
+  9. Run `pnpm validation:reseed --combo R1` (re-mint). The mint RPC's section 2.6 self-heal block (`INSERT INTO public.show_share_tokens (show_id) VALUES (v_show_id) ON CONFLICT (show_id) DO NOTHING`) MUST re-create the show_share_tokens row with a fresh 64-hex token (since the row was missing, ON CONFLICT DO NOTHING falls through to INSERT; the `share_token` column DEFAULT `encode(gen_random_bytes(32), 'hex')` populates a new token).
+  10. Assert: (a) `SELECT count(*) FROM public.show_share_tokens WHERE show_id=(SELECT id FROM shows WHERE drive_file_id='validation_R1')` returns 1 (the row is re-created); (b) the new `share_token` value matches `^[0-9a-f]{64}$` (the CHECK constraint); (c) the new token is NOT EQUAL to `v_original_token` (since the row was deleted in step 7, the trigger DEFAULT generates a fresh token — the share-token is the share_token primary IS one per show; ON CONFLICT DO NOTHING + the row being absent means a true INSERT happened); (d) check-seed predicate (g) now passes — `pnpm validation:check-seed --combo R1` exits 0; (e) **idempotency probe:** run `pnpm validation:reseed --combo R1` a second time and assert the share_token value remains stable (the ON CONFLICT DO NOTHING clause preserves the token across reseeds when the row is present — the dev's bookmarked URL invariant is preserved). **Concrete failure mode the test catches:** the mint RPC's section 2.6 INSERT block is omitted, malformed, or scoped wrong (e.g., wrong ON CONFLICT target, omitted DO NOTHING, ordered AFTER the crew_members operations such that a concurrent reader could observe an inconsistent state) → reseed leaves the show_share_tokens row missing after a manual cleanup → smoke 6 / J3 unwalkable until manual SQL backfill. The test's invariant is "every validation show has exactly one show_share_tokens row after every reseed, regardless of pre-reseed state of that row." Commit alongside the F16 regression.
 
 ---
 
