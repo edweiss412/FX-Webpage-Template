@@ -65,3 +65,9 @@ playwright/.cache/
 
 # Playwright test-results scratch dir (created by screenshot capture + walker runs)
 tmp/
+
+# M12 rate-limit fixture snapshot files (created by `pnpm validation:report-fixtures
+# --outcome rate-limit-admin|rate-limit-crew` per the F34/F36 snapshot+restore contracts;
+# `validation_state` cannot be used as backend due to `CHECK (key = 'validation_seed')`
+# singleton constraint — file-backed is the sole supported strategy per R41 F37)
+.validation-state/
