@@ -545,7 +545,118 @@ SELECT count(*) FROM public.show_share_tokens t
 ```
 
 - [ ] **Step 5: Smoke-test the localhost rejection:** `VALIDATION_SUPABASE_URL=http://127.0.0.1:54321 pnpm validation:check-seed`. Expect exit 1 with localhost-rejected diagnostic.
-- [ ] **Step 6: Move to Phase 0.E** (`04-phase0-tooling-report.md`).
+- [ ] **Step 6: Move to Task 0.C.8** (the two deferred structural defenses, then Phase 0.E).
+
+---
+
+### Task 0.C.8: Author `tests/cross-cutting/validation-tooling-tz-pin.test.ts` (R5 structural defense, deferred per `DEFERRED.md` `M12-PHASE0C-TZ-PIN-METATEST`)
+
+Closes the R5 phantom-structural-defense citation (round 2 same-vector recurrence per R12 F12 / R13 commit 29 audit). The R5 amendment narrative declared this meta-test landed; R11 audit verified the file did not exist; R13 schedules it as a concrete task whose RED phase is now achievable because Tasks 0.C.1–0.C.6 just authored the `scripts/validation-*.ts` surface and the related `.sql` migrations that the meta-test audits.
+
+**Files:**
+- Create: `tests/cross-cutting/validation-tooling-tz-pin.test.ts`
+
+**Authoring contract (from `DEFERRED.md M12-PHASE0C-TZ-PIN-METATEST`):** grep every `.sql` migration that lands in this Phase 0.C (`supabase/migrations/*mint_validation_fixture_atomic.sql` + `*validation_finalize_all_atomic.sql` + any other Phase-0.C-authored migration) AND every `.ts` script in `scripts/validation-*.ts` for the lowercase string `current_date`. Each match MUST be either (a) inside the bounded-skew sanity check (`abs(DATE_TEXT::date - current_date) > 1` — integer day comparison; the R5 narrative cited `abs(extract(epoch from ...::date - current_date)) > 86400` but that's invalid SQL — `date - date` returns INTEGER not interval; corrected per R11 F9 fix above in this file), OR (b) carry an inline `// not-validation-today-iso: <reason>` / `-- not-validation-today-iso: <reason>` waiver comment. Default: "TZ-pinned `validationTodayIso` wins; `current_date` is for skew-check only."
+
+- [ ] **Step 1: Write failing test (RED).** The test scans every `.sql` file matching `supabase/migrations/*validation*.sql` AND every `.ts` file matching `scripts/validation-*.ts`. For each `current_date` match outside the bounded-skew block or the explicit waiver comment, report a violation. Expect at least one violation initially if any script pattern slipped — confirms the audit is finding real-shaped matches. If zero violations, intentionally inject a `select current_date from public.validation_state` test fixture into a `.ts.fixture` file (mirroring `tests/cross-cutting/fixtures/email-canonicalization/` shape) and assert that fixture-injected `current_date` triggers a violation.
+
+- [ ] **Step 2: Run — expect FAIL** (the audit either finds a real violation OR the test framework catches the fixture-injected one).
+
+- [ ] **Step 3: Implement** the meta-test along the pattern of `tests/cross-cutting/picker-resolver-outcome-prose-guard.test.ts` (R8 structural defense): readdirSync the scan roots, readFileSync each, regex for `current_date`, check against the acceptable-context regexes, report findings with `file:line:context` for each violation. Use `String.prototype.match` for the per-match iteration (the equivalent `RegExp` iterator method triggers the project's security-reminder hook on a substring match; prefer `match` with the `/g` flag).
+
+- [ ] **Step 4: Run — expect PASS** (assuming the live `mint_validation_fixture_atomic` + `validation_finalize_all_atomic` RPCs use the corrected `abs(...::date - current_date) > 1` pattern per R11 F9 fix, both inline `current_date` mentions fall inside the acceptable bounded-skew check).
+
+- [ ] **Step 5: Commit:**
+
+```bash
+git add tests/cross-cutting/validation-tooling-tz-pin.test.ts \
+        tests/cross-cutting/fixtures/validation-tooling-tz-pin/   # if fixtures added
+git commit -m "$(cat <<'COMMIT_EOF'
+test(cross-cutting): validation-tooling-tz-pin meta-test (M12-PHASE0C-TZ-PIN-METATEST)
+
+Closes DEFERRED.md entry M12-PHASE0C-TZ-PIN-METATEST + R13 commit 29
+phantom-structural-defense audit. The R5 pre-rebase plan amendment
+narrative declared this meta-test landed as a structural defense for
+the live-code-fidelity / TZ-pin vector; R11 audit (2026-05-26) verified
+the file did not exist; R13 commit 29 rescheduled it as Task 0.C.8.
+Now authoring.
+
+Greps every Phase-0.C-authored .sql migration + scripts/validation-*.ts
+for the lowercase string current_date. Each match must be either in
+the bounded-skew sanity check (abs(DATE_TEXT::date - current_date) > 1)
+or carry an inline waiver comment. Default: TZ-pinned validationTodayIso
+wins; current_date is for skew-check only. Catches future drift where a
+plan amendment slips a current_date back into a seed/finalize path.
+COMMIT_EOF
+)"
+```
+
+- [ ] **Step 6: Mark `DEFERRED.md M12-PHASE0C-TZ-PIN-METATEST` as `**RESOLVED <SHA>**`.**
+
+---
+
+### Task 0.C.9: Extend `tests/cross-cutting/email-canonicalization.test.ts` to audit `scripts/validation-*.ts` (R5 structural defense, deferred per `DEFERRED.md` `M12-PHASE0C-EMAIL-CANON-EXT`)
+
+Closes the R5 phantom-structural-defense citation peer (round 2 same-vector recurrence per R12 F12 / R13 commit 29 audit). The R5 amendment narrative declared this extension landed; R11 audit verified `auditLiveEmailCanonicalization()` at `lib/audit/emailCanonicalization.ts:693-705` walks `lib/parser`, `lib/sync`, `lib/reports`, `lib/auth`, `lib/data`, `lib/adminAlerts`, `app/api/admin` — `scripts/validation-*.ts` is absent.
+
+**Files:**
+- Modify: `lib/audit/emailCanonicalization.ts` — extend `auditLiveEmailCanonicalization()`'s source-path collection to include `scripts/validation-*.ts` files.
+- Modify: `tests/cross-cutting/email-canonicalization.test.ts` — add a new test that asserts the live audit walks `scripts/validation` (path coverage probe).
+- Create: `tests/cross-cutting/fixtures/email-canonicalization/bad-validation-script-raw-email.ts.fixture` + `good-validation-script-canonicalized.ts.fixture` (mirror the existing bad/good fixture pair pattern).
+
+**Authoring contract (from `DEFERRED.md M12-PHASE0C-EMAIL-CANON-EXT`):** flag any `lower(...)` / `trim(...)` not adjacent to a `canonicalize()` call from `lib/email/canonicalize.ts` in `scripts/validation-*.ts`. Reseed script canonicalizes BEFORE the RPC write (AGENTS.md invariant 3); validation-tooling MUST not introduce inline SQL/TS normalization that bypasses the registered canonicalize helper.
+
+- [ ] **Step 1: Write failing test (RED).** Add bad-fixture: `scripts/validation-foo.ts.fixture` containing `const email = rawEmail.toLowerCase().trim()` without an import of `canonicalize`. Assert `auditEmailCanonicalizationSources([badFixture])` returns a `raw_email_assignment` or equivalent finding for the validation surface. Without the live audit extension, this fixture is not walked; the test fails because no finding is produced.
+
+- [ ] **Step 2: Run — expect FAIL.**
+
+- [ ] **Step 3: Implement.** Extend `auditLiveEmailCanonicalization()` at `lib/audit/emailCanonicalization.ts:693-705`:
+
+```ts
+export function auditLiveEmailCanonicalization(): string[] {
+  const sourcePaths = [
+    ...walkSourceFiles(["lib/parser"]),
+    ...walkSourceFiles(["lib/sync", "lib/reports", "lib/auth", "lib/data", "lib/adminAlerts"]),
+    ...walkSourceFiles(["app/api/admin"]),
+    ...walkSourceFiles(["scripts"]).filter((p) => /\/validation-[\w-]+\.ts$/.test(p)),  // R5 deferred / Phase 0.C Task 0.C.9
+  ];
+  // ...
+}
+```
+
+(Exact mechanism per the live `walkSourceFiles` API; the filter restricts to `scripts/validation-*.ts` to avoid scanning the broader scripts/ directory.)
+
+- [ ] **Step 4: Run — expect PASS** (bad-fixture now flagged; good-fixture which imports `canonicalize` cleanly passes).
+
+- [ ] **Step 5: Commit:**
+
+```bash
+git add lib/audit/emailCanonicalization.ts \
+        tests/cross-cutting/email-canonicalization.test.ts \
+        tests/cross-cutting/fixtures/email-canonicalization/bad-validation-script-raw-email.ts.fixture \
+        tests/cross-cutting/fixtures/email-canonicalization/good-validation-script-canonicalized.ts.fixture
+git commit -m "$(cat <<'COMMIT_EOF'
+test(cross-cutting): extend email-canonicalization audit to scripts/validation-*.ts (M12-PHASE0C-EMAIL-CANON-EXT)
+
+Closes DEFERRED.md entry M12-PHASE0C-EMAIL-CANON-EXT + R13 commit 29
+phantom-structural-defense audit peer. R5 amendment narrative declared
+this extension landed; R11 audit verified the audit infrastructure
+did not include scripts/validation-*.ts in its walk roots. R13 commit
+29 rescheduled as Task 0.C.9. Now authoring.
+
+Extends auditLiveEmailCanonicalization()'s source-path collection to
+include scripts/validation-*.ts files. Flags any lower(...)/trim(...)
+not adjacent to a canonicalize() call from lib/email/canonicalize.ts.
+Validation tooling MUST canonicalize via lib/email/canonicalize.ts
+before RPC write (AGENTS.md invariant 3); this extension structurally
+enforces it for the validation-script boundary.
+COMMIT_EOF
+)"
+```
+
+- [ ] **Step 6: Mark `DEFERRED.md M12-PHASE0C-EMAIL-CANON-EXT` as `**RESOLVED <SHA>**`.**
+
+- [ ] **Step 7: Move to Phase 0.E** (`04-phase0-tooling-report.md`).
 
 ---
 

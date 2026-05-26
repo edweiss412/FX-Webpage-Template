@@ -86,6 +86,16 @@ Per spec §9.2 R24. Required when Band F deep report outcomes default to INCLUDE
 ### Task 0.F.8: Phase 0 close-out
 
 - [ ] **Step 1: Confirm all required smokes pass.** For default INCLUDED-via-harness disposition: smokes 1-7 all pass. For EXCLUDED disposition: smokes 1-6 pass + MATRIX-INVENTORY.md disposition committed.
+
+- [ ] **Step 1a: Confirm both deferred structural defenses are committed and green** (per R13 commit 29 + DEFERRED.md entries `M12-PHASE0C-TZ-PIN-METATEST` + `M12-PHASE0C-EMAIL-CANON-EXT`; Phase 0.C Tasks 0.C.8 + 0.C.9):
+
+```bash
+pnpm vitest run \
+  tests/cross-cutting/validation-tooling-tz-pin.test.ts \
+  tests/cross-cutting/email-canonicalization.test.ts
+```
+
+Expect both PASS. If either fails or is missing, Phase 0 does NOT close — return to Task 0.C.8 / 0.C.9 in `03-phase0-tooling-reseed.md`.
 - [ ] **Step 2: Run the budget-gate check.** If Phase 0 has consumed >10 calendar days (excluding async-provisioning latency), follow §9.0 budget-gate options:
   - Option 1 (dev-unilateral): defer report-fixtures harness; commit EXCLUDED dispositions.
   - Option 2 (REQUIRES user approval): split into M12a tooling + M12b walk milestones.
