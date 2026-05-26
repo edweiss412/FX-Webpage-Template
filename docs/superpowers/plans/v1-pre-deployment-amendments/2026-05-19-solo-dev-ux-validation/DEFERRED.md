@@ -8,7 +8,28 @@ Per memory `feedback_deferral_discipline.md`. Three buckets:
 
 ## Open deferrals
 
-_(empty at plan-write time; populated during Phase 7 iteration as SHOULD-FIX items get triaged)_
+### `M12-PHASE0C-TZ-PIN-METATEST` — Author `tests/cross-cutting/validation-tooling-tz-pin.test.ts`
+
+- **Source:** R5 pre-rebase plan amendment narrative declared this meta-test "landed" as a structural defense for the live-code-fidelity / TZ-pin vector after that vector recurred across 5 consecutive rounds. R11 audit (2026-05-26) verified the file does NOT exist in git history (no commit ever added it; `find tests -name '*tz*'` returns only the unrelated `playwright-version-pin.test.ts`; `git log --all -- 'tests/cross-cutting/validation-tooling-tz-pin.test.ts'` returns empty).
+- **Affected citations (reframed in R11 commit 28):**
+  - `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/00-overview.md:124-130` — "Meta-tests CREATED" table row + wrapping "R5 amendment" narrative.
+  - `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:337` — check-seed predicate (b) cites the test as the source of the TZ-pinned default.
+  - `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:162-167, :194, :232` — watchpoints §6 + test-commands §7 + pre-rebase convergence log §"Convergence log".
+- **Trigger (concrete):** Phase 0.C `scripts/validation-reseed.ts` authoring. The meta-test naturally pairs with the scripts it audits — once `scripts/validation-*.ts` files materialize, TDD has live targets to red against.
+- **Authoring contract:** grep every `.sql` migration AND every `.ts` script in `scripts/validation-*.ts` for the lowercase string `current_date`. Each match MUST be either (a) inside the bounded-skew sanity check (`abs(DATE_TEXT::date - current_date) > 1` — corrected from the R5 narrative's broken `abs(extract(epoch from ...::date - current_date)) > 86400` pattern; see R11 F9 fix at `03-phase0-tooling-reseed.md`), OR (b) carry an inline `// not-validation-today-iso: <reason>` waiver. Default: "TZ-pinned `validationTodayIso` wins; `current_date` is for skew-check only."
+- **Why deferred, not land-now:** TDD authoring (RED + GREEN) requires the `scripts/validation-*.ts` files to exist; they're authored in Phase 0.C. Land-now in R11 would be scope-expansion (R11 is markdown-only amendment scope).
+- **Why not BACKLOG:** R5 design intent (TZ-pin class-sweep) was sound; the file simply wasn't authored. M12 scope, not speculative.
+
+### `M12-PHASE0C-EMAIL-CANON-EXT` — Extend `tests/cross-cutting/email-canonicalization.test.ts` to audit `scripts/validation-*.ts`
+
+- **Source:** Same R5 pre-rebase plan amendment narrative declared an extension to the existing `email-canonicalization.test.ts` audit scope: flag `lower(...)` / `trim(...)` in `scripts/validation-*.ts` unless adjacent to a `canonicalize()` call from `lib/email/canonicalize.ts`. R11 audit verified the test file exists (`tests/cross-cutting/email-canonicalization.test.ts`), but the audit scope does NOT include validation scripts: `auditLiveEmailCanonicalization()` at `lib/audit/emailCanonicalization.ts:693-705` walks `lib/parser`, `lib/sync`, `lib/reports`, `lib/auth`, `lib/data`, `lib/adminAlerts`, `app/api/admin` — `scripts/validation-*.ts` is absent. Extension never landed.
+- **Affected citations (reframed in R11 commit 28):**
+  - `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/00-overview.md:122` — meta-test inventory row claims "MUST be extended" in past-tense framing.
+  - `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:64, :165, :194, :232` — invariants checklist + watchpoints §6 + test-commands §7 + pre-rebase convergence log.
+- **Trigger (concrete):** Phase 0.C `scripts/validation-reseed.ts` authoring. The extension pairs with the scripts it audits.
+- **Authoring contract:** add `scripts/validation` (or the precise prefix the live audit infrastructure consumes) to `auditLiveEmailCanonicalization()`'s `walkSourceFiles([...])` list at `lib/audit/emailCanonicalization.ts:694-697`. Flag any `lower(...)` / `trim(...)` not adjacent to a `canonicalize()` call from `lib/email/canonicalize.ts`. Fixture pairs (bad/good) live alongside the existing pairs in `tests/cross-cutting/fixtures/email-canonicalization/`.
+- **Why deferred, not land-now:** same as TZ-PIN — needs the scripts it would audit. Land-now would be scope-expansion in R11.
+- **Why not BACKLOG:** M12 scope per AGENTS.md invariant 3 (email canonicalization at every boundary); validation tooling IS a boundary for email writes (fixture INSERTs into `crew_members`).
 
 ## Closed deferrals
 

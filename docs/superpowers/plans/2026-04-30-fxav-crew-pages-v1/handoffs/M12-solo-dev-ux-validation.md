@@ -61,7 +61,7 @@ Net amendment diff: `b4b2c38..481671f` — 25 files changed, +1,033 / −740 lin
 
 - [x] **TDD per task** (every code-producing task: failing test → minimal impl → passing test → commit).
 - [x] **Per-show advisory lock** — validation tooling RPCs (`mint_validation_fixture_atomic` + `validation_finalize_all_atomic`) hold `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` per AGENTS.md invariant 2.
-- [x] **Email canonicalization at boundary** — `lib/email/canonicalize.ts` is the only normalization helper; validation tooling canonicalizes BEFORE the RPC write, never inline via SQL. Test extension lands in `tests/cross-cutting/email-canonicalization.test.ts` (R5 amendment).
+- [x] **Email canonicalization at boundary** — `lib/email/canonicalize.ts` is the only normalization helper; validation tooling canonicalizes BEFORE the RPC write, never inline via SQL. Test extension to `tests/cross-cutting/email-canonicalization.test.ts` is **planned for Phase 0.C** per `DEFERRED.md` entry `M12-PHASE0C-EMAIL-CANON-EXT` (R5 amendment narrative had framed this extension as already-landed; R11 audit 2026-05-26 verified `auditLiveEmailCanonicalization()` at `lib/audit/emailCanonicalization.ts:693-705` does NOT walk `scripts/validation-*.ts`).
 - [x] **No global cursor** — M12 doesn't touch sync.
 - [x] **No raw error codes in UI** — every UI surface (Phase 1 walks) reads through `messageFor()`; verified during matrix walk.
 - [x] **Commit per task** (conventional-commits `<type>(<scope>): <summary>`; scopes: `validation`, `db`, `master-spec`, `signoff`, `spec-m12`, `plan-m12`, `handoff-m12`).
@@ -159,12 +159,12 @@ The following 23 contracts are ratified. Re-flagging any of them in any adversar
 
 ### From pre-rebase R1–R5 (now obsolete vector but the class lessons stick)
 
-The pre-rebase rounds identified a **live-code fidelity / schema-invariant** vector that surfaced findings in 5 consecutive rounds (R1 through R5). The vector was declared **UNRESOLVED for per-instance patching** at R5; two structural defenses landed in the M12 plan's R5 amendment:
+The pre-rebase rounds identified a **live-code fidelity / schema-invariant** vector that surfaced findings in 5 consecutive rounds (R1 through R5). The vector was declared **UNRESOLVED for per-instance patching** at R5; two structural defenses were **SPECIFIED** in the M12 plan's R5 amendment and are planned for Phase 0.C authoring per `DEFERRED.md`:
 
-1. **`tests/cross-cutting/validation-tooling-tz-pin.test.ts`** (new) — greps every `.sql` migration + `scripts/validation-*.ts` for `current_date`. Each match must be inside the bounded-skew sanity check OR carry an inline `// not-validation-today-iso: <reason>` waiver. Catches future TZ-pin drift at CI time.
-2. **`tests/cross-cutting/email-canonicalization.test.ts`** (extended) — adds `scripts/validation-*.ts` to audit scope; flags any `lower(...)` / `trim(...)` not adjacent to a `canonicalize()` call from `lib/email/canonicalize.ts`.
+1. **`tests/cross-cutting/validation-tooling-tz-pin.test.ts`** (planned per `DEFERRED.md` entry `M12-PHASE0C-TZ-PIN-METATEST`) — WILL grep every `.sql` migration + `scripts/validation-*.ts` for `current_date`. Each match MUST be inside the bounded-skew sanity check (`abs(DATE_TEXT::date - current_date) > 1` — integer day comparison; the R5 narrative had cited `abs(extract(epoch from ...::date - current_date)) > 86400` but that's invalid SQL — PostgreSQL `date - date` returns INTEGER days, not interval; corrected per R11 F9 fix) OR carry an inline `// not-validation-today-iso: <reason>` waiver. Catches future TZ-pin drift at CI time once the meta-test lands.
+2. **`tests/cross-cutting/email-canonicalization.test.ts`** (extension planned per `DEFERRED.md` entry `M12-PHASE0C-EMAIL-CANON-EXT`) — WILL add `scripts/validation-*.ts` to audit scope; WILL flag any `lower(...)` / `trim(...)` not adjacent to a `canonicalize()` call from `lib/email/canonicalize.ts`. The base test exists; the extension does not (verified live at `lib/audit/emailCanonicalization.ts:693-705`).
 
-These defenses survive the rebase. The pre-rebase R1–R5 findings on signed-link tooling are obsolete (the surfaces were deleted by M11.5).
+**R11 audit (2026-05-26):** the R5 amendment narrative framed both as already-landed structural defenses. R11 audit verified neither was actually committed — the file doesn't exist for (1); the audit scope doesn't include validation scripts for (2). Both reframed to deferred posture in R11 commit 28 with concrete Phase 0.C triggers. Per-instance adversarial review remains the catch mechanism for these vectors until Phase 0.C authoring lands. The pre-rebase R1–R5 findings on signed-link tooling are obsolete (the surfaces were deleted by M11.5).
 
 ### From amendment R6 (live)
 
@@ -191,7 +191,7 @@ These defenses survive the rebase. The pre-rebase R1–R5 findings on signed-lin
 - Unit / vitest: `pnpm test <pattern>`.
 - Pre-commit per task: `pnpm lint && pnpm typecheck && pnpm test --run <changed-files>`.
 - Phase 0 smoke gate (deferred to Phase 0.E close-out): smokes 1–6 (always) + smoke 7 (conditional on Band F harness disposition).
-- Structural meta-tests (must remain green throughout M12): `pnpm test tests/cross-cutting/validation-tooling-tz-pin.test.ts tests/cross-cutting/email-canonicalization.test.ts tests/auth/_metaInfraContract.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts tests/cross-cutting/identity-invalidated-two-reasons-doc-guard.test.ts`.
+- Structural meta-tests (must remain green throughout M12): `pnpm test tests/cross-cutting/email-canonicalization.test.ts tests/auth/_metaInfraContract.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts tests/cross-cutting/identity-invalidated-two-reasons-doc-guard.test.ts tests/cross-cutting/picker-resolver-outcome-prose-guard.test.ts`. (Note: `tests/cross-cutting/validation-tooling-tz-pin.test.ts` is **NOT YET COMMITTED** — see `DEFERRED.md` entry `M12-PHASE0C-TZ-PIN-METATEST`; Phase 0.C close-out adds it to this command. The `email-canonicalization.test.ts` extension to walk `scripts/validation-*.ts` is similarly deferred — `M12-PHASE0C-EMAIL-CANON-EXT` — but the base test exists and is included here. R8 `picker-resolver-outcome-prose-guard.test.ts` added per the resolver-outcome structural defense.)
 - Amendment-era class-sweep:
   ```
   rg -c -i 'link_session|signed.link|signed link|crew_member_auth|validateLinkSession|signLinkJwt|JWT_SIGNING_SECRET|/p#t=|fragment.token|revoked_links|LINK_EXPIRED|LINK_VERSION_MISMATCH|alias_5a_lead_for_revoke|alias_5a_lead_for_query_compromise|crewMemberKey|active_signing_key_id|jwt_token_version|mint-link|revoke-link' \
@@ -229,7 +229,7 @@ Per AGENTS.md mandatory cross-CLI step + user R0 authorization (40 rounds, fresh
 
 ### Pre-rebase rounds R1–R5 (2026-05-19..23) — OBSOLETE
 
-Five rounds of plan-tree review against the pre-pivot signed-link auth model. All findings on the live-code-fidelity / schema-invariant vector (auth tables, column names, RPC contracts, env vars) — every one of them was rendered moot when M11.5 retired the signed-link surfaces. R5 declared the vector unresolved per AGENTS.md `feedback_recurring_bug_response` ladder and landed two structural defenses (`validation-tooling-tz-pin.test.ts` + extension to `email-canonicalization.test.ts`) — those defenses survive the rebase.
+Five rounds of plan-tree review against the pre-pivot signed-link auth model. All findings on the live-code-fidelity / schema-invariant vector (auth tables, column names, RPC contracts, env vars) — every one of them was rendered moot when M11.5 retired the signed-link surfaces. R5 declared the vector unresolved per AGENTS.md `feedback_recurring_bug_response` ladder and **specified** two structural defenses (`validation-tooling-tz-pin.test.ts` + extension to `email-canonicalization.test.ts`). **R11 audit 2026-05-26 verified neither defense was actually committed by the R5 amendment** (the R5 narrative claimed past-tense "landed" but the file does not exist in git history for the first, and `auditLiveEmailCanonicalization()` at `lib/audit/emailCanonicalization.ts:693-705` does not walk `scripts/validation-*.ts` for the second). The structural-defense specifications survive the rebase; authoring is deferred to Phase 0.C per `DEFERRED.md` entries `M12-PHASE0C-TZ-PIN-METATEST` + `M12-PHASE0C-EMAIL-CANON-EXT` (reframed in R11 commit 28).
 
 The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archived in git history at the pre-amendment HEADs of the deleted `round-01..05.md` files (commit `<TBD post-consolidation-commit>` records the deletion). Narrative preserved in spec §15.1–§15.25 audit-trail entries for citational continuity.
 
@@ -265,9 +265,72 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 - **Same-vector recurrence flag:** R6 + R7 = 2 consecutive rounds on the vector "spec/plan prose describes resolver outcomes the live ordering doesn't produce, AND surface-inventory peers aren't class-swept when J3 leg outcomes are corrected." Per AGENTS.md writing-plans "Same-vector recurrence" rule + `feedback_recurring_bug_response` + M12 plan R5 precedent (structural-defense calibration), R8 MUST: (a) include comprehensive re-analysis of the resolver-outcome citation class before patching; (b) land structural defense pre-emptively in the same commit series (do NOT wait for R9 to confirm recurrence). Defense candidate: doc-guard meta-test grepping `FORBIDDEN_PATTERNS` like `Reset.*session_mismatch`, `Rotate.*claimed_after_pick`, etc. outside `§15` audit-trail context; OR a structural test enumerating every `epoch_stale|claimed_after_pick|session_mismatch|removed_from_roster` mention in spec/plan and asserting the surrounding context cites the correct trigger.
 - **Repair commit:** pending R8 implementer dispatch.
 
-### Amendment R8 — pending
+### Amendment R8 — 2026-05-26
 
-R8 implementer dispatch pending. Comprehensive re-analysis mandated (same-vector recurrence at 2 rounds). Repo reorganization (staged rename `2026-04-30-fxav-crew-pages-design/` → `2026-04-30-fxav-crew-pages-v1/` + amendment specs moved to `v1-pre-deployment-amendments/`) commit ordering decision pending orchestrator triage 2026-05-26.
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `68c5807` (post-R8 repair: 3 commits a98e466 / e97e549 / 68c5807; comprehensive re-analysis covered 38 mentions across spec + plan tree)
+- **Verdict:** **repair landed; pending R9 adversarial review.**
+- **Comprehensive re-analysis (per same-vector mandate):** implementer audited every occurrence of resolver-outcome labels (`epoch_stale`, `claimed_after_pick`, `session_mismatch`, `removed_from_roster`, `no_auth/google_mismatch`, `no_auth/first_contact`, `needs_picker_bootstrap`, and the banner codes) in the M12 spec + M12 plan tree. 38 mentions audited; 3 needed repair (F3 step 2 mis-attribution, F4 Band C mis-attribution, F5 step 5 session_mismatch unreachable-from-page-route). 35 mentions verified correct against live `resolveShowPageAccess.ts:170-212` + `resolvePickerSelection.ts:39-145` ordering.
+- **F5 (new finding from R8 (a) audit):** `session_mismatch` is structurally unreachable from the page-route. `validateGoogleSession` at line 174 short-circuits BEFORE `resolvePickerSelection` runs — either `GOOGLE_NO_CREW_MATCH` (lines 176-178 → `no_auth/google_mismatch`) OR a success branch that returns `needs_picker_bootstrap` for any cookie-mismatch / unclaimed-row / cookie-pre-dates-claim sub-state. The arm at `resolvePickerSelection.ts:122-143` is reachable ONLY via API callers that bypass `validateGoogleSession` (`/api/show/<slug>/version:82`, `/api/realtime/subscriber-token:97`, `/api/report:118`, `validatePickerAssetSession.ts:37`). Per orchestrator triage 2026-05-26: F5 = (α) — re-frame J3 leg (c) step 5 as `no_auth/google_mismatch` (Mode B) which IS what the dev observes from "Bob's Google session + Alice's cookie" on iPhone; add closing disclosure paragraph explaining session_mismatch API-route reachability. H8 two-reasons doc-guard contract satisfied by spec body still mentioning both reason strings (§3.3 preamble + closing disclosure).
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 20 | `a98e466` | `docs(spec-m12): R8 repair — page-route resolver-ordering corrections (F3+F4+F5)` |
+  | 21 | `e97e549` | `docs(plan-m12): R8 repair — Task 1.6 J3 mirror + Task 1.2 band-B arms` |
+  | 22 | `68c5807` | `test(cross-cutting): picker-resolver-outcome-prose-guard meta-test` (TDD: RED on pre-R8 HEAD 6de2b35; GREEN on 68c5807) |
+
+- **Structural defense (per same-vector recurrence calibration; landed in same commit series, NOT deferred to R9):** new meta-test at `tests/cross-cutting/picker-resolver-outcome-prose-guard.test.ts` greps M12 spec + plan tree `.md` files (strips `§15` audit trail; excludes `handoffs/`) for 4 forbidden-pattern sub-classes:
+  - **F3-class:** `iPhone.*claim.*claimed_after_pick` (same-line within 400 chars) without `needs_picker_bootstrap` / `resolveShowPageAccess.ts:204` / "no Google session" qualifier.
+  - **F4-class:** `Reset.*session_mismatch` (same-line within 200 chars) — flat-forbidden outside §15.
+  - **F5-class:** bare `session_mismatch` (±5-line proximity) without an API-route qualifier (`/api/` / `auth_email_canonical` / `resolvePickerSelection.ts:122-143` / "API-route-only" / "not from page-route").
+  - **Paranoia:** `\bRotate(?:ShareToken)?(?:Button)?\b.*claimed_after_pick` (word-boundary verb-noun match) — flat-forbidden outside §15.
+
+  Implementer refined the orchestrator's spec on three axes based on observed false-positives: (i) same-line vs ±5-line proximity for F3/F4/paranoia; (ii) case-sensitive matching on resolver-union literals to avoid catching `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` catalog-code mentions; (iii) ±60-char local-chunk window for F4's acceptable-qualifier check to avoid far-away wire-arm enumerations exonerating misattributions. Refinements ratified by orchestrator 2026-05-26.
+
+- **Doc-guard verification:** existing `tests/cross-cutting/identity-invalidated-two-reasons-doc-guard.test.ts` confirmed unaffected by reorg + still passing against R8-repaired prose. The H8 two-reasons documentation contract is satisfied — spec body mentions both `claimed_after_pick` AND `session_mismatch` literally (§3.3 preamble + step 4 + closing disclosure paragraph). 9 FORBIDDEN_PATTERNS in the doc-guard are orthogonal to the 4 patterns in the new resolver-outcome guard (different fault families: identity-invalidated→401 fall-through vs resolver-outcome misattribution).
+
+### Amendment R9 — 2026-05-26
+
+- **Codex companion job:** `review-mpmplfxb-ee6mda` (thread `019e649c-2bb6-7711-9a90-75e6eb94b039`)
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `68c5807` (post-R8)
+- **Verdict:** **needs-attention** (2 HIGH; **resolver-outcome vector clean** — structural defense from commit 22 held; new findings are a **different class**)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F6 | HIGH | `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:365-470` (Phase 0.B Tasks 0.B.7 + 0.B.10) | **Land in R10 with inline-rewrite.** Spec §15.26 stale-citation paragraph claimed the rewrites were done ("Every M12 cite is rewritten to point at `tests/db/admin-rls-runtime.test.ts`"), but actual Phase 0.B task bodies still cite deleted `tests/db/rls.test.ts` + `tests/cross-cutting/auth.test.ts` AND expect "22 generated admin tables" (which is master-spec prose count, NOT the live ADMIN_TABLES.length post-amendment count of 18 per α + γ-footnote hybrid). Same class shape as the pre-R6 03-reseed file-head-rebase-note bug (a header note claimed a fix that the body didn't reflect). Repair: delete Tasks 0.B.7 + 0.B.10, remove their commands from gate/commit recipes, bump generated-table expectations to live 18 where applicable, keep only the 4-ref `admin-rls-runtime` + baseline update path. |
+  | F7 | HIGH | `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:132-169` (DDL block) vs spec `§3.3.2:217-225` (canonical 7-column DDL) | **Land in R10 with spec amendment.** Plan DDL has 8 columns (adds `combos_seeded_dates` per pre-rebase R3 amendment to fix the partial-reseed-falsifies-check-seed bug); spec §3.3.2 still has 7-column DDL + explicitly says "the canonical and complete migration body." The R3 fix to a real bug was never mirrored to the spec. Phase 0.C's `validation_finalize_all_atomic` RPC + check-seed predicate (i) both depend on the column. **Repair: amend spec §3.3.2** (NOT plan): add `combos_seeded_dates jsonb NOT NULL DEFAULT '{}'::jsonb` to the canonical DDL block + idempotency `ADD COLUMN IF NOT EXISTS` stanza + update "complete migration body" claim + new §15.27 audit-trail entry documenting the R3 amendment now lands in spec. **Orchestrator decision 2026-05-26:** (a) over (b) — removing the column re-introduces the R3 bug; spec catches up to plan. |
+
+- **Same-vector status:** **resolver-outcome misattribution class STRUCTURALLY CLOSED** by R8 commit 22 meta-test (`picker-resolver-outcome-prose-guard.test.ts`). R9 surfaced ZERO findings on that vector — confirms the structural defense held. F6 + F7 are different classes:
+  - F6 class = "rebase-corrections claim doesn't match body" (1st occurrence on `02-phase0-validation-state.md`; pre-R6 03-reseed was the same class but caught + fixed before R6). Per `feedback_recurring_bug_response`, threshold is 3 rounds same-vector before mandating defense — not warranted at R10.
+  - F7 class = "plan extends schema beyond spec without spec amendment" (1st occurrence). Per-instance fix.
+- **Class-sweep peer mandate for R10:** during F7 repair, audit every plan §0.B/§0.C DDL/RPC/CHECK/policy reference against spec §3.3.2 + §3.3 for additional drift; fix any other plan-vs-spec divergence the R3+R4+R5 pre-rebase amendments may have introduced without spec mirroring.
+- **Repair commit:** pending R10 implementer dispatch.
+
+### Amendment R10 — 2026-05-26
+
+- **Codex companion job:** `review-mpmq84u1-tteh60` (thread `019e64XX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`)
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `3c8114c` (post-R10 repair: 2 commits `00271fe` + `3c8114c`; 11-surface drift-audit clean per implementer handback)
+- **Verdict:** **needs-attention** (2 HIGH; F6-class recurrence at 2 rounds + NEW F9 class)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F8 | HIGH | `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:345-351` (Task 0.B.6) | **F6-class peer (dual-count drift) — land in R11.** Task 0.B.6 tells implementer to verify `lib/audit/admin-tables.generated.ts` has 22 quoted table names. That's master-spec PROSE track, not live generator track (which filters 4 M11.5-retired tables → 17 entries → 18 post-validation_state). R10 commit 24 swept most F6 peers but missed Task 0.B.6. Repair: 22 → 18 here + comprehensive sweep of remaining "22" mentions in Phase 0.B overview + task bodies for live-track-vs-prose-track context. |
+  | F9 | HIGH | `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:216-217` (mint RPC skew check) + same pattern in `validation_finalize_all_atomic` + the tz-pin meta-test example | **NEW class — land in R11.** SQL: `extract(epoch from (date - current_date))`. Postgres semantics: `date - date` returns INTEGER (day count), not interval; `extract(epoch from integer)` is INVALID. Implementing the plan as written would create broken validation RPCs that fail at `CREATE OR REPLACE FUNCTION` apply OR at first RPC invocation. Blocks reseed/finalize and the whole walk-session gate. Repair: `IF abs(v_validation_today_iso::date - current_date) > 1 THEN ...` (integer day comparison; no extract/epoch). Apply same fix to finalizer + tz-pin meta-test prose/example so the meta-test doesn't enshrine the invalid expression. |
+
+- **Same-vector status:**
+  - **F6-class (dual-count drift)**: R9 F6 + R10 F8 = 2 rounds. Per AGENTS.md "Same-vector recurrence triggers comprehensive re-analysis" + `feedback_recurring_bug_response`, R11 MUST audit every dual-count "21"/"22"/"17"/"18" occurrence BEFORE patching, with explicit per-occurrence dual-track context classification (prose track vs live track). Threshold-3 calibration: if R12 still surfaces dual-count drift, structural defense mandated (candidate: doc-guard meta-test grepping "22" + "21" without acceptable prose-track qualifier).
+  - **F9-class (inline SQL invalidity)**: NEW class, round 1. Per-instance fix. Class-sweep adjacency: every other inline SQL block in plan §0.B/§0.C/§0.E for similar semantics bugs.
+  - **Resolver-outcome class (R6-R8 vector)**: structurally closed by commit 22 meta-test; held through R9 + R10.
+- **Repair commit:** pending R11 implementer dispatch.
+
+### Amendment R11 — pending
+
+R11 implementer dispatch: F8 dual-count comprehensive re-analysis (mandated by R9+R10 same-vector recurrence) + F9 SQL fix in mint RPC + finalizer + tz-pin meta-test example + class-sweep of all inline SQL for similar bugs.
 
 ---
 
