@@ -1552,7 +1552,54 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F38-class closed at R43.
   - All other classes still closed.
 
-- **Repair commit:** pending R47 implementer dispatch (inline Agent; F42 + F43 per-instance sweeps + F21-class 8th regex pattern).
+- **Repair commit:** closed in R47 (see below).
+
+### Amendment R47 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `22908b7` (post-R47)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R48 adversarial review**
+
+- **F42 sweep results (per-surface):**
+  - spec :762 (§9.0 task 0.E row): PATCHED — explicit `--alert-code inconclusive` + R47 note
+  - spec :841 (§9.2 smoke 7): PATCHED — explicit `--alert-code inconclusive` + R47 note
+  - spec :1316 (§12 F3 self-review historical narrative): HISTORICAL — describes R24 smoke addition
+  - plan 04:136 (help-text mirror): DOCUMENTATION — selector contract, not actionable invocation
+  - plan 04:213 (R31 was-versus-is): HISTORICAL — quotes pre-R31 verbatim; inline waiver added
+  - handoff :1009 / :1480: HISTORICAL audit-trail entries
+
+- **F43 sweep results (per-surface):**
+  - plan 04:191 rendering predicate row (success-admin): PATCHED to canonical enum + R47 historical annotation
+  - plan 04:192 rendering predicate row (success-crew): PATCHED + R47 historical annotation
+  - spec §4.2:517 Band F producer-mapping prose: PATCHED to canonical enum + R47 historical annotation
+  - plan 04:58 + plan 04:233 (F40 finding narratives): HISTORICAL — pre-R43 retired wording; inline waivers/qualifiers added
+  - handoff §9 R31 :982/:983: HISTORICAL audit-trail
+
+- **F21-class 8th-slot regex** (2 sub-patterns grouped under one structural slot):
+  - `outcome-enum:lookup-inconclusive-missing-alert-code`: `/--outcome\s+lookup-inconclusive\b(?![\s\S]{0,140}?--alert-code)/i`
+  - `outcome-enum:bare-success-no-actor-suffix`: `/--outcome\s+success(?![-_]?(?:admin|crew))/i`
+  - Both reuse existing HISTORICAL_QUALIFIER + WAIVER escape hatches
+  - **Total pattern count: 9** (4 prose + 2 producer-table + 1 cleanup-recipe + 2 outcome-enum). Treated as 8 STRUCTURAL SLOTS for Option-(b) threshold tracking; the 2 outcome-enum sub-patterns share one slot per R46 ratification.
+
+- **RED→GREEN evidence:** pre-patch walker fires 5 active-doc sites; post-patch (commit 87 + historical-context waivers at plan 04:58, :213, :233) walker fires 0 active-doc sites. Synthetic broken fixtures still FIRE; synthetic exempted (canonical-corrective + historical-frame + waiver) PASS.
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 85 | `5adb946` | docs(spec-m12): R47 F42 — spec §9.0/§9.2 smoke 7 + sweep |
+  | 86 | `f2197d8` | docs(plan-m12)+docs(spec-m12): R47 F43 — rendering assertion table sweep success → canonical enum |
+  | 87 | `22908b7` | test(cross-cutting): R47 F21-class 8th-slot regex — actionable --outcome divergence detection (RED→GREEN) |
+
+- **Meta-test regression:** **20/20 PASS** across 4 prose-guard files. `reseed-clears-oauth-claim-doc-guard.test.ts`: 16/16 (test count unchanged; +10 negative-case fixtures added INSIDE existing test() blocks growing assertion density not test count).
+
+- **Same-vector status post-R47:**
+  - **F21-class: 5 finding-rounds; defense at 9 regex patterns (8 structural slots).** Per R46 orchestrator ladder: if R48 surfaces another F21-class peer NOT caught by these 9 patterns, R49 MANDATES Option (b) refactor — no further regex extension.
+  - F43 fix-round regression budget gap closed at R47 per-instance + sweep.
+  - All other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R47 commit 87). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`. Three live-doc historical-context tweaks at plan 04:58/213/233 were F21-class discipline edits (waiver annotations / inline qualifier insertion) per established convention, not content-bearing rewrites.
 
 ---
 
