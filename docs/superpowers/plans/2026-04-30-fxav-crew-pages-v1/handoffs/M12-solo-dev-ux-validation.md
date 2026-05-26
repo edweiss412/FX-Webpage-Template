@@ -1784,7 +1784,7 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
   | # | SHA | Title |
   |---|---|---|
-  | 93 | _pending_ | docs(plan-m12): R53 F47 — validation_finalize_all_atomic compare-and-swap repair + regression test spec + class-sweep |
+  | 93 | `6b864c6` | docs(plan-m12): R53 F47 — validation_finalize_all_atomic compare-and-swap repair + regression test spec + class-sweep |
 
 - **Meta-test regression:** **163 tests / 23 files PASS** for `pnpm test tests/cross-cutting/` (no test files modified at R53; spec/plan markdown only). The 3 doc-guard test files cited in the R51 row (`no-inline-email-normalization-in-plan-doc-guard.test.ts`, `reseed-clears-oauth-claim-doc-guard.test.ts`, `tests/admin/no-inline-email-normalization.test.ts`) hold at their R51 counts within the larger 23-file suite. No structural defense added (class-sweep returned 1-of-1).
 
