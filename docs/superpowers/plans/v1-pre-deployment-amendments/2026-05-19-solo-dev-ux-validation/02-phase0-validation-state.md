@@ -150,33 +150,57 @@ describe("validation_state", () => {
   // single-combo reseed and BEFORE `validation_finalize_all_atomic` stamps the
   // completion date — exactly the F49 path R57 codified. Destroying that row
   // mid-test would mutate legitimate state observable by any other test or
-  // re-run of the suite. R63 wraps the simulation in a snapshot+restore
-  // envelope (mirrors the per-outcome cleanup contract used by Phase 0.E F34
-  // / F36 — see plan `04-phase0-tooling-link.md` snapshot+restore stanza):
-  // captures the singleton row pre-test → simulates pre-R57 stack → applies
-  // migration → restores singleton state post-test in a `finally` block so
-  // restore runs even on assertion failure.
-  test("ALTER COLUMN DROP NOT NULL drift-repair applied via migration artifact (R59 F50, R61 F52 strengthened, R63 F53 non-destructive)", () => {
-    // R63 F53 — Snapshot the validation_state singleton row(s) BEFORE the
-    // simulation runs. Uses a TEMP TABLE (auto-dropped at session end) keyed
-    // by the test's connection; the snapshot captures the full row shape so
-    // restore is a byte-for-byte rehydration regardless of which columns the
-    // schema currently carries. Wrapped in `try { ... } finally { restore }`
-    // at the test grain to guarantee restore runs even if any inner
-    // `expect()` throws (mirrors F34/F36 cleanup contract).
-    runPsql(`
-      DROP TABLE IF EXISTS _r63_drift_test_snapshot;
-      CREATE TEMP TABLE _r63_drift_test_snapshot AS
-        SELECT * FROM public.validation_state WHERE key = 'validation_seed';
-    `);
+  // re-run of the suite.
+  //
+  // R65 F54 amendment — in-process JSON snapshot replaces the broken R63
+  // TEMP-TABLE snapshot. R64 surfaced F54 (HIGH, CONF 0.97): R63's snapshot
+  // used `CREATE TEMP TABLE` to capture the singleton row, but `runPsql`
+  // shells to a NEW psql process per call (`execFileSync` with stdin piping
+  // — see helper at lines 83-88), and PostgreSQL TEMP tables are
+  // session-scoped (`pg_temp_<backend_pid>` schema, dropped at session end
+  // per <https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-PARMS-TEMPORARY>).
+  // The snapshot TEMP table never survived past the first `runPsql` return,
+  // so the restore `INSERT … SELECT * FROM _r63_drift_test_snapshot` raised
+  // `relation does not exist` AFTER the autocommit-DELETE had already
+  // committed — permanently destroying the singleton row. R63's fix
+  // reintroduced the exact destructive-state class it was meant to close.
+  //
+  // R65 closes F54 by capturing the snapshot into a Vitest-process JS
+  // variable via `row_to_json(v)`. The snapshot now lives in test-process
+  // memory (no cross-process dependency) and round-trips the full row shape
+  // regardless of which columns the schema currently carries (a future
+  // column addition appears as a new JSON key and is replayed verbatim via
+  // `jsonb_populate_record`). The restore is wrapped in a single
+  // `BEGIN; DELETE …; INSERT …; COMMIT;` transaction so the DELETE cannot
+  // commit independently of the INSERT — if the INSERT raises, the DELETE
+  // rolls back and the singleton state is preserved. The whole simulation
+  // remains wrapped in `try { … } finally { restore }` so restore runs even
+  // on assertion failure. This mirrors the per-outcome cleanup contract
+  // INTENT used by Phase 0.E F34/F36 (capture pre-test → simulate →
+  // restore-in-finally) with the corrected cross-process mechanism.
+  test("ALTER COLUMN DROP NOT NULL drift-repair applied via migration artifact (R59 F50, R61 F52 strengthened, R63 F53 attempted, R65 F54 in-process JSON snapshot)", () => {
+    // R65 F54 — Snapshot the validation_state singleton row(s) into a
+    // Vitest-process JS variable BEFORE the simulation runs. `row_to_json(v)`
+    // serializes the entire row (including any future columns) into a single
+    // JSON object emitted as one tab-separated psql output line; `.trim()`
+    // strips trailing newline. Empty result (no singleton row pre-test, e.g.
+    // cold schema) → empty string → `snapshot` stays `null` and the restore
+    // becomes a no-op DELETE in the finally block.
+    let snapshot: Record<string, unknown> | null = null;
+    const snapshotRaw = runPsql(`
+      SELECT row_to_json(v) FROM public.validation_state v WHERE key = 'validation_seed';
+    `).trim();
+    if (snapshotRaw.length > 0) {
+      snapshot = JSON.parse(snapshotRaw) as Record<string, unknown>;
+    }
 
     try {
     // Setup: force NOT NULL constraint (simulating a stack that applied an
     // earlier M12 draft). Wrapped in DO block so re-running the suite is safe.
-    // R63 F53: the existing-row clear inside the EXCEPTION branch is now
-    // restored by the outer `finally` snapshot-restore stanza, so legitimate
-    // post-R55+R57 NULL `last_seed_date` rows survive the test as observable
-    // state for any subsequent test or suite re-run.
+    // The EXCEPTION branch's `DELETE FROM ... WHERE last_seed_date IS NULL`
+    // is restored by the outer `finally` snapshot-restore stanza, so
+    // legitimate post-R55+R57 NULL `last_seed_date` rows survive the test as
+    // observable state for any subsequent test or suite re-run.
     runPsql(`
       DO $$
       BEGIN
@@ -244,23 +268,28 @@ describe("validation_state", () => {
     `).trim();
     expect(afterTwice).toBe("YES");
     } finally {
-      // R63 F53 — Restore the singleton row from the snapshot regardless of
-      // assertion outcome. DELETE-then-INSERT-from-snapshot is the simplest
-      // shape that round-trips the full row including any future columns
-      // (mirrors F34/F36 per-outcome cleanup contract — the snapshot SELECT *
-      // captured whatever shape the row had pre-test, so the restore INSERT
-      // SELECT * replays it). DROP TABLE IF EXISTS keeps the harness clean
-      // across re-runs. NOTE: if the simulation's `DELETE FROM ... WHERE
-      // last_seed_date IS NULL` already cleared the row, the snapshot still
-      // carries the original; if no row existed pre-test (cold schema), the
-      // snapshot is empty and the restore is a no-op DELETE followed by an
-      // empty-source INSERT — non-destructive either way.
-      runPsql(`
-        DELETE FROM public.validation_state WHERE key = 'validation_seed';
-        INSERT INTO public.validation_state
-          SELECT * FROM _r63_drift_test_snapshot;
-        DROP TABLE IF EXISTS _r63_drift_test_snapshot;
-      `);
+      // R65 F54 — Restore the singleton row from the in-process JS snapshot
+      // regardless of assertion outcome. The restore runs in a SINGLE
+      // explicit transaction (BEGIN/COMMIT) so the DELETE cannot autocommit
+      // independently of the INSERT — if the INSERT fails for any reason
+      // the DELETE rolls back and the prior state is preserved. The snapshot
+      // JSON is passed in as a psql variable (`-v snap=<json>`) and parsed
+      // server-side via `jsonb_populate_record`, which materializes a row
+      // matching the LIVE table shape — any future column addition appears
+      // as a JSON key and is bound to the matching column automatically;
+      // missing keys default to NULL per `jsonb_populate_record` semantics
+      // (<https://www.postgresql.org/docs/current/functions-json.html#FUNCTIONS-JSON-PROCESSING-TABLE>).
+      // Cold-schema case (snapshot === null): no row existed pre-test, so
+      // restore is a no-op DELETE inside the transaction — non-destructive.
+      if (snapshot !== null) {
+        runPsqlWithSnapshot(snapshot);
+      } else {
+        runPsql(`
+          BEGIN;
+          DELETE FROM public.validation_state WHERE key = 'validation_seed';
+          COMMIT;
+        `);
+      }
     }
   });
 });
@@ -271,9 +300,37 @@ describe("validation_state", () => {
 function runPsqlFile(filePath: string): string {
   return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-f", filePath], { encoding: "utf8" });
 }
+
+// R65 F54 amendment — helper to restore the validation_state singleton row
+// from an in-process JSON snapshot atomically. The snapshot JSON is passed
+// via stdin as a psql variable; `jsonb_populate_record` binds JSON keys to
+// the LIVE table shape so the restore round-trips any future column
+// additions automatically. Wrapped in BEGIN/COMMIT so DELETE+INSERT commit
+// atomically — if INSERT raises, DELETE rolls back and the singleton row is
+// preserved. Closes R64 F54 (R63 c100 cross-process TEMP-table snapshot
+// failure).
+function runPsqlWithSnapshot(snapshot: Record<string, unknown>): string {
+  const snapshotJson = JSON.stringify(snapshot);
+  // `\set` reads the value as a literal string; we wrap the JSON in
+  // single-quotes + cast to jsonb in the SQL so the parser binds it as a
+  // single jsonb argument. `\set` value cannot contain a literal single
+  // quote, so we use psql's E'...' escape via `replace(snapshotJson, "'", "''")`.
+  const escaped = snapshotJson.replace(/'/g, "''");
+  const sql = `
+    BEGIN;
+    DELETE FROM public.validation_state WHERE key = 'validation_seed';
+    INSERT INTO public.validation_state
+      SELECT * FROM jsonb_populate_record(NULL::public.validation_state, '${escaped}'::jsonb);
+    COMMIT;
+  `;
+  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At", "-F\t"], {
+    input: sql,
+    encoding: "utf8",
+  });
+}
 ```
 
-The test depends on `psql` being on PATH (the same dependency the existing `admin-rls-runtime.test.ts` and `picker_epoch_columns.test.ts` already carry — see the Phase 0 harness requirements in `tests/db/admin-rls-runtime.test.ts:55-79`). Pre-migration, the SELECT returns zero rows and the column-map is empty, so every `expect(colMap.<name>?.data_type)` is `undefined !== expected` and the first test FAILs. Post-migration, all 8 columns return their expected types and the first test PASSes. The R59/R61 F52 drift-repair test additionally requires `readdirSync` / `readFileSync` / `path` imports (already in standard test-file boilerplate) and resolves the migration file by glob — failing loud if zero or multiple `*_validation_state.sql` matches exist. **R61 F52 concrete failure mode the test now catches:** a future amendment deletes the `ALTER TABLE public.validation_state ALTER COLUMN last_seed_date DROP NOT NULL` line from `supabase/migrations/<timestamp>_validation_state.sql`. Pre-R61, the test passed because its hardcoded inline ALTER independently performed the repair. Post-R61, both the regex sanity-check on the migration body AND the is_nullable assertion after applying the migration file would FAIL — the regression is pinned at the migration-artifact grain, not at the test-body grain. **R63 F53 amendment — non-destructive of legitimate singleton state:** the drift-repair simulation is wrapped in a `try { ... } finally { restore }` envelope around a TEMP-TABLE snapshot captured pre-test (`CREATE TEMP TABLE _r63_drift_test_snapshot AS SELECT * FROM public.validation_state WHERE key = 'validation_seed'`) and rehydrated post-test (`DELETE … ; INSERT … SELECT * FROM _r63_drift_test_snapshot ; DROP TABLE IF EXISTS …`). The simulation's inline `DELETE FROM public.validation_state WHERE last_seed_date IS NULL` is intentionally preserved (it's required for the `SET NOT NULL` path on rows that legitimately carry NULL `last_seed_date` per R55 Option (b) + R57 F49) — the snapshot+restore envelope ensures that DELETE is non-destructive across the test grain. This mirrors the per-outcome snapshot+restore cleanup contract used by Phase 0.E F34 / F36 (see plan `04-phase0-tooling-link.md`) and closes R62 F53.
+The test depends on `psql` being on PATH (the same dependency the existing `admin-rls-runtime.test.ts` and `picker_epoch_columns.test.ts` already carry — see the Phase 0 harness requirements in `tests/db/admin-rls-runtime.test.ts:55-79`). Pre-migration, the SELECT returns zero rows and the column-map is empty, so every `expect(colMap.<name>?.data_type)` is `undefined !== expected` and the first test FAILs. Post-migration, all 8 columns return their expected types and the first test PASSes. The R59/R61 F52 drift-repair test additionally requires `readdirSync` / `readFileSync` / `path` imports (already in standard test-file boilerplate) and resolves the migration file by glob — failing loud if zero or multiple `*_validation_state.sql` matches exist. **R61 F52 concrete failure mode the test now catches:** a future amendment deletes the `ALTER TABLE public.validation_state ALTER COLUMN last_seed_date DROP NOT NULL` line from `supabase/migrations/<timestamp>_validation_state.sql`. Pre-R61, the test passed because its hardcoded inline ALTER independently performed the repair. Post-R61, both the regex sanity-check on the migration body AND the is_nullable assertion after applying the migration file would FAIL — the regression is pinned at the migration-artifact grain, not at the test-body grain. **R63 F53 amendment — non-destructive of legitimate singleton state (attempted; superseded by R65 F54):** R63 wrapped the drift-repair simulation in a `try { ... } finally { restore }` envelope around a TEMP-TABLE snapshot captured pre-test (`CREATE TEMP TABLE _r63_drift_test_snapshot AS SELECT * FROM public.validation_state WHERE key = 'validation_seed'`) and rehydrated post-test (`DELETE … ; INSERT … SELECT * FROM _r63_drift_test_snapshot`). The simulation's inline `DELETE FROM public.validation_state WHERE last_seed_date IS NULL` was intentionally preserved (it's required for the `SET NOT NULL` path on rows that legitimately carry NULL `last_seed_date` per R55 Option (b) + R57 F49). **R65 F54 amendment — in-process JSON snapshot (closes R64 F54):** R64 surfaced F54 (HIGH, CONF 0.97) — R63's TEMP-TABLE snapshot was structurally broken because `runPsql` shells to a NEW psql process per call (`execFileSync` + stdin pipe — helper at lines 83-88) and PostgreSQL TEMP tables are session-scoped (`pg_temp_<backend_pid>`, dropped at session end). The snapshot TEMP table never survived past the first `runPsql` return; the restore `INSERT … SELECT * FROM _r63_drift_test_snapshot` raised `relation does not exist` AFTER the autocommit-DELETE had already committed — permanently destroying the singleton row. R63's fix reintroduced the exact destructive-state class it was meant to close. R65 closes F54 by capturing the snapshot into a Vitest-process JS variable via `SELECT row_to_json(v) FROM public.validation_state v WHERE key = 'validation_seed'` (serialized as one tab-separated psql line and parsed into a `Record<string, unknown> | null`). The restore is wrapped in a single `BEGIN; DELETE …; INSERT … SELECT * FROM jsonb_populate_record(NULL::public.validation_state, '<json>'::jsonb); COMMIT;` transaction so the DELETE cannot autocommit independently of the INSERT — if INSERT raises, the DELETE rolls back and the singleton state is preserved. `jsonb_populate_record` binds JSON keys to the LIVE table shape so the restore round-trips any future column additions automatically (a new column appears as a JSON key and is bound to the matching column; missing keys default to NULL per the documented `jsonb_populate_record` semantics). The cold-schema case (no row pre-test → `snapshot === null`) executes a no-op DELETE inside its own transaction, non-destructive either way. This mirrors the per-outcome cleanup contract INTENT used by Phase 0.E F34/F36 (capture pre-test → simulate → restore-in-finally) with the corrected cross-process mechanism — the prior shape's mechanism was broken; the intent stands. **R65 concrete failure mode the test now catches:** unchanged from R61 F52 (deleting the ALTER from the migration body fails both the regex sanity-check and the `is_nullable` assertion); R65 additionally guarantees that on test failure or on assertion throw, the validation_state singleton is restored byte-for-byte from the in-process snapshot — running the suite against a shared/prod-equivalent validation DB never silently wipes legitimate post-R55+R57 NULL `last_seed_date` state.
 
 - [ ] **Step 2: Run the test — expect FAIL** (validation_state does not yet exist):
 
