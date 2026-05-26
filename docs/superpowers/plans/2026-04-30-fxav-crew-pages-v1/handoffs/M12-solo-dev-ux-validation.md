@@ -1347,7 +1347,48 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F34-class mechanically converged at R39 (both rate-limit kinds have snapshot+restore; schema CHECK bounds future kinds).
   - All other classes still closed.
 
-- **Repair commit:** pending R41 implementer dispatch (inline Agent; F37 + F38 per-instance fixes).
+- **Repair commit:** closed in R41 (see below).
+
+### Amendment R41 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `d9127df` (post-R41)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R42 adversarial review**
+
+- **F37 repair (commit 78):** removed validation_state DB-backed snapshot option from plan 04:91-111 (admin block) + crew block + Step 4 implementation + spec §9.1.2 idempotency column. File-backed `.validation-state/<kind>-snapshot.json` is the SOLE supported strategy. Cited reason: validation_state has `CHECK (key = 'validation_seed')` per master spec §3.3.2 DDL + `02-phase0-validation-state.md:139` / `:404` — snapshot key would fail the CHECK constraint at INSERT time. Pre-R41 wording explicitly RETIRED.
+
+- **F38 repair (commit 79):** added `--combo <R1|...|R8b>` seed-time selector at spec §9.1.2:824 CLI args + plan 04 rate-limit-crew recipe + Step 1 help-text test + Step 4 lifecycle wiring + Phase 0.E.3 Step 2 cleanup verification. Semantics: REQUIRED for `--outcome rate-limit-crew`; IGNORED for all other 7 outcomes. Resolves to fixture `crew_member_id` UUID via `validation:resolve-alias <combo> alias_5a_lead`. New exit-1 cases: missing flag for rate-limit-crew + alias resolution failure. Chosen over `--crew-id` because it mirrors existing `validation:reseed --combo` vocabulary.
+
+- **(C) class-sweep per-outcome audit** (verifying no peer outcomes lack seed-time selectors):
+
+  | Outcome | Seed-time identity source | Gap? |
+  |---|---|---|
+  | success (admin/crew) | synthetic `validation_tag` | No |
+  | in-flight | synthetic idempotency_key | No |
+  | rate-limit-admin | `VALIDATION_ADMIN_EMAIL` env var | No (R33 covered) |
+  | **rate-limit-crew** | `--combo` flag | **F38 closed R41** |
+  | lookup-inconclusive / lease-expired / horizon-expired / orphaned-lost-lease | synthetic `validation_tag` | No |
+
+  **0 peers beyond F38; per-instance singleton.**
+
+- **`.gitignore` update:** `.validation-state/` added at line 73 with comment citing F34/F36 + F37 CHECK constraint reason. Verified via `git check-ignore -v`.
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 78 | `fd36e2c` | docs(plan-m12)+docs(spec-m12): R41 F37 — remove validation_state snapshot backend; file-backed only |
+  | 79 | `d9127df` | docs(plan-m12)+docs(spec-m12): R41 F38 — add `--combo <combo>` seed-time selector for rate-limit-crew |
+
+- **Meta-test regression:** **18/18 PASS** maintained.
+
+- **Same-vector status post-R41:**
+  - F37 plan/schema drift: 1 round; closed per-instance (singleton — no peer outcomes use validation_state as backend). If R42 surfaces another plan/live-schema drift, R43 mandates structural defense (candidate: doc-guard asserting every plan-claimed persistence/storage option is compatible with live schema CHECK constraints).
+  - F38 NEW class (seed-time selector gap): 1 round; per-outcome sweep confirms singleton. No structural defense.
+  - F34-class mechanically converged at R39; F21-class regex 7 patterns stable; all other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown + `.gitignore` (1 line). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`.
 
 ---
 
