@@ -1621,7 +1621,7 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F21-class regex set at 9 patterns / 8 structural slots (per R47 ratification). F45 is a R47 implementation gap not a new F21-class round — keeps Option-(b) threshold tracking intact.
   - All other classes still closed.
 
-- **Repair commit:** pending R49 implementer dispatch (inline Agent; F44 per-instance + plan-level sweep + F45 regex tightening + negative fixture).
+- **Repair commit:** closed in R49 (see below).
 
 ---
 
@@ -1636,7 +1636,8 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   |---|---|---|
   | 88 | `f47447f` | docs(plan-m12): R49 F44 — canonicalize-first procedure for Phase 0.A admin bootstrap + plan-level sweep |
   | 89 | `6ed611e` | test(cross-cutting): R49 F44 structural defense — new sibling test scans plan/spec markdown for inline-email-normalization instructions |
-  | 90 | (this commit) | test(cross-cutting): R49 F45 — R47 8th-slot regex same-line tightening + negative fixture + plan 04:136 waiver |
+  | 90 | `b080dee` | test(cross-cutting): R49 F45 — R47 8th-slot regex same-line tightening + negative fixture + plan 04:136 waiver |
+  | lint | `0644644` | chore(lint): TS strict-null non-null assertions on FORBIDDEN_PATTERNS array access (orchestrator-committed; out of R49 implementer scope per their flag) |
 
 - **F44 repair detail:**
   - **canonicalize.ts actual semantics** verified at `lib/email/canonicalize.ts:2-6` — the helper does `raw.trim().toLowerCase()` ONLY, returns `null` for `null`/empty after trim. Does NOT strip plus-aliases. The plan's prior claim was false.
