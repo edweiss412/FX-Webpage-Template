@@ -213,7 +213,11 @@ BEGIN
   IF v_validation_today_iso IS NULL OR v_validation_today_iso !~ '^\d{4}-\d{2}-\d{2}$' THEN
     RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso required (YYYY-MM-DD), got %', v_validation_today_iso;
   END IF;
-  IF abs(extract(epoch from (v_validation_today_iso::date - current_date))) > 86400 THEN
+  -- R11 F9 repair: `date - date` returns INTEGER (day count) in PostgreSQL,
+  -- NOT interval; `extract(epoch from integer)` is invalid (extract accepts
+  -- timestamp/timestamptz/interval/date/time/timetz, not integer). Use integer
+  -- day comparison directly.
+  IF abs(v_validation_today_iso::date - current_date) > 1 THEN
     RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso % differs from server current_date % by >1 day (extreme clock skew)', v_validation_today_iso, current_date;
   END IF;
 
@@ -351,7 +355,10 @@ BEGIN
   IF p_validation_today_iso IS NULL OR p_validation_today_iso !~ '^\d{4}-\d{2}-\d{2}$' THEN
     RAISE EXCEPTION 'validation_finalize_all_atomic: p_validation_today_iso required (YYYY-MM-DD), got %', p_validation_today_iso;
   END IF;
-  IF abs(extract(epoch from (p_validation_today_iso::date - current_date))) > 86400 THEN
+  -- R11 F9 repair: `date - date` returns INTEGER (day count) in PostgreSQL,
+  -- NOT interval; `extract(epoch from integer)` is invalid. Use integer day
+  -- comparison directly. Same fix as mint RPC (single class).
+  IF abs(p_validation_today_iso::date - current_date) > 1 THEN
     RAISE EXCEPTION 'validation_finalize_all_atomic: p_validation_today_iso % differs from server current_date % by >1 day', p_validation_today_iso, current_date;
   END IF;
 
