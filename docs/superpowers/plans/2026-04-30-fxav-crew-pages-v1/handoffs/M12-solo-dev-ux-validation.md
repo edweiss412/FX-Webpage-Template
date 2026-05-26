@@ -1796,6 +1796,26 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Scope discipline:** plan + handoff markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/`.
 
+### Amendment R54 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `2772162` (post-R53)
+- **Verdict:** **needs-attention** (1 HIGH F48)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F48 | HIGH | `03-phase0-tooling-reseed.md:621-627` (single-combo vs all-combo reseed semantics) | **NEW class — single-combo vs all-combo `last_seed_date` semantic gap.** Plan calls `validation_finalize_all_atomic` only for `--combo all`; single-combo reseed updates `combos_seeded_dates[combo]` but never `last_seed_date`. Smoke 6 requires `reseed --combo R1` → `check-seed --combo R1`. Predicate (b) (`last_seed_date != $VALIDATION_TODAY_ISO`) applies to any requested set → on fresh/next-day stack: R1 freshly minted but `last_seed_date` stale → predicate (b) FAILS → smoke 6 blocks OR implementer weakens predicate (b) reopening partial-reseed false-green class. Orchestrator-recommended repair: **Option (b)** — keep `last_seed_date` as all-combos-only semantics; add predicate (b') for single-combo `check-seed --combo <single>` reading `combos_seeded_dates[combo]` for per-combo freshness. Preserves "all-combos completion stamp" meaning; smoke 6 prerequisite + check-seed dispatch updated. |
+
+- **Same-vector status post-R54:**
+  - F48 NEW class (1 round); per-instance design choice + propagation. Implementer decides Option (a) vs (b) per codebase grounding.
+  - F47 closed at R53 (CAS pattern shipped + class-sweep 1-of-1).
+  - F46/F45/F44 closures regression-clean.
+  - F21-class regex set holds at 9 patterns / 8 slots.
+  - All other classes still closed.
+
+- **Repair commit:** pending R55 implementer dispatch (inline Agent; F48 design choice + predicate update + smoke 6 prerequisite + regression test spec).
+
 ---
 
 ## §10 — Cross-milestone dependencies
