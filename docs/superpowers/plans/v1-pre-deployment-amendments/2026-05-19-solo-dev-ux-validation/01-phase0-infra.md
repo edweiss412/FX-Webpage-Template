@@ -70,7 +70,7 @@ This makes the dev an admin on the new project. (`lib/email/canonicalize.ts` str
 ### Task 0.A.5: Wire env vars in Vercel + locally
 
 **Files:**
-- Modify: `.env.local.example` (document the M12 validation env vars per spec §9.1.2 — the canonical CLI command-by-command env-var contract; §9.1.2 is the SOLE source of truth and this row deliberately does NOT inline-restate the literal env-var names. The 2026-05-26 picker-pivot rebase retired `VALIDATION_JWT_SIGNING_SECRET` along with Phase 0.D — the M9.5 signLinkJwt consumer was retired at M11.5 G3 cutover. See spec §1.5 "solo-dev IS the validation" + spec §3.3 R13-amendment paragraph for the rationale behind the J3 claim-email contract — but for the literal env-var names, follow §9.1.2.)
+- Modify: `.env.local.example` (document the M12 validation env vars per spec §9.1.2 — the canonical CLI command-by-command env-var contract; §9.1.2 is the SOLE source of truth and this row deliberately does NOT inline-restate the literal env-var names. The 2026-05-26 picker-pivot rebase retired `VALIDATION_JWT_SIGNING_SECRET` along with Phase 0.D — the M9.5 signLinkJwt consumer was retired at M11.5 G3 cutover. R35 commit 71 F33 propagation: extends the template to include the R33 commit 68 `VALIDATION_ADMIN_EMAIL` helper var — scoped to the `validation:report-fixtures --outcome rate-limit-admin` outcome only, NOT part of the canonical 4-var contract for the broader validation tooling. See spec §1.5 "solo-dev IS the validation" + spec §3.3 R13-amendment paragraph for the rationale behind the J3 claim-email contract — but for the literal env-var names, follow §9.1.2.)
 - No `.env.local` commit — `.env.local` is gitignored.
 
 - [ ] **Step 1: Write the .env.local.example update first (TDD-style starting point).**
@@ -80,13 +80,26 @@ This makes the dev an admin on the new project. (`lib/email/canonicalize.ts` str
 # + §9.1.2 post-2026-05-26 picker-pivot rebase + R13 commit 30 J3 claim-email
 # amendment).
 
-# All four MUST be set for validation tooling to function. The three SUPABASE_*
-# vars MUST equal the Vercel Production-scope values for the project backing
-# the *.vercel.app production deployment. (Picker-pivot rebase 2026-05-26
-# deleted VALIDATION_JWT_SIGNING_SECRET — the M9.5 signLinkJwt surface that
-# consumed it was retired at M11.5 G3 cutover. The picker cookie's signing
-# key, PICKER_COOKIE_SIGNING_KEY, is set at the Vercel runtime layer for
-# the deployment as part of M11.5; no validation CLI consumes it.)
+# All validation env vars per spec §9.1.2 MUST be set for the relevant
+# CLIs to function. The three SUPABASE_* vars MUST equal the Vercel
+# Production-scope values for the project backing the *.vercel.app
+# production deployment. (Picker-pivot rebase 2026-05-26 deleted
+# VALIDATION_JWT_SIGNING_SECRET — the M9.5 signLinkJwt surface that
+# consumed it was retired at M11.5 G3 cutover. The picker cookie's
+# signing key, PICKER_COOKIE_SIGNING_KEY, is set at the Vercel runtime
+# layer for the deployment as part of M11.5; no validation CLI consumes
+# it.)
+#
+# R35 commit 71 F33 — VALIDATION_ADMIN_EMAIL added below as a fifth
+# variable. It is NOT part of the canonical validation env-var contract
+# (which remains the SUPABASE trio + J3 claim email — see the
+# structural-exclusivity walker at
+# tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts);
+# instead it is a per-outcome HELPER variable scoped to a single
+# CLI/outcome (validation:report-fixtures --outcome rate-limit-admin
+# per spec §9.1.2). Cross-reference §9.1.2 for the authoritative
+# per-CLI mapping; do NOT count ADMIN_EMAIL inside the canonical
+# cardinality.
 
 # Canonical per-CLI env-var map: spec §9.1.2 table (R21 commit 44 F20
 # amendment + R27 commit 58 F10-class Option D refactor) is the
@@ -134,13 +147,32 @@ VALIDATION_SUPABASE_PROJECT_REF=
 # validation:check-seed predicate (k) fails if this var is still set to
 # ANY domain in the canonical rejected set at seed time.
 VALIDATION_J3_CLAIM_EMAIL=
+
+# R33 commit 68 + R35 commit 71 F33 — per-outcome HELPER variable
+# scoped to validation:report-fixtures --outcome rate-limit-admin
+# (spec §9.1.2 report-fixtures row). The dev's REAL admin email goes
+# here. Required for `validation:report-fixtures --outcome
+# rate-limit-admin`; canonicalized by enforceQuota per
+# `lib/reports/rateLimit.ts:76` (the live admin POST writes
+# canonicalize(<admin email>) into report_rate_limits.identity, so
+# the harness MUST seed the same canonical form or the production
+# quota deny path never fires on the next admin POST). NOT part of
+# the canonical validation env-var contract — only this one outcome
+# reads it; the other 7 outcomes use the
+# validation:m12-fixture-<outcome>:<uuid> synthetic-identity scheme
+# per plan §0.E.1 (so leaving this var unset is safe for every CLI
+# / outcome combination except rate-limit-admin). Set to the same
+# email seeded into admin_emails for the prod-equivalent Supabase
+# project (see 0.A.2). See spec §9.1.2 report-fixtures row for the
+# authoritative per-outcome usage contract.
+VALIDATION_ADMIN_EMAIL=
 ```
 
 - [ ] **Step 2: Verify the file change is sensible:** `git diff .env.local.example` shows only the additions, no existing-var edits.
 - [ ] **Step 3: Set the M12 validation env vars in Vercel Production scope** (Settings → Environment Variables, scope: **Production** only — NOT Preview or Development) per the canonical CLI command-by-command env-var contract at spec §9.1.2. Paste the captured Supabase values from 0.A.1 + 0.A.4 into the corresponding rows the §9.1.2 reseed row names.
 - [ ] **Step 3a: Operational note** — set `VALIDATION_J3_CLAIM_EMAIL` to the dev's real Google account email (the one Google OAuth signs the dev in as during the J3 walk). This is an operational instruction for one specific row of the §9.1.2 contract, NOT a re-enumeration of the contract — see R13 commit 30 + spec §1.5 for why the J3 OAuth-claim walk needs a real Google email rather than a synthesized placeholder.
 - [ ] **Step 4: Mirror those env-var values into `.env.local`** (gitignored — do NOT commit the secrets) so local CLIs read the same values as Vercel Production scope.
-- [ ] **Step 5: Set up the existing runtime env vars** if not already in Vercel Production scope: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`, `WATCHED_FOLDER_ID`, `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY` (the M11.5 picker cookie's HMAC signing key — 64 hex chars; runtime-only), plus any other vars `.env.local.example` lists for runtime. These are the production-target deployment's normal env contract; validation only ADDS the four `VALIDATION_`-prefixed vars.
+- [ ] **Step 5: Set up the existing runtime env vars** if not already in Vercel Production scope: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`, `WATCHED_FOLDER_ID`, `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY` (the M11.5 picker cookie's HMAC signing key — 64 hex chars; runtime-only), plus any other vars `.env.local.example` lists for runtime. These are the production-target deployment's normal env contract; validation only ADDS the `VALIDATION_`-prefixed vars per spec §9.1.2 (R35 commit 71 F33: cross-reference §9.1.2 for the authoritative per-CLI list; the `.env.local.example` template above carries every literal the dev must set locally — including the per-outcome helper `VALIDATION_ADMIN_EMAIL` added in R33 commit 68).
 - [ ] **Step 6: Trigger another production redeploy** in Vercel so the new env vars take effect.
 - [ ] **Step 7: Verify the deployment can reach the new Supabase:** open the production URL in a browser. Click sign-in. Confirm Google OAuth lands you as admin (the email canonicalized in 0.A.2 step 4). If sign-in fails with "unauthorized", admin_emails was not seeded correctly — go back to 0.A.2.
 - [ ] **Step 8: Commit `.env.local.example`** (only the documentation update — secrets stay in `.env.local`).
