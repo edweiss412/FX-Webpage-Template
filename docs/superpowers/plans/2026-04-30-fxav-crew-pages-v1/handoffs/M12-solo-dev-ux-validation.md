@@ -1909,7 +1909,7 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 ### Amendment R59 — 2026-05-26
 
 - **Diff base:** `da1f2b3` (post-R58 handoff)
-- **Diff target:** commit 96 (R59 repair)
+- **Diff target:** `c82a9e3` (commit 96 — R59 repair)
 - **Verdict:** **implementer-complete; pending R60 adversarial review**
 - **Repair (per F50 instructions):**
 
