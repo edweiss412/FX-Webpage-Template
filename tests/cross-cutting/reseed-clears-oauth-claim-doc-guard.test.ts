@@ -409,6 +409,113 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     }
   });
 
+  // R21 commit 47 — F10-class DEEPER structural defense (extends R15 commit
+  // 36). R20 surfaced F20 (THRESHOLD-3 BREACH, 3rd round: R12 F10 + R14
+  // F13/F14 + R20 F20). The R15 doc-guard's F10-parameterization-integrity
+  // assertion grep-scoped on prose surfaces and missed the markdown TABLE
+  // surface at §9.1.2 (which used "Same three env vars" shorthand for
+  // 3 of 4 rows, silently omitting VALIDATION_J3_CLAIM_EMAIL from rows
+  // inheriting via shorthand).
+  //
+  // This assertion structurally closes the table-surface gap. Every spec
+  // §-numbered table that mentions a VALIDATION_* env var literal MUST
+  // EITHER list all 4 canonical env vars per row OR carry an explicit
+  // `not-subject-to-meta: <reason>` marker near the table for that row.
+  test("F20-canonical-tables-completeness: every spec §-numbered table referencing VALIDATION_* lists all 4 canonical env vars per row OR carries explicit subset reason", () => {
+    const CANONICAL_VARS = [
+      "VALIDATION_SUPABASE_URL",
+      "VALIDATION_SUPABASE_SECRET_KEY",
+      "VALIDATION_SUPABASE_PROJECT_REF",
+      "VALIDATION_J3_CLAIM_EMAIL",
+    ];
+
+    const source = stripFifteen(readFileSync(join(ROOT, SPEC_FILE), "utf8"));
+    const lines = source.split("\n");
+
+    // Locate every markdown table row that references at least one
+    // VALIDATION_* literal. A "table row" is a line beginning with `|`
+    // (after optional whitespace) containing at least one VALIDATION_*
+    // mention. We exclude the table HEADER row (which names "Required
+    // env vars" as a column header but doesn't itself enumerate vars)
+    // and the SEPARATOR row (`|---|---|...`).
+    const findings: string[] = [];
+
+    // Match the SPECIFIC canonical env-var literals — NOT the wildcard
+    // `VALIDATION_*` glob (which legitimately appears in prose like
+    // "Set VALIDATION_* env vars in Vercel" without enumerating any
+    // specific variable). The guard targets rows whose INTENT is to
+    // enumerate env vars — the heuristic: the row mentions at least
+    // one of the canonical literals BY NAME.
+    const enumerationRegex = new RegExp(
+      "\\b(" + CANONICAL_VARS.map((v) => v.replace(/_/g, "_")).join("|") + ")\\b",
+    );
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!/^\s*\|/.test(line)) continue;
+      // Must reference at least ONE canonical literal by name (not just
+      // the wildcard glob "VALIDATION_*").
+      if (!enumerationRegex.test(line)) continue;
+      // Skip table separator rows
+      if (/^\s*\|[\s|:-]+\|?\s*$/.test(line)) continue;
+      // Skip header rows: a header row is a `|` line immediately
+      // followed by a separator row (next line is `|---...`).
+      const next = lines[i + 1] ?? "";
+      if (/^\s*\|[\s|:-]+\|?\s*$/.test(next)) continue;
+
+      // Now: this is a table-body row enumerating at least one
+      // canonical VALIDATION_* env var. Determine
+      // (a) whether it explicitly enumerates the canonical 4 OR claims
+      // an explicit subset reason, and (b) which vars are missing if
+      // not the full 4.
+
+      // Subset-allowed marker: a row that explicitly states `N vars`
+      // with N < 4 AND names a reason. We look for the literal "3 vars"
+      // (or "2 vars" / "1 var") in the row itself; we also accept
+      // explicit phrases like "J3-claim-email NOT required" or "J3-claim-
+      // email is omitted" or "not-subject-to-meta:" inline.
+      const explicitSubsetMarker =
+        /\b[123]\s+vars?\b.*\bnot required\b/i.test(line) ||
+        /\bJ3[-_]?claim[-_]?email[^.]{0,80}(NOT required|omitted|is omitted|excluded)/i.test(line) ||
+        /not-subject-to-meta:/i.test(line);
+
+      const presentVars = CANONICAL_VARS.filter((v) => line.includes(v));
+      const missingVars = CANONICAL_VARS.filter((v) => !line.includes(v));
+
+      if (presentVars.length === CANONICAL_VARS.length) {
+        // Full 4 vars enumerated — passes.
+        continue;
+      }
+
+      if (explicitSubsetMarker && presentVars.length >= 1) {
+        // Row deliberately documents a subset; passes (the reason is
+        // inline). Require at least 1 SUPABASE_* var present so we
+        // don't false-pass on a row that just mentions VALIDATION_J3_CLAIM_EMAIL
+        // in passing without enumerating any of the SUPABASE_* trio.
+        continue;
+      }
+
+      findings.push(
+        `  ${SPEC_FILE}:${i + 1} (table-body row references VALIDATION_* but does not list all 4 canonical env vars AND does not carry explicit subset reason)\n` +
+          `      row:     ${line.substring(0, 240)}${line.length > 240 ? "..." : ""}\n` +
+          `      present: ${presentVars.length === 0 ? "(none)" : presentVars.join(", ")}\n` +
+          `      missing: ${missingVars.join(", ")}`,
+      );
+    }
+
+    if (findings.length > 0) {
+      expect.fail(
+        `R21 F20-canonical-tables-completeness guard: ${findings.length} spec table row(s) reference VALIDATION_* env vars but do NOT list all 4 canonical vars and do NOT carry an explicit subset reason.\n\n` +
+          findings.join("\n\n") +
+          `\n\nCanonical env vars (single source of truth — spec §9.1.2 R21 commit 44 F20 amendment):\n  ${CANONICAL_VARS.join("\n  ")}\n\n` +
+          `Fix options for each row:\n` +
+          `  (a) List all 4 canonical env vars verbatim in the row.\n` +
+          `  (b) Explicitly document a subset by writing "<N> vars" (e.g., "3 vars") AND naming WHY a var is omitted via "J3-claim-email NOT required" / "J3-claim-email is omitted" / "not-subject-to-meta: <reason>" phrasing in the same row.\n\n` +
+          `This guard catches the F20 failure mode: a table row uses "Same N env vars" shorthand and silently inherits an incomplete set. The shorthand is retired per R21 commit 44 — every row must be explicit.`,
+      );
+    }
+  });
+
   test("F13-conflation-prevention: no Phase 0.C verification query asserts `email LIKE '%@example.com'` count = 96", () => {
     // Per R15 commit 33 F13 repair: the pre-R15 verification query
     // asserted `count(*) FROM crew_members WHERE email LIKE '...@example.com'`
