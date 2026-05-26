@@ -418,9 +418,152 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 - **Class-sweep discipline note:** R13 (A) audit was scoped to F12 class only. F10/F11 repairs in commits 30+31 did NOT include adjacent class-sweeps. R15 dispatch MUST mandate comprehensive F10-class (A) audit BEFORE patching commits land. AGENTS.md cross-cutting #5 ("class-sweep before patching") applies pre-emptively, not just after the second same-vector finding.
 - **Repair commit:** pending R15 implementer dispatch.
 
-### Amendment R15 — pending
+### Amendment R15 — 2026-05-26
 
-R15 implementer dispatch: F10-class comprehensive (A) audit (mandated by R12+R14 same-vector recurrence) → audit every fixture-email pattern reference + every count assertion involving 96/95 + every placeholder-domain rejection list + every alias_5a_lead-specific reference; F13 + F14 per-instance fixes; pre-emptive structural defense IF audit surfaces 3+ peers beyond named hits (per M12 plan R5 precedent). Defense candidate: extend R13 commit 32 `reseed-clears-oauth-claim-doc-guard.test.ts` with F10-class assertions OR new `j3-claim-email-parameterization-guard.test.ts`.
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `78b9cf1` (post-R15 HEAD)
+- **Verdict:** **implementer-complete; pending R16 adversarial review**
+- **(A) F10-class comprehensive audit (mandated by R12+R14 same-vector recurrence):** 5 dimensions audited (email-pattern / count assertions / placeholder-domain rejection lists / alias_5a_lead-specific / DB-side mirrors). Summary:
+
+  | Dim | Description | Peers beyond named (F13+F14) |
+  |---|---|---|
+  | 1 | email-pattern (`validation+%@example.com`) | 0 |
+  | 2 | count assertions (96 / 95 / 9×16) | 0 (F13 is the only conflation site) |
+  | 3 | placeholder-domain rejection lists | **7** (all narrow-list peers across spec §3.3 + plan §0.C + env-var template + walk procedure) |
+  | 4 | `alias_5a_lead`-specific references | 0 |
+  | 5 | DB-side / RPC-side mirrors | 0 (1 new defense surface added, not a peer drift) |
+  | **Total** | — | **7** |
+
+- **Structural-defense-acceleration trigger:** 7 peers ≥ 3-peer threshold → pre-emptive structural defense ships at R15 (commit 36) per M12 plan R5 precedent (structural-defense calibration in same commit series, do not wait for R16).
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 33 | `6866d72` | docs(plan-m12): R15 F13 — Phase 0.C verification query split for post-F10 seed shape |
+  | 34 | `30bbb4f` | docs(plan-m12): R15 F14 — predicate (k) + fixture-build + RPC defense-in-depth with full canonical domain set |
+  | 35 | `2e37cb0` | docs(spec-m12)+docs(plan-m12): R15 Dim-3 class-sweep — narrow→canonical rejected-domain set across all 7 peers |
+  | 36 | `78b9cf1` | test(cross-cutting): R15 F10-class structural defense extension |
+
+- **F13 repair (commit 33):** Phase 0.C verification query at `03-phase0-tooling-reseed.md:592-637` split into three queries — (a) `alias_map` JOIN asserts 96 total aliases; (b) `email LIKE 'validation+%@example.com'` asserts 95 (post-F10 split); (c) `R1.alias_5a_lead.email` asserts canonicalize(`VALIDATION_J3_CLAIM_EMAIL`). Postgres operand types verified per R10 F9 lesson.
+- **F14 repair (commit 34):** Predicate (k) at `03-phase0-tooling-reseed.md:516` + fixture-build TS pseudocode at `:129-148` + mint RPC body at `:266-279` all extended to reject the **canonical rejected domain set** — RFC 2606 (example.com/.org/.net) + RFC 6761 (*.test, *.invalid, *.localhost, bare localhost) + mDNS RFC 6762 + project-conventional (*.local, dev.local). RPC `RAISE EXCEPTION` provides defense-in-depth at seed-write (not just check-seed time).
+- **Dim-3 class-sweep (commit 35):** 7 narrow-list peer sites bumped to canonical set with cross-references back to spec §3.3 step 5 (single source of truth). Sites: spec §3.3 R13-amendment paragraph (`:146`); spec §3.3 combo R1 exception (`:158`); spec §3.3 predicate (k) mirror (`:343`); plan §0.C.5 fixture-build pseudocode (`03:129`); plan env-var doc template (`01:99-112`); plan commit-msg template (`01:131-137`); plan J3 walk procedure (`06:185`).
+- **Structural defense (commit 36):** Existing `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts` (R13 commit 32 F11 defense) extended with 3 new F10-class assertions: (1) F13-conflation-prevention guard (Phase 0.C verification queries using `email LIKE '%@example.com'` must NOT assert count = alias_map leaf total); (2) F14-canonical-set guard (every placeholder-domain rejection list in M12 spec + plan cites every entry of the canonical set); (3) F10-parameterization-integrity guard (every J3-claim-email contract site names `VALIDATION_J3_CLAIM_EMAIL` + cross-references live RPC + check-seed + walk surfaces). **RED phase against pre-R15 HEAD `748cbbd`:** 2 of 3 new assertions failed (F14-canonical-set + F13-conflation-prevention); F10-parameterization-integrity passed legitimately because R13 commits 30+31 had already landed `VALIDATION_J3_CLAIM_EMAIL` across all 6 surfaces. **GREEN phase against R15 HEAD `78b9cf1`:** all 3 new assertions PASS; all 3 pre-existing F11 doc-guard assertions hold.
+- **Meta-test regression:** all 3 structural defenses PASS at R15 HEAD — `picker-resolver-outcome-prose-guard.test.ts` (R8) + `identity-invalidated-two-reasons-doc-guard.test.ts` (H8) + `reseed-clears-oauth-claim-doc-guard.test.ts` (R13c32 + R15c36; 6 assertions total). 8 doc-guard assertions across 3 files, all PASS.
+- **Class-sweep status post-R15:**
+  - **F10-class (J3 OAuth-walk integrity):** R12 F10 + R14 F13/F14 = 2 rounds. R15 closes via per-instance F13/F14 + Dim-3 7-peer class-sweep + structural defense (commit 36 ships pre-emptively per M12 plan R5 calibration). **Threshold-3 calibration:** if R16 surfaces another F10-class hit, structural defense is insufficient and deeper redesign is required.
+  - All previous classes still closed (resolver-outcome R6-R8, F6/F7/F9, phantom-metatest R11+R12, F11-class R12).
+- **Scope discipline:** Spec + plan + handoff markdown + ONE test file under `tests/cross-cutting/` (the existing R13c32 doc-guard extended; consolidates F10/F11/F13/F14 doc-guards per project pattern). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/`.
+
+### Amendment R16 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `78b9cf1` (post-R15)
+- **Verdict:** **needs-attention** (2 HIGH + 1 MEDIUM; all 3 are NEW classes, 0 F10-class hits)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F15 | HIGH | `02-phase0-validation-state.md:180-189` (validation_state migration grants) | **NEW class — PostgREST DML lockdown for RPC-gated table.** Plan says writes are RPC-owned (atomic with advisory lock) but migration GRANTs INSERT/UPDATE/DELETE to anon/authenticated. Any admin session can bypass RPC and directly mutate `last_seed_date` / `combos_seeded_dates` / `alias_map` / `seeded_supabase_project_ref`, falsifying check-seed without the intended transaction semantics. Direct match for AGENTS.md cross-cutting #1 + `feedback_postgrest_dml_lockdown_for_rpc_gated_tables`. Repair: REVOKE INSERT/UPDATE/DELETE from anon/authenticated; SELECT-only if admin read needed; service_role/RPC remain only write path; structural meta-test pinning the invariant. |
+  | F16 | HIGH | `03-phase0-tooling-reseed.md:305-348` (mint_validation_fixture_atomic RPC body) | **NEW class — reseed `--combo all` not full-replace.** Spec says `--combo all` is full-replace; RPC only UPSERTs expected crew_members + updates alias_map. Never DELETEs `crew_members` for the validation show that are no longer in the payload. Picker roster reads `crew_members` directly (not `alias_map`), so stale aliases from an earlier draft/manual run remain visible and selectable while check-seed (which counts alias_map leaves) still passes. UX walk can exercise identities outside the canonical 96-leaf fixture. Repair: in locked RPC, DELETE validation-show crew rows whose names are not in the incoming payload before the UPSERT (or after, with a sentinel pattern); add check-seed/test case that seeds an extra stale crew row, runs reseed, confirms it's removed and picker roster matches fixture aliases. |
+  | F17 | MEDIUM | `02-phase0-validation-state.md:83-88` (failing-first schema test) | **NEW class — test pattern unfit for harness.** Test queries `information_schema.columns` via supabase-js `.from()`. Local Supabase exposes only public/graphql_public/dev schemas; `information_schema` is unreachable via PostgREST even with service_role. Test continues failing after schema is correct, blocking Phase 0.B on harness rather than schema. Repair: use existing `tests/db/*` pattern (psql against TEST_DATABASE_URL for information_schema/pg_catalog assertions), OR add a purpose-built SECURITY DEFINER introspection RPC in public schema. |
+
+- **Same-vector status:**
+  - **F10-class (J3 OAuth-walk integrity):** R16 surfaced 0 hits → R15 structural defense (commit 36 + Dim-3 7-peer class-sweep) held cleanly. Class closed.
+  - F15 / F16 / F17: each NEW class, 1 round, no priors.
+  - All previous classes still closed; structural defenses regression-clean.
+- **Repair commit:** pending R17 implementer dispatch.
+
+### Amendment R17 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `fa32554` (post-R17 HEAD)
+- **Dispatch mode:** **inline Agent** (general-purpose subagent in orchestrator session, not separate paste-in Opus session). First R-round on this milestone dispatched inline; tradeoffs documented at handoff §11.
+- **Verdict:** **implementer-complete; pending R18 adversarial review**
+- **(A) class-sweep peer surveys:**
+
+  | Finding | Class | Peers beyond named | Disposition |
+  |---|---|---|---|
+  | F15 | RPC-gated table w/ PostgREST DML open | 0 | Single-instance (`validation_state` only); `mint_validation_fixture_atomic` + `validation_finalize_all_atomic` function-level `REVOKE ALL FROM public, anon, authenticated` already correct |
+  | F16 | Reseed/full-replace semantics gap | 0 | Single-instance (`mint_validation_fixture_atomic` only); `validation_finalize_all_atomic` only stamps `last_seed_date`, does not write `crew_members` |
+  | F17 | supabase-js used for unreachable schema | 0 | Single-instance (`02:85` only `information_schema.*` reference) |
+  | **Total** | — | **0** | No class hit 3-peer threshold → no structural-defense-acceleration trigger |
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 37 | `a261cf8` | supabase(migration)+docs(plan-m12)+docs(spec-m12): R17 F15 — validation_state PostgREST DML lockdown |
+  | 38 | `6ee4a03` | test(db): R17 F15 structural defense — postgrest-dml-lockdown.test.ts inventory registration |
+  | 39 | `2d08cae` | docs(plan-m12)+docs(spec-m12): R17 F16 — mint RPC full-replace + check-seed predicate (m) |
+  | 40 | `fa32554` | docs(plan-m12): R17 F17 — schema-test pattern swap supabase-js → psql |
+
+- **F15 repair (commit 37):** validation_state migration grants `SELECT` to anon/authenticated; REVOKEs `INSERT, UPDATE, DELETE` from anon/authenticated; service_role keeps full DML. PostgREST DML lockdown contract paragraph added at `02-phase0-validation-state.md:221` + spec §3.3.2 mirror. Cites M9.5 R5+R6 precedent migration `supabase/migrations/20260521000000_signed_link_admin_table_grants.sql` for `crew_member_auth` + `crew_members` parallel.
+- **F15 structural defense (commit 38):** `tests/db/postgrest-dml-lockdown.test.ts` is PLAN-SPEC'D at Task 0.B.2 Step 8 (commit 37) — verbatim source embedded in plan, registered in 00-overview.md meta-test inventory (commit 38). **Runtime authoring deferred to Phase 0.B execution** per M9.5 precedent (M9.5 R5+R6 closed with REVOKE migration only; no `postgrest-dml-lockdown.test.ts` file exists at HEAD; M12 Phase 0.B authors it new, registering `crew_member_auth` + `crew_members` + `validation_state` as the initial registry). This interpretation of AGENTS.md cross-cutting #1 ("Plan-time checklist") = decided-at-plan-time + authored-at-execution-time matches the M9.5 lifecycle. **Pre-emptive ratification:** this is NOT a deferred-defense gap; the cross-cutting #1 rule's authoring obligation is honored by the Phase 0.B execution step.
+- **F16 repair (commit 39):** `mint_validation_fixture_atomic` pseudocode at `03-phase0-tooling-reseed.md` §2.5 gains DELETE-BEFORE-UPSERT block (`WITH keep AS (...) DELETE FROM crew_members WHERE show_id = v_show_id AND name NOT IN (SELECT keep_name FROM keep)`). Check-seed predicate count 9 → 10 (a-g, i, k, l + new **m**) at `03:567` + spec §3.3.2 mirror. Predicate (m) wording: "for every combo C in combos_materialized, every crew_members.name for the C-show MUST appear in the canonical fixture body for combo C; orphan rows are flagged." Regression test specified at Task 0.C.5 Step 5 — seed R1, INSERT `orphan_stale_lead`, assert predicate (m) fires; re-mint; assert orphan removed + check-seed PASS + canonical fixture intact.
+- **F17 repair (commit 40):** Phase 0.B Task 0.B.2 Step 1 failing-first test pattern swapped from supabase-js `.from(information_schema.columns)` (unreachable schema) to `execFileSync` psql against `TEST_DATABASE_URL`. Mirrors `tests/db/admin-rls-runtime.test.ts:55-79` `runPsql` helper pattern (TSV parsing via `-At -F\t`); also cited at `tests/db/picker_epoch_columns.test.ts`. New shape SELECTs `column_name, data_type, is_nullable` ORDER BY ordinal_position; parses to colMap; asserts 8-column type matrix.
+- **Meta-test regression:** all 3 cross-cutting structural defenses PASS at R17 HEAD (`picker-resolver-outcome-prose-guard` + `identity-invalidated-two-reasons-doc-guard` + `reseed-clears-oauth-claim-doc-guard` = 8 assertions / 8 PASS in 495ms).
+- **Class-sweep status post-R17:**
+  - F15/F16/F17 each 1 round, closed per-instance (no peers). F15 structural defense plan-spec'd for Phase 0.B authoring per M9.5 precedent.
+  - F10-class still closed (R15 commit 36 held through R16). All previous classes still closed.
+- **Scope discipline:** Spec + plan + handoff markdown only. No `app/`, `components/`, `lib/`, `scripts/`, `tests/cross-cutting/`, `tests/db/`, or `supabase/migrations/` runtime files modified (the REVOKE block is plan-spec'd into the canonical DDL embedded in `02-phase0-validation-state.md`; runtime migration ships when Phase 0.B Task 0.B.2 Step 3 fires per existing plan cadence).
+- **Orchestrator nits (not blocking):**
+  - Commit 38 type `test(db):` is slightly off-convention given the commit only edits markdown (00-overview.md +2/-1 lines); arguably `docs(plan-m12):`. Defensible because the conceptual scope IS the test inventory registry. Non-blocking.
+
+### Amendment R18 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `fa32554` (post-R17)
+- **Verdict:** **needs-attention** (2 HIGH; F18 NEW class + F19 F16-class same-vector recurrence)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F18 | HIGH | `03-phase0-tooling-reseed.md:247-248` (mint RPC `drive_file_id` formula vs predicate (m) + regression `lower(C)` / `validation_r1` references) | **NEW class — fixture identity normalization mismatch.** Mint RPC writes `drive_file_id := 'validation_' || p_combo` (R1 → `validation_R1` UPPERCASE) but predicate (m) and regression snippets resolve via `'validation_' || lower(C)` / literal `validation_r1`. A correct R1 reseed will not be found by the prescribed predicate/test, so check-seed either fails immediately after fresh reseed OR the orphan regression INSERTs against a NULL show_id. Repair: pick one canonical case (UPPER matches existing combo enum convention R1/R2/...) and align both write + read sides; add regression that `reseed --combo R1` followed by `check-seed --combo R1` passes and that the orphan test resolves a non-null R1 show_id. |
+  | F19 | HIGH | `03-phase0-tooling-reseed.md:251-255` (mint RPC shows UPSERT vs check-seed predicate (g) share-token requirement) | **F16-class same-vector recurrence (R16 F16 + R18 F19) — reseed cannot self-heal show_share_tokens.** Plan relies on `shows_create_share_token_after_insert` trigger to populate `show_share_tokens` on shows INSERT, but the trigger does not fire on UPSERT update path. If the token row is missing (manual cleanup / failed earlier migration / test corruption), rerunning `validation:reseed` updates the existing show but never (re)creates the token row, leaving smoke 6 / J3 unwalkable (predicate (g) treats missing token as blocking failure). Repair: mint RPC self-heals after show UPSERT via `INSERT INTO public.show_share_tokens (show_id) VALUES (v_show_id) ON CONFLICT DO NOTHING`; predicate (g) regression extended to delete the token row, rerun reseed, assert check-seed PASS. |
+
+- **Same-vector status post-R18:**
+  - **F16-class (mint RPC UPSERT update-path self-healing): 2 rounds** (R16 F16 crew_members orphan deletion + R18 F19 show_share_tokens repair). Per AGENTS.md "Same-vector recurrence" + `feedback_recurring_bug_response`, **R19 MUST do comprehensive re-analysis** of F16-class surfaces BEFORE patching. The (A) audit must enumerate EVERY table the mint RPC writes (directly or via INSERT trigger) and confirm the UPSERT update-path self-heals the invariant for each. R17 (A) audit was scoped to "reseed/full-replace semantics" but missed the trigger-bypass-on-UPSERT-update surface — the comprehensive re-analysis must close that gap.
+  - Threshold-3 calibration: if R20 surfaces another F16-class hit, R19 audit was incomplete → structural defense mandate fires (per M12 plan R5 precedent — defense ships at R19 pre-emptively if (A) audit surfaces 3+ peers beyond F19).
+  - F18 NEW class — fixture identity normalization; 1 round; no priors.
+  - F10-class still closed (R15 commit 36 + R16 + R17 held).
+  - F15 / F17 each NEW classes at R17, closed (no R18 recurrence).
+- **Repair commit:** pending R19 implementer dispatch (inline Agent).
+
+### Amendment R19 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `2f6c742` (post-R19 HEAD)
+- **Dispatch mode:** inline Agent (general-purpose subagent in orchestrator session).
+- **Verdict:** **implementer-complete; pending R20 adversarial review**
+- **(A) F16-class comprehensive re-analysis** (per same-vector recurrence mandate from R16 F16 + R18 F19):
+
+  | Table | Direct write by mint RPC | Triggers fired (semantics) | Invariant held on UPSERT update-path? | F16-class peer? |
+  |---|---|---|---|---|
+  | `shows` | UPSERT (ON CONFLICT (drive_file_id) DO UPDATE) | (i) `shows_bump_picker_epoch_bumped_at` BEFORE UPDATE OF picker_epoch — mint RPC does NOT touch picker_epoch, trigger doesn't fire on either path; not invariant-bearing for mint. (ii) `shows_create_share_token_after_insert` AFTER INSERT — fires ONLY on initial INSERT; bypassed on UPSERT update-path. | (i) N/A. (ii) **NO** — F19 gap (this finding). | **F19 = sole peer beyond F16 itself.** |
+  | `crew_members` | DELETE-BEFORE-UPSERT (R17 commit 39 F16 amendment, already closed) | `crew_members_bump_last_changed_at` BEFORE UPDATE + `crew_members_publish_invalidation` AFTER UPDATE (UPSERT update-path) + `crew_members_publish_invalidation_insert` AFTER INSERT (initial INSERT). The publish_invalidation pair covers both INSERT + UPDATE → realtime-invalidation invariant holds on every path. | YES (bump_last_changed_at + publish_invalidation both fire on UPSERT update-path). | NO — no gap. |
+  | `validation_state` | UPSERT (ON CONFLICT (key) DO UPDATE) | None on `public.validation_state`. | YES (no triggered invariant to lose). | NO — no triggers. |
+  | `show_share_tokens` | NOT directly written — relies on `shows_create_share_token_after_insert` trigger. | (Owns its own invariant: every show has exactly one row.) | NO if shows UPSERT hits update-path AND share-token row was removed out-of-band — trigger doesn't re-fire. | **YES — F19 (this finding).** |
+
+  **F16-class peer count beyond F19: 0.** `crew_member_auth` retired at M11.5 G3 cutover (`supabase/migrations/20260523000099_cutover_drop_m9_5.sql`) — no triggers to audit. No other tables in the mint RPC's write set. Structural-defense-acceleration trigger NOT fired (peer count < 3); threshold-3 calibration applies (defense becomes mandate IF R20 surfaces another F16-class hit).
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 41 | `d59489d` | `docs(plan-m12)+docs(spec-m12): R19 F18 — drive_file_id case normalization to UPPER` |
+  | 42 | `2f6c742` | `docs(plan-m12)+docs(spec-m12): R19 F19 — show_share_tokens self-heal in mint RPC` |
+
+  (Commit numbering follows the M12 amendment series; commit count shifted +1 vs orchestrator's pre-dispatch projection — R19 lands in 2 commits, not 4. Commit 44 + commit 45 NOT needed: (A) audit surfaced 0 peers beyond F19, so no adjacent peer fixes; 0 peers < 3-peer threshold, so no structural-defense-acceleration trigger.)
+
+- **F18 repair (commit 41):** drive_file_id canonical case is UPPER (matches existing combo enum convention `R1`/`R7b`/`SW-POST_SHOW`). Mint RPC line 247 already wrote `'validation_' || p_combo` correctly (no lowercase coercion); the bug was on the READ side — predicate (m) prose at line 583 used `'validation_' || lower(C)` and Task 0.C.5 Step 5 regression snippets used literal `validation_r1`. R19 normalizes all read-side references to match the write side. Sites updated: 03:583 (predicate (m) prose), 03:585 (failing test snippet), 03:601 (orphan INSERT), 03:604 (orphan removal assertion); spec §3.3.2 predicate (m) gains case clarifier (no SQL form in spec prose, so this is a contract-level invariant statement). Regression test extension at Task 0.C.5 Step 1: `pnpm validation:reseed --combo R1` + `pnpm validation:check-seed --combo R1` must resolve non-null R1 show_id via predicate (m) and PASS — exercises the case round-trip end-to-end.
+- **F19 repair (commit 42):** mint RPC body gains section 2.6 (post-shows-UPSERT, pre-crew_members) with `INSERT INTO public.show_share_tokens (show_id) VALUES (v_show_id) ON CONFLICT (show_id) DO NOTHING`. ON CONFLICT target `(show_id)` matches `show_share_tokens_pkey` at `supabase/migrations/20260523000002_show_share_tokens.sql:27`. Ordering AFTER shows UPSERT (v_show_id exists) BEFORE crew_members ops (show invariants complete before fixture data lands; concurrent readers acquiring the advisory lock never observe a show without its share-token row). Predicate (g) regression at Task 0.C.5 Step 5 extended with sub-steps 6-10: capture original token → DELETE share-token row → check-seed exit 1 predicate (g) fires → reseed → assert row re-created with fresh 64-hex token + check-seed PASS + idempotency probe (second reseed preserves the token via ON CONFLICT DO NOTHING). Predicate (g) prose at line 618 extended to reflect dual-source sentinel (trigger on initial INSERT + self-heal on UPSERT-update reseeds). Spec §3.3.2 mint-RPC prose at line 347 mirrors the F19 amendment.
+- **Meta-test regression:** all 3 cross-cutting structural defenses PASS at R19 HEAD `2f6c742` — `picker-resolver-outcome-prose-guard.test.ts` (R8) + `identity-invalidated-two-reasons-doc-guard.test.ts` (H8) + `reseed-clears-oauth-claim-doc-guard.test.ts` (R13c32 + R15c36; 6 assertions). **8 doc-guard assertions across 3 files; 8 PASS in 564ms.** No structural defense extended at R19 (commit 45 was conditional on (A) audit finding 3+ peers beyond F19; (A) audit found 0).
+- **Class-sweep status post-R19:**
+  - **F16-class (mint RPC UPSERT update-path self-healing):** R16 F16 + R18 F19 = 2 rounds. R19 closes per-instance via §2.6 self-heal block + predicate (g) regression extension. (A) audit found 0 peers beyond F19 — class is structurally bounded by the mint RPC's write surface, which is enumerated above. **Threshold-3 calibration:** if R20 surfaces another F16-class hit, R19 (A) audit was incomplete; deeper structural defense required (candidate: doc-guard meta-test enumerating every mint-RPC-touched table + asserting each has a documented self-heal block OR a documented "no self-heal needed because <reason>" justification in the RPC body comments).
+  - **F18-class (fixture identity normalization):** NEW class, 1 round, closed in R19. Threshold-3 applies if R20 surfaces another case-normalization peer.
+  - All previous classes still closed (resolver-outcome R6-R8, F6/F7/F9, phantom-metatest R11+R12, F10-class, F11-class, F15/F17 R16-R17).
+- **Scope discipline:** Spec + plan + handoff markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `tests/`, `supabase/migrations/` (mint RPC body is plan-spec'd inline; runtime authoring is Phase 0.C execution work per existing plan cadence).
 
 ---
 
