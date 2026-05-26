@@ -972,7 +972,7 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 ### Amendment R31 — 2026-05-26 (F30 repair — per-outcome producer map + Phase 0.E rewrite)
 
 - **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
-- **Diff target:** TBD (post-R31)
+- **Diff target:** `a5ed46f` (post-R31 plan rewrite; handoff §9 SHA-stamp commit follows)
 - **Verdict:** **implementer-complete; pending R32 adversarial review**
 
 - **(A) Per-outcome producer map (codebase grounding).** For each of the 8 `--outcome` enum values from spec §9.1.2 line 824, the real producer state in live code:
@@ -1018,8 +1018,8 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
   | # | SHA | Subject |
   |---|---|---|
-  | 64 | TBD | docs(plan-m12): R31 (A) codebase-grounding audit — per-outcome producer map cited file:line + (C) class-sweep table |
-  | 65 | TBD | docs(plan-m12): R31 F30 per-instance fix — Phase 0.E + Phase 0.F.7 rewrite to per-outcome producer state + cleanup table enumeration |
+  | 64 | `b1515b4` | docs(plan-m12): R31 (A) codebase-grounding audit + (C) class-sweep |
+  | 65 | `a5ed46f` | docs(plan-m12): R31 F30 — Phase 0.E + 0.F.7 rewrite for per-outcome producer state |
 
 - **Meta-test regression (R31 baseline):** **16/16 PASS** (no walker changes; structural defenses unchanged from R29).
 
