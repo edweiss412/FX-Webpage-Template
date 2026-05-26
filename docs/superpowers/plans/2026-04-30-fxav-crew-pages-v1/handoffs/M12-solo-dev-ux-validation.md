@@ -1683,7 +1683,44 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F21-class regex set holds at 9 patterns / 8 structural slots.
   - All other classes still closed.
 
-- **Repair commit:** pending R51 implementer dispatch (inline Agent; F46 per-instance + plan/spec sweep + decide structural defense extension).
+- **Repair commit:** closed in R51 (see below).
+
+### Amendment R51 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `5a40863` (post-R51)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R52 adversarial review**
+
+- **F46 repair (commit 91):** plan 03:925 rewritten — `validation+5a@example.com` canonicalizes to ITSELF (already lowercase + no outer whitespace); helper does `raw.trim().toLowerCase()` ONLY (cited `lib/email/canonicalize.ts:2-6`); + and 5a alias segment preserved. Troubleshooting hint: inspect for payload path that skipped canonicalize() OR supplied malformed/non-canonical value. Pre-R51 false claim explicitly retired + cross-referenced R49 commit 88 parallel fix.
+
+- **(B) Class-sweep results (false-semantics-claims):**
+  - `03-phase0-tooling-reseed.md:925` → PATCHED at commit 91
+  - `01-phase0-infra.md:30,:48` → CLEAN (R49 commit 88 already corrected)
+  - spec `:146,:156,:158` → CLEAN (CITATION — synthesized fixture format prose, not a strip-plus claim)
+  - `06-phase1-matrix-walk.md:185` → CLEAN (HISTORICAL pre-R13 narrative; no semantics claim)
+  - `03-phase0-tooling-reseed.md:583,:864,:866` → CLEAN (DEFERRED-extension contract per R49 (B))
+  - handoff `:1615,:1643,:1678` → CLEAN (audit-trail / convergence-log records; F46_EXCLUDED_PATHS)
+
+- **Structural defense extension (commit 92)** — Option (a) ratified (extend R49 commit 89 sibling test):
+  - 3 new patterns added: `prose:plus-alias-canonicalizes-to-non-plus` (backreffed `\1@\2` regex); `prose:strip-plus-claim` (forward order); `prose:strip-plus-claim-reverse` (reverse order)
+  - NEW `PatternSpec.scope` field (`"respects-exclusions"` | `"all-files"`) — F44 patterns keep `EXCLUDED_PATHS`; F46 prose patterns use stricter `F46_EXCLUDED_PATHS = {HANDOFF_FILE}` only (prose claims actionable in any source surface)
+  - NEW `NEGATION_QUALIFIER_RX` bypasses "does NOT strip" / "never stripped" / "preserves the +" / "canonicalizes to ITSELF" / "raw.trim().toLowerCase() only"
+  - `HISTORICAL_QUALIFIER_RX` extended with "previously claimed" / "that claim was FALSE" / "R51 commit 9N F46 amendment"
+  - **RED→GREEN evidence:** pre-R51 plan 03:925 (`git show 5d1f534:`) fires all 3 F46 patterns; post-R51 commit 91 → 0 findings. 4 synthetic broken (FIRE) + 5 passing fixtures (NEGATION / HISTORICAL / no-anchor / cross-domain backref / canonicalizes-to-ITSELF).
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 91 | `60c44d5` | docs(plan-m12): R51 F46 — rewrite plan 03:925 to actual canonicalize.ts semantics |
+  | 92 | `5a40863` | test(cross-cutting): R51 F46 structural defense — extend doc-guard with false-semantics-claim patterns |
+
+- **Meta-test regression:** **89 tests / 3 files PASS** — `no-inline-email-normalization-in-plan-doc-guard.test.ts` 13→21 (+8 R51 fixtures); `reseed-clears-oauth-claim-doc-guard.test.ts` unchanged; `tests/admin/no-inline-email-normalization.test.ts` unchanged.
+
+- **Same-vector status post-R51:** F46 NEW class shape closed via per-instance + structural defense extension. F44/F45 regression-clean. F21-class regex holds at 9 patterns / 8 slots. All other classes still closed.
+
+- **Scope discipline:** plan + handoff markdown + 1 test file extension. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
 
 ---
 
