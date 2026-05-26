@@ -105,6 +105,9 @@ describe("validation_state", () => {
 
     expect(colMap.key?.data_type).toBe("text");
     expect(colMap.last_seed_date?.data_type).toBe("date");
+    // R57 commit 95 F49 amendment: last_seed_date is nullable post-R57 (mint RPC initial INSERT
+    // MUST NOT stamp it; only validation_finalize_all_atomic writes the all-combos completion stamp).
+    expect(colMap.last_seed_date?.is_nullable).toBe("YES");
     expect(colMap.combos_materialized?.data_type).toBe("ARRAY");
     expect(colMap.combos_seeded_dates?.data_type).toBe("jsonb");   // R4: per-combo seeded-date tracking (added R3)
     expect(colMap.combos_seeded_dates?.is_nullable).toBe("NO");
@@ -137,7 +140,7 @@ Expected: FAIL with no rows from information_schema (column map is empty).
 
 CREATE TABLE IF NOT EXISTS public.validation_state (
   key                              text PRIMARY KEY CHECK (key = 'validation_seed'),
-  last_seed_date                   date NOT NULL,
+  last_seed_date                   date NULL,                              -- R57 commit 95 F49 amendment: NULL until validation_finalize_all_atomic stamps. Per R55 Option (b) + R57 F49 fix — initial INSERT by mint RPC MUST NOT stamp this column, only the finalizer writes it; predicate (b) treats NULL as stale ("last_seed_date IS NULL OR last_seed_date != $VALIDATION_TODAY_ISO"). See plan 03 line ~496 mint RPC INSERT and line ~602 finalizer UPDATE.
   combos_materialized              text[] NOT NULL,
   combos_seeded_dates              jsonb NOT NULL DEFAULT '{}'::jsonb,    -- R3 amendment: per-combo seeded dates so partial --combo all reseed cannot falsify the gate
   alias_map                        jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -402,7 +405,7 @@ grep -n "^create table public\." docs/superpowers/specs/2026-04-30-fxav-crew-pag
 ```sql
 create table public.validation_state (
   key                              text primary key check (key = 'validation_seed'),
-  last_seed_date                   date not null,
+  last_seed_date                   date null,                              -- R57 commit 95 F49 amendment: NULL until validation_finalize_all_atomic stamps; mint RPC initial INSERT MUST NOT write this column. Predicate (b) treats NULL as stale.
   combos_materialized              text[] not null,
   combos_seeded_dates              jsonb not null default '{}'::jsonb,    -- R4 amendment: per-combo seeded dates
   alias_map                        jsonb not null default '{}'::jsonb,
