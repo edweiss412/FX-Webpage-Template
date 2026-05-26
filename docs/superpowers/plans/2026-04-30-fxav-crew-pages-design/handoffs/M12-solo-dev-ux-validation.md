@@ -282,7 +282,7 @@ R7 implementer-repair dispatch authored 2026-05-26 (in-chat one-paste-ready kick
 
 - **JWT_SIGNING_SECRET orphan** (filed 2026-05-26 amendment implementer) — `.env.local.example:12` still carries `JWT_SIGNING_SECRET=` (empty placeholder) post-M11.5 G3 cutover, but the only production code reference is one M11-era playwright test fixture (`tests/help/playwright-config.test.ts:82`). The implementer did not touch `.env.local.example` (out of amendment scope). Orchestrator decision needed: (a) file as BACKLOG.md item ("remove JWT_SIGNING_SECRET from .env.local.example + retire the playwright-config.test.ts:82 reference"); OR (b) fold into M12 close-out tidying. Recommend (b) — small mechanical cleanup that pairs naturally with close-out's other "M11.5 supersession cleanup that M11.5 deliberately didn't do" decisions.
 
-- **Handoff format convention** — this doc is the single milestone handoff per project convention (mirroring `M11.5-crew-auth-pivot.md`). Round-by-round audit lives inline in §"Convergence log"; per-round files (`round-NN.md`) are NOT used in this project. The pre-rebase M12 plan author had introduced a per-round-file anomaly which the consolidation commit at HEAD `<TBD>` retired.
+- **Handoff format convention** — this doc is the single milestone handoff per project convention (mirroring `M11.5-crew-auth-pivot.md`). Round-by-round audit lives inline in §"Convergence log"; per-round files (`round-NN.md`) are NOT used in this project. The pre-rebase M12 plan author had introduced a per-round-file anomaly which the consolidation commit at HEAD `5cd84d8` retired.
 
 ---
 
