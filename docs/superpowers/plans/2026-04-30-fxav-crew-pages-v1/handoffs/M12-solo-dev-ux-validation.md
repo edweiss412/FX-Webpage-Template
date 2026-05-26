@@ -952,6 +952,23 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R29 commit 63). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
 
+### Amendment R30 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `7b0cd64` (post-R29 + R29 handoff row)
+- **Verdict:** **needs-attention** (1 HIGH — NEW class)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F30 | HIGH | `04-phase0-tooling-report.md:58-79` (Phase 0.E `validation-report-fixtures` harness) | **NEW class — validation harness producer-state mismatch.** Phase 0.E task writes `reports` rows for all 8 outcomes + expects them in admin UI. But: 429 rate-limit outcomes are driven from `report_rate_limits` (not `reports.context`); failure-mode visibility surfaces via `admin_alerts` / `ErrorExplainer` (not a reports admin page); **no `app/admin/reports` route exists in the repo** (codex confirmed). Implementer following the task can ship a harness that inserts plausible `reports.context` rows, passes its own cleanup test, AND never exercises real failure-mode producers (429 / lookup-inconclusive / orphan-lost-lease / admin-alert rendering). Repair: rewrite per-outcome producer state — seed `report_rate_limits` OR drive `/api/report` for 429s; use submitReport / API fault injection for lookup/lease/orphan; assert actual rendered surface (`ReportModal` error OR `AlertBanner` row); cleanup must remove every table touched (admin_alerts + report_rate_limits + reports). |
+
+- **Same-vector status post-R30:**
+  - F30 NEW class — 1 round; no priors. Per AGENTS.md cross-cutting #5, R31 dispatch includes class-sweep for OTHER Phase 0.E (and Phase 0.F smokes) tasks that might have analogous producer-state mismatches.
+  - All other classes still closed (F10-class walker M3+M4 + structural-exclusivity model regression-clean; F16-class per-column audit complete; F21-class prose-consistency guard clean; F18 / F26 / F11-class all closed).
+
+- **Repair commit:** pending R31 implementer dispatch (inline Agent; harness-design rewrite + class-sweep grounded in live codebase producer paths).
+
 ---
 
 ## §10 — Cross-milestone dependencies
