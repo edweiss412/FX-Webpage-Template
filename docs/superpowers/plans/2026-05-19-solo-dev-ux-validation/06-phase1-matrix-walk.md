@@ -80,23 +80,27 @@ Per spec §3.3 step 5 + invariant 10 (M12-specific).
 Time budget: ≈10-20 hours over 1-3 calendar days. Default-up triage per spec §7.1.
 
 - [ ] **Step 1: Walk band A (admin surfaces) per persona 2 + 3:**
-  - Persona 2 (Doug as admin, steady state): `/admin` dashboard, all panels; `/admin/show/[slug]` per-show panel; `/admin/show/staged/[stagedId]`; preview routes.
+  - Persona 2 (Doug as admin, steady state): `/admin` dashboard, all panels; `/admin/show/[slug]` per-show panel (includes the M11.5 `CurrentShareLinkPanel` + `ShareLinkCopyButton` + `RotateShareTokenButton` + `ResetPickerEpochButton` admin affordances — exercise each in light + dark + both viewports during this band-A pass; the destructive actions also get walked in J3 but their resting-state UX is band-A's responsibility); `/admin/show/staged/[stagedId]`; preview routes.
   - Persona 3 (Doug as admin, onboarding cold start): the onboarding wizard from a freshly-seeded "no shows" state.
   - For each cell: light + dark mode × mobile + desktop viewport. Note any visual or functional finding. Default-up triage.
+  - **Picker-shaped Playwright .skip ambient note (per M11.5-PLAYWRIGHT-HELPERS deferral trigger):** while walking band-A admin surfaces, if the dev's local `pnpm test:e2e` happens to be run, the 4 `.skip` picker-shaped e2e scenarios in `tests/e2e/picker-flow.spec.ts` (signed-in identity helper / pickIdentity / mintShareLink helper shapes) can be un-skipped + ported opportunistically. NOT a discrete task here — just ambient context per M11.5 deferral §B continuation report.
 
-- [ ] **Step 2: Walk band B (crew surfaces) per personas 5 + 6 + 7 + 8** with §3.2 role variants and §3.3 R-combos sampled per §3.4 coverage policy:
-  - Persona 5 (signed-link LEAD): all 6 LEAD-baseline tile renderings × R1 baseline.
-  - Persona 6 (signed-link non-LEAD): each of the 6 non-LEAD role variants × the §3.4.1 11-pair selection.
-  - Persona 7 (Google-OAuth crew, fresh + return): subset on crew page + `/me`.
-  - Persona 8 (`/me` cross-show identity): the cross-show list surface.
+- [ ] **Step 2: Walk band B (crew surfaces) per personas 5 + 6 + 7 + 8** with §3.2 role variants and §3.3 R-combos sampled per §3.4 coverage policy (post-2026-05-26 picker-pivot rebase — "signed-link" persona descriptions are historical; the v1 access path is share-link + picker):
+  - Persona 5 (picker-LEAD): all 6 LEAD-baseline tile renderings × R1 baseline; access via `/show/<slug>/<shareToken>/` + skip-pick `alias_5a_lead`.
+  - Persona 6 (picker-non-LEAD): each of the 6 non-LEAD role variants × the §3.4.1 11-pair selection; access via skip-pick the relevant 6a–6f alias.
+  - Persona 7 (Google-OAuth crew, fresh + return): subset on crew page + `/me`; sign-in path resolves to crew row via `claim_oauth_identity` + lazy-mint picker cookie.
+  - Persona 8 (`/me` cross-show identity): the cross-show list surface; reads tokenized URLs via `my_share_tokens_for_email()` RPC.
   - Real-iPhone curated subset per §3.1 for personas 5/6/7/8.
 
-- [ ] **Step 3: Walk band C (auth surfaces) per persona 1 + relevant signed-in personas:**
-  - Anonymous → 401/403/redirect-to-sign-in per surface (admin routes, crew routes, /help).
-  - Signed-link expired (J3 expired-link leg overlap).
-  - Signed-link revoked (J3 revoked-link leg overlap — use `alias_5a_lead_for_revoke`).
-  - Query-token compromise (J3 query-compromise leg overlap — use `alias_5a_lead_for_query_compromise`).
-  - "Not on crew list" surface.
+- [ ] **Step 3: Walk band C (auth surfaces) per persona 1 + relevant signed-in personas (post-pivot picker render arms — see spec §4.2 band C):**
+  - Anonymous → `<SignInOrSkipGate>` Mode A (`no_auth/first_contact` arm) on `/show/<slug>/<shareToken>/`; 401/403/redirect-to-sign-in on admin routes; /help routes are public.
+  - Stale picker cookie + `picker_epoch` bumped → `epoch_stale` arm + `PICKER_EPOCH_STALE_BANNER` (J3 leg (b) overlap).
+  - Picker cookie's crew_member_id removed from roster → `removed_from_roster` arm + `PICKER_REMOVED_FROM_ROSTER_BANNER`.
+  - Identity_invalidated/claimed_after_pick (J3 leg (c) iPhone-side overlap) → picker re-render + `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER`.
+  - Identity_invalidated/session_mismatch (J3 leg (c) desktop-side overlap) → same banner, different reason value (H8 two-reasons doc-guard contract).
+  - Share-token rotated, old URL reload → `showUnavailable()` envelope + `PICKER_SHOW_UNAVAILABLE` per M11.5 R2 (J3 leg (a) overlap).
+  - Google-session matches no crew row for the show → `no_auth/google_mismatch` arm = `<SignInOrSkipGate>` Mode B "signed in as someone else" (TERMINAL per P-R27 Fix-1; closes shared-device identity-leak vector).
+  - `validateNextParam` slug-only rejection (forged OAuth `?next=/show/<slug>` without token segment) → H2 allowlist denies it; routing-time reject, not a journey leg.
   - Sign-out.
 
 - [ ] **Step 4: Walk band D (M11 /help surfaces) per persona 2:** all 13 pages + `/help/errors` catalog-driven rendering + RefAnchor + Screenshot light/dark switching.
@@ -131,7 +135,7 @@ Per spec §5.1.
 - [ ] **Step 5: Drop a fixture sheet into the watched folder.**
 - [ ] **Step 6: Wait one cron interval.** Observe first-seen auto-publish per master spec amendment 9.
 - [ ] **Step 7: Open the resulting preview link.** Crew page renders.
-- [ ] **Step 8: Generate a signed link from `/admin`.**
+- [ ] **Step 8: Read the share URL from `/admin/show/<slug>` (`CurrentShareLinkPanel`).** This is the URL Doug would share to the group thread. Confirm clicking `ShareLinkCopyButton` copies to clipboard.
 - [ ] **Step 9: Note any cold-start friction:** every moment the dev had to use dev-memory because /help was unclear is a finding.
 
 Run J1 twice — once light + desktop, once dark + mobile.
@@ -147,55 +151,48 @@ Per spec §5.2.
 - [ ] **Step 3: Wait one cron interval + push-debounce window.**
 - [ ] **Step 4: Open `/admin`** → see AlertBanner + staged-review card.
 - [ ] **Step 5: Open `/admin/show/[slug]`** → drill into staged change.
-- [ ] **Step 6: Exercise Apply path on one staging.** Confirm Apply propagates to crew page and to existing signed-link sessions (open a fresh signed link to verify).
+- [ ] **Step 6: Exercise Apply path on one staging.** Confirm Apply propagates to the crew page and to existing picker-cookie sessions (refresh the iPhone's picked view to verify the change is visible; the Realtime broadcast on `show:<showId>:invalidation` should advance `viewer_version_token` and trigger client-side refetch even without manual reload, but a refresh is a deterministic verification).
 - [ ] **Step 7: Exercise Discard path on the other.** Confirm Discard leaves prior state intact.
 
 Run J2 twice — once light + desktop, once dark + mobile.
 
 ---
 
-### Task 1.6: J3 — Signed-link crew end-to-end (real device leg)
+### Task 1.6: J3 — Share-link + picker crew end-to-end (real device leg; three-leg per spec §5.3)
 
-Per spec §5.3 R20/R22.
+Per spec §5.3 (post-2026-05-26 picker-pivot rebase — three legs replace the prior expired/revoked/query-compromise structure; auth source is the picker pivot spec, NOT master spec §7).
 
-- [ ] **Step 1: Mint a 15-minute valid baseline link** for `alias_5a_lead` (NOT alias_5a_lead_for_revoke).
+**Baseline preamble (run once before all three legs):**
 
-```bash
-URL=$(pnpm -s validation:mint-link --combo R1 --alias alias_5a_lead --expires-in 900 | jq -r .url)
-```
+- [ ] Sign in as admin on production Vercel deployment. Open `/admin/show/<R1-slug>`. Read the share URL from `CurrentShareLinkPanel`; click `ShareLinkCopyButton`. Open URL on real iPhone Safari → `<SignInOrSkipGate>` Mode A → "Skip and pick your name" → tap `alias_5a_lead` row → `_ShowBody` renders. Confirm LEAD content (financials visible) + Audio + Video + Lighting scope tiles all visible (LEAD unlocks all three per `lib/visibility/scopeTiles.ts`).
 
-- [ ] **Step 2: Open on real iPhone Safari** within 15 min. Browse every documented tile. Note tile rendering correctness.
+- [ ] Verify a non-LEAD identity: from the iPhone tap "Not you?" in the page chrome → back to picker → tap `alias_6a_a1` → `_ShowBody` renders. Verify role-hiding: financials hidden, Audio scope tile visible (A1 has audio scope; V1/L1 hidden). Restore the LEAD pick (Not you? → tap `alias_5a_lead`) before proceeding to leg (a).
 
-- [ ] **Step 3: Generate a SECOND signed link for a non-LEAD scope variant** (e.g., A1 via `alias_6a_a1`). Open on iPhone. Verify role-hiding: financials hidden, scope tile (Audio) visible.
+**Leg (a) — Share-token rotation (M11.5 R2 PICKER_SHOW_UNAVAILABLE close-out):**
 
-- [ ] **Step 4: Test expired-link path:**
+- [ ] **Step 1: On desktop:** click `RotateShareTokenButton` on `/admin/show/<R1-slug>`. Confirm two-tap. Observe `CurrentShareLinkPanel` shows the NEW URL (invokes `rotate_show_share_token` RPC — atomically rotates `show_share_tokens.share_token` + bumps `shows.picker_epoch += 1` under per-show advisory lock).
+- [ ] **Step 2: On iPhone:** reload the OLD URL. Expect: `showUnavailable()` envelope renders `PICKER_SHOW_UNAVAILABLE` with crew-facing copy + admin help link (NOT a generic 404).
+- [ ] **Step 3: Copy the new URL on desktop → share to iPhone → open. Expect: `<SignInOrSkipGate>` Mode A first (no cookie entry for this new share-token's show resolution OR `epoch_stale` banner if the picker_epoch bumped invalidates the prior cookie entry). Skip → pick `alias_5a_lead` → `_ShowBody` renders.
 
-```bash
-URL=$(pnpm -s validation:mint-link --combo R1 --alias alias_5a_lead --expires-in -3600 | jq -r .url)
-```
+**Leg (b) — Picker-epoch reset (identity_invalidated/session_mismatch cascade):**
 
-Open on iPhone. Expect LINK_EXPIRED 401 surface.
+- [ ] **Step 1: On desktop:** click `ResetPickerEpochButton`. Confirm two-tap. Observe admin alert: `PICKER_EPOCH_RESET` should be emitted (per P-R26 email-bearing alert code with `admin_email_hash` context) — check via `/admin` AlertBanner OR the live `admin_alerts` table.
+- [ ] **Step 2: On iPhone** (previously holding the post-leg-(a) cookie): reload the SAME URL. Expect: `identity_invalidated` with `reason: 'session_mismatch'` per P-R29/P-R30 Fix-1; picker re-renders with `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` + auto-submitting `<StaleCleanupAutoSubmit>`.
+- [ ] **Step 3: Re-pick `alias_5a_lead`** → `_ShowBody` renders.
 
-- [ ] **Step 5: Test revoked-link path (uses DEDICATED alias):**
+**Leg (c) — OAuth-claim identity-exclusivity (H8 two-reasons doc-guard):**
 
-```bash
-URL=$(pnpm -s validation:mint-link --combo R1 --alias alias_5a_lead_for_revoke --expires-in 900 | jq -r .url)
-pnpm validation:revoke-link "$URL"
-```
+This is the load-bearing identity-exclusivity walk. It requires a Google account whose email matches `alias_5a_lead`'s fixture email (the dev controls fixture emails — `validation+5a@example.com` is the convention).
 
-Open the URL on iPhone. Expect "not on crew list" 401 surface per master spec §7.
+- [ ] **Step 1: Set up two-device state.** iPhone still has `alias_5a_lead` cookie from leg (b). On the **desktop**, open a fresh incognito Safari profile, load the SAME share URL → Mode-A → Skip → pick `alias_5a_lead`. Both devices now have entries for `alias_5a_lead.id`. Verify both render `_ShowBody`.
+- [ ] **Step 2: On iPhone:** sign in via Google using a Google account whose email matches the `alias_5a_lead` fixture's `crew_members.email`. Flow: tap "Sign in" in `<SignInOrSkipGate>` or navigate to `/auth/sign-in?next=<URL>` → Google consent → `/auth/callback/route.ts` invokes `claim_oauth_identity(canonical(email))` RPC (stamps `claimed_via_oauth_at = now()` on every matching `crew_members` row, under per-show advisory locks). Callback DOES NOT mint a picker cookie (R41-R6 lazy-mint). Redirects to `next`. Expect on iPhone: page-route detects the cookie's `t` (from leg (b) step 3) is older than the just-stamped `claimed_via_oauth_at` → resolver returns `identity_invalidated/reason='claimed_after_pick'` → picker re-renders with banner. `alias_5a_lead` row is now visually disabled in the picker (per picker-pivot Resolved Decision 15 — non-null `claimed_via_oauth_at` means bypass-pick is no longer allowed).
+- [ ] **Step 3: On iPhone:** the Google session is still active. Reload the URL. Expect: page-route's auth chain step 4 detects Google session + email-match + `claimed_via_oauth_at IS NOT NULL` → resolver returns `needs_picker_bootstrap` with intent token → page redirects to `/api/auth/picker-bootstrap?next=<URL>&t=<intentToken>` → bootstrap mints a NEW picker cookie with `t = result.mint_safe_t_millis` → 302 back → `_ShowBody` renders. User-perceived flow: "signed in → skipped picker → on the page" per Resolved Decision 17.
+- [ ] **Step 4: On desktop** (still holding pre-claim cookie from step 1): reload the SAME URL. Expect: resolver detects cookie's `crew_members.id` is now claimed by another session AND the desktop has no Google session that matches → `identity_invalidated/reason='session_mismatch'` (the OTHER reason of the H8 two-reasons doc-guard). Picker re-renders. Confirm `alias_5a_lead` row is also visually disabled on the desktop (OAuth-claim is global across devices). Tap `alias_6a_a1` (non-LEAD, OAuth-unclaimed) instead → `_ShowBody` renders as A1 viewer (role-hiding: financials hidden, A1 scope tile visible).
+- [ ] **Step 5: Verify the admin-alerts trail:** open the desktop's admin session, check AlertBanner. Expect `OAUTH_IDENTITY_CLAIMED` row from leg (c) step 2 with the canonical-email hash context per P-R26.
 
-- [ ] **Step 6: Test query-token compromise leg (uses DEDICATED alias):**
+**Per-leg working notes:** the dev keeps an informal bug-list per spec §5.5. The destructive admin actions (Rotate / Reset) are admin-UX surfaces — note any UX seams (button-label confusion, two-tap timing, copy clarity, AlertBanner row rendering) for triage per §7.1.
 
-```bash
-URL=$(pnpm -s validation:mint-link --combo R1 --alias alias_5a_lead_for_query_compromise --expires-in 900 | jq -r .url)
-# Rewrite the URL to the compromised query-token form:
-COMPROMISED=$(echo "$URL" | sed 's|/p#t=|/p?t=|')
-```
-
-Open the compromised URL on iPhone. Expect master spec §7 compromise path: `leaked_query_token` revocation + 401 surface.
-
-- [ ] **Step 7: NO commit.** Notes go in working notes.
+- [ ] **Step 6: NO commit.** Notes go in working notes.
 
 ---
 

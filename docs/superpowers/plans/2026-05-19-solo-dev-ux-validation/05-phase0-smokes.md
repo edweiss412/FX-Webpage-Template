@@ -17,13 +17,13 @@
 
 ---
 
-### Task 0.F.2: Smoke 2 — Signed-link real-iPhone render
+### Task 0.F.2: Smoke 2 — Share-link + picker real-iPhone render (post-2026-05-26 picker-pivot rebase)
 
 - [ ] **Step 1: Confirm pre-requisite seed:** `pnpm validation:check-seed --combo R1` exits 0.
-- [ ] **Step 2: Generate signed link from admin UI** (or via `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in 900`).
-- [ ] **Step 3: Open the canonical URL (`/show/<slug>/p#t=<jwt>`) on the dev's real iPhone in Safari.** Render the crew page within the 15-minute window.
-- [ ] **Step 4: Verify:** every documented tile renders. No layout breaks. Mode toggle works (if visible). Mobile viewport renders correctly.
-- [ ] If render fails: investigate auth path, signing kid, Supabase data integrity — and re-run Phase 0.D's mint-link smoke for diagnosis.
+- [ ] **Step 2: Open `/admin/show/<R1-slug>` in the desktop admin session.** Read the canonical URL from `CurrentShareLinkPanel` (form: `https://<deploy>.vercel.app/show/<slug>/<64-hex-shareToken>/`). Click `ShareLinkCopyButton` to copy.
+- [ ] **Step 3: Open the URL on the dev's real iPhone in Safari** (paste from clipboard via Messages / AirDrop / etc.). Hit `<SignInOrSkipGate>` Mode A → tap "Skip and pick your name" → pick `alias_5a_lead` row → `_ShowBody` renders.
+- [ ] **Step 4: Verify:** every documented tile renders. No layout breaks. Mode toggle works (if visible). Mobile viewport renders correctly. LEAD scope tiles (Audio + Video + Lighting) all visible per `lib/visibility/scopeTiles.ts`.
+- [ ] If render fails: investigate the picker auth chain (`lib/auth/picker/resolveShowPageAccess.ts` 11-arm union), `show_share_tokens` row presence (via `pnpm validation:check-seed` predicate g), Supabase data integrity.
 
 ---
 
@@ -51,26 +51,21 @@
 
 - [ ] **Step 1: Re-seed with `validation:reseed --combo R3`** (off-day fixture).
 - [ ] **Step 2: Confirm via Supabase SQL editor** that the R3 fixture's `date_restriction.days` excludes today.
-- [ ] **Step 3: Generate a signed link for `alias_5a_lead` in R3,** open on iPhone.
+- [ ] **Step 3: Read R3's share URL from `/admin/show/<R3-slug>` (CurrentShareLinkPanel), copy to iPhone, open + skip + pick `alias_5a_lead`.**
 - [ ] **Step 4: Verify:** Right Now card renders `viewer_off_day` copy per master spec §8 line 2413.
 - [ ] If state doesn't appear: the `--combo R3` re-seed didn't pin the dates correctly. Inspect `validation_state` and the R3 show's dates.
 
 ---
 
-### Task 0.F.6: Smoke 6 — Mint-redeem round-trip (Phase 0.D contract proven end-to-end)
+### Task 0.F.6: Smoke 6 — Share-link + picker round-trip with Rotate sub-smoke (post-2026-05-26 picker-pivot rebase)
 
-Per spec §9.2 R16 + R22.
+Per spec §9.2 + dispatch brief §3.B option β (admin UI is canonical interface; no CLI parity).
 
 - [ ] **Step 1: Prerequisite:** `pnpm validation:reseed --combo R1` + `pnpm validation:check-seed --combo R1` both exit 0.
-- [ ] **Step 2: Mint a 15-minute-TTL valid link** for `alias_5a_lead` (the baseline alias, NOT the revoke/query-compromise variants):
-
-```bash
-URL=$(pnpm -s validation:mint-link --combo R1 --alias alias_5a_lead --expires-in 900 | jq -r .url)
-```
-
-- [ ] **Step 3: Open URL on the dev's real iPhone Safari** within the 15-minute window.
-- [ ] **Step 4: Verify:** crew page renders.
-- [ ] **Failure-isolation procedure (R16):** if smoke 6 fails: (a) re-run `validation:check-seed` to rule out seed staleness; (b) re-verify VALIDATION_JWT_SIGNING_SECRET equals Vercel Production-scope JWT_SIGNING_SECRET; (c) re-mint with a fresh 15-min TTL.
+- [ ] **Step 2: Read the R1 share URL via the admin UI.** Sign into the production Vercel deployment as admin → open `/admin/show/<R1-slug>` → read the canonical URL from `CurrentShareLinkPanel` (calls `loadShowShareToken` → `admin_read_share_token` RPC; format: `https://<deploy>.vercel.app/show/<R1-slug>/<64-hex-shareToken>/`). Click `ShareLinkCopyButton` to copy to clipboard.
+- [ ] **Step 3: Open URL on the dev's real iPhone Safari.** Hit `<SignInOrSkipGate>` Mode A → tap "Skip and pick your name" → pick `alias_5a_lead` → `_ShowBody` renders. Verify crew page (LEAD content) is fully visible.
+- [ ] **Step 4: Rotate sub-smoke (exercises M11.5 R2 PICKER_SHOW_UNAVAILABLE close-out).** On the desktop admin: click `RotateShareTokenButton` on the same admin page; confirm the two-tap; observe `CurrentShareLinkPanel` updates with the new URL. On the iPhone: reload the OLD URL (the one previously copied). Expect: `showUnavailable()` envelope renders `PICKER_SHOW_UNAVAILABLE` (NOT a generic 404 — the catalog-driven envelope with crew-facing copy + admin help link). Re-share the new URL from desktop → iPhone repeats the pick (with `epoch_stale` banner because rotation atomically bumped `picker_epoch` per `rotate_show_share_token` RPC).
+- [ ] **Failure-isolation procedure:** if smoke 6 fails: (a) re-run `validation:check-seed` to rule out seed staleness; (b) verify `show_share_tokens` row exists for the R1 show (`select share_token from public.show_share_tokens where show_id = (select id from public.shows where slug = '<R1-slug>')`); (c) verify `PICKER_COOKIE_SIGNING_KEY` is set in Vercel Production scope (cookie mint requires it); (d) re-test in fresh Safari private window to rule out stale iPhone cookies.
 
 ---
 
@@ -95,13 +90,13 @@ Per spec §9.2 R24. Required when Band F deep report outcomes default to INCLUDE
   - Option 1 (dev-unilateral): defer report-fixtures harness; commit EXCLUDED dispositions.
   - Option 2 (REQUIRES user approval): split into M12a tooling + M12b walk milestones.
   - Option 3 (REQUIRES user approval): re-scope walk coverage (fewer R-combos, role variants, journeys).
-- [ ] **Step 3: Move to Phase 1** (`07-phase1-matrix-walk.md`).
+- [ ] **Step 3: Move to Phase 1** (`06-phase1-matrix-walk.md` — renamed from `07` in 2026-05-26 picker-pivot rebase).
 
 ---
 
 ## Phase 0.F failure modes
 
-- **Smoke 2 (iPhone render) fails.** Most likely: signing kid mismatch (Phase 0.D issue). Re-verify VALIDATION_JWT_SIGNING_SECRET.
+- **Smoke 2 (iPhone render) fails.** Post-2026-05-26 rebase: most likely `PICKER_COOKIE_SIGNING_KEY` missing from Vercel Production scope (the picker cookie can't be HMAC-signed → `selectIdentity` returns `infra_error`). Verify the env var via `vercel env ls`. Secondary causes: `show_share_tokens` row missing (check via SQL editor), `auth_email_canonical` row missing for the fixture crew.
 - **Smoke 3 (cron) doesn't fire.** Vercel deployment is in Preview, not Production. Re-check Phase 0.A.4.
 - **Smoke 4 (admin_alerts) row missing.** MI-6 staging gates may have changed since spec write. Re-read master spec §6 to confirm MI-6 still triggers on crew row deletion.
 - **Smoke 7 fails to render outcome state.** Harness wrote the wrong row shape; re-read master spec §13.2.3 row contract.
