@@ -1055,7 +1055,7 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 ### Amendment R33 — 2026-05-26 (F31 + F32 repair — F21-class comprehensive re-analysis + regex extension)
 
 - **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
-- **Diff target:** `<commit-71-SHA>` (post-R33 chain; SHA-stamped after commit lands)
+- **Diff target:** `5d46d9d` (post-R33 chain HEAD; structural-defense commit 70)
 - **Verdict:** **implementer-complete; pending R34 adversarial review**
 
 - **(A) F21-class comprehensive re-analysis at AMENDMENT-CROSS-SECTION scope** (mandated by R20+R22+R32 same-vector recurrence at 3 rounds — threshold-3 trigger fires per AGENTS.md cross-cutting #5 + R5 calibration). Audit covers every M12 amendment R13–R31 that landed plan-side contract changes; for each, every canonical spec section referencing the amended contract surface is greped against the post-amendment contract.
@@ -1106,12 +1106,12 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
   | # | SHA | Subject |
   |---|---|---|
-  | 67 | `<COMMIT-67>` | docs(handoff-m12): R33 (A) F21-class comprehensive re-analysis audit table — R13–R31 amendment sweep |
-  | 68 | `<COMMIT-68>` | docs(spec-m12): R33 F31 — §4.2 + §9.1.2 per-outcome producer map propagation |
-  | 69 | `<COMMIT-69>` | docs(plan-m12): R33 F32 — rate-limit-admin test assertion fix (canonical admin identity + VALIDATION_ADMIN_EMAIL env var + cleanup flag) |
-  | 70 | `<COMMIT-70>` | test(cross-cutting): R33 F21-class regex extension — producer-table shape patterns (RED→GREEN) |
+  | 67 | `252229a` | docs(handoff-m12): R33 (A) F21-class comprehensive re-analysis audit table — R13–R31 amendment sweep |
+  | 68 | `46d386c` | docs(spec-m12): R33 F31 — §4.2 + §9.1.2 per-outcome producer map propagation |
+  | 69 | `84b8809` | docs(plan-m12): R33 F32 — rate-limit-admin test assertion fix (canonical admin identity + VALIDATION_ADMIN_EMAIL env var + cleanup flag) |
+  | 70 | `5d46d9d` | test(cross-cutting): R33 F21-class regex extension — producer-table shape patterns (RED→GREEN) |
 
-- **Meta-test regression (R33 baseline):** **18/18 PASS** post-R33 (was 16/16 pre-R33; +2 = main F21-class assertion picks up 2 new regex patterns + negative-case test gains 4 new fixture pairs that count as part of the same test).
+- **Meta-test regression (R33 baseline):** **16/16 PASS** post-R33 (same test() count as pre-R33; the F21-class assertion grew by 2 regex patterns inside the SAME `test()` block + the negative-case `test()` gained 6 new fixtures — both extensions land inside existing test blocks per Option (a) minimal-extension model; test count is unchanged, regex/fixture coverage is +50%).
 
 - **Same-vector + structural-defense status post-R33:**
   - **F21-class: 3 finding-rounds (R20 + R22 + R32).** R33 closed per-instance (spec §4.2 + §9.1.2 propagation) + extended structural defense with 2 new regex patterns (`producer-table:reports-only-target` + `producer-table:singular-failure-state`). Defense remains regex-based per Option (a). **If R34 surfaces an F21-class peer NOT caught by the now-6 regexes,** structural-defense REDESIGN (Option b — broader cross-amendment fact-table assertion analogous to F10-class R27 Option D) is the next escalation per AGENTS.md M12 plan R5 calibration.
