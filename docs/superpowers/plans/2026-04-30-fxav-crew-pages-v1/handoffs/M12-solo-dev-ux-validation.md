@@ -1329,6 +1329,28 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R40 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `b4766b2` (post-R39)
+- **Verdict:** **needs-attention** (1 HIGH F37 + 1 MEDIUM F38)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F37 | HIGH | `04-phase0-tooling-report.md:91-111` (snapshot persistence options for F34/F36 contracts) | **Plan/schema drift — snapshot DB-backed option unworkable.** Plan 04 documents 2 acceptable snapshot persistence strategies: (a) file-backed at `.validation-state/<kind>-snapshot.json`; (b) `validation_state` table row at key `rate_limit_admin_snapshot` / `rate_limit_crew_snapshot`. But `validation_state` table has `CHECK (key = 'validation_seed')` per migration `:329`-area (singleton constraint). Implementer choosing (b) will fail the CHECK; OR bypass the reviewed schema; OR lose the snapshot needed for safe cleanup. **R35/R39 fix-round regression budget gap** — didn't audit live schema constraints against persistence-option claims. Repair: REMOVE option (b); default to file-backed (a) only; document validation_state singleton constraint as the reason. Extending validation_state schema is out-of-scope (live migration change). |
+  | F38 | MEDIUM | `2026-05-19-solo-dev-ux-validation-design.md:824` (canonical CLI args) + `04-phase0-tooling-report.md` | rate-limit-crew recipe requires resolving `validation:resolve-alias <combo> alias_5a_lead` to get `crew_member_id` for seeding, but CLI only exposes `--outcome` at seed time. `--include-crew-id` exists only under `--cleanup`. Implementer must invent default combo or fail at runtime; wrong default seeds bucket the real crew POST never hits → false confidence in crew quota validation. Repair: add explicit seed-time selector `--combo <combo>` (or `--crew-id <uuid>`) at spec §9.1.2 + plan 04 + help-text tests + cleanup verification. |
+
+- **Same-vector status post-R40:**
+  - **F37** treated as plan/schema drift (R35/R39 fix-round regression budget gap). Per-instance fix at R41; no structural defense at this round (no class-sweep peer surfaces since validation_state is the singular candidate for DB-backed snapshot).
+  - **F38** NEW class — seed-time selector missing for an outcome requiring identity resolution. 1 round; no priors. Per-instance fix.
+  - F34-class mechanically converged at R39 (both rate-limit kinds have snapshot+restore; schema CHECK bounds future kinds).
+  - All other classes still closed.
+
+- **Repair commit:** pending R41 implementer dispatch (inline Agent; F37 + F38 per-instance fixes).
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.
