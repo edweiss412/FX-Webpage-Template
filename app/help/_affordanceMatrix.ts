@@ -163,8 +163,8 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   },
   {
     kind: "negative",
-    sourceSurface: "Crew page /show/<slug>",
-    sourceRoute: "/show/SLUG_PLACEHOLDER",
+    sourceSurface: "Crew page /show/<slug>/<shareToken>",
+    sourceRoute: "/show/SLUG_PLACEHOLDER/SHARETOKEN_PLACEHOLDER",
     assertion: 'No data-testid^="help-affordance--" element present in rendered DOM',
   },
 ];
