@@ -1855,7 +1855,38 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F21-class regex set holds at 9 patterns / 8 slots.
   - All other classes still closed.
 
-- **Repair commit:** pending R57 implementer dispatch (inline Agent; F49 mint RPC INSERT-side fix — NULL `last_seed_date` until finalize + predicate (b) NULL handling + DDL nullable + regression test spec).
+- **Repair commit:** closed in R57 (see below).
+
+### Amendment R57 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `8009f21` (post-R57)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R58 adversarial review**
+
+- **F49 repair (commit 95 — `8009f21`):**
+  - **(A) DDL change:** `validation_state.last_seed_date date NOT NULL` → `last_seed_date date NULL` at plan 02:140 + master-spec mirror :405 + spec §3.3.2:225. Plan 02 schema test :107 asserts `is_nullable="YES"` to pin nullable contract.
+  - **(B) Mint RPC INSERT fix (plan 03:483-501):** `last_seed_date` REMOVED from both INSERT column-list AND value-list — initial singleton creation produces NULL. ON CONFLICT DO UPDATE SET pre-R57 already excluded the column; re-confirmed.
+  - **(C) Predicate (b) NULL handling:** plan 03:724 + spec §3.3.2:351 — `last_seed_date != $VALIDATION_TODAY_ISO` → `last_seed_date IS NULL OR last_seed_date != $VALIDATION_TODAY_ISO`. Separate NULL diagnostic ("…has never executed; run reseed --combo all…") + stale diagnostic.
+  - **(D) F47 CAS interaction:** UNCHANGED. Finalizer's `combos_seeded_dates = v_combos_dates` CAS WHERE clause unaffected; mint never writes `last_seed_date` now structurally enforced via (B), so no new TOCTOU surface.
+  - **(E) Regression test spec:** plan 03 Task 0.C.5 Step 1 — DELETE singleton row → `reseed --combo R1` → assert `last_seed_date IS NULL` AND `combos_seeded_dates['R1']=today` → `check-seed --combo R1` exits 0 (b') → `check-seed --combo all` exits 1 with NULL diagnostic (b) → `reseed --combo all` stamps `last_seed_date=today` → `check-seed --combo all` exits 0.
+  - **(F) Class-sweep results:** only `validation_finalize_all_atomic` writes `last_seed_date` (plan 03:619 finalizer SET clause); only predicate (b) reads it (predicate (b') reads `combos_seeded_dates`). No peers. Spec sections updated: §3.3 verification-command row (151) + §3.3.2 DDL (225) + §3.3.2 mint paragraph (347) + §3.3.2 predicate (b) (351).
+
+- **Repair commit:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 95 | `8009f21` | docs(plan-m12)+docs(spec-m12): R57 F49 — mint RPC INSERT-side last_seed_date bypass closure |
+
+- **Meta-test regression:** **23 test files / 163 tests PASS** in `tests/cross-cutting/` (no test changes; markdown-only repair).
+
+- **Same-vector status post-R57:**
+  - F48-class round 2 closed at R57 via per-instance fix + class-sweep (0 peers). Per R56 row ladder: if R58 surfaces another F48-class hit, structural defense mandate fires per threshold-3.
+  - F47 closed at R53 (CAS); F46/F45/F44/F40-F43 closures regression-clean.
+  - F21-class regex set holds at 9 patterns / 8 slots.
+  - All other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown only. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `tests/cross-cutting/*`.
 
 ---
 
