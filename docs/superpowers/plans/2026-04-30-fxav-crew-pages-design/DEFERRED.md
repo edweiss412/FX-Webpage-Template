@@ -18,6 +18,16 @@ When picking up a deferred item:
 
 ## Open
 
+### M11.5-PLAYWRIGHT-HELPERS — Picker-shaped e2e helper layer
+
+**Status:** Deferred 2026-05-25 from M11.5 close-out (Playwright `.skip` cleanup).
+**Source:** §B continuation report (Opus, `ed1a3ab`).
+**Description:** `tests/e2e/picker-flow.spec.ts` ships 5 scenarios; 1 active (slug-only-404), 4 `.skip` with inline TODOs. The 4 `.skip` scenarios need a picker-shaped e2e helper layer (`signInAs`/`pickIdentity`/`mintShareLink` shapes) that doesn't exist yet — Codex's G1 commit `05ecf7e` correctly deleted the M9.5 signed-link helpers; picker-equivalents weren't authored in either §A or §B because the helper layer wasn't called out as a discrete task in the plan and fell between the two sessions' do-not-touch lists.
+**Why deferred:** Helper layer is a small but non-trivial new surface (~80-150 lines + fixtures + at least one passing scenario per helper). Authoring it requires Playwright project config + Supabase test-isolation conventions that are partly §A (test database setup) and partly §B (front-end interaction shapes). Right home is a focused follow-up dispatch, not the M11.5 close-out scramble.
+**Suggested home:** Land BEFORE M11.5 deployment to prod (concrete trigger: "M11.5 deployment readiness checklist"). Helper-shape signatures pinned in TODOs at `tests/e2e/picker-flow.spec.ts`. Alternatively: M12 UX validation pass picks up alongside its own e2e suite if M12 ships before deployment.
+
+---
+
 ### X6-D-1 — Branch-protection drift-detector + 7th required check deferred until team workflow exists
 
 **Status:** Deferred 2026-05-20. **Suggested home:** post-v1 milestone *if/when* FXAV onboards a second developer/admin.
