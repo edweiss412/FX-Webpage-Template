@@ -27,15 +27,25 @@
 - [ ] **Step 1:** Set up the Supabase CLI to point at the new project: `npx supabase link --project-ref <project-ref>`.
 - [ ] **Step 2:** Apply migrations: `npx supabase db push`. Confirm all migrations under `supabase/migrations/*.sql` apply cleanly.
 - [ ] **Step 3:** Confirm the resulting schema is correct via `npx supabase db pull --dry-run` (no diff expected). If there's a diff, investigate before proceeding.
-- [ ] **Step 4:** Insert a known-good admin email into `public.admin_emails`. **R3 comprehensive-sweep amendment:** verified live DDL at `supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql:16-30` — PK column is `email` (NOT `email_canonical`); a CHECK constraint enforces `email = lower(trim(email))`. Connect via the Supabase SQL editor and run:
+- [ ] **Step 4:** Insert a known-good admin email into `public.admin_emails`. **R3 comprehensive-sweep amendment:** verified live DDL at `supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql:16-30` — PK column is `email` (NOT `email_canonical`); a CHECK constraint enforces `email = lower(trim(email))`. **R49 commit 88 F44 amendment (AGENTS.md invariant 3 — "email canonicalization at every boundary; `lib/email/canonicalize.ts` is the only function that touches raw emails before they enter the system"):** canonicalize the dev-email value via the registered helper FIRST, then insert the canonical literal. Do NOT use inline `lower(trim(...))` in the SQL — that creates a new canonicalization boundary outside the registered helper (the same invariant the meta-tests `tests/admin/no-inline-email-normalization.test.ts` + `tests/cross-cutting/no-inline-email-normalization-in-plan-doc-guard.test.ts` enforce at CI). The live helper at `lib/email/canonicalize.ts:2-6` performs `raw.trim().toLowerCase()` ONLY (returns `null` for `null`/empty after trim) — it does NOT strip plus-aliases or perform any other transformation; the helper's canonical output is byte-identical to `lower(trim(...))` for any well-formed email, BUT the contract is that the helper is the single authorized surface, not its current implementation. Procedure:
+
+```bash
+# 1) Compute the canonical form via the registered helper (one-liner; no script needed).
+#    Replace <dev-email> with the dev's real Google account email (e.g., Ed.Weiss412@gmail.com).
+CANON_EMAIL=$(pnpm tsx -e "import('./lib/email/canonicalize.ts').then(m => process.stdout.write(m.canonicalize(process.argv[1] ?? '') ?? ''))" "<dev-email>")
+echo "$CANON_EMAIL"  # sanity-check the output (lowercase + trimmed, no plus-alias stripping)
+```
+
+Then, in the Supabase SQL editor, insert the canonical literal directly (no SQL-side normalization):
 
 ```sql
+-- Substitute the literal value of $CANON_EMAIL from step (1) above for <canonical-dev-email>.
 INSERT INTO public.admin_emails (email, added_at)
-VALUES (lower(trim('<dev-email>')), now())
+VALUES ('<canonical-dev-email>', now())
 ON CONFLICT (email) DO NOTHING;
 ```
 
-This makes the dev an admin on the new project. (`lib/email/canonicalize.ts` strips plus-aliases for OAuth-identity lookups; the admin_emails table's CHECK only requires `lower(trim(...))`, so the plain canonical form works.)
+This makes the dev an admin on the new project. The `lower(trim(email))` CHECK constraint on the table is the safety net (per AGENTS.md invariant 3: "schema-level CHECK is the safety net, not the primary mechanism") — it will accept the canonical literal because canonicalize already produced lowercase+trimmed output. **R49 F44 amendment caveat:** earlier rounds of this step claimed `lib/email/canonicalize.ts` strips plus-aliases for OAuth-identity lookups — that claim was FALSE (verified live at `lib/email/canonicalize.ts:2-6`). The helper does `trim().toLowerCase()` only; plus-aliases are preserved. The corrected procedure above does not depend on plus-alias semantics either way.
 - [ ] **Step 5:** **NO commit at this step** — this is project-config, not source-code. Capture the migration-push log in the dev's working notes.
 
 ---
