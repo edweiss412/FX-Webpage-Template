@@ -1263,6 +1263,27 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R38 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `4482aaf` (post-R37)
+- **Verdict:** **needs-attention** (1 HIGH F36 — F34-class round 2 + plan-internal contradiction + spec drift)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F36 | HIGH | `04-phase0-tooling-report.md:70-113` (rate-limit-crew producer + assertion + identity recipe) + `2026-05-19-solo-dev-ux-validation-design.md:824` ("other 7 outcomes use synthetic identities") | **F34-class round 2 — R35 fix-round regression budget gap; crew not audited.** Three-way contradiction: (i) plan 04:70 says `rate-limit-crew` INSERTs `identity=<real crew_member_id from fixture>`; (ii) plan 04:107 assertion query uses same real crew_member_id; (iii) plan 04:131 Step 3 implementation contracts say `identity ← 'validation:m12-fixture-' \|\| $outcome \|\| ':' \|\| gen_random_uuid()` EXCEPT for rate-limit-admin (implies rate-limit-crew uses synthetic); (iv) spec §9.1.2:824 says "other 7 outcomes use `validation:m12-fixture-<outcome>:<uuid>` synthetic identities." Live `lib/reports/submit.ts:168` shows `reporterFor()` writes `identity=auth.crewMemberId` (real UUID) for crew quota — synthetic prefix CANNOT intercept production quota path. Real crew_member_id IS required; therefore rate-limit-crew needs same snapshot+restore lifecycle as rate-limit-admin. Without it: validation walk leaves real fixture crew_member_id bucket at count=4 → later walks for same fixture crew spuriously 429-rate-limited (same destructive-prod-state class as F34). Repair: align plan + spec on real-crew_member_id contract; extend snapshot+restore lifecycle to rate-limit-crew with `--include-crew-id <uuid>` (or equivalent) flag; F21-class regex pattern generalize from `kind='admin'` to any non-bucket-scoped DELETE on `report_rate_limits`. |
+
+- **Same-vector status post-R38:**
+  - **F34-class: 2 rounds** (R34 F34 admin + R38 F36 crew). Per AGENTS.md same-vector recurrence, R39 MUST do comprehensive re-analysis: enumerate every rate-limit `kind` value in live `lib/reports/rateLimit.ts` + every destructive-cleanup-shape surface in harness. Threshold-3 calibration: if R40 surfaces another F34-class peer, structural defense mandate per M12 plan R5 precedent.
+  - **F21-class regex 7th pattern under-scope:** the pattern hardcodes `kind='admin'`; F36 surfaces because rate-limit-crew was missed. R39 must generalize regex to match any non-bucket-scoped DELETE on `report_rate_limits` (regardless of `kind` value). Stays at 7 patterns (no new addition; generalizes existing).
+  - **Plan-internal contradiction (NEW shape):** R35 fix-round regression budget for F34 missed the cross-`kind` audit. Treat as fix-round-regression-budget gap, not new class — same lesson as R23+R29+R33 (each fix needs class-sweep BEFORE/DURING patching, per AGENTS.md cross-cutting #5).
+  - All other classes still closed.
+
+- **Repair commit:** pending R39 implementer dispatch (inline Agent; F34-class comprehensive re-analysis + plan/spec contradiction resolution + F21 regex generalization).
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.
