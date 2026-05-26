@@ -83,10 +83,15 @@ The R31 rewrite makes the harness write the SAME table the real production code 
 
 - [ ] **Step 1: Write failing test** in `tests/scripts/validation-report-fixtures.test.ts`:
   - rejects unknown outcome name (exit 1 + stderr contains `unknown outcome`)
-  - for each of the 8 outcomes (use a `describe.each`), invoking the harness produces the row shape per the R31 map row above; assertions read DIRECTLY from each producer table (NOT from a wrapper) — e.g. for `rate-limit-admin`, `SELECT * FROM report_rate_limits WHERE kind='admin' AND identity LIKE 'validation:%' AND count=11` returns exactly one row.
-  - returns structured stdout: `materialized <outcome> report row <id>` (where `<id>` is `reports.id`, `admin_alerts.id`, or `report_rate_limits.(kind, identity, hour_bucket)` tuple depending on producer)
-  - has a `--cleanup` flag that DELETEs validation-tagged rows from ALL three tables in order: `admin_alerts` first → `report_rate_limits` second → `reports` last (per handoff §9 R31 cleanup-order rationale)
-  - cleanup test runs a fresh harness invocation for each outcome, then cleanup, then asserts row counts in all 3 tables match the pre-fixture baseline
+  - rejects `--outcome rate-limit-admin` invocation when `VALIDATION_ADMIN_EMAIL` is unset or empty (exit 1 + stderr names the missing env var — symmetric to the reseed/check-seed env-var preflight gates per spec §9.1.2)
+  - for each of the 8 outcomes (use a `describe.each`), invoking the harness produces the row shape per the R31 map row above; assertions read DIRECTLY from each producer table (NOT from a wrapper). **Per-outcome assertion shapes:**
+    - **`rate-limit-admin` (R33 commit 69 F32 fix):** assertion is `SELECT * FROM report_rate_limits WHERE kind='admin' AND identity = canonicalize($VALIDATION_ADMIN_EMAIL) AND hour_bucket = date_trunc('hour', now()) AND count = 11` returns exactly one row. **The identity is the canonical admin email — NOT a `validation:` prefix** because live `enforceQuota` (`lib/reports/rateLimit.ts:76`) canonicalizes the admin reporter's identity via `canonicalize(identity)` from `lib/email/canonicalize.ts` before the UPSERT; the harness MUST seed the same bucket the live admin POST hits or the production quota deny path never fires. Identity source: the dev's real admin email comes from the new `VALIDATION_ADMIN_EMAIL` env var (spec §9.1.2 R33 amendment); the test reads it via `canonicalize(process.env.VALIDATION_ADMIN_EMAIL!)`.
+    - **`rate-limit-crew`:** assertion is `SELECT * FROM report_rate_limits WHERE kind='crew' AND identity = <fixture-seeded crew_member_id> AND hour_bucket = date_trunc('hour', now()) AND count = 4` returns exactly one row. Identity is a fixture crew_members.id (uuid) — no canonicalization (crew identity is a UUID, not an email). The fixture crew_member_id is resolved at test setup via `validation:resolve-alias <combo> alias_5a_lead` per spec §9.1.2.
+    - **All other 6 outcomes:** assert per the R31 map row above; identity uses the `validation:m12-fixture-<outcome>:<gen_random_uuid>` synthetic prefix (NOT a real admin/crew identity) so cleanup is safe-by-default.
+  - returns structured stdout: `materialized <outcome> report row <id>` (where `<id>` is `reports.id`, `admin_alerts.id`, or `(kind, identity, hour_bucket)` tuple depending on producer)
+  - has a `--cleanup` flag that DELETEs validation-tagged rows from ALL three tables in order: `admin_alerts` first → `report_rate_limits` second → `reports` last (per handoff §9 R31 cleanup-order rationale). **Cleanup default is conservative:** does NOT touch real admin-email rows — only `report_rate_limits.identity LIKE 'validation:m12-fixture-%'` is deleted by default.
+  - has a `--cleanup --include-admin-email <email>` extension flag (R33 commit 69) that extends the `report_rate_limits` cleanup predicate to also delete `WHERE kind='admin' AND identity = canonicalize(<email>)` — required for purging the `rate-limit-admin` bucket the harness creates with the dev's real admin email. Pass `<email>` equal to `$VALIDATION_ADMIN_EMAIL` (or any admin email the harness was previously invoked with). Without this flag, the rate-limit-admin bucket persists across harness invocations until the hour bucket rolls over.
+  - cleanup test runs a fresh harness invocation for each outcome, then cleanup with `--include-admin-email $VALIDATION_ADMIN_EMAIL`, then asserts row counts in all 3 tables match the pre-fixture baseline (including the canonical admin bucket for rate-limit-admin).
 
 - [ ] **Step 2: Run — expect FAIL.**
 
@@ -104,7 +109,7 @@ The R31 rewrite makes the harness write the SAME table the real production code 
 - [ ] **Step 5: Tag every harness write** per the tagging convention above. Specifically:
   - `reports.context` ← `jsonb_build_object('validation_tag', 'm12-fixture-' || $outcome, ...)`
   - `admin_alerts.context` ← `jsonb_build_object('validation_tag', 'm12-fixture-' || $outcome, ...payload-fields-per-live-shape)`
-  - `report_rate_limits.identity` ← `'validation:m12-fixture-' || $outcome || ':' || gen_random_uuid()` (except for `rate-limit-admin`, which MUST use the real admin email to actually trigger the quota deny path)
+  - `report_rate_limits.identity` ← `'validation:m12-fixture-' || $outcome || ':' || gen_random_uuid()` (except for `rate-limit-admin`, which MUST use `canonicalize(process.env.VALIDATION_ADMIN_EMAIL!)` per R33 commit 69 F32 fix — see Step 1 above; the harness must read the env var and apply `lib/email/canonicalize.ts` before the UPSERT so the seeded bucket matches what live `enforceQuota` writes on a real admin POST).
 
 - [ ] **Step 6: Run — expect PASS.** Commit.
 
