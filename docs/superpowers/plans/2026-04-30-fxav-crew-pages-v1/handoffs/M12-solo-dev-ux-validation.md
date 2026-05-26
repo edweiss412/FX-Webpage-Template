@@ -874,6 +874,31 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R27 commit 59). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`, `.env.local.example` (the template file's content was NOT modified — Option D refactor only added the `canonical-env-var-source: keep` marker comment at the enclosing plan §-block).
 
+### Amendment R28 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `97019cc` (post-R27 + R27 handoff row)
+- **Verdict:** **needs-attention** (1 HIGH F29 + ≥3 adjacent F29-class peers per orchestrator sweep)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F29 | HIGH | `01-phase0-infra.md:140-141` (Task 0.A.5 Step 3+4) | **F10-class 6th round** — non-template checklist prose still has cardinality/wildcard contract references the R27 walker doesn't detect: "the four env vars" (cardinality-only) + "SUPABASE_* trio" (wildcard shorthand) + names `VALIDATION_J3_CLAIM_EMAIL` in single-var citation. **R27 Option D structural-exclusivity walker counts ≥2 canonical literals; cardinality + wildcard + single-citation shapes have nothing for the walker to count.** Additional concern: `canonical-env-var-source: keep` marker ±60-line window may exempt nearby prose if literals later added. |
+
+- **Orchestrator sweep (F29-class adjacent peers, not in codex finding):**
+  - `00-overview.md:175` — "Set 3 VALIDATION_* env vars" (cardinality + objectively WRONG count, should be 4 post-R13)
+  - `01-phase0-infra.md:73` — "document the 4 new VALIDATION_* env vars" (cardinality + wildcard + single-var citation `VALIDATION_J3_CLAIM_EMAIL`)
+  - `01-phase0-infra.md:179` — "Four VALIDATION_* env vars set in Vercel Production scope" (cardinality + wildcard)
+  - `01-phase0-infra.md:150` (commit-msg template) — "VALIDATION_* env vars in .env.local.example" (wildcard-only; borderline — within commit-msg template context which already has R27 cross-ref)
+  - spec `:758` — "VALIDATION_* env vars in Vercel + locally" (wildcard-only; minor, in §-overview table)
+
+- **F10-class 6-round same-vector status:**
+  - The Option D structural-exclusivity MODEL is correct; only §9.1.2 + `.env.local.example` should contain env-var contract enumerations of ANY syntactic form. R27's walker detection rules (M1 ≥2-canonical proximity + M2 fenced-block) catch literal-enumeration shapes but miss cardinality + wildcard + single-citation shapes.
+  - Honest diagnosis: every F10-class round has revealed a new syntactic dimension. The Option D MODEL is the structural answer; what R28 surfaces is a DETECTION refinement need, not a MODEL redesign need. R27 walker correctly catches "lists ≥2 canonical literals," but the contract can be referenced in prose via cardinality / wildcard / single-citation without being a literal enumeration.
+  - **R29 mandate:** (i) refine walker with M3 (cardinality + wildcard detection: "[N] VALIDATION_*", "[N] env vars", "SUPABASE_* trio", "all (four/three) env vars") + M4 (single-var-citation-in-contract-prose with disambiguation from single-var-operational-instruction); (ii) tighten `canonical-env-var-source: keep` marker semantics to only exempt the immediate fenced block, not ±60-line window; (iii) per-instance fix F29 + the 3+ adjacent peers swept by orchestrator; (iv) negative fixtures proving the new detection shapes fire.
+
+- **Repair commit:** pending R29 implementer dispatch (inline Agent; walker detection refinement + per-instance peer sweep).
+
 ---
 
 ## §10 — Cross-milestone dependencies
