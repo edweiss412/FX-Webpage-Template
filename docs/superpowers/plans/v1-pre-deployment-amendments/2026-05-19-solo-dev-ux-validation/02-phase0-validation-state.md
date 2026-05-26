@@ -443,7 +443,7 @@ CREATE POLICY admin_only ON public.validation_state
   WITH CHECK (public.is_admin());
 ```
 
-**PostgREST DML lockdown contract (R17 F15 amendment).** `validation_state` writes flow EXCLUSIVELY through the two SECURITY DEFINER RPCs `mint_validation_fixture_atomic` + `validation_finalize_all_atomic` (defined in `03-phase0-tooling-reseed.md`). The admin_only RLS policy alone does NOT prevent direct PostgREST DML by an authenticated admin session — the table-level INSERT/UPDATE/DELETE grants must be revoked at the schema level. `tests/db/postgrest-dml-lockdown.test.ts` (authored in Task 0.B.2 Step 8a per AGENTS.md cross-cutting #1 structural meta-test mandate) pins the invariant at CI time; the meta-test registers `validation_state` alongside `crew_member_auth` + `crew_members` (M9.5 R5+R6 precedent at `supabase/migrations/20260521000000_signed_link_admin_table_grants.sql`).
+**PostgREST DML lockdown contract (R17 F15 amendment).** `validation_state` writes flow EXCLUSIVELY through the two SECURITY DEFINER RPCs `mint_validation_fixture_atomic` + `validation_finalize_all_atomic` (defined in `03-phase0-tooling-reseed.md`). The admin_only RLS policy alone does NOT prevent direct PostgREST DML by an authenticated admin session — the table-level INSERT/UPDATE/DELETE grants must be revoked at the schema level. `tests/db/postgrest-dml-lockdown.test.ts` (authored in Task 0.B.2 Step 8a per AGENTS.md cross-cutting #1 structural meta-test mandate) pins the invariant at CI time; the meta-test registers `validation_state` alongside `crew_members` (M9.5 R6 precedent at `supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:80-86`). The M9.5 R5 `crew_member_auth` precedent (same migration:44-50) is acknowledged as the historical pattern, but `crew_member_auth` itself is NOT in the registry post-R67 F55 amendment because the M11.5 G3 cutover (`20260523000099_cutover_drop_m9_5.sql:26`) dropped the table.
 
 - [ ] **Step 4: Apply the migration locally first** (against the dev's local Supabase) to catch syntax errors:
 
@@ -481,9 +481,9 @@ Expected: no errors (every block is idempotent per spec invariant 8).
 
 - [ ] **Step 8: Author the PostgREST DML lockdown structural meta-test** at `tests/db/postgrest-dml-lockdown.test.ts` per AGENTS.md cross-cutting #1 (R17 commit 38 F15 structural defense). The meta-test enforces a project-wide invariant: for every table in the `LOCKED_TABLES` registry, the `anon` and `authenticated` Supabase clients MUST receive a permission error on direct INSERT/UPDATE/DELETE via PostgREST. Registry entries to ship at Task 0.B.2 completion:
 
-  - `crew_member_auth` (M9.5 R5 — closed at `supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:44-50`)
-  - `crew_members` (M9.5 R6 — closed at same migration:80-86)
+  - `crew_members` (M9.5 R6 — closed at `supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:80-86`)
   - `validation_state` (M12 R17 F15 — closed in this migration's `REVOKE INSERT, UPDATE, DELETE` block above)
+  - **R67 F55 amendment:** `crew_member_auth` is NOT in this registry — the table was dropped by the M11.5 G3 cutover migration at `supabase/migrations/20260523000099_cutover_drop_m9_5.sql:26`. A `has_table_privilege` probe on a dropped relation would fail at Layer 1, and PostgREST calls would surface a relation-missing error rather than the 42501 the test asserts. `crew_member_auth` retirement is independently validated by `tests/db/cutover-drop-m9-5.test.ts` (M11.5 G3 cutover absence test).
 
   Test shape (pattern mirrors `tests/db/admin-rls-runtime.test.ts:55-79` — psql against `TEST_DATABASE_URL` for ground-truth + supabase-js for the PostgREST surface verb probe):
 
@@ -506,8 +506,15 @@ import { createClient } from "@supabase/supabase-js";
  * intentionally permits PostgREST DML (e.g., user-facing forms whose
  * writes route through RLS WITH CHECK rather than a SECURITY DEFINER RPC).
  */
+// R67 F55 amendment — `crew_member_auth` removed because M11.5 G3 cutover at
+// `supabase/migrations/20260523000099_cutover_drop_m9_5.sql:26` dropped the table;
+// a `has_table_privilege` probe on a non-existent relation would fail (Layer 1)
+// and `from('crew_member_auth')` PostgREST calls would return a relation-missing
+// error not the 42501 the test expects (Layer 2/3). The `crew_member_auth`
+// retirement is independently validated by `tests/db/cutover-drop-m9-5.test.ts`
+// (M11.5 G3 cutover absence test); no DML-lockdown row is needed for a relation
+// that no longer exists.
 const LOCKED_TABLES = [
-  { table: "crew_member_auth",  closed_at: "supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:44" },
   { table: "crew_members",      closed_at: "supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:80" },
   { table: "validation_state",  closed_at: "supabase/migrations/<timestamp>_validation_state.sql (R17 commit 37 F15 REVOKE block)" },
 ] as const;
@@ -653,7 +660,7 @@ describe("PostgREST DML lockdown — RPC-gated tables (3-layer defense)", () => 
   <!-- not-f29-class: this paragraph documents the test-harness env vars (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_TEST_AUTHENTICATED_JWT, SUPABASE_TEST_ADMIN_JWT, TEST_DATABASE_URL) for the R17 F15 PostgREST DML lockdown meta-test. These are NOT the canonical VALIDATION_* env-var contract that F29-class structural defense governs. -->
   **R61 F51 amendment — environment requirements.** The test now requires four env vars: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` (existing — anon client), `SUPABASE_TEST_AUTHENTICATED_JWT` (existing — non-admin authenticated role), `SUPABASE_TEST_ADMIN_JWT` (new — authenticated role whose email matches `public.is_admin()`'s admin allow-list), and `TEST_DATABASE_URL` (existing — direct psql for Layer 1). The admin JWT's email must be in the live admin allow-list at test-database setup time (the Phase 0.A.5 `.env.local.example` template documents the convention). If `SUPABASE_TEST_ADMIN_JWT` is unset, Layer 2 must fail loud (not skip) — the Phase 0.B test bootstrap registers the env var as required.
 
-  **RED→GREEN verification (R61 F51 strengthened).** Before applying the R17 commit 37 REVOKE block, Layer 1's `has_table_privilege` probes return `t` for at least one (role, verb) pair (FAIL); Layer 2's admin client successfully completes INSERT/UPDATE/DELETE (or fails with a non-42501 reason — also FAIL because the test expects 42501); Layer 3's anon/authenticated probes return an RLS policy violation message that lacks `"for table"` substring (FAIL on tightened match). After applying the REVOKE block, all three layers PASS. The two existing rows (`crew_member_auth`, `crew_members`) must stay GREEN throughout (regression baseline). **Failure mode each layer catches:** Layer 1 — a future amendment drops the REVOKE block but leaves `admin_only` RLS in place; pre-R61 Layer 3 would falsely pass on this stack via RLS denial. Layer 2 — same regression, plus the case where a new admin-specific RLS policy is added that would pass admin INSERT/UPDATE/DELETE. Layer 3 — defense in depth at the path-end (catches the case where Layers 1+2 false-negative due to env-var mis-config or a future grant-by-role-attribute mechanism that bypasses table-grant catalog).
+  **RED→GREEN verification (R61 F51 strengthened).** Before applying the R17 commit 37 REVOKE block, Layer 1's `has_table_privilege` probes return `t` for at least one (role, verb) pair (FAIL); Layer 2's admin client successfully completes INSERT/UPDATE/DELETE (or fails with a non-42501 reason — also FAIL because the test expects 42501); Layer 3's anon/authenticated probes return an RLS policy violation message that lacks `"for table"` substring (FAIL on tightened match). After applying the REVOKE block, all three layers PASS. The pre-existing `crew_members` row must stay GREEN throughout (regression baseline). The historical `crew_member_auth` row is NOT in the registry post-R67 F55 amendment (M11.5 G3 cutover dropped the table; see registry comment above). **Failure mode each layer catches:** Layer 1 — a future amendment drops the REVOKE block but leaves `admin_only` RLS in place; pre-R61 Layer 3 would falsely pass on this stack via RLS denial. Layer 2 — same regression, plus the case where a new admin-specific RLS policy is added that would pass admin INSERT/UPDATE/DELETE. Layer 3 — defense in depth at the path-end (catches the case where Layers 1+2 false-negative due to env-var mis-config or a future grant-by-role-attribute mechanism that bypasses table-grant catalog).
 
 - [ ] **Step 9: Commit** (the migration + both new tests — master-spec edits land in subsequent tasks, all together in the same PR):
 
@@ -671,7 +678,8 @@ policy matching the canonical admin-only-table pattern. PostgREST DML
 locked down per AGENTS.md cross-cutting #1 (REVOKE INSERT/UPDATE/DELETE
 from anon + authenticated; SELECT preserved; service_role retains ALL).
 Structural meta-test tests/db/postgrest-dml-lockdown.test.ts pins the
-invariant for crew_member_auth + crew_members + validation_state.
+invariant for crew_members + validation_state (M11.5 G3 cutover
+dropped crew_member_auth per R67 F55 amendment).
 Apply-twice safe AND enum-drift safe AND type-drift fail-loud.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
