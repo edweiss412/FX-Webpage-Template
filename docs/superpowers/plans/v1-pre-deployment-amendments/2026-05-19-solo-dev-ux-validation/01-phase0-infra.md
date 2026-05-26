@@ -15,7 +15,7 @@
 - [ ] **Step 2:** Create a NEW project (distinct from the existing dev project). Name suggestion: `fxav-crew-pages-validation`. Region: closest to dev's iPhone location (smoke test 2 latency).
 - [ ] **Step 3:** Wait for provisioning (~5 minutes). Capture the project ref (the `xxx` in `xxx.supabase.co`) and the service_role key (Settings → API → service_role secret).
 - [ ] **Step 4:** Verify project URL responds: `curl -sI https://<project-ref>.supabase.co/rest/v1/ -H "apikey: <anon-key>"` returns 200 or 401 (not DNS-fail). 200/401 means the project is live.
-- [ ] **Step 5:** Note the project ref + service_role secret for §3.3 step 5 env vars: `VALIDATION_SUPABASE_URL = https://<project-ref>.supabase.co`, `VALIDATION_SUPABASE_SECRET_KEY = <service_role-secret>`, `VALIDATION_SUPABASE_PROJECT_REF = <project-ref>`.
+- [ ] **Step 5:** Note the project ref + service_role secret. **This step captures the 3 SUPABASE_* env vars only** (3 vars; J3-claim-email NOT required here — `VALIDATION_J3_CLAIM_EMAIL` is the dev's pre-existing real Google account email and is wired in Task 0.A.5 alongside these three, not derived from the new Supabase project): `VALIDATION_SUPABASE_URL = https://<project-ref>.supabase.co`, `VALIDATION_SUPABASE_SECRET_KEY = <service_role-secret>`, `VALIDATION_SUPABASE_PROJECT_REF = <project-ref>`. The canonical per-CLI env-var contract (all 4 vars) lives in spec §9.1.2 (R21 commit 44 F20 amendment); Task 0.A.5 wires the full 4-var set into Vercel + `.env.local`.
 
 ---
 
