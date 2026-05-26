@@ -1280,7 +1280,52 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - **Plan-internal contradiction (NEW shape):** R35 fix-round regression budget for F34 missed the cross-`kind` audit. Treat as fix-round-regression-budget gap, not new class — same lesson as R23+R29+R33 (each fix needs class-sweep BEFORE/DURING patching, per AGENTS.md cross-cutting #5).
   - All other classes still closed.
 
-- **Repair commit:** pending R39 implementer dispatch (inline Agent; F34-class comprehensive re-analysis + plan/spec contradiction resolution + F21 regex generalization).
+- **Repair commit:** closed in R39 (see below).
+
+### Amendment R39 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `df2dacc` (post-R39)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R40 adversarial review**
+
+- **(A) F34-class comprehensive re-analysis** (mandated by R34+R38 same-vector recurrence):
+
+  Schema constraint: `report_rate_limits.kind` CHECK = `('admin', 'crew')` per `supabase/migrations/20260501001000_internal_and_admin.sql:329`. Binary enum; no third kind exists.
+
+  | `kind` | Identity shape | Live quota path | Real-identity in harness | Snapshot+restore |
+  |---|---|---|---|---|
+  | `admin` | Canonical email (`canonicalize` at `lib/reports/rateLimit.ts:76`) | `enforceQuota` via `reporterFor` at `lib/reports/submit.ts:162-164` | YES (`$VALIDATION_ADMIN_EMAIL`) | SHIPPED R35 commit 73 F34 |
+  | `crew` | Raw `crew_members.id` UUID (no canonicalization — admin-only conditional at :76) | `enforceQuota` via `reporterFor` at `lib/reports/submit.ts:166-171` (identity = `auth.crewMemberId`) | YES (fixture `crew_member_id` per plan 04:70/107) | SHIPPED R39 commit 76 F36 |
+
+  **2 real-identity kinds; below 3-kind structural-defense threshold.** F34-class converged at R39 — schema CHECK bounds future regressions to {admin, crew}; both now have snapshot+restore. Mechanical surface closure.
+
+- **F36 repair (commit 76):**
+  - Plan 04 (rewritten): producer-map row 70 carries Snapshot → Seed → Record 3-step recipe parallel to admin; tagging convention names two real-identity exceptions (admin + crew); NEW F36 contract block (steps 1-6) follows the F34 block at plan 04 contract section; Step 1 adds `--include-crew-id` flag + F36 regression-test assertion (same-hour sentinel count=2, cross-hour sentinel count=5); Step 4 wires crew lifecycle (a)-(e) alongside admin; Step 5 enumerates two real-identity exceptions; Step 2 verify-cleanup combined invocation; failure-modes section adds real-crew_member_id + F36 destructive-cleanup regression bullets
+  - Spec §9.1.2:824 (rewritten): CLI args column adds `[--include-crew-id <uuid>]`; env-var column retires "other 7 outcomes use synthetic identities" wording, replaced with "2 real-identity (admin canonical email + crew raw UUID) + 6 synthetic-default" enumeration citing `lib/reports/submit.ts:168` for crew identity-shape contract; idempotency column appends F36 snapshot+restore contract block (steps 1-6) parallel to F34; emergency escape hatch flag set requires `--kind admin|crew` mandatory
+
+- **F21-class 7th regex generalization (commit 77):**
+  - Before: hardcoded `kind='admin'` (admin-specific)
+  - After: `kind\s*=\s*['"](?:admin|crew)['"]` alternation; DELETE-verb proximity widened 80→160 chars (accommodates F35 broken wording where table name sits between `delete` and predicate); disambiguator simplified
+  - **Stays at 7 regex patterns total** (generalized, not added)
+  - **RED→GREEN evidence with 5 new crew fixtures:** `brokenF36CrewPreFixWording` + `brokenF36CrewAltWording` FIRE; corrective-with-bucket / historical-frame / waiver / non-cleanup-mention all PASS
+  - Pre-existing F35 admin fixtures regression-clean
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 76 | `11e078a` | docs(plan-m12)+docs(spec-m12): R39 F36 — rate-limit-crew snapshot+restore + plan contradiction resolution + spec §9.1.2 propagation |
+  | 77 | `df2dacc` | test(cross-cutting): R39 F21-class 7th regex generalization (kind-agnostic) + crew negative-case fixtures (RED→GREEN) |
+
+- **Meta-test regression:** **18/18 PASS** maintained (regex generalized; +5 crew fixtures inside existing F21-class test).
+
+- **Same-vector + structural-defense status post-R39:**
+  - **F34-class: 2 rounds, converged at R39.** Schema CHECK bounds future regressions to {admin, crew}; both now have snapshot+restore. Threshold-3 calibration: a 3rd F34-class peer would require a schema change (new kind enum value), which would require its own plan amendment — mechanically impossible to regress without explicit DDL change.
+  - **F21-class: 4 rounds; defense at 7 patterns (generalized).** Per R37 row Option (b) threshold flag (~8 patterns): still 1 below trigger. If R40 surfaces another F21-class peer NOT caught by 7 patterns, R41 mandates Option (b).
+  - All other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R39 commit 77, regex generalization). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
 
 ---
 
