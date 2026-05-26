@@ -563,8 +563,51 @@ SELECT jsonb_object_keys(alias_map) FROM public.validation_state WHERE key = 'va
 SELECT jsonb_object_keys(alias_map->'R1') FROM public.validation_state WHERE key = 'validation_seed';
 -- Expect 9 keys (the role-variant aliases)
 
-SELECT count(*) FROM public.crew_members WHERE email LIKE 'validation+%@example.com';
--- Expect 96
+-- R15 commit 33 F13 repair: the pre-R15 query was
+--   SELECT count(*) FROM public.crew_members WHERE email LIKE 'validation+%@example.com';
+--   -- Expect 96
+-- That asserted 96 example.com emails, but R13 commit 30 F10 repair
+-- parameterized combo R1's alias_5a_lead.email = VALIDATION_J3_CLAIM_EMAIL
+-- (a real Google email, NOT example.com). A correct post-F10 seed
+-- has 95 synthesized example.com rows + 1 real Google email = 96 total;
+-- the original LIKE pattern only matches 95. Three replacement queries
+-- assert the post-F10 split correctly:
+
+-- (a) Total seeded rows via alias_map/crew_members join = 96.
+--     Walks the alias_map jsonb structurally (combo → alias → uuid)
+--     and counts distinct crew_members rows reachable from any leaf.
+--     Operand types: jsonb_each yields (text, jsonb); jsonb_each_text
+--     yields (text, text); ::uuid cast valid on the leaf text value.
+WITH alias_rows AS (
+  SELECT (alias_entry.value)::uuid AS crew_member_id
+    FROM public.validation_state v,
+         LATERAL jsonb_each(v.alias_map)             AS combo_entry(combo_key, combo_obj),
+         LATERAL jsonb_each_text(combo_entry.combo_obj) AS alias_entry(alias_key, value)
+   WHERE v.key = 'validation_seed'
+)
+SELECT count(DISTINCT cm.id)
+  FROM public.crew_members cm
+  JOIN alias_rows a ON a.crew_member_id = cm.id;
+-- Expect 96 (matches alias_map leaf count per spec §3.3 — 10 R-combos × 9 + 6 SW × 1).
+
+-- (b) Synthesized example.com rows = 95 (= 96 total − 1 R1.alias_5a_lead
+--     which carries VALIDATION_J3_CLAIM_EMAIL per R13 commit 30 F10 repair).
+SELECT count(*) FROM public.crew_members
+ WHERE email LIKE 'validation+%@example.com';
+-- Expect 95 (post-R13 F10 split: every alias EXCEPT R1.alias_5a_lead uses the synthesized example.com format).
+
+-- (c) R1.alias_5a_lead.email = canonicalize($VALIDATION_J3_CLAIM_EMAIL).
+--     The one row that does NOT match the example.com LIKE — it carries
+--     the dev's real Google account email (canonicalized per AGENTS.md
+--     invariant 3).
+SELECT cm.email
+  FROM public.crew_members cm
+  JOIN public.validation_state v ON v.key = 'validation_seed'
+ WHERE cm.id = (v.alias_map->'R1'->>'alias_5a_lead')::uuid;
+-- Expect the canonicalized form of $VALIDATION_J3_CLAIM_EMAIL — NOT a
+-- validation+...@example.com placeholder. If this returns a placeholder
+-- email, check-seed predicate (k) should have caught the bad config
+-- earlier; re-check VALIDATION_J3_CLAIM_EMAIL in Vercel Production scope.
 
 SELECT count(*) FROM public.show_share_tokens t
   JOIN public.shows s ON s.id = t.show_id
