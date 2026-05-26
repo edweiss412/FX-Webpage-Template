@@ -114,6 +114,13 @@ function gone(): Response {
   return new Response(null, { status: 410, headers: { "Cache-Control": CACHE_CONTROL } });
 }
 
+function showUnavailable(): Response {
+  return NextResponse.json(
+    { error: "PICKER_SHOW_UNAVAILABLE" },
+    { status: 410, headers: { "Cache-Control": CACHE_CONTROL } },
+  );
+}
+
 // Codex R23 P2: every error shape carries Cache-Control so auth/infra
 // failures are not cached by a private intermediary (browser HTTP cache,
 // service worker). Per RFC 9111 §5.2 — `private, max-age=0,
@@ -235,7 +242,7 @@ async function authorizeAgendaRequest(
   }
   const data = lookup.data;
   if (!data) return { ok: false, response: gone() };
-  if (!isAdmin && data.published !== true) return { ok: false, response: gone() };
+  if (!isAdmin && data.published !== true) return { ok: false, response: showUnavailable() };
   if (!isAdmin) {
     const session = await validatePickerAssetSession(request, show);
     if (!session.ok) return { ok: false, response: session.response };
@@ -371,7 +378,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
   // Codex R4 P1: published gate BEFORE link/google validators so an
   // unpublished-show request never refreshes picker state.
   if (!isAdmin && data.published !== true) {
-    return gone();
+    return showUnavailable();
   }
   if (!isAdmin) {
     const session = await validatePickerAssetSession(request, show);

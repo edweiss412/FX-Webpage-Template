@@ -42,6 +42,13 @@ function gone(): Response {
   return new Response(null, { status: 410, headers: { "Cache-Control": CACHE_CONTROL } });
 }
 
+function showUnavailable(): Response {
+  return NextResponse.json(
+    { error: "PICKER_SHOW_UNAVAILABLE" },
+    { status: 410, headers: { "Cache-Control": CACHE_CONTROL } },
+  );
+}
+
 // Codex R23 P2: every error shape carries the same private-revalidate
 // Cache-Control as success/410 — auth and infra failures MUST NOT be
 // cached by a private intermediary (browser HTTP cache, service worker).
@@ -128,7 +135,7 @@ async function authorizeDiagramRequest(
     return { ok: false, response: gone() };
   }
   if (!isAdmin && showResult.data.published !== true) {
-    return { ok: false, response: gone() };
+    return { ok: false, response: showUnavailable() };
   }
   if (!isAdmin) {
     const session = await validatePickerAssetSession(request, show);
