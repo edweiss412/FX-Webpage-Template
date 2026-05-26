@@ -60,7 +60,7 @@ Of the three ratified §13.2.3 amendments (per `00-overview.md` and `AGENTS.md`)
 **Catalog-affecting spec amendments through 2026-05-19 — IN SCOPE as X.1's audit-input baseline. Confirm all three are integrated in §12.4 before X.1 starts:**
 
 1. **2026-05-12 — `AGENDA_*` catalog codes** (SHA `7f836b6` + ratification trail `5a8e61f`..`0aa1f9c`). Adds `AGENDA_GONE_FOR_CREW` (410) and `AGENDA_UNAUTHENTICATED` (401) to §12.4 with crew-facing copy. M9 Cluster C6 consumed them.
-2. **2026-05-14 — Admin-allowlist runtime-mutable** (SHA `e060766`, amendment file `docs/superpowers/specs/amendments/2026-05-12-admin-allowlist-runtime-mutable.md`). Adds no new §12.4 rows directly, but introduces `ADMIN_EMAILS_TABLE_MISSING` / related catalog rows the M9 C9 cluster wired.
+2. **2026-05-14 — Admin-allowlist runtime-mutable** (SHA `e060766`, amendment file `docs/superpowers/specs/master-spec-patches/2026-05-12-admin-allowlist-runtime-mutable.md`). Adds no new §12.4 rows directly, but introduces `ADMIN_EMAILS_TABLE_MISSING` / related catalog rows the M9 C9 cluster wired.
 3. **2026-05-19 — §12.4 catalog cleanup (M9 spec-amendment debt close)** (SHA `ba4e8b7`, paired with catalog wiring SHA `36a2671` and POLISH-D1/D2/D3 close SHA `a193fac`). Corrects the `PARSE_ERROR_LAST_GOOD` crew-facing copy typo and adds two NEW rows: `BOOTSTRAP_GENERIC` (consolidates §A bootstrap errors that reach the server) and `NETWORK_UNREACHABLE` (client-side fetch failed before reaching the server).
 
 Verification command at kickoff: `git log --since=2026-05-12 -- docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` should show the three amendments above. If anything from the list is missing in §12.4 at HEAD, surface as a P0 — do not start X.1 against a stale baseline.

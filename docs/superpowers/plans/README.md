@@ -50,7 +50,7 @@ Post-M11 sequencing locked 2026-05-23: M11.5 → M12 → M13 (no parallelization
 ## Conventions
 
 - **One plan per major effort within the bundle.** Don't merge amendments into the master plan dir.
-- **Spec is canonical** (AGENTS.md invariant #7). Plans implement specs; they don't override them. Small textual spec amendments live in [`../specs/amendments/`](../specs/amendments/) and are integrated by cross-reference; large amendment-shaped specs (M11/M11.5/M12) live in [`../specs/v1-pre-deployment-amendments/`](../specs/v1-pre-deployment-amendments/).
+- **Spec is canonical** (AGENTS.md invariant #7). Plans implement specs; they don't override them. Small textual spec amendments live in [`../specs/master-spec-patches/`](../specs/master-spec-patches/) and are integrated by cross-reference; large amendment-shaped specs (M11/M11.5/M12) live in [`../specs/v1-pre-deployment-amendments/`](../specs/v1-pre-deployment-amendments/).
 - **Centralized handoffs.** All v1 milestone handoffs live in [`2026-04-30-fxav-crew-pages-v1/handoffs/`](./2026-04-30-fxav-crew-pages-v1/handoffs/), regardless of which amendment plan owns the work. Each amendment plan's README cites its handoff there.
 - **Each plan has its own DEFERRED.md.** Cross-plan deferrals (rare) carry an explicit cross-reference. See AGENTS.md invariants + memory `feedback_deferral_discipline.md`.
 - **Each plan has its own ROUTING.md** assigning implementer + adversarial reviewer per milestone/phase. All v1 plans use the same Opus/Claude Code ↔ GPT-5.5/Codex pairing with the "UI work always Opus" hard rule.

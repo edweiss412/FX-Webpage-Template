@@ -60,7 +60,7 @@ List every spec §X reference touched in this session:
 
 ## §5 Amendments in scope
 
-**None for M11** at plan-write time. Any amendments ratified during execution land here per the project's existing amendment pattern (`docs/superpowers/specs/amendments/`).
+**None for M11** at plan-write time. Any amendments ratified during execution land here per the project's existing amendment pattern (`docs/superpowers/specs/master-spec-patches/`).
 
 ---
 

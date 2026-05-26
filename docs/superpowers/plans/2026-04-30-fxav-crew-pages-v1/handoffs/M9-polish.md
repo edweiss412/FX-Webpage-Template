@@ -60,9 +60,9 @@ The other six plan amendments (parser registry / v4 single-marker / Sheets modti
 
 **Updated 2026-05-12 at 9.0 close (revised after Round 1 adversarial review at SHA 00620cb)** — **TWO new spec amendments ARE in M9 scope**:
 
-1. **§14.3 admin allow-list mechanism** (C9 cluster prereq). Retires the migration-hardcoded `public.is_admin()` array; replaces with `admin_emails` table lookup + `/admin/settings/admins` UI. Amendment text drafted in C9.0 (`superpowers:brainstorming`) BEFORE C9.1 migration ships; lands at `docs/superpowers/specs/amendments/2026-05-12-admin-allowlist-runtime-mutable.md`.
+1. **§14.3 admin allow-list mechanism** (C9 cluster prereq). Retires the migration-hardcoded `public.is_admin()` array; replaces with `admin_emails` table lookup + `/admin/settings/admins` UI. Amendment text drafted in C9.0 (`superpowers:brainstorming`) BEFORE C9.1 migration ships; lands at `docs/superpowers/specs/master-spec-patches/2026-05-12-admin-allowlist-runtime-mutable.md`.
 
-2. **§12.4 catalog new rows for AGENDA_* crew-facing codes** (M7-D2 task prereq, routes through C0 catalog). Adds `AGENDA_GONE_FOR_CREW` (410, "file removed / non-PDF / drift — non-retry-able") and `AGENDA_UNAUTHENTICATED` (401, "link expired / signed-in user lacks crew binding — suggest reopening Doug's link") to the §12.4 catalog. Amendment drafted in a new C0-prerequisite task **9.0.A1** (`superpowers:brainstorming` session, small scope — two rows + their `helpfulContext`) BEFORE Task 9.4 lands the catalog so 9.4's `messageFor` includes the rows from the start; lands at `docs/superpowers/specs/amendments/2026-05-12-catalog-agenda-codes.md`. **NOTE:** `PARSE_ERROR_LAST_GOOD` (spec line 2721), `SYNC_DELAYED_MODERATE` (line 2837), and `SYNC_DELAYED_SEVERE` (line 2838) are ALREADY in the spec at §12.4 (ratified via prior "Fix 2 spec amendment" referenced in `09-10-admin.md:24`) — Task 9.1 lands them in the catalog but no fresh amendment is required for those.
+2. **§12.4 catalog new rows for AGENDA_* crew-facing codes** (M7-D2 task prereq, routes through C0 catalog). Adds `AGENDA_GONE_FOR_CREW` (410, "file removed / non-PDF / drift — non-retry-able") and `AGENDA_UNAUTHENTICATED` (401, "link expired / signed-in user lacks crew binding — suggest reopening Doug's link") to the §12.4 catalog. Amendment drafted in a new C0-prerequisite task **9.0.A1** (`superpowers:brainstorming` session, small scope — two rows + their `helpfulContext`) BEFORE Task 9.4 lands the catalog so 9.4's `messageFor` includes the rows from the start; lands at `docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md`. **NOTE:** `PARSE_ERROR_LAST_GOOD` (spec line 2721), `SYNC_DELAYED_MODERATE` (line 2837), and `SYNC_DELAYED_SEVERE` (line 2838) are ALREADY in the spec at §12.4 (ratified via prior "Fix 2 spec amendment" referenced in `09-10-admin.md:24`) — Task 9.1 lands them in the catalog but no fresh amendment is required for those.
 
 **If any OTHER finding during convergence requires a third amendment, that's a P0 — surface and pause; do not silently fix.** (M8 R2 M2 was almost exactly this — a copy rewrite that contradicted §13.1 — caught by adversarial review, not self-review.)
 
@@ -225,8 +225,8 @@ After Opus finishes implementation:
 'components/**' 'app/**' 'lib/**' 'tests/**' 'supabase/**' 'public/brand/**'
 'DESIGN.md' 'app/globals.css' 'next.config.ts' 'package.json' 'tailwind.config.*'
 'docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md'
-'docs/superpowers/specs/amendments/2026-05-12-admin-allowlist-runtime-mutable.md'
-'docs/superpowers/specs/amendments/2026-05-12-catalog-agenda-codes.md'
+'docs/superpowers/specs/master-spec-patches/2026-05-12-admin-allowlist-runtime-mutable.md'
+'docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md'
 'docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/**'
 ':!docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.*'
 ```
@@ -392,7 +392,7 @@ The per-task TDD checklists for 9.1–9.4 are exhaustively spelled out in `09-10
 
 #### Task 9.0.A1 — Spec amendment §12.4 (AGENDA_* catalog rows) [ADDED at R1 repair]
 
-- **Files**: `docs/superpowers/specs/amendments/2026-05-12-catalog-agenda-codes.md` (NEW); record + ratify-by line.
+- **Files**: `docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md` (NEW); record + ratify-by line.
 - **Process**: `superpowers:brainstorming` session — small scope (2 rows + helpfulContext). Spec-amendment self-review checklist (per AGENTS.md spec-self-review additions); cross-CLI adversarial review run on the amendment commit (single round expected).
 - **Amendment content MUST specify**:
   - `AGENDA_GONE_FOR_CREW` (status 410) — crew-facing copy + helpfulContext. Suggested crewFacing: "Doug removed or replaced this agenda. Ask Doug for the new link." helpfulContext: longer plain-language explanation of the 410 semantics (file deleted, replaced, or not a PDF).
@@ -811,7 +811,7 @@ Run dual gate. The confirmation-prompt copy is the highest spec-check risk surfa
 
 #### Task 9.C9.0 — Spec amendment `superpowers:brainstorming` session
 
-- **Output**: `docs/superpowers/specs/amendments/2026-05-12-admin-allowlist-runtime-mutable.md` (NEW).
+- **Output**: `docs/superpowers/specs/master-spec-patches/2026-05-12-admin-allowlist-runtime-mutable.md` (NEW).
 - **Amendment text MUST specify**:
   - Retirement of the hardcoded `array['dlarson@fxav.net', 'edweiss412@gmail.com']` arm in `public.is_admin()` — replaced by a table lookup against `admin_emails`. **The OTHER arm — `auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'` (line 30 of the current `public.is_admin()` at `supabase/migrations/20260501002000_rls_policies.sql:30`) — MUST be preserved verbatim** (corrected at R3 repair, comprehensive C9 re-analysis). That arm is the Supabase Auth claim path; retiring it would break the JWT-role override. Final shape:
 

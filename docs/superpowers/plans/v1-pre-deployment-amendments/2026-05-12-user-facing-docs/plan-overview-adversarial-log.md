@@ -49,4 +49,4 @@ Per the user-approved soft-cap path:
 ## What this log is NOT
 
 - Not a per-phase review log. Each phase's adversarial review keeps its own state. When those reviews run, log each in `plan-phase-<X>-adversarial-log.md` mirroring this template.
-- Not authoritative for ratifying spec amendments. The spec at r10 is canonical; the plan implements it. Any plan/spec disagreement surfaced by adversarial review goes through `docs/superpowers/specs/amendments/` per AGENTS.md.
+- Not authoritative for ratifying spec amendments. The spec at r10 is canonical; the plan implements it. Any plan/spec disagreement surfaced by adversarial review goes through `docs/superpowers/specs/master-spec-patches/` per AGENTS.md.

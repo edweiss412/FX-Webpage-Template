@@ -31,7 +31,7 @@ Doug adds a new administrator's email in <30 seconds (paste email → Add → co
 - **Fidelity:** Production-ready.
 - **Breadth:**
   - **DB layer:** new migration `supabase/migrations/<ts>_admin_emails.sql` — creates `admin_emails` table + replacement `is_admin()` + seed.
-  - **Spec amendment:** `docs/superpowers/specs/amendments/2026-05-14-admin-allowlist-runtime-mutable.md` — §14.3 mechanism change.
+  - **Spec amendment:** `docs/superpowers/specs/master-spec-patches/2026-05-14-admin-allowlist-runtime-mutable.md` — §14.3 mechanism change.
   - **Data layer:** `lib/data/adminEmails.ts` — typed helpers (list, add, revoke).
   - **Server Actions:** `app/admin/settings/admins/actions.ts` — Add + Revoke + Re-add Server Actions.
   - **UI:** `app/admin/settings/admins/page.tsx` + child components.
@@ -325,7 +325,7 @@ Two-tap inline (echoes C4 AlertBanner):
 
 ## 12. Definition of done
 
-- Spec amendment ratified and inserted into `docs/superpowers/specs/amendments/2026-05-14-admin-allowlist-runtime-mutable.md`; §00-overview Ratified Amendments updated.
+- Spec amendment ratified and inserted into `docs/superpowers/specs/master-spec-patches/2026-05-14-admin-allowlist-runtime-mutable.md`; §00-overview Ratified Amendments updated.
 - Migration `<ts>_admin_emails.sql` creates table + replacement `is_admin()` + seed.
 - Pre-migration baseline `tests/db/admin-rls-runtime.baseline.json` captured.
 - Post-migration regression test passes (no drift in RLS behavioral parity).

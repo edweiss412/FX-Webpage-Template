@@ -1,5 +1,5 @@
 -- M9 C9 / M2-D1 — admin allow-list runtime-mutable
--- Spec amendment: docs/superpowers/specs/amendments/2026-05-14-admin-allowlist-runtime-mutable.md
+-- Spec amendment: docs/superpowers/specs/master-spec-patches/2026-05-14-admin-allowlist-runtime-mutable.md
 --
 -- Replaces the migration-hardcoded `array['dlarson@fxav.net',
 -- 'edweiss412@gmail.com']` literal in `public.is_admin()` with a

@@ -19,14 +19,14 @@ Per AGENTS.md invariant #7: the spec is canonical. Plans implement specs; they d
 | **Amendment — M11.5** | [`v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md`](./v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md) | Crew auth pivot — supersedes master §5.2 / §7.2 / §7.2.1 / §7.2.2 / §7.2.3 / §9.2 in full. The master spec's pre-amendment block remains as historical context. |
 | **Amendment — M12** | [`v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md`](./v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md) | Solo-dev UX validation gate before launch. Includes M11.5 picker-pivot rebase (§15.26). |
 
-## Small textual spec amendments
+## Master-spec patches
 
-Live in [`amendments/`](./amendments/). These are surgical patches to the master spec body, integrated by cross-reference rather than as standalone documents. Current entries:
+Live in [`master-spec-patches/`](./master-spec-patches/). These are surgical edits to the master spec body — sentence- or section-level fixes integrated by cross-reference rather than as standalone documents. Current entries:
 
-- [`2026-05-12-catalog-agenda-codes.md`](./amendments/2026-05-12-catalog-agenda-codes.md)
-- [`2026-05-14-admin-allowlist-runtime-mutable.md`](./amendments/2026-05-14-admin-allowlist-runtime-mutable.md)
+- [`2026-05-12-catalog-agenda-codes.md`](./master-spec-patches/2026-05-12-catalog-agenda-codes.md)
+- [`2026-05-14-admin-allowlist-runtime-mutable.md`](./master-spec-patches/2026-05-14-admin-allowlist-runtime-mutable.md)
 
-Distinct from `v1-pre-deployment-amendments/`: those are full amendment-shaped specs (each has its own plan tree, AC table, adversarial-review log); the entries here are sentence- or section-level fixes to existing master-spec content.
+Distinct from `v1-pre-deployment-amendments/`: those are full amendment-shaped specs (each has its own plan tree, AC table, adversarial-review log); the entries here patch existing master-spec content rather than standing alone. The earlier directory name was `amendments/` (renamed for clarity).
 
 ## v1.X+ post-deployment specs (future)
 

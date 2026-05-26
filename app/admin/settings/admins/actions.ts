@@ -2,7 +2,7 @@
  * app/admin/settings/admins/actions.ts (M9 C9 / M2-D1)
  *
  * Server Actions for the runtime-mutable admin allow-list per amendment
- * `docs/superpowers/specs/amendments/2026-05-14-admin-allowlist-runtime-mutable.md`.
+ * `docs/superpowers/specs/master-spec-patches/2026-05-14-admin-allowlist-runtime-mutable.md`.
  *
  *   - addAdminAction:   add a new admin OR re-add a revoked one (with
  *                       optional confirm_re_add second-tap).
