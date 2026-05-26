@@ -274,6 +274,44 @@ BEGIN
     last_seen_modified_time = now()
   RETURNING id INTO v_show_id;
 
+  -- 2.5. R17 commit 39 F16 amendment — FULL-REPLACE SEMANTICS for crew_members.
+  --      The spec contract (§3.3 picker-fixture lockstep + §3.3.2 "Singleton write
+  --      semantics") says a `--combo all` reseed is full-replace: the resulting
+  --      validation-show roster MUST equal the canonical fixture roster, with no
+  --      stale rows surviving from earlier draft seeds, manual SQL probes, or
+  --      previous fixture revisions that have since shrunk. Without this DELETE,
+  --      the picker reads `crew_members` directly (via `loadShowCrew` /
+  --      `resolve_show_by_slug_and_token`) and would surface stale aliases that
+  --      are no longer enumerated in `alias_map`. The check-seed predicate (e)
+  --      counts alias_map leaves (which the UPSERT loop below repopulates), so
+  --      a stale crew_members row would slip past predicate (e); predicate (m)
+  --      below catches the join discrepancy explicitly.
+  --
+  --      DELETE-before-UPSERT ordering: doing the DELETE BEFORE the UPSERT
+  --      loop, all inside the same transaction (the SECURITY DEFINER RPC is
+  --      atomic; the per-show advisory lock is held throughout), means the
+  --      validation-show roster is never transiently empty as observed by any
+  --      OTHER reader — concurrent picker reads either see the pre-RPC roster
+  --      (lock-blocked until the RPC commits) or the post-RPC roster (after
+  --      commit), never an in-progress empty state. The DELETE's predicate
+  --      uses the incoming payload's (combo, alias) keep-list lifted from the
+  --      alias_map structure: any crew_members row in the validation show
+  --      whose alias is NOT in the incoming payload's `crewMembers[].alias`
+  --      array is deleted.
+  --
+  --      The DELETE is keyed by `name` rather than by alias because
+  --      `crew_members` does not carry an alias column — the alias→id mapping
+  --      lives in `validation_state.alias_map`. The TypeScript fixture-build
+  --      guarantees a 1:1 mapping between fixture alias and `crew_members.name`
+  --      (see plan §0.C.3 fixture-build), so deleting `name NOT IN (payload
+  --      crew names)` is equivalent to deleting `alias NOT IN (payload aliases)`.
+  WITH keep AS (
+    SELECT jsonb_array_elements(p_fixture_payload->'crewMembers')->>'name' AS keep_name
+  )
+  DELETE FROM public.crew_members
+   WHERE show_id = v_show_id
+     AND name NOT IN (SELECT keep_name FROM keep);
+
   -- 3. Per crew_member: UPSERT crew_members, collect alias→id.
   --    Email is already canonicalized by the TypeScript script via
   --    lib/email/canonicalize.ts BEFORE landing in the payload (AGENTS.md
@@ -526,7 +564,7 @@ COMMIT_EOF
 **Files:**
 - Modify: `scripts/validation-check-seed.ts`
 
-Per spec §3.3.2 singleton write semantics. **9 predicates (a-g, i, k, l)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police); R13 commit 30 adds predicate (k); R13 commit 31 adds predicate (l):
+Per spec §3.3.2 singleton write semantics. **10 predicates (a-g, i, k, l, m)** — the picker-fixture lockstep is simpler than the pre-M11.5 contract (no per-crew JWT versioning + no revoked-link table to police); R13 commit 30 adds predicate (k); R13 commit 31 adds predicate (l); R17 commit 39 adds predicate (m):
 
 - (a) `validation_state` row missing (zero rows for `key='validation_seed'`)
 - (b) `last_seed_date != $VALIDATION_TODAY_ISO` (where `$VALIDATION_TODAY_ISO` is the canonical UTC YYYY-MM-DD value the script computes, NOT Postgres `current_date`)
@@ -542,19 +580,28 @@ Per spec §3.3.2 singleton write semantics. **9 predicates (a-g, i, k, l)** — 
   ```
   Diagnostic: "VALIDATION_J3_CLAIM_EMAIL is unset or matches a placeholder/dev-only reserved domain (canonical set: example.com/.org/.net per RFC 2606; *.test/*.invalid/*.localhost/localhost per RFC 6761; *.local/dev.local per mDNS RFC 6762 + project-conventional) — J3 leg (c) unwalkable (Google OAuth cannot authenticate against any of these). Set VALIDATION_J3_CLAIM_EMAIL to your real Google account email per spec §3.3 step 5 R13-amendment paragraph."
 - **(l) (R13 commit 31 amendment — baseline-claim guard)** For any baseline picker alias (every alias in `alias_map` per spec §3.2 / §3.3 inventory), `crew_members.claimed_via_oauth_at IS NOT NULL` after a fresh `--combo all` reseed. Catches the F11-class failure mode where the mint RPC's UPSERT `SET` clause drifts (e.g., a future amendment drops the `claimed_via_oauth_at = NULL` line) and a previous J3 leg (c) walk's claim stamp persists across reseed, leaving the LEAD picker row OAuth-disabled. Diagnostic: "crew_members row for <combo>.<alias> has claimed_via_oauth_at = <timestamp> after reseed — mint RPC SET clause missing `claimed_via_oauth_at = NULL`; re-check the migration body against the R13 commit 31 contract."
+- **(m) (R17 commit 39 amendment — full-replace orphan guard for F16 finding)** For every seeded validation show, the DISTINCT `(combo, alias)` identity set materialized as `crew_members` rows for that show MUST equal the canonical fixture identity set enumerated in `validation_state.alias_map[combo]` for the same combo. Concretely: for each combo C in `validation_state.combos_materialized`, `SELECT count(*) FROM crew_members cm WHERE cm.show_id = (SELECT id FROM shows WHERE drive_file_id = 'validation_' || lower(C))` MUST equal `jsonb_object_keys_count(validation_state.alias_map[C])`, AND every `crew_members.name` for that show MUST appear as a `name` field in the canonical fixture body for combo C (after the TS-side fixture-build computes it). Catches the F16-class failure mode where the mint RPC's UPSERT pattern lands new aliases but never DELETEs stale ones from prior fixture revisions or manual SQL probes — the picker (which reads `crew_members` directly, NOT `alias_map`) would surface orphan rows that aren't in the canonical fixture, expanding the test surface beyond the canonical 96-leaf scope and potentially exercising identities outside the validation spec. Diagnostic: "validation show <C> has orphan crew_members row(s) <names> not enumerated in validation_state.alias_map[<C>] — mint_validation_fixture_atomic full-replace DELETE-before-UPSERT did not fire OR a manual write landed a stale row; re-run `pnpm validation:reseed --combo <C>` to clear."
 
-- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g); returns exit 1 if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (predicate k, per R13 commit 30); returns exit 1 if combo R1's alias_5a_lead row in `crew_members` has a placeholder email (predicate k DB-side check); returns exit 1 if ANY baseline picker alias has `claimed_via_oauth_at IS NOT NULL` post-reseed (predicate l, per R13 commit 31 — test this by manually `UPDATE public.crew_members SET claimed_via_oauth_at = now() WHERE ...` then re-running check-seed).
+- [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh `--combo all` reseed; returns exit 1 if `VALIDATION_SUPABASE_PROJECT_REF` env var is set to a wrong value; returns exit 1 if a `show_share_tokens` row is manually deleted for one of the seeded shows (predicate g); returns exit 1 if `VALIDATION_J3_CLAIM_EMAIL` is unset OR matches a placeholder reserved domain (predicate k, per R13 commit 30); returns exit 1 if combo R1's alias_5a_lead row in `crew_members` has a placeholder email (predicate k DB-side check); returns exit 1 if ANY baseline picker alias has `claimed_via_oauth_at IS NOT NULL` post-reseed (predicate l, per R13 commit 31 — test this by manually `UPDATE public.crew_members SET claimed_via_oauth_at = now() WHERE ...` then re-running check-seed); returns exit 1 if a manually-INSERTed stale `crew_members` row exists for a seeded validation show whose `name` is not enumerated in `validation_state.alias_map[combo]` (predicate m, per R17 commit 39 — test this by manually `INSERT INTO public.crew_members (show_id, name, role, ...) VALUES ((SELECT id FROM shows WHERE drive_file_id='validation_r1'), 'orphan_stale_lead', 'LEAD', ...)` then re-running check-seed; the predicate (m) DIAG should name the orphan row).
 
 - [ ] **Step 2: Run — expect FAIL** (no implementation).
 
-- [ ] **Step 3: Implement** all 9 predicates (a-g, i, k, l). Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
+- [ ] **Step 3: Implement** all 10 predicates (a-g, i, k, l, m). Stdout on success: `OK: seed matches today (combos: R1,R2,...,SW-POST_SHOW)`. Stderr + exit 1 on failure: human-readable diagnostic naming the failed predicate.
 
 - [ ] **Step 4: Run — expect PASS.** Commit:
 
 ```bash
 git add scripts/validation-check-seed.ts tests/scripts/validation-check-seed.test.ts
-git commit -m "feat(validation): implement check-seed with 9 picker-fixture predicates (a-g, i, k, l incl R13 J3-claim-email guard + baseline-claim guard)"
+git commit -m "feat(validation): implement check-seed with 10 picker-fixture predicates (a-g, i, k, l, m incl R17 full-replace orphan guard)"
 ```
+
+- [ ] **Step 5: Add the F16 full-replace regression test** at `tests/db/mint-validation-fixture-atomic-full-replace.test.ts` (or extend the mint-RPC integration test authored in Task 0.C.4 Step 9). The test exercises the F16 contract end-to-end against the prod-equivalent Supabase target:
+
+  1. Run `pnpm validation:reseed --combo R1` (mint baseline R1 fixture). Assert exit 0; assert `pnpm validation:check-seed --combo R1` exit 0.
+  2. Via service-role psql / supabase-js, INSERT an orphan crew_members row into the R1 validation show: `INSERT INTO public.crew_members (show_id, name, email, role, role_flags, date_restriction, stage_restriction) VALUES ((SELECT id FROM shows WHERE drive_file_id='validation_r1'), 'orphan_stale_lead', 'orphan@example.test', 'LEAD', ARRAY['LEAD']::text[], '{"kind":"all_days"}'::jsonb, '{"kind":"all_stages"}'::jsonb)`.
+  3. Run `pnpm validation:check-seed --combo R1`. Expected: exit 1, predicate (m) diagnostic naming `orphan_stale_lead`.
+  4. Run `pnpm validation:reseed --combo R1` (re-mint).
+  5. Assert: (a) the orphan row is gone — `SELECT count(*) FROM crew_members WHERE show_id=(SELECT id FROM shows WHERE drive_file_id='validation_r1') AND name='orphan_stale_lead'` returns 0; (b) check-seed predicate (m) now passes — `pnpm validation:check-seed --combo R1` exits 0; (c) the canonical fixture roster is intact — every alias in `validation_state.alias_map['R1']` resolves to a `crew_members` row for the R1 show. This proves the DELETE-before-UPSERT ordering at the mint RPC body's section 2.5 fires correctly AND that no canonical fixture row is accidentally swept by the DELETE's keep-list construction. **Concrete failure mode the test catches:** the mint RPC's section 2.5 DELETE block is omitted, malformed, or scoped wrong (e.g., wrong show_id JOIN, wrong column comparison) → orphan row survives reseed → picker continues to surface it → walk session can exercise a non-canonical identity. The test's invariant is "the validation-show roster after a reseed contains EXACTLY the canonical fixture aliases" — derived from the fixture body's `crewMembers[].name` array length, not hardcoded. Commit alongside the mint RPC integration test.
 
 ---
 
