@@ -177,7 +177,22 @@ BEGIN
   END IF;
 END $$;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.validation_state TO anon, authenticated;
+-- R17 commit 37 F15 amendment — PostgREST DML lockdown for RPC-gated table
+-- (AGENTS.md cross-cutting #1 + feedback_postgrest_dml_lockdown_for_rpc_gated_tables).
+-- Writes flow EXCLUSIVELY through the two SECURITY DEFINER RPCs
+-- (mint_validation_fixture_atomic + validation_finalize_all_atomic) which
+-- hold the per-show advisory lock per AGENTS.md invariant 2. The admin_only
+-- RLS policy below alone does NOT prevent direct PostgREST DML because the
+-- policy USING/WITH CHECK predicates evaluate after the table-level GRANT
+-- check — an admin session that authenticated via Supabase auth can
+-- INSERT/UPDATE/DELETE directly via the PostgREST builder, bypassing the
+-- advisory lock and the audit-log emission. Explicit table-level REVOKE
+-- closes that bypass at the schema level. SELECT remains granted to
+-- anon/authenticated so the future audit UI (admin-gated by the
+-- admin_only RLS policy) can read the singleton. service_role keeps full
+-- DML for the RPCs (which run SECURITY DEFINER under postgres/service_role).
+GRANT SELECT ON TABLE public.validation_state TO anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON TABLE public.validation_state FROM anon, authenticated;
 GRANT ALL PRIVILEGES ON TABLE public.validation_state TO service_role;
 ALTER TABLE public.validation_state ENABLE ROW LEVEL SECURITY;
 
@@ -188,6 +203,8 @@ CREATE POLICY admin_only ON public.validation_state
   USING (public.is_admin())
   WITH CHECK (public.is_admin());
 ```
+
+**PostgREST DML lockdown contract (R17 F15 amendment).** `validation_state` writes flow EXCLUSIVELY through the two SECURITY DEFINER RPCs `mint_validation_fixture_atomic` + `validation_finalize_all_atomic` (defined in `03-phase0-tooling-reseed.md`). The admin_only RLS policy alone does NOT prevent direct PostgREST DML by an authenticated admin session — the table-level INSERT/UPDATE/DELETE grants must be revoked at the schema level. `tests/db/postgrest-dml-lockdown.test.ts` (authored in Task 0.B.2 Step 8a per AGENTS.md cross-cutting #1 structural meta-test mandate) pins the invariant at CI time; the meta-test registers `validation_state` alongside `crew_member_auth` + `crew_members` (M9.5 R5+R6 precedent at `supabase/migrations/20260521000000_signed_link_admin_table_grants.sql`).
 
 - [ ] **Step 4: Apply the migration locally first** (against the dev's local Supabase) to catch syntax errors:
 
@@ -223,18 +240,109 @@ npx supabase db push  # second apply
 
 Expected: no errors (every block is idempotent per spec invariant 8).
 
-- [ ] **Step 8: Commit** (just the migration + the new test — master-spec edits land in subsequent tasks, all together in the same PR):
+- [ ] **Step 8: Author the PostgREST DML lockdown structural meta-test** at `tests/db/postgrest-dml-lockdown.test.ts` per AGENTS.md cross-cutting #1 (R17 commit 38 F15 structural defense). The meta-test enforces a project-wide invariant: for every table in the `LOCKED_TABLES` registry, the `anon` and `authenticated` Supabase clients MUST receive a permission error on direct INSERT/UPDATE/DELETE via PostgREST. Registry entries to ship at Task 0.B.2 completion:
+
+  - `crew_member_auth` (M9.5 R5 — closed at `supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:44-50`)
+  - `crew_members` (M9.5 R6 — closed at same migration:80-86)
+  - `validation_state` (M12 R17 F15 — closed in this migration's `REVOKE INSERT, UPDATE, DELETE` block above)
+
+  Test shape (pattern mirrors `tests/db/admin-rls-runtime.test.ts:55-79` — psql against `TEST_DATABASE_URL` for ground-truth + supabase-js for the PostgREST surface verb probe):
+
+```ts
+import { describe, expect, test } from "vitest";
+import { createClient } from "@supabase/supabase-js";
+
+/**
+ * Project-wide PostgREST DML lockdown invariant
+ * (AGENTS.md cross-cutting #1 + feedback_postgrest_dml_lockdown_for_rpc_gated_tables).
+ *
+ * For every table in LOCKED_TABLES, anon + authenticated MUST receive
+ * a PostgREST permission error on INSERT/UPDATE/DELETE. Mutations flow
+ * EXCLUSIVELY through SECURITY DEFINER RPCs that hold the per-show
+ * advisory lock per AGENTS.md invariant 2. SELECT remains granted at
+ * the table level; admin_only RLS still gates which rows admins see.
+ *
+ * New RPC-gated tables MUST register here. The alternative is an
+ * inline `// not-subject-to-meta: <reason>` comment when the table
+ * intentionally permits PostgREST DML (e.g., user-facing forms whose
+ * writes route through RLS WITH CHECK rather than a SECURITY DEFINER RPC).
+ */
+const LOCKED_TABLES = [
+  { table: "crew_member_auth",  closed_at: "supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:44" },
+  { table: "crew_members",      closed_at: "supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:80" },
+  { table: "validation_state",  closed_at: "supabase/migrations/<timestamp>_validation_state.sql (R17 commit 37 F15 REVOKE block)" },
+] as const;
+
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const authKey = process.env.SUPABASE_TEST_AUTHENTICATED_JWT!;  // signed JWT with role='authenticated', random email
+
+describe("PostgREST DML lockdown — RPC-gated tables", () => {
+  for (const { table, closed_at } of LOCKED_TABLES) {
+    describe(`${table} (closed at ${closed_at})`, () => {
+      const anon = createClient(url, anonKey, { auth: { persistSession: false } });
+      const authed = createClient(url, authKey, { auth: { persistSession: false } });
+
+      test("anon INSERT denied", async () => {
+        const { error } = await anon.from(table).insert({});
+        expect(error).not.toBeNull();
+        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+      });
+
+      test("anon UPDATE denied", async () => {
+        const { error } = await anon.from(table).update({}).neq("key" as never, "__sentinel__");
+        expect(error).not.toBeNull();
+        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+      });
+
+      test("anon DELETE denied", async () => {
+        const { error } = await anon.from(table).delete().neq("key" as never, "__sentinel__");
+        expect(error).not.toBeNull();
+        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+      });
+
+      test("authenticated INSERT denied (no admin JWT-role bypass at table layer)", async () => {
+        const { error } = await authed.from(table).insert({});
+        expect(error).not.toBeNull();
+        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+      });
+
+      test("authenticated UPDATE denied", async () => {
+        const { error } = await authed.from(table).update({}).neq("key" as never, "__sentinel__");
+        expect(error).not.toBeNull();
+        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+      });
+
+      test("authenticated DELETE denied", async () => {
+        const { error } = await authed.from(table).delete().neq("key" as never, "__sentinel__");
+        expect(error).not.toBeNull();
+        expect(error?.code === "42501" || error?.message?.toLowerCase().includes("permission denied")).toBe(true);
+      });
+    });
+  }
+});
+```
+
+  **RED→GREEN verification:** before applying the R17 commit 37 REVOKE block, the three `validation_state` assertions FAIL (PostgREST returns success or an RLS-policy error rather than a table-grant permission error, because at the table-grant layer authenticated retained INSERT/UPDATE/DELETE). After applying the REVOKE block, all assertions PASS — the failure mode is now an unambiguous `42501 permission denied for table validation_state` returned at the table-grant check, BEFORE the admin_only RLS USING/WITH CHECK predicate evaluates. The two existing rows (`crew_member_auth`, `crew_members`) must stay GREEN throughout (regression baseline).
+
+- [ ] **Step 9: Commit** (the migration + both new tests — master-spec edits land in subsequent tasks, all together in the same PR):
 
 ```bash
-git add supabase/migrations/<timestamp>_validation_state.sql tests/db/validation-state.test.ts
+git add \
+  supabase/migrations/<timestamp>_validation_state.sql \
+  tests/db/validation-state.test.ts \
+  tests/db/postgrest-dml-lockdown.test.ts
 git commit -m "$(cat <<'EOF'
 feat(db): add validation_state singleton table for M12 tooling
 
 Per M12 spec §3.3.2. Singleton PK (key='validation_seed'), 16-combo
 CHECK enum, alias_map jsonb with drift repair, admin_only FOR ALL
-policy matching the canonical admin-only-table pattern, GRANTs to
-anon/authenticated/service_role. Apply-twice safe AND enum-drift safe
-AND type-drift fail-loud.
+policy matching the canonical admin-only-table pattern. PostgREST DML
+locked down per AGENTS.md cross-cutting #1 (REVOKE INSERT/UPDATE/DELETE
+from anon + authenticated; SELECT preserved; service_role retains ALL).
+Structural meta-test tests/db/postgrest-dml-lockdown.test.ts pins the
+invariant for crew_member_auth + crew_members + validation_state.
+Apply-twice safe AND enum-drift safe AND type-drift fail-loud.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF

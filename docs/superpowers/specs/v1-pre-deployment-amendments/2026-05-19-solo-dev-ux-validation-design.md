@@ -295,12 +295,18 @@ BEGIN
   END IF;
 END $$;
 
--- Admin-only per master spec §4.3 pattern (R9 amendment + R10 correction —
--- DDL now mirrors the canonical admin-only policy/grant shape from
--- supabase/migrations/20260501002000_rls_policies.sql: schema-qualified
--- public.is_admin(), TO anon AND authenticated, with explicit table grants
--- BEFORE enabling RLS).
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.validation_state TO anon, authenticated;
+-- Admin-only per master spec §4.3 pattern (R9 amendment + R10 correction +
+-- R17 commit 37 F15 PostgREST DML lockdown — DDL now mirrors the canonical
+-- admin-only policy/grant shape from
+-- supabase/migrations/20260501002000_rls_policies.sql AND the M9.5 R5+R6
+-- lockdown shape from supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:
+-- schema-qualified public.is_admin(), TO anon AND authenticated, with
+-- explicit SELECT-only table grants BEFORE enabling RLS. The admin_only RLS
+-- policy below alone does NOT prevent direct PostgREST DML by an authenticated
+-- admin session — explicit table-level REVOKE on INSERT/UPDATE/DELETE is the
+-- required schema-level closure per AGENTS.md cross-cutting #1.
+GRANT SELECT ON TABLE public.validation_state TO anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON TABLE public.validation_state FROM anon, authenticated;
 GRANT ALL PRIVILEGES ON TABLE public.validation_state TO service_role;
 ALTER TABLE public.validation_state ENABLE ROW LEVEL SECURITY;
 
@@ -320,6 +326,8 @@ CREATE POLICY admin_only ON public.validation_state
 -- denied across all four verbs. Admin reads (e.g., a future audit UI) work
 -- because they're admin-authenticated.
 ```
+
+**PostgREST DML lockdown (R17 commit 37 F15 amendment).** `validation_state` writes flow EXCLUSIVELY through the two SECURITY DEFINER RPCs (`mint_validation_fixture_atomic` + `validation_finalize_all_atomic`) detailed below in "Singleton write semantics"; PostgREST `from('validation_state').insert/update/delete` is closed to `anon` AND `authenticated` at the schema level via explicit table-level REVOKE in the DDL above. The admin_only RLS policy is necessary but NOT sufficient — an authenticated admin session that authenticated via Supabase auth could otherwise bypass the per-show advisory lock + the structured audit-log emission by writing directly through the PostgREST builder, falsifying `last_seed_date` / `combos_seeded_dates` / `alias_map` / `seeded_supabase_project_ref` without the intended transaction semantics. This matches the M9.5 R5+R6 lockdown precedent applied to `crew_member_auth` + `crew_members` at `supabase/migrations/20260521000000_signed_link_admin_table_grants.sql` and is enforced at CI time by the structural meta-test `tests/db/postgrest-dml-lockdown.test.ts` (M12 plan Task 0.B.2 Step 8a authors/extends this registry per AGENTS.md cross-cutting #1 plan-time checklist).
 
 **Migration idempotency at a glance.** The DDL block above is the canonical and complete 8-column migration body (R10 spec sync — `combos_seeded_dates` added per R3 pre-rebase plan amendment; see §15.27 audit-trail). Every statement is apply-twice safe: `CREATE TABLE IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT` (drift-safe per R12), `ADD COLUMN IF NOT EXISTS` (alias_map idempotency AND combos_seeded_dates idempotency — both columns carry the same ADD COLUMN + SET DEFAULT + SET NOT NULL idempotency stanza), inherently-idempotent `GRANT`s, and `DROP POLICY IF EXISTS + CREATE POLICY` (R15 fold-in). No standalone amendment snippets — implementers apply the block as-is.
 
