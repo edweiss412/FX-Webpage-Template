@@ -48,6 +48,12 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 // admin_alerts.upsert call. Keep in sync with grep findings.
 const ADMIN_ALERTS_CODES = [
   "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
+  "OAUTH_IDENTITY_CLAIMED", //        app/auth/callback/route.ts
+  "PICKER_BOOTSTRAP_RPC_FAILED", //   app/api/auth/picker-bootstrap/route.ts
+  "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED", // app/api/auth/picker-bootstrap/route.ts
+  "CALLBACK_CLAIM_THREW", //          app/auth/callback/route.ts
+  "PICKER_SELECTION_RACE", //         lib/auth/picker/cleanupStaleEntry.ts
+  "PICKER_EPOCH_RESET", //            lib/auth/picker/resetPickerEpoch.ts
   "ASSET_RECOVERY_BYTES_EXCEEDED", //  M7 asset recovery byte ceiling
   "ASSET_RECOVERY_REVISION_DRIFT", //  M7 asset recovery stale-preview cooldown
   "ASSET_RECOVERY_DRIFT_COOLDOWN", //  M7 asset recovery cooldown skip
@@ -85,6 +91,30 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   AMBIGUOUS_EMAIL_BINDING: {
     path: "lib/auth/validateGoogleSession.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"AMBIGUOUS_EMAIL_BINDING"/,
+  },
+  OAUTH_IDENTITY_CLAIMED: {
+    path: "app/auth/callback/route.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"OAUTH_IDENTITY_CLAIMED"/,
+  },
+  PICKER_BOOTSTRAP_RPC_FAILED: {
+    path: "app/api/auth/picker-bootstrap/route.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PICKER_BOOTSTRAP_RPC_FAILED"/,
+  },
+  PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: {
+    path: "app/api/auth/picker-bootstrap/route.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED"/,
+  },
+  CALLBACK_CLAIM_THREW: {
+    path: "app/auth/callback/route.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"CALLBACK_CLAIM_THREW"/,
+  },
+  PICKER_SELECTION_RACE: {
+    path: "lib/auth/picker/cleanupStaleEntry.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PICKER_SELECTION_RACE"/,
+  },
+  PICKER_EPOCH_RESET: {
+    path: "lib/auth/picker/resetPickerEpoch.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PICKER_EPOCH_RESET"/,
   },
   ASSET_RECOVERY_BYTES_EXCEEDED: {
     path: "lib/sync/assetRecovery.ts",
