@@ -105,6 +105,125 @@ const PARAMETERIZATION_SURFACES: Array<{ key: string; path: string; mustContain:
   },
 ];
 
+// R23 commit 50 F24 — anti-tautology repair for the R21 F20 canonical-
+// tables-completeness assertion. Pre-R23 the assertion accepted any
+// subset row that listed >=1 canonical var; the F24 finding showed
+// that a row claiming "3 vars; J3-claim-email NOT required" but
+// naming only 1 of the 3 required SUPABASE_* vars passes silently —
+// the same incomplete-CLI-contract class the guard was meant to
+// prevent.
+//
+// The repair: derive the required-vars set from the row's stated
+// reason. If the row claims a numeric cardinality ("4 vars" / "3 vars"
+// / "2 vars" / "1 var"), the named canonical literals MUST equal
+// that count. If the row carries an omission reason ("J3-claim-email
+// NOT required" / "J3-claim-email is omitted"), the expected set is
+// the canonical 4 minus VALIDATION_J3_CLAIM_EMAIL — i.e., all 3
+// SUPABASE_* vars MUST appear. The "not-subject-to-meta: <reason>"
+// waiver still passes (the inline reason justifies the deviation).
+//
+// Returns null if the row passes; otherwise a finding object with
+// the offending reason + present/missing var lists. Exported as a
+// pure function so the F24 negative-case test can exercise it
+// directly against synthetic broken/valid fixture rows without
+// having to mutate the live spec.
+type CanonicalRowFinding = {
+  reason: string;
+  presentVars: string[];
+  missingVars: string[];
+};
+
+function evaluateCanonicalTableRow(
+  line: string,
+  canonicalVars: readonly string[],
+): CanonicalRowFinding | null {
+  const presentVars = canonicalVars.filter((v) => line.includes(v));
+  const missingVars = canonicalVars.filter((v) => !line.includes(v));
+
+  // Pass 1: row enumerates all 4 canonical vars verbatim — passes.
+  if (presentVars.length === canonicalVars.length) {
+    return null;
+  }
+
+  // Pass 2: row carries the explicit "not-subject-to-meta: <reason>"
+  // waiver — passes (the inline reason justifies the deviation; this
+  // is the same escape hatch other meta-tests in this project use).
+  if (/not-subject-to-meta:/i.test(line)) {
+    return null;
+  }
+
+  // Subset semantics: row claims a smaller cardinality + names a
+  // reason. Parse out the stated cardinality (if any) and the J3-
+  // claim-email omission marker (if any), and derive the required
+  // set from those.
+  const cardinalityMatch = line.match(/\b([1-4])\s+vars?\b/i);
+  const claimedCardinality = cardinalityMatch ? Number.parseInt(cardinalityMatch[1], 10) : null;
+  const j3ClaimEmailOmitted =
+    /\bJ3[-_]?claim[-_]?email[^.]{0,80}(NOT required|omitted|is omitted|excluded)/i.test(line);
+
+  // Without ANY subset marker (no cardinality, no J3 omission, no
+  // waiver), the row has fewer than 4 vars and no justification —
+  // fails per R21 F20 contract.
+  if (claimedCardinality === null && !j3ClaimEmailOmitted) {
+    return {
+      reason:
+        "table-body row references VALIDATION_* but does not list all 4 canonical env vars AND does not carry an explicit subset marker (cardinality '<N> vars' OR 'J3-claim-email NOT required' OR 'not-subject-to-meta: <reason>')",
+      presentVars,
+      missingVars,
+    };
+  }
+
+  // Subset marker is present. Compute the required canonical set
+  // from the stated reason:
+  //   - if J3-claim-email is explicitly omitted → required set is
+  //     canonical 4 minus VALIDATION_J3_CLAIM_EMAIL (the 3 SUPABASE_*
+  //     vars). ALL 3 must be present.
+  //   - else if cardinality N is stated → exactly N of the canonical
+  //     literals must be present (the row names which N it picks).
+  //   - else (only the J3 marker, no cardinality) → fall through to
+  //     the J3-omission path above.
+  const requiredSet: string[] = j3ClaimEmailOmitted
+    ? canonicalVars.filter((v) => v !== "VALIDATION_J3_CLAIM_EMAIL")
+    : (claimedCardinality !== null
+        ? canonicalVars.slice(0, claimedCardinality) // placeholder; cardinality-only rows compared below
+        : []);
+
+  if (j3ClaimEmailOmitted) {
+    const missingFromRequired = requiredSet.filter((v) => !line.includes(v));
+    if (missingFromRequired.length > 0) {
+      return {
+        reason: `row claims "J3-claim-email NOT required" / omitted (3 SUPABASE_* vars required) but ${missingFromRequired.length} required var(s) absent`,
+        presentVars,
+        missingVars: missingFromRequired,
+      };
+    }
+    // Optional cross-check: if cardinality is also stated, it must
+    // match the count of required vars present.
+    if (claimedCardinality !== null && presentVars.length !== claimedCardinality) {
+      return {
+        reason: `row claims "${claimedCardinality} vars" but ${presentVars.length} canonical literal(s) present — cardinality mismatch (anti-tautology guard)`,
+        presentVars,
+        missingVars,
+      };
+    }
+    return null;
+  }
+
+  // Cardinality stated without J3 omission marker: the count of
+  // named canonical literals MUST equal the stated cardinality. This
+  // catches "4 vars: <only 3 listed>" or "3 vars: <only 1 listed>"
+  // shapes.
+  if (claimedCardinality !== null && presentVars.length !== claimedCardinality) {
+    return {
+      reason: `row claims "${claimedCardinality} vars" but ${presentVars.length} canonical literal(s) present — cardinality mismatch (anti-tautology guard per R23 F24)`,
+      presentVars,
+      missingVars,
+    };
+  }
+
+  return null;
+}
+
 function collectMarkdown(target: string): string[] {
   const full = join(ROOT, target);
   let stat;
@@ -469,51 +588,78 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       // an explicit subset reason, and (b) which vars are missing if
       // not the full 4.
 
-      // Subset-allowed marker: a row that explicitly states `N vars`
-      // with N < 4 AND names a reason. We look for the literal "3 vars"
-      // (or "2 vars" / "1 var") in the row itself; we also accept
-      // explicit phrases like "J3-claim-email NOT required" or "J3-claim-
-      // email is omitted" or "not-subject-to-meta:" inline.
-      const explicitSubsetMarker =
-        /\b[123]\s+vars?\b.*\bnot required\b/i.test(line) ||
-        /\bJ3[-_]?claim[-_]?email[^.]{0,80}(NOT required|omitted|is omitted|excluded)/i.test(line) ||
-        /not-subject-to-meta:/i.test(line);
-
-      const presentVars = CANONICAL_VARS.filter((v) => line.includes(v));
-      const missingVars = CANONICAL_VARS.filter((v) => !line.includes(v));
-
-      if (presentVars.length === CANONICAL_VARS.length) {
-        // Full 4 vars enumerated — passes.
-        continue;
-      }
-
-      if (explicitSubsetMarker && presentVars.length >= 1) {
-        // Row deliberately documents a subset; passes (the reason is
-        // inline). Require at least 1 SUPABASE_* var present so we
-        // don't false-pass on a row that just mentions VALIDATION_J3_CLAIM_EMAIL
-        // in passing without enumerating any of the SUPABASE_* trio.
-        continue;
-      }
+      const findingsForRow = evaluateCanonicalTableRow(line, CANONICAL_VARS);
+      if (findingsForRow === null) continue; // row passes
 
       findings.push(
-        `  ${SPEC_FILE}:${i + 1} (table-body row references VALIDATION_* but does not list all 4 canonical env vars AND does not carry explicit subset reason)\n` +
+        `  ${SPEC_FILE}:${i + 1} (${findingsForRow.reason})\n` +
           `      row:     ${line.substring(0, 240)}${line.length > 240 ? "..." : ""}\n` +
-          `      present: ${presentVars.length === 0 ? "(none)" : presentVars.join(", ")}\n` +
-          `      missing: ${missingVars.join(", ")}`,
+          `      present: ${findingsForRow.presentVars.length === 0 ? "(none)" : findingsForRow.presentVars.join(", ")}\n` +
+          `      missing: ${findingsForRow.missingVars.join(", ")}`,
       );
     }
 
     if (findings.length > 0) {
       expect.fail(
-        `R21 F20-canonical-tables-completeness guard: ${findings.length} spec table row(s) reference VALIDATION_* env vars but do NOT list all 4 canonical vars and do NOT carry an explicit subset reason.\n\n` +
+        `R21 F20-canonical-tables-completeness guard: ${findings.length} spec table row(s) violate the canonical-tables-completeness contract.\n\n` +
           findings.join("\n\n") +
           `\n\nCanonical env vars (single source of truth — spec §9.1.2 R21 commit 44 F20 amendment):\n  ${CANONICAL_VARS.join("\n  ")}\n\n` +
           `Fix options for each row:\n` +
           `  (a) List all 4 canonical env vars verbatim in the row.\n` +
-          `  (b) Explicitly document a subset by writing "<N> vars" (e.g., "3 vars") AND naming WHY a var is omitted via "J3-claim-email NOT required" / "J3-claim-email is omitted" / "not-subject-to-meta: <reason>" phrasing in the same row.\n\n` +
-          `This guard catches the F20 failure mode: a table row uses "Same N env vars" shorthand and silently inherits an incomplete set. The shorthand is retired per R21 commit 44 — every row must be explicit.`,
+          `  (b) Explicitly document a subset: write "<N> vars" (e.g., "3 vars") AND name WHY one or more vars are omitted via "J3-claim-email NOT required" / "J3-claim-email is omitted" / "not-subject-to-meta: <reason>" phrasing in the same row, AND list ALL non-omitted canonical vars verbatim in the row.\n\n` +
+          `This guard catches the F20 failure mode (Same-N-shorthand silently inheriting an incomplete set) AND the R23 F24 failure mode (anti-tautology gap — a subset row that names only 1 of the 3 required SUPABASE_* vars while claiming "3 vars; J3-claim-email NOT required" silently omits 2 required vars).`,
       );
     }
+  });
+
+  // R23 commit 50 F24 anti-tautology negative-case assertion. Pins the
+  // subset-cardinality fix at CI time: a synthetic broken row with the
+  // explicit subset marker but only 1 of 3 required SUPABASE_* vars
+  // MUST fail evaluateCanonicalTableRow(). Without this, the R21 F20
+  // assertion silently accepts the broken row (pre-R23 behavior).
+  test("F24-canonical-tables-completeness negative case: synthetic broken subset row triggers the assertion", () => {
+    const CANONICAL_VARS = [
+      "VALIDATION_SUPABASE_URL",
+      "VALIDATION_SUPABASE_SECRET_KEY",
+      "VALIDATION_SUPABASE_PROJECT_REF",
+      "VALIDATION_J3_CLAIM_EMAIL",
+    ];
+
+    // Positive cases (rows the assertion SHOULD accept).
+    const fullFourCanonical =
+      "| `pnpm validation:reseed` | 4 vars: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF, VALIDATION_J3_CLAIM_EMAIL | reseed flow |";
+    const validSubsetThreeSupabaseVars =
+      "| `pnpm validation:resolve-alias` | 3 vars; J3-claim-email NOT required (read-only): VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF | read-only lookup |";
+
+    expect(evaluateCanonicalTableRow(fullFourCanonical, CANONICAL_VARS)).toBeNull();
+    expect(evaluateCanonicalTableRow(validSubsetThreeSupabaseVars, CANONICAL_VARS)).toBeNull();
+
+    // Negative case: the row the F24 finding called out. Claims
+    // "3 vars; J3-claim-email NOT required" but only names ONE of the
+    // 3 required SUPABASE_* vars. Pre-R23 the assertion accepted this;
+    // post-R23 the assertion MUST reject it.
+    const brokenSubsetRow =
+      "| `pnpm validation:resolve-alias` | 3 vars; J3-claim-email NOT required: VALIDATION_SUPABASE_URL | read-only lookup |";
+    const brokenResult = evaluateCanonicalTableRow(brokenSubsetRow, CANONICAL_VARS);
+    expect(brokenResult).not.toBeNull();
+    expect(brokenResult?.missingVars).toContain("VALIDATION_SUPABASE_SECRET_KEY");
+    expect(brokenResult?.missingVars).toContain("VALIDATION_SUPABASE_PROJECT_REF");
+
+    // Negative case 2: row claims full 4 vars verbatim but actually
+    // omits one — the cardinality reason-parse must catch this.
+    const claimsFullButMissingOne =
+      "| `pnpm validation:reseed` | 4 vars: VALIDATION_SUPABASE_URL, VALIDATION_SUPABASE_SECRET_KEY, VALIDATION_SUPABASE_PROJECT_REF | reseed flow |";
+    const missingOneResult = evaluateCanonicalTableRow(claimsFullButMissingOne, CANONICAL_VARS);
+    expect(missingOneResult).not.toBeNull();
+    expect(missingOneResult?.missingVars).toContain("VALIDATION_J3_CLAIM_EMAIL");
+
+    // Negative case 3: subset marker present but ZERO canonical vars
+    // listed — was caught by the old `presentVars.length >= 1` guard;
+    // must continue to be caught post-R23.
+    const subsetMarkerNoVars =
+      "| `pnpm validation:foo` | 3 vars; J3-claim-email NOT required | misc |";
+    const noVarsResult = evaluateCanonicalTableRow(subsetMarkerNoVars, CANONICAL_VARS);
+    expect(noVarsResult).not.toBeNull();
   });
 
   test("F13-conflation-prevention: no Phase 0.C verification query asserts `email LIKE '%@example.com'` count = 96", () => {
