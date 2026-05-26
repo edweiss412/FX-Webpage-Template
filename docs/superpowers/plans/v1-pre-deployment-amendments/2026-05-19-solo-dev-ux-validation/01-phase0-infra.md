@@ -88,6 +88,11 @@ This makes the dev an admin on the new project. (`lib/email/canonicalize.ts` str
 # key, PICKER_COOKIE_SIGNING_KEY, is set at the Vercel runtime layer for
 # the deployment as part of M11.5; no validation CLI consumes it.)
 
+# Canonical per-CLI env-var map: spec §9.1.2 table (R21 commit 44 F20
+# amendment) is the authoritative command-by-command env-var contract.
+# reseed + check-seed need all 4 vars below; resolve-alias + report-
+# fixtures need only the 3 SUPABASE_* vars. The .env.local.example here
+# documents all 4 because the dev runs reseed + check-seed first.
 VALIDATION_SUPABASE_URL=
 VALIDATION_SUPABASE_SECRET_KEY=
 VALIDATION_SUPABASE_PROJECT_REF=
