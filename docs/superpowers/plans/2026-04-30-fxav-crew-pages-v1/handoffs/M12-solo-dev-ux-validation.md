@@ -729,7 +729,62 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - Honest diagnosis: each F10-class round revealed a NEW syntactic-form dimension that prior defenses didn't cover. R15 defense scoped to PROSE (J3-OAuth-claim sites); R21 defense scoped to spec markdown TABLES (§9.1.2); F25 surfaces plan-side TASK env-var enumerations (Task 0.C.1 list-item-style). Each defense was correct WITHIN its scoped surface but the class is broader than per-syntactic-form coverage can incrementally close.
   - **R25 mandate: contract-level structural defense** — single canonical env-var contract surface + cross-reference validation OR exhaustive walker over the UNION of all surfaces that can name VALIDATION_* env vars (spec tables + plan task lists + plan prose + .env templates + commit templates + failure-mode catalogs). Per-syntactic-form regex extensions have proven inadequate over 4 rounds.
 
-- **Repair commit:** pending R25 implementer dispatch (inline Agent).
+- **Repair commit:** closed in R25 (see below).
+
+### Amendment R25 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `fae1407` (post-R25 HEAD)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R26 adversarial review**
+- **F10-class structural-defense calibration response:** Per R24 mandate, R25 ships **contract-level** structural defense (NOT per-syntactic-form regex extension). Design: Option B+C hybrid — walker scans every M12 doc surface for env-var enumeration CLUSTERS via `COLON_LIST_FRAME_RX` filter to own-enumeration sites; applies canonical-4-or-explicit-subset rule using reused R23 F24 `evaluateCanonicalEnvVarCluster()` helper (sibling of `evaluateCanonicalTableRow()` adapted to non-table contexts with ±5-line cluster windows).
+
+  **Critical design decision: cross-reference exemption REMOVED** after the walker prototype caught F25 — F25's exact line cited "spec §9.1.2:" YET listed only 3 vars. Citation alone is insufficient; every own-enumeration must satisfy the canonical contract regardless of cross-reference. Documented in test body.
+
+- **(B) F10-class full-sweep peer-survey** (post-defense walker, broader than any prior round):
+
+  | Surface | Classification | Status |
+  |---|---|---|
+  | spec §3.3 step 5 (:144) | own-enumeration, 4 vars verbatim | PASS |
+  | spec §9.1.2 canonical table (:818-:821) | F20/F24 covered | PASS |
+  | spec §15 audit-trail (:1088, :1119) | excluded | n/a |
+  | plan 01:18 ("for §3.3 step 5 env vars: ..." subset) | BORDERLINE peer — colon-frame regex doesn't catch this shape | **Fixed commit 55 defensively** |
+  | plan 01:73 (wildcard "4 new VALIDATION_*") | not a cluster | PASS |
+  | plan 01:96-123 (.env.local.example template, 4 vars over 30 lines) | cluster-window-covered + §9.1.2 cross-ref at :91 | PASS |
+  | plan 01:139-143 (commit-msg template, 4 vars multi-line) | PASS | PASS |
+  | **plan 03:33 (F25 Task 0.C.1)** | **own-enumeration, 3 vars — F25 named** | **Fixed commit 53** |
+  | plan 06:185 (J3-walk procedure) | J3-only context, not env-var contract | n/a |
+
+  **Total peers beyond F25 named: 1** (01-phase0-infra.md:18, BORDERLINE). Below 3-peer threshold; per-instance defensive fix sufficient.
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 53 | `3be1116` | docs(plan-m12): R25 F25 — Task 0.C.1 env-var list adds VALIDATION_J3_CLAIM_EMAIL + cross-ref to §9.1.2 |
+  | 54 | `8c81430` | test(cross-cutting): R25 F10-class CONTRACT-LEVEL structural defense — env-var-cluster walker |
+  | 55 | `fae1407` | docs(plan-m12): R25 (B) sweep peer — 01-phase0-infra.md:18 explicit 3-var subset marker |
+
+- **F25 repair (commit 53):** Task 0.C.1 Step 3 env-var list at plan `03:33` rewritten — "Required env vars per spec §9.1.2 (the canonical CLI command-by-command env-var map): reseed's row in the §9.1.2 table enumerates **4 vars** — `VALIDATION_SUPABASE_URL`, `VALIDATION_SUPABASE_SECRET_KEY`, `VALIDATION_SUPABASE_PROJECT_REF`, `VALIDATION_J3_CLAIM_EMAIL` (R13 commit 30 amendment + R21 commit 44 §9.1.2 4-var per-row completeness). Do NOT inherit a 3-var subset by shorthand."
+
+- **F10-class contract-level structural defense (commit 54):** New `evaluateCanonicalEnvVarCluster()` helper + walker assertion in `tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts`:
+  - **Cluster detection:** `COLON_LIST_FRAME_RX` matches `"Required env vars|env vars per|MUST be set|all four env|four VALIDATION_|four new VALIDATION_|four env vars" + [up to 80 chars] + ":" + canonical-literal` — filters to own-enumeration sites; excludes per-predicate narratives, single-var code citations, wildcard prose.
+  - **§9.1.2 table exclusion:** section-heading tracking skips canonical table rows already covered by R21 F20 + R23 F24.
+  - **Cross-reference exemption REMOVED:** test body documents why (F25 itself cited §9.1.2 while contradicting it).
+  - **Negative-case test:** synthetic F25-shape + "MUST be set" + cardinality-mismatch + missing-SUPABASE_* fixtures all fire; full-4 + valid-subset + waiver pass.
+  - **RED phase:** pre-R25 HEAD walker reports 1 finding at `03-phase0-tooling-reseed.md:33` with diagnostic "cluster references VALIDATION_* but does not list all 4 canonical env vars AND does not carry an explicit subset marker; missing: VALIDATION_J3_CLAIM_EMAIL." **GREEN phase:** R25 HEAD walker reports 0 findings.
+
+- **Meta-test regression:** **14/14 PASS** (was 12/12 pre-R25; +F25 walker main + F25 walker negative-case = 14).
+
+- **Same-vector status post-R25:**
+  - **F10-class: 4 rounds, contract-level defense shipped.** Walker is syntactic-form-agnostic within its `COLON_LIST_FRAME_RX` filter. **One known gap (documented):** the "for §3.3 step 5 env vars: ..." shape at plan 01:18 didn't match the colon-frame regex (caught only by the (B) human sweep, fixed defensively at commit 55). If R26 surfaces an F10-class peer via a syntactic shape NOT in the regex set, the choice is either (i) broaden the regex (risking false positives on legitimate cross-references) OR (ii) escalate to Option D refactor (single source of truth + structural exclusivity).
+  - F21-class structural defense (R23 commit 52) regression-clean.
+  - F18-class still closed.
+  - All other classes still closed.
+
+- **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (commit 54). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
+
+- **Open question (flagged by implementer):** "The (B) peer at `01-phase0-infra.md:18` is BORDERLINE — the walker's tight `COLON_LIST_FRAME_RX` does NOT catch the 'for [section-ref] env vars:' shape. The peer fix is defensive (adds explicit subset marker) but a future regression in that exact syntactic form would not be CI-caught. Trade-off: broadening the regex risks false positives on legitimate cross-references."
 
 ---
 
