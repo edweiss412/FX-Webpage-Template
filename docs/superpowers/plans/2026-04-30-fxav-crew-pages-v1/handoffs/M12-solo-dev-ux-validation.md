@@ -897,7 +897,60 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - Honest diagnosis: every F10-class round has revealed a new syntactic dimension. The Option D MODEL is the structural answer; what R28 surfaces is a DETECTION refinement need, not a MODEL redesign need. R27 walker correctly catches "lists ≥2 canonical literals," but the contract can be referenced in prose via cardinality / wildcard / single-citation without being a literal enumeration.
   - **R29 mandate:** (i) refine walker with M3 (cardinality + wildcard detection: "[N] VALIDATION_*", "[N] env vars", "SUPABASE_* trio", "all (four/three) env vars") + M4 (single-var-citation-in-contract-prose with disambiguation from single-var-operational-instruction); (ii) tighten `canonical-env-var-source: keep` marker semantics to only exempt the immediate fenced block, not ±60-line window; (iii) per-instance fix F29 + the 3+ adjacent peers swept by orchestrator; (iv) negative fixtures proving the new detection shapes fire.
 
-- **Repair commit:** pending R29 implementer dispatch (inline Agent; walker detection refinement + per-instance peer sweep).
+- **Repair commit:** closed in R29 (see below).
+
+### Amendment R29 — 2026-05-26
+
+- **Diff base:** `b4b2c38` (M11.5 close-out HEAD)
+- **Diff target:** `2d9925d` (post-R29)
+- **Dispatch mode:** inline Agent
+- **Verdict:** **implementer-complete; pending R30 adversarial review**
+
+- **Per-instance peer rewrites** (5 surfaces refactored from cardinality/wildcard/single-citation to cross-refs OR M4-disambiguated operational instructions):
+
+  | Surface | Was | Became |
+  |---|---|---|
+  | 00-overview.md:175 | "Set 3 VALIDATION_* env vars" | "Set the M12 validation env vars per spec §9.1.2 (canonical CLI command-by-command env-var contract)" |
+  | 01-phase0-infra.md:73 | "document the 4 new VALIDATION_* env vars; ... R13 commit 30 amendment adds VALIDATION_J3_CLAIM_EMAIL" | "document the M12 validation env vars per spec §9.1.2 — the canonical CLI command-by-command env-var contract; §9.1.2 is the SOLE source of truth" |
+  | 01-phase0-infra.md:140 (F29 Step 3) | "Set the four env vars in Vercel ... SUPABASE_* trio ... VALIDATION_J3_CLAIM_EMAIL" | cross-refs §9.1.2; new Step 3a labeled "Operational note — set VALIDATION_J3_CLAIM_EMAIL to dev's real Google account email" (single-var operational, M4-disambiguated) |
+  | 01-phase0-infra.md:141 (F29 Step 4) | "Set the four env vars locally" | "Mirror those env-var values into .env.local" |
+  | 01-phase0-infra.md:179 | "Four VALIDATION_* env vars set in Vercel Production scope" | "M12 validation env vars ... per the canonical CLI command-by-command env-var contract at spec §9.1.2" |
+
+  Borderline cases left as-is: 01:150 (commit-msg template wildcard-only, no cardinality, surrounding lines already cross-ref §9.1.2); spec :758 (§-overview table wildcard-only, acceptable shape).
+
+- **Repair commits:**
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 62 | `c1f0ea5` | docs(plan-m12): R29 F29 + adjacent peers — cardinality/wildcard/single-citation prose → cross-references to §9.1.2 |
+  | 63 | `2d9925d` | test(cross-cutting): R29 F10-class walker REFINEMENT — M3 + M4 + marker tightening + negative fixtures |
+
+- **Walker M3 + M4 refinement (commit 63):**
+  - **M3 (cardinality + wildcard prose):** 3 sub-patterns — (a) `[1-9N]/three/four/all/the (three|four) + ≤2 short qualifiers + VALIDATION_*`; (b) cardinality + (optional qualifier) + `(env|environment) (vars?|variables?)`; (c) `(VALIDATION_)?SUPABASE_* trio` case-insensitive. Tightened: cardinality must be DIRECTLY adjacent (no 40-char window) so citation digits like "Phase 0.A" / "R27 commit 58" don't trip.
+  - **M4 (single-canonical-literal in contract-prose context):** exactly 1 canonical literal on line + COLLECTIVE-SHAPE contract-prose marker on same or previous line. Markers (narrower than orchestrator brief's "env vars" / "credentials" suggestion): `VALIDATION_*`, `the/all (four|three)`, `SUPABASE_* trio` / `VALIDATION_* trio`, `canonical CLI env-var contract/map`. Bare "env vars" / "credentials" deliberately EXCLUDED (would fire on legitimate narrative; rationale: R13/R15 amendment paragraphs + predicate-(k) explanations + J3 walk descriptions).
+  - **Disambiguation (8 operational-instruction patterns)** make M4 PASS: `set <VAR> to <X>`; `<VAR> is (undefined/required/missing/absent/empty/null)`; `<VAR> must (be/equal)`; `<VAR> (reads/comes/sourced) from`; `<VAR> is (gitignored/not committed/local-only)`; explicit `Operational note` / `operational instruction` label; `responding at <VAR>`; `values for <VAR>`.
+
+- **Exemption marker tightening (commit 63):** R27's flat ±60-line `canonical-env-var-source: keep` window REPLACED with structural detection — (a) marker inside or immediately above fenced code block → exempts ONLY that fenced block (plan 01:104 `.env.local.example` block); (b) marker inside §-numbered heading scope → exempts until next same-or-higher heading (spec §9.1.2 line-812 marker covers entire §9.1.2 body). No flat-window fallback. Future doc edits cannot accidentally inherit whitelist.
+
+- **RED → GREEN evidence:** pre-R29 docs (`ceb9567`) + new walker → fires 5 findings (00-overview.md:175, 01-phase0-infra.md:73, :140, :141, :179). Confirmed via `git checkout HEAD~1 -- <plan files>` + walker run; restored. Post-R29 docs (HEAD) + new walker → 0 findings.
+
+- **Negative fixtures (8 + 8):**
+  - **M3 FIRES**: "the four env vars" / "SUPABASE_* trio" / "Set 3 VALIDATION_*" / "4 new VALIDATION_*" / "Four VALIDATION_*" / "all four env vars" / "the three env vars MUST be set"
+  - **M3 PASSES**: "all four artifacts/journeys/stages" (non-env) / "VALIDATION_* env vars in Vercel + locally" (wildcard-only no cardinality)
+  - **M4 FIRES**: "names VALIDATION_J3_CLAIM_EMAIL alongside the SUPABASE_* trio for the four env vars" / "the four env vars including VALIDATION_J3_CLAIM_EMAIL" / "documents the 4 new VALIDATION_* env vars including VALIDATION_J3_CLAIM_EMAIL" / "the VALIDATION_* env vars (including VALIDATION_J3_CLAIM_EMAIL) follow the §9.1.2 contract"
+  - **M4 PASSES (operational disambiguation)**: "set VALIDATION_J3_CLAIM_EMAIL to your real Google account email" / "throw if VALIDATION_J3_CLAIM_EMAIL is undefined" / "VALIDATION_SUPABASE_URL is required" / "VALIDATION_SUPABASE_PROJECT_REF must be set" / "VALIDATION_J3_CLAIM_EMAIL reads from your local .env.local" / "Operational note: set X to a real Google email" / "responding at VALIDATION_SUPABASE_URL" / "the reseed reads this env var VALIDATION_J3_CLAIM_EMAIL at fixture-build time"
+
+- **Meta-test regression:** **16/16 PASS** (was 14 pre-R29; +F29 walker main + F29 negative-case = 16).
+
+- **Same-vector + structural-defense status post-R29:**
+  - **F10-class: 6 rounds; walker DETECTION refinement (M3+M4) + EXEMPTION marker tightening shipped at R29.** Option D MODEL is correct + detection now covers literal/cardinality/wildcard/single-citation shapes. Trade-off: M4 markers narrowed from brief's broader scope to avoid false positives on legitimate narrative. **If R30 surfaces an F10-class peer in a syntactic form NOT caught by M1+M2+M3+M4,** the next escalation per AGENTS.md "stop patching" rule would be (a) further detection refinement (likely brittle), OR (b) accept residual class risk and document the bounded coverage, OR (c) fundamental refactor of doc surfaces to eliminate even cardinality/wildcard references (heaviest).
+  - All other classes still closed.
+
+- **Open items flagged by implementer:**
+  - Narrower-than-brief M4 markers: brief proposed bare "env vars" / "credentials" as M4 markers; implementer narrowed to collective-shape only because broader markers would fire on legitimate narrative (R13/R15 amendment paragraphs + predicate-(k) explanations + J3 walk descriptions). Documented in walker test comments.
+  - 00-overview.md:63 (post-R27 commit 58 cross-ref form): not in R28 sweep; new M3 silent post-tightening (no cardinality directly adjacent). Left as-is.
+
+- **Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R29 commit 63). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`.
 
 ---
 
