@@ -1200,6 +1200,28 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R36 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `c5ce8bc` (post-R35)
+- **Verdict:** **needs-attention** (1 HIGH F35; F21-class round 4)
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F35 | HIGH | `2026-05-19-solo-dev-ux-validation-design.md:824` (spec §9.1.2 validation:report-fixtures row) | **F21-class same-vector recurrence (round 4).** Spec §9.1.2 still documents `--cleanup --include-admin-email <email>` as `DELETE WHERE kind='admin' AND identity=canonicalize(<email>)` (no exact-bucket scope, no snapshot+restore). Directly contradicts R35 commit 73 plan-side snapshot+restore contract. Implementer treating §9.1.2 as the "tooling man page" can reintroduce the destructive-cleanup data-loss bug F34 was meant to prevent. **R35 fix-round regression budget gap** — plan-side fix didn't propagate to canonical spec. Same shape as F31 (R32 → R33 closure was plan→spec propagation for R31 F30 producer map). Repair: rewrite spec §9.1.2 validation:report-fixtures row to include snapshot record + exact hour_bucket restore/delete behavior + refusal-without-snapshot contract + `--force-cleanup-without-snapshot --hour-bucket <ISO>` emergency flag; extend F21-class regex set with cleanup-recipe pattern (7th regex). |
+
+- **F21-class status post-R36:**
+  - 4 rounds (R20 F21 + R22 F22+F23 + R32 F31 + R36 F35). Pattern: each amendment surfaces a new contract surface that the regex set doesn't cover. Regex extensions have been incremental (R23 commit 52: 4 patterns; R33 commit 70: +2; R37 will add +1 = 7 total).
+  - Per R33 row's documented Option (b) threshold (~8 patterns): R37 incremental extension to 7 patterns is within budget; if R38 surfaces another F21-class peer NOT caught by 7 patterns, R39 MUST escalate to Option (b) — structural refactor analogous to F10-class R27 Option D (candidate: spec §13.2.3-style "every plan-side amendment has a ratified spec entry" assertion).
+  - Per AGENTS.md "fix-round regression budget" rule + R35 row's flagged risk: R34 F34 fix was the latest amendment NOT to propagate to canonical spec. R37 must close that propagation gap AND audit R35 commits 71/72/73 for ANY other plan-side changes not yet ratified in spec §13.2.3 or §9.1.2.
+
+- **Path A (incremental) ratified at R37 dispatch:** ship per-instance F35 fix + 7th regex pattern; monitor F21-class accumulation. If R38 surfaces another F21-class peer despite the 7th pattern, R39 mandates Option (b) — no further regex extensions.
+
+- **Repair commit:** pending R37 implementer dispatch (inline Agent; spec §9.1.2 cleanup-recipe propagation + 7th regex + R34/R35 plan-side amendment audit for residual propagation gaps).
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.
