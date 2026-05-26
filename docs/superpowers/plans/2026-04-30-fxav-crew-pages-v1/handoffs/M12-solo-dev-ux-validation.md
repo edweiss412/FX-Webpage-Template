@@ -1531,6 +1531,31 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 ---
 
+### Amendment R46 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `72333a7` (post-R45)
+- **Verdict:** **needs-attention** (2 MEDIUM; F42 F21-class round 5)
+- **Findings:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F42 | MEDIUM | `2026-05-19-solo-dev-ux-validation-design.md:841` (spec §9.0/§9.2 smoke 7) | **F21-class round 5** (R20+R22+R32+R36+R46). Spec smoke 7 still says bare `pnpm validation:report-fixtures --outcome lookup-inconclusive` (no `--alert-code inconclusive`). R45 fixed plan but didn't propagate to canonical spec. F21-class regex at 7 patterns; F42 NOT caught (new shape: actionable CLI command in spec smoke section diverges from plan canonical form). Per R37/R39 documented escalation: Option (b) mandate fires — **OR** orchestrator-ratified 8th regex pattern (per R46 orchestrator decision: 8th regex incremental; if R48 surfaces another F21-class peer NOT caught by 8 patterns, R49 mandates Option (b)). |
+  | F43 | MEDIUM | `04-phase0-tooling-report.md:191-192` (rendering assertion table) | Rendering assertion table still uses `success (admin/crew)` labels post-R43 split (canonical enum now `success-admin` + `success-crew`). R43 commit 81 fix-round regression budget gap. Per-instance fix: convert to canonical enum values; sweep for remaining action-oriented `success` admin/crew labels. |
+
+- **Orchestrator escalation decision 2026-05-26:** Option (b) refactor deferred; 8th regex + per-instance fixes ratified for R47. Trigger: if R48 surfaces F21-class peer NOT caught by 8 patterns, R49 mandates Option (b) refactor (spec §13.2.3-style structural ratification catalog + per-amendment-commit test assertion).
+
+- **Same-vector status post-R46:**
+  - **F21-class: 5 finding-rounds.** R47 ships 8th regex (incremental). Documented Option-(b) trigger at next-round occurrence if 8th pattern doesn't catch.
+  - F43 fix-round regression budget gap (R43 commit 81): per-instance + sweep.
+  - F34-class round 3 structural defense regression-clean.
+  - F38-class closed at R43.
+  - All other classes still closed.
+
+- **Repair commit:** pending R47 implementer dispatch (inline Agent; F42 + F43 per-instance sweeps + F21-class 8th regex pattern).
+
+---
+
 ## §10 — Cross-milestone dependencies
 
 - **`lib/auth/picker/*.ts`** — owned by M11.5. M12 cites by signature for spec §3.3 seed contract + §5.3 J3 expected outcomes; does NOT modify.
