@@ -135,7 +135,7 @@ type LiveAssetReviewEffects = {
     | "OPENING_REEL_PERMISSION_DENIED"
     | "OPENING_REEL_NOT_VIDEO"
     | "REEL_DRIFTED"
-    | "LINKED_ASSET_DRIFTED"
+    | "EMBEDDED_ASSET_DRIFTED"
   >;
   skipDiagramsWrite: boolean;
 };
@@ -296,7 +296,7 @@ export type ApplyStagedDeps = {
       | "OPENING_REEL_PERMISSION_DENIED"
       | "OPENING_REEL_NOT_VIDEO"
       | "REEL_DRIFTED"
-      | "LINKED_ASSET_DRIFTED";
+      | "EMBEDDED_ASSET_DRIFTED";
     context: Record<string, unknown>;
   }) => Promise<unknown>;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
@@ -1011,11 +1011,11 @@ async function applyAssetReviewEffects(
     : await verifyReelOnApply(pending.parseResult.openingReel);
   const warnings = [
     ...pending.parseResult.warnings,
-    ...(linkedDrift ? [warning("LINKED_ASSET_DRIFTED")] : []),
+    ...(linkedDrift ? [warning("EMBEDDED_ASSET_DRIFTED")] : []),
     ...(reelVerification.warningCode ? [warning(reelVerification.warningCode)] : []),
   ];
   const adminAlertCodes: LiveAssetReviewEffects["adminAlertCodes"] = [
-    ...(linkedDrift ? ["LINKED_ASSET_DRIFTED" as const] : []),
+    ...(linkedDrift ? ["EMBEDDED_ASSET_DRIFTED" as const] : []),
     ...(reelVerification.warningCode ? [reelVerification.warningCode] : []),
   ];
   const openingReel = reelVerification.openingReel;

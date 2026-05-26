@@ -21,7 +21,7 @@
  *
  * 2. **Cross-show fail-closed** (§7.2.2 step 5). The crew_members lookup is
  *    bound to BOTH `id` AND `show_id`. A caller with a wrong `crewMemberId`
- *    from a DIFFERENT show fails closed with `LINK_NO_CREW_MATCH`; the helper
+ *    from a DIFFERENT show fails closed with `PICKER_CREW_MEMBER_WRONG_SHOW`; the helper
  *    does NOT silently fall through and return the requested show with the
  *    foreign crew row's flags applied.
  *
@@ -209,9 +209,8 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
 
   if (needsCrewLookup) {
     // Bind lookup to BOTH id AND show_id. The dual constraint is the
-    // cross-show fail-closed (§7.2.2 step 5). A crew row with the right
-    // id but the wrong show_id returns `data === null` here, which
-    // becomes `LINK_NO_CREW_MATCH` below — the row's flags are NEVER
+    // cross-show fail-closed. A crew row with the right id but the wrong
+    // show_id returns `data === null` here; the row's flags are NEVER
     // applied to the requested show.
     const lookup = await supabase
       .from("crew_members")
@@ -223,9 +222,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
       throw new Error(`getShowForViewer: crew lookup failed: ${lookup.error.message}`);
     }
     if (!lookup.data) {
-      // §7.2.2 step 5; §12.4. Operator-facing canonical code; UI surfaces
-      // route through lib/messages/lookup.ts (Task 4.14) for crew copy.
-      throw new Error("LINK_NO_CREW_MATCH");
+      throw new Error("PICKER_CREW_MEMBER_WRONG_SHOW");
     }
     derivedFlags = (lookup.data.role_flags as RoleFlag[]) ?? [];
     viewerName = (lookup.data.name as string) ?? null;
@@ -239,11 +236,11 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     throw new Error(`getShowForViewer: show fetch failed: ${showRes.error.message}`);
   }
   if (!showRes.data) {
-    throw new Error("LINK_NO_CREW_MATCH");
+    throw new Error("PICKER_CREW_MEMBER_WRONG_SHOW");
   }
   const showRowDb = showRes.data;
   if (!isAdmin && showRowDb.published !== true) {
-    throw new Error("LINK_NO_CREW_MATCH");
+    throw new Error("PICKER_CREW_MEMBER_WRONG_SHOW");
   }
   const datesValue: ShowRow["dates"] = showRowDb.dates ?? {
     travelIn: null,

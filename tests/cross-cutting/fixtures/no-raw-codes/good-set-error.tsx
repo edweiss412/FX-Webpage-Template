@@ -7,7 +7,7 @@ export function GoodSetError() {
   const [error, setError] = useState<MessageCode | null>(null);
   return (
     <>
-      <button onClick={() => setError("LINK_REVOKED_FLOOR")}>Trigger</button>
+      <button onClick={() => setError("SHEET_UNAVAILABLE")}>Trigger</button>
       {error ? <ErrorExplainer code={error} surface="crew" /> : null}
     </>
   );

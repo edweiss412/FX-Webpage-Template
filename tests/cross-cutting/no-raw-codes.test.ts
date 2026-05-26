@@ -36,7 +36,7 @@ describe("AC-X.2 internal code enum manifest", () => {
 
   test("forbidden set dedupes catalog, retired, and internal provenance", () => {
     const index = buildForbiddenCodeIndex();
-    expect(index.get("LINK_REVOKED_FLOOR")?.sources).toContain("catalog");
+    expect(index.get("SHEET_UNAVAILABLE")?.sources).toContain("catalog");
     expect(index.get("FIRST_SEEN_REVIEW")?.sources).toContain("retired");
     expect(index.get("UNKNOWN_FIELD")?.sources).toContain("parse_warnings.code");
     expect(index.get("SHEET_UNAVAILABLE")?.sources).toContain("catalog");
@@ -55,7 +55,7 @@ describe("AC-X.2 AST audit fixtures", () => {
   ])("fails %s via %s raw-code rendering", (file, expectedKind) => {
     const violations = audit([fixture(file)]);
     expect(violations.map((violation) => violation.kind)).toContain(expectedKind);
-    expect(violations.map((violation) => violation.code)).toContain("LINK_REVOKED_FLOOR");
+    expect(violations.map((violation) => violation.code)).toContain("SHEET_UNAVAILABLE");
   });
 
   test.each([

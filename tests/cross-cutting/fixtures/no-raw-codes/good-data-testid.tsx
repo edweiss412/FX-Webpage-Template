@@ -1,3 +1,3 @@
 export function GoodDataTestId() {
-  return <button data-testid="LINK_REVOKED_FLOOR-action">Try again</button>;
+  return <button data-testid="SHEET_UNAVAILABLE-action">Try again</button>;
 }

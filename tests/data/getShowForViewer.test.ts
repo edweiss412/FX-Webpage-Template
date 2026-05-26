@@ -182,7 +182,7 @@ describe("getShowForViewer (§7.4)", () => {
     expect(viewerUnion).not.toMatch(/role_flags\s*:/);
   });
 
-  test("cross-show regression: foreign crew id throws LINK_NO_CREW_MATCH (no inheritance)", async () => {
+  test("cross-show regression: foreign crew id throws PICKER_CREW_MEMBER_WRONG_SHOW (no inheritance)", async () => {
     const showA = await seedShow({ title: "Show A — has Alice" });
     const aliceId = await seedCrew({
       showId: showA,
@@ -195,7 +195,7 @@ describe("getShowForViewer (§7.4)", () => {
     // Calling with Alice's id but pointing at Show B MUST throw, not silently
     // fall through and return Show B's data with Alice's LEAD flags applied.
     await expect(getShowForViewer(showB, { kind: "crew", crewMemberId: aliceId })).rejects.toThrow(
-      "LINK_NO_CREW_MATCH",
+      "PICKER_CREW_MEMBER_WRONG_SHOW",
     );
   });
 
@@ -211,7 +211,7 @@ describe("getShowForViewer (§7.4)", () => {
 
     await expect(
       getShowForViewer(showB, { kind: "admin_preview", crewMemberId: aliceId }),
-    ).rejects.toThrow("LINK_NO_CREW_MATCH");
+    ).rejects.toThrow("PICKER_CREW_MEMBER_WRONG_SHOW");
   });
 
   test("admin_preview re-derives role_flags from crew_members on every call", async () => {

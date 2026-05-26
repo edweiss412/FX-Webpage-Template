@@ -22,7 +22,7 @@ const M6_SYNC_CODES = [
   "WEBHOOK_HEADERS_MISSING",
   "WEBHOOK_NOOP_ALREADY_SYNCED",
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
-  "LINKED_ASSET_DRIFTED",
+  "EMBEDDED_ASSET_DRIFTED",
   "REEL_DRIFTED",
   "MISSING_REVIEWER_CHOICE",
   "EXTRA_REVIEWER_CHOICE",
@@ -117,19 +117,19 @@ describe("M6 sync message catalog", () => {
     expect(MESSAGE_CATALOG.SHOW_FIRST_PUBLISHED).toMatchObject({
       severity: "info",
       dougFacing:
-        "_<sheet-name>_ is now live for crew. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](signed-link) within 24h.",
+        "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](share-token-url) within 24h.",
       crewFacing: null,
       followUp: null,
       helpfulContext:
-        "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live and signed links you send out will work. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and kill any links you've already sent.",
+        "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and stop the share-token URL from resolving.",
     });
     expect(MESSAGE_CATALOG.SHOW_UNPUBLISHED).toMatchObject({
       dougFacing:
-        "_<sheet-name>_ has been unpublished. Crew links no longer work. Drag the sheet back into your watched folder when you're ready to publish again.",
+        "_<sheet-name>_ has been unpublished. Its share-token URL no longer works. Drag the sheet back into your watched folder when you're ready to publish again.",
       crewFacing: null,
       followUp: "Doug → optionally re-share when ready",
       helpfulContext:
-        "You clicked Unpublish on a recently-published show. The show is now archived, any signed links you sent in the last 24h have been revoked, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
+        "You clicked Unpublish on a recently-published show. The show is now archived, its share-token URL no longer resolves, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
     });
   });
 });

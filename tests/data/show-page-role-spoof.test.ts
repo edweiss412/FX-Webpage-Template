@@ -42,6 +42,6 @@ describe("/show/[slug] page source — identity-only mock contract", () => {
 
     expect(src).toMatch(/published/);
     expect(src).toMatch(/!isAdmin[\s\S]{0,160}published/);
-    expect(src).toMatch(/LINK_NO_CREW_MATCH/);
+    expect(src).toMatch(/PICKER_CREW_MEMBER_WRONG_SHOW/);
   });
 });

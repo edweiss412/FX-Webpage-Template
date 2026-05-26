@@ -17,7 +17,7 @@
  *   5. Error block renders for OAuth-allowlist code (verbatim catalog).
  *   6. Error block does NOT render for arbitrary code.
  *   7. Error block does NOT render for known catalog code outside
- *      the OAuth allowlist (e.g., LINK_EXPIRED).
+ *      the OAuth allowlist (e.g., GOOGLE_NO_CREW_MATCH).
  *   8. Error block does NOT render for XSS injection.
  *
  * Anti-tautology rule: all "what does the error block say?" assertions
@@ -285,20 +285,22 @@ test.describe("Sign-In Page — error block render gate", () => {
     await expect(page.getByTestId("error-explainer-message")).toHaveCount(0);
   });
 
-  test("known catalog code that's NOT in OAuth allowlist (LINK_EXPIRED) → no error block", async ({
+  test("known catalog code that's NOT in OAuth allowlist (GOOGLE_NO_CREW_MATCH) → no error block", async ({
     page,
   }) => {
-    // LINK_EXPIRED is a real MessageCode in lib/messages/catalog.ts but
+    // GOOGLE_NO_CREW_MATCH is a real MessageCode in lib/messages/catalog.ts but
     // the OAuth callback never emits it. The allowlist is what gates
     // rendering — defense in depth on top of the catalog lookup.
-    const response = await page.goto(`${TEST_BASE_URL}/auth/sign-in?code=LINK_EXPIRED`);
+    const response = await page.goto(`${TEST_BASE_URL}/auth/sign-in?code=GOOGLE_NO_CREW_MATCH`);
     expect(response?.status()).toBe(200);
     await expect(page.getByTestId("sign-in-page")).toBeVisible();
     await expect(page.getByTestId("sign-in-error-block")).toHaveCount(0);
-    // Anti-tautology: LINK_EXPIRED has known crewFacing copy. Assert
+    // Anti-tautology: GOOGLE_NO_CREW_MATCH has known crewFacing copy. Assert
     // that copy is NOT present in the DOM (catching the bug where the
     // gate is bypassed and the explainer renders anyway).
-    await expect(page.locator("body")).not.toContainText(MESSAGE_CATALOG.LINK_EXPIRED.crewFacing!);
+    await expect(page.locator("body")).not.toContainText(
+      MESSAGE_CATALOG.GOOGLE_NO_CREW_MATCH.crewFacing!,
+    );
   });
 
   test("XSS injection (literal <script>) → no error block, no script execution, raw markup not in DOM", async ({

@@ -34,16 +34,16 @@ describe("validateErrorCodeParam (sign-in page error-code allowlist)", () => {
     expect(validateErrorCodeParam("OAUTH_REDIRECT_INVALID")).toBe("OAUTH_REDIRECT_INVALID");
   });
 
-  test("returns null for a known catalog code that's NOT in the OAuth allowlist (LINK_EXPIRED)", () => {
-    // LINK_EXPIRED is a real MessageCode in lib/messages/catalog.ts but
+  test("returns null for a known catalog code that's NOT in the OAuth allowlist (GOOGLE_NO_CREW_MATCH)", () => {
+    // GOOGLE_NO_CREW_MATCH is a real MessageCode in lib/messages/catalog.ts but
     // the OAuth callback never emits it; the sign-in page must NOT render
     // it. The allowlist filter is what gates rendering.
-    expect(validateErrorCodeParam("LINK_EXPIRED")).toBeNull();
+    expect(validateErrorCodeParam("GOOGLE_NO_CREW_MATCH")).toBeNull();
   });
 
-  test("returns null for a known catalog code that's NOT in the OAuth allowlist (CSRF_DENIED)", () => {
+  test("returns null for a known catalog code that's NOT in the OAuth allowlist (ADMIN_SESSION_LOOKUP_FAILED)", () => {
     // Another known MessageCode not emitted by the OAuth callback.
-    expect(validateErrorCodeParam("CSRF_DENIED")).toBeNull();
+    expect(validateErrorCodeParam("ADMIN_SESSION_LOOKUP_FAILED")).toBeNull();
   });
 
   test("returns null for ADMIN_SESSION_LOOKUP_FAILED when supplied via the URL", () => {

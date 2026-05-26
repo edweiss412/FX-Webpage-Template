@@ -201,7 +201,7 @@ describe("snapshotAssets", () => {
     expect(result.pending.linkedFolderItems.map((entry) => entry.snapshotPath)).toEqual([null]);
     expect(result.warnings.map((warning) => warning.code)).toEqual([
       "EMBEDDED_ASSET_DRIFTED",
-      "LINKED_ASSET_DRIFTED",
+      "EMBEDDED_ASSET_DRIFTED",
     ]);
   });
 

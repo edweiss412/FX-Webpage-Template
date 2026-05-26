@@ -3,6 +3,6 @@
 import { useState } from "react";
 
 export function BadContenteditable() {
-  const [errorCode] = useState("LINK_REVOKED_FLOOR");
+  const [errorCode] = useState("SHEET_UNAVAILABLE");
   return <div contentEditable>{errorCode}</div>;
 }

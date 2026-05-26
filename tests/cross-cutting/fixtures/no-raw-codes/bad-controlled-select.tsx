@@ -3,10 +3,10 @@
 import { useState } from "react";
 
 export function BadControlledSelect() {
-  const [errorCode] = useState("LINK_REVOKED_FLOOR");
+  const [errorCode] = useState("SHEET_UNAVAILABLE");
   return (
     <select value={errorCode} onChange={() => undefined}>
-      <option value="LINK_REVOKED_FLOOR">Choose an error</option>
+      <option value="SHEET_UNAVAILABLE">Choose an error</option>
     </select>
   );
 }

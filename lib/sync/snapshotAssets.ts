@@ -168,7 +168,7 @@ export async function snapshotAssets(args: SnapshotAssetsArgs): Promise<Snapshot
         snapshotPath = `${canonical}${assetKey}`;
       } else {
         warnings.push(
-          warning("LINKED_ASSET_DRIFTED", `Linked diagram ${entry.driveFileId} drifted.`),
+          warning("EMBEDDED_ASSET_DRIFTED", `Linked diagram ${entry.driveFileId} drifted.`),
         );
       }
       linkedFolderItems.push({ ...entry, snapshotPath });

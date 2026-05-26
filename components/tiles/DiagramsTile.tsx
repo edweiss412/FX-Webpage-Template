@@ -19,7 +19,7 @@
  * Apply unable to download. The tile maps that to `available: false`
  * so the Gallery renders a placeholder slot (NOT a hidden slot) in
  * that grid position — admin sees the corresponding
- * `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` / `LINKED_ASSET_DRIFTED`
+ * `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` / `EMBEDDED_ASSET_DRIFTED`
  * warning separately.
  *
  * Asset-key derivation: the Gallery emits asset URLs of the form

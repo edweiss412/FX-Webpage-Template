@@ -10,20 +10,10 @@ import {
 } from "@/lib/messages/lookup";
 
 const REQUIRED_M5_CODES = [
-  "LINK_NO_CREW_MATCH",
-  "LINK_VERSION_MISMATCH",
-  "LINK_REVOKED_FLOOR",
-  "LINK_REVOKED_SURGICAL",
   "SESSION_NOT_FOUND",
   "SESSION_ABSOLUTE_TIMEOUT",
   "SESSION_IDLE_TIMEOUT",
-  "LINK_SESSION_KEY_ROTATED",
-  "LINK_REDEEM_KEY_ROTATED",
   "AMBIGUOUS_EMAIL_BINDING",
-  "LEAKED_LINK_DETECTED",
-  "CSRF_DENIED",
-  "CSRF_NONCE_EXPIRED",
-  "CSRF_KEY_ROTATED",
   "OAUTH_STATE_INVALID",
   "OAUTH_REDIRECT_INVALID",
   "ADMIN_SESSION_LOOKUP_FAILED",
@@ -150,7 +140,7 @@ describe("message catalog", () => {
       code: "AGENDA_UNAUTHENTICATED",
       dougFacing: null,
       crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
-      followUp: "Crew → reopen signed link",
+      followUp: "Crew → reopen Doug's latest show URL",
       helpfulContext: null,
     });
   });
@@ -232,30 +222,5 @@ describe("messageFor interpolation", () => {
     const entry = messageFor("SHOW_UNPUBLISHED", { "sheet-name": "Q4 Recap" });
     expect(entry.dougFacing).toContain("Q4 Recap");
     expect(entry.dougFacing).not.toContain("<sheet-name>");
-  });
-});
-
-describe("M9.5 — ADMIN_LINK_* catalog rows", () => {
-  test.each([
-    ["ADMIN_LINK_REVOKED_OK"],
-    ["ADMIN_LINK_ISSUED_OK"],
-    ["ADMIN_LINK_NO_LIVE_LINK"],
-    ["ADMIN_LINK_SHOW_NOT_FOUND"],
-    ["ADMIN_LINK_CREW_NOT_FOUND"],
-  ])("%s exists with dougFacing copy + code matches key", (code) => {
-    const entry = (MESSAGE_CATALOG as Record<string, MessageCatalogEntry | undefined>)[code];
-    expect(entry, `${code} should be present in MESSAGE_CATALOG`).toBeDefined();
-    if (!entry) return;
-    expect(entry.code).toBe(code);
-    expect(entry.dougFacing).toBeTruthy();
-    expect(entry.crewFacing).toBeNull();
-  });
-
-  test("ok-outcome codes carry distinct dougFacing copy per action", () => {
-    const revoked = messageFor("ADMIN_LINK_REVOKED_OK" as MessageCode);
-    const issued = messageFor("ADMIN_LINK_ISSUED_OK" as MessageCode);
-    expect(revoked.dougFacing).not.toEqual(issued.dougFacing);
-    expect(revoked.dougFacing).toMatch(/revoked/i);
-    expect(issued.dougFacing).toMatch(/issued/i);
   });
 });

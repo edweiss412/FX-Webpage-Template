@@ -11,7 +11,7 @@
  *     by slug and calls `getShowForViewer(showId, { kind:
  *     'admin_preview', crewMemberId })`. The helper itself does the
  *     role re-derivation from `crew_members.role_flags`, the cross-show
- *     fail-closed check (`LINK_NO_CREW_MATCH`), and rejects any caller
+ *     fail-closed wrong-show check, and rejects any caller
  *     that tries to inject a `crewMember` payload (Pin-3 contract).
  *   - Identity-only: the route never passes pre-derived role flags or
  *     an `impersonate` field. Task 4.3's structural regression test
@@ -150,7 +150,7 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
 
   // Cross-show fail-closed: confirm the crew member belongs to this
   // show BEFORE rendering the banner. getShowForViewer would also
-  // reject mismatch via LINK_NO_CREW_MATCH, but failing fast here lets
+  // reject mismatch via the data helper, but failing fast here lets
   // the banner display the real name + role rather than relying on
   // the helper's identity output.
   const crewLookup = await lookupCrewMember(showId, crewId);
@@ -188,7 +188,7 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message === "LINK_NO_CREW_MATCH") {
+    if (message === "PICKER_CREW_MEMBER_WRONG_SHOW") {
       notFound();
     }
     return (

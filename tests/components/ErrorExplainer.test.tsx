@@ -37,13 +37,13 @@ describe("ErrorExplainer", () => {
 
   test("renders MESSAGE_CATALOG[code].crewFacing when surface='crew' (verbatim)", () => {
     const { container, getByTestId } = render(
-      <ErrorExplainer code="LINK_EXPIRED" surface="crew" />,
+      <ErrorExplainer code="GOOGLE_NO_CREW_MATCH" surface="crew" />,
     );
     expect(container.firstChild).not.toBeNull();
     // Anti-tautology: assert against the literal in the catalog file, not
     // the runtime messageFor() value. If either side drifts the test fails.
     expect(getByTestId("error-explainer-message").textContent).toBe(
-      MESSAGE_CATALOG.LINK_EXPIRED.crewFacing!,
+      MESSAGE_CATALOG.GOOGLE_NO_CREW_MATCH.crewFacing!,
     );
   });
 
@@ -57,26 +57,28 @@ describe("ErrorExplainer", () => {
   });
 
   test("when helpfulContext={true} AND catalog.helpfulContext is non-null, renders the helpful-context block", () => {
-    // CSRF_KEY_ROTATED has both non-null crewFacing and non-null helpfulContext
+    // AMBIGUOUS_EMAIL_BINDING has non-null crewFacing and helpfulContext
     // post Task 9.4 part 2 (spec invariant: helpfulContext tied to non-null dougFacing).
     const { getByTestId } = render(
-      <ErrorExplainer code="CSRF_KEY_ROTATED" surface="crew" helpfulContext />,
+      <ErrorExplainer code="AMBIGUOUS_EMAIL_BINDING" surface="crew" helpfulContext />,
     );
     expect(getByTestId("error-explainer-helpful-context").textContent).toBe(
-      MESSAGE_CATALOG.CSRF_KEY_ROTATED.helpfulContext!,
+      MESSAGE_CATALOG.AMBIGUOUS_EMAIL_BINDING.helpfulContext!,
     );
   });
 
   test("when helpfulContext={true} AND catalog.helpfulContext is null, no helpful-context block renders", () => {
-    // LINK_EXPIRED.helpfulContext === null in the catalog.
+    // GOOGLE_NO_CREW_MATCH.helpfulContext === null in the catalog.
     const { queryByTestId } = render(
-      <ErrorExplainer code="LINK_EXPIRED" surface="crew" helpfulContext />,
+      <ErrorExplainer code="GOOGLE_NO_CREW_MATCH" surface="crew" helpfulContext />,
     );
     expect(queryByTestId("error-explainer-helpful-context")).toBeNull();
   });
 
   test("when helpfulContext is omitted/false, the block does not render even if catalog has copy", () => {
-    const { queryByTestId } = render(<ErrorExplainer code="CSRF_KEY_ROTATED" surface="crew" />);
+    const { queryByTestId } = render(
+      <ErrorExplainer code="AMBIGUOUS_EMAIL_BINDING" surface="crew" />,
+    );
     expect(queryByTestId("error-explainer-helpful-context")).toBeNull();
   });
 
@@ -88,17 +90,19 @@ describe("ErrorExplainer", () => {
   });
 
   test("DEFENSIVE: known code with null catalog field for the surface renders null", () => {
-    // LINK_EXPIRED.dougFacing === null — admin surface has nothing to render.
-    const { container } = render(<ErrorExplainer code="LINK_EXPIRED" surface="admin" />);
+    // GOOGLE_NO_CREW_MATCH.dougFacing === null — admin surface has nothing to render.
+    const { container } = render(<ErrorExplainer code="GOOGLE_NO_CREW_MATCH" surface="admin" />);
     expect(container.firstChild).toBeNull();
   });
 
   test("DEFENSIVE: known code with null catalog field on the OTHER surface still renders for the requested surface", () => {
-    // LEAKED_LINK_DETECTED has both crewFacing and dougFacing populated;
+    // AMBIGUOUS_EMAIL_BINDING has both crewFacing and dougFacing populated;
     // sanity-check that dougFacing renders even though both surfaces have copy.
-    const { getByTestId } = render(<ErrorExplainer code="LEAKED_LINK_DETECTED" surface="admin" />);
+    const { getByTestId } = render(
+      <ErrorExplainer code="AMBIGUOUS_EMAIL_BINDING" surface="admin" />,
+    );
     expect(getByTestId("error-explainer-message").textContent).toBe(
-      MESSAGE_CATALOG.LEAKED_LINK_DETECTED.dougFacing!,
+      MESSAGE_CATALOG.AMBIGUOUS_EMAIL_BINDING.dougFacing!,
     );
   });
 });

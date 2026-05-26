@@ -79,7 +79,7 @@ const ADMIN_ALERTS_CODES = [
   "OPENING_REEL_PERMISSION_DENIED", //  M7 apply-time reel 403 warning
   "OPENING_REEL_NOT_VIDEO", //          M7 apply-time reel MIME warning
   "REEL_DRIFTED", //                    M7 apply-time reel drift warning
-  "LINKED_ASSET_DRIFTED", //            M7 linked diagram drift warning
+  "EMBEDDED_ASSET_DRIFTED", //          M7 diagram drift warning
   "REPORT_ORPHANED_LOST_LEASE", //      M8 bug-report lost-lease orphan cleanup
   "REPORT_LOOKUP_INCONCLUSIVE", //      M8 bug-report lookup fail-closed recovery
   "GITHUB_BOT_LOGIN_MISSING", //        M8 bug-report recovery bot config
@@ -192,9 +192,9 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
     path: "lib/sync/applyStaged.ts",
     pattern: /"REEL_DRIFTED"/,
   },
-  LINKED_ASSET_DRIFTED: {
+  EMBEDDED_ASSET_DRIFTED: {
     path: "lib/sync/applyStaged.ts",
-    pattern: /"LINKED_ASSET_DRIFTED"/,
+    pattern: /"EMBEDDED_ASSET_DRIFTED"/,
   },
   REPORT_ORPHANED_LOST_LEASE: {
     path: "lib/reports/submit.ts",

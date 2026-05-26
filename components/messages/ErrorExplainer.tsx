@@ -17,7 +17,7 @@
  *     The sign-in page does its own allowlist check upstream; this is the
  *     last line of defense.
  *   - Defensive backstop: if `code` IS a known MessageCode but the catalog
- *     field for the requested `surface` is null (e.g., LINK_EXPIRED has no
+   *     field for the requested `surface` is null (e.g., GOOGLE_NO_CREW_MATCH has no
  *     dougFacing copy), render NOTHING.
  *   - When `helpfulContext` is true AND the catalog has a non-null
  *     `helpfulContext` field, render the helpful-context block as a
@@ -85,7 +85,7 @@ export function ErrorExplainer({
   const entry = messageFor(code, params);
   const message = surface === "admin" ? entry.dougFacing : entry.crewFacing;
 
-  // Defensive: known code, but no copy for this surface (e.g., LINK_EXPIRED
+  // Defensive: known code, but no copy for this surface (e.g., GOOGLE_NO_CREW_MATCH
   // has no dougFacing copy). Render nothing rather than an empty stub.
   if (message == null) {
     return null;

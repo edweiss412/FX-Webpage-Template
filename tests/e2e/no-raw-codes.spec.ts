@@ -39,7 +39,7 @@ test.describe("AC-X.2 no raw codes runtime crawl", () => {
       await page.setContent(readFileSync(`${RUNTIME_FIXTURE_ROOT}/${name}`, "utf8"));
       const leaks = await scanPage(page);
       expect(leaks.map((leak) => leak.phase)).toContain("live-dom-property");
-      expect(leaks.map((leak) => leak.code)).toContain("LINK_REVOKED_FLOOR");
+      expect(leaks.map((leak) => leak.code)).toContain("SHEET_UNAVAILABLE");
     });
   }
 

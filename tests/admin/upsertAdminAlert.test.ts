@@ -49,8 +49,8 @@ describe("upsertAdminAlert", () => {
     await expect(
       upsertAdminAlert({
         showId: null,
-        code: "LEAKED_LINK_REVOCATION_FAILED",
-        context: { source: "leaked_link_revocation" },
+        code: "PICKER_BOOTSTRAP_RPC_FAILED",
+        context: { source: "picker_bootstrap" },
       }),
     ).rejects.toThrow("admin alert upsert failed");
   });

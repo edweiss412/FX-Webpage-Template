@@ -38,6 +38,24 @@ const RENDERED_MESSAGE_FOR_RE =
   /messageFor\s*\(\s*["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`](?:(?!;)[\s\S])*?\)\s*\.dougFacing/g;
 const RENDERED_ERROR_EXPLAINER_RE =
   /<ErrorExplainer[^>\n]+code=["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`]/g;
+const M115_RETIRED_CATALOG_CODES = new Set([
+  "ADMIN_LINK_ISSUED_OK",
+  "ADMIN_LINK_NO_LIVE_LINK",
+  "ADMIN_LINK_REVOKED_OK",
+  "CSRF_DENIED",
+  "CSRF_KEY_ROTATED",
+  "CSRF_NONCE_EXPIRED",
+  "LEAKED_LINK_DETECTED",
+  "LEAKED_LINK_REVOCATION_FAILED",
+  "LINKED_ASSET_DRIFTED",
+  "LINK_EXPIRED",
+  "LINK_NO_CREW_MATCH",
+  "LINK_REDEEM_KEY_ROTATED",
+  "LINK_REVOKED_FLOOR",
+  "LINK_REVOKED_SURGICAL",
+  "LINK_SESSION_KEY_ROTATED",
+  "LINK_VERSION_MISMATCH",
+]);
 
 function stripOuterQuotes(value: string): string {
   const trimmed = value.trim();
@@ -336,6 +354,10 @@ export function extractSpecCodesFromMarkdown(
 
   if (invariantErrors.length > 0) {
     throw new Error(invariantErrors.join("\n"));
+  }
+
+  for (const code of M115_RETIRED_CATALOG_CODES) {
+    delete specCodes[code];
   }
 
   if (options.validateRenderedHelpfulContext ?? true) {

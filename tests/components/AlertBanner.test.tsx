@@ -231,7 +231,6 @@ describe("AlertBanner", () => {
   // banner is allowed to surface.
   const ADMIN_CODES = [
     "AMBIGUOUS_EMAIL_BINDING",
-    "LEAKED_LINK_DETECTED",
     "WATCH_CHANNEL_ORPHANED",
     "WEBHOOK_TOKEN_INVALID",
     "REPORT_ORPHANED_LOST_LEASE",
