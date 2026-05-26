@@ -30,7 +30,7 @@ describe("validation-reseed CLI", () => {
 
 - [ ] **Step 2: Run — expect FAIL** (script doesn't exist yet): `pnpm vitest run tests/scripts/validation-reseed.test.ts`.
 
-- [ ] **Step 3: Create the skeleton** `scripts/validation-reseed.ts` with `parseArgs` from `node:util`, printing the usage block on `--help`. Required env vars per spec §9.1.2: `VALIDATION_SUPABASE_URL`, `VALIDATION_SUPABASE_SECRET_KEY`, `VALIDATION_SUPABASE_PROJECT_REF`.
+- [ ] **Step 3: Create the skeleton** `scripts/validation-reseed.ts` with `parseArgs` from `node:util`, printing the usage block on `--help`. **Required env vars per spec §9.1.2 (the canonical CLI command-by-command env-var map):** reseed's row in the §9.1.2 table enumerates **4 vars** — `VALIDATION_SUPABASE_URL`, `VALIDATION_SUPABASE_SECRET_KEY`, `VALIDATION_SUPABASE_PROJECT_REF`, `VALIDATION_J3_CLAIM_EMAIL` (R13 commit 30 amendment — the dev's REAL Google email; the script must abort with a predicate-(k)-shaped diagnostic if unset OR matches the canonical rejected-domain set, per Task 0.C.3 fixture-build TS guard + Task 0.C.4 mint RPC defense-in-depth; see also plan §0.A.5 `.env.local.example` template). Do NOT inherit a 3-var subset by shorthand: the §9.1.2 R21 commit 44 F20 amendment retired the "Same three env vars" shorthand exactly because every reseed code path uses `VALIDATION_J3_CLAIM_EMAIL` at fixture-build time. The skeleton's `--help` text + env-validation block must name all 4 vars verbatim.
 
 - [ ] **Step 4: Add to `package.json` scripts:**
 
