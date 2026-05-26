@@ -2118,6 +2118,29 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **R66 codex dispatch will include new stop gates A+B+C** (per user-ratified stop-rule amendment): HIGH severity only blocks; confidence < 0.80 doesn't block; same-surface recurrence → redesign-needed classification.
 
+### Amendment R66 — 2026-05-26 (first with new stop gates A+B+C)
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `3592dc4` (post-R65)
+- **Verdict:** **needs-attention** (1 HIGH F55; conf 0.94)
+- **Stop-gate triage:**
+  - (A) Severity gate: HIGH ✓ blocks
+  - (B) Confidence gate: 0.94 ≥ 0.80 ✓ blocks
+  - (C) Same-surface: F55 is on PostgREST lockdown-test surface (R17 F15 territory), NOT the armed drift-repair surface — legitimate finding, NOT redesign-needed
+
+- **Finding:**
+
+  | # | Severity | Confidence | Section | Disposition |
+  |---|---|---|---|---|
+  | F55 | HIGH | 0.94 | `02-phase0-validation-state.md:482-513` (R17 c38 + R61 c97 LOCKED_TABLES registry) | **Stale M9.5 reference in M12 amendment.** LOCKED_TABLES registry includes `crew_member_auth` as a DML-lockdown baseline, but M11.5 G3 cutover dropped the table entirely (`supabase/migrations/20260523000099_cutover_drop_m9_5.sql:26`). `has_table_privilege('public.crew_member_auth', ...)` probe would fail because relation no longer exists. Implementing the test as written either fails on missing relation OR pressures implementer to resurrect retired M9.5 table. Similar shape to X.3 audit fix at `a88883e` (different file: no-inline-email-normalization-in-plan-doc-guard.test.ts regex alternation). Repair: remove `crew_member_auth` from LOCKED_TABLES; keep `crew_members` + `validation_state`. Sweep for other M9.5-table references that may have escaped X.3 audit (which only scans certain dirs, not plan markdown). |
+
+- **Same-vector status post-R66:**
+  - F55 NEW class shape ("stale M9.5 reference in M12 amendment plan/spec markdown") — 1 instance flagged + possibly peers from earlier R-rounds (sweep needed).
+  - F54 closed at R65; drift-repair surface remains armed for same-surface rule.
+  - All other classes still closed.
+
+- **Repair commit:** pending R67 implementer dispatch (per-instance + sweep for adjacent M9.5 stale-reference peers).
+
 ---
 
 ## §10 — Cross-milestone dependencies
