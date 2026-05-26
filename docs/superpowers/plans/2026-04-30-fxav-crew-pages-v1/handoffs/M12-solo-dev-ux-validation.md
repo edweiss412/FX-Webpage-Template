@@ -1814,7 +1814,29 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
   - F21-class regex set holds at 9 patterns / 8 slots.
   - All other classes still closed.
 
-- **Repair commit:** pending R55 implementer dispatch (inline Agent; F48 design choice + predicate update + smoke 6 prerequisite + regression test spec).
+- **Repair commit:** R55 commit 94 (pending SHA; see R55 section below).
+
+### Amendment R55 — 2026-05-26 (F48 repair — single-combo vs all-combo `last_seed_date` semantic gap)
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** post-R54 (`ba5de8b`) + commit 94 (this dispatch)
+- **Verdict:** repair-only (no new adversarial review fired in R55 — R55 is the inline-Agent F48 repair commit set; next adversarial round if any is R56).
+- **Design decision — Option (b) ratified.** Keep `last_seed_date` as the "all-combos completion stamp" written exclusively by `validation_finalize_all_atomic`. Add predicate (b') for single-combo dispatch reading `combos_seeded_dates[<single>]`. Re-scope predicate (b) to `--combo all` invocations only.
+  - **Justification:** spec §3.3.2 + §15.27 framed the two-RPC split specifically so `last_seed_date` would mean "all combos completed today"; Option (a) (any reseed stamps `last_seed_date`) would dilute that semantic and re-open the partial-reseed false-green class that the R3/R10 amendment was built to prevent (`last_seed_date = today` while some combos in `combos_seeded_dates` still lag).  Option (a) would also need either an extended finalizer that accepts subset combos or a parallel subset-finalizer, both of which would require fanning the F47 CAS pattern (R53 commit 93) to a new write surface and re-running the class-sweep. Option (b) preserves the F47 CAS topology unchanged (CAS still scopes to `--combo all` exclusively; single-combo writes inherit the mint RPC's per-show advisory lock).
+- **F48 per-instance fix (commit 94 — see SHA table below):** plan `03-phase0-tooling-reseed.md` predicate list expanded from 11 to 12 predicates (a, b, b', c-g, i, k, l, m, n); predicate (b) re-scoped with prose "Applies ONLY when invoked as `check-seed --combo all`"; new predicate (b') prose "Applies ONLY when invoked as `check-seed --combo <single>` ... `combos_seeded_dates[<single>] != $VALIDATION_TODAY_ISO`"; dispatch logic inlined immediately above the predicate list ("If the value equals `all` ... evaluator runs (a, b, ...); if single-combo enum ... evaluator runs (a, b', ...)"). Spec §3.3.2 predicate list updated in lockstep with matching (b) scope + (b') addition.
+- **F48 regression test spec (plan 03 Task 0.C.5 Step 1 extension):** test fixture-sets `last_seed_date` to yesterday's ISO via service-role UPDATE; runs `reseed --combo R1` (mint stamps `combos_seeded_dates['R1']` but does NOT touch `last_seed_date`); asserts `check-seed --combo R1` exits 0 (predicate (b') reads per-combo stamp, matches today); symmetric negative — `check-seed --combo all` against the same stack exits 1 with predicate (b) diagnostic. Concrete failure mode: future amendment that collapses dispatch to "predicate (b) for any requested set" → smoke 6 blocks on fresh/next-day single-combo stacks.
+- **Smoke 6 alignment (plan 05 Task 0.F.6 Step 1):** prerequisite `reseed --combo R1` + `check-seed --combo R1` unchanged; inline R55 alignment note added explaining that the second invocation passes via predicate (b') dispatch (closing the pre-R55 F48 gap where stale `last_seed_date` from an earlier day's `--combo all` run would have blocked).
+- **Reseed script contract (plan 03 Step 6):** `--combo <single>` path documented as "stamps `combos_seeded_dates[<single>]` only; does NOT call `validation_finalize_all_atomic`; does NOT touch `last_seed_date`"; F47 CAS interaction explicitly called out as unchanged (CAS scopes to all-combos finalizer exclusively).
+- **Same-vector status post-R55:**
+  - F48 NEW class closed via Option (b) per-instance fix + dispatch logic + regression test spec (1 round, 1 instance). Threshold for structural defense (3+ peers OR 3+ rounds) not met — F48 is a 1-of-1 dispatch-semantic instance, not a class with peers.
+  - F47 CAS pattern (R53 commit 93) untouched and regression-clean (Option b ratification preserves the all-combos-only CAS topology).
+  - F21-class regex set holds.
+  - All other classes still closed.
+- **Repair commit:** commit 94 (pending SHA).
+
+  | # | SHA | Title |
+  |---|---|---|
+  | 94 | _pending_ | `docs(plan-m12)+docs(spec-m12): R55 F48 — Option (b) single-combo dispatch + predicate (b') + smoke 6 prerequisite + regression test spec` |
 
 ---
 
