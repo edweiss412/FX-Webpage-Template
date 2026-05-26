@@ -2013,6 +2013,25 @@ The amendment session 2026-05-26 rebased onto M11.5; pre-rebase rounds are archi
 
 - **Meta-test regression count:** 0 (no live `tests/cross-cutting/*` files modified; existing meta-tests structurally unchanged).
 
+### Amendment R62 — 2026-05-26
+
+- **Diff base:** `b4b2c38`
+- **Diff target:** `84cb38d` (post-R61 + F29-class waiver fix)
+- **Verdict:** **needs-attention** (1 HIGH F53 — R61 c98 fix-round regression budget gap)
+- **Orchestrator decision (user-ratified 2026-05-26):** stop-after-R62 rule fires: HIGH blocker → one repair round (R63) + R64 re-fire, then close amendment regardless of R64 verdict.
+- **Finding:**
+
+  | # | Severity | Section | Disposition |
+  |---|---|---|---|
+  | F53 | HIGH | `02-phase0-validation-state.md:146-158` (R61 c98 drift-repair test) | **R61 c98 fix-round regression budget gap — destructive test against legitimate state.** Test simulates pre-R57 NOT NULL stack by `DELETE`ing `validation_state` rows where `last_seed_date IS NULL` before setting column NOT NULL. But post-R57+R55, NULL is now LEGITIMATE state after single-combo reseed before `validation_finalize_all_atomic` runs. If test runs against shared/prod-equivalent validation DB after single-combo seed → SILENTLY WIPES singleton row (combos_materialized + combos_seeded_dates + alias_map + claim state). Subsequent check-seed/matrix-walk fails OR masks the protected state. Repair: snapshot+restore pattern (mirror F34/F36 cleanup contract — `SELECT * FROM validation_state` before test → DELETE/ALTER → restore singleton in finally), OR sentinel-update pattern (update NULL → '1970-01-01' → SET NOT NULL → DROP NOT NULL → restore NULL), OR disposable-DB-only scope. Recommend snapshot+restore for consistency with project pattern. |
+
+- **Same-vector status post-R62:**
+  - F53 R61 c98 fix-round regression budget gap (test-destroys-legitimate-state): 1 round; per-instance fix at R63 (FINAL repair round per stop-rule).
+  - F48-class still at 2 rounds; threshold-3 trigger DEFERRED to Phase 0 execution (will be assessed at runtime authoring).
+  - All other classes still closed.
+
+- **Repair commit:** pending R63 implementer dispatch (FINAL repair round per stop-rule).
+
 ---
 
 ## §10 — Cross-milestone dependencies
