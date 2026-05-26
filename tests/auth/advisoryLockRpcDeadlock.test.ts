@@ -70,6 +70,15 @@ describe("advisory-lock RPC deadlock guard", () => {
     }
   });
 
+  test("claim_oauth_identity acquires multi-show locks in deterministic drive_file_id order", () => {
+    const source = stripComments(
+      readFileSync(join(ROOT, "supabase/migrations/20260524000002_claim_oauth_identity.sql"), "utf8"),
+    );
+
+    expect(source).toMatch(/for\s+r\s+in[\s\S]*?order\s+by\s+s\.drive_file_id[\s\S]*?loop[\s\S]*?pg_advisory_xact_lock\(hashtext\('show:'\s*\|\|\s*r\.drive_file_id\)\)/i);
+    expect(source).toMatch(/end\s+loop;\s*v_claim_at\s*:=\s*clock_timestamp\(\);/i);
+  });
+
   test("abandoned finalize cleanup uses direct SQL locks and no lock-taking RPC boundary", () => {
     const source = stripComments(
       readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"),

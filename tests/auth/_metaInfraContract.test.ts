@@ -56,6 +56,7 @@
  *       collapsed infra → benign" — the existing row in this file fails.
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 const infraMock = vi.hoisted(() => ({
   // When `throwOnConstruct` is true, createSupabaseServerClient throws.
@@ -129,6 +130,31 @@ beforeEach(() => {
 });
 
 describe("META infra-failure contract", () => {
+  describe("R41 Supabase boundary source registry", () => {
+    test("picker-bootstrap destructures both RPC boundaries", () => {
+      const source = readFileSync("app/api/auth/picker-bootstrap/route.ts", "utf8");
+      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/);
+      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/);
+    });
+
+    test("OAuth callback destructures getUser and claim_oauth_identity RPC", () => {
+      const source = readFileSync("app/auth/callback/route.ts", "utf8");
+      expect(source).toMatch(/const\s+\{\s*data:\s*userResult,\s*error:\s*getUserError\s*\}\s*=\s*await\s+supabase\.auth\.getUser\(\)/);
+      expect(source).toMatch(/const\s+\{\s*data:\s*result,\s*error:\s*rpcError\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/);
+    });
+
+    test("sign-out destructures signOut returned-error", () => {
+      const source = readFileSync("app/auth/sign-out/route.ts", "utf8");
+      expect(source).toMatch(/const\s+\{\s*error\s*\}\s*=\s*await\s+supabase\.auth\.signOut\(\)/);
+    });
+
+    test("resolvePickerSelection destructures auth_email_canonical and crew email lookup", () => {
+      const source = readFileSync("lib/auth/picker/resolvePickerSelection.ts", "utf8");
+      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+authClient\.rpc\("auth_email_canonical"\)/);
+      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("crew_members"\)[\s\S]*?\.select\("email"\)/);
+    });
+  });
+
   describe("isAdminSession", () => {
     test("getUser throw → { ok: false, reason: 'infra_error' }", async () => {
       infraMock.throwOnGetUser = true;
