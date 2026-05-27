@@ -201,6 +201,21 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   -- All schedules below are UTC (pg_cron + Supabase cluster default; matches the
   -- pre-pivot Vercel Cron UTC behavior byte-for-byte). Spec §2.3.
   --
+  -- pg_net timeout: 300000ms (5 minutes) matches Vercel Functions' default
+  -- maxDuration (per Vercel docs; session-context hook confirms "default
+  -- function execution timeout is now 300s on all plans"). R6 F16 fix:
+  -- earlier draft used 30s which is much shorter than runScheduledCronSync's
+  -- plausible runtime — the sync route processes shows + Drive files
+  -- sequentially with per-file 30s step timeouts (lib/sync/runScheduledCronSync.ts),
+  -- and a multi-file watched folder can exceed 30s easily. A premature pg_net
+  -- timeout would set net._http_response.timed_out=true even when the Vercel
+  -- handler is running fine (the handler continues — pg_net just abandons
+  -- waiting), making Smoke 3 layer 2 (HTTP outcome) report false negatives.
+  -- 300s allows the longest expected sync to complete within the pg_net
+  -- observation window. Faster crons (keepalive, refresh-watch, etc.) are
+  -- unaffected — they complete well under 300s and pg_net closes the
+  -- connection as soon as the handler responds.
+  --
   -- This migration is idempotent at the schedule layer: cron.unschedule() before
   -- cron.schedule() for each fxav_cron_* job. The unschedule loop is scoped to
   -- `jobname like 'fxav\_cron\_%' escape '\'` (escaped — underscores are literal,
@@ -249,7 +264,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
-        timeout_milliseconds := 30000
+        timeout_milliseconds := 300000
       );
     $body$, vercel_url || '/api/cron/sync'));
   
@@ -257,7 +272,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
-        timeout_milliseconds := 30000
+        timeout_milliseconds := 300000
       );
     $body$, vercel_url || '/api/cron/keepalive'));
   
@@ -265,7 +280,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
-        timeout_milliseconds := 30000
+        timeout_milliseconds := 300000
       );
     $body$, vercel_url || '/api/cron/refresh-watch'));
   
@@ -273,7 +288,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
-        timeout_milliseconds := 30000
+        timeout_milliseconds := 300000
       );
     $body$, vercel_url || '/api/cron/gc-watch'));
   
@@ -281,7 +296,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
-        timeout_milliseconds := 30000
+        timeout_milliseconds := 300000
       );
     $body$, vercel_url || '/api/cron/asset-recovery'));
   
@@ -289,7 +304,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
-        timeout_milliseconds := 30000
+        timeout_milliseconds := 300000
       );
     $body$, vercel_url || '/api/cron/diagram-gc'));
   
@@ -297,7 +312,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
-        timeout_milliseconds := 30000
+        timeout_milliseconds := 300000
       );
     $body$, vercel_url || '/api/cron/report-reaper'));
   end$$;
@@ -359,7 +374,11 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 1: Author the test.** Asserts:
   1. `JSON.parse(readFileSync('vercel.json'))` does NOT contain a `crons` key (this assertion may have already landed in T1; consolidate here)
-  2. No file under `app/`, `lib/`, `tests/` contains the case-insensitive substrings `x-vercel-cron`, `vercel-cron`, `VercelCron` — EXCEPT files carrying an inline `// not-vercel-cron-class: <reason>` waiver comment within 5 lines, AND historical-row files explicitly listed in an `HISTORICAL_FILES` allowlist (the spec §1017 audit-trail row is the only known exception, in `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md` — but `docs/` is outside the walked scope, so no allowlist entry is needed in practice).
+  2. No file under `app/`, `lib/`, `tests/` contains the case-insensitive substrings `x-vercel-cron`, `vercel-cron`, `VercelCron` — EXCEPT:
+     - **Self-exclusion (R6 F15 fix):** the test file itself (`tests/cross-cutting/no-vercel-cron.test.ts`) is excluded from the walk entirely — it MUST contain the forbidden literals to define them as regex patterns, so a straightforward implementation that scans itself would fail itself. Implement via a `if (filePath === __filename) continue;` skip at the walker, OR by hard-coding `tests/cross-cutting/no-vercel-cron.test.ts` in a `SELF_EXEMPT` constant.
+     - Files carrying an inline `// not-vercel-cron-class: <reason>` waiver comment within 5 lines (narrow per-instance escape hatch — NOT a broad file-level allowlist).
+     - Historical-row files explicitly listed in an `HISTORICAL_FILES` allowlist (the spec §1017 audit-trail row is the only known exception, in `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md` — but `docs/` is outside the walked scope, so no allowlist entry is needed in practice).
+  3. **Anti-tautology for self-exclusion:** the test asserts the walker did NOT encounter `tests/cross-cutting/no-vercel-cron.test.ts` (i.e., the exclusion fired). If the file is missing from disk or the exclusion is mis-implemented and the walker tries to scan it anyway, the test fails. This pins the contract that self-exclusion is the ONLY exemption for THIS particular file (no other test file can be silently exempted).
 - [ ] **Step 2: Verify it passes at HEAD post-T1.** `pnpm test tests/cross-cutting/no-vercel-cron.test.ts`.
 - [ ] **Step 3: Regression-verification.** Stash the T1 vercel.json change → run test → expect FAIL (proves the assertion catches the regression). Restore the T1 change. Per `feedback_negative_regression_verification` memory — same-model spec+code-quality reviews approve tautological tests; only stashing the production fix and confirming the test fails proves the contract is pinned.
 
@@ -381,7 +400,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
      ```sql
      do $$ declare vercel_url text := current_setting('app.fxav_vercel_url', true); begin
        perform cron.schedule('fxav_cron_sync', '*/5 * * * *', format($body$
-         select net.http_get(url := %L, headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')), timeout_milliseconds := 30000);
+         select net.http_get(url := %L, headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')), timeout_milliseconds := 300000);
        $body$, vercel_url || '/api/cron/sync'));
      end$$;
      ```
@@ -404,10 +423,12 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   | `db push[^.\n]{0,150}expect[^.\n]{0,50}(FAIL\|fail)` (the negative-regression assertion shape, NOT general "re-apply" or "retry" text) | Migration-reapply assumption (R3 F8) | `db push` applies pending migrations only; the canonical negative-regression assertion that uses db push to re-apply an edited migration is invalid. **R4 F9 fix:** earlier draft used the broader pattern `db push.*re-?apply` which flagged legitimate Task 0.A.4.5 retry text ("Re-run `npx supabase db push` to re-apply `schedule_cron_jobs` now that GUC is populated") — that's a legitimate retry of a NOT-YET-APPLIED migration (the prior attempt failed during the GUC check, so the migration isn't tracked in `supabase_migrations.schema_migrations`). The narrowed pattern matches only the broken anti-tautology assertion shape, NOT legitimate retry text. |
   | `like '[^']*_[^']*_[^']*%'` WHEN preceded by `jobname` within 50 chars AND NOT followed by `escape '\\'` within 50 chars | Unescaped LIKE wildcard (R4 F10) | PostgreSQL LIKE: `_` is single-char wildcard. `'fxav_cron_%'` matches `fxavXcronY...` (and many other false positives). The escaped form `'fxav\_cron\_%' escape '\'` makes underscores literal. M12.1's cron.unschedule predicate + meta-test + Smoke text MUST use the escaped form to scope correctly. |
 
-- [ ] **Step 2: Allowlist mechanism for finding-history paragraphs.** The spec's R1/R2/R3 finding-history paragraphs INTENTIONALLY cite forbidden patterns as "what was wrong." Allowlist these via:
+- [ ] **Step 2: Allowlist mechanism for finding-history paragraphs.** The spec's R1/R2/R3/R4/R5/R6 finding-history paragraphs INTENTIONALLY cite forbidden patterns as "what was wrong." Allowlist these via:
   - Inline waiver comment within 5 lines of the match: `<!-- not-doc-guard-class: <reason> -->` OR
   - Surrounding-line patterns: lines containing "R[0-9]+ F[0-9]+", "finding history", "Repair:", "was: ", "fix:", inside an HTML comment, OR within a markdown blockquote referencing a prior round.
   Document the allowlist contract in the test's top-of-file comment so a future editor can extend it.
+  
+  **Self-exclusion (R6 F15 fix, same shape as no-vercel-cron):** the test file itself (`tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`) is excluded from the walk entirely — its regex definitions necessarily contain the forbidden patterns. Implement via `if (filePath === __filename) continue;` at the walker OR via `SELF_EXEMPT` constant. Walked surfaces: `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot-design.md` + `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/**/*.md`. NOT walked: `tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts` itself.
 
 - [ ] **Step 3: Verify it passes at HEAD post-R3-fix.** `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`. If any of the R1/R2/R3 finding paragraphs trip the assertion despite the allowlist, refine the allowlist regex until clean.
 
@@ -548,7 +569,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 2a: Amend Task 0.A.4 Step 4 to specify STABLE PROJECT ALIAS (R5 F13 fix).** Existing text says "Capture the production `*.vercel.app` URL (the canonical one — NOT a preview URL)." This is ambiguous between (a) the stable project alias `<project-name>.vercel.app` (e.g., `fxav-crew-pages-validation.vercel.app`) which Vercel automatically maintains as a pointer to the latest production deployment, and (b) the per-deployment immutable URL `<project-name>-<hash>-<team>.vercel.app` (e.g., `fxav-crew-pages-validation-abc123-eric-weiss-projects.vercel.app`) which `vercel deploy` outputs. The pg_cron + pg_net architecture bakes this URL into `cron.job.command` at T3 migration time (via `app.fxav_vercel_url` GUC + format() substitution); using the per-deployment URL means subsequent redeploys leave the cron firing against the OLD deployment with OLD env vars + OLD code, indefinitely. Amend Step 4 to: "Capture the **stable project production alias** `<project-name>.vercel.app` (e.g., `fxav-crew-pages-validation.vercel.app`) — NOT the per-deployment URL output by `vercel deploy`. Verify via `npx vercel project ls` showing the project's primary domain, OR by checking the Vercel dashboard for the project's stable production URL. The alias auto-points at the latest production deployment, so subsequent redeploys (Task 0.A.5 step 6) transparently route cron traffic to the current code + env vars."
 
-- [ ] **Step 2b: Add Task 0.A.5 step 6a — verify baked cron URL is the stable alias (R5 F13 fix).** Insert after Task 0.A.5 step 6 (the trigger-redeploy step): "Inspect the baked URL in `cron.job.command` post-redeploy: in Supabase SQL editor, run `select jobname, substring(command from 'url := ''([^'']+)''') as baked_url from cron.job where jobname like 'fxav\\_cron\\_%' escape '\\';`. Confirm every row's `baked_url` matches the stable project alias `<project-name>.vercel.app` exactly — NOT a per-deployment URL with a hash + team suffix. If any row shows a per-deployment URL, T3 migration was applied with a stale GUC; correct via `alter database postgres set app.fxav_vercel_url = '<stable-alias>'; supabase db reset` (heavyweight) OR re-run the affected `cron.schedule()` calls manually with the corrected URL."
+- [ ] **Step 2b: Add Task 0.A.5 step 6a — verify baked cron URL is the stable alias (R5 F13 fix).** Insert after Task 0.A.5 step 6 (the trigger-redeploy step): "Inspect the baked URL in `cron.job.command` post-redeploy: in Supabase SQL editor, run `select jobname, substring(command from 'url := ''([^'']+)''') as baked_url from cron.job where jobname like 'fxav\_cron\_%' escape '\';`. **Confirm exactly 7 rows return** (matches the §2.3 job table), AND every row's `baked_url` matches the stable project alias `<project-name>.vercel.app` exactly — NOT a per-deployment URL with a hash + team suffix. If any row shows a per-deployment URL, T3 migration was applied with a stale GUC; correct via `alter database postgres set app.fxav_vercel_url = '<stable-alias>'; supabase db reset` (heavyweight) OR re-run the affected `cron.schedule()` calls manually with the corrected URL. **R6 F14 fix:** earlier draft used `'fxav\\_cron\\_%' escape '\\'` (double backslash). PostgreSQL standard SQL strings treat `\\` as a literal two-character string; `ESCAPE` clause requires a single-character escape; the doubled form errors. The single-backslash form matches all other LIKE sites established at R4 F10 fix."
 
 - [ ] **Step 3: Amend `01-phase0-infra.md:75` (Task 0.A.4 Step 5) Vercel-Cron-rationale.** Existing text says: "Verify the deployment is 'Production-target' — Vercel project page should show the URL labeled 'Production' (not 'Preview'). This matters because Vercel Cron Jobs run only on production deployments (smoke test 3)." Replace the trailing clause: "This matters because runtime env vars (including `CRON_SECRET`) are scoped to production deployments; the pg_cron + pg_net architecture (M12.1) calls the production URL specifically, and a preview URL would 401 every cron firing." Preserves the production-vs-preview gate; updates the rationale.
 
