@@ -45,7 +45,11 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(lockTakingNames).toContain("claim_oauth_identity");
 
     const sourceFiles = [
-      "middleware.ts",
+      // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
+      // Vestigial-middleware structural defense at
+      // tests/cross-cutting/no-vestigial-middleware.test.ts prevents
+      // reintroducing a no-op middleware.ts/proxy.ts. If a real proxy.ts
+      // calls withShowAdvisoryLock, append it here.
       "lib/realtime/showInvalidation.ts",
       "app/admin/dev/actions.ts",
       "lib/auth/picker/resetPickerEpoch.ts",

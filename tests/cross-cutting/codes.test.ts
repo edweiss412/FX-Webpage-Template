@@ -7,8 +7,13 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { RETIRED_CODES, SPEC_CODES } from "@/lib/messages/__generated__/spec-codes";
 import { CODE_SCENARIOS } from "@/tests/cross-cutting/code-scenarios";
 
-const ACTIVE_PRODUCER_ROOTS = ["app", "lib", "middleware.ts"] as const;
-const RETIRED_LITERAL_ROOTS = ["app", "lib", "components", "middleware.ts"] as const;
+// middleware.ts removed from scan roots 2026-05-27 (Phase 0.A finding 5 /
+// commit b5999c8 — Next 16 Edge wrapper __dirname error). Vestigial-middleware
+// structural defense at tests/cross-cutting/no-vestigial-middleware.test.ts
+// prevents reintroducing a no-op middleware.ts/proxy.ts. If a real proxy.ts
+// emits cataloged codes in the future, append it to both arrays.
+const ACTIVE_PRODUCER_ROOTS = ["app", "lib"] as const;
+const RETIRED_LITERAL_ROOTS = ["app", "lib", "components"] as const;
 const PRODUCER_RE = /\bcode:\s*["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`]/g;
 const RETIRED_LITERAL_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   FIRST_SEEN_REVIEW: new Set([

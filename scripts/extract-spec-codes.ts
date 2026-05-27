@@ -33,7 +33,12 @@ const OUTPUT_PATH = "lib/messages/__generated__/spec-codes.ts";
 const HELP_CONTEXT_ANCHOR = "<!-- §12.4 helpfulContext appendix";
 const CODE_RE = /^[A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*$/;
 const PSEUDO_NULL_SENTINELS = new Set(["null", "none", "n/a", "na"]);
-const RENDERED_CONTEXT_ROOTS = ["app", "lib", "components", "middleware.ts"] as const;
+// middleware.ts removed from scan roots 2026-05-27 (Phase 0.A finding 5 /
+// commit b5999c8). Vestigial-middleware structural defense at
+// tests/cross-cutting/no-vestigial-middleware.test.ts prevents reintroducing
+// a no-op middleware.ts/proxy.ts. If a real proxy.ts surfaces rendered
+// catalog codes via messageFor() or <ErrorExplainer>, append it here.
+const RENDERED_CONTEXT_ROOTS = ["app", "lib", "components"] as const;
 const RENDERED_MESSAGE_FOR_RE =
   /messageFor\s*\(\s*["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`](?:(?!;)[\s\S])*?\)\s*\.dougFacing/g;
 const RENDERED_ERROR_EXPLAINER_RE =

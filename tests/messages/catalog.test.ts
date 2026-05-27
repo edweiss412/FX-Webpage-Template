@@ -68,7 +68,11 @@ function producedCodes(): string[] {
     ...walkFiles("lib/data"),
     ...walkFiles("app/api"),
     ...walkFiles("app/auth"),
-    "middleware.ts",
+    // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
+    // Vestigial-middleware structural defense at
+    // tests/cross-cutting/no-vestigial-middleware.test.ts prevents
+    // reintroducing a no-op middleware.ts/proxy.ts. If a real proxy.ts
+    // is added with auth-chain code-emission, append it here.
   ];
   const codes = new Set<string>();
   const patterns = [
