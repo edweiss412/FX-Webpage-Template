@@ -12,6 +12,8 @@
 //   VALIDATION_J3_CLAIM_EMAIL        — dev's real Google account email (R13/R15)
 import { parseArgs } from "node:util";
 
+import { assertProdEquivalentTarget } from "./lib/validation-target";
+
 const USAGE = `Usage: pnpm validation:reseed [--combo <id>|all] [--allow-local-override] [--help]
 
 Per master spec §3.3 + §9.1.2 — full-replace seed of the M12 validation
@@ -54,9 +56,14 @@ function main(): void {
     return;
   }
 
-  // Task 0.C.1 lands only the help-text skeleton. Subsequent tasks (0.C.2
-  // target guard, 0.C.3 fixture build, 0.C.4 RPC call sites) will populate
-  // this body.
+  // Task 0.C.2 — target-selection guard (rejects localhost without override).
+  assertProdEquivalentTarget(
+    process.env.VALIDATION_SUPABASE_URL,
+    values["allow-local-override"] ?? false,
+  );
+
+  // Task 0.C.1 lands only the help-text skeleton. Subsequent tasks (0.C.3
+  // fixture build, 0.C.4 RPC call sites) will populate this body.
   process.stderr.write(
     "validation:reseed body not yet implemented — Task 0.C.1 scaffold only.\n",
   );

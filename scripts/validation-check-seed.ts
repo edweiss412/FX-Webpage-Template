@@ -4,6 +4,8 @@
 // Full implementation lands in Task 0.C.5.
 import { parseArgs } from "node:util";
 
+import { assertProdEquivalentTarget } from "./lib/validation-target";
+
 const USAGE = `Usage: pnpm validation:check-seed [--combo <id>|all] [--allow-local-override] [--today YYYY-MM-DD] [--help]
 
 Per master spec §3.3.2 — evaluates the picker-fixture lockstep contract
@@ -43,6 +45,11 @@ function main(): void {
     process.stdout.write(USAGE);
     return;
   }
+
+  assertProdEquivalentTarget(
+    process.env.VALIDATION_SUPABASE_URL,
+    values["allow-local-override"] ?? false,
+  );
 
   process.stderr.write(
     "validation:check-seed body not yet implemented — Task 0.C.1 scaffold only.\n",

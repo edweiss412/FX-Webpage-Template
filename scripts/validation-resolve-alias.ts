@@ -5,6 +5,8 @@
 // on stdout. Full implementation lands in Task 0.C.6.
 import { parseArgs } from "node:util";
 
+import { assertProdEquivalentTarget } from "./lib/validation-target";
+
 const USAGE = `Usage: pnpm validation:resolve-alias <combo> <alias> [--allow-local-override] [--help]
 
 Per master spec §9.1.2 — resolves an (combo, alias) pair against the live
@@ -41,6 +43,11 @@ function main(): void {
     process.stdout.write(USAGE);
     return;
   }
+
+  assertProdEquivalentTarget(
+    process.env.VALIDATION_SUPABASE_URL,
+    values["allow-local-override"] ?? false,
+  );
 
   process.stderr.write(
     "validation:resolve-alias body not yet implemented — Task 0.C.1 scaffold only.\n",
