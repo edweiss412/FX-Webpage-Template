@@ -83,7 +83,9 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 ### T2.1 — Enable `pg_net` extension
 
-- [ ] **Step 0: TDD red — verify pg-cron-coverage prereq assertion FAILS at HEAD (R7 F17 fix).** Before any migration, the meta-test must have an assertion that captures the "pg_net not yet installed" state. **Extend pg-cron-coverage.test.ts (authored fully in T4.2) with Layer 0a prerequisite assertion:** `select exists(select 1 from pg_extension where extname = 'pg_net') as installed` returns `false` at HEAD `ac752d9` (pg_net not installed). Run `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` against the validation Supabase project → expect Layer 0a assertion to FAIL (red). This is the TDD-red phase that authorizes the T2.1 migration to land. Per AGENTS.md invariant 1.
+- [ ] **Step 0: TDD red — author pg-cron-coverage.test.ts skeleton with Layer 0a (R10 F25 fix).** R7-R10 drafts said "extend pg-cron-coverage.test.ts authored fully in T4.2" — but T2.1 commits before T4, so a T2.1 commit would not actually own its red/green test. R10 F25 caught this. **Corrected ownership:** T2.1 authors the skeleton of `tests/cross-cutting/pg-cron-coverage.test.ts` and commits it WITH the T2.1 migration. T2.2 extends it. T3 extends it further. T4.2 finalizes it (canonical JOB_TABLE + anti-tautology). Each commit owns its own per-task TDD red/green.
+  
+  At T2.1 step 0: author `tests/cross-cutting/pg-cron-coverage.test.ts` with just the top-of-file LOCAL-ONLY comment + Layer 0a assertion: `select exists(select 1 from pg_extension where extname = 'pg_net') as installed` returns `true`. Run `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` against the validation Supabase project at HEAD `ac752d9` (pre-T2.1) → expect Layer 0a to FAIL (red). This is the TDD-red phase per AGENTS.md invariant 1.
 - [ ] **Step 1: Write the migration.** File: `supabase/migrations/<ts1>_enable_pg_net.sql`:
 
   ```sql
@@ -97,21 +99,28 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 - [ ] **Step 4: Commit.**
 
   ```bash
-  git add supabase/migrations/<ts1>_enable_pg_net.sql
+  git add supabase/migrations/<ts1>_enable_pg_net.sql tests/cross-cutting/pg-cron-coverage.test.ts
   git commit -m "$(cat <<'EOF'
-  feat(db): enable pg_net extension (M12.1 T2.1)
+  feat(db)+test(cross-cutting): enable pg_net + pg-cron-coverage Layer 0a (M12.1 T2.1)
   
   Prerequisite for the pg_cron + pg_net architecture per sub-amendment
   spec §2.3. pg_net provides http_get() / http_post() from inside Postgres; pg_cron
   schedule bodies call it to invoke the Vercel /api/cron/* routes with
   bearer auth.
+  
+  R10 F25 fix — TDD-per-task ownership: pg-cron-coverage.test.ts skeleton
+  + Layer 0a (pg_net extension installed assertion) ships atomically with
+  the migration so the T2.1 commit has its own red/green test boundary.
+  T2.2 extends with Layer 0b; T3 extends with the 7-job assertion; T4.2
+  finalizes with canonical JOB_TABLE + anti-tautology. Test is LOCAL-ONLY
+  (live DB required); top-of-file comment documents the CI skip.
   EOF
   )"
   ```
 
 ### T2.2 — Create `fxav_cron_secret` Vault entry
 
-- [ ] **Step 0: TDD red — verify pg-cron-coverage prereq assertion FAILS post-T2.1 (R7 F17 fix).** **Extend pg-cron-coverage.test.ts (authored fully in T4.2) with Layer 0b prerequisite assertion:** `select exists(select 1 from vault.secrets where name = 'fxav_cron_secret') as present` returns `false` post-T2.1 apply, before T2.2 (pg_net is installed but Vault entry doesn't exist yet). Run the meta-test → expect Layer 0b assertion to FAIL (red). This is the TDD-red phase that authorizes the T2.2 migration to land. Per AGENTS.md invariant 1.
+- [ ] **Step 0: TDD red — extend pg-cron-coverage.test.ts with Layer 0b (R10 F25 fix).** pg-cron-coverage.test.ts now exists from T2.1; extend it with Layer 0b: `select exists(select 1 from vault.secrets where name = 'fxav_cron_secret') as present` returns `true`. Run the meta-test post-T2.1 / pre-T2.2 → expect Layer 0b assertion to FAIL (red) (pg_net is installed but Vault entry doesn't exist yet). This is the TDD-red phase per AGENTS.md invariant 1. T2.2 commit atomically includes the migration AND the Layer 0b assertion extension.
 - [ ] **Step 1: Write the migration.** File: `supabase/migrations/<ts2>_cron_secret_vault.sql`:
 
   ```sql
@@ -159,15 +168,19 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 - [ ] **Step 5: Commit.**
 
   ```bash
-  git add supabase/migrations/<ts2>_cron_secret_vault.sql
+  git add supabase/migrations/<ts2>_cron_secret_vault.sql tests/cross-cutting/pg-cron-coverage.test.ts
   git commit -m "$(cat <<'EOF'
-  feat(db): add fxav_cron_secret to supabase_vault (M12.1 T2.2)
+  feat(db)+test(cross-cutting): add fxav_cron_secret + pg-cron-coverage Layer 0b (M12.1 T2.2)
   
   Creates the named Vault slot only; value is populated per-environment
   in M12 Phase 0.A.5 (validation) and at M13 launch (prod). Default value
   is a placeholder string that no real CRON_SECRET would match, forcing
   401 from /api/cron/* until the operator populates it correctly. See
   sub-amendment spec §2.3.
+  
+  R10 F25 fix — TDD-per-task ownership: extends pg-cron-coverage.test.ts
+  with Layer 0b (vault.secrets entry for fxav_cron_secret exists). Red
+  pre-T2.2 / green post-T2.2 apply per AGENTS.md invariant 1.
   EOF
   )"
   ```
@@ -185,7 +198,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 **TDD steps:**
 
-- [ ] **Step 1: Author the structural meta-test FIRST.** Write the first assertion of `tests/cross-cutting/pg-cron-coverage.test.ts` (full file lands in T4). The first assertion: parse the §2.3 spec table from `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot-design.md` (or a sibling JSON file `pg-cron-jobs.json` that the spec table is generated from) into a `JOB_TABLE` list of `{ jobname, schedule, route }` triples. Assert against live DB: `select jobname, schedule, command from cron.job where jobname like 'fxav\_cron\_%' escape '\'` returns exactly 7 rows, one per JOB_TABLE entry, with schedules matching byte-for-byte and `command` containing the corresponding `route`. Initially FAILS because no `fxav_cron_*` jobs exist yet.
+- [ ] **Step 1: Extend pg-cron-coverage.test.ts with 7-job assertion (R10 F25 fix).** pg-cron-coverage.test.ts now exists from T2.1 + T2.2 (Layers 0a + 0b). T3 extends it with the main 7-job assertion. The pg-cron-jobs.json canonical source file ships in T4.2 (the spec table is interim source until then; T3 uses a hardcoded JOB_TABLE inline + T4.2 refactors to read from JSON). The 7-job assertion: assert against live DB: `select jobname, schedule, command from cron.job where jobname like 'fxav\_cron\_%' escape '\'` returns exactly 7 rows, one per JOB_TABLE entry, with schedules matching byte-for-byte and `command` containing the corresponding `route`. Initially FAILS post-T2.2 / pre-T3 (vault entry exists but no fxav_cron jobs scheduled yet). T3 commit atomically includes the migration AND the 7-job assertion extension.
 - [ ] **Step 2: Write the migration.** File: `supabase/migrations/<ts3>_schedule_cron_jobs.sql`:
 
   ```sql
@@ -386,7 +399,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 ### T4.2 — `pg-cron-coverage.test.ts`
 
-- [ ] **Step 1: Author or extend the test from T3 Step 1.** Asserts:
+- [ ] **Step 1: Finalize pg-cron-coverage.test.ts (R10 F25 fix — incremental ownership).** The test file exists from T2.1 with Layer 0a, was extended in T2.2 with Layer 0b, and extended in T3 with the 7-job assertion. T4.2 finalizes by (a) refactoring the T3 inline JOB_TABLE to read from the new `pg-cron-jobs.json` canonical source, and (b) adding the anti-tautology negative-regression assertion + step 3 procedure below. Final state asserts:
   0a. **Prerequisite Layer 0a (T2.1 red, R7 F17):** `select exists(select 1 from pg_extension where extname = 'pg_net')` returns `true`. FAILS at HEAD `ac752d9` (pg_net not installed); PASSES after T2.1 applies.
   0b. **Prerequisite Layer 0b (T2.2 red, R7 F17):** `select exists(select 1 from vault.secrets where name = 'fxav_cron_secret')` returns `true`. FAILS post-T2.1 / pre-T2.2; PASSES after T2.2 applies.
   1. The canonical JOB_TABLE (read from `pg-cron-jobs.json`) has exactly 7 entries with the expected jobnames/schedules/routes.
@@ -425,8 +438,15 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   | `cron\.job_run_details[^.]*\.jobname` OR `from cron\.job_run_details[\s\S]{0,200}where jobname` (without a `join cron\.job` within 200 chars) | jobname-on-job_run_details drift (R3 F7) | `jobname` lives on `cron.job`, not `cron.job_run_details`; queries need a join |
   | `last_start_time\|last_finish_time` | Non-existent column drift (R2 F5) | pg_cron exposes `start_time`/`end_time` — these names came from a confused R1 draft |
   | `db push[^.\n]{0,150}expect[^.\n]{0,50}(FAIL\|fail)` (the negative-regression assertion shape, NOT general "re-apply" or "retry" text) | Migration-reapply assumption (R3 F8) | `db push` applies pending migrations only; the canonical negative-regression assertion that uses db push to re-apply an edited migration is invalid. **R4 F9 fix:** earlier draft used the broader pattern `db push.*re-?apply` which flagged legitimate Task 0.A.4.5 retry text ("Re-run `npx supabase db push` to re-apply `schedule_cron_jobs` now that GUC is populated") — that's a legitimate retry of a NOT-YET-APPLIED migration (the prior attempt failed during the GUC check, so the migration isn't tracked in `supabase_migrations.schema_migrations`). The narrowed pattern matches only the broken anti-tautology assertion shape, NOT legitimate retry text. |
-  | `like '[^']*_[^']*_[^']*%'` WHEN preceded by `jobname` within 50 chars AND NOT followed by `escape '\\'` within 50 chars | Unescaped LIKE wildcard (R4 F10) | PostgreSQL LIKE: `_` is single-char wildcard. `'fxav_cron_%'` matches `fxavXcronY...` (and many other false positives). The escaped form `'fxav\_cron\_%' escape '\'` makes underscores literal. M12.1's cron.unschedule predicate + meta-test + Smoke text MUST use the escaped form to scope correctly. |
-  | `escape '\\\\'` (literal four backslashes in markdown source / two-char string at SQL level) — i.e., the doubled-backslash form for ESCAPE | Double-backslash ESCAPE clause (R6 F14 / R7 F18) | PostgreSQL `ESCAPE` clause requires a single-character escape string; `'\\'` parses as a 2-char string and errors. R5-fix introduced `escape '\\'` at Task 0.A.5 step 6a; R6 F14 caught and fixed. R7 F18 adds the structural defense so the class cannot recur silently. NOTE: in markdown source, `escape '\'` (single backslash) is what we want; `escape '\\'` is the broken form. The doc-guard regex catches the literal 4-backslash source form (which renders as 2-backslash SQL) and refuses it outside finding-history allowlists. |
+  | `like '[^']*_[^']*_[^']*%'` WHEN preceded by `jobname` within 50 chars AND NOT followed (within 50 chars) by `escape '\'` where `\` is a SINGLE literal backslash in the markdown source file (NOT two backslashes) | Unescaped LIKE wildcard (R4 F10 / R10 F26) | PostgreSQL LIKE: `_` is single-char wildcard. `'fxav_cron_%'` matches `fxavXcronY...`. The CORRECT escaped form in markdown source is `'fxav\_cron\_%' escape '\'` — single backslashes everywhere (markdown source bytes: `\`, `_`, etc.). **R10 F26 fix:** R4 F10 + R6 F18 wrote the regex lookahead as `escape '\\'` (double backslash) which is wrong — that's the BROKEN form (caught by the next pattern below). The corrected lookahead requires the single-backslash form. |
+  | `escape '\\'` (in markdown source: the literal two consecutive backslashes between the two single quotes — at SQL level this parses as a 2-character string and errors at PostgreSQL's `ESCAPE` clause which requires a single-character escape) | Double-backslash ESCAPE clause (R6 F14 / R7 F18) | PostgreSQL `ESCAPE` clause requires a single-character escape string; the 2-char form errors. R5-fix introduced this at Task 0.A.5 step 6a; R6 F14 caught and fixed; R7 F18 added the structural pattern; R10 F26 resolved the cross-pattern conflict (the previous pattern's lookahead now correctly references single-backslash, not double). |
+  
+  **R10 F26 negative-regression cases (T4.3 step 4 expanded):** verify three states explicitly:
+  1. `where jobname like 'fxav\_cron\_%' escape '\'` (single-backslash everywhere) — **PASSES** the doc-guard (this is the correct form)
+  2. `where jobname like 'fxav_cron_%'` (no escape clause) — **FAILS** pattern 6 (unescaped LIKE)
+  3. `where jobname like 'fxav\_cron\_%' escape '\\'` (double-backslash escape) — **FAILS** pattern 7 (broken ESCAPE)
+  
+  All three states must produce the expected pass/fail. If pattern 6 false-positives on state 1, the lookahead regex is using the wrong backslash count.
 
 - [ ] **Step 1a (R9 F23 fix — sequencing correction):** the 9 M12-plan-positive assertions (A-I, R7 F17 + R8 F20 fix) are **NOT** in this file. R7-R8 drafts put them here, but T4 commits BEFORE T5; landing the doc-guard with A-I assertions would create immediate CI failure (assertions fail at T4 commit boundary because T5 hasn't edited the M12 plan tree yet) — violating TDD-green-at-commit discipline and breaking the new x6 audit on its first run.
   
@@ -613,10 +633,19 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - Line ~33 — replace "Wait one cron interval. Vercel Cron Jobs run only on production deployments — verify cron is enabled in `vercel.json` and that the production URL receives cron pings." with the following 3-layer observability stack:
 
     ```
-    Wait one cron interval (5 min). Three independent observability layers
-    must all agree before declaring Smoke 3 passing:
+    Wait one cron interval (5 min). **R10 F27 fix — Layer 3 is the SOLE
+    BINDING PASS CRITERION**; Layers 1 + 2 are DIAGNOSTIC ONLY. Earlier
+    R8/R9 drafts said "all three layers must agree" but pg_net response
+    correlation cannot reliably attribute responses to specific cron jobs
+    under concurrent firings (R9 F24 documented the queue-table deletion
+    limitation). Layer 3 (downstream side effect — show appears in /admin
+    Active Shows) is the ground truth: if the show appears, the full
+    pipeline (pg_cron → pg_net → auth → handler → parser → DB write under
+    advisory lock) succeeded end-to-end, REGARDLESS of what Layer 1 or 2
+    show. Conversely, if Layer 3 fails, walk Layers 1 + 2 diagnostically
+    to localize the failure.
 
-    1. **Scheduler fired (pg_cron):** Supabase SQL editor:
+    1. **Scheduler fired (pg_cron) — DIAGNOSTIC ONLY:** Supabase SQL editor:
        ```sql
        select j.jobname, jrd.start_time, jrd.end_time, jrd.status,
               jrd.return_message, jrd.command
@@ -630,7 +659,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
        the SQL command (the `net.http_get(...)` enqueue) succeeded, NOT that
        the HTTP request reached Vercel or got a 2xx. pg_net is asynchronous.
 
-    2. **HTTP request landed (pg_net) — correlated by timestamp proximity (R9 F24 fix):** Supabase SQL editor — TWO queries cross-referenced by timestamp:
+    2. **HTTP request landed (pg_net) — DIAGNOSTIC ONLY, correlated by timestamp proximity (R9 F24 + R10 F27 fix):** Supabase SQL editor — TWO queries cross-referenced by timestamp:
        
        ```sql
        -- 2a: latest pg_net responses (response keyed by id; no URL column)
@@ -672,11 +701,15 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
        A `timed_out = true` means the 300s (5 min, matches Vercel Functions'
        default maxDuration) pg_net timeout fired before Vercel responded.
 
-    3. **Downstream side effect (the canonical proof):** the new show appears
-       in `/admin` Active Shows panel. This is the binding pass criterion —
-       layers 1 + 2 are diagnostic. A show appearing in /admin Active Shows
-       means: pg_cron fired AND pg_net reached Vercel AND auth passed AND
-       the parser ran AND the DB write under per-show advisory lock landed.
+    3. **Downstream side effect — THE BINDING PASS CRITERION (R10 F27):** the
+       new show appears in `/admin` Active Shows panel. **THIS LAYER ALONE
+       DECIDES SMOKE 3 PASS/FAIL.** A show appearing in /admin Active Shows
+       proves the full pipeline executed end-to-end: pg_cron fired AND
+       pg_net reached Vercel AND auth passed AND the parser ran AND the DB
+       write under per-show advisory lock landed. Layers 1 + 2 cannot
+       reliably attribute pg_net responses to specific cron jobs under
+       concurrent firings (R9 F24); they exist for diagnostic walk-through
+       when Layer 3 fails, NOT as independent pass gates.
     ```
 
   - Line ~36 — replace "If show doesn't appear: check Vercel Cron logs, Drive service-account permissions, `WATCHED_FOLDER_ID` env var." with the new diagnostic ladder:
