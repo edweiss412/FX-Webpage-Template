@@ -662,13 +662,37 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     test-suite use; do NOT use Transaction pooler which can't hold
     long-lived connections).
     
-    **Test-side guard (R13 F34):** `pg-cron-coverage.test.ts` MUST assert
-    at setup time that `TEST_DATABASE_URL` is set AND does NOT contain
-    `localhost`, `127.0.0.1`, or `:54322` (the Supabase local dev port)
-    AND DOES contain the validation project ref captured in Task 0.A.1.
-    If any guard fails, the test errors with a clear "validation env not
-    targeted — refusing to run" message. This prevents the silent local-
-    target fallthrough class.
+    **Test-side mode-gated guard (R13 F34 + R16 F37):** `pg-cron-coverage.test.ts`
+    operates in TWO MODES, selected by `PG_CRON_COVERAGE_TARGET` env var:
+    
+    - **Mode `local` (default; T2/T3 red-green cycles):** the test runs
+      against whatever `TEST_DATABASE_URL` points at, including local
+      Supabase (`postgresql://...localhost:54322/postgres`). No URL-shape
+      guard. Required for AGENTS.md invariant 1 TDD per task (R11 F29
+      same-target red/green cycle).
+    - **Mode `validation` (Task 0.A.4.5 step 5a):** the test asserts at
+      setup time that `TEST_DATABASE_URL` is set AND does NOT contain
+      `localhost`, `127.0.0.1`, or `:54322` AND DOES contain the
+      validation project ref captured in Task 0.A.1. If any guard fails,
+      the test errors with a clear "validation env not targeted —
+      refusing to run" message. This prevents the silent local-target
+      fallthrough class while preserving the local TDD path.
+    
+    **Operator invocation at Task 0.A.4.5 step 5a:**
+    ```bash
+    PG_CRON_COVERAGE_TARGET=validation \
+      TEST_DATABASE_URL="<validation-project-pooler-URL>" \
+      pnpm test tests/cross-cutting/pg-cron-coverage.test.ts
+    ```
+    
+    **Operator invocation at T2.1/T2.2/T3 local TDD cycles** (R11 F29
+    same-target):
+    ```bash
+    pnpm test tests/cross-cutting/pg-cron-coverage.test.ts
+    # PG_CRON_COVERAGE_TARGET defaults to 'local'; runs against local
+    # Supabase per the existing TEST_DATABASE_URL convention (which
+    # falls back to localhost:54322 if unset).
+    ```
     
     Expect PASS for all layers (0a pg_net installed, 0b vault entry,
     7-job assertion with command-contains-net.http_get + command-contains-
