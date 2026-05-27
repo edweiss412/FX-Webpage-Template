@@ -173,7 +173,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 **TDD steps:**
 
-- [ ] **Step 1: Author the structural meta-test FIRST.** Write the first assertion of `tests/cross-cutting/pg-cron-coverage.test.ts` (full file lands in T4). The first assertion: parse the §2.3 spec table from `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot-design.md` (or a sibling JSON file `pg-cron-jobs.json` that the spec table is generated from) into a `JOB_TABLE` list of `{ jobname, schedule, route }` triples. Assert against live DB: `select jobname, schedule, command from cron.job where jobname like 'fxav_cron_%'` returns exactly 7 rows, one per JOB_TABLE entry, with schedules matching byte-for-byte and `command` containing the corresponding `route`. Initially FAILS because no `fxav_cron_*` jobs exist yet.
+- [ ] **Step 1: Author the structural meta-test FIRST.** Write the first assertion of `tests/cross-cutting/pg-cron-coverage.test.ts` (full file lands in T4). The first assertion: parse the §2.3 spec table from `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot-design.md` (or a sibling JSON file `pg-cron-jobs.json` that the spec table is generated from) into a `JOB_TABLE` list of `{ jobname, schedule, route }` triples. Assert against live DB: `select jobname, schedule, command from cron.job where jobname like 'fxav\_cron\_%' escape '\'` returns exactly 7 rows, one per JOB_TABLE entry, with schedules matching byte-for-byte and `command` containing the corresponding `route`. Initially FAILS because no `fxav_cron_*` jobs exist yet.
 - [ ] **Step 2: Write the migration.** File: `supabase/migrations/<ts3>_schedule_cron_jobs.sql`:
 
   ```sql
@@ -193,7 +193,8 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   --
   -- This migration is idempotent at the schedule layer: cron.unschedule() before
   -- cron.schedule() for each fxav_cron_* job. The unschedule loop is scoped to
-  -- `jobname like 'fxav_cron_%'` so the pre-existing bootstrap signing-key cron
+  -- `jobname like 'fxav\_cron\_%' escape '\'` (escaped — underscores are literal,
+  -- not SQL LIKE single-char wildcards; R4 F10 fix) so the pre-existing bootstrap signing-key cron
   -- at supabase/migrations/20260504000001_*.sql:36 is preserved.
   --
   -- The pg_net call body reads the bearer secret from supabase_vault each firing
@@ -230,7 +231,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     -- fxav prefix so the bootstrap signing-key cron is untouched.
     perform cron.unschedule(jobname)
       from cron.job
-      where jobname like 'fxav_cron_%';
+      where jobname like 'fxav\_cron\_%' escape '\';
   
     -- Schedule the 7 jobs. Body shape is uniform across all 7 (multi-line for
     -- readability; the format() interpolation substitutes the route URL).
@@ -293,9 +294,9 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   ```
 
 - [ ] **Step 3: Set the `app.fxav_vercel_url` GUC** on the local dev database before applying: `alter database postgres set app.fxav_vercel_url = 'https://fxav-crew-pages-validation.vercel.app';` (the validation URL captured in M12 Phase 0.A.4). On a fresh validation project this happens once.
-- [ ] **Step 4: Apply locally.** `npx supabase db push`. Confirm: `select jobname, schedule from cron.job where jobname like 'fxav_cron_%';` returns 7 rows with the expected schedules.
+- [ ] **Step 4: Apply locally.** `npx supabase db push`. Confirm: `select jobname, schedule from cron.job where jobname like 'fxav\_cron\_%' escape '\';` returns 7 rows with the expected schedules.
 - [ ] **Step 5: Re-apply for idempotency.** Re-running unschedules + re-schedules; cron.job count stays at 7 (plus the pre-existing bootstrap signing-key job). Confirm.
-- [ ] **Step 6: Verify pre-existing bootstrap signing-key cron is untouched.** `select jobname from cron.job where jobname not like 'fxav_cron_%';` should still show the bootstrap row from `supabase/migrations/20260504000001_bootstrap_nonces_signing_key.sql:36`.
+- [ ] **Step 6: Verify pre-existing bootstrap signing-key cron is untouched.** `select jobname from cron.job where jobname not like 'fxav\_cron\_%' escape '\';` should still show the bootstrap row from `supabase/migrations/20260504000001_bootstrap_nonces_signing_key.sql:36`.
 - [ ] **Step 7: Meta-test from Step 1 now passes.** Confirm.
 - [ ] **Step 8: Commit.**
 
@@ -356,7 +357,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 1: Author or extend the test from T3 Step 1.** Asserts:
   1. The canonical JOB_TABLE (read from `pg-cron-jobs.json`) has exactly 7 entries with the expected jobnames/schedules/routes.
-  2. Live DB introspection (`select jobname, schedule, command from cron.job where jobname like 'fxav_cron_%' order by jobname`) returns exactly 7 rows.
+  2. Live DB introspection (`select jobname, schedule, command from cron.job where jobname like 'fxav\_cron\_%' escape '\' order by jobname`) returns exactly 7 rows.
   3. For each row: jobname is in JOB_TABLE; schedule matches byte-for-byte; command contains the matching `/api/cron/<route>` substring AND contains `vault.decrypted_secrets` AND **contains `net.http_get(` (NOT `net.http_post(`)**. The http_get assertion is load-bearing: R1 F1 (HIGH, conf 0.97) caught a draft-state bug where the T3 SQL used http_post against GET-only handlers — this assertion pins the verb contract structurally so the class cannot recur silently. The `vault.decrypted_secrets` assertion (NOT `supabase_vault.decrypted_secrets`) is also load-bearing: R2 F4 (HIGH, conf 0.95) caught a draft-state bug where the migrations referenced the extension name instead of the schema name — this assertion pins the Vault-schema contract structurally.
   4. For each row: command does NOT contain the literal substring `net.http_post(`. Pin the inverse contract explicitly (forbidden-substring assertion); guards against a future migration drift adding http_post calls.
   5. Pre-existing non-fxav crons present (count > 0): asserts the migration didn't accidentally `cron.unschedule()` jobs outside its `fxav_cron_%` scope.
@@ -388,9 +389,10 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   |---|---|---|
   | `supabase_vault\.(create_secret\|secrets\|decrypted_secrets\|update_secret)` | Schema-name drift (R2 F4) | Functions/tables live in `vault` schema; extension name `supabase_vault` is only valid in `create extension` contexts |
   | `net\.http_post` | HTTP verb drift (R1 F1) | Cron handlers export GET only; POST → 405 |
-  | `cron\.job_run_details[^.]*\.jobname` OR `from cron\.job_run_details[\s\S]{0,200}where jobname` | jobname-on-job_run_details drift (R3 F7) | `jobname` lives on `cron.job`, not `cron.job_run_details`; queries need a join |
+  | `cron\.job_run_details[^.]*\.jobname` OR `from cron\.job_run_details[\s\S]{0,200}where jobname` (without a `join cron\.job` within 200 chars) | jobname-on-job_run_details drift (R3 F7) | `jobname` lives on `cron.job`, not `cron.job_run_details`; queries need a join |
   | `last_start_time\|last_finish_time` | Non-existent column drift (R2 F5) | pg_cron exposes `start_time`/`end_time` — these names came from a confused R1 draft |
-  | `supabase db push.*expect.*FAIL` OR `db push.*re-?apply` (in negative-regression contexts) | Migration-reapply assumption (R3 F8) | `db push` applies pending migrations only; live-state mutation via `cron.unschedule` is the correct path |
+  | `db push[^.\n]{0,150}expect[^.\n]{0,50}(FAIL\|fail)` (the negative-regression assertion shape, NOT general "re-apply" or "retry" text) | Migration-reapply assumption (R3 F8) | `db push` applies pending migrations only; the canonical negative-regression assertion that uses db push to re-apply an edited migration is invalid. **R4 F9 fix:** earlier draft used the broader pattern `db push.*re-?apply` which flagged legitimate Task 0.A.4.5 retry text ("Re-run `npx supabase db push` to re-apply `schedule_cron_jobs` now that GUC is populated") — that's a legitimate retry of a NOT-YET-APPLIED migration (the prior attempt failed during the GUC check, so the migration isn't tracked in `supabase_migrations.schema_migrations`). The narrowed pattern matches only the broken anti-tautology assertion shape, NOT legitimate retry text. |
+  | `like '[^']*_[^']*_[^']*%'` WHEN preceded by `jobname` within 50 chars AND NOT followed by `escape '\\'` within 50 chars | Unescaped LIKE wildcard (R4 F10) | PostgreSQL LIKE: `_` is single-char wildcard. `'fxav_cron_%'` matches `fxavXcronY...` (and many other false positives). The escaped form `'fxav\_cron\_%' escape '\'` makes underscores literal. M12.1's cron.unschedule predicate + meta-test + Smoke text MUST use the escaped form to scope correctly. |
 
 - [ ] **Step 2: Allowlist mechanism for finding-history paragraphs.** The spec's R1/R2/R3 finding-history paragraphs INTENTIONALLY cite forbidden patterns as "what was wrong." Allowlist these via:
   - Inline waiver comment within 5 lines of the match: `<!-- not-doc-guard-class: <reason> -->` OR
@@ -399,7 +401,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 3: Verify it passes at HEAD post-R3-fix.** `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`. If any of the R1/R2/R3 finding paragraphs trip the assertion despite the allowlist, refine the allowlist regex until clean.
 
-- [ ] **Step 4: Anti-tautology / negative-regression verification.** For each forbidden pattern, manually re-introduce one match into the spec (e.g., change `vault.decrypted_secrets` → `supabase_vault.decrypted_secrets` in a non-finding paragraph), run test → expect FAIL on that specific assertion; restore. Confirms each pattern's check is regression-catching. Do this for all 5 patterns in the table.
+- [ ] **Step 4: Anti-tautology / negative-regression verification.** For each forbidden pattern, manually re-introduce one match into the spec (e.g., change `vault.decrypted_secrets` → `supabase_vault.decrypted_secrets` in a non-finding paragraph), run test → expect FAIL on that specific assertion; restore. Confirms each pattern's check is regression-catching. Do this for all 6 patterns in the table (the 6th — unescaped LIKE — was added in R4 F10 fix).
 
 ### T4.4 — Commit
 
@@ -418,14 +420,16 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     schedule, command-contains-net.http_get + command-contains-
     vault.decrypted_secrets + command-NOT-contains-net.http_post) and
     that pre-existing non-fxav crons are preserved.
-  - pg-cron-pivot-doc-guard: R3 structural-defense calibration —
-    walks M12.1 spec + plan markdown and asserts 5 forbidden patterns
-    (supabase_vault.* schema-name drift; net.http_post verb drift;
-    cron.job_run_details.jobname column-shape drift;
-    last_start_time/last_finish_time non-existent-column drift;
-    'db push expect FAIL' migration-reapply assumption) do NOT appear
-    outside allowlisted finding-history paragraphs. Defends the
-    API-surface-verification class that recurred across R1/R2/R3.
+  - pg-cron-pivot-doc-guard: R3 structural-defense calibration +
+    R4 extension — walks M12.1 spec + plan markdown and asserts 6
+    forbidden patterns (supabase_vault.* schema-name drift;
+    net.http_post verb drift; cron.job_run_details.jobname
+    column-shape drift; last_start_time/last_finish_time non-existent-
+    column drift; 'db push expect FAIL' migration-reapply assumption
+    — narrowed in R4 F9; unescaped LIKE 'fxav_cron_%' wildcard —
+    added in R4 F10) do NOT appear outside allowlisted finding-history
+    paragraphs. Defends the API-surface-verification class that
+    recurred across R1/R2/R3/R4.
   
   All three verified against the negative-regression contract per
   feedback_negative_regression_verification + the anti-tautology rule.
@@ -477,9 +481,9 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     env var into Vercel Production scope.
   - [ ] **Step 4:** Re-run `npx supabase db push` to re-apply `schedule_cron_jobs`
     now that the GUC + Vault entry are populated. Confirm: `select jobname,
-    schedule from cron.job where jobname like 'fxav_cron_%';` returns 7 rows.
+    schedule from cron.job where jobname like 'fxav\_cron\_%' escape '\';` returns 7 rows.
   - [ ] **Step 5:** Verify the pre-existing bootstrap signing-key cron is
-    untouched: `select count(*) from cron.job where jobname not like 'fxav_cron_%';`
+    untouched: `select count(*) from cron.job where jobname not like 'fxav\_cron\_%' escape '\';`
     should return at least 1.
   - [ ] **Step 6:** **NO commit** — this is per-environment operational state,
     not source code.
@@ -540,7 +544,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
     Layer 1 (cron.job_run_details): if no recent row OR status='failed',
       the scheduler didn't fire — check that T3 migration applied (jobs
-      exist via `select jobname from cron.job where jobname like 'fxav_cron_%'`)
+      exist via `select jobname from cron.job where jobname like 'fxav\_cron\_%' escape '\'`)
       and that the cluster's pg_cron worker is running (`select pid, application_name
       from pg_stat_activity where application_name like '%cron%'`).
 
