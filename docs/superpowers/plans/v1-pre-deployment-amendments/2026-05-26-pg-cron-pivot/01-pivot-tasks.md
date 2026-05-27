@@ -83,6 +83,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 ### T2.1 — Enable `pg_net` extension
 
+- [ ] **Step 0: TDD red — verify pg-cron-coverage prereq assertion FAILS at HEAD (R7 F17 fix).** Before any migration, the meta-test must have an assertion that captures the "pg_net not yet installed" state. **Extend pg-cron-coverage.test.ts (authored fully in T4.2) with Layer 0a prerequisite assertion:** `select exists(select 1 from pg_extension where extname = 'pg_net') as installed` returns `false` at HEAD `ac752d9` (pg_net not installed). Run `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` against the validation Supabase project → expect Layer 0a assertion to FAIL (red). This is the TDD-red phase that authorizes the T2.1 migration to land. Per AGENTS.md invariant 1.
 - [ ] **Step 1: Write the migration.** File: `supabase/migrations/<ts1>_enable_pg_net.sql`:
 
   ```sql
@@ -110,6 +111,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 ### T2.2 — Create `fxav_cron_secret` Vault entry
 
+- [ ] **Step 0: TDD red — verify pg-cron-coverage prereq assertion FAILS post-T2.1 (R7 F17 fix).** **Extend pg-cron-coverage.test.ts (authored fully in T4.2) with Layer 0b prerequisite assertion:** `select exists(select 1 from vault.secrets where name = 'fxav_cron_secret') as present` returns `false` post-T2.1 apply, before T2.2 (pg_net is installed but Vault entry doesn't exist yet). Run the meta-test → expect Layer 0b assertion to FAIL (red). This is the TDD-red phase that authorizes the T2.2 migration to land. Per AGENTS.md invariant 1.
 - [ ] **Step 1: Write the migration.** File: `supabase/migrations/<ts2>_cron_secret_vault.sql`:
 
   ```sql
@@ -385,6 +387,8 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 ### T4.2 — `pg-cron-coverage.test.ts`
 
 - [ ] **Step 1: Author or extend the test from T3 Step 1.** Asserts:
+  0a. **Prerequisite Layer 0a (T2.1 red, R7 F17):** `select exists(select 1 from pg_extension where extname = 'pg_net')` returns `true`. FAILS at HEAD `ac752d9` (pg_net not installed); PASSES after T2.1 applies.
+  0b. **Prerequisite Layer 0b (T2.2 red, R7 F17):** `select exists(select 1 from vault.secrets where name = 'fxav_cron_secret')` returns `true`. FAILS post-T2.1 / pre-T2.2; PASSES after T2.2 applies.
   1. The canonical JOB_TABLE (read from `pg-cron-jobs.json`) has exactly 7 entries with the expected jobnames/schedules/routes.
   2. Live DB introspection (`select jobname, schedule, command from cron.job where jobname like 'fxav\_cron\_%' escape '\' order by jobname`) returns exactly 7 rows.
   3. For each row: jobname is in JOB_TABLE; schedule matches byte-for-byte; command contains the matching `/api/cron/<route>` substring AND contains `vault.decrypted_secrets` AND **contains `net.http_get(` (NOT `net.http_post(`)**. The http_get assertion is load-bearing: R1 F1 (HIGH, conf 0.97) caught a draft-state bug where the T3 SQL used http_post against GET-only handlers — this assertion pins the verb contract structurally so the class cannot recur silently. The `vault.decrypted_secrets` assertion (NOT `supabase_vault.decrypted_secrets`) is also load-bearing: R2 F4 (HIGH, conf 0.95) caught a draft-state bug where the migrations referenced the extension name instead of the schema name — this assertion pins the Vault-schema contract structurally.
@@ -422,8 +426,17 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   | `last_start_time\|last_finish_time` | Non-existent column drift (R2 F5) | pg_cron exposes `start_time`/`end_time` — these names came from a confused R1 draft |
   | `db push[^.\n]{0,150}expect[^.\n]{0,50}(FAIL\|fail)` (the negative-regression assertion shape, NOT general "re-apply" or "retry" text) | Migration-reapply assumption (R3 F8) | `db push` applies pending migrations only; the canonical negative-regression assertion that uses db push to re-apply an edited migration is invalid. **R4 F9 fix:** earlier draft used the broader pattern `db push.*re-?apply` which flagged legitimate Task 0.A.4.5 retry text ("Re-run `npx supabase db push` to re-apply `schedule_cron_jobs` now that GUC is populated") — that's a legitimate retry of a NOT-YET-APPLIED migration (the prior attempt failed during the GUC check, so the migration isn't tracked in `supabase_migrations.schema_migrations`). The narrowed pattern matches only the broken anti-tautology assertion shape, NOT legitimate retry text. |
   | `like '[^']*_[^']*_[^']*%'` WHEN preceded by `jobname` within 50 chars AND NOT followed by `escape '\\'` within 50 chars | Unescaped LIKE wildcard (R4 F10) | PostgreSQL LIKE: `_` is single-char wildcard. `'fxav_cron_%'` matches `fxavXcronY...` (and many other false positives). The escaped form `'fxav\_cron\_%' escape '\'` makes underscores literal. M12.1's cron.unschedule predicate + meta-test + Smoke text MUST use the escaped form to scope correctly. |
+  | `escape '\\\\'` (literal four backslashes in markdown source / two-char string at SQL level) — i.e., the doubled-backslash form for ESCAPE | Double-backslash ESCAPE clause (R6 F14 / R7 F18) | PostgreSQL `ESCAPE` clause requires a single-character escape string; `'\\'` parses as a 2-char string and errors. R5-fix introduced `escape '\\'` at Task 0.A.5 step 6a; R6 F14 caught and fixed. R7 F18 adds the structural defense so the class cannot recur silently. NOTE: in markdown source, `escape '\'` (single backslash) is what we want; `escape '\\'` is the broken form. The doc-guard regex catches the literal 4-backslash source form (which renders as 2-backslash SQL) and refuses it outside finding-history allowlists. |
 
-- [ ] **Step 2: Allowlist mechanism for finding-history paragraphs.** The spec's R1/R2/R3/R4/R5/R6 finding-history paragraphs INTENTIONALLY cite forbidden patterns as "what was wrong." Allowlist these via:
+- [ ] **Step 1a (R7 F17 TDD support for T5):** in addition to the 7 forbidden-pattern walks above, the doc-guard ALSO asserts 4 M12-plan-positive assertions on `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md` (per T5 step 0):
+  - Assertion A: file contains the literal heading `### Task 0.A.4.5: Populate Vault + set GUC + apply M12.1 migrations against validation Supabase`
+  - Assertion B: Task 0.A.5 step 3 contains the literal `CRON_SECRET` (in Vercel-Production-scope context)
+  - Assertion C: Task 0.A.4 Step 5 does NOT contain the literal `Vercel Cron Jobs run only on production deployments`
+  - Assertion D: at least one block contains the join `cron.job_run_details` AND `join cron.job` AND `on j.jobid = jrd.jobid` (the Task 0.A.4.5 step 4 verification SQL pattern)
+  
+  All 4 assertions FAIL at HEAD `ac752d9` (M12 plan not yet amended); PASS after T5 commit. The doc-guard thus serves a dual role: forbidden-pattern walker (negative) + plan-amendment positive-assertion walker.
+
+- [ ] **Step 2: Allowlist mechanism for finding-history paragraphs.** The spec's R1/R2/R3/R4/R5/R6/R7 finding-history paragraphs INTENTIONALLY cite forbidden patterns as "what was wrong." Allowlist these via:
   - Inline waiver comment within 5 lines of the match: `<!-- not-doc-guard-class: <reason> -->` OR
   - Surrounding-line patterns: lines containing "R[0-9]+ F[0-9]+", "finding history", "Repair:", "was: ", "fix:", inside an HTML comment, OR within a markdown blockquote referencing a prior round.
   Document the allowlist contract in the test's top-of-file comment so a future editor can extend it.
@@ -432,7 +445,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 3: Verify it passes at HEAD post-R3-fix.** `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`. If any of the R1/R2/R3 finding paragraphs trip the assertion despite the allowlist, refine the allowlist regex until clean.
 
-- [ ] **Step 4: Anti-tautology / negative-regression verification.** For each forbidden pattern, manually re-introduce one match into the spec (e.g., change `vault.decrypted_secrets` → `supabase_vault.decrypted_secrets` in a non-finding paragraph), run test → expect FAIL on that specific assertion; restore. Confirms each pattern's check is regression-catching. Do this for all 6 patterns in the table (the 6th — unescaped LIKE — was added in R4 F10 fix).
+- [ ] **Step 4: Anti-tautology / negative-regression verification.** For each forbidden pattern, manually re-introduce one match into the spec (e.g., change `vault.decrypted_secrets` → `supabase_vault.decrypted_secrets` in a non-finding paragraph), run test → expect FAIL on that specific assertion; restore. Confirms each pattern's check is regression-catching. Do this for all 7 patterns in the table (the 6th — unescaped LIKE — was added in R4 F10 fix; the 7th — double-backslash ESCAPE — was added in R7 F18 fix).
 
 ### T4.4 — Wire structural defenses into CI (R5 F11 fix)
 
@@ -494,14 +507,15 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     vault.decrypted_secrets + command-NOT-contains-net.http_post) and
     that pre-existing non-fxav crons are preserved.
   - pg-cron-pivot-doc-guard: R3 structural-defense calibration +
-    R4 extension — walks M12.1 spec + plan markdown and asserts 6
+    R4/R7 extension — walks M12.1 spec + plan markdown and asserts 7
     forbidden patterns (supabase_vault.* schema-name drift;
     net.http_post verb drift; cron.job_run_details.jobname
     column-shape drift; last_start_time/last_finish_time non-existent-
     column drift; 'db push expect FAIL' migration-reapply assumption
     — narrowed in R4 F9; unescaped LIKE 'fxav_cron_%' wildcard —
-    added in R4 F10) do NOT appear outside allowlisted finding-history
-    paragraphs. Defends the API-surface-verification class that
+    added in R4 F10; double-backslash ESCAPE clause — added in R7 F18)
+    do NOT appear outside allowlisted finding-history paragraphs.
+    Defends the API-surface-verification class that
     recurred across R1/R2/R3/R4.
   
   All three verified against the negative-regression contract per
@@ -525,6 +539,14 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 - Modify: `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md` (rewrite Smoke 3 steps 2 + diagnostic guidance at lines 33 + 36 for pg_cron + pg_net observability)
 
 **TDD steps:**
+
+- [ ] **Step 0: TDD red — verify pg-cron-pivot-doc-guard contains T5-specific assertions that FAIL at HEAD (R7 F17 fix).** **Extend pg-cron-pivot-doc-guard.test.ts (authored fully in T4.3) with the following M12-plan assertions** that fire against `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md`:
+  - Assertion A: contains the literal heading `### Task 0.A.4.5: Populate Vault + set GUC + apply M12.1 migrations against validation Supabase`
+  - Assertion B: at Task 0.A.5 step 3 contains the literal `CRON_SECRET` in Vercel-Production-scope context
+  - Assertion C: at Task 0.A.4 Step 5 does NOT contain the literal "Vercel Cron Jobs run only on production deployments" (replaced by env-var-scoping rationale per T5 step 3)
+  - Assertion D: contains a join `cron.job_run_details ... join cron.job ... on j.jobid = jrd.jobid` somewhere (the Task 0.A.4.5 step 4 verification SQL)
+  
+  Run `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts` against HEAD `ac752d9` → expect all 4 assertions to FAIL (the M12 plan hasn't been amended yet). This is the TDD-red phase that authorizes the T5 doc edits to land. Per AGENTS.md invariant 1.
 
 - [ ] **Step 1: Insert new Task 0.A.4.5 between Task 0.A.4 (Vercel deploy) and Task 0.A.5 (env-var wiring).** Suggested heading + body:
 
@@ -607,8 +629,8 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
        does not match the Vercel CRON_SECRET env var (fail-loud).
        A `status_code = 405` means an HTTP-method mismatch (R1 F1 regression
        — should be impossible if T4 meta-test passes).
-       A `timed_out = true` means the 30s pg_net timeout fired before Vercel
-       responded.
+       A `timed_out = true` means the 300s (5 min, matches Vercel Functions'
+       default maxDuration) pg_net timeout fired before Vercel responded.
 
     3. **Downstream side effect (the canonical proof):** the new show appears
        in `/admin` Active Shows panel. This is the binding pass criterion —
@@ -629,13 +651,14 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       from pg_stat_activity where application_name like '%cron%'`).
 
     Layer 2 (net._http_response): if no recent row, the pg_net call enqueued
-      but the worker hasn't processed it yet (rare; retry in 30s).
+      but the worker hasn't processed it yet (rare; retry in 30-60s).
       - status_code=401: CRON_SECRET mismatch — verify Vercel Production env
         var matches `select decrypted_secret from vault.decrypted_secrets
         where name = 'fxav_cron_secret'` byte-for-byte.
       - status_code=405: HTTP method mismatch — should not happen if T4
         meta-test is green; check T3 SQL for net.http_post drift.
-      - timed_out=true: handler took >30s; check Vercel Logs for the
+      - timed_out=true: handler took >300s (5 min, the pg_net timeout per
+        R6 F16); check Vercel Logs for the
         /api/cron/sync route's actual execution time.
       - error_msg present: pg_net could not reach Vercel — DNS/network
         issue at Supabase egress.
