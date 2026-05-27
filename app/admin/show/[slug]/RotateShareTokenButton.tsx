@@ -200,6 +200,12 @@ export function RotateShareTokenButton({
     );
   }
 
+  // M11.5-IMP-5 item 4 (Block-2.2 2026-05-27): aria-describedby links the
+  // destructive Confirm button to the warning paragraph's id. group-label
+  // already suffices for WCAG 2.1; the describedby provides the tighter
+  // SR experience DEFERRED.md item 4 requested. Layout pattern (outer
+  // flex-col + nested flex-wrap button row) is the canonical shape that
+  // ResetPickerEpochButton was unified onto in this same commit (item 5).
   return (
     <div
       data-testid="admin-rotate-share-token-confirm-row"
@@ -207,7 +213,10 @@ export function RotateShareTokenButton({
       aria-label="Confirm rotating the share-token for this show"
       className="flex flex-col items-end gap-2"
     >
-      <p className="text-sm text-text-subtle">
+      <p
+        id="admin-rotate-share-token-warning"
+        className="text-sm text-text-subtle"
+      >
         The existing show URL will stop working. Crew need the new URL to
         reach the page.
       </p>
@@ -217,6 +226,7 @@ export function RotateShareTokenButton({
           onClick={onConfirmClick}
           disabled={isResolving}
           aria-busy={isResolving}
+          aria-describedby="admin-rotate-share-token-warning"
           data-testid="admin-rotate-share-token-confirm-button"
           className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
         >

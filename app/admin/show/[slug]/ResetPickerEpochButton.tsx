@@ -124,35 +124,54 @@ export function ResetPickerEpochButton({ showId }: { showId: string }) {
     );
   }
 
+  // M11.5-IMP-5 items 4+5 (Block-2.2 2026-05-27): unified on Rotate's nested
+  // confirm-row layout (outer flex-col wrapper + nested flex-wrap button row)
+  // for cross-component consistency; was `flex flex-wrap items-center
+  // justify-end` (warning + buttons on one line). Outer column places the
+  // warning above the buttons, matching RotateShareTokenButton's pattern
+  // and providing clearer separation of "explanation" from "action" on
+  // wider viewports. data-testid + role="group" stay on the outer container
+  // so the existing test contract still holds.
+  //
+  // Item 4 (Block-2.2 2026-05-27): aria-describedby on the destructive
+  // Confirm button links to the warning paragraph's id. group-label already
+  // suffices for WCAG 2.1; the describedby is the tighter SR experience
+  // DEFERRED.md item 4 requested.
   return (
     <div
       data-testid="admin-reset-picker-epoch-confirm-row"
       role="group"
       aria-label="Confirm resetting picker selections for this show"
-      className="flex flex-wrap items-center justify-end gap-2"
+      className="flex flex-col items-end gap-2"
     >
-      <p className="text-sm text-text-subtle">
+      <p
+        id="admin-reset-picker-epoch-warning"
+        className="text-sm text-text-subtle"
+      >
         Every device&rsquo;s picker re-prompts on next visit.
       </p>
-      <button
-        type="button"
-        onClick={onConfirmClick}
-        disabled={isResolving}
-        aria-busy={isResolving}
-        data-testid="admin-reset-picker-epoch-confirm-button"
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {isResolving ? "Resetting…" : "Confirm reset"}
-      </button>
-      <button
-        type="button"
-        onClick={onCancelClick}
-        disabled={isResolving}
-        data-testid="admin-reset-picker-epoch-cancel-button"
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        Cancel
-      </button>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onConfirmClick}
+          disabled={isResolving}
+          aria-busy={isResolving}
+          aria-describedby="admin-reset-picker-epoch-warning"
+          data-testid="admin-reset-picker-epoch-confirm-button"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isResolving ? "Resetting…" : "Confirm reset"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancelClick}
+          disabled={isResolving}
+          data-testid="admin-reset-picker-epoch-cancel-button"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
