@@ -79,4 +79,57 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     );
     expect(present).toBe("t");
   });
+
+  // 7-job assertion (T3); T4.2 refactors JOB_TABLE to read pg-cron-jobs.json
+  // and adds active-gate + auth-header-shape + non-fxav snapshot + orphan-absent.
+  const T3_JOB_TABLE: Array<{ jobname: string; schedule: string; route: string }> = [
+    { jobname: "fxav_cron_sync", schedule: "*/5 * * * *", route: "/api/cron/sync" },
+    { jobname: "fxav_cron_keepalive", schedule: "0 12 * * *", route: "/api/cron/keepalive" },
+    { jobname: "fxav_cron_refresh_watch", schedule: "0 * * * *", route: "/api/cron/refresh-watch" },
+    { jobname: "fxav_cron_gc_watch", schedule: "15 * * * *", route: "/api/cron/gc-watch" },
+    { jobname: "fxav_cron_asset_recovery", schedule: "*/15 * * * *", route: "/api/cron/asset-recovery" },
+    { jobname: "fxav_cron_diagram_gc", schedule: "30 * * * *", route: "/api/cron/diagram-gc" },
+    { jobname: "fxav_cron_report_reaper", schedule: "0 6 * * *", route: "/api/cron/report-reaper" },
+  ];
+
+  test("cron.job has exactly 7 fxav_cron_* rows matching the canonical table", () => {
+    // Use escape '\' to make underscores literal (R4 F10 fix).
+    // Aggregate to JSON since command column contains literal newlines that
+    // would break naive split('\n') parsing.
+    const rawJson = psql(
+      String.raw`SELECT coalesce(json_agg(json_build_object('jobname', jobname, 'schedule', schedule, 'command', command) ORDER BY jobname), '[]'::json) FROM cron.job WHERE jobname LIKE 'fxav\_cron\_%' ESCAPE '\'`,
+    );
+    const rows = JSON.parse(rawJson) as Array<{ jobname: string; schedule: string; command: string }>;
+
+    expect(rows).toHaveLength(T3_JOB_TABLE.length);
+
+    const canonicalByName = new Map(T3_JOB_TABLE.map((j) => [j.jobname, j]));
+    for (const row of rows) {
+      const canonical = canonicalByName.get(row.jobname);
+      expect(canonical, `jobname ${row.jobname} missing from canonical JOB_TABLE`).toBeDefined();
+      if (!canonical) continue;
+      expect(row.schedule, `schedule mismatch for ${row.jobname}`).toBe(canonical.schedule);
+      // command-contains assertions (T4.2 adds the FORBIDDEN `net.http_post(` inverse assertion)
+      expect(row.command, `${row.jobname} command should contain net.http_get(`).toContain(
+        "net.http_get(",
+      );
+      expect(row.command, `${row.jobname} command should reference vault.decrypted_secrets`).toContain(
+        "vault.decrypted_secrets",
+      );
+      expect(row.command, `${row.jobname} command should contain Bearer auth header`).toContain(
+        "'Bearer '",
+      );
+      expect(row.command, `${row.jobname} command should reference the canonical route`).toContain(
+        canonical.route,
+      );
+    }
+  });
+
+  // Orphan-absent (R25 F49 + R26 F51): cleanup-bootstrap-nonces unscheduled by T3.
+  test("cleanup-bootstrap-nonces orphan cron has been unscheduled", () => {
+    const count = psql(
+      "SELECT count(*) FROM cron.job WHERE jobname = 'cleanup-bootstrap-nonces'",
+    );
+    expect(count).toBe("0");
+  });
 });
