@@ -454,6 +454,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - **Pattern 5 (db-push-reapply migration assumption):** flags the broken anti-tautology assertion shape that claims db push re-executes tracked migrations. db push only applies pending migrations per Supabase CLI docs. Narrowed to assertion-shape only (NOT general retry text). Caught: R3 F8. Refined: R4 F9.
   - **Pattern 6 (unescaped LIKE wildcard):** flags `jobname LIKE 'X_X_X_%'` patterns without an `ESCAPE` clause. PostgreSQL LIKE treats `_` as single-char wildcard; queries need escape clause to scope literally. Caught: R4 F10. Refined lookahead direction: R10 F26.
   - **Pattern 7 (double-backslash ESCAPE clause drift):** flags PostgreSQL `ESCAPE` clauses with 2-char escape strings (which error at the SQL level — ESCAPE requires 1-char). Caught: R6 F14. Structural defense added: R7 F18.
+  - **Pattern 8 (secret-bearer reveal via `decrypted_secret` SELECT):** flags `select decrypted_secret from vault.decrypted_secrets` outside the cron schedule body context (the schedule body legitimately reads the secret to construct the auth header; any OTHER use exposes the bearer in SQL editor / browser / session history — same exposure class as R23 F47 SQL-statement leak). Allowed contexts: inside a `cron.schedule()` body's `format($body$ ... $body$, ...)` block; inside the `tests/cross-cutting/pg-cron-coverage.test.ts` test file (self-excluded from walk); inside finding-history paragraphs. Caught: R24 F48. Regex source lives in the test file (FORBIDDEN_PATTERNS const array, position 8).
 
 - [ ] **Step 1a (R9 F23 fix — sequencing correction):** the 9 M12-plan-positive assertions (A-I, R7 F17 + R8 F20 fix) are **NOT** in this file. R7-R8 drafts put them here, but T4 commits BEFORE T5; landing the doc-guard with A-I assertions would create immediate CI failure (assertions fail at T4 commit boundary because T5 hasn't edited the M12 plan tree yet) — violating TDD-green-at-commit discipline and breaking the new x6 audit on its first run.
   
@@ -895,9 +896,23 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       by timestamp proximity per R9 F24): if no recent response row, the
       pg_net call enqueued but the worker hasn't processed it yet (rare;
       retry in 30-60s).
-      - status_code=401: CRON_SECRET mismatch — verify Vercel Production env
-        var matches `select decrypted_secret from vault.decrypted_secrets
-        where name = 'fxav_cron_secret'` byte-for-byte.
+      - status_code=401: CRON_SECRET mismatch between Vercel env var and
+        Vault entry. **R24 F48 fix — DO NOT verify by selecting decrypted_secret;
+        that exposes the bearer in SQL editor / browser / session history**
+        (same class as R23 F47 SQL-statement leak; even though the bearer
+        comes from the result rather than the statement text, the result
+        display creates the same human-copy exposure surface). Instead,
+        recover by ROTATING: generate a new bearer via `openssl rand -hex
+        32`; paste it into Vault Dashboard UI (Project Settings → Vault →
+        fxav_cron_secret → Edit → Save); paste the SAME value into Vercel
+        Dashboard env-var UI for CRON_SECRET; redeploy Vercel to surface
+        the new env var. Next cron firing should return status_code=200.
+        If 401 persists post-rotation, the env-var write didn't take —
+        re-verify via Vercel Dashboard (NOT a CLI command that could show
+        the value), and ensure the Vault entry's "updated_at" reflects
+        the rotation (`select name, description, updated_at from
+        vault.secrets where name = 'fxav_cron_secret';` is safe — no
+        decrypted_secret returned).
       - status_code=405: HTTP method mismatch — should not happen if T4
         meta-test is green; check T3 SQL for net.http_post drift.
       - timed_out=true: pg_net worker abandoned the request (version-
