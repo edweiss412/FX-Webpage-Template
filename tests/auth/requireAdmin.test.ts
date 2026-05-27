@@ -7,6 +7,16 @@ const nav = vi.hoisted(() => ({
   notFound: vi.fn(() => {
     throw new Error("notFound()");
   }),
+  redirect: vi.fn((url: string) => {
+    throw new Error(`redirect(${url})`);
+  }),
+}));
+
+const nextHeaders = vi.hoisted(() => ({
+  store: new Map<string, string>(),
+  headers: vi.fn(async () => ({
+    get: (name: string) => nextHeaders.store.get(name.toLowerCase()) ?? null,
+  })),
 }));
 
 const server = vi.hoisted(() => ({
@@ -21,6 +31,11 @@ const server = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => nav);
 
+vi.mock("next/headers", () => ({
+  headers: nextHeaders.headers,
+  cookies: vi.fn(),
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: server.createSupabaseServerClient,
 }));
@@ -29,6 +44,7 @@ describe("requireAdmin", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    nextHeaders.store.clear();
     process.env.ADMIN_DEV_PANEL_ENABLED = "true";
     server.createSupabaseServerClient.mockResolvedValue(server.client);
     server.client.auth.getUser.mockResolvedValue({
@@ -63,19 +79,21 @@ describe("requireAdmin", () => {
     expect(getUserCallOrder!).toBeLessThan(rpcCallOrder!);
   });
 
-  test("rejects missing canonical email before the SQL allowlist lookup", async () => {
+  test("Block-1-finding-5: missing canonical email redirects to /auth/sign-in (unauthed, not authed-non-admin)", async () => {
     server.client.auth.getUser.mockResolvedValue({
       data: { user: { email: "   " } },
       error: null,
     });
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
 
-    await expect(requireAdmin()).rejects.toThrow("forbidden()");
+    await expect(requireAdmin()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
 
     expect(server.client.rpc).not.toHaveBeenCalled();
+    expect(nav.forbidden).not.toHaveBeenCalled();
+    expect(nav.redirect).toHaveBeenCalledTimes(1);
   });
 
-  test("treats Supabase AuthSessionMissingError as unauthenticated, not infra", async () => {
+  test("Block-1-finding-5: Supabase AuthSessionMissingError redirects to /auth/sign-in (unauthed, not 403)", async () => {
     server.client.auth.getUser.mockResolvedValue({
       data: { user: null },
       error: {
@@ -86,16 +104,64 @@ describe("requireAdmin", () => {
     });
     const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
 
-    await expect(requireAdmin()).rejects.toThrow("forbidden()");
+    await expect(requireAdmin()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
     await expect(requireAdmin()).rejects.not.toBeInstanceOf(AdminInfraError);
     expect(server.client.rpc).not.toHaveBeenCalled();
+    expect(nav.forbidden).not.toHaveBeenCalled();
   });
 
-  test("fails closed via forbidden() when public.is_admin() denies", async () => {
+  test("Block-1-finding-5 (Option B): redirect target embeds the x-pathname header when present", async () => {
+    nextHeaders.store.set("x-pathname", "/admin/settings/admins");
+    server.client.auth.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 },
+    });
+    const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+
+    await expect(requireAdmin()).rejects.toThrow(
+      `redirect(/auth/sign-in?next=${encodeURIComponent("/admin/settings/admins")})`,
+    );
+  });
+
+  test("Block-1-finding-5 (Option B safe-degrade): falls back to next=/admin when x-pathname is null", async () => {
+    // nextHeaders.store empty (default after beforeEach clear).
+    server.client.auth.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 },
+    });
+    const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+
+    await expect(requireAdmin()).rejects.toThrow(
+      `redirect(/auth/sign-in?next=${encodeURIComponent("/admin")})`,
+    );
+  });
+
+  test("Block-1-finding-5 (Option B sanitization): rejects open-redirect-shaped x-pathname, falls back to /admin", async () => {
+    // x-pathname is normally server-set, but defense-in-depth: route through
+    // validateNextParam so the redirect URL invariant holds even if header
+    // forwarding is misconfigured (the helper's allowlist regex pins shape).
+    nextHeaders.store.set("x-pathname", "//evil.example.com/phish");
+    server.client.auth.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 },
+    });
+    const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+
+    await expect(requireAdmin()).rejects.toThrow(
+      `redirect(/auth/sign-in?next=${encodeURIComponent("/admin")})`,
+    );
+  });
+
+  test("security boundary preserved: authed-but-not-admin still returns 403 via forbidden()", async () => {
+    // is_admin RPC returns false → the user IS signed in but lacks admin role.
+    // This is an authorization denial (correct security boundary). MUST NOT
+    // redirect to sign-in (that would leak that a sign-in could grant access
+    // when in fact the user already has a session).
     server.client.rpc.mockResolvedValue({ data: false, error: null });
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toThrow("forbidden()");
+    expect(nav.redirect).not.toHaveBeenCalled();
   });
 
   test("R17 #1: surfaces AdminInfraError when is_admin RPC errors (not forbidden)", async () => {

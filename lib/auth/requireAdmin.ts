@@ -19,11 +19,47 @@
  * uses `requireAdminIdentity()` so reports.reported_by can store the
  * canonical admin email required by §13.2.3 / AC-8.2.
  */
-import { forbidden } from "next/navigation";
+import { forbidden, redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
+import { validateNextParam, DEFAULT_AUTH_NEXT_PATH } from "@/lib/auth/validateNextParam";
+
+/**
+ * Block-1-finding-5 helper (2026-05-27): UNAUTHED admin paths redirect to
+ * /auth/sign-in?next=<path>, preserving the post-sign-in landing. The
+ * authed-but-not-admin path STAYS on forbidden() — that's the security
+ * boundary (a 403 there must not leak that sign-in could grant access when
+ * the user already has a session).
+ *
+ * `next` value resolution (Option B per orchestrator sanity-check):
+ *   1. Read `x-pathname` from next/headers (set by Next 16's internal request
+ *      rewrites + custom middleware/proxy when present).
+ *   2. Sanitize via validateNextParam — defense-in-depth in case header
+ *      forwarding becomes attacker-influenced. The helper enforces the
+ *      ALLOWED_NEXT_RE allowlist; non-matching paths fall back to
+ *      DEFAULT_AUTH_NEXT_PATH ('/admin').
+ *   3. If headers() throws OR x-pathname is absent, fall back to '/admin'
+ *      (matches the orchestrator's "safe-degrades to Option A" requirement).
+ */
+async function redirectToSignIn(): Promise<never> {
+  let nextPath: string = DEFAULT_AUTH_NEXT_PATH;
+  try {
+    const reqHeaders = await headers();
+    const pathname = reqHeaders.get("x-pathname");
+    if (pathname) {
+      // validateNextParam returns DEFAULT_AUTH_NEXT_PATH for any path that
+      // fails its allowlist (e.g., '//evil.example.com/phish', external
+      // origins, control chars, traversal attempts).
+      nextPath = validateNextParam(pathname);
+    }
+  } catch {
+    // headers() can throw in certain render contexts; fall through with
+    // the default. Per orchestrator: safe-degrades to Option A.
+  }
+  return redirect(`/auth/sign-in?next=${encodeURIComponent(nextPath)}`);
+}
 
 /**
  * R17 #1 (round-16 §A+§B HIGH): requireAdmin distinguishes auth-negative
@@ -87,15 +123,19 @@ export async function requireAdminIdentity(): Promise<AdminIdentity> {
   }
   if (userError) {
     if (isAuthSessionMissingError(userError)) {
-      forbidden();
+      // Block-1-finding-5 (2026-05-27): UNAUTHED → redirect to sign-in
+      // (was forbidden() pre-fix; the 403 dead-ended unauthenticated
+      // visitors). The authed-but-not-admin 403 path below is unchanged
+      // — that's the security boundary.
+      await redirectToSignIn();
     }
     throw new AdminInfraError(`requireAdmin: getUser failed: ${userError.message}`);
   }
   const email = canonicalize(userData.user?.email);
   if (!email) {
-    // Confirmed unauthenticated — auth-level denial. Fail closed via
-    // forbidden() per the chokepoint contract.
-    forbidden();
+    // Confirmed unauthenticated (no email after canonicalize) — auth-level
+    // denial. Block-1-finding-5 redirect path; was forbidden() pre-fix.
+    await redirectToSignIn();
   }
 
   // Same shape: rpc() can throw (network, abort) in addition to returning
