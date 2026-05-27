@@ -122,11 +122,21 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   -- Schema: Supabase Vault's extension NAME is `supabase_vault` but its SQL
   -- surface lives in the `vault` schema (R2 F4 fix; conf 0.95). Functions:
   -- vault.create_secret(), vault.update_secret(). Tables/views: vault.secrets,
-  -- vault.decrypted_secrets. The defensive `create extension if not exists ...
-  -- with schema vault;` ensures both the extension and its schema target are
-  -- in place even if Supabase's pre-install is absent on some environment.
+  -- vault.decrypted_secrets.
+  --
+  -- Defensive bootstrap (R5 F12 fix): PostgreSQL's `CREATE EXTENSION ... WITH
+  -- SCHEMA schema_name` requires the schema to ALREADY EXIST (per PG docs at
+  -- https://www.postgresql.org/docs/current/sql-createextension.html — "The
+  -- named schema must already exist"). So a fresh environment without the
+  -- `vault` schema would fail at `create extension ... with schema vault`
+  -- before any function call could run. The two-statement form below creates
+  -- the schema first (idempotent via `if not exists`), then the extension
+  -- targeting that schema. On Supabase managed projects Vault is pre-installed
+  -- and both statements are no-ops; on any other PG environment they bootstrap
+  -- the prerequisites correctly.
   -- See sub-amendment spec §2.3 (auth contract).
   
+  create schema if not exists vault;
   create extension if not exists supabase_vault with schema vault;
   
   do $$
@@ -403,14 +413,56 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 4: Anti-tautology / negative-regression verification.** For each forbidden pattern, manually re-introduce one match into the spec (e.g., change `vault.decrypted_secrets` → `supabase_vault.decrypted_secrets` in a non-finding paragraph), run test → expect FAIL on that specific assertion; restore. Confirms each pattern's check is regression-catching. Do this for all 6 patterns in the table (the 6th — unescaped LIKE — was added in R4 F10 fix).
 
-### T4.4 — Commit
+### T4.4 — Wire structural defenses into CI (R5 F11 fix)
+
+**Critical context:** the existing CI workflow at `.github/workflows/x-audits.yml` gates PRs/pushes via per-audit-script jobs (`test:audit:x1-catalog-parity`, ..., `test:audit:x5-email-canonicalization`). It does NOT run `pnpm test tests/cross-cutting/` as a catch-all. Without wiring, the M12.1 cross-cutting tests would be green locally yet never gate PRs — the structural defense the entire R3-R4-R5 calibration depends on would be inert. R5 F11 (HIGH) caught this.
+
+**Local-only vs CI-safe classification:**
+- **CI-safe (text-only, no DB):** `no-vercel-cron.test.ts`, `pg-cron-pivot-doc-guard.test.ts` — both walk markdown / config files. Wire into CI.
+- **Local-only (requires live Supabase + applied migrations):** `pg-cron-coverage.test.ts` — queries `cron.job` table introspection. Cannot run in stock CI without a Supabase test instance (out of M12.1 scope). Mark as local-only in its top-of-file comment; run manually in Phase 0.F close-out probe.
+
+**Files:**
+- Modify: `package.json` (add new script `test:audit:x6-pg-cron-pivot`)
+- Modify: `.github/workflows/x-audits.yml` (add new job `audit-x6-pg-cron-pivot` following the x1-x5 pattern)
+
+- [ ] **Step 1: Add the audit script to `package.json`.** Position alphabetically after `test:audit:x5-email-canonicalization`:
+
+  ```json
+  "test:audit:x6-pg-cron-pivot": "vitest run tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts",
+  ```
+
+- [ ] **Step 2: Add the CI workflow job to `.github/workflows/x-audits.yml`.** Follow the structural pattern of `audit-x5-email-canonicalization` (the most-recent x-audit; copy its job shape including the checkout, setup-pnpm, install-deps, and the `pnpm test:audit:x6-pg-cron-pivot 2>&1 | tee x6-pg-cron-pivot.log` step). Add the job name to any required-jobs list at the top of the workflow if such a list exists.
+
+- [ ] **Step 3: Verify the CI gate locally.** Run `pnpm test:audit:x6-pg-cron-pivot` — confirms both tests pass against the M12.1 R5-fix repo state.
+
+- [ ] **Step 4: Verify the CI workflow file is valid.** `gh workflow view x-audits.yml --yaml` (or visual inspection) — confirm YAML syntax is correct.
+
+- [ ] **Step 5: Document pg-cron-coverage as local-only.** Add a top-of-file comment to `tests/cross-cutting/pg-cron-coverage.test.ts`:
+
+  ```ts
+  /**
+   * LOCAL-ONLY: this test requires a live Supabase project with pg_cron + pg_net
+   * + supabase_vault extensions installed AND the M12.1 T3 migration applied.
+   * NOT wired into CI (would require a Supabase test instance — out of M12.1
+   * scope, deferred to a future sub-amendment if needed).
+   *
+   * Run manually before declaring M12 Phase 0.F close-out: `pnpm test
+   * tests/cross-cutting/pg-cron-coverage.test.ts` against the validation
+   * Supabase project (.env.local must point at the validation env).
+   *
+   * The CI-safe defenses (no-vercel-cron + pg-cron-pivot-doc-guard) are gated
+   * via `pnpm test:audit:x6-pg-cron-pivot` in .github/workflows/x-audits.yml.
+   */
+  ```
+
+### T4.5 — Commit
 
 - [ ] **Step 1: Commit.**
 
   ```bash
-  git add tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-coverage.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json
+  git add tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-coverage.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json package.json .github/workflows/x-audits.yml
   git commit -m "$(cat <<'EOF'
-  test(cross-cutting): pin no-vercel-cron + pg-cron-coverage + pg-cron-pivot-doc-guard invariants (M12.1 T4)
+  test(cross-cutting)+ci(x-audits): pin pg_cron pivot invariants + wire CI gate (M12.1 T4)
   
   Three structural meta-tests defend the pivot:
   - no-vercel-cron: asserts vercel.json has no crons key + no
@@ -470,9 +522,12 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     in Task 0.A.2. The `schedule_cron_jobs` migration WILL FAIL with a
     `app.fxav_vercel_url GUC must be set` exception on first run; this is
     intentional (fail-loud) — proceed to Step 2.
-  - [ ] **Step 2:** Set the GUC: in the Supabase SQL editor, run
-    `alter database postgres set app.fxav_vercel_url = '<captured *.vercel.app URL from Task 0.A.4>';`
-    The setting takes effect on new connections to the database.
+  - [ ] **Step 2:** Set the GUC to the STABLE PROJECT ALIAS (R5 F13): in the Supabase SQL editor, run
+    `alter database postgres set app.fxav_vercel_url = 'https://<project-name>.vercel.app';`
+    where `<project-name>.vercel.app` is the stable project alias captured in Task 0.A.4 step 4
+    (NOT the per-deployment URL with hash + team suffix). The alias auto-points at the latest
+    production deployment, so subsequent redeploys transparently route cron traffic to the
+    current code + env vars. The setting takes effect on new connections to the database.
   - [ ] **Step 3:** Populate the Vault secret: generate a strong random bearer
     token (e.g., `openssl rand -hex 32`). In the Supabase SQL editor, run
     `select vault.update_secret(<id-from-vault.secrets>, '<token>', 'fxav_cron_secret', '...');`
@@ -490,6 +545,10 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   ```
 
 - [ ] **Step 2: Amend Task 0.A.5 step 3 to include `CRON_SECRET`.** Existing text says "Paste the captured Supabase values from 0.A.1 + 0.A.4 into the corresponding rows the §9.1.2 reseed row names." Add a sentence after that: "Additionally set `CRON_SECRET` in Vercel Production scope to the same bearer-token value populated into the validation Supabase Vault in Task 0.A.4.5 step 3. The byte-for-byte match is load-bearing: `app/api/cron/_auth.ts:7` compares the incoming `Authorization` header against `process.env.CRON_SECRET`, and the cron job bodies pass the Vault-stored value as the bearer; mismatched values produce 401 from every cron firing (fail-loud)."
+
+- [ ] **Step 2a: Amend Task 0.A.4 Step 4 to specify STABLE PROJECT ALIAS (R5 F13 fix).** Existing text says "Capture the production `*.vercel.app` URL (the canonical one — NOT a preview URL)." This is ambiguous between (a) the stable project alias `<project-name>.vercel.app` (e.g., `fxav-crew-pages-validation.vercel.app`) which Vercel automatically maintains as a pointer to the latest production deployment, and (b) the per-deployment immutable URL `<project-name>-<hash>-<team>.vercel.app` (e.g., `fxav-crew-pages-validation-abc123-eric-weiss-projects.vercel.app`) which `vercel deploy` outputs. The pg_cron + pg_net architecture bakes this URL into `cron.job.command` at T3 migration time (via `app.fxav_vercel_url` GUC + format() substitution); using the per-deployment URL means subsequent redeploys leave the cron firing against the OLD deployment with OLD env vars + OLD code, indefinitely. Amend Step 4 to: "Capture the **stable project production alias** `<project-name>.vercel.app` (e.g., `fxav-crew-pages-validation.vercel.app`) — NOT the per-deployment URL output by `vercel deploy`. Verify via `npx vercel project ls` showing the project's primary domain, OR by checking the Vercel dashboard for the project's stable production URL. The alias auto-points at the latest production deployment, so subsequent redeploys (Task 0.A.5 step 6) transparently route cron traffic to the current code + env vars."
+
+- [ ] **Step 2b: Add Task 0.A.5 step 6a — verify baked cron URL is the stable alias (R5 F13 fix).** Insert after Task 0.A.5 step 6 (the trigger-redeploy step): "Inspect the baked URL in `cron.job.command` post-redeploy: in Supabase SQL editor, run `select jobname, substring(command from 'url := ''([^'']+)''') as baked_url from cron.job where jobname like 'fxav\\_cron\\_%' escape '\\';`. Confirm every row's `baked_url` matches the stable project alias `<project-name>.vercel.app` exactly — NOT a per-deployment URL with a hash + team suffix. If any row shows a per-deployment URL, T3 migration was applied with a stale GUC; correct via `alter database postgres set app.fxav_vercel_url = '<stable-alias>'; supabase db reset` (heavyweight) OR re-run the affected `cron.schedule()` calls manually with the corrected URL."
 
 - [ ] **Step 3: Amend `01-phase0-infra.md:75` (Task 0.A.4 Step 5) Vercel-Cron-rationale.** Existing text says: "Verify the deployment is 'Production-target' — Vercel project page should show the URL labeled 'Production' (not 'Preview'). This matters because Vercel Cron Jobs run only on production deployments (smoke test 3)." Replace the trailing clause: "This matters because runtime env vars (including `CRON_SECRET`) are scoped to production deployments; the pg_cron + pg_net architecture (M12.1) calls the production URL specifically, and a preview URL would 401 every cron firing." Preserves the production-vs-preview gate; updates the rationale.
 
