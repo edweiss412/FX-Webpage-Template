@@ -283,6 +283,12 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify generated admin tables file is fresh
+        if: github.event_name != 'schedule'
+        run: |
+          pnpm gen:admin-tables
+          git diff -- lib/audit/admin-tables.generated.ts > x6-admin-tables-generated.diff
+          git diff --exit-code lib/audit/admin-tables.generated.ts
       - name: Run X.6 pg-cron-pivot audit
         shell: bash
         run: |
@@ -295,6 +301,7 @@ jobs:
           name: x6-pg-cron-pivot-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
           if-no-files-found: warn
           path: |
+            x6-admin-tables-generated.diff
             x6-pg-cron-pivot.log
 
   verify-branch-protection:

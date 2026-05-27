@@ -120,7 +120,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Branch protection no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     "followUp": "Eric → restore branch protection per X.6 contract",
-    "helpfulContext": "The privileged branch-protection monitor queried GitHub and found that the main-branch protection no longer matches the X.6 contract: one of the seven required checks is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes/deletions are allowed. Restore the branch protection settings for main so pull requests cannot merge without the full X.* audit suite.",
+    "helpfulContext": "The privileged branch-protection monitor queried GitHub and found that the main-branch protection no longer matches the X.6 contract: one of the eight required checks is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes/deletions are allowed. Restore the branch protection settings for main so pull requests cannot merge without the full X.* audit suite.",
   },
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED": {
     "crewFacing": null,
