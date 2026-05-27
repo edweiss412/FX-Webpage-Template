@@ -671,19 +671,39 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       guard. Required for AGENTS.md invariant 1 TDD per task (R11 F29
       same-target red/green cycle).
     - **Mode `validation` (Task 0.A.4.5 step 5a):** the test asserts at
-      setup time that `TEST_DATABASE_URL` is set AND does NOT contain
-      `localhost`, `127.0.0.1`, or `:54322` AND DOES contain the
-      validation project ref captured in Task 0.A.1. If any guard fails,
-      the test errors with a clear "validation env not targeted —
-      refusing to run" message. This prevents the silent local-target
-      fallthrough class while preserving the local TDD path.
+      setup time that THREE env vars are all set + consistent (R17 F38):
+      1. `PG_CRON_COVERAGE_TARGET=validation` (mode selector)
+      2. `TEST_DATABASE_URL` is set AND does NOT contain `localhost`,
+         `127.0.0.1`, or `:54322`
+      3. `VALIDATION_SUPABASE_PROJECT_REF` is set (the project ref
+         captured in Task 0.A.1 — already documented in `.env.local`
+         per the M12 plan §9.1.2 env-var contract)
+      4. `TEST_DATABASE_URL` contains the LITERAL value of
+         `VALIDATION_SUPABASE_PROJECT_REF` as a substring (the project
+         ref appears in pooler URLs as `<project-ref>.pooler.supabase.com`
+         or in direct URLs as `db.<project-ref>.supabase.co`)
+      
+      If any of the 4 guards fails, the test errors with a clear
+      "validation env not targeted — refusing to run" message + which
+      guard failed. This prevents BOTH the silent-local-target
+      fallthrough AND the silent-wrong-remote-project fallthrough
+      (without the project-ref source from env var #3, the guard could
+      only check "not local" — allowing a different remote project to
+      pass).
     
     **Operator invocation at Task 0.A.4.5 step 5a:**
     ```bash
     PG_CRON_COVERAGE_TARGET=validation \
       TEST_DATABASE_URL="<validation-project-pooler-URL>" \
+      VALIDATION_SUPABASE_PROJECT_REF="<project-ref-from-Task-0.A.1>" \
       pnpm test tests/cross-cutting/pg-cron-coverage.test.ts
     ```
+    
+    The `VALIDATION_SUPABASE_PROJECT_REF` value should already be in
+    `.env.local` per the §9.1.2 canonical env-var contract (R35 commit
+    71 documented it as part of the validation env-var set). For this
+    test invocation, source it from `.env.local` and pass explicitly via
+    env-var prefix (Vitest doesn't auto-load `.env.local`).
     
     **Operator invocation at T2.1/T2.2/T3 local TDD cycles** (R11 F29
     same-target):
