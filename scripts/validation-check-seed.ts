@@ -18,7 +18,13 @@ import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
-import { R_COMBOS, SW_COMBOS, type Combo } from "./lib/validation-fixtures";
+import {
+  R_COMBOS,
+  SW_COMBOS,
+  buildFixtures,
+  type Combo,
+  type FixtureRow,
+} from "./lib/validation-fixtures";
 
 const USAGE = `Usage: pnpm validation:check-seed [--combo <id>|all] [--allow-local-override] [--today YYYY-MM-DD] [--help]
 
@@ -265,7 +271,7 @@ async function runChecks(
     }
   )
     .from("shows")
-    .select("id,drive_file_id,archived,published")
+    .select("id,drive_file_id,archived,published,dates")
     .like("drive_file_id", "validation_%");
   if (showsRes.error) {
     throw new Error(
@@ -277,6 +283,7 @@ async function runChecks(
     drive_file_id: string;
     archived: boolean;
     published: boolean;
+    dates: Record<string, unknown> | null;
   };
   const shows = (showsRes.data ?? []) as ShowRow[];
   for (const s of shows) {
@@ -351,7 +358,9 @@ async function runChecks(
     }
   )
     .from("crew_members")
-    .select("id,show_id,name,email,claimed_via_oauth_at")
+    .select(
+      "id,show_id,name,email,claimed_via_oauth_at,date_restriction,stage_restriction",
+    )
     .in("show_id", shows.map((s) => s.id));
   if (cmRes.error) {
     throw new Error(
@@ -364,6 +373,8 @@ async function runChecks(
     name: string;
     email: string | null;
     claimed_via_oauth_at: string | null;
+    date_restriction: Record<string, unknown> | null;
+    stage_restriction: Record<string, unknown> | null;
   };
   const crewMembers = (cmRes.data ?? []) as CrewRow[];
   const crewById = new Map(crewMembers.map((c) => [c.id, c]));
@@ -480,6 +491,104 @@ async function runChecks(
       );
     }
   }
+
+  // (o) Codex Phase 0.C R3 — fixture-content match. The walk-session
+  //     gate is a Right Now state contract; check-seed must verify the
+  //     live `shows.dates` + `crew_members.date_restriction/stage_restriction/email`
+  //     match the canonical fixture-build (scripts/lib/validation-fixtures.ts).
+  //     Without this predicate, a stale same-day seed, manual edit, or
+  //     drifted FIXTURES could leave R3/R5/R7/R8/SW combos in the wrong
+  //     Right Now state while all other predicates PASS.
+  //
+  //     The fixture build internally canonicalizes R1.alias_5a_lead's
+  //     email via lib/email/canonicalize.ts, so this predicate also
+  //     subsumes the R3-F2 (medium) claim-email-equality finding —
+  //     comparing R1.alias_5a_lead.email between live DB + fixture
+  //     proves the env email matches the seeded one.
+  const expectedFixtures = buildFixtures(validationTodayIso);
+  const expectedByCombo = new Map<Combo, FixtureRow>(
+    expectedFixtures.map((fx) => [fx.combo, fx]),
+  );
+  for (const combo of requestedCombos) {
+    const expected = expectedByCombo.get(combo);
+    if (!expected) continue; // unknown combo — handled by (c)/(e)
+    const showId = showIdByCombo.get(combo);
+    if (!showId) continue; // already surfaced by (f) fail-fast
+    const show = shows.find((s) => s.id === showId);
+    if (!show) continue;
+
+    // (o.1) shows.dates deep-equal expected.dates
+    if (!deepEqual(show.dates, expected.dates as unknown)) {
+      throw new CheckSeedFailure(
+        "o",
+        `validation show ${combo} shows.dates drifted from canonical fixture. live=${JSON.stringify(show.dates)} expected=${JSON.stringify(expected.dates)}. A stale same-day seed or manual edit would falsely PASS the walk-session gate without this predicate; re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+      );
+    }
+
+    // (o.2 / o.3 / o.4) per-alias date_restriction / stage_restriction /
+    //                  email match the canonical fixture row keyed by name.
+    for (const expectedCrew of expected.crewMembers) {
+      const liveCrew = (crewByShowId.get(showId) ?? []).find(
+        (c) => c.name === expectedCrew.name,
+      );
+      if (!liveCrew) continue; // already surfaced by (f) — alias resolution
+      // dateRestriction + stageRestriction live on the fixture-row level
+      // (uniform across all crew_members per spec §3.3); compare against
+      // expected.dateRestriction / expected.stageRestriction, not the
+      // per-crew shape.
+      if (!deepEqual(liveCrew.date_restriction, expected.dateRestriction as unknown)) {
+        throw new CheckSeedFailure(
+          "o",
+          `crew_members row for ${combo}.${expectedCrew.alias} date_restriction drifted. live=${JSON.stringify(liveCrew.date_restriction)} expected=${JSON.stringify(expected.dateRestriction)}. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+        );
+      }
+      if (!deepEqual(liveCrew.stage_restriction, expected.stageRestriction as unknown)) {
+        throw new CheckSeedFailure(
+          "o",
+          `crew_members row for ${combo}.${expectedCrew.alias} stage_restriction drifted. live=${JSON.stringify(liveCrew.stage_restriction)} expected=${JSON.stringify(expected.stageRestriction)}. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+        );
+      }
+      // R3-F2 fold-in — every alias's live email must match the canonical
+      // fixture-built email (which is itself canonicalized via
+      // lib/email/canonicalize.ts). This catches the case where the
+      // operator seeded with one VALIDATION_J3_CLAIM_EMAIL then ran
+      // check-seed with another — the R1.alias_5a_lead.email would
+      // diverge between live DB and fixture.
+      if (liveCrew.email !== expectedCrew.email) {
+        throw new CheckSeedFailure(
+          "o",
+          `crew_members row for ${combo}.${expectedCrew.alias} email drifted. live=${liveCrew.email} expected=${expectedCrew.email}. ` +
+            (combo === "R1" && expectedCrew.alias === "alias_5a_lead"
+              ? "Likely cause: VALIDATION_J3_CLAIM_EMAIL was changed between seed time and check-seed time. Re-run `pnpm validation:reseed --combo R1` with the current env value."
+              : `Re-run \`pnpm validation:reseed --combo ${combo}\`.`),
+        );
+      }
+    }
+  }
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return a === b;
+  if (typeof a !== "object" || typeof b !== "object") return a === b;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const ak = Object.keys(ao).sort();
+  const bk = Object.keys(bo).sort();
+  if (ak.length !== bk.length) return false;
+  for (let i = 0; i < ak.length; i++) {
+    if (ak[i] !== bk[i]) return false;
+    if (!deepEqual(ao[ak[i] as string], bo[bk[i] as string])) return false;
+  }
+  return true;
 }
 
 async function main(): Promise<void> {

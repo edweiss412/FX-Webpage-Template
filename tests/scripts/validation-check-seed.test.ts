@@ -8,6 +8,8 @@
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import { buildFixtures } from "@/scripts/lib/validation-fixtures";
+
 const DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -63,44 +65,26 @@ function runCheckSeed(
   }
 }
 
-const R_COMBO_ALIASES = [
-  { alias: "alias_5a_lead", roleFlags: ["LEAD"] },
-  { alias: "alias_5b_lead_a1", roleFlags: ["LEAD", "A1"] },
-  { alias: "alias_5c_bo_lead", roleFlags: ["BO", "LEAD"] },
-  { alias: "alias_6a_a1", roleFlags: ["A1"] },
-  { alias: "alias_6b_v1", roleFlags: ["V1"] },
-  { alias: "alias_6c_l1", roleFlags: ["L1"] },
-  { alias: "alias_6d_bo", roleFlags: ["BO"] },
-  { alias: "alias_6e_a1_l1", roleFlags: ["A1", "L1"] },
-  { alias: "alias_6f_empty", roleFlags: [] as string[] },
-];
-
-function isRCombo(c: string): boolean {
-  return /^R\d/.test(c);
-}
-
 function mintCombo(combo: string): void {
-  const aliases = isRCombo(combo)
-    ? R_COMBO_ALIASES
-    : [{ alias: "alias_5a_lead", roleFlags: ["LEAD"] }];
+  // Build the canonical fixture for this combo via the same code path the
+  // reseed CLI uses — predicate (o) requires the live DB content to match
+  // these exact shapes. Hand-rolled flat shapes would fail (o).
+  process.env.VALIDATION_J3_CLAIM_EMAIL = REAL_CLAIM_EMAIL;
+  const allFixtures = buildFixtures(TODAY);
+  const fixture = allFixtures.find((f) => f.combo === combo);
+  if (!fixture) {
+    throw new Error(`mintCombo helper: no fixture for combo ${combo}`);
+  }
   const payload = JSON.stringify({
-    showName: `M12 Validation — ${combo}`,
-    dates: {
-      travelIn: TODAY,
-      set: TODAY,
-      showDays: [TODAY],
-      travelOut: TODAY,
-    },
-    crewMembers: aliases.map(({ alias, roleFlags }) => ({
-      alias,
-      name: `${combo}_${alias}`,
-      email:
-        combo === "R1" && alias === "alias_5a_lead"
-          ? REAL_CLAIM_EMAIL
-          : `validation+${combo.toLowerCase()}-${alias.replace(/^alias_/, "").replace(/_/g, "-")}@example.com`,
-      roleFlags,
-      dateRestriction: { kind: "none" },
-      stageRestriction: { kind: "none" },
+    showName: fixture.showName,
+    dates: fixture.dates,
+    crewMembers: fixture.crewMembers.map((c) => ({
+      alias: c.alias,
+      name: c.name,
+      email: c.email,
+      roleFlags: c.roleFlags,
+      dateRestriction: fixture.dateRestriction,
+      stageRestriction: fixture.stageRestriction,
     })),
     validationTodayIso: TODAY,
     seededBy: "validation-check-seed.test.ts",
@@ -273,6 +257,49 @@ describe("validation-check-seed", () => {
     expect(res.code).toBe(1);
     expect(res.stderr).toMatch(/predicate \(f\)/);
     expect(res.stderr).toMatch(/Cross-combo alias poisoning|expected show/);
+  });
+
+  test("R3-F1 (Codex Phase 0.C R3) — exits 1 when shows.dates drifts from canonical fixture (predicate o)", () => {
+    mintCombo("R1");
+    // Mutate shows.dates to a different canonical shape — predicate (o)
+    // must catch even though predicates (a)-(n) all PASS.
+    runPsql(`
+      UPDATE public.shows
+        SET dates = '{"travelIn":"2020-01-01","set":"2020-01-01","showDays":["2020-01-01"],"travelOut":"2020-01-01"}'::jsonb
+       WHERE drive_file_id = 'validation_R1';
+    `);
+    const res = runCheckSeed("R1");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(o\)/);
+    expect(res.stderr).toMatch(/shows\.dates drifted/);
+  });
+
+  test("R3-F1 (Codex Phase 0.C R3) — exits 1 when crew.date_restriction drifts (predicate o)", () => {
+    mintCombo("R1");
+    runPsql(`
+      UPDATE public.crew_members
+        SET date_restriction = '{"kind":"unknown_asterisk"}'::jsonb
+       WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
+         AND name = 'R1_alias_5a_lead';
+    `);
+    const res = runCheckSeed("R1");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(o\)/);
+    expect(res.stderr).toMatch(/date_restriction drifted/);
+  });
+
+  test("R3-F2 (Codex Phase 0.C R3) — exits 1 when R1.alias_5a_lead.email diverges from env (predicate o)", () => {
+    // Seed R1 with the canonical real-gmail email.
+    mintCombo("R1");
+    // Operator runs check-seed with a DIFFERENT canonical email (also real).
+    // Predicate (o) must catch the drift because the canonicalized env
+    // value no longer matches what the FIXTURES build expects.
+    const res = runCheckSeed("R1", {
+      VALIDATION_J3_CLAIM_EMAIL: "different.real.user@gmail.com",
+    });
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(o\)/);
+    expect(res.stderr).toMatch(/email drifted/);
   });
 
   test("F1 fail-fast — exits 1 when validation_<combo> show is missing entirely", () => {
