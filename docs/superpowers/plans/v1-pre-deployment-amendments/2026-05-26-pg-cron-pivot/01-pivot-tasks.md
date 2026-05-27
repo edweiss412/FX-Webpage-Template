@@ -476,32 +476,20 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 4: Anti-tautology / negative-regression + positive-regression verification (R13 F33 structural-defense calibration).** Same-vector recurrence tracker: "structural defense regex catches its own walked surface" has now hit 4 times (R4 F9 db push regex too broad; R6 F15 self-scan; R10 F26 LIKE/ESCAPE lookahead direction; R13 F33 net.http_post / supabase_vault. bare references in inverse assertions). Comprehensive structural defense: every forbidden pattern must have BOTH a negative-regression test (introduce a violation → expect FAIL) AND a positive-regression test (introduce a legitimate near-violation in a non-finding-history non-SQL-call context → expect PASS). The bidirectional regression-set proves the pattern catches real drift WITHOUT false-positiving on legitimate prose.
   
-  For all 7 forbidden patterns, write paired regression cases:
+  **R14 F35 fix — regression fixtures live in the test file, NOT in this plan markdown.** Earlier R13-fix inlined paired-case examples here, but this file is in the doc-guard's walked surface; embedding the forbidden patterns as fixtures (even labeled as "negative case") triggers the doc-guard against itself (5th hit of structural-defense-self-inconsistency class — same shape as R4 F9 / R6 F15 / R10 F26 / R13 F33). Comprehensive structural defense for the class: ALL regression fixtures live in the self-excluded test file (`tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`). Plan markdown describes the discipline; test file owns the literal cases.
   
-  - **Pattern 1 (supabase_vault.SQL-call):**
-    - Negative: introduce `supabase_vault.create_secret(...)` SQL call → FAIL
-    - Positive: prose "the registry forbids supabase_vault.create_secret in SQL function-call contexts" → PASS (bare prose mention, no `(` follow)
-  - **Pattern 2 (net.http_post SQL-call):**
-    - Negative: introduce `net.http_post(...)` SQL call → FAIL
-    - Positive: prose "command does NOT contain net.http_post" → PASS (no `(` follow)
-  - **Pattern 3 (cron.job_run_details.jobname):**
-    - Negative: introduce `from cron.job_run_details where jobname = 'x'` → FAIL
-    - Positive: prose "`cron.job_run_details` has no jobname column" → PASS (no `where jobname` clause within 200 chars)
-  - **Pattern 4 (last_start_time / last_finish_time):**
-    - Negative: introduce `select last_start_time from cron.job_run_details` → FAIL
-    - Positive: prose "Pattern 4 forbids last_start_time" → PASS (regression test will need the literal in test setup; T4.1 self-exclusion handles)
-  - **Pattern 5 (db push expect FAIL):**
-    - Negative: introduce "db push, expect this assertion to FAIL" → FAIL
-    - Positive: prose "Re-run `db push` to re-apply" → PASS (narrowed regex avoids generic re-apply text)
-  - **Pattern 6 (unescaped LIKE):**
-    - Negative: `where jobname like 'fxav_cron_%'` (no escape) → FAIL
-    - Positive 1: `where jobname like 'fxav\_cron\_%' escape '\'` (correct single-backslash) → PASS
-    - Positive 2: `where jobname like 'fxav\_cron\_%' escape '\\'` (broken double-backslash) → FAIL pattern 7 (caught here, not pattern 6)
-  - **Pattern 7 (double-backslash ESCAPE):**
-    - Negative: `escape '\\'` (double backslash) → FAIL
-    - Positive: `escape '\'` (correct single backslash) → PASS
+  For all 7 forbidden patterns, the test file owns paired regression cases — semantic descriptions only here, fixture literals in the test file:
+  - **Pattern 1 (Vault extension-name-as-schema drift):** negative case = SQL function-call/table-access fixture; positive case = bare prose mention
+  - **Pattern 2 (HTTP POST verb drift):** negative case = SQL function-call fixture; positive case = bare prose / inverse-assertion text
+  - **Pattern 3 (jobname-on-job_run_details column-shape drift):** negative case = un-joined query fixture; positive case = prose noting the column is on cron.job
+  - **Pattern 4 (non-existent pg_cron column names drift):** negative case = SELECT on non-existent column fixture; positive case = prose listing the pattern by number
+  - **Pattern 5 (db-push-reapply migration assumption):** negative case = the broken anti-tautology assertion fixture; positive case = legitimate retry text (re-apply after pending-migration failure)
+  - **Pattern 6 (unescaped LIKE wildcard):** negative case = unescaped jobname-LIKE fixture; positive 1 = correct single-backslash escaped form; positive 2 = double-backslash form (caught by pattern 7)
+  - **Pattern 7 (double-backslash ESCAPE clause):** negative case = double-backslash escape fixture; positive case = single-backslash escape
   
-  Run all 7 paired regression cases; verify each negative produces FAIL on the named pattern + each positive produces PASS. This is the structural calibration that closes the same-vector "doc-guard too broad" class.
+  All 14+ fixtures live in `tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts` (self-excluded from the walk per T4.3 step 2). The test file constructs each fixture as a temporary in-memory string, runs the doc-guard's regex set against it, and asserts the expected pass/fail outcome. The plan markdown (this file) describes WHAT each pattern's contract is — describing forbidden-pattern semantics is allowed; embedding literal forbidden fixtures here is not.
+  
+  Run all 14+ paired regression cases via `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`. This is the structural calibration that closes the same-vector "doc-guard too broad / self-inconsistent" class definitively.
 
 ### T4.4 — Wire structural defenses into CI (R5 F11 fix)
 
@@ -567,14 +555,17 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     vault.decrypted_secrets + command-NOT-contains-net.http_post) and
     that pre-existing non-fxav crons are preserved.
   - pg-cron-pivot-doc-guard: R3 structural-defense calibration +
-    R4/R7 extension — walks M12.1 spec + plan markdown and asserts 7
-    forbidden patterns (supabase_vault.* schema-name drift;
-    net.http_post verb drift; cron.job_run_details.jobname
-    column-shape drift; last_start_time/last_finish_time non-existent-
-    column drift; 'db push expect FAIL' migration-reapply assumption
-    — narrowed in R4 F9; unescaped LIKE 'fxav_cron_%' wildcard —
-    added in R4 F10; double-backslash ESCAPE clause — added in R7 F18)
-    do NOT appear outside allowlisted finding-history paragraphs.
+    R4/R7/R10/R13/R14 extension — walks M12.1 spec + plan markdown and
+    asserts 7 forbidden patterns (semantic descriptions in plan; literal
+    regex source lives in the self-excluded test file): Vault extension-
+    name-as-schema drift (pattern 1); HTTP POST verb drift (pattern 2);
+    jobname-on-job_run_details column-shape drift (pattern 3); non-
+    existent pg_cron column names drift (pattern 4); db-push-reapply
+    migration assumption — narrowed in R4 F9 (pattern 5); unescaped
+    LIKE wildcard — added in R4 F10 (pattern 6); double-backslash
+    ESCAPE clause — added in R7 F18 (pattern 7). Each pattern has
+    bidirectional regression (negative + positive paired cases) in
+    the test file per R13 F33 + R14 F35 structural-defense calibration.
     Defends the API-surface-verification class that
     recurred across R1/R2/R3/R4.
   
