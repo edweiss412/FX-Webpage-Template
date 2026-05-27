@@ -8,7 +8,10 @@ import { parseArgs } from "node:util";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { assertProdEquivalentTarget } from "./lib/validation-target";
+import {
+  assertProdEquivalentTarget,
+  assertSupabaseTargetMatchesProjectRef,
+} from "./lib/validation-target";
 
 const USAGE = `Usage: pnpm validation:resolve-alias <combo> <alias> [--allow-local-override] [--help]
 
@@ -90,7 +93,13 @@ async function main(): Promise<void> {
 
   const supabaseUrl = requireEnv("VALIDATION_SUPABASE_URL");
   const supabaseKey = requireEnv("VALIDATION_SUPABASE_SECRET_KEY");
-  requireEnv("VALIDATION_SUPABASE_PROJECT_REF");
+  const projectRef = requireEnv("VALIDATION_SUPABASE_PROJECT_REF");
+  // F2 wrong-project guard (Codex Phase 0.C R1).
+  assertSupabaseTargetMatchesProjectRef(
+    supabaseUrl,
+    projectRef,
+    values["allow-local-override"] ?? false,
+  );
 
   const supabase = createClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false, autoRefreshToken: false },

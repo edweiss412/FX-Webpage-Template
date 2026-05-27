@@ -12,7 +12,10 @@ import { parseArgs } from "node:util";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { assertProdEquivalentTarget } from "./lib/validation-target";
+import {
+  assertProdEquivalentTarget,
+  assertSupabaseTargetMatchesProjectRef,
+} from "./lib/validation-target";
 import {
   buildFixtures,
   R_COMBOS,
@@ -161,6 +164,12 @@ async function main(): Promise<void> {
   const supabaseUrl = requireEnv("VALIDATION_SUPABASE_URL");
   const supabaseKey = requireEnv("VALIDATION_SUPABASE_SECRET_KEY");
   const supabaseProjectRef = requireEnv("VALIDATION_SUPABASE_PROJECT_REF");
+  // F2 wrong-project guard (Codex Phase 0.C R1).
+  assertSupabaseTargetMatchesProjectRef(
+    supabaseUrl,
+    supabaseProjectRef,
+    values["allow-local-override"] ?? false,
+  );
   // buildFixtures() guards VALIDATION_J3_CLAIM_EMAIL itself; abort early
   // if unset to give the actionable diagnostic before any RPC.
   requireEnv("VALIDATION_J3_CLAIM_EMAIL");

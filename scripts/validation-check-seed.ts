@@ -14,7 +14,10 @@ import { parseArgs } from "node:util";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { assertProdEquivalentTarget } from "./lib/validation-target";
+import {
+  assertProdEquivalentTarget,
+  assertSupabaseTargetMatchesProjectRef,
+} from "./lib/validation-target";
 import { R_COMBOS, SW_COMBOS, type Combo } from "./lib/validation-fixtures";
 
 const USAGE = `Usage: pnpm validation:check-seed [--combo <id>|all] [--allow-local-override] [--today YYYY-MM-DD] [--help]
@@ -370,9 +373,30 @@ async function runChecks(
     crewByShowId.get(c.show_id)!.push(c);
   }
 
-  // (f) alias resolution + email-non-null + show-not-archived
+  // F1 fail-fast (Codex Phase 0.C R1) — every requested combo must have a
+  // matching validation_<combo> show. Without this, predicate (f) below
+  // would silently skip the combo-binding check when showIdByCombo.get
+  // returns undefined.
+  for (const combo of requestedCombos) {
+    const showId = showIdByCombo.get(combo);
+    if (showId === undefined) {
+      throw new CheckSeedFailure(
+        "f",
+        `validation show 'validation_${combo}' is missing — alias_map[${combo}] would resolve to crew rows from another show or none at all. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+      );
+    }
+  }
+
+  // (f) alias resolution + email-non-null + show-not-archived +
+  //     F1 combo-binding (Codex Phase 0.C R1): every crew row resolved
+  //     from alias_map[combo] MUST live on the validation_<combo> show.
+  //     Without this, a corrupted alias_map could point R2 keys at R1
+  //     crew IDs and predicate (f) would PASS (the crew row exists, has
+  //     an email, and the show is not archived — but it's the wrong
+  //     combo's show).
   for (const combo of requestedCombos) {
     const slice = row.alias_map[combo] ?? {};
+    const expectedShowId = showIdByCombo.get(combo)!;
     for (const [alias, id] of Object.entries(slice)) {
       const crew = crewById.get(id);
       if (!crew) {
@@ -381,10 +405,27 @@ async function runChecks(
           `alias_map[${combo}][${alias}]=${id} but no crew_members row with that id — re-run \`pnpm validation:reseed --combo ${combo}\`.`,
         );
       }
+      if (crew.show_id !== expectedShowId) {
+        throw new CheckSeedFailure(
+          "f",
+          `alias_map[${combo}][${alias}]=${id} resolves to crew row '${crew.name}' on show ${crew.show_id} but expected show ${expectedShowId} (validation_${combo}). Cross-combo alias poisoning — re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+        );
+      }
       if (crew.email === null || crew.email.length === 0) {
         throw new CheckSeedFailure(
           "f",
           `crew_members row for ${combo}.${alias} has email IS NULL — picker eligibility broken.`,
+        );
+      }
+      // Bind alias to the canonical fixture name `<combo>_<alias>`
+      // (per FIXTURES build in scripts/lib/validation-fixtures.ts).
+      // A row at the right show but with the wrong name would still
+      // pass the show_id check above; this assertion closes that gap.
+      const expectedName = `${combo}_${alias}`;
+      if (crew.name !== expectedName) {
+        throw new CheckSeedFailure(
+          "f",
+          `alias_map[${combo}][${alias}]=${id} resolves to crew row '${crew.name}' but expected '${expectedName}' per the canonical fixture build. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
         );
       }
       const show = shows.find((s) => s.id === crew.show_id);
@@ -466,6 +507,12 @@ async function main(): Promise<void> {
   const supabaseUrl = requireEnv("VALIDATION_SUPABASE_URL");
   const supabaseKey = requireEnv("VALIDATION_SUPABASE_SECRET_KEY");
   const projectRef = requireEnv("VALIDATION_SUPABASE_PROJECT_REF");
+  // F2 wrong-project guard (Codex Phase 0.C R1).
+  assertSupabaseTargetMatchesProjectRef(
+    supabaseUrl,
+    projectRef,
+    values["allow-local-override"] ?? false,
+  );
   const j3ClaimEmail = requireEnv("VALIDATION_J3_CLAIM_EMAIL");
   const validationTodayIso =
     values.today ?? new Date().toISOString().slice(0, 10);

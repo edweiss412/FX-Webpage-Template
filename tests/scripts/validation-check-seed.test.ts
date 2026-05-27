@@ -253,4 +253,37 @@ describe("validation-check-seed", () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toMatch(/OK: seed matches today/);
   });
+
+  test("F1 (Codex Phase 0.C R1) — exits 1 when alias_map[R2] points at R1 crew IDs (cross-combo poisoning)", () => {
+    // Setup: mint both R1 + R2, then corrupt R2's alias_map slice to
+    // reference R1's crew UUIDs. Predicate (f) must reject because the
+    // crew row's show_id won't match validation_R2.
+    mintCombo("R1");
+    mintCombo("R2");
+    runPsql(`
+      UPDATE public.validation_state
+        SET alias_map = jsonb_set(
+          alias_map,
+          '{R2}',
+          alias_map->'R1'
+        )
+       WHERE key = 'validation_seed';
+    `);
+    const res = runCheckSeed("R2");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(f\)/);
+    expect(res.stderr).toMatch(/Cross-combo alias poisoning|expected show/);
+  });
+
+  test("F1 fail-fast — exits 1 when validation_<combo> show is missing entirely", () => {
+    // Setup: mint R1, then DELETE the show row (cascades to crew_members)
+    // but leave alias_map[R1] in place. Predicate (f) fail-fast must
+    // surface "validation show is missing" rather than silently skipping.
+    mintCombo("R1");
+    runPsql(`DELETE FROM public.shows WHERE drive_file_id = 'validation_R1';`);
+    const res = runCheckSeed("R1");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(f\)/);
+    expect(res.stderr).toMatch(/validation show.*is missing/);
+  });
 });
