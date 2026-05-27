@@ -16,7 +16,15 @@ Pivot the FXAV production cron architecture from Vercel Cron to Supabase `pg_cro
 
 ## What "DONE" means for this sub-amendment
 
-A green Phase 0.A.4 retry: `vercel deploy --prod --yes` on the `fxav-crew-pages-validation` project succeeds end-to-end and emits a `*.vercel.app` production URL. The 7 pg_cron jobs are scheduled in the validation Supabase project and observably firing (cron.job_run_details shows successful invocations within one schedule interval of activation). All structural meta-tests pass.
+**R12 F32 fix — DONE criterion aligned with R10 F27 Layer 3 sole-pass contract.** Earlier draft said "cron.job_run_details shows successful invocations" — but `cron.job_run_details.status = 'succeeded'` only proves the SQL enqueue succeeded, not that pg_net reached Vercel, the bearer auth passed, the handler ran, or the downstream side effect landed. That criterion could green-light the pivot with every HTTP call returning 401/network failure.
+
+The corrected DONE criterion:
+
+1. **Phase 0.A.4 retry green:** `vercel deploy --prod --yes` on the `fxav-crew-pages-validation` project succeeds end-to-end and emits a `*.vercel.app` stable project alias.
+2. **All structural meta-tests pass at validation env:** `pg-cron-coverage.test.ts` (Layer 0a + 0b + 7-job + anti-tautology) runs PASS against the validation Supabase project per Task 0.A.4.5 step 5a. `no-vercel-cron.test.ts` + `pg-cron-pivot-doc-guard.test.ts` + `m12-plan-pg-cron-pivot-amendment.test.ts` pass in CI via the new `audit-x6-pg-cron-pivot` job (verifiable via `workflow_dispatch` per T4.4 step 3a).
+3. **Layer 3 downstream side effect observable:** Smoke 3 against the validation project — placing a fixture sheet in the Drive watched folder results in the show appearing in `/admin` Active Shows panel within one cron interval (5 min). Layers 1 + 2 (cron.job_run_details + net._http_response) are DIAGNOSTIC ONLY per R10 F27 / R11 F28; their green state is informational, not the binding gate.
+
+**Why this matters:** items 1 + 2 prove the pivot is mechanically wired correctly. Item 3 proves the wired pipeline actually executes end-to-end against real Drive + real Vercel + real Supabase under real auth. All three must hold before declaring M12.1 DONE and handing back to the M12 Phase 0.A executor.
 
 ## Task index
 

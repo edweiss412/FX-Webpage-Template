@@ -628,6 +628,20 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - [ ] **Step 5:** Verify the pre-existing bootstrap signing-key cron is
     untouched: `select count(*) from cron.job where jobname not like 'fxav\_cron\_%' escape '\';`
     should return at least 1.
+  - [ ] **Step 5a (R12 F31 fix — validation-env meta-test apply):** Run
+    `pg-cron-coverage.test.ts` against the validation Supabase project to
+    pin the SAME contract that T2.1/T2.2/T3 proved on the local dev DB.
+    Point `.env.local` at the validation project's connection string,
+    then `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` — expect
+    PASS for all layers (0a pg_net installed, 0b vault entry, 7-job
+    assertion with command-contains-net.http_get + command-contains-
+    vault.decrypted_secrets + command-NOT-contains-net.http_post, non-
+    fxav cron preservation). Local-PASSES-validation-FAILS would surface
+    validation-specific drift in the baked command, vault access path,
+    route URLs, or any other env-specific contract divergence. Per
+    AGENTS.md cross-cutting #4 "local-passes-CI-fails is its own bug
+    class" — this step is the validation-env equivalent of CI green
+    being a separate gate from local green.
   - [ ] **Step 6:** **NO commit** — this is per-environment operational state,
     not source code.
   ```
