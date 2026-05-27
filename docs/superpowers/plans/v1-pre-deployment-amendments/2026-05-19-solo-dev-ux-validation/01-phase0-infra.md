@@ -50,6 +50,64 @@ This makes the dev an admin on the new project. The `lower(trim(email))` CHECK c
 
 ---
 
+### Task 0.A.2.5: Enable Google OAuth provider for Supabase Auth (NEW — Block-1-finding-4 2026-05-27)
+
+Per Block 1 finding 4 (handoff `Phase-0.A-block-1-closeout.md` F4) — Google OAuth provider setup was missing entirely from the original plan. Block 1 surfaced this when Task 0.A.6 sign-in returned `{"error_code":"validation_failed","msg":"Unsupported provider: provider is not enabled"}` from Supabase Auth. Three-side wiring; operational state, no commits. Verification: the Task 0.A.6 sign-in probe later proves this task succeeded end-to-end.
+
+**Files:**
+- No code changes. Google Cloud Console + Supabase Dashboard UI operations against the validation Supabase project.
+
+- [ ] **Step 1: Google Cloud Console — create OAuth 2.0 Client ID (Web application).**
+
+    Direct link: https://console.cloud.google.com/auth/clients
+
+    Use the same Google Cloud project from Task 0.A.3 (Drive service account). This OAuth Client ID is **separate** from the service account — the SA authenticates server-to-server (Drive ingestion), the OAuth Client ID authenticates browser-to-Google for user sign-in. You need both.
+
+    1. **Create Client → Application type: Web application.**
+    2. **Name:** `fxav-crew-pages-validation` (or similar — name appears in the OAuth consent screen).
+    3. **Authorized JavaScript origins** — add:
+       - `https://<stable-alias>` — your validation Vercel alias from Task 0.A.4 Step 4 (e.g., `https://fxav-crew-pages-validation.vercel.app`).
+       - `http://localhost:3000` — if you'll run `pnpm dev` against the validation Supabase locally (optional; can skip for solo-dev validation that runs entirely against the Vercel deploy).
+    4. **Authorized redirect URIs** — add EXACTLY:
+       - `https://<supabase-ref>.supabase.co/auth/v1/callback` (the validation Supabase project's auth callback URL — e.g., `https://vzakgrxqwcalbmagufjh.supabase.co/auth/v1/callback`)
+    5. **Create** → copy the **Client ID** + **Client Secret** to your locked notes / password manager.
+
+    **Additional Google Auth Platform configuration:**
+
+    - **Audience** (https://console.cloud.google.com/auth/audience):
+      - User type: **External**
+      - Publishing status: **Testing** is fine for solo-dev validation (only added test users can sign in). Switch to **Production** with brand verification for M13 launch.
+      - **Test users:** add the admin email seeded in 0.A.2 Step 4 (e.g., `edweiss412@gmail.com`).
+    - **Data Access — Scopes** (https://console.cloud.google.com/auth/scopes):
+      - `userinfo.email` (added by default)
+      - `userinfo.profile` (added by default)
+      - `openid` — **add manually** (Supabase Auth requires it; not added by default).
+
+- [ ] **Step 2: Supabase Dashboard — enable the Google provider.**
+
+    Deep link: `https://supabase.com/dashboard/project/<supabase-ref>/auth/providers?provider=Google` (per Supabase docs at https://supabase.com/docs/guides/auth/social-login/auth-google — the canonical UI surface for provider toggles).
+
+    1. Toggle **Enable Sign in with Google** on.
+    2. Paste **Client ID** from Step 1.
+    3. Paste **Client Secret** from Step 1.
+    4. **Save.**
+
+    Per `feedback_verify_dashboard_nav_before_guiding.md`: the deep-link URL form `/dashboard/project/<ref>/auth/providers?provider=Google` is the verified stable anchor; do not project sidebar walk-throughs from training data.
+
+- [ ] **Step 3: Supabase Dashboard — configure Site URL (auth redirects).**
+
+    Deep link: `https://supabase.com/dashboard/project/<supabase-ref>/auth/url-configuration`.
+
+    1. **Site URL:** set to `https://<stable-alias>` (e.g., `https://fxav-crew-pages-validation.vercel.app`). This is the default redirect target for OAuth completion + email links.
+    2. **Redirect URLs:** confirm the Site URL is in the allowlist. Add `http://localhost:3000` if running local dev against the validation Supabase.
+    3. **Save.**
+
+- [ ] **Step 4: Verification** — the Task 0.A.6 sign-in probe later proves this task succeeded end-to-end. If Step 7 of Task 0.A.5 or Step 2 of Task 0.A.6 returns `{"error_code":"validation_failed","msg":"Unsupported provider: provider is not enabled"}`, Step 2 above is incomplete. If it returns `redirect_uri_mismatch`, Step 1.4's Authorized redirect URI is wrong. If it completes OAuth but errors out at the callback, Step 3's Site URL or Redirect URLs list is wrong.
+
+- [ ] **Step 5:** **NO commit** — this is per-environment operational state (Google Cloud Console + Supabase Dashboard UI only). Capture the Client ID literal in the dev's working notes for cross-reference; the Client Secret stays in the password manager (never in `.env.local` or commits — Supabase Auth holds the only authoritative copy server-side).
+
+---
+
 ### Task 0.A.3: Create Drive service account for prod-equivalent watched folder
 
 **Files:**
@@ -85,7 +143,33 @@ Per M12.1 sub-amendment (2026-05-26). This task lands the operational state the 
 - No code changes. SQL editor + Supabase Dashboard Vault UI operations against the validation Supabase project.
 
 - [ ] **Step 1:** Apply the M12.1 migrations to the validation Supabase project: `npx supabase db push` — applies the three new migrations (`enable_pg_net`, `cron_secret_vault`, `schedule_cron_jobs`) on top of the migrations applied in Task 0.A.2. The `schedule_cron_jobs` migration WILL FAIL with a `app.fxav_vercel_url GUC must be set` exception on first run; this is intentional (fail-loud) — proceed to Step 2.
-- [ ] **Step 2 (R5 F13 — stable-alias GUC):** Set the GUC to the stable project alias captured in Task 0.A.4 Step 4. In the Supabase SQL editor, run `alter database postgres set app.fxav_vercel_url = 'https://<project-name>.vercel.app';` (e.g., `https://fxav-crew-pages-validation.vercel.app` — the stable alias, NOT the per-deployment URL). The setting takes effect on new connections. Reconnect the SQL editor session before Step 4 re-apply.
+- [ ] **Step 2 (R5 F13 — stable-alias GUC; Block-1-finding-1 amendment 2026-05-27):** Set the GUC to the stable project alias captured in Task 0.A.4 Step 4 via the **inline `set_config(...)` form**, NOT `ALTER DATABASE ... SET`.
+
+    **Why inline-`set_config` and not `ALTER DATABASE`:** Supabase managed PG denies `ALTER DATABASE postgres SET app.<custom>` even from the `postgres` role (which IS the database owner). The denial is independent of ownership — Supabase's role/pg_hba policy restricts the `app.*` custom GUC namespace from `ALTER DATABASE`. Block 1 finding 1 (handoff `Phase-0.A-block-1-closeout.md` F1) documents the discovery.
+
+    **Workaround:** prepend a session-level `set_config(...)` to the T3 migration apply, so the GUC is readable when `current_setting('app.fxav_vercel_url', true)` runs inside the T3 DO block (line 45 of `supabase/migrations/20260527000003_schedule_cron_jobs.sql`). `format('… url := %L …', vercel_url)` then bakes the URL literal into `cron.job.command`, so persistence at the GUC level is not required — only that the value is readable during the T3 apply transaction.
+
+    **Concrete invocation (executed via Supabase MCP `apply_migration` or psql against the validation Session pooler URL):**
+
+    ```sql
+    -- M12.1 T3 — schedule the 7 fxav cron jobs via pg_cron + pg_net.
+    -- VALIDATION-APPLY NOTE: prepended session-level SET because Supabase managed PG
+    -- denies ALTER DATABASE SET app.* (Phase 0.A.4.5 finding 2026-05-27). The
+    -- canonical migration body at supabase/migrations/20260527000003_schedule_cron_jobs.sql
+    -- is byte-identical to the DO block below.
+    select set_config('app.fxav_vercel_url', 'https://<project-name>.vercel.app', false);
+
+    do $$ -- the byte-identical DO block from
+          --  supabase/migrations/20260527000003_schedule_cron_jobs.sql
+    declare
+      vercel_url text := current_setting('app.fxav_vercel_url', true);
+      …
+    end$$;
+    ```
+
+    Substitute `<project-name>` with your stable alias (e.g., `fxav-crew-pages-validation`). Per `feedback_verify_dashboard_nav_before_guiding.md`, the Connect-modal-resolved alias is authoritative — don't compose it from training-data conventions.
+
+    **Persistence consequence:** the GUC is session-only with this approach. Future re-applies of T3 (URL change for M13 production, recovery from manual cron tinkering, etc.) require re-running the inline `set_config` in the same transaction. Acceptable since URL changes are infrequent and re-apply is already part of the redeploy flow per Task 0.A.5 Step 6a baked-URL verify.
 - [ ] **Step 3 (R23 F47 — Vault UI required, NOT SQL editor):** Populate the Vault secret value via the **Supabase Dashboard Vault UI** (Project Settings → Vault → `fxav_cron_secret` → Edit). The Vault UI updates the encrypted secret value via the Supabase API, bypassing SQL statement logging entirely.
 
     **DO NOT use the SQL editor for this step.** Per Supabase Vault docs (https://github.com/supabase/vault#turning-off-statement-logging), SQL statements containing secret literals can be logged unencrypted by PostgreSQL's statement-logging infrastructure (`log_statement = 'all'` or `log_min_duration_statement`). A `select vault.update_secret(<id>, '<token>', ...);` call would expose the bearer token in `postgres_logs` (Supabase) + any downstream log-shipping destination. With the bearer in logs, anyone with log-read access can authenticate every `/api/cron/*` endpoint.
@@ -109,7 +193,13 @@ Per M12.1 sub-amendment (2026-05-26). This task lands the operational state the 
 - [ ] **Step 5 (R26 F51 orphan-cleanup verification):** Verify the orphaned `cleanup-bootstrap-nonces` cron was removed by T3: `select count(*) from cron.job where jobname = 'cleanup-bootstrap-nonces';` must return 0. `select count(*) from cron.job where jobname not like 'fxav\_cron\_%' escape '\';` should return 0 (no non-fxav cron remains).
 - [ ] **Step 5a (R12 F31 + R13 F34 + R16 F37 + R17 F38 — validation-env meta-test apply):** Run `pg-cron-coverage.test.ts` against the validation Supabase project to pin the SAME contract that T2.1/T2.2/T3 proved on the local dev DB.
 
-    Get the validation pooler URL from Supabase Dashboard → Project Settings → Database → Connection string (Session pooler, NOT Transaction pooler).
+    Get the validation pooler URL from the **Supabase Dashboard Connect modal** (Block-1-finding-2 amendment 2026-05-27).
+
+    The **Connect modal** is the authoritative source for the pooler URL — click the green **🟢 Connect** button at the top of any project page in the validation Dashboard, then select the **Session pooler** tab (NOT Transaction pooler). Deep-link: `https://supabase.com/dashboard/project/<project-ref>?showConnect=true&method=session`.
+
+    **Do NOT construct the URL from a template.** Newer Supabase projects route via `aws-1-<region>.pooler.supabase.com` (or other prefix), NOT the docs-example `aws-0-` form. The Connect modal returns the actual hostname for THIS specific project. (Block 1 finding 2 cost a debug cycle here — the `aws-0-` template returned `FATAL: tenant/user postgres.<ref> not found` from Supavisor.)
+
+    Per `feedback_verify_dashboard_nav_before_guiding.md`: verify dashboard navigation against live Supabase docs OR a recent screenshot before guiding the operator; do not project menu paths from training data. The Connect modal is the stable anchor — its layout has been the canonical surface for connection strings since 2026.
 
     **Operator invocation (validation env):**
     ```bash
@@ -241,7 +331,17 @@ VALIDATION_ADMIN_EMAIL=
 - [ ] **Step 3: Set the M12 validation env vars in Vercel Production scope** (Settings → Environment Variables, scope: **Production** only — NOT Preview or Development) per the canonical CLI command-by-command env-var contract at spec §9.1.2. Paste the captured Supabase values from 0.A.1 + 0.A.4 into the corresponding rows the §9.1.2 reseed row names. **M12.1 T5 amendment:** additionally set `CRON_SECRET` in Vercel Production scope to the same bearer-token value populated into the validation Supabase Vault in Task 0.A.4.5 step 3. The byte-for-byte match is load-bearing: `app/api/cron/_auth.ts:7` compares the incoming `Authorization` header against `process.env.CRON_SECRET`, and the cron job bodies pass the Vault-stored value as the bearer; mismatched values produce 401 from every cron firing (fail-loud).
 - [ ] **Step 3a: Operational note** — set `VALIDATION_J3_CLAIM_EMAIL` to the dev's real Google account email (the one Google OAuth signs the dev in as during the J3 walk). This is an operational instruction for one specific row of the §9.1.2 contract, NOT a re-enumeration of the contract — see R13 commit 30 + spec §1.5 for why the J3 OAuth-claim walk needs a real Google email rather than a synthesized placeholder.
 - [ ] **Step 4: Mirror those env-var values into `.env.local`** (gitignored — do NOT commit the secrets) so local CLIs read the same values as Vercel Production scope.
-- [ ] **Step 5: Set up the existing runtime env vars** if not already in Vercel Production scope: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`, `WATCHED_FOLDER_ID`, `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY` (the M11.5 picker cookie's HMAC signing key — 64 hex chars; runtime-only), plus any other vars `.env.local.example` lists for runtime. These are the production-target deployment's normal env contract; validation only ADDS the `VALIDATION_`-prefixed vars per spec §9.1.2 (R35 commit 71 F33: cross-reference §9.1.2 for the authoritative per-CLI list; the `.env.local.example` template above carries every literal the dev must set locally — including the per-outcome helper `VALIDATION_ADMIN_EMAIL` added in R33 commit 68).
+- [ ] **Step 5: Set up the existing runtime env vars (Block-1-finding-7 amendment 2026-05-27).**
+
+    `.env.local.example` is the **canonical source-of-truth** for which env vars must be set in Vercel Production scope. Walk it row-by-row — every uncommented `KEY=` line is a required Production env var (filling in actual values; never commit the values).
+
+    **Do NOT filter to a "module-load-throw first" subset.** Block 1 finding 7 (handoff F7) cost a debug cycle when `DATABASE_URL` was omitted from a filtered list: `DATABASE_URL` is read at runtime (not module-load), but multiple cron routes (`runScheduledCronSync`, `withShowAdvisoryLock`, `runDiagramGc`, `unpublishShow`, `assetRecovery`) throw `<name> requires DATABASE_URL in production` on first invocation if it's unset. The runtime-throw failure mode produces empty 500s in production with no UI signal — slower to debug than build-time throws. Treat `.env.local.example` as the contract: if it's in the example file, it goes in Vercel.
+
+    **Commit `401a126`** established this convention (`docs(handoff): Phase 0.A Block 1 close-out`) and the matching `.env.local.example` update.
+
+    For reference (subject to drift from the actual `.env.local.example`; the file wins on any conflict): expected categories include Supabase trio (URL, anon, secret), Google SA bundle + folder ID, `DATABASE_URL`, `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY`, `CRON_SECRET`, GitHub/Sentry as applicable, plus the `VALIDATION_*` validation tooling vars per spec §9.1.2.
+
+    **Pooler-mode choice for `DATABASE_URL`** (per `feedback_verify_dashboard_nav_before_guiding.md` — verified via Supabase docs 2026-05-07 at https://supabase.com/docs/guides/database/connecting-to-postgres): Vercel functions are short-lived serverless invocations — use **Transaction pooler** (port 6543) for Vercel Production scope. Use **Session pooler** (port 5432) for `TEST_DATABASE_URL` (pg-cron-coverage runs `pg_advisory_xact_lock`-style patterns that benefit from session semantics). Copy both URLs from the Connect modal per the Task 0.A.4.5 Step 5a amendment — the hostname prefix (`aws-0-` vs `aws-1-`) varies by project age.
 - [ ] **Step 6: Trigger another production redeploy** in Vercel so the new env vars take effect.
 - [ ] **Step 6a (M12.1 T5 Step 2b — R5 F13 + R18 F40 baked-URL verify):** Inspect the baked URLs in `cron.job.command` post-redeploy. In Supabase SQL editor, run:
 
@@ -258,7 +358,11 @@ VALIDATION_ADMIN_EMAIL=
     2. **Route path matches jobname:** `fxav_cron_sync` → `/api/cron/sync`; `fxav_cron_keepalive` → `/api/cron/keepalive`; etc. (7 pairs per pg-cron-jobs.json).
 
     If any row's host is per-deployment, T3 was applied with a stale `app.fxav_vercel_url`; correct via `alter database postgres set app.fxav_vercel_url = '<stable-alias>';` then re-run the affected `cron.schedule()` calls manually with the corrected URL. If any row's route is wrong, the T3 migration body has a route-string typo — fix the migration + reapply.
-- [ ] **Step 7: Verify the deployment can reach the new Supabase:** open the production URL in a browser. Click sign-in. Confirm Google OAuth lands you as admin (the email canonicalized in 0.A.2 step 4). If sign-in fails with "unauthorized", admin_emails was not seeded correctly — go back to 0.A.2.
+- [ ] **Step 7: Verify the deployment can reach the new Supabase (Block-1-finding-3 amendment 2026-05-27):** open `https://<stable-alias>/me` in a browser. Confirm a redirect to `/auth/sign-in?next=/me`. Click "Sign in with Google". Complete OAuth as the admin email seeded in 0.A.2 Step 4. Confirm landing back at `/me` as an authenticated session.
+
+    **Why `/me` and not `/`:** post-M11.5 picker pivot, `/` (`app/page.tsx`) is intentionally bare — just `<h1>FXAV Crew Pages</h1>` with no sign-in UI, no nav. The sign-in entry point is `/me` → `requireAdmin()` redirects unauthenticated requests to `/auth/sign-in?next=/me`. The picker UI architecture is per-show-link flow; the homepage is not a destination.
+
+    If the OAuth handshake fails with `{"error_code":"validation_failed","msg":"Unsupported provider: provider is not enabled"}`, Task **0.A.2.5** Step 2 (Supabase Auth → Providers → Google toggle) is incomplete — go back. If sign-in completes but lands on a "not admin" 403 page, `admin_emails` was not seeded correctly — go back to 0.A.2. If sign-in completes and lands on `/me` but the admin nav is missing, check the canonical-email-mismatch case (admin_emails row uses non-canonical email).
 - [ ] **Step 8: Commit `.env.local.example`** (only the documentation update — secrets stay in `.env.local`).
 
 ```bash
@@ -294,7 +398,7 @@ EOF
   2. Drive service account + shared watched folder
   3. Vercel production-target deployment at `*.vercel.app` URL
   4. M12 validation env vars set in Vercel Production scope AND mirrored to local `.env.local`; documented in `.env.local.example` — per the canonical CLI command-by-command env-var contract at spec §9.1.2 (post-2026-05-26 picker-pivot rebase retired `VALIDATION_JWT_SIGNING_SECRET` with Phase 0.D; the R13 commit 30 J3-claim-email amendment is captured in the §9.1.2 reseed row's contract).
-- [ ] **Step 2: Run the "admin sign-in" smoke as a Phase-0.A close-out probe** (NOT smoke 1 yet — that runs in Phase 0.F after everything is in place): sign into the Vercel production URL via Google, confirm admin role lands.
+- [ ] **Step 2: Run the "admin sign-in" smoke as a Phase-0.A close-out probe (Block-1-finding-3 amendment 2026-05-27)** — NOT smoke 1 yet (that runs in Phase 0.F after everything is in place). Navigate to `https://<stable-alias>/me` (NOT `/`; `/` is intentionally bare per Task 0.A.5 Step 7 amendment). Confirm redirect to `/auth/sign-in?next=/me`. Click "Sign in with Google". Complete Google OAuth as the admin email seeded in 0.A.2 Step 4. Confirm landing back at `/me` as an authenticated admin session.
 - [ ] **Step 3: Continue to Phase 0.A.1** (M11.5 carry-over: SignInOrSkipGate footer copy + catalog code), or skip directly to Phase 0.B if the M11.5-IMP carry-over tasks are deferred.
 
 ---
