@@ -3,22 +3,40 @@
  *
  * End-to-end exercises for the picker pivot's five canonical flows.
  *
- * Status @ §B continuation (post-Pin-stop 3): all §A backend surfaces these
- * scenarios drive have landed (picker-bootstrap Route Handler / C6, OAuth
- * callback claim-stamp / C7, admin_read_share_token / F2.5 backend, and the
- * pre-existing Pin-2 admin RPCs A3/A4). What's still missing is the
- * **picker-shaped e2e helper infrastructure**: the M9.5 helpers
- * (tests/e2e/helpers/supabaseAdmin.ts, cookies.ts, seedLinkSession.ts) were
- * deleted by §A G-series cleanup; equivalents for the new picker envelope
- * (seedTestShowWithCrew that writes show_share_tokens, a __Host-fxav_picker
- * cookie seeder, an "OAuth-claim-stamp" fixture-claim helper) have not been
- * written yet. Each scenario below ships its full Playwright body so the
- * suite is ready to flip from `.skip` to active as soon as the helper layer
- * lands; until then, every scenario stays `.skip` with the refreshed TODO
- * naming its specific helper dependency.
+ * Status @ Block-2.3 close-out (2026-05-27 — Phase 0.A finding M11.5-
+ * PLAYWRIGHT-HELPERS scoping):
  *
- * The unblocked test (slug-only-URL-404) runs today — it's pinned by the C1
- * route move (delete app/show/[slug]/page.tsx) and is helper-independent.
+ *   - All §A backend surfaces have landed: picker-bootstrap Route Handler
+ *     (C6), OAuth callback claim-stamp (C7), admin_read_share_token
+ *     (F2.5 backend), Pin-2 admin RPCs (A3 reset_picker_epoch_atomic,
+ *     A4 rotate_show_share_token).
+ *   - `tests/e2e/helpers/supabaseAdmin.ts` + `signInAs.ts` + `fixtures.ts`
+ *     EXIST (the prior docstring claim that "supabaseAdmin, cookies,
+ *     seedLinkSession were deleted by §A G-series cleanup" is stale —
+ *     only `cookies.ts` and `seedLinkSession.ts` were retired; the
+ *     post-§A `signInAs` mints Supabase Auth cookies via the test-auth
+ *     endpoint and serves the picker-envelope semantics).
+ *   - What's still missing for the 5 `.skip` stubs:
+ *       * `seedShowWithCrew` helper: writes `shows` + `crew_members`
+ *         + `show_share_tokens` rows via the service-role client so
+ *         the tokenized URL resolves.
+ *       * `seedPickerCookie` helper: writes a `__Host-fxav_picker`
+ *         cookie via Playwright's `context.addCookies` so Mode-B
+ *         "Continue as guest" can observe the clear.
+ *       * `claimStamp` helper: sets `crew_members.claimed_via_oauth_at`
+ *         directly so the deactivated-row test does not depend on
+ *         running the OAuth callback chain.
+ *   - The 1 active test below (slug-only-URL-404, line 26) is pinned by
+ *     the C1 route move (delete `app/show/[slug]/page.tsx`) and is
+ *     helper-independent. It runs today; Block-2.3 added the file to
+ *     `playwright.config.ts` mobile-safari testMatch so this active test
+ *     is actually executed in CI (previously the file was orphaned).
+ *   - The 5 `.skip` stubs ship their full Playwright bodies so the suite
+ *     is ready to flip from `.skip` to active as soon as the missing
+ *     helper layer lands. Each stub's TODO names its specific helper
+ *     dependency. Helper writing + un-skip wiring is deferred to a
+ *     dedicated orchestrator dispatch — Block-2.3 explicitly scoped to
+ *     the file-inclusion + docstring refresh, not the full enablement.
  */
 import { test, expect } from "@playwright/test";
 
@@ -48,7 +66,7 @@ test.skip(
     //   3. assert <SignInOrSkipGate> Mode A renders (data-testid
     //      "sign-in-or-skip-gate" + sign-in CTA href to
     //      /auth/sign-in?next=<encoded URL>)
-    //   4. signInAs() the OAuth fixture identity (post-§A signInAs
+    //   4. signInAs() the OAuth fixture identity (existing-helpers signInAs
     //      contract that drives the picker envelope)
     //   5. visit the tokenized URL again
     //   6. expect <ShowBody> rendered + IdentityChip carries the

@@ -40,8 +40,15 @@ export default defineConfig({
       // generic dev server on port 3000 because the public /show/[slug]
       // route doesn't depend on any of the dev-build / prod-build env gates.
       name: "mobile-safari",
+      // M11.5-PLAYWRIGHT-HELPERS Block-2.3 (2026-05-27): added `picker-flow`
+      // to the mobile-safari testMatch so the 1 currently-active test
+      // (slug-only-URL 404, per R35 / C1 route move) actually runs in CI.
+      // The 5 `.skip` stubs in picker-flow.spec.ts stay skipped pending
+      // a dedicated dispatch that writes the missing helper layer
+      // (seedShowWithCrew, seedPickerCookie, claimStamp). See
+      // Phase 0.A Block-2 close-out doc for the deferral details.
       testMatch:
-        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-layout|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages)\.spec\.ts/,
+        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-layout|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|picker-flow)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
