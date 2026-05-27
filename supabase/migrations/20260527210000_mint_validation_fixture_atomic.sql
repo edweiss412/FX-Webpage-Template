@@ -90,6 +90,7 @@ BEGIN
   )
   ON CONFLICT (drive_file_id) DO UPDATE SET
     title = EXCLUDED.title,
+    slug = EXCLUDED.slug,            -- Codex Phase 0.C R6-F1 — repair slug drift
     dates = EXCLUDED.dates,
     archived = false,                -- R27 commit 57 F27 baseline restore
     published = true,                -- R27 commit 57 F27 baseline restore

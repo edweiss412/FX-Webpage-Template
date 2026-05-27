@@ -242,4 +242,40 @@ describe("validation check-seed content-coverage meta-test (M12 Phase 0.C R5 str
       expect(res.stderr).toMatch(matchHint);
     });
   }
+
+  // Codex Phase 0.C R6-F1 structural defense extension — every column
+  // predicate (o) checks must be reseed-repairable. Mutations on
+  // shows.* + crew_members.* columns must restore to canonical state
+  // after a re-mint (the mint RPC's ON CONFLICT UPDATE SET clause must
+  // cover them). Without this round-trip test, R6-F1 class issues
+  // (predicate (o) compares a column NOT in the mint UPDATE SET) would
+  // surface only when an operator hits the false-stuck state.
+  //
+  // The alias_map mutation is excluded — it's pre-mint state, not
+  // post-mint (the mint RPC writes alias_map slice for THIS combo
+  // only; recovering a corrupted alias_map[R1] from a stale state
+  // requires the mint RPC to overwrite, which it does correctly per
+  // the existing tests).
+  const REPAIRABLE = MUTATIONS.filter(
+    (m) => m.field.startsWith("shows.") || m.field.startsWith("crew_members."),
+  );
+  for (const { field, sql } of REPAIRABLE) {
+    test(`reseed repairs ${field} mutation (R6 structural defense — round-trip)`, () => {
+      cleanup();
+      mintR1Canonical();
+      runPsql(sql);
+      // Confirm check-seed flags the mutation.
+      expect(runCheckSeed("R1").code).toBe(1);
+      // Re-mint and confirm check-seed PASSes — the mint RPC SET clause
+      // must repair the column. If the column was added to predicate (o)
+      // without also being added to the mint UPDATE SET, this assertion
+      // fails (re-mint is a no-op for the un-SET column).
+      mintR1Canonical();
+      const res = runCheckSeed("R1");
+      expect(
+        res.code,
+        `reseed should repair ${field} drift but check-seed still fails: ${res.stderr}`,
+      ).toBe(0);
+    });
+  }
 });
