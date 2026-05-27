@@ -114,6 +114,18 @@ Insert as new §9.1.3 (or wherever the M12 amendment editor judges fit; numberin
 
 The §1017 audit-trail row (M12 R3 amendment finding F1 fix) is HISTORICAL and must NOT be edited per AGENTS.md "historical-row preservation" convention. M12.1 has its own audit trail (see this document's §5 below + the M12.1 handoff convergence log).
 
+Update §9.1.1 "Canonical CI gate inventory" table to add gate **#8** = `x6-pg-cron-pivot` (M12.1 pg_cron pivot defenses); update any "7 canonical CI gates" phrasing → "8 canonical CI gates" (the §12 self-consistency sweep parity invariant). Per R29 F57.
+
+### §2.5 — Amendment to master spec AC-X.6 (R29 F57)
+
+The required-check contract that GitHub branch protection enforces is parsed from the **master spec** at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` by `scripts/generate-traceability.ts:189-194` (between the literal `AC-X.6` anchor and `### 17.2.1`, scraping all backtick-quoted strings matching `/^x[1-6]-|^traceability-audit$|^verify-branch-protection-status$/`). Without amending the master spec, `x6-pg-cron-pivot` would NOT appear in `loadRequiredChecksFromSpec()` and would NOT be enforced as a merge-blocking required check.
+
+M12.1 amends the master spec's AC-X.6 paragraph (line ~3740) to append `` `x6-pg-cron-pivot` (M12.1 cross-cutting pg_cron pivot defenses) `` to the named-verbatim required-checks list, immediately AFTER `verify-branch-protection-status`. The parser then picks up the new check via the existing regex with zero parser changes. No new AC-X.\* is introduced — `parseAcRequiredCheckFindings` flags drift between existing ACs and their canonical checks, NOT presence/absence of checks beyond the AC enumeration, so adding `x6-pg-cron-pivot` to the checks list without a corresponding AC-X.7 is safe.
+
+**Operator action follow-up** (post-T5 commit, M12.1 close-out gate): GitHub branch-protection settings on `main` MUST be updated to add `x6-pg-cron-pivot` to the required-status-checks list. Without this update, the privileged `verify-branch-protection` job (per master spec §17.2.1) will emit `BRANCH_PROTECTION_DRIFT` to `admin_alerts` on its next firing; the PR-required reader `verify-branch-protection-status` will then fail PRs within the 8-day freshness window. Plan T5 Step 8 documents the operator procedure.
+
+5th hit of CI-gating-inventory recurrence (R5 F11 + R8 F22 + R27 F54 + R28 F56 + R29 F57). Structural defense per AGENTS.md "Structural-defense calibration": the m12-plan-pg-cron-pivot-amendment.test.ts meta-test asserts `loadRequiredChecksFromSpec()` contains `x6-pg-cron-pivot` (assertion P), closing the recurrence vector at CI time.
+
 ---
 
 ## §3 — Plan delta (cross-reference)

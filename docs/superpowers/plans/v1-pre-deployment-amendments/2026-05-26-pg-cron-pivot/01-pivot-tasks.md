@@ -638,8 +638,13 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - Assertion K: M12 spec §9.1 Vercel project row (line ~801) does NOT contain the literal `Vercel Cron Jobs run only on production deployments` outside HISTORICAL audit-trail context (line 1017 explicitly excluded)
   - Assertion L: M12 spec §9.2 smoke 3 description (line ~850) does NOT contain the literal `Vercel Cron → fetch from Drive` outside HISTORICAL context
   - Assertion M: M12 spec contains a new section (§9.1.3 or numbered at editor's discretion) with heading containing "Cron scheduling architecture" or "M12.1 amendment" AND the section body references the 7 fxav_cron_* jobs + pg_net async semantics + the env-var contract delta to §9.1.2
+  - Assertion N (R29 F57): M12 spec §9.1.1 "Canonical CI gate inventory" table contains a row with backtick literal `x6-pg-cron-pivot` (8th gate added by M12.1) AND any nearby phrasing claiming "7 canonical CI gates" reads "8 canonical CI gates" instead
   
-  Run `pnpm test tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` against HEAD `ac752d9` → expect all 13 assertions (A-M) to FAIL (the M12 plan tree + M12 spec haven't been amended yet). This is the TDD-red phase that authorizes the T5 doc edits to land. Per AGENTS.md invariant 1.
+  Against `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (R29 F57 fix — master spec required-check inventory):
+  - Assertion O (R29 F57): the master spec's AC-X.6 paragraph (between `AC-X.6` anchor and `### 17.2.1`) contains the backtick literal `x6-pg-cron-pivot`
+  - Assertion P (R29 F57 — structural defense, the meta-test calibration per AGENTS.md): import `loadRequiredChecksFromSpec` from `scripts/generate-traceability.ts` and assert the returned array CONTAINS `x6-pg-cron-pivot`. This is the structural defense that closes the 5th hit of the CI-gating-inventory recurrence class (R5 F11 + R8 F22 + R27 F54 + R28 F56 + R29 F57): a future regression that drops the backtick literal from the master spec AC-X.6 paragraph (or any rename / typo) would be caught at CI time. The assertion runs in the same `m12-plan-pg-cron-pivot-amendment.test.ts` file via dynamic import of the script's named export.
+  
+  Run `pnpm test tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` against HEAD `ac752d9` → expect all 16 assertions (A-P) to FAIL (the M12 plan tree + M12 spec + master spec haven't been amended yet). This is the TDD-red phase that authorizes the T5 doc edits to land. Per AGENTS.md invariant 1.
 
 - [ ] **Step 0a (R9 F23 fix — extend x6 CI audit to include the new test file).** Update `package.json` `test:audit:x6-pg-cron-pivot` script to include the new test file: `vitest run tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts`. The T5 commit lands all three test files plus the M12 plan edits atomically; the x6 CI gate then runs all three on every PR/push. (Reminder: this script update lives in `package.json` from T4.4 step 1 — T5 step 0a extends it.)
 
@@ -972,27 +977,44 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - **At spec line 801** (M12 spec §9.1 Vercel project row): apply M12.1 spec §2.1 amended text — replace "Vercel Cron Jobs run only on production deployments" rationale with the env-var-scoping rationale + add the M12.1 amendment note + crons-block-removed clause.
   - **At spec line 850** (M12 spec §9.2 smoke 3 description): apply M12.1 spec §2.2 amended text — rewrite the cron path description from "Vercel Cron → fetch from Drive..." to "pg_cron schedule → net.http_get() (joined query observability) → Vercel route handler /api/cron/sync → fetch from Drive..." per the full §2.2 body.
   - **Insert new §9.1.3** between M12 spec §9.1.2 and §9.2 per M12.1 spec §2.3 — the cron scheduling architecture section with: the 7-job binding table (jobname × schedule × Vercel route), auth contract, pg_net async semantics note, env-var contract delta to §9.1.2, smoke 3 observability cross-reference.
+  - **At M12 spec §9.1.1** (lines 806-820, "Canonical CI gate inventory"): add gate **#8** row to the table: `x6-pg-cron-pivot` | M12.1 pg_cron pivot doc-guard + no-vercel-cron + M12-plan-pg-cron-pivot-amendment | PR + main. Update the "Self-consistency sweep" line in §12 from "7 canonical CI gates" to "8 canonical CI gates" (the §12 sweep parity invariant per R29 F57).
   - **DO NOT edit** spec line 1017 (the HISTORICAL audit-trail row per M12.1 spec §2.4 — historical-row preservation).
+
+- [ ] **Step 4c (R29 F57 fix — master spec AC-X.6 required-check inventory amendment).** Edit the **master spec** at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`. The required-check contract that branch-protection enforces is parsed by `scripts/generate-traceability.ts:189-194` from the master spec's AC-X.6 paragraph (between the literal `AC-X.6` anchor and `### 17.2.1`). The parser scrapes all backtick-quoted strings in that range matching regex `/^x[1-6]-|^traceability-audit$|^verify-branch-protection-status$/`. Without amending the master spec, `x6-pg-cron-pivot` will NOT appear in `loadRequiredChecksFromSpec()` → branch protection does NOT require it → later PRs can merge with the M12.1 cross-cutting guards failing or absent, defeating the structural defense. **5th hit of CI-gating-inventory recurrence class (R5 F11 + R8 F22 + R27 F54 + R28 F56 + R29 F57)**; per AGENTS.md "Structural-defense calibration", ship the structural defense in this commit (the meta-test asserting `loadRequiredChecksFromSpec()` returns `x6-pg-cron-pivot` — added as assertion N in T5 step 0 below).
+  
+  **Required-check inventory amendment.** Locate the AC-X.6 paragraph at master spec line ~3740 (the bullet starting `- AC-X.6 **Spec-to-implementation traceability...**`). Inside that bullet, the named-verbatim required-checks list reads (current state):
+  
+  > `traceability-audit` (X.6), `x1-catalog-parity` (X.1), `x2-no-raw-codes` (X.2), `x3-trust-domain` (X.3), `x4-no-global-cursor` (X.4), `x5-email-canonicalization` (X.5), `verify-branch-protection-status` (X.6 drift-detector reader...)
+  
+  Append `, \`x6-pg-cron-pivot\` (M12.1 cross-cutting pg_cron pivot defenses)` to the list AFTER `verify-branch-protection-status`. The parser will then pick up the new check via the existing `^x[1-6]-` regex with zero parser changes required. Also update any nearby phrasing claiming "seven required status checks" → "eight required status checks" if such phrasing appears in the surrounding AC-X.6 prose (grep-confirm + edit).
+  
+  **`expectedCheckFromAcBody` mapping (verify, do NOT edit):** `scripts/generate-traceability.ts:202-215` maps AC bodies to expected check names via keyword. There is NO new AC for x6-pg-cron-pivot (M12.1 does not introduce AC-X.7); the parser's `parseAcRequiredCheckFindings` only flags drift between existing ACs and their canonical check names, NOT presence/absence of checks beyond the AC enumeration. Verified pre-commit: no `expectedCheckFromAcBody` change required. If a future M12.1 reviewer claims "needs new AC-X.7" — that's scope expansion (file in BACKLOG.md, do not relitigate).
+  
+  **Operator follow-up (post-T5 commit, before M12.1 declared DONE):** the GitHub branch-protection settings on `main` MUST be updated to add `x6-pg-cron-pivot` to the required-status-checks list. The privileged `verify-branch-protection` job runs against the spec's required-check list and emits `BRANCH_PROTECTION_DRIFT` to `admin_alerts` if the actual branch-protection settings don't match. Without the manual branch-protection update, the privileged job's next firing will alert; T5 Step 8 documents the operator action below.
 
 - [ ] **Step 5: Verify no other M12 plan files reference Vercel Cron post-amendment.** `rg -n 'Vercel Cron|vercel cron|x-vercel-cron' docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/ docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md` — expected: zero matches in the plan tree post-T5 + zero matches in the M12 spec EXCEPT spec line 1017 (audit-trail row, HISTORICAL — excluded from sweep per M12.1 spec §2.4). Class-sweep verification per AGENTS.md "class-sweep before patching adversarial findings".
 
-- [ ] **Step 5a: Extend pg-cron-pivot-amendment doc-guard with assertions J + K + L + M (R11 F30 + R18 F39 fix).** Add 4 assertions to T5's `tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts`:
+- [ ] **Step 5a: Extend pg-cron-pivot-amendment doc-guard with assertions J + K + L + M + N + O + P (R11 F30 + R18 F39 + R29 F57 fix).** Add 7 assertions to T5's `tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts`:
   - Assertion J: 05-phase0-smokes.md Phase 0.F failure-modes section's "Smoke 3 (cron) doesn't fire" entry does NOT contain the literal "Vercel deployment is Preview" (or any "Preview" mention as the sole failure cause).
   - Assertion K (R18 F39): M12 spec line ~801 (§9.1 Vercel project row) does NOT contain "Vercel Cron Jobs run only on production deployments" outside HISTORICAL audit-trail context.
   - Assertion L (R18 F39): M12 spec line ~850 (§9.2 smoke 3) does NOT contain "Vercel Cron → fetch from Drive" outside HISTORICAL context.
   - Assertion M (R18 F39): M12 spec contains a new section heading (e.g., §9.1.3) referencing pg_cron + pg_net cron scheduling architecture with the 7-job table + async semantics + env-var contract delta.
+  - Assertion N (R29 F57): M12 spec §9.1.1 "Canonical CI gate inventory" table contains a row with backtick literal `x6-pg-cron-pivot` AND any "7 canonical CI gates" phrasing reads "8 canonical CI gates" instead.
+  - Assertion O (R29 F57): master spec's AC-X.6 paragraph contains backtick literal `x6-pg-cron-pivot`.
+  - Assertion P (R29 F57 structural defense): `loadRequiredChecksFromSpec()` returned array contains `x6-pg-cron-pivot` (dynamic import of `scripts/generate-traceability.ts` named export). The required-check parity invariant — the closing structural defense per AGENTS.md "Structural-defense calibration" after 5 hits of CI-gating-inventory recurrence (R5 F11 + R8 F22 + R27 F54 + R28 F56 + R29 F57).
   
-  All 4 FAIL at HEAD (stale text present + M12 spec section not yet added); PASS after step 4a + step 4b edits. T5 doc-guard now has 13 assertions (was 9: A-I, now A-M with J/K/L/M added).
+  All 7 FAIL at HEAD (stale text present + M12 spec section not yet added + master spec inventory not yet amended); PASS after step 4a + step 4b + step 4c edits. T5 doc-guard now has 16 assertions (was 9: A-I, now A-P with J/K/L/M added in R11/R18, N/O/P added in R29).
 
 - [ ] **Step 6: Commit.**
 
   ```bash
-  # R19 F41 fix: include all 3 M12-tree files T5 amends (plan + smokes + spec)
-  # + new test file + package.json. Pre-commit verification: `git diff --cached
-  # --name-only` MUST include all 5 paths below; if any are missing, T5 step 4b
-  # M12 spec amendments were dropped from staging (silent regression of R18 F39).
-  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts package.json
-  git diff --cached --name-only | grep -E '(01-phase0-infra|05-phase0-smokes|2026-05-19-solo-dev-ux-validation-design|m12-plan-pg-cron-pivot-amendment|package\.json)' | wc -l  # expect 5
+  # R19 F41 + R29 F57 fix: include all 4 docs files T5 amends (M12 plan ×2
+  # + M12 spec + MASTER spec) + new test file + package.json. Pre-commit
+  # verification: `git diff --cached --name-only` MUST include all 6 paths
+  # below; if any are missing, T5 step 4b or step 4c amendments were dropped
+  # from staging (silent regression of R18 F39 or R29 F57).
+  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts package.json
+  git diff --cached --name-only | grep -E '(01-phase0-infra|05-phase0-smokes|2026-05-19-solo-dev-ux-validation-design|2026-04-30-fxav-crew-pages-v1\.md|m12-plan-pg-cron-pivot-amendment|package\.json)' | wc -l  # expect 6
   git commit -m "$(cat <<'EOF'
   docs(plan-m12)+docs(spec-m12)+test(cross-cutting): insert Task 0.A.4.5 + sweep Vercel-Cron refs + amend M12 spec + amendment doc-guard (M12.1 T5)
   
@@ -1038,7 +1060,19 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   
   Per AGENTS.md "Local-passes-CI-fails is its own bug class" — the final-state real-CI proof is a separate close-out gate from the local + adversarial-review green state. T4.4 step 3a covers the T4 commit-boundary CI state (2 tests); this step covers the final M12.1 close-out CI state (3 tests).
 
-**Risk class:** low — markdown documentation edit; no executable code. The risk is conceptual: (a) missing the Vault populate step means every cron firing 401s in validation; (b) missing the smoke-file sweep means executor follows stale debugging guidance.
+- [ ] **Step 8: Update GitHub branch-protection settings to require x6-pg-cron-pivot (R29 F57 operator action — close-out gate).** T5 Step 4c amended the master spec's AC-X.6 paragraph to add `x6-pg-cron-pivot` to the named-verbatim required-checks list, which the parser at `scripts/generate-traceability.ts:189-194` will then return from `loadRequiredChecksFromSpec()`. The privileged `verify-branch-protection` job (runs on `push` to `main` + weekly `schedule` cron, per master spec §17.2.1) compares the actual GitHub branch-protection settings against the spec inventory; if `x6-pg-cron-pivot` is in the spec but NOT in the branch-protection required-status-checks list, the privileged job will (a) emit `BRANCH_PROTECTION_DRIFT` to `admin_alerts` and (b) write a non-zero-exit JSON drift report. The PR-required reader gate `verify-branch-protection-status` would then fail on subsequent PRs (asserting "no drift within 8-day freshness window"). Operator MUST update branch protection before M12.1 is declared DONE.
+  
+  Procedure (post-T5 commit, requires GitHub admin permissions on the repo):
+  
+  1. Open GitHub → repository Settings → Branches → branch-protection rule for `main`.
+  2. Under "Require status checks to pass before merging" → "Status checks that are required", add `x6-pg-cron-pivot` to the list. The job name must match the workflow job name verbatim (per T4.4 step 2: jobname is `x6-pg-cron-pivot`, NOT `audit-x6-pg-cron-pivot` per R28 F56).
+  3. Save the branch-protection rule.
+  4. Verify locally before M12.1 close-out: `pnpm exec tsx scripts/verify-branch-protection.ts` (requires `GH_APP_TOKEN` / `BRANCH_PROTECTION_PAT` + `SUPABASE_SECRET_KEY` env vars — see master spec §17.2.1 for the privileged-script contract). Expected output: zero drift findings; exit code 0. If non-zero drift, fix the branch-protection setting and re-run.
+  5. Trigger the privileged `verify-branch-protection` job manually via `gh workflow run verify-branch-protection.yml --ref main` (workflow_dispatch trigger), `gh run watch`, confirm exit 0 + no `BRANCH_PROTECTION_DRIFT` admin alert emitted.
+  
+  Until Step 8 completes successfully, M12.1 is NOT DONE — the structural defense is in the spec + parser + meta-test, but not enforced at the merge gate. The operator action closes the gap.
+
+**Risk class:** low — markdown documentation edit; no executable code. The risk is conceptual: (a) missing the Vault populate step means every cron firing 401s in validation; (b) missing the smoke-file sweep means executor follows stale debugging guidance; (c) skipping the branch-protection settings update leaves the new x6 gate enforced at workflow level only, not merge-gate level (operator-action gap; mitigated by the privileged `verify-branch-protection` job's drift alerting).
 
 ---
 
