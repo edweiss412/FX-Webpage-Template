@@ -127,7 +127,7 @@ export async function requireAdminIdentity(): Promise<AdminIdentity> {
       // (was forbidden() pre-fix; the 403 dead-ended unauthenticated
       // visitors). The authed-but-not-admin 403 path below is unchanged
       // — that's the security boundary.
-      await redirectToSignIn();
+      return await redirectToSignIn();
     }
     throw new AdminInfraError(`requireAdmin: getUser failed: ${userError.message}`);
   }
@@ -135,7 +135,8 @@ export async function requireAdminIdentity(): Promise<AdminIdentity> {
   if (!email) {
     // Confirmed unauthenticated (no email after canonicalize) — auth-level
     // denial. Block-1-finding-5 redirect path; was forbidden() pre-fix.
-    await redirectToSignIn();
+    // `return await` for TS control-flow narrowing through Promise<never>.
+    return await redirectToSignIn();
   }
 
   // Same shape: rpc() can throw (network, abort) in addition to returning
