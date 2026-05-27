@@ -894,9 +894,14 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 - [ ] **Step 6: Commit.**
 
   ```bash
-  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts package.json
+  # R19 F41 fix: include all 3 M12-tree files T5 amends (plan + smokes + spec)
+  # + new test file + package.json. Pre-commit verification: `git diff --cached
+  # --name-only` MUST include all 5 paths below; if any are missing, T5 step 4b
+  # M12 spec amendments were dropped from staging (silent regression of R18 F39).
+  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts package.json
+  git diff --cached --name-only | grep -E '(01-phase0-infra|05-phase0-smokes|2026-05-19-solo-dev-ux-validation-design|m12-plan-pg-cron-pivot-amendment|package\.json)' | wc -l  # expect 5
   git commit -m "$(cat <<'EOF'
-  docs(plan-m12)+test(cross-cutting): insert Task 0.A.4.5 + sweep Vercel-Cron refs + amendment doc-guard (M12.1 T5)
+  docs(plan-m12)+docs(spec-m12)+test(cross-cutting): insert Task 0.A.4.5 + sweep Vercel-Cron refs + amend M12 spec + amendment doc-guard (M12.1 T5)
   
   M12.1 sub-amendment wires the pg_cron + pg_net architecture into Phase
   0.A executor's task sequence + sweeps stale Vercel-Cron observability
