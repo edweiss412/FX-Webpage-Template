@@ -1008,13 +1008,14 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 - [ ] **Step 6: Commit.**
 
   ```bash
-  # R19 F41 + R29 F57 fix: include all 4 docs files T5 amends (M12 plan ×2
-  # + M12 spec + MASTER spec) + new test file + package.json. Pre-commit
-  # verification: `git diff --cached --name-only` MUST include all 6 paths
-  # below; if any are missing, T5 step 4b or step 4c amendments were dropped
-  # from staging (silent regression of R18 F39 or R29 F57).
-  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts package.json
-  git diff --cached --name-only | grep -E '(01-phase0-infra|05-phase0-smokes|2026-05-19-solo-dev-ux-validation-design|2026-04-30-fxav-crew-pages-v1\.md|m12-plan-pg-cron-pivot-amendment|package\.json)' | wc -l  # expect 6
+  # R19 F41 + R29 F57 + R30 F58 fix: include all 5 docs files T5 amends
+  # (M12 plan ×2 + M12 spec + MASTER spec + DEFERRED.md for X6-D-1
+  # cross-reference) + new test file + package.json. Pre-commit verification:
+  # `git diff --cached --name-only` MUST include all 7 paths below; if any
+  # are missing, T5 step 4b, step 4c, or Step 8 DEFERRED.md cross-reference
+  # were dropped (silent regression of R18 F39 / R29 F57 / R30 F58).
+  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts package.json
+  git diff --cached --name-only | grep -E '(01-phase0-infra|05-phase0-smokes|2026-05-19-solo-dev-ux-validation-design|2026-04-30-fxav-crew-pages-v1\.md|DEFERRED\.md|m12-plan-pg-cron-pivot-amendment|package\.json)' | wc -l  # expect 7
   git commit -m "$(cat <<'EOF'
   docs(plan-m12)+docs(spec-m12)+test(cross-cutting): insert Task 0.A.4.5 + sweep Vercel-Cron refs + amend M12 spec + amendment doc-guard (M12.1 T5)
   
@@ -1060,17 +1061,24 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   
   Per AGENTS.md "Local-passes-CI-fails is its own bug class" — the final-state real-CI proof is a separate close-out gate from the local + adversarial-review green state. T4.4 step 3a covers the T4 commit-boundary CI state (2 tests); this step covers the final M12.1 close-out CI state (3 tests).
 
-- [ ] **Step 8: Update GitHub branch-protection settings to require x6-pg-cron-pivot (R29 F57 operator action — close-out gate).** T5 Step 4c amended the master spec's AC-X.6 paragraph to add `x6-pg-cron-pivot` to the named-verbatim required-checks list, which the parser at `scripts/generate-traceability.ts:189-194` will then return from `loadRequiredChecksFromSpec()`. The privileged `verify-branch-protection` job (runs on `push` to `main` + weekly `schedule` cron, per master spec §17.2.1) compares the actual GitHub branch-protection settings against the spec inventory; if `x6-pg-cron-pivot` is in the spec but NOT in the branch-protection required-status-checks list, the privileged job will (a) emit `BRANCH_PROTECTION_DRIFT` to `admin_alerts` and (b) write a non-zero-exit JSON drift report. The PR-required reader gate `verify-branch-protection-status` would then fail on subsequent PRs (asserting "no drift within 8-day freshness window"). Operator MUST update branch protection before M12.1 is declared DONE.
+- [ ] **Step 8: Acknowledge branch-protection enforcement is dormant per X6-D-1 (R30 F58 repair of R29 F57 over-reach).** T5 Step 4c amended the master spec's AC-X.6 paragraph + M12.1 spec §2.5 to add `x6-pg-cron-pivot` to the required-checks inventory; assertion P proves `loadRequiredChecksFromSpec()` returns it. **However:** the branch-protection enforcement path is currently DORMANT per `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md` §X6-D-1 ("Branch-protection drift-detector + 7th required check deferred until team workflow exists"). Concrete dormant state at HEAD `ac752d9`:
   
-  Procedure (post-T5 commit, requires GitHub admin permissions on the repo):
+  - Branch protection on `main` was deleted on 2026-05-20 via `gh api -X DELETE` (X6-D-1 §Resolution).
+  - The privileged `verify-branch-protection` job in `.github/workflows/x-audits.yml:268-296` is guarded with `if: false`.
+  - The PR-required reader `verify-branch-protection-status` job in `.github/workflows/x-audits.yml:298-345` is also `if: false`.
+  - There is NO separate `verify-branch-protection.yml` workflow file — both jobs live inside `x-audits.yml`. An earlier R29 draft of this step incorrectly directed the operator to `gh workflow run verify-branch-protection.yml --ref main` (the workflow file doesn't exist); R30 F58 caught and reverted that direction.
   
-  1. Open GitHub → repository Settings → Branches → branch-protection rule for `main`.
-  2. Under "Require status checks to pass before merging" → "Status checks that are required", add `x6-pg-cron-pivot` to the list. The job name must match the workflow job name verbatim (per T4.4 step 2: jobname is `x6-pg-cron-pivot`, NOT `audit-x6-pg-cron-pivot` per R28 F56).
-  3. Save the branch-protection rule.
-  4. Verify locally before M12.1 close-out: `pnpm exec tsx scripts/verify-branch-protection.ts` (requires `GH_APP_TOKEN` / `BRANCH_PROTECTION_PAT` + `SUPABASE_SECRET_KEY` env vars — see master spec §17.2.1 for the privileged-script contract). Expected output: zero drift findings; exit code 0. If non-zero drift, fix the branch-protection setting and re-run.
-  5. Trigger the privileged `verify-branch-protection` job manually via `gh workflow run verify-branch-protection.yml --ref main` (workflow_dispatch trigger), `gh run watch`, confirm exit 0 + no `BRANCH_PROTECTION_DRIFT` admin alert emitted.
+  Consequently: M12.1 does NOT update GitHub branch-protection settings as a close-out gate. The 6 audit checks (now 7 with x6-pg-cron-pivot added by T4.4 + T5 Step 4c) STILL run on every PR + push and surface red in the GitHub UI; they just don't BLOCK merges (per X6-D-1). The privileged `verify-branch-protection` job is dormant and emits no drift alerts. The spec inventory amendment is **prep work** that lands now so the configuration is correct when X6-D-1 reopens (per X6-D-1 §"Re-enable triggers"): a future re-PUT of branch protection per X6-D-1's reopen procedure will read the current spec inventory via `loadRequiredChecksFromSpec()` and naturally include `x6-pg-cron-pivot`. The cross-reference is added to DEFERRED.md §X6-D-1 below.
   
-  Until Step 8 completes successfully, M12.1 is NOT DONE — the structural defense is in the spec + parser + meta-test, but not enforced at the merge gate. The operator action closes the gap.
+  **DEFERRED.md amendment (mandatory in this T5 commit).** Edit `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md` §X6-D-1: add a new "M12.1 cross-reference" bullet under §Resolution noting that `x6-pg-cron-pivot` is now in the master spec AC-X.6 inventory + must be in the required-checks list when X6-D-1 reopens. This guarantees the X6-D-1 reopener doesn't accidentally re-PUT branch protection with only the pre-M12.1 7-gate set.
+  
+  **Until X6-D-1 reopens**, the structural defenses for M12.1 are:
+  
+  - **Workflow level (active now):** the `x6-pg-cron-pivot` job in `.github/workflows/x-audits.yml` runs on every PR + push + the M12.1 close-out manual workflow_dispatch per T5 Step 7. Red x6 = visible red check in GitHub UI; doesn't block merge per X6-D-1.
+  - **Spec inventory level (active now):** assertion P (`loadRequiredChecksFromSpec()` returns `x6-pg-cron-pivot`) catches any future regression that drops the backtick literal from master spec AC-X.6.
+  - **Branch-protection enforcement (dormant per X6-D-1):** activated when X6-D-1 reopens; M12.1's amendment to the spec inventory is the prep work that ensures correct configuration at reopen time.
+  
+  M12.1 is DONE when (a) all M12.1 commits land, (b) T5 Step 7 confirms x6 job runs green in real CI with all 3 tests, (c) DEFERRED.md §X6-D-1 cross-reference is added per this step. No operator action against GitHub branch-protection settings.
 
 **Risk class:** low — markdown documentation edit; no executable code. The risk is conceptual: (a) missing the Vault populate step means every cron firing 401s in validation; (b) missing the smoke-file sweep means executor follows stale debugging guidance; (c) skipping the branch-protection settings update leaves the new x6 gate enforced at workflow level only, not merge-gate level (operator-action gap; mitigated by the privileged `verify-branch-protection` job's drift alerting).
 
