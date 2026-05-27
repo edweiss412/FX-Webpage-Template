@@ -245,8 +245,12 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   -- This migration is idempotent at the schedule layer: cron.unschedule() before
   -- cron.schedule() for each fxav_cron_* job. The unschedule loop is scoped to
   -- `jobname like 'fxav\_cron\_%' escape '\'` (escaped — underscores are literal,
-  -- not SQL LIKE single-char wildcards; R4 F10 fix) so the pre-existing bootstrap signing-key cron
-  -- at supabase/migrations/20260504000001_*.sql:36 is preserved.
+  -- not SQL LIKE single-char wildcards; R4 F10 fix) so any future non-fxav cron
+  -- added before T3 ships is preserved. As of plan-draft time the only
+  -- pre-existing non-fxav cron is the orphaned `cleanup-bootstrap-nonces`
+  -- (M11.5 G3 cutover dropped its target function + table but did not
+  -- cron.unschedule the job); T3 explicitly unschedules that orphan in a
+  -- separate guarded block below (R25 F49 + R26 F51).
   --
   -- The pg_net call body reads the bearer secret from supabase_vault each firing
   -- (NOT at migration time) so secret rotation does not require re-running this
@@ -279,7 +283,9 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     end if;
   
     -- Idempotency: drop any pre-existing fxav_cron_* schedules. Scoped to the
-    -- fxav prefix so the bootstrap signing-key cron is untouched.
+    -- fxav prefix so any non-fxav cron added before T3 ships is preserved
+    -- (the orphaned `cleanup-bootstrap-nonces` cron is handled by the
+    -- explicit guarded block below, NOT swept by this LIKE loop).
     perform cron.unschedule(jobname)
       from cron.job
       where jobname like 'fxav\_cron\_%' escape '\';
@@ -358,8 +364,8 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 3: Set the `app.fxav_vercel_url` GUC** on the local dev database before applying: `alter database postgres set app.fxav_vercel_url = 'https://fxav-crew-pages-validation.vercel.app';` (the validation URL captured in M12 Phase 0.A.4). On a fresh validation project this happens once.
 - [ ] **Step 4: Apply locally.** `npx supabase db push`. Confirm: `select jobname, schedule from cron.job where jobname like 'fxav\_cron\_%' escape '\';` returns 7 rows with the expected schedules.
-- [ ] **Step 5: Re-apply for idempotency (R20 F42 fix — execute SQL directly).** Per R3 F8 + R20 F42, db push won't re-execute tracked migrations. Execute the T3 SQL directly to verify the unschedule+reschedule idempotency claim: `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<ts3>_schedule_cron_jobs.sql`. The do-block's `cron.unschedule(jobname) from cron.job where jobname like 'fxav\_cron\_%' escape '\'` drops all 7 rows, then the 7 `cron.schedule()` calls re-create them. Net effect: cron.job count remains at 7 fxav_cron_* rows (plus the pre-existing bootstrap signing-key job). Verify the count is preserved across re-execution; verify no orphaned rows; verify the bootstrap cron is untouched.
-- [ ] **Step 6: Verify pre-existing bootstrap signing-key cron is untouched.** `select jobname from cron.job where jobname not like 'fxav\_cron\_%' escape '\';` should still show the bootstrap row from `supabase/migrations/20260504000001_bootstrap_nonces_signing_key.sql:36`.
+- [ ] **Step 5: Re-apply for idempotency (R20 F42 fix — execute SQL directly).** Per R3 F8 + R20 F42, db push won't re-execute tracked migrations. Execute the T3 SQL directly to verify the unschedule+reschedule idempotency claim: `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/<ts3>_schedule_cron_jobs.sql`. The do-block's `cron.unschedule(jobname) from cron.job where jobname like 'fxav\_cron\_%' escape '\'` drops all 7 fxav rows, then the guarded `cron.unschedule('cleanup-bootstrap-nonces')` no-ops on re-apply (orphan already removed; `if exists` guard makes it idempotent), then the 7 `cron.schedule()` calls re-create the fxav rows. Net effect: cron.job count remains at 7 fxav_cron_* rows; the orphan stays absent. Verify the count is preserved across re-execution; verify no orphaned rows surface.
+- [ ] **Step 6: Verify the orphaned `cleanup-bootstrap-nonces` cron was removed (R26 F51).** `select count(*) from cron.job where jobname = 'cleanup-bootstrap-nonces';` should return 0 post-T3. `select count(*) from cron.job where jobname not like 'fxav\_cron\_%' escape '\';` should return 0 as well (no other pre-existing non-fxav cron exists at HEAD `ac752d9`; if a future non-fxav cron is added before T3 ships, this count will be that new cron's count — the snapshot-equality meta-test in T4.2 step 5 pins that case).
 - [ ] **Step 7: Meta-test from Step 1 now passes.** Confirm.
 - [ ] **Step 8: Commit.**
 
@@ -371,8 +377,11 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   Atomic migration scheduling all 7 cron jobs per spec §2.3 + §5.1
   completeness matrix. Each job body reads bearer secret from
   vault.decrypted_secrets at firing time (rotation-friendly).
-  Idempotent: unschedule-then-schedule pattern. Pre-existing
-  bootstrap_nonces_signing_key cron untouched.
+  Idempotent: unschedule-then-schedule pattern. R25 F49 + R26 F51:
+  T3 also unschedules the orphaned `cleanup-bootstrap-nonces` cron
+  left by M11.5 G3 cutover (function + table dropped without cron
+  unschedule); the LIKE-scoped fxav-prefix sweep preserves any
+  future non-fxav cron added before T3 ships.
   EOF
   )"
   ```
@@ -454,7 +463,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 ### T4.3 — `pg-cron-pivot-doc-guard.test.ts` (R3 structural-defense calibration)
 
-- [ ] **Step 1: Author the prose-guard test.** Walks `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot-design.md` + `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/**/*.md` and asserts NONE of the 7 forbidden patterns appear outside allowlisted finding-history contexts.
+- [ ] **Step 1: Author the prose-guard test.** Walks `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot-design.md` + `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/**/*.md` and asserts NONE of the 8 forbidden patterns appear outside allowlisted finding-history contexts.
   
   **R22 F46 fix — patterns-definition table lives in the test file, not in walked plan markdown.** Patterns 4 (non-existent pg_cron columns) and 7 (double-backslash ESCAPE) have regex sources that match their own literal in this plan file — 7th hit of structural-defense-self-inconsistency class (R4 F9, R6 F15, R10 F26, R13 F33, R14 F35, R15 F36, R22 F46). Genuine class closure: ALL patterns + regexes + fixtures live in the self-excluded test file `tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts` as TypeScript const arrays. Plan markdown describes the class semantically only — semantic name + class + why-forbidden in prose, NO regex source, NO literal forbidden patterns.
   
@@ -471,7 +480,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 1a (R9 F23 fix — sequencing correction):** the 9 M12-plan-positive assertions (A-I, R7 F17 + R8 F20 fix) are **NOT** in this file. R7-R8 drafts put them here, but T4 commits BEFORE T5; landing the doc-guard with A-I assertions would create immediate CI failure (assertions fail at T4 commit boundary because T5 hasn't edited the M12 plan tree yet) — violating TDD-green-at-commit discipline and breaking the new x6 audit on its first run.
   
-  Corrected ownership: **T5 ships its own test file** `tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` containing the 9 positive assertions A-I; the test commits in the same atomic T5 commit as the M12 plan edits, so the assertions are red at T5 step 0 (per AGENTS.md invariant 1) and green at T5 commit-land. pg-cron-pivot-doc-guard (this T4 file) keeps ONLY the 7 forbidden-pattern walks + self-exclusion + finding-history allowlist — all of which can be green at T4 commit boundary.
+  Corrected ownership: **T5 ships its own test file** `tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` containing the 9 positive assertions A-I; the test commits in the same atomic T5 commit as the M12 plan edits, so the assertions are red at T5 step 0 (per AGENTS.md invariant 1) and green at T5 commit-land. pg-cron-pivot-doc-guard (this T4 file) keeps ONLY the 8 forbidden-pattern walks + self-exclusion + finding-history allowlist — all of which can be green at T4 commit boundary.
   
   See T5 step 0 + T5 step 1.5 (new) for the M12-plan-amendment test authoring + commit grouping.
 
@@ -488,7 +497,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   
   **R14 F35 fix — regression fixtures live in the test file, NOT in this plan markdown.** Earlier R13-fix inlined paired-case examples here, but this file is in the doc-guard's walked surface; embedding the forbidden patterns as fixtures (even labeled as "negative case") triggers the doc-guard against itself (5th hit of structural-defense-self-inconsistency class — same shape as R4 F9 / R6 F15 / R10 F26 / R13 F33). Comprehensive structural defense for the class: ALL regression fixtures live in the self-excluded test file (`tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`). Plan markdown describes the discipline; test file owns the literal cases.
   
-  For all 7 forbidden patterns, the test file owns paired regression cases — semantic descriptions only here, fixture literals in the test file:
+  For all 8 forbidden patterns, the test file owns paired regression cases — semantic descriptions only here, fixture literals in the test file:
   - **Pattern 1 (Vault extension-name-as-schema drift):** negative case = SQL function-call/table-access fixture; positive case = bare prose mention
   - **Pattern 2 (HTTP POST verb drift):** negative case = SQL function-call fixture; positive case = bare prose / inverse-assertion text
   - **Pattern 3 (jobname-on-job_run_details column-shape drift):** negative case = un-joined query fixture; positive case = prose noting the column is on cron.job
@@ -496,10 +505,11 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - **Pattern 5 (db-push-reapply migration assumption):** negative case = the broken anti-tautology assertion fixture; positive case = legitimate retry text (re-apply after pending-migration failure)
   - **Pattern 6 (unescaped LIKE wildcard):** negative case = unescaped jobname-LIKE fixture; positive 1 = correct single-backslash escaped form; positive 2 = double-backslash form (caught by pattern 7)
   - **Pattern 7 (double-backslash ESCAPE clause):** negative case = double-backslash escape fixture; positive case = single-backslash escape
+  - **Pattern 8 (secret-bearer reveal via `decrypted_secret` SELECT — R24 F48 added, R26 F52 fixture-inventory closure):** negative case = a bare `select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret'` outside any cron-schedule body (operator diagnostic / spec prose / plan diagnostic ladder — the exposure class); positive case 1 = the same SELECT inside a `cron.schedule('fxav_cron_*', ...)` `format($body$ ... $body$, ...)` body (legitimate auth-header construction); positive case 2 = semantic prose describing the sourcing without the literal SQL phrase (e.g., "reads from Supabase Vault decrypted-secrets view, keyed by fxav_cron_secret name"); positive case 3 = the SELECT inside a finding-history paragraph block (R23/R24/R25/R26 narrative — allowlisted via the same finding-history mechanism as patterns 1-7)
   
-  All 14+ fixtures live in `tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts` (self-excluded from the walk per T4.3 step 2). The test file constructs each fixture as a temporary in-memory string, runs the doc-guard's regex set against it, and asserts the expected pass/fail outcome. The plan markdown (this file) describes WHAT each pattern's contract is — describing forbidden-pattern semantics is allowed; embedding literal forbidden fixtures here is not.
+  All 16+ fixtures live in `tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts` (self-excluded from the walk per T4.3 step 2). The test file constructs each fixture as a temporary in-memory string, runs the doc-guard's regex set against it, and asserts the expected pass/fail outcome. The plan markdown (this file) describes WHAT each pattern's contract is — describing forbidden-pattern semantics is allowed; embedding literal forbidden fixtures here is not.
   
-  Run all 14+ paired regression cases via `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`. This is the structural calibration that closes the same-vector "doc-guard too broad / self-inconsistent" class definitively.
+  Run all 16+ paired regression cases via `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`. This is the structural calibration that closes the same-vector "doc-guard too broad / self-inconsistent" class definitively.
 
 ### T4.4 — Wire structural defenses into CI (R5 F11 fix)
 
@@ -562,20 +572,24 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - pg-cron-coverage: live-DB introspection assertion that the 7
     fxav_cron_* jobs match pg-cron-jobs.json byte-for-byte (jobname,
     schedule, command-contains-net.http_get + command-contains-
-    vault.decrypted_secrets + command-NOT-contains-net.http_post) and
-    that pre-existing non-fxav crons are preserved.
+    vault.decrypted_secrets + command-NOT-contains-net.http_post),
+    that the non-fxav cron set is preserved via snapshot-equality (R25
+    F49 + R26 F51 — orphan `cleanup-bootstrap-nonces` excluded from
+    snapshot since T3 removes it), and that the orphan is absent post-T3.
   - pg-cron-pivot-doc-guard: R3 structural-defense calibration +
-    R4/R7/R10/R13/R14 extension — walks M12.1 spec + plan markdown and
-    asserts 7 forbidden patterns (semantic descriptions in plan; literal
-    regex source lives in the self-excluded test file): Vault extension-
-    name-as-schema drift (pattern 1); HTTP POST verb drift (pattern 2);
-    jobname-on-job_run_details column-shape drift (pattern 3); non-
-    existent pg_cron column names drift (pattern 4); db-push-reapply
-    migration assumption — narrowed in R4 F9 (pattern 5); unescaped
-    LIKE wildcard — added in R4 F10 (pattern 6); double-backslash
-    ESCAPE clause — added in R7 F18 (pattern 7). Each pattern has
-    bidirectional regression (negative + positive paired cases) in
-    the test file per R13 F33 + R14 F35 structural-defense calibration.
+    R4/R7/R10/R13/R14/R24/R26 extension — walks M12.1 spec + plan
+    markdown and asserts 8 forbidden patterns (semantic descriptions in
+    plan; literal regex source lives in the self-excluded test file):
+    Vault extension-name-as-schema drift (pattern 1); HTTP POST verb
+    drift (pattern 2); jobname-on-job_run_details column-shape drift
+    (pattern 3); non-existent pg_cron column names drift (pattern 4);
+    db-push-reapply migration assumption — narrowed in R4 F9 (pattern
+    5); unescaped LIKE wildcard — added in R4 F10 (pattern 6); double-
+    backslash ESCAPE clause — added in R7 F18 (pattern 7); secret-bearer
+    reveal via `decrypted_secret` SELECT outside cron schedule body —
+    added in R24 F48 (pattern 8). Each pattern has bidirectional
+    regression (negative + positive paired cases) in the test file per
+    R13 F33 + R14 F35 + R26 F52 structural-defense calibration.
     Defends the API-surface-verification class that
     recurred across R1/R2/R3/R4.
   
@@ -703,9 +717,13 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - [ ] **Step 4:** Re-run `npx supabase db push` to re-apply `schedule_cron_jobs`
     now that the GUC + Vault entry are populated. Confirm: `select jobname,
     schedule from cron.job where jobname like 'fxav\_cron\_%' escape '\';` returns 7 rows.
-  - [ ] **Step 5:** Verify the pre-existing bootstrap signing-key cron is
-    untouched: `select count(*) from cron.job where jobname not like 'fxav\_cron\_%' escape '\';`
-    should return at least 1.
+  - [ ] **Step 5 (R26 F51):** Verify the orphaned `cleanup-bootstrap-nonces`
+    cron was removed by T3: `select count(*) from cron.job where jobname = 'cleanup-bootstrap-nonces';`
+    must return 0. `select count(*) from cron.job where jobname not like 'fxav\_cron\_%' escape '\';`
+    should return 0 (no non-fxav cron remains at validation env state; if a
+    future non-fxav cron is added before this Phase 0.A.4.5 runs, the
+    snapshot-equality meta-test in pg-cron-coverage.test.ts catches drift —
+    here we are only asserting the orphan-cleanup invariant).
   - [ ] **Step 5a (R12 F31 + R13 F34 fix — validation-env meta-test apply):** Run
     `pg-cron-coverage.test.ts` against the validation Supabase project to
     pin the SAME contract that T2.1/T2.2/T3 proved on the local dev DB.

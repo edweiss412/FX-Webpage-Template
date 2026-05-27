@@ -66,7 +66,7 @@ All AGENTS.md plan-wide invariants apply unchanged. Specifically load-bearing fo
 
 - Modify any `app/api/cron/*` route handler (they already accept bearer auth — verified in spec §1.2 + §4)
 - Touch M11.5-IMP-1/2/4 UI carryovers (those land in M12 Phase 0.A Block 2 per the M12 plan, AFTER M12.1 unblocks Phase 0.A.4)
-- Reschedule the bootstrap signing-key cron at `supabase/migrations/20260504000001_bootstrap_nonces_signing_key.sql:36` (independent, untouched)
+- Re-implement nonce cleanup or signing-key rotation. R25 F49 + R26 F51: the cron scheduled by `supabase/migrations/20260504000001_bootstrap_nonces_signing_key.sql:36` is named `cleanup-bootstrap-nonces` and is an orphan (M11.5 G3 cutover dropped its target function + table). T3 unschedules it as a side-effect cleanup. M12.1 does NOT re-implement nonce cleanup or signing-key rotation; if either resurfaces as a need, file in BACKLOG.md.
 - Add per-cron-job feature flags or runtime kill switches (out of scope; if needed, file in BACKLOG.md)
 - Migrate to GitHub Actions / Cloudflare / Upstash as a fallback path (those were the rejected alternatives in spec §1.1)
 
