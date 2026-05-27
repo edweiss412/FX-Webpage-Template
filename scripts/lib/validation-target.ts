@@ -8,6 +8,10 @@
 const LOCALHOST_REGEX =
   /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
 
+function isLocalUrl(url: string): boolean {
+  return LOCALHOST_REGEX.test(url);
+}
+
 // Supabase project URLs follow the canonical shape
 // `https://<project-ref>.supabase.co`. Subdomains for branched-database
 // previews (`<project-ref>--<branch>.supabase.co`) and the legacy
@@ -36,10 +40,25 @@ export function assertProdEquivalentTarget(
         "Vercel Production-scope value) per spec §9.1.2 + .env.local.example.",
     );
   }
-  if (LOCALHOST_REGEX.test(url) && !allowLocalOverride) {
+  if (isLocalUrl(url)) {
+    if (!allowLocalOverride) {
+      throw new Error(
+        `Refusing to operate against local URL (${url}); use --allow-local-override to bypass. ` +
+          "Per spec §3.3 step 5 — validation tooling defends against accidental local-stack seeds.",
+      );
+    }
+    return;
+  }
+  // Codex Phase 0.C R2 F1 — plaintext-http guard. Service-role
+  // VALIDATION_SUPABASE_SECRET_KEY is sent over the wire on every RPC
+  // call; a typo (`http://<ref>.supabase.co`) would leak the secret in
+  // cleartext before any redirect could save it. Hosted URLs MUST be https.
+  if (!url.toLowerCase().startsWith("https://")) {
     throw new Error(
-      `Refusing to operate against local URL (${url}); use --allow-local-override to bypass. ` +
-        "Per spec §3.3 step 5 — validation tooling defends against accidental local-stack seeds.",
+      `VALIDATION_SUPABASE_URL '${url}' is not https://. Service-role ` +
+        "credentials would be sent in plaintext. Use https:// for hosted " +
+        "Supabase targets; only localhost may be http (and only with " +
+        "--allow-local-override).",
     );
   }
 }
@@ -59,9 +78,16 @@ export function assertProdEquivalentTarget(
 export function assertSupabaseTargetMatchesProjectRef(
   url: string,
   projectRef: string | undefined,
-  allowLocalOverride: boolean,
+  // Kept in the signature for symmetry with assertProdEquivalentTarget +
+  // backwards-compatibility with call sites. The actual local-skip
+  // decision is made by inspecting the URL itself (R2 F2 — the flag
+  // alone is too coarse: passing --allow-local-override against a
+  // hosted URL must NOT skip the binding check).
+  _allowLocalOverride: boolean,
 ): void {
-  if (allowLocalOverride) return;
+  // R2 F2 — skip binding ONLY when the URL is genuinely local. A hosted
+  // URL with --allow-local-override still gets the host/ref binding.
+  if (isLocalUrl(url)) return;
   if (projectRef === undefined || projectRef.length === 0) {
     throw new Error(
       "VALIDATION_SUPABASE_PROJECT_REF is required — set it to the project ref " +
