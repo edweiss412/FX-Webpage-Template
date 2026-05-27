@@ -18,7 +18,14 @@ const ALLOWED_JWT_SURFACES = [
 ];
 
 const JWT_CUTOVER_SCAN_ROOTS = ["app", "lib", "components"] as const;
-const JWT_CUTOVER_TOP_LEVEL_FILES = ["middleware.ts"] as const;
+// Top-level files that should be scanned for JWT-cutover strings.
+// `middleware.ts` was removed in commit b5999c8 (Phase 0.A finding 2026-05-27)
+// after Next 16's Edge wrapper around the post-M11.5-G3 no-op middleware caused
+// production 500s. The vestigial-middleware structural defense at
+// tests/cross-cutting/no-vestigial-middleware.test.ts prevents reintroducing a
+// no-op middleware.ts/proxy.ts; if a real `proxy.ts` is added with JWT-cutover
+// scrutiny needed, append it here.
+const JWT_CUTOVER_TOP_LEVEL_FILES: readonly string[] = [];
 const CUTOVER_MIGRATION_TIMESTAMP = "20260523000099";
 
 export const FORBIDDEN_JWT_CUTOVER_SUBSTRINGS = [
