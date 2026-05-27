@@ -175,6 +175,18 @@ const MUTATIONS: Array<{
     matchHint: /shows\.slug drifted/,
   },
   {
+    field: "shows.venue.timezone (R7-F1)",
+    sql: `UPDATE public.shows SET venue = '{"timezone":"America/New_York"}'::jsonb WHERE drive_file_id='validation_R1';`,
+    expectsPredicate: "o",
+    matchHint: /venue\.timezone.*!=.*UTC/,
+  },
+  {
+    field: "shows.venue (NULL)",
+    sql: `UPDATE public.shows SET venue = NULL WHERE drive_file_id='validation_R1';`,
+    expectsPredicate: "o",
+    matchHint: /venue\.timezone.*<absent>.*!=.*UTC/,
+  },
+  {
     field: "crew_members.date_restriction",
     sql: `UPDATE public.crew_members SET date_restriction = '{"kind":"unknown_asterisk"}'::jsonb WHERE name = 'R1_alias_5a_lead' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
     expectsPredicate: "o",

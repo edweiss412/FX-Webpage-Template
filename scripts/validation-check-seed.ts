@@ -297,7 +297,7 @@ async function runChecks(
     }
   )
     .from("shows")
-    .select("id,drive_file_id,archived,published,dates,title,slug")
+    .select("id,drive_file_id,archived,published,dates,title,slug,venue")
     .like("drive_file_id", "validation_%");
   if (showsRes.error) {
     throw new Error(
@@ -312,6 +312,7 @@ async function runChecks(
     dates: Record<string, unknown> | null;
     title: string;
     slug: string;
+    venue: Record<string, unknown> | null;
   };
   const shows = (showsRes.data ?? []) as ShowRow[];
   for (const s of shows) {
@@ -569,6 +570,23 @@ async function runChecks(
       throw new CheckSeedFailure(
         "o",
         `validation show ${combo} shows.slug drifted. live='${show.slug}' expected='${expected.slug}'. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+      );
+    }
+    // (o.7) shows.venue.timezone — Codex Phase 0.C R7-F1 TZ contract.
+    //   The mint RPC writes {timezone: 'UTC'} so the runtime Right Now
+    //   selector resolves today via UTC (matching the script's UTC
+    //   validationTodayIso). Without this pin, the runtime defaults to
+    //   America/New_York and the daily UTC/local gap can desynchronize
+    //   the gate from the UI by a day.
+    const expectedTz = "UTC";
+    const liveTz =
+      show.venue && typeof show.venue === "object"
+        ? (show.venue as { timezone?: string }).timezone
+        : undefined;
+    if (liveTz !== expectedTz) {
+      throw new CheckSeedFailure(
+        "o",
+        `validation show ${combo} shows.venue.timezone='${liveTz ?? "<absent>"}' != '${expectedTz}'. The runtime Right Now selector falls back to America/New_York when timezone is unset, which can desync the walk-session gate from the UI by a day at the UTC/local boundary. Re-run \`pnpm validation:reseed --combo ${combo}\` to restore.`,
       );
     }
 

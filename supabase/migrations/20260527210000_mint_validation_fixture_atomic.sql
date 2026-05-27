@@ -73,9 +73,19 @@ BEGIN
   --    restore baseline eligibility on every reseed. The
   --    shows_create_share_token_after_insert trigger fires on initial
   --    INSERT only; section 2.6 below self-heals on UPSERT update-path.
+  -- Codex Phase 0.C R7-F1 — TZ contract pin. The reseed/check-seed CLIs
+  -- compute validationTodayIso via `new Date().toISOString().slice(0,10)`
+  -- (UTC), but the runtime Right Now selector resolves today via
+  -- shows.venue.timezone (defaulting to America/New_York if absent —
+  -- per components/right-now/buildRightNowContext.ts:57-60). During the
+  -- daily UTC/local gap, an unset venue would mean the script gate
+  -- approves tomorrow's fixtures while the UI still renders today.
+  -- Pinning venue.timezone='UTC' on every validation show keeps the
+  -- tooling and runtime on the same clock. Predicate (o.venue) in
+  -- check-seed verifies the pin held.
   INSERT INTO public.shows (
     drive_file_id, slug, title, client_label, template_version,
-    dates, archived, published, last_seen_modified_time
+    venue, dates, archived, published, last_seen_modified_time
   )
   VALUES (
     v_drive_file_id,
@@ -83,6 +93,7 @@ BEGIN
     p_fixture_payload->>'showName',
     'M12 Validation',                -- client_label NOT NULL
     'v4',                            -- template_version NOT NULL
+    jsonb_build_object('timezone', 'UTC'),
     p_fixture_payload->'dates',
     false,
     true,
@@ -91,6 +102,7 @@ BEGIN
   ON CONFLICT (drive_file_id) DO UPDATE SET
     title = EXCLUDED.title,
     slug = EXCLUDED.slug,            -- Codex Phase 0.C R6-F1 — repair slug drift
+    venue = EXCLUDED.venue,          -- R7-F1 — repair venue.timezone drift
     dates = EXCLUDED.dates,
     archived = false,                -- R27 commit 57 F27 baseline restore
     published = true,                -- R27 commit 57 F27 baseline restore
