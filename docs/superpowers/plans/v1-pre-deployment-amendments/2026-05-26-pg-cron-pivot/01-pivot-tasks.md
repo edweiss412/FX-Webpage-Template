@@ -83,9 +83,17 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 ### T2.1 — Enable `pg_net` extension
 
-- [ ] **Step 0: TDD red — author pg-cron-coverage.test.ts skeleton with Layer 0a (R10 F25 fix).** R7-R10 drafts said "extend pg-cron-coverage.test.ts authored fully in T4.2" — but T2.1 commits before T4, so a T2.1 commit would not actually own its red/green test. R10 F25 caught this. **Corrected ownership:** T2.1 authors the skeleton of `tests/cross-cutting/pg-cron-coverage.test.ts` and commits it WITH the T2.1 migration. T2.2 extends it. T3 extends it further. T4.2 finalizes it (canonical JOB_TABLE + anti-tautology). Each commit owns its own per-task TDD red/green.
+- [ ] **Step 0: TDD red — author pg-cron-coverage.test.ts skeleton with Layer 0a (R10 F25 + R11 F29 fix).** R7-R10 drafts said "extend pg-cron-coverage.test.ts authored fully in T4.2" — but T2.1 commits before T4, so a T2.1 commit would not actually own its red/green test. R10 F25 caught this. **Corrected ownership:** T2.1 authors the skeleton of `tests/cross-cutting/pg-cron-coverage.test.ts` and commits it WITH the T2.1 migration. T2.2 extends it. T3 extends it further. T4.2 finalizes it (canonical JOB_TABLE + anti-tautology). Each commit owns its own per-task TDD red/green.
   
-  At T2.1 step 0: author `tests/cross-cutting/pg-cron-coverage.test.ts` with just the top-of-file LOCAL-ONLY comment + Layer 0a assertion: `select exists(select 1 from pg_extension where extname = 'pg_net') as installed` returns `true`. Run `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` against the validation Supabase project at HEAD `ac752d9` (pre-T2.1) → expect Layer 0a to FAIL (red). This is the TDD-red phase per AGENTS.md invariant 1.
+  **R11 F29 fix — same-target red/green discipline:** the TDD red phase MUST run against the SAME database as the green phase. Use a **local Supabase dev project** (via `npx supabase start`) for both — NOT the validation project. Procedure:
+  1. Ensure local Supabase is running: `npx supabase status` (start if not: `npx supabase start`)
+  2. Author `tests/cross-cutting/pg-cron-coverage.test.ts` with just the top-of-file LOCAL-ONLY comment + Layer 0a assertion: `select exists(select 1 from pg_extension where extname = 'pg_net') as installed` returns `true`
+  3. Run the test against the LOCAL DB → expect FAIL (red) — pg_net not installed in fresh local Supabase
+  4. Apply the T2.1 migration to the SAME local DB: `npx supabase db push` (or via reset cycle if needed)
+  5. Re-run the test → expect PASS (green) — same DB target, mutation by T2.1 migration is the only changed variable
+  6. Validation project apply happens later in Phase 0.A.4.5 (per T5 amendment); the same migration applies and the same test passes there. The red/green proof is established at local-DB level.
+  
+  This is the TDD-red phase per AGENTS.md invariant 1.
 - [ ] **Step 1: Write the migration.** File: `supabase/migrations/<ts1>_enable_pg_net.sql`:
 
   ```sql
@@ -120,7 +128,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 ### T2.2 — Create `fxav_cron_secret` Vault entry
 
-- [ ] **Step 0: TDD red — extend pg-cron-coverage.test.ts with Layer 0b (R10 F25 fix).** pg-cron-coverage.test.ts now exists from T2.1; extend it with Layer 0b: `select exists(select 1 from vault.secrets where name = 'fxav_cron_secret') as present` returns `true`. Run the meta-test post-T2.1 / pre-T2.2 → expect Layer 0b assertion to FAIL (red) (pg_net is installed but Vault entry doesn't exist yet). This is the TDD-red phase per AGENTS.md invariant 1. T2.2 commit atomically includes the migration AND the Layer 0b assertion extension.
+- [ ] **Step 0: TDD red — extend pg-cron-coverage.test.ts with Layer 0b (R10 F25 + R11 F29 fix).** pg-cron-coverage.test.ts now exists from T2.1; extend it with Layer 0b: `select exists(select 1 from vault.secrets where name = 'fxav_cron_secret') as present` returns `true`. **Same-target discipline (R11 F29):** all red/green for T2.2 runs against the same local Supabase dev DB used in T2.1 (NOT the validation project; that's Phase 0.A.4.5's job). Procedure: post-T2.1 / pre-T2.2 → run test against local DB → expect Layer 0b FAIL (vault entry doesn't exist). Apply T2.2 migration to local DB → re-run test → expect Layer 0b PASS. Same DB target throughout. T2.2 commit atomically includes the migration AND the Layer 0b assertion extension. AGENTS.md invariant 1.
 - [ ] **Step 1: Write the migration.** File: `supabase/migrations/<ts2>_cron_secret_vault.sql`:
 
   ```sql
@@ -198,7 +206,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 **TDD steps:**
 
-- [ ] **Step 1: Extend pg-cron-coverage.test.ts with 7-job assertion (R10 F25 fix).** pg-cron-coverage.test.ts now exists from T2.1 + T2.2 (Layers 0a + 0b). T3 extends it with the main 7-job assertion. The pg-cron-jobs.json canonical source file ships in T4.2 (the spec table is interim source until then; T3 uses a hardcoded JOB_TABLE inline + T4.2 refactors to read from JSON). The 7-job assertion: assert against live DB: `select jobname, schedule, command from cron.job where jobname like 'fxav\_cron\_%' escape '\'` returns exactly 7 rows, one per JOB_TABLE entry, with schedules matching byte-for-byte and `command` containing the corresponding `route`. Initially FAILS post-T2.2 / pre-T3 (vault entry exists but no fxav_cron jobs scheduled yet). T3 commit atomically includes the migration AND the 7-job assertion extension.
+- [ ] **Step 1: Extend pg-cron-coverage.test.ts with 7-job assertion (R10 F25 + R11 F29 fix).** pg-cron-coverage.test.ts now exists from T2.1 + T2.2 (Layers 0a + 0b). T3 extends it with the main 7-job assertion. The pg-cron-jobs.json canonical source file ships in T4.2 (the spec table is interim source until then; T3 uses a hardcoded JOB_TABLE inline + T4.2 refactors to read from JSON). The 7-job assertion: assert against live DB: `select jobname, schedule, command from cron.job where jobname like 'fxav\_cron\_%' escape '\'` returns exactly 7 rows, one per JOB_TABLE entry, with schedules matching byte-for-byte and `command` containing the corresponding `route`. **Same-target discipline (R11 F29):** all T3 red/green runs against the same local Supabase dev DB used in T2.1 + T2.2. Procedure: post-T2.2 / pre-T3 → run test against local DB → expect 7-job assertion FAIL (vault entry exists but no fxav_cron jobs scheduled yet). Set the `app.fxav_vercel_url` GUC + apply T3 migration to local DB → re-run test → expect PASS. T3 commit atomically includes the migration AND the 7-job assertion extension.
 - [ ] **Step 2: Write the migration.** File: `supabase/migrations/<ts3>_schedule_cron_jobs.sql`:
 
   ```sql
@@ -216,20 +224,23 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   -- All schedules below are UTC (pg_cron + Supabase cluster default; matches the
   -- pre-pivot Vercel Cron UTC behavior byte-for-byte). Spec §2.3.
   --
-  -- pg_net timeout: 300000ms (5 minutes) matches Vercel Functions' default
-  -- maxDuration (per Vercel docs; session-context hook confirms "default
-  -- function execution timeout is now 300s on all plans"). R6 F16 fix:
-  -- earlier draft used 30s which is much shorter than runScheduledCronSync's
-  -- plausible runtime — the sync route processes shows + Drive files
-  -- sequentially with per-file 30s step timeouts (lib/sync/runScheduledCronSync.ts),
-  -- and a multi-file watched folder can exceed 30s easily. A premature pg_net
-  -- timeout would set net._http_response.timed_out=true even when the Vercel
-  -- handler is running fine (the handler continues — pg_net just abandons
-  -- waiting), making Smoke 3 layer 2 (HTTP outcome) report false negatives.
-  -- 300s allows the longest expected sync to complete within the pg_net
-  -- observation window. Faster crons (keepalive, refresh-watch, etc.) are
-  -- unaffected — they complete well under 300s and pg_net closes the
-  -- connection as soon as the handler responds.
+  -- pg_net timeout: 300000ms (5 minutes) — passed as a FORWARD-COMPATIBLE
+  -- HINT to pg_net's worker. R11 F28 caveat: per Supabase pg_net API ref
+  -- at https://supabase.github.io/pg_net/api/, the timeout_milliseconds
+  -- parameter may be ignored in current versions (worker uses its own
+  -- internal default). M12.1 still passes 300000 so that when pg_net
+  -- honors the parameter, the value matches Vercel Functions' default
+  -- maxDuration (per session-context hook: "default function execution
+  -- timeout is now 300s on all plans"). Smoke 3 treats `timed_out` as
+  -- DIAGNOSTIC-ONLY observation since its firing is pg_net-version-
+  -- dependent. Layer 3 (downstream side effect — show appears in /admin
+  -- Active Shows) remains the SOLE BINDING PASS criterion regardless
+  -- of pg_net timeout behavior (per R10 F27 + R11 F28).
+  -- Verification: implementer checks `select extversion from pg_extension
+  -- where extname = 'pg_net'` against the validation project and
+  -- consults the pg_net release notes / source for that version's
+  -- timeout handling. If timeout IS enforced, Smoke 3 layer 2 prose
+  -- about timed_out applies; if NOT, the observation is informational.
   --
   -- This migration is idempotent at the schedule layer: cron.unschedule() before
   -- cron.schedule() for each fxav_cron_* job. The unschedule loop is scoped to
@@ -570,14 +581,15 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - Assertion C: at Task 0.A.4 Step 5 does NOT contain the literal "Vercel Cron Jobs run only on production deployments" (replaced by env-var-scoping rationale per T5 step 3)
   - Assertion D: contains a join `cron.job_run_details ... join cron.job ... on j.jobid = jrd.jobid` somewhere (the Task 0.A.4.5 step 4 verification SQL)
   
-  Against `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md` (R8 F20 fix):
+  Against `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md` (R8 F20 + R11 F30 fix):
   - Assertion E: Smoke 3 section contains a 3-layer observability stack — references all of `cron.job_run_details`, `net._http_response`, AND a "downstream side effect" pattern
   - Assertion F: Smoke 3 contains a joined `cron.job_run_details jrd join cron.job j on j.jobid = jrd.jobid` query (NOT the stale `where jobname` form)
   - Assertion G: Smoke 3 contains references to `net._http_response` (pg_net response inspection)
   - Assertion H: Smoke 3 uses 300s / "5 min" / "5 minutes" timeout prose, NOT 30s
   - Assertion I: Smoke 3 does NOT contain `Vercel Cron Logs` OR `verify cron is enabled in vercel.json` outside finding-history contexts (the stale R0 prose codex F3 caught)
+  - Assertion J (R11 F30): Phase 0.F failure-modes section's "Smoke 3 (cron) doesn't fire" entry does NOT identify "Vercel deployment is Preview" as the sole/primary failure cause; the post-pivot failure cascade walks the 3-layer observability ladder instead
   
-  Run `pnpm test tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` against HEAD `ac752d9` → expect all 9 assertions to FAIL (the M12 plan tree hasn't been amended yet). This is the TDD-red phase that authorizes the T5 doc edits to land. Per AGENTS.md invariant 1.
+  Run `pnpm test tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` against HEAD `ac752d9` → expect all 10 assertions to FAIL (the M12 plan tree hasn't been amended yet). This is the TDD-red phase that authorizes the T5 doc edits to land. Per AGENTS.md invariant 1.
 
 - [ ] **Step 0a (R9 F23 fix — extend x6 CI audit to include the new test file).** Update `package.json` `test:audit:x6-pg-cron-pivot` script to include the new test file: `vitest run tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts`. The T5 commit lands all three test files plus the M12 plan edits atomically; the x6 CI gate then runs all three on every PR/push. (Reminder: this script update lives in `package.json` from T4.4 step 1 — T5 step 0a extends it.)
 
@@ -698,8 +710,11 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
        the Vault bearer does not match the Vercel CRON_SECRET env var
        (fail-loud). A `status_code = 405` means an HTTP-method mismatch
        (R1 F1 regression — should be impossible if T4 meta-test passes).
-       A `timed_out = true` means the 300s (5 min, matches Vercel Functions'
-       default maxDuration) pg_net timeout fired before Vercel responded.
+       A `timed_out = true` would indicate pg_net's worker abandoned the
+       request (pg_net version-dependent: per https://supabase.github.io/pg_net/api/,
+       `timeout_milliseconds` may be ignored in current versions and the
+       worker uses an internal default; this field's firing is therefore
+       DIAGNOSTIC-ONLY, not authoritative — R11 F28).
 
     3. **Downstream side effect — THE BINDING PASS CRITERION (R10 F27):** the
        new show appears in `/admin` Active Shows panel. **THIS LAYER ALONE
@@ -732,8 +747,8 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
         where name = 'fxav_cron_secret'` byte-for-byte.
       - status_code=405: HTTP method mismatch — should not happen if T4
         meta-test is green; check T3 SQL for net.http_post drift.
-      - timed_out=true: handler took >300s (5 min, the pg_net timeout per
-        R6 F16); check Vercel Logs for the
+      - timed_out=true: pg_net worker abandoned the request (version-
+        dependent — see R11 F28 caveat above). Check Vercel Logs for the
         /api/cron/sync route's actual execution time.
       - error_msg present: pg_net could not reach Vercel — DNS/network
         issue at Supabase egress.
@@ -746,7 +761,15 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
   - If Smoke 4 (admin_alerts + AlertBanner) also references Vercel Cron observability, apply the same 3-layer observability-surface rewrite (search the file for "Vercel Cron" / "vercel.json" / "cron logs" before commit). The 3-layer observability pattern is reusable.
 
+- [ ] **Step 4a: Amend `05-phase0-smokes.md` Phase 0.F failure-modes section (R11 F30 fix).** R10/R11 codex caught that T5's Smoke 3 sweep only rewrites lines 33/36, but the file's Phase 0.F failure-modes section (further down) still says something like "Smoke 3 (cron) doesn't fire = Vercel deployment is Preview" — which is stale post-pivot. Locate the Phase 0.F failure-modes section + rewrite the cron-related entries:
+  - Before (stale): "**Smoke 3 (cron) doesn't fire.** The Vercel deployment is Preview, not Production. See Task 0.A.4."
+  - After (post-pivot): "**Smoke 3 (cron) doesn't fire.** Walk the 3-layer observability ladder at Smoke 3 step 2 to localize: Layer 1 (cron.job_run_details) shows no recent row → pg_cron scheduling failed (check T3 migration applied + pg_cron worker process running); Layer 2 (net._http_response) shows no recent row OR error_msg present → pg_net failed to reach Vercel (check VPC/egress); Layer 3 (show in /admin Active Shows) is the SOLE BINDING PASS criterion per R10 F27 (Layer 3 failure with Layers 1+2 green = bearer auth mismatch OR Drive permissions OR handler runtime error — check Vercel Logs)."
+  
+  Add the corresponding Smoke 3 (cron) entry sweep to T5 step 5 verification grep: `rg -n 'Smoke 3 \(cron\) doesn'"'"'t fire.*Preview' docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/` should return zero matches post-T5.
+
 - [ ] **Step 5: Verify no other M12 plan files reference Vercel Cron post-amendment.** `rg -n 'Vercel Cron|vercel cron|x-vercel-cron' docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/` — expected: zero matches in the plan tree post-T5. Class-sweep verification per AGENTS.md "class-sweep before patching adversarial findings".
+
+- [ ] **Step 5a: Extend pg-cron-pivot-amendment doc-guard with assertion J (R11 F30 fix).** Add an assertion to T5's `tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts`: 05-phase0-smokes.md Phase 0.F failure-modes section's "Smoke 3 (cron) doesn't fire" entry does NOT contain the literal "Vercel deployment is Preview" (or any "Preview" mention as the sole failure cause). The post-pivot failure cascade is multi-layer; the failure-mode prose must reflect that. FAIL at HEAD (stale text present); PASS after step 4a edit. T5 doc-guard now has 10 assertions (was 9: A-I, now A-J).
 
 - [ ] **Step 6: Commit.**
 
