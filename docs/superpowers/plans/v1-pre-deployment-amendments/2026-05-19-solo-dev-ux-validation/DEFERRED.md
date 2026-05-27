@@ -8,7 +8,7 @@ Per memory `feedback_deferral_discipline.md`. Three buckets:
 
 ## Open deferrals
 
-### `M12-PHASE0C-TZ-PIN-METATEST` — Author `tests/cross-cutting/validation-tooling-tz-pin.test.ts` — **RESOLVED <THIS-COMMIT-SHA>** (2026-05-27)
+### `M12-PHASE0C-TZ-PIN-METATEST` — Author `tests/cross-cutting/validation-tooling-tz-pin.test.ts` — **RESOLVED b97a110** (2026-05-27)
 
 - **Source:** R5 pre-rebase plan amendment narrative declared this meta-test "landed" as a structural defense for the live-code-fidelity / TZ-pin vector after that vector recurred across 5 consecutive rounds. R11 audit (2026-05-26) verified the file does NOT exist in git history (no commit ever added it; `find tests -name '*tz*'` returns only the unrelated `playwright-version-pin.test.ts`; `git log --all -- 'tests/cross-cutting/validation-tooling-tz-pin.test.ts'` returns empty).
 - **Affected citations (reframed in R11 commit 28):**
@@ -20,7 +20,7 @@ Per memory `feedback_deferral_discipline.md`. Three buckets:
 - **Why deferred, not land-now:** TDD authoring (RED + GREEN) requires the `scripts/validation-*.ts` files to exist; they're authored in Tasks 0.C.1–0.C.6. Land-now in R11/R13 (markdown-only amendment scope) is impossible — there's no `.ts` surface to audit yet.
 - **Why not BACKLOG:** R5 design intent (TZ-pin class-sweep) was sound; the file simply wasn't authored. M12 scope, not speculative. Concrete Phase 0.C task ID closes the phantom-trigger class (per R12 F12 finding + R13 commit 29 audit).
 
-### `M12-PHASE0C-EMAIL-CANON-EXT` — Extend `tests/cross-cutting/email-canonicalization.test.ts` to audit `scripts/validation-*.ts`
+### `M12-PHASE0C-EMAIL-CANON-EXT` — Extend `tests/cross-cutting/email-canonicalization.test.ts` to audit `scripts/validation-*.ts` — **RESOLVED 6ae9dcb** (2026-05-27)
 
 - **Source:** Same R5 pre-rebase plan amendment narrative declared an extension to the existing `email-canonicalization.test.ts` audit scope: flag `lower(...)` / `trim(...)` in `scripts/validation-*.ts` unless adjacent to a `canonicalize()` call from `lib/email/canonicalize.ts`. R11 audit verified the test file exists (`tests/cross-cutting/email-canonicalization.test.ts`), but the audit scope does NOT include validation scripts: `auditLiveEmailCanonicalization()` at `lib/audit/emailCanonicalization.ts:693-705` walks `lib/parser`, `lib/sync`, `lib/reports`, `lib/auth`, `lib/data`, `lib/adminAlerts`, `app/api/admin` — `scripts/validation-*.ts` is absent. Extension never landed.
 - **Affected citations (reframed in R11 commit 28):**
