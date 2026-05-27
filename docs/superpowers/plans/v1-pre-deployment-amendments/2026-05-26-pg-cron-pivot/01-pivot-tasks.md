@@ -118,12 +118,21 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   -- prod: M13 launch). This migration creates the named slot only; secret value
   -- defaults to a placeholder that the runtime CRON_SECRET env-var check would
   -- never match (forcing 401 if Vault isn't populated post-migration).
+  --
+  -- Schema: Supabase Vault's extension NAME is `supabase_vault` but its SQL
+  -- surface lives in the `vault` schema (R2 F4 fix; conf 0.95). Functions:
+  -- vault.create_secret(), vault.update_secret(). Tables/views: vault.secrets,
+  -- vault.decrypted_secrets. The defensive `create extension if not exists ...
+  -- with schema vault;` ensures both the extension and its schema target are
+  -- in place even if Supabase's pre-install is absent on some environment.
   -- See sub-amendment spec §2.3 (auth contract).
+  
+  create extension if not exists supabase_vault with schema vault;
   
   do $$
   begin
-    if not exists (select 1 from supabase_vault.secrets where name = 'fxav_cron_secret') then
-      perform supabase_vault.create_secret(
+    if not exists (select 1 from vault.secrets where name = 'fxav_cron_secret') then
+      perform vault.create_secret(
         new_secret := 'unset-populate-via-vault-ui-or-update',
         new_name := 'fxav_cron_secret',
         new_description := 'Bearer token for pg_net -> Vercel /api/cron/* routes. Populated post-migration per environment. M12.1 T2.2.'
@@ -132,7 +141,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   end$$;
   ```
 
-- [ ] **Step 2: Apply locally.** Confirm: `select name, description from supabase_vault.secrets where name = 'fxav_cron_secret';` returns one row.
+- [ ] **Step 2: Apply locally.** Confirm: `select name, description from vault.secrets where name = 'fxav_cron_secret';` returns one row.
 - [ ] **Step 3: Migration idempotency check.** Re-apply — the `if not exists` guard makes this a no-op. Confirm.
 - [ ] **Step 4: Document the post-migration populate procedure** in the commit body (the env-specific value-population step happens in M12 Phase 0.A.5; this migration only creates the slot).
 - [ ] **Step 5: Commit.**
@@ -212,7 +221,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     -- Prereq check 3: supabase_vault entry must exist (T2.2). Value may still be
     -- the placeholder; the runtime check (Vercel route handler 401) is fail-loud
     -- on placeholder, but the migration only needs the slot to exist.
-    select exists(select 1 from supabase_vault.secrets where name = 'fxav_cron_secret') into vault_secret_present;
+    select exists(select 1 from vault.secrets where name = 'fxav_cron_secret') into vault_secret_present;
     if not vault_secret_present then
       raise exception 'M12.1 T3: supabase_vault entry fxav_cron_secret is required (M12.1 T2.2 must be applied first). Run the T2.2 migration before re-applying T3.';
     end if;
@@ -228,7 +237,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     perform cron.schedule('fxav_cron_sync', '*/5 * * * *', format($body$
       select net.http_get(
         url := %L,
-        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
+        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
       );
     $body$, vercel_url || '/api/cron/sync'));
@@ -236,7 +245,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     perform cron.schedule('fxav_cron_keepalive', '0 12 * * *', format($body$
       select net.http_get(
         url := %L,
-        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
+        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
       );
     $body$, vercel_url || '/api/cron/keepalive'));
@@ -244,7 +253,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     perform cron.schedule('fxav_cron_refresh_watch', '0 * * * *', format($body$
       select net.http_get(
         url := %L,
-        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
+        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
       );
     $body$, vercel_url || '/api/cron/refresh-watch'));
@@ -252,7 +261,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     perform cron.schedule('fxav_cron_gc_watch', '15 * * * *', format($body$
       select net.http_get(
         url := %L,
-        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
+        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
       );
     $body$, vercel_url || '/api/cron/gc-watch'));
@@ -260,7 +269,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     perform cron.schedule('fxav_cron_asset_recovery', '*/15 * * * *', format($body$
       select net.http_get(
         url := %L,
-        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
+        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
       );
     $body$, vercel_url || '/api/cron/asset-recovery'));
@@ -268,7 +277,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     perform cron.schedule('fxav_cron_diagram_gc', '30 * * * *', format($body$
       select net.http_get(
         url := %L,
-        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
+        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
       );
     $body$, vercel_url || '/api/cron/diagram-gc'));
@@ -276,7 +285,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     perform cron.schedule('fxav_cron_report_reaper', '0 6 * * *', format($body$
       select net.http_get(
         url := %L,
-        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
+        headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
       );
     $body$, vercel_url || '/api/cron/report-reaper'));
@@ -297,7 +306,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   
   Atomic migration scheduling all 7 cron jobs per spec §2.3 + §5.1
   completeness matrix. Each job body reads bearer secret from
-  supabase_vault.decrypted_secrets at firing time (rotation-friendly).
+  vault.decrypted_secrets at firing time (rotation-friendly).
   Idempotent: unschedule-then-schedule pattern. Pre-existing
   bootstrap_nonces_signing_key cron untouched.
   EOF
@@ -347,7 +356,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 - [ ] **Step 1: Author or extend the test from T3 Step 1.** Asserts:
   1. The canonical JOB_TABLE (read from `pg-cron-jobs.json`) has exactly 7 entries with the expected jobnames/schedules/routes.
   2. Live DB introspection (`select jobname, schedule, command from cron.job where jobname like 'fxav_cron_%' order by jobname`) returns exactly 7 rows.
-  3. For each row: jobname is in JOB_TABLE; schedule matches byte-for-byte; command contains the matching `/api/cron/<route>` substring AND contains `supabase_vault.decrypted_secrets` AND **contains `net.http_get(` (NOT `net.http_post(`)**. The http_get assertion is load-bearing: R1 F1 (HIGH, conf 0.97) caught a draft-state bug where the T3 SQL used http_post against GET-only handlers — this assertion pins the verb contract structurally so the class cannot recur silently.
+  3. For each row: jobname is in JOB_TABLE; schedule matches byte-for-byte; command contains the matching `/api/cron/<route>` substring AND contains `vault.decrypted_secrets` AND **contains `net.http_get(` (NOT `net.http_post(`)**. The http_get assertion is load-bearing: R1 F1 (HIGH, conf 0.97) caught a draft-state bug where the T3 SQL used http_post against GET-only handlers — this assertion pins the verb contract structurally so the class cannot recur silently. The `vault.decrypted_secrets` assertion (NOT `supabase_vault.decrypted_secrets`) is also load-bearing: R2 F4 (HIGH, conf 0.95) caught a draft-state bug where the migrations referenced the extension name instead of the schema name — this assertion pins the Vault-schema contract structurally.
   4. For each row: command does NOT contain the literal substring `net.http_post(`. Pin the inverse contract explicitly (forbidden-substring assertion); guards against a future migration drift adding http_post calls.
   5. Pre-existing non-fxav crons present (count > 0): asserts the migration didn't accidentally `cron.unschedule()` jobs outside its `fxav_cron_%` scope.
 - [ ] **Step 2: Verify it passes post-T3.** `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts`.
@@ -420,7 +429,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     The setting takes effect on new connections to the database.
   - [ ] **Step 3:** Populate the Vault secret: generate a strong random bearer
     token (e.g., `openssl rand -hex 32`). In the Supabase SQL editor, run
-    `select supabase_vault.update_secret(<id-from-secrets>, '<token>', 'fxav_cron_secret', '...');`
+    `select vault.update_secret(<id-from-vault.secrets>, '<token>', 'fxav_cron_secret', '...');`
     (or use the Vault UI: Settings → Vault → fxav_cron_secret → Edit). Save
     the same token value locally — Task 0.A.5 wires the matching `CRON_SECRET`
     env var into Vercel Production scope.
@@ -438,10 +447,80 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 3: Amend `01-phase0-infra.md:75` (Task 0.A.4 Step 5) Vercel-Cron-rationale.** Existing text says: "Verify the deployment is 'Production-target' — Vercel project page should show the URL labeled 'Production' (not 'Preview'). This matters because Vercel Cron Jobs run only on production deployments (smoke test 3)." Replace the trailing clause: "This matters because runtime env vars (including `CRON_SECRET`) are scoped to production deployments; the pg_cron + pg_net architecture (M12.1) calls the production URL specifically, and a preview URL would 401 every cron firing." Preserves the production-vs-preview gate; updates the rationale.
 
-- [ ] **Step 4: Amend `05-phase0-smokes.md` Smoke 3 instructions.** R1 F3 finding cited lines 33 + 36 specifically. Read both lines first; verify the surrounding context. Replacements:
-  - Line ~33 — replace "Wait one cron interval. Vercel Cron Jobs run only on production deployments — verify cron is enabled in `vercel.json` and that the production URL receives cron pings." with: "Wait one cron interval (5 min). pg_cron schedule fires from Supabase: verify via `select last_start_time, last_finish_time, status from cron.job_run_details where jobname = 'fxav_cron_sync' order by start_time desc limit 1;` in the Supabase SQL editor — expect a row created within the last 5 min with `status = 'succeeded'`. The Vercel route handler also logs cron-tagged structured entries to application logs (Vercel Logs tab) as the pg_net request lands."
-  - Line ~36 — replace "If show doesn't appear: check Vercel Cron logs, Drive service-account permissions, `WATCHED_FOLDER_ID` env var." with: "If show doesn't appear: check `cron.job_run_details` for the latest `fxav_cron_sync` row (status = 'failed' indicates pg_net or handler error); check Vercel Logs tab for the `/api/cron/sync` route (401 = `CRON_SECRET` mismatch between Vercel env and Vault entry; 5xx = handler-side error); check Drive service-account permissions, `WATCHED_FOLDER_ID` env var."
-  - If Smoke 4 (admin_alerts + AlertBanner) also references Vercel Cron observability, apply the same observability-surface rewrite (search the file for "Vercel Cron" / "vercel.json" / "cron logs" before commit).
+- [ ] **Step 4: Amend `05-phase0-smokes.md` Smoke 3 instructions.** R1 F3 finding cited lines 33 + 36; R2 F5 (HIGH, conf implied) further required correct column names + acknowledging pg_net async semantics (`net.http_get()` enqueues and returns a request_id immediately; HTTP response lands later in `net._http_response`; a `cron.job_run_details.status = 'succeeded'` row proves only that the SQL command (enqueue) succeeded, NOT that Vercel returned 200 or that the handler ran). Read both lines first; verify the surrounding context. Replacements:
+
+  - Line ~33 — replace "Wait one cron interval. Vercel Cron Jobs run only on production deployments — verify cron is enabled in `vercel.json` and that the production URL receives cron pings." with the following 3-layer observability stack:
+
+    ```
+    Wait one cron interval (5 min). Three independent observability layers
+    must all agree before declaring Smoke 3 passing:
+
+    1. **Scheduler fired (pg_cron):** Supabase SQL editor:
+       ```sql
+       select j.jobname, jrd.start_time, jrd.end_time, jrd.status,
+              jrd.return_message, jrd.command
+         from cron.job_run_details jrd
+         join cron.job j on j.jobid = jrd.jobid
+        where j.jobname = 'fxav_cron_sync'
+        order by jrd.start_time desc limit 5;
+       ```
+       Expect at least one row created within the last 5 min with
+       `status = 'succeeded'`. NOTE: `status = 'succeeded'` proves only that
+       the SQL command (the `net.http_get(...)` enqueue) succeeded, NOT that
+       the HTTP request reached Vercel or got a 2xx. pg_net is asynchronous.
+
+    2. **HTTP request landed (pg_net):** Supabase SQL editor:
+       ```sql
+       select id, status_code, content_type, timed_out, error_msg, created
+         from net._http_response
+        order by created desc limit 10;
+       ```
+       Expect a row created shortly after the cron.job_run_details start_time
+       with `status_code = 200` (or whatever the handler returns on success)
+       and `error_msg is null`. A `status_code = 401` means the Vault bearer
+       does not match the Vercel CRON_SECRET env var (fail-loud).
+       A `status_code = 405` means an HTTP-method mismatch (R1 F1 regression
+       — should be impossible if T4 meta-test passes).
+       A `timed_out = true` means the 30s pg_net timeout fired before Vercel
+       responded.
+
+    3. **Downstream side effect (the canonical proof):** the new show appears
+       in `/admin` Active Shows panel. This is the binding pass criterion —
+       layers 1 + 2 are diagnostic. A show appearing in /admin Active Shows
+       means: pg_cron fired AND pg_net reached Vercel AND auth passed AND
+       the parser ran AND the DB write under per-show advisory lock landed.
+    ```
+
+  - Line ~36 — replace "If show doesn't appear: check Vercel Cron logs, Drive service-account permissions, `WATCHED_FOLDER_ID` env var." with the new diagnostic ladder:
+
+    ```
+    If show doesn't appear, walk the 3 observability layers in order:
+
+    Layer 1 (cron.job_run_details): if no recent row OR status='failed',
+      the scheduler didn't fire — check that T3 migration applied (jobs
+      exist via `select jobname from cron.job where jobname like 'fxav_cron_%'`)
+      and that the cluster's pg_cron worker is running (`select pid, application_name
+      from pg_stat_activity where application_name like '%cron%'`).
+
+    Layer 2 (net._http_response): if no recent row, the pg_net call enqueued
+      but the worker hasn't processed it yet (rare; retry in 30s).
+      - status_code=401: CRON_SECRET mismatch — verify Vercel Production env
+        var matches `select decrypted_secret from vault.decrypted_secrets
+        where name = 'fxav_cron_secret'` byte-for-byte.
+      - status_code=405: HTTP method mismatch — should not happen if T4
+        meta-test is green; check T3 SQL for net.http_post drift.
+      - timed_out=true: handler took >30s; check Vercel Logs for the
+        /api/cron/sync route's actual execution time.
+      - error_msg present: pg_net could not reach Vercel — DNS/network
+        issue at Supabase egress.
+
+    Layer 3 (Vercel Logs tab + downstream state):
+      - 2xx but show not in Active Shows: handler ran but parser/DB write
+        failed — check Drive service-account permissions, WATCHED_FOLDER_ID
+        env var, supabase logs for advisory-lock contention.
+    ```
+
+  - If Smoke 4 (admin_alerts + AlertBanner) also references Vercel Cron observability, apply the same 3-layer observability-surface rewrite (search the file for "Vercel Cron" / "vercel.json" / "cron logs" before commit). The 3-layer observability pattern is reusable.
 
 - [ ] **Step 5: Verify no other M12 plan files reference Vercel Cron post-amendment.** `rg -n 'Vercel Cron|vercel cron|x-vercel-cron' docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/` — expected: zero matches in the plan tree post-T5. Class-sweep verification per AGENTS.md "class-sweep before patching adversarial findings".
 
