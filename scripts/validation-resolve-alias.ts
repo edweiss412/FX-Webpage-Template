@@ -1,9 +1,12 @@
-// scripts/validation-resolve-alias.ts — M12 Phase 0.C Task 0.C.1 (scaffold).
+// scripts/validation-resolve-alias.ts — M12 Phase 0.C Task 0.C.6.
 //
 // Per master spec §9.1.2 — positional args <combo> <alias>; reads
-// validation_state.alias_map[combo][alias] and prints the crew_members UUID
-// on stdout. Full implementation lands in Task 0.C.6.
+// validation_state.alias_map[combo][alias] and prints the crew_members
+// UUID on stdout. Exit 0 with UUID on success; exit 1 with diagnostic
+// if combo or alias is missing from alias_map.
 import { parseArgs } from "node:util";
+
+import { createClient } from "@supabase/supabase-js";
 
 import { assertProdEquivalentTarget } from "./lib/validation-target";
 
@@ -29,8 +32,31 @@ Required environment variables (§9.1.2 resolve-alias row):
   VALIDATION_SUPABASE_PROJECT_REF
 `;
 
-function main(): void {
-  const { values } = parseArgs({
+type LooseSupabaseClient = {
+  from: (table: string) => {
+    select: (cols: string) => {
+      eq: (col: string, val: unknown) => {
+        maybeSingle: () => Promise<{
+          data: unknown;
+          error: { message?: string } | null;
+        }>;
+      };
+    };
+  };
+};
+
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (v === undefined || v.length === 0) {
+    throw new Error(
+      `${name} is required — set it in .env.local per .env.local.example + spec §9.1.2.`,
+    );
+  }
+  return v;
+}
+
+async function main(): Promise<void> {
+  const { values, positionals } = parseArgs({
     args: process.argv.slice(2),
     options: {
       help: { type: "boolean", default: false },
@@ -44,15 +70,68 @@ function main(): void {
     return;
   }
 
+  if (positionals.length !== 2) {
+    process.stderr.write(USAGE);
+    throw new Error(
+      `validation:resolve-alias requires exactly 2 positional arguments (combo + alias); got ${positionals.length}.`,
+    );
+  }
+  const [combo, alias] = positionals;
+  if (!combo || !alias) {
+    throw new Error(
+      "validation:resolve-alias: combo and alias must be non-empty strings.",
+    );
+  }
+
   assertProdEquivalentTarget(
     process.env.VALIDATION_SUPABASE_URL,
     values["allow-local-override"] ?? false,
   );
 
-  process.stderr.write(
-    "validation:resolve-alias body not yet implemented — Task 0.C.1 scaffold only.\n",
-  );
-  process.exit(2);
+  const supabaseUrl = requireEnv("VALIDATION_SUPABASE_URL");
+  const supabaseKey = requireEnv("VALIDATION_SUPABASE_SECRET_KEY");
+  requireEnv("VALIDATION_SUPABASE_PROJECT_REF");
+
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) as unknown as LooseSupabaseClient;
+
+  const { data, error } = await supabase
+    .from("validation_state")
+    .select("alias_map")
+    .eq("key", "validation_seed")
+    .maybeSingle();
+  if (error) {
+    throw new Error(
+      `validation_state read failed: ${error.message ?? JSON.stringify(error)}`,
+    );
+  }
+  if (data === null || data === undefined) {
+    throw new Error(
+      "validation_state row missing — run `pnpm validation:reseed --combo all` first.",
+    );
+  }
+  const aliasMap = (data as { alias_map: Record<string, Record<string, string>> })
+    .alias_map;
+  const slice = aliasMap?.[combo];
+  if (!slice || typeof slice !== "object") {
+    throw new Error(
+      `alias_map missing combo '${combo}'. Available combos: ${Object.keys(aliasMap ?? {}).join(", ") || "<none>"}.`,
+    );
+  }
+  const uuid = slice[alias];
+  if (!uuid) {
+    throw new Error(
+      `alias_map[${combo}] missing alias '${alias}'. Available aliases for ${combo}: ${Object.keys(slice).join(", ")}.`,
+    );
+  }
+
+  process.stdout.write(`${uuid}\n`);
 }
 
-main();
+main().catch((err) => {
+  process.stderr.write(
+    `[validation-resolve-alias] ERROR: ${err instanceof Error ? err.message : String(err)}\n`,
+  );
+  process.exit(1);
+});
