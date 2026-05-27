@@ -187,6 +187,18 @@ const MUTATIONS: Array<{
     matchHint: /venue\.timezone.*<absent>.*!=.*UTC/,
   },
   {
+    field: "shows.pull_sheet (NULL — R8-F2)",
+    sql: `UPDATE public.shows SET pull_sheet = NULL WHERE drive_file_id='validation_R1';`,
+    expectsPredicate: "o",
+    matchHint: /pull_sheet drifted/,
+  },
+  {
+    field: "shows.pull_sheet (empty array — R8-F2)",
+    sql: `UPDATE public.shows SET pull_sheet = '[]'::jsonb WHERE drive_file_id='validation_R1';`,
+    expectsPredicate: "o",
+    matchHint: /pull_sheet drifted/,
+  },
+  {
     field: "crew_members.date_restriction",
     sql: `UPDATE public.crew_members SET date_restriction = '{"kind":"unknown_asterisk"}'::jsonb WHERE name = 'R1_alias_5a_lead' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
     expectsPredicate: "o",

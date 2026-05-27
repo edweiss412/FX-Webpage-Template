@@ -22,6 +22,7 @@ import {
 import {
   R_COMBOS,
   SW_COMBOS,
+  VALIDATION_PULL_SHEET,
   buildFixtures,
   type Combo,
   type FixtureRow,
@@ -297,7 +298,9 @@ async function runChecks(
     }
   )
     .from("shows")
-    .select("id,drive_file_id,archived,published,dates,title,slug,venue")
+    .select(
+      "id,drive_file_id,archived,published,dates,title,slug,venue,pull_sheet",
+    )
     .like("drive_file_id", "validation_%");
   if (showsRes.error) {
     throw new Error(
@@ -313,6 +316,7 @@ async function runChecks(
     title: string;
     slug: string;
     venue: Record<string, unknown> | null;
+    pull_sheet: unknown[] | null;
   };
   const shows = (showsRes.data ?? []) as ShowRow[];
   for (const s of shows) {
@@ -587,6 +591,18 @@ async function runChecks(
       throw new CheckSeedFailure(
         "o",
         `validation show ${combo} shows.venue.timezone='${liveTz ?? "<absent>"}' != '${expectedTz}'. The runtime Right Now selector falls back to America/New_York when timezone is unset, which can desync the walk-session gate from the UI by a day at the UTC/local boundary. Re-run \`pnpm validation:reseed --combo ${combo}\` to restore.`,
+      );
+    }
+    // (o.8) shows.pull_sheet — Codex Phase 0.C R8-F2. PackListTile
+    //   returns null when pull_sheet is null or empty; without this
+    //   pin the spec-marked pack-list-visible combos (R2/R3/R7a/R8a)
+    //   would hide the tile and the walk against stage_restriction
+    //   would silently miss the visible branch. The constant
+    //   VALIDATION_PULL_SHEET is mirrored in the mint RPC INSERT.
+    if (!deepEqual(show.pull_sheet, VALIDATION_PULL_SHEET as unknown)) {
+      throw new CheckSeedFailure(
+        "o",
+        `validation show ${combo} shows.pull_sheet drifted. live=${JSON.stringify(show.pull_sheet)} expected=${JSON.stringify(VALIDATION_PULL_SHEET)}. PackListTile renders null on empty/absent pull_sheet — the pack-list-visible walk would falsely skip. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
       );
     }
 

@@ -115,6 +115,20 @@ export type FixtureCrewMember = {
   roleFlags: string[];
 };
 
+// Codex Phase 0.C R8-F2 — minimal non-empty pull_sheet pinned on every
+// validation show so PackListTile renders for pack-list-visible combos
+// (R2/R3/R7a/R8a per spec §3.3). PackListTile returns null when
+// pull_sheet is null OR empty. Mirrored in the mint RPC's INSERT body;
+// predicate (o.pull_sheet) compares against this constant.
+export const VALIDATION_PULL_SHEET = [
+  {
+    caseLabel: "Validation Case 1",
+    items: [
+      { qty: 1, cat: "Mic", subCat: "Wireless", item: "Validation Mic" },
+    ],
+  },
+] as const;
+
 export type FixtureRow = {
   combo: Combo;
   showName: string;
@@ -254,19 +268,23 @@ function buildRCombo(combo: RCombo, today: string): {
       };
     case "R7b":
       // No date restriction; stage=Load In/Set; today=strike day.
+      // Codex Phase 0.C R8-F1 — Strike is the LAST showDays entry; the
+      // travelOut day is Load Out, not Strike. So today must be on
+      // showDays[last], not travelOut.
       return {
         dateRestriction: { kind: "none" },
         stageRestriction: { kind: "explicit", stages: ["Load In", "Set"] },
         dates: {
           travelIn: isoOffset(today, -3),
           set: isoOffset(today, -2),
-          showDays: [isoOffset(today, -2), isoOffset(today, -1)],
-          travelOut: today,
+          showDays: [isoOffset(today, -2), isoOffset(today, -1), today],
+          travelOut: isoOffset(today, 1),
         },
         expectedTodayState: "viewer_assigned_today",
       };
     case "R8a":
       // No date restriction; stage=Load Out/Strike; today=strike day.
+      // R8-F1 — same Strike-day pinning as R7b above.
       return {
         dateRestriction: { kind: "none" },
         stageRestriction: {
@@ -276,8 +294,8 @@ function buildRCombo(combo: RCombo, today: string): {
         dates: {
           travelIn: isoOffset(today, -3),
           set: isoOffset(today, -2),
-          showDays: [isoOffset(today, -2), isoOffset(today, -1)],
-          travelOut: today,
+          showDays: [isoOffset(today, -2), isoOffset(today, -1), today],
+          travelOut: isoOffset(today, 1),
         },
         expectedTodayState: "viewer_assigned_today",
       };

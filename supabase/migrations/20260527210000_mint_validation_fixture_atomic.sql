@@ -85,7 +85,7 @@ BEGIN
   -- check-seed verifies the pin held.
   INSERT INTO public.shows (
     drive_file_id, slug, title, client_label, template_version,
-    venue, dates, archived, published, last_seen_modified_time
+    venue, dates, pull_sheet, archived, published, last_seen_modified_time
   )
   VALUES (
     v_drive_file_id,
@@ -95,6 +95,27 @@ BEGIN
     'v4',                            -- template_version NOT NULL
     jsonb_build_object('timezone', 'UTC'),
     p_fixture_payload->'dates',
+    -- Codex Phase 0.C R8-F2 — minimal non-empty pull_sheet so
+    -- PackListTile renders for combos the spec marks pack-list-visible
+    -- (R2/R3/R7a/R8a etc.). PackListTile returns null when pull_sheet
+    -- IS NULL or pull_sheet.length === 0, so a stage-restriction walk
+    -- against an unseeded pull_sheet would silently miss the visible
+    -- branch. Constant value here; the canonical shape is also pinned
+    -- in scripts/lib/validation-fixtures.ts VALIDATION_PULL_SHEET so
+    -- predicate (o) can compare exactly.
+    jsonb_build_array(
+      jsonb_build_object(
+        'caseLabel', 'Validation Case 1',
+        'items', jsonb_build_array(
+          jsonb_build_object(
+            'qty', 1,
+            'cat', 'Mic',
+            'subCat', 'Wireless',
+            'item', 'Validation Mic'
+          )
+        )
+      )
+    ),
     false,
     true,
     now()
@@ -104,6 +125,7 @@ BEGIN
     slug = EXCLUDED.slug,            -- Codex Phase 0.C R6-F1 — repair slug drift
     venue = EXCLUDED.venue,          -- R7-F1 — repair venue.timezone drift
     dates = EXCLUDED.dates,
+    pull_sheet = EXCLUDED.pull_sheet, -- R8-F2 — repair pull_sheet drift
     archived = false,                -- R27 commit 57 F27 baseline restore
     published = true,                -- R27 commit 57 F27 baseline restore
     last_seen_modified_time = now()
