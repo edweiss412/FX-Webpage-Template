@@ -14,6 +14,7 @@ import { parseArgs } from "node:util";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { loadValidationEnv } from "./lib/validation-env";
 import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
@@ -271,7 +272,7 @@ async function runChecks(
     }
   )
     .from("shows")
-    .select("id,drive_file_id,archived,published,dates")
+    .select("id,drive_file_id,archived,published,dates,title,slug")
     .like("drive_file_id", "validation_%");
   if (showsRes.error) {
     throw new Error(
@@ -284,6 +285,8 @@ async function runChecks(
     archived: boolean;
     published: boolean;
     dates: Record<string, unknown> | null;
+    title: string;
+    slug: string;
   };
   const shows = (showsRes.data ?? []) as ShowRow[];
   for (const s of shows) {
@@ -359,7 +362,7 @@ async function runChecks(
   )
     .from("crew_members")
     .select(
-      "id,show_id,name,email,claimed_via_oauth_at,date_restriction,stage_restriction",
+      "id,show_id,name,email,claimed_via_oauth_at,date_restriction,stage_restriction,role,role_flags",
     )
     .in("show_id", shows.map((s) => s.id));
   if (cmRes.error) {
@@ -375,6 +378,8 @@ async function runChecks(
     claimed_via_oauth_at: string | null;
     date_restriction: Record<string, unknown> | null;
     stage_restriction: Record<string, unknown> | null;
+    role: string;
+    role_flags: string[];
   };
   const crewMembers = (cmRes.data ?? []) as CrewRow[];
   const crewById = new Map(crewMembers.map((c) => [c.id, c]));
@@ -509,6 +514,12 @@ async function runChecks(
   const expectedByCombo = new Map<Combo, FixtureRow>(
     expectedFixtures.map((fx) => [fx.combo, fx]),
   );
+  // Helper — mirror the mint RPC's role derivation from role_flags:
+  //   array_length(role_flags, 1) IS NULL → 'Validation Crew'
+  //   else                                 → array_to_string(role_flags, ' / ')
+  const expectedRoleFromFlags = (flags: readonly string[]): string =>
+    flags.length === 0 ? "Validation Crew" : flags.join(" / ");
+
   for (const combo of requestedCombos) {
     const expected = expectedByCombo.get(combo);
     if (!expected) continue; // unknown combo — handled by (c)/(e)
@@ -522,6 +533,20 @@ async function runChecks(
       throw new CheckSeedFailure(
         "o",
         `validation show ${combo} shows.dates drifted from canonical fixture. live=${JSON.stringify(show.dates)} expected=${JSON.stringify(expected.dates)}. A stale same-day seed or manual edit would falsely PASS the walk-session gate without this predicate; re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+      );
+    }
+    // (o.5) shows.title — canonical fixture writes 'M12 Validation — <combo>'.
+    if (show.title !== expected.showName) {
+      throw new CheckSeedFailure(
+        "o",
+        `validation show ${combo} shows.title drifted. live='${show.title}' expected='${expected.showName}'. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+      );
+    }
+    // (o.6) shows.slug — canonical fixture writes 'validation-<lowercase combo with _ → ->'.
+    if (show.slug !== expected.slug) {
+      throw new CheckSeedFailure(
+        "o",
+        `validation show ${combo} shows.slug drifted. live='${show.slug}' expected='${expected.slug}'. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
       );
     }
 
@@ -546,6 +571,26 @@ async function runChecks(
         throw new CheckSeedFailure(
           "o",
           `crew_members row for ${combo}.${expectedCrew.alias} stage_restriction drifted. live=${JSON.stringify(liveCrew.stage_restriction)} expected=${JSON.stringify(expected.stageRestriction)}. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+        );
+      }
+      // R4-F1 fold-in (Codex Phase 0.C R4) — role_flags drift catches
+      // the case where a stale/manual edit turns a LEAD into [] or swaps
+      // A1/V1, leaving the walk to run with the wrong permissions /
+      // tile visibility while every other predicate PASSes.
+      if (!deepEqual(liveCrew.role_flags, [...expectedCrew.roleFlags] as unknown)) {
+        throw new CheckSeedFailure(
+          "o",
+          `crew_members row for ${combo}.${expectedCrew.alias} role_flags drifted. live=${JSON.stringify(liveCrew.role_flags)} expected=${JSON.stringify(expectedCrew.roleFlags)}. The Right Now state + tile visibility would walk against the wrong permissions; re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+        );
+      }
+      // (o.role) shows.role is derived from role_flags per the mint RPC's
+      //   CASE. Re-deriving here proves the live row's derived column is
+      //   consistent with role_flags.
+      const expectedRole = expectedRoleFromFlags(expectedCrew.roleFlags);
+      if (liveCrew.role !== expectedRole) {
+        throw new CheckSeedFailure(
+          "o",
+          `crew_members row for ${combo}.${expectedCrew.alias} role drifted. live='${liveCrew.role}' expected='${expectedRole}' (derived from role_flags=${JSON.stringify(expectedCrew.roleFlags)}). Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
         );
       }
       // R3-F2 fold-in — every alias's live email must match the canonical
@@ -592,6 +637,8 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 async function main(): Promise<void> {
+  // Codex Phase 0.C R4 F2 — auto-load .env.local (mirrors Next.js loader).
+  loadValidationEnv();
   const { values } = parseArgs({
     args: process.argv.slice(2),
     options: {

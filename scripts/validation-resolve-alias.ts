@@ -8,6 +8,7 @@ import { parseArgs } from "node:util";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { loadValidationEnv } from "./lib/validation-env";
 import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
@@ -59,6 +60,8 @@ function requireEnv(name: string): string {
 }
 
 async function main(): Promise<void> {
+  // Codex Phase 0.C R4 F2 — auto-load .env.local (mirrors Next.js loader).
+  loadValidationEnv();
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2),
     options: {

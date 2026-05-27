@@ -12,6 +12,7 @@ import { parseArgs } from "node:util";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { loadValidationEnv } from "./lib/validation-env";
 import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
@@ -139,6 +140,11 @@ async function finalizeAll(
 }
 
 async function main(): Promise<void> {
+  // Codex Phase 0.C R4 F2 — auto-load .env.local at CLI startup to mirror
+  // Next.js's canonical env-loading order (loadEnvConfig). Without this,
+  // operators following the documented .env.local setup get missing-env
+  // failures before any seed/check runs.
+  loadValidationEnv();
   const { values } = parseArgs({
     args: process.argv.slice(2),
     options: {

@@ -288,6 +288,47 @@ describe("validation-check-seed", () => {
     expect(res.stderr).toMatch(/date_restriction drifted/);
   });
 
+  test("R4-F1 (Codex Phase 0.C R4) — exits 1 when crew.role_flags drifts (predicate o role_flags)", () => {
+    mintCombo("R1");
+    // Mutate alias_5a_lead from ['LEAD'] to [] (the canonical 5a_lead is
+    // [LEAD]); predicate (o) role_flags must catch.
+    runPsql(`
+      UPDATE public.crew_members
+        SET role_flags = ARRAY[]::text[]
+       WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
+         AND name = 'R1_alias_5a_lead';
+    `);
+    const res = runCheckSeed("R1");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(o\)/);
+    expect(res.stderr).toMatch(/role_flags drifted/);
+  });
+
+  test("Comprehensive content-match sweep — exits 1 when shows.title drifts (predicate o title)", () => {
+    mintCombo("R1");
+    runPsql(`
+      UPDATE public.shows SET title = 'WRONG TITLE'
+       WHERE drive_file_id = 'validation_R1';
+    `);
+    const res = runCheckSeed("R1");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(o\)/);
+    expect(res.stderr).toMatch(/shows\.title drifted/);
+  });
+
+  test("Comprehensive content-match sweep — exits 1 when crew.role (derived) drifts", () => {
+    mintCombo("R1");
+    runPsql(`
+      UPDATE public.crew_members SET role = 'WRONG ROLE'
+       WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
+         AND name = 'R1_alias_5a_lead';
+    `);
+    const res = runCheckSeed("R1");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(o\)/);
+    expect(res.stderr).toMatch(/role drifted/);
+  });
+
   test("R3-F2 (Codex Phase 0.C R3) — exits 1 when R1.alias_5a_lead.email diverges from env (predicate o)", () => {
     // Seed R1 with the canonical real-gmail email.
     mintCombo("R1");
