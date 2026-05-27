@@ -428,22 +428,11 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   | `like '[^']*_[^']*_[^']*%'` WHEN preceded by `jobname` within 50 chars AND NOT followed by `escape '\\'` within 50 chars | Unescaped LIKE wildcard (R4 F10) | PostgreSQL LIKE: `_` is single-char wildcard. `'fxav_cron_%'` matches `fxavXcronY...` (and many other false positives). The escaped form `'fxav\_cron\_%' escape '\'` makes underscores literal. M12.1's cron.unschedule predicate + meta-test + Smoke text MUST use the escaped form to scope correctly. |
   | `escape '\\\\'` (literal four backslashes in markdown source / two-char string at SQL level) — i.e., the doubled-backslash form for ESCAPE | Double-backslash ESCAPE clause (R6 F14 / R7 F18) | PostgreSQL `ESCAPE` clause requires a single-character escape string; `'\\'` parses as a 2-char string and errors. R5-fix introduced `escape '\\'` at Task 0.A.5 step 6a; R6 F14 caught and fixed. R7 F18 adds the structural defense so the class cannot recur silently. NOTE: in markdown source, `escape '\'` (single backslash) is what we want; `escape '\\'` is the broken form. The doc-guard regex catches the literal 4-backslash source form (which renders as 2-backslash SQL) and refuses it outside finding-history allowlists. |
 
-- [ ] **Step 1a (R7 F17 + R8 F20 TDD support for T5):** in addition to the 7 forbidden-pattern walks above, the doc-guard ALSO asserts 9 M12-plan-positive assertions covering BOTH files T5 modifies (R8 F20 fix — R7 F17 only covered 01-phase0-infra.md).
+- [ ] **Step 1a (R9 F23 fix — sequencing correction):** the 9 M12-plan-positive assertions (A-I, R7 F17 + R8 F20 fix) are **NOT** in this file. R7-R8 drafts put them here, but T4 commits BEFORE T5; landing the doc-guard with A-I assertions would create immediate CI failure (assertions fail at T4 commit boundary because T5 hasn't edited the M12 plan tree yet) — violating TDD-green-at-commit discipline and breaking the new x6 audit on its first run.
   
-  Against `01-phase0-infra.md`:
-  - Assertion A: file contains the literal heading `### Task 0.A.4.5: Populate Vault + set GUC + apply M12.1 migrations against validation Supabase`
-  - Assertion B: Task 0.A.5 step 3 contains the literal `CRON_SECRET` (in Vercel-Production-scope context)
-  - Assertion C: Task 0.A.4 Step 5 does NOT contain the literal `Vercel Cron Jobs run only on production deployments`
-  - Assertion D: at least one block contains the join `cron.job_run_details` AND `join cron.job` AND `on j.jobid = jrd.jobid` (the Task 0.A.4.5 step 4 verification SQL pattern)
+  Corrected ownership: **T5 ships its own test file** `tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` containing the 9 positive assertions A-I; the test commits in the same atomic T5 commit as the M12 plan edits, so the assertions are red at T5 step 0 (per AGENTS.md invariant 1) and green at T5 commit-land. pg-cron-pivot-doc-guard (this T4 file) keeps ONLY the 7 forbidden-pattern walks + self-exclusion + finding-history allowlist — all of which can be green at T4 commit boundary.
   
-  Against `05-phase0-smokes.md` (R8 F20):
-  - Assertion E: Smoke 3 section contains references to all of `cron.job_run_details`, `net._http_response`, AND a "downstream side effect" pattern (the 3-layer observability stack)
-  - Assertion F: Smoke 3 contains the joined `cron.job_run_details jrd join cron.job j on j.jobid = jrd.jobid` query
-  - Assertion G: Smoke 3 contains references to `net._http_response`
-  - Assertion H: Smoke 3 uses 300s / "5 min" / "5 minutes" timeout prose, NOT 30s
-  - Assertion I: Smoke 3 does NOT contain `Vercel Cron Logs` OR `verify cron is enabled in vercel.json` outside finding-history contexts
-  
-  All 9 assertions FAIL at HEAD `ac752d9` (M12 plan tree not yet amended); PASS after T5 commit. The doc-guard thus serves a dual role: forbidden-pattern walker (negative, 7 patterns) + plan-amendment positive-assertion walker (positive, 9 assertions across 2 files).
+  See T5 step 0 + T5 step 1.5 (new) for the M12-plan-amendment test authoring + commit grouping.
 
 - [ ] **Step 2: Allowlist mechanism for finding-history paragraphs.** The spec's R1/R2/R3/R4/R5/R6/R7 finding-history paragraphs INTENTIONALLY cite forbidden patterns as "what was wrong." Allowlist these via:
   - Inline waiver comment within 5 lines of the match: `<!-- not-doc-guard-class: <reason> -->` OR
@@ -553,7 +542,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 **TDD steps:**
 
-- [ ] **Step 0: TDD red — verify pg-cron-pivot-doc-guard contains T5-specific assertions that FAIL at HEAD (R7 F17 + R8 F20 fix).** **Extend pg-cron-pivot-doc-guard.test.ts (authored fully in T4.3) with M12-plan assertions covering BOTH files T5 modifies.**
+- [ ] **Step 0: TDD red — author T5's dedicated test file at the T5 commit boundary (R7 F17 + R8 F20 + R9 F23 fix).** **Create new test file** `tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` (NOT in pg-cron-pivot-doc-guard — that ships in T4 before T5 edits exist; commingling causes T4-commit CI failure per R9 F23). The test contains 9 positive assertions covering BOTH M12 plan files T5 modifies.
   
   Against `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md`:
   - Assertion A: contains the literal heading `### Task 0.A.4.5: Populate Vault + set GUC + apply M12.1 migrations against validation Supabase`
@@ -561,14 +550,16 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - Assertion C: at Task 0.A.4 Step 5 does NOT contain the literal "Vercel Cron Jobs run only on production deployments" (replaced by env-var-scoping rationale per T5 step 3)
   - Assertion D: contains a join `cron.job_run_details ... join cron.job ... on j.jobid = jrd.jobid` somewhere (the Task 0.A.4.5 step 4 verification SQL)
   
-  Against `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md` (R8 F20 fix — T5 modifies BOTH files; earlier R7 F17 fix only covered the first):
+  Against `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md` (R8 F20 fix):
   - Assertion E: Smoke 3 section contains a 3-layer observability stack — references all of `cron.job_run_details`, `net._http_response`, AND a "downstream side effect" pattern
   - Assertion F: Smoke 3 contains a joined `cron.job_run_details jrd join cron.job j on j.jobid = jrd.jobid` query (NOT the stale `where jobname` form)
   - Assertion G: Smoke 3 contains references to `net._http_response` (pg_net response inspection)
   - Assertion H: Smoke 3 uses 300s / "5 min" / "5 minutes" timeout prose, NOT 30s
   - Assertion I: Smoke 3 does NOT contain `Vercel Cron Logs` OR `verify cron is enabled in vercel.json` outside finding-history contexts (the stale R0 prose codex F3 caught)
   
-  Run `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts` against HEAD `ac752d9` → expect all 9 assertions (A-I) to FAIL (the M12 plan tree hasn't been amended yet). This is the TDD-red phase that authorizes the T5 doc edits to land. Per AGENTS.md invariant 1.
+  Run `pnpm test tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts` against HEAD `ac752d9` → expect all 9 assertions to FAIL (the M12 plan tree hasn't been amended yet). This is the TDD-red phase that authorizes the T5 doc edits to land. Per AGENTS.md invariant 1.
+
+- [ ] **Step 0a (R9 F23 fix — extend x6 CI audit to include the new test file).** Update `package.json` `test:audit:x6-pg-cron-pivot` script to include the new test file: `vitest run tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts`. The T5 commit lands all three test files plus the M12 plan edits atomically; the x6 CI gate then runs all three on every PR/push. (Reminder: this script update lives in `package.json` from T4.4 step 1 — T5 step 0a extends it.)
 
 - [ ] **Step 1: Insert new Task 0.A.4.5 between Task 0.A.4 (Vercel deploy) and Task 0.A.5 (env-var wiring).** Suggested heading + body:
 
@@ -639,21 +630,38 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
        the SQL command (the `net.http_get(...)` enqueue) succeeded, NOT that
        the HTTP request reached Vercel or got a 2xx. pg_net is asynchronous.
 
-    2. **HTTP request landed (pg_net) — correlated to specific cron job (R8 F21 fix):** Supabase SQL editor:
+    2. **HTTP request landed (pg_net) — correlated by timestamp proximity (R9 F24 fix):** Supabase SQL editor — TWO queries cross-referenced by timestamp:
+       
        ```sql
-       select resp.id, req.url, resp.status_code, resp.content_type,
-              resp.timed_out, resp.error_msg, resp.created
-         from net._http_response resp
-         join net.http_request_queue req on req.id = resp.id
-        where req.url like '%/api/cron/sync'
-        order by resp.created desc limit 5;
+       -- 2a: latest pg_net responses (response keyed by id; no URL column)
+       select id, status_code, content_type, timed_out, error_msg, created
+         from net._http_response
+        order by created desc limit 10;
+       
+       -- 2b: cron.job_run_details with command (URL baked in by T3 format())
+       select j.jobname, jrd.start_time, jrd.end_time, jrd.status, jrd.command
+         from cron.job_run_details jrd
+         join cron.job j on j.jobid = jrd.jobid
+        where j.jobname like 'fxav\_cron\_%' escape '\'
+          and jrd.start_time > now() - interval '10 minutes'
+        order by jrd.start_time desc;
        ```
-       The join on `net.http_request_queue.id = net._http_response.id`
-       resolves R8 F21: `net._http_response` has no URL/jobname column, so
-       querying it alone risks misattribution when multiple cron jobs fire
-       in adjacent intervals. `net.http_request_queue` carries the URL +
-       method per request_id; filtering by URL pins which cron route the
-       response belongs to.
+       
+       **R9 F24 — why two queries, not a single JOIN:** earlier R8 F21 fix
+       joined `net._http_response.id = net.http_request_queue.id` to recover
+       URL per request_id. Per Supabase pg_net docs
+       (https://supabase.com/docs/guides/database/extensions/pg_net):
+       "waiting requests are stored in net.http_request_queue and deleted
+       upon execution." Post-execution, the queue row is gone — the JOIN
+       returns zero rows for successful requests, masking real cron path
+       success as fake "no response" failure. R9 F24 caught this; corrected
+       approach uses time-proximity correlation: query 2a returns response
+       outcomes; query 2b returns cron firings with baked-in URL (cron job
+       command is preserved in cron.job_run_details indefinitely). Operator
+       cross-references by created/start_time within a 1-2 min window. For
+       diagnostic-level certainty under concurrent cron firings, a durable
+       audit table at enqueue time would be the structural answer — deferred
+       to BACKLOG.md (not M12.1 scope).
        
        Expect a row created shortly after the cron.job_run_details
        start_time with `status_code = 200` (or whatever the handler returns
@@ -682,9 +690,10 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
       and that the cluster's pg_cron worker is running (`select pid, application_name
       from pg_stat_activity where application_name like '%cron%'`).
 
-    Layer 2 (net._http_response joined with net.http_request_queue per R8 F21):
-      if no row for the target URL, the pg_net call enqueued but the worker
-      hasn't processed it yet (rare; retry in 30-60s).
+    Layer 2 (net._http_response cross-referenced with cron.job_run_details
+      by timestamp proximity per R9 F24): if no recent response row, the
+      pg_net call enqueued but the worker hasn't processed it yet (rare;
+      retry in 30-60s).
       - status_code=401: CRON_SECRET mismatch — verify Vercel Production env
         var matches `select decrypted_secret from vault.decrypted_secrets
         where name = 'fxav_cron_secret'` byte-for-byte.
@@ -709,9 +718,9 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 - [ ] **Step 6: Commit.**
 
   ```bash
-  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md
+  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts package.json
   git commit -m "$(cat <<'EOF'
-  docs(plan-m12): insert Task 0.A.4.5 + sweep Vercel-Cron refs for pg_cron pivot (M12.1 T5)
+  docs(plan-m12)+test(cross-cutting): insert Task 0.A.4.5 + sweep Vercel-Cron refs + amendment doc-guard (M12.1 T5)
   
   M12.1 sub-amendment wires the pg_cron + pg_net architecture into Phase
   0.A executor's task sequence + sweeps stale Vercel-Cron observability
