@@ -46,7 +46,7 @@ import { redirect } from "next/navigation";
 import { validateGoogleIdentity } from "@/lib/auth/validateGoogleIdentity";
 import { listShowsForCrew, type CrewShowSummary } from "@/lib/data/listShowsForCrew";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { messageFor } from "@/lib/messages/lookup";
+import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import {
   partitionMeShows,
   resolveDisplayDate,
@@ -102,31 +102,24 @@ export default async function MePage() {
   // from "page doesn't exist"). R21 F1 also routes thrown infra failures
   // from listShowsForCrew through the same render so the data-load
   // throw doesn't escape to Next's generic error boundary.
-  const renderTerminalFailure = (code: string) => {
-    const entry = messageFor(code as never);
-    return (
-      <main
-        data-testid="me-page-terminal-failure"
-        className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
-      >
-        <h1 className="text-2xl font-bold text-text-strong">
-          We&rsquo;re having trouble loading your shows
-        </h1>
-        <p className="mt-4 text-base text-text-subtle">
-          {entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment."}
-        </p>
-        <Link
-          href="/me"
-          className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
-        >
-          Try again
-        </Link>
-      </main>
-    );
-  };
+  //
+  // M11.5-IMP-3 (Block-2.1 2026-05-27): replaced inline <main>/<h1>/<p>/<Link>
+  // block with the shared <TerminalFailure> component from
+  // components/auth/TerminalFailure.tsx (landed in M11.5 §B C0 + extended
+  // with optional `title` + `retryHref` props in c1936f2). The component
+  // owns the dedupe of cataloged terminal-failure visual chrome across
+  // show-page, picker-bootstrap, /me, and any other auth-chain terminal
+  // surface. /me passes its own `title` because the default phrasing is
+  // show-context-specific; /me's voice is "your shows" not "this show".
 
   if (result.kind === "terminal_failure") {
-    return renderTerminalFailure(result.code);
+    return (
+      <TerminalFailure
+        code={result.code as never}
+        title="We’re having trouble loading your shows"
+        retryHref="/me"
+      />
+    );
   }
 
   const viewer = result.viewer;
@@ -140,7 +133,13 @@ export default async function MePage() {
     const supabase = await createSupabaseServerClient();
     shows = await listShowsForCrew(supabase);
   } catch {
-    return renderTerminalFailure("ADMIN_SESSION_LOOKUP_FAILED");
+    return (
+      <TerminalFailure
+        code="ADMIN_SESSION_LOOKUP_FAILED"
+        title="We’re having trouble loading your shows"
+        retryHref="/me"
+      />
+    );
   }
 
   // R2 finding (M11 Phase C): resolve `now` once via the request-scoped
