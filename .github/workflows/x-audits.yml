@@ -335,6 +335,7 @@ jobs:
           TEST_DATABASE_URL: ${{ secrets.SUPABASE_TEST_DATABASE_URL }}
           SUPABASE_TEST_REST_URL: ${{ vars.SUPABASE_TEST_REST_URL }}
           SUPABASE_TEST_JWT_SECRET: ${{ secrets.SUPABASE_TEST_JWT_SECRET }}
+          SUPABASE_TEST_PUBLISHABLE_KEY: ${{ vars.SUPABASE_TEST_PUBLISHABLE_KEY }}
         run: |
           set -o pipefail
           pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts 2>&1 | tee postgrest-dml-lockdown.log

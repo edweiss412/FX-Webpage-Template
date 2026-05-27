@@ -51,8 +51,27 @@ import { execFileSync } from "node:child_process";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, test } from "vitest";
 
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+function resolveDatabaseUrl(): string {
+  const raw = process.env.TEST_DATABASE_URL;
+  // Distinguish "unset" (default to local) from "set but empty" (mis-config —
+  // GitHub Actions secret expansion produces "" when the secret is registered
+  // with an empty value, which silently falls psql back to the local Unix
+  // socket and surfaces as a confusing "connection failed" rather than the
+  // mis-config). Catch the empty-string case loudly.
+  if (raw === undefined) {
+    return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  }
+  if (raw.trim() === "") {
+    throw new Error(
+      "TEST_DATABASE_URL is set but empty — likely a GitHub Actions secret " +
+        "with an empty value. Re-run `gh secret set SUPABASE_TEST_DATABASE_URL` " +
+        "and confirm the value is the validation project's session-pooler URL.",
+    );
+  }
+  return raw;
+}
+
+const databaseUrl = resolveDatabaseUrl();
 
 function runPsql(sql: string): string {
   return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
@@ -141,38 +160,72 @@ const LOCAL_REST_URL = "http://127.0.0.1:54321/rest/v1";
 // every local Supabase install of the same version, so embedding it
 // in the test is no secrecy regression (it's a fixed test-only token).
 const LOCAL_JWT_SECRET = "super-secret-jwt-token-with-at-least-32-characters-long";
+// Local Supabase default publishable key surfaced by `npx supabase status`.
+// Not a secret (it's the public anon key for the local stack); pinning it
+// here matches the LOCAL_JWT_SECRET convention.
+const LOCAL_PUBLISHABLE_KEY = "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
 
 /**
  * Env-gating contract:
- *   - both unset → run against LOCAL Supabase (default values above)
- *   - both set   → run against the configured project (e.g. validation)
- *   - exactly one set → fail loud (mis-config — refuse to silently fall back)
+ *   - REST_URL + JWT_SECRET + PUBLISHABLE_KEY all unset → LOCAL Supabase defaults
+ *   - all three set → run against the configured project
+ *   - partial set → fail loud (mis-config — refuse to silently fall back)
+ *
+ * Why a separate publishable-key var: Supabase's API gateway authenticates
+ * the `apikey` header against the project's REGISTERED keys (publishable
+ * key or legacy anon JWT). A self-signed JWT (even with the correct
+ * legacy JWT secret) is NOT a registered key — the gateway returns 401
+ * "Invalid API key" before PostgREST ever sees the request. The legacy
+ * anon JWT works because Supabase issued it; an externally-minted JWT
+ * with the same shape does not. So we use the publishable key for the
+ * gateway-facing `apikey` header, and our self-signed JWT for the
+ * PostgREST-facing `Authorization: Bearer` header (which PostgREST
+ * verifies using the legacy JWT secret per the user's dashboard message
+ * "It is used to only verify JSON Web Tokens by Supabase products").
+ *
+ * For projects that have migrated to the new JWT Signing Keys system,
+ * the gateway may reject the LEGACY anon JWT in favor of the
+ * publishable key only — yet another reason to standardize on the
+ * publishable key for `apikey`.
  */
 function resolveRestConfig(): {
   restUrl: string;
   jwtSecret: string;
+  publishableKey: string;
   scopeLabel: string;
 } {
   const envUrl = process.env.SUPABASE_TEST_REST_URL;
   const envSecret = process.env.SUPABASE_TEST_JWT_SECRET;
-  if (envUrl && envSecret) {
-    return { restUrl: envUrl, jwtSecret: envSecret, scopeLabel: `configured (${envUrl})` };
+  const envKey = process.env.SUPABASE_TEST_PUBLISHABLE_KEY;
+  const allSet = envUrl && envSecret && envKey;
+  const anySet = envUrl || envSecret || envKey;
+  if (allSet) {
+    return {
+      restUrl: envUrl,
+      jwtSecret: envSecret,
+      publishableKey: envKey,
+      scopeLabel: `configured (${envUrl})`,
+    };
   }
-  if (envUrl || envSecret) {
+  if (anySet) {
     throw new Error(
-      "postgrest-dml-lockdown Layers 2+3: SUPABASE_TEST_REST_URL and SUPABASE_TEST_JWT_SECRET must both be set or both unset. Currently: " +
+      "postgrest-dml-lockdown Layers 2+3: SUPABASE_TEST_REST_URL, " +
+        "SUPABASE_TEST_JWT_SECRET, and SUPABASE_TEST_PUBLISHABLE_KEY must " +
+        "ALL be set or ALL unset. Currently: " +
         `SUPABASE_TEST_REST_URL=${envUrl ? "set" : "unset"}, ` +
-        `SUPABASE_TEST_JWT_SECRET=${envSecret ? "set" : "unset"}.`,
+        `SUPABASE_TEST_JWT_SECRET=${envSecret ? "set" : "unset"}, ` +
+        `SUPABASE_TEST_PUBLISHABLE_KEY=${envKey ? "set" : "unset"}.`,
     );
   }
   return {
     restUrl: LOCAL_REST_URL,
     jwtSecret: LOCAL_JWT_SECRET,
+    publishableKey: LOCAL_PUBLISHABLE_KEY,
     scopeLabel: `local-default (${LOCAL_REST_URL})`,
   };
 }
 
-const { restUrl, jwtSecret, scopeLabel } = resolveRestConfig();
+const { restUrl, jwtSecret, publishableKey, scopeLabel } = resolveRestConfig();
 const secretBytes = new TextEncoder().encode(jwtSecret);
 
 async function signRoleJwt(role: "anon" | "authenticated"): Promise<string> {
@@ -190,12 +243,11 @@ async function postgrestRequest(
   verb: Verb,
   role: "anon" | "authenticated",
 ): Promise<Response> {
-  const apikey = await signRoleJwt("anon");
-  const jwt = role === "anon" ? apikey : await signRoleJwt(role);
+  const jwt = await signRoleJwt(role);
   const init: RequestInit = {
     method: verb,
     headers: {
-      apikey,
+      apikey: publishableKey,
       Authorization: `Bearer ${jwt}`,
       "Content-Type": "application/json",
       Prefer: "return=minimal",
