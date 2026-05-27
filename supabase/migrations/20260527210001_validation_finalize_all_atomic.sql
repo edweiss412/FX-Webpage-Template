@@ -43,6 +43,7 @@ BEGIN
   END IF;
   -- R11 F9 repair: integer day comparison (date - date returns INTEGER, not interval).
   IF abs(p_validation_today_iso::date - current_date) > 1 THEN
+    -- not-validation-today-iso: current_date passed as error-message format arg, not a comparison
     RAISE EXCEPTION 'validation_finalize_all_atomic: p_validation_today_iso % differs from server current_date % by >1 day', p_validation_today_iso, current_date;
   END IF;
 

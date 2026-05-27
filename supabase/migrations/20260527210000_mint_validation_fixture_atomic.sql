@@ -57,6 +57,7 @@ BEGIN
   -- R11 F9 repair: `date - date` returns INTEGER (day count) in PostgreSQL,
   -- NOT interval. Use integer day comparison directly.
   IF abs(v_validation_today_iso::date - current_date) > 1 THEN
+    -- not-validation-today-iso: current_date passed as error-message format arg, not a comparison
     RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso % differs from server current_date % by >1 day (extreme clock skew)', v_validation_today_iso, current_date;
   END IF;
 

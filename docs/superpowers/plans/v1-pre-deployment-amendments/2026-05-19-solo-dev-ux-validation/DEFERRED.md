@@ -8,7 +8,7 @@ Per memory `feedback_deferral_discipline.md`. Three buckets:
 
 ## Open deferrals
 
-### `M12-PHASE0C-TZ-PIN-METATEST` — Author `tests/cross-cutting/validation-tooling-tz-pin.test.ts`
+### `M12-PHASE0C-TZ-PIN-METATEST` — Author `tests/cross-cutting/validation-tooling-tz-pin.test.ts` — **RESOLVED <THIS-COMMIT-SHA>** (2026-05-27)
 
 - **Source:** R5 pre-rebase plan amendment narrative declared this meta-test "landed" as a structural defense for the live-code-fidelity / TZ-pin vector after that vector recurred across 5 consecutive rounds. R11 audit (2026-05-26) verified the file does NOT exist in git history (no commit ever added it; `find tests -name '*tz*'` returns only the unrelated `playwright-version-pin.test.ts`; `git log --all -- 'tests/cross-cutting/validation-tooling-tz-pin.test.ts'` returns empty).
 - **Affected citations (reframed in R11 commit 28):**
