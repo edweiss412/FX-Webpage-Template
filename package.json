@@ -26,7 +26,7 @@
     "test:audit:x3-trust-domain": "pnpm gen:admin-tables && vitest run tests/cross-cutting/no-jwt-surface.test.ts tests/cross-cutting/no-m9-5-surfaces.test.ts tests/cross-cutting/picker-resolver-callsite-contract.test.ts tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts tests/cross-cutting/auth-chain-audit.test.ts",
     "test:audit:x4-no-global-cursor": "pnpm gen:watermark-symbols && vitest run tests/cross-cutting/no-global-cursor.test.ts",
     "test:audit:x5-email-canonicalization": "pnpm gen:email-boundaries && vitest run tests/cross-cutting/email-canonicalization.test.ts",
-    "test:audit:x6-pg-cron-pivot": "vitest run tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts",
+    "test:audit:x6-pg-cron-pivot": "vitest run tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts tests/cross-cutting/no-vestigial-middleware.test.ts",
     "test:audit:traceability": "pnpm gen:traceability && vitest run tests/cross-cutting/traceability.test.ts",
     "test:audit:branch-protection": "vitest run tests/cross-cutting/verify-branch-protection.test.ts",
     "db:seed": "pnpm dlx tsx supabase/seed.ts",
