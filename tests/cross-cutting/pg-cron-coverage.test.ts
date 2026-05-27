@@ -71,4 +71,12 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     );
     expect(installed).toBe("t");
   });
+
+  // Layer 0b — fxav_cron_secret entry exists in vault.secrets (T2.2)
+  test("vault.secrets has fxav_cron_secret entry", () => {
+    const present = psql(
+      "SELECT EXISTS(SELECT 1 FROM vault.secrets WHERE name = 'fxav_cron_secret')",
+    );
+    expect(present).toBe("t");
+  });
 });
