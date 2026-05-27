@@ -10,10 +10,15 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 **Files:**
 - Modify: `vercel.json`
+- Delete: `tests/api/vercel-crons.test.ts` (the M6-era assertion that vercel.json HAS the crons block — its premise inverts under M12.1; retired in this task, replaced by T4's `no-vercel-cron.test.ts` which asserts the inverse contract)
 
 **TDD steps:**
 
 - [ ] **Step 1: Write failing structural test FIRST.** Author `tests/cross-cutting/no-vercel-cron.test.ts` (or write its first assertion if T4 is being authored in parallel). The assertion: `JSON.parse(readFileSync('vercel.json'))` does NOT contain a `crons` key. Initially this assertion FAILS because the `crons` block is still present at HEAD `ac752d9`. Verify the failure.
+- [ ] **Step 1a: Retire the pre-M12.1 vercel-crons assertion test.** At HEAD `001c8e4`, `tests/api/vercel-crons.test.ts:7-21` reads `vercel.json` and asserts `config.crons` contains 6 hardcoded Vercel cron entries (R1 F2 finding, conf 0.95). Once T1 Step 2 removes the `crons` block, this test inverts — `config.crons` is undefined and the `expect.arrayContaining` assertion fails. The M6-era test premise (Vercel Cron is the scheduler) is fundamentally invalidated by M12.1; replace via deletion + new T4 inverse contract:
+  - `rm tests/api/vercel-crons.test.ts`
+  - `git rm tests/api/vercel-crons.test.ts` (stage the deletion for the T1 commit)
+  - Verify no other file imports / references the removed test fixture or helper functions: `rg -nl "vercel-crons" tests/ app/ lib/` should return zero matches after deletion (the file was self-contained).
 - [ ] **Step 2: Remove the `crons` block.** Edit `vercel.json`:
 
   Before:
@@ -38,19 +43,26 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
   (If the `vercel.json` accumulates other keys before M12.1 lands, preserve them and remove only the `crons` array.)
 
-- [ ] **Step 3: Test passes.** The no-vercel-cron meta-test's "no crons key" assertion now passes.
-- [ ] **Step 4: Verify no other code relies on `vercel.json` crons.** `rg -n "vercel\\.json" --type ts --type js` — confirm no consumers. Expected: none (Vercel reads it directly, not the app code).
+- [ ] **Step 3: Test passes.** The no-vercel-cron meta-test's "no crons key" assertion now passes. The retired `tests/api/vercel-crons.test.ts` is gone from disk + git index.
+- [ ] **Step 4: Verify no other code relies on `vercel.json` crons.** `rg -n "vercel\\.json" --type ts --type js` — expected: zero matches after Step 1a's deletion of `tests/api/vercel-crons.test.ts`. If any other consumer surfaces, escalate to orchestrator (a sub-amendment scope expansion may be needed).
 - [ ] **Step 5: Commit.**
 
   ```bash
   git add vercel.json tests/cross-cutting/no-vercel-cron.test.ts
+  git rm tests/api/vercel-crons.test.ts
   git commit -m "$(cat <<'EOF'
-  chore(infra): remove vercel.json crons block (M12.1 T1; pg_cron pivot)
+  chore(infra): remove vercel.json crons block + retire vercel-crons test (M12.1 T1; pg_cron pivot)
   
   M12.1 sub-amendment: cron scheduling pivots to Supabase pg_cron + pg_net
   per the sub-amendment spec §2.3. Vercel Hobby tier rejects deployments
   declaring sub-daily crons; removal unblocks Phase 0.A.4. The 7 schedules
   re-land as pg_cron jobs in T3.
+  
+  R1 F2 (conf 0.95): the pre-M12.1 tests/api/vercel-crons.test.ts asserted
+  vercel.json contains the M6-era Vercel-Cron schedules. Its premise is
+  inverted by M12.1; the no-vercel-cron meta-test landed in T4 is the new
+  contract surface. Retire the old test in the same commit so the suite
+  is consistent after T1.
   EOF
   )"
   ```
@@ -89,7 +101,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   feat(db): enable pg_net extension (M12.1 T2.1)
   
   Prerequisite for the pg_cron + pg_net architecture per sub-amendment
-  spec §2.3. pg_net provides http_post() from inside Postgres; pg_cron
+  spec §2.3. pg_net provides http_get() / http_post() from inside Postgres; pg_cron
   schedule bodies call it to invoke the Vercel /api/cron/* routes with
   bearer auth.
   EOF
@@ -160,7 +172,12 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   -- Spec §2.3 (cron scheduling architecture); §5.1 (job × layer completeness matrix).
   --
   -- pg_net installs its functions in the `net` schema, NOT `pg_net` (verified in
-  -- spec §2.3). The cron job bodies call net.http_post(), not pg_net.http_post().
+  -- spec §2.3). The cron job bodies call net.http_get() (NOT http_post) because
+  -- the Vercel route handlers at app/api/cron/*/route.ts export only `GET` (verified
+  -- via grep 2026-05-26 against HEAD 001c8e4); a POST request would hit Next.js's
+  -- 405 Method Not Allowed path and never run the cron work. The bearer auth
+  -- contract is method-agnostic (rejectUnauthorizedCron at _auth.ts:3-12 reads
+  -- the Authorization header regardless of verb).
   --
   -- All schedules below are UTC (pg_cron + Supabase cluster default; matches the
   -- pre-pivot Vercel Cron UTC behavior byte-for-byte). Spec §2.3.
@@ -209,7 +226,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     -- Schedule the 7 jobs. Body shape is uniform across all 7 (multi-line for
     -- readability; the format() interpolation substitutes the route URL).
     perform cron.schedule('fxav_cron_sync', '*/5 * * * *', format($body$
-      select net.http_post(
+      select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
@@ -217,7 +234,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     $body$, vercel_url || '/api/cron/sync'));
   
     perform cron.schedule('fxav_cron_keepalive', '0 12 * * *', format($body$
-      select net.http_post(
+      select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
@@ -225,7 +242,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     $body$, vercel_url || '/api/cron/keepalive'));
   
     perform cron.schedule('fxav_cron_refresh_watch', '0 * * * *', format($body$
-      select net.http_post(
+      select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
@@ -233,7 +250,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     $body$, vercel_url || '/api/cron/refresh-watch'));
   
     perform cron.schedule('fxav_cron_gc_watch', '15 * * * *', format($body$
-      select net.http_post(
+      select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
@@ -241,7 +258,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     $body$, vercel_url || '/api/cron/gc-watch'));
   
     perform cron.schedule('fxav_cron_asset_recovery', '*/15 * * * *', format($body$
-      select net.http_post(
+      select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
@@ -249,7 +266,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     $body$, vercel_url || '/api/cron/asset-recovery'));
   
     perform cron.schedule('fxav_cron_diagram_gc', '30 * * * *', format($body$
-      select net.http_post(
+      select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
@@ -257,7 +274,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     $body$, vercel_url || '/api/cron/diagram-gc'));
   
     perform cron.schedule('fxav_cron_report_reaper', '0 6 * * *', format($body$
-      select net.http_post(
+      select net.http_get(
         url := %L,
         headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from supabase_vault.decrypted_secrets where name = 'fxav_cron_secret')),
         timeout_milliseconds := 30000
@@ -328,10 +345,11 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 ### T4.2 — `pg-cron-coverage.test.ts`
 
 - [ ] **Step 1: Author or extend the test from T3 Step 1.** Asserts:
-  1. The canonical JOB_TABLE (read from `pg-cron-jobs.json` OR parsed from spec §2.3 table) has exactly 7 entries with the expected jobnames/schedules/routes.
+  1. The canonical JOB_TABLE (read from `pg-cron-jobs.json`) has exactly 7 entries with the expected jobnames/schedules/routes.
   2. Live DB introspection (`select jobname, schedule, command from cron.job where jobname like 'fxav_cron_%' order by jobname`) returns exactly 7 rows.
-  3. For each row, jobname is in JOB_TABLE; schedule matches byte-for-byte; command contains the matching `/api/cron/<route>` substring AND contains `supabase_vault.decrypted_secrets`.
-  4. Pre-existing non-fxav crons present (count > 0): asserts the migration didn't accidentally `cron.unschedule()` jobs outside its `fxav_cron_%` scope.
+  3. For each row: jobname is in JOB_TABLE; schedule matches byte-for-byte; command contains the matching `/api/cron/<route>` substring AND contains `supabase_vault.decrypted_secrets` AND **contains `net.http_get(` (NOT `net.http_post(`)**. The http_get assertion is load-bearing: R1 F1 (HIGH, conf 0.97) caught a draft-state bug where the T3 SQL used http_post against GET-only handlers — this assertion pins the verb contract structurally so the class cannot recur silently.
+  4. For each row: command does NOT contain the literal substring `net.http_post(`. Pin the inverse contract explicitly (forbidden-substring assertion); guards against a future migration drift adding http_post calls.
+  5. Pre-existing non-fxav crons present (count > 0): asserts the migration didn't accidentally `cron.unschedule()` jobs outside its `fxav_cron_%` scope.
 - [ ] **Step 2: Verify it passes post-T3.** `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts`.
 - [ ] **Step 3: Anti-tautology verification (negative-regression discipline).** Per `feedback_negative_regression_verification`: a passing test alone doesn't prove the contract; only a failing test against a known-broken state does. Full procedure:
   1. Stash one of the `perform cron.schedule(...)` blocks in the T3 migration (delete one of the 7 calls, save the diff)
@@ -370,12 +388,13 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 ---
 
-## Task T5 — Amend M12 plan to wire Vault + GUC + CRON_SECRET into Phase 0.A
+## Task T5 — Amend M12 plan to wire Vault + GUC + CRON_SECRET into Phase 0.A + sweep Vercel-Cron observability references
 
-**Goal:** the Phase 0.A executor reads `01-phase0-infra.md` directly, NOT the dispatch brief. Without this task, the executor would resume per the pre-pivot M12 plan and skip Vault population. T5 amends the M12 plan so the executor's task sequence reflects the M12.1 architecture.
+**Goal:** the Phase 0.A executor reads `01-phase0-infra.md` + `05-phase0-smokes.md` directly, NOT the dispatch brief. Without this task, the executor would (a) resume per the pre-pivot M12 plan and skip Vault population, and (b) follow stale Smoke 3 instructions checking Vercel Cron Logs / `vercel.json` cron presence (which no longer exist post-T1). T5 amends both M12 plan files so the executor's task + smoke sequence reflects the M12.1 architecture. R1 F3 (conf 0.9) caught the smoke-file gap; class-sweep also surfaced `01-phase0-infra.md:75` (4th Vercel-Cron-assumption needing amendment).
 
 **Files:**
-- Modify: `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md`
+- Modify: `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md` (insert Task 0.A.4.5; update Task 0.A.5 step 3; amend Task 0.A.4 Step 5 production-vs-preview rationale at line 75)
+- Modify: `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md` (rewrite Smoke 3 steps 2 + diagnostic guidance at lines 33 + 36 for pg_cron + pg_net observability)
 
 **TDD steps:**
 
@@ -417,27 +436,53 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 2: Amend Task 0.A.5 step 3 to include `CRON_SECRET`.** Existing text says "Paste the captured Supabase values from 0.A.1 + 0.A.4 into the corresponding rows the §9.1.2 reseed row names." Add a sentence after that: "Additionally set `CRON_SECRET` in Vercel Production scope to the same bearer-token value populated into the validation Supabase Vault in Task 0.A.4.5 step 3. The byte-for-byte match is load-bearing: `app/api/cron/_auth.ts:7` compares the incoming `Authorization` header against `process.env.CRON_SECRET`, and the cron job bodies pass the Vault-stored value as the bearer; mismatched values produce 401 from every cron firing (fail-loud)."
 
-- [ ] **Step 3: Verify no other M12 plan files reference Vercel Cron.** `rg -n 'Vercel Cron|vercel cron|x-vercel-cron' docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/` — expected: zero matches in the plan tree (the M12 spec amendments live in the M12.1 spec, not the M12 plan tree).
+- [ ] **Step 3: Amend `01-phase0-infra.md:75` (Task 0.A.4 Step 5) Vercel-Cron-rationale.** Existing text says: "Verify the deployment is 'Production-target' — Vercel project page should show the URL labeled 'Production' (not 'Preview'). This matters because Vercel Cron Jobs run only on production deployments (smoke test 3)." Replace the trailing clause: "This matters because runtime env vars (including `CRON_SECRET`) are scoped to production deployments; the pg_cron + pg_net architecture (M12.1) calls the production URL specifically, and a preview URL would 401 every cron firing." Preserves the production-vs-preview gate; updates the rationale.
 
-- [ ] **Step 4: Commit.**
+- [ ] **Step 4: Amend `05-phase0-smokes.md` Smoke 3 instructions.** R1 F3 finding cited lines 33 + 36 specifically. Read both lines first; verify the surrounding context. Replacements:
+  - Line ~33 — replace "Wait one cron interval. Vercel Cron Jobs run only on production deployments — verify cron is enabled in `vercel.json` and that the production URL receives cron pings." with: "Wait one cron interval (5 min). pg_cron schedule fires from Supabase: verify via `select last_start_time, last_finish_time, status from cron.job_run_details where jobname = 'fxav_cron_sync' order by start_time desc limit 1;` in the Supabase SQL editor — expect a row created within the last 5 min with `status = 'succeeded'`. The Vercel route handler also logs cron-tagged structured entries to application logs (Vercel Logs tab) as the pg_net request lands."
+  - Line ~36 — replace "If show doesn't appear: check Vercel Cron logs, Drive service-account permissions, `WATCHED_FOLDER_ID` env var." with: "If show doesn't appear: check `cron.job_run_details` for the latest `fxav_cron_sync` row (status = 'failed' indicates pg_net or handler error); check Vercel Logs tab for the `/api/cron/sync` route (401 = `CRON_SECRET` mismatch between Vercel env and Vault entry; 5xx = handler-side error); check Drive service-account permissions, `WATCHED_FOLDER_ID` env var."
+  - If Smoke 4 (admin_alerts + AlertBanner) also references Vercel Cron observability, apply the same observability-surface rewrite (search the file for "Vercel Cron" / "vercel.json" / "cron logs" before commit).
+
+- [ ] **Step 5: Verify no other M12 plan files reference Vercel Cron post-amendment.** `rg -n 'Vercel Cron|vercel cron|x-vercel-cron' docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/` — expected: zero matches in the plan tree post-T5. Class-sweep verification per AGENTS.md "class-sweep before patching adversarial findings".
+
+- [ ] **Step 6: Commit.**
 
   ```bash
-  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md
+  git add docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/05-phase0-smokes.md
   git commit -m "$(cat <<'EOF'
-  docs(plan-m12): insert Task 0.A.4.5 + update 0.A.5 for pg_cron pivot (M12.1 T5)
+  docs(plan-m12): insert Task 0.A.4.5 + sweep Vercel-Cron refs for pg_cron pivot (M12.1 T5)
   
   M12.1 sub-amendment wires the pg_cron + pg_net architecture into Phase
-  0.A executor's task sequence. New Task 0.A.4.5 handles Vault populate +
-  GUC set + M12.1 migration apply against the validation Supabase project;
-  Task 0.A.5 step 3 picks up CRON_SECRET in the Vercel Production-scope
-  env-var set with the byte-for-byte match contract documented. The M12
-  R70 APPROVE state is preserved (this edit is sub-amendment scope per
+  0.A executor's task sequence + sweeps stale Vercel-Cron observability
+  references that would mis-direct debugging post-pivot.
+  
+  01-phase0-infra.md:
+  - New Task 0.A.4.5: Vault populate + GUC set + M12.1 migration apply
+    against the validation Supabase project.
+  - Task 0.A.5 step 3: add CRON_SECRET to Vercel Production-scope env-var
+    set, byte-for-byte match against Vault entry.
+  - Task 0.A.4 Step 5 (line 75): production-vs-preview rationale rewritten
+    around CRON_SECRET env-var scoping (was: "Vercel Cron Jobs run only on
+    production deployments").
+  
+  05-phase0-smokes.md:
+  - Smoke 3 observability: pg_cron.job_run_details + Vercel Logs (was:
+    vercel.json crons presence + Vercel Cron Logs).
+  - Diagnostic guidance: 401 = CRON_SECRET mismatch; 5xx = handler error
+    (replaces "check Vercel Cron logs").
+  
+  R1 F3 (conf 0.9) caught the smokes file; class-sweep also surfaced
+  01-phase0-infra.md:75 as a 4th Vercel-Cron-assumption needing amendment.
+  Verified zero remaining Vercel-Cron / vercel.json references in the M12
+  plan tree post-amendment.
+  
+  M12 R70 APPROVE state is preserved (this edit is sub-amendment scope per
   M12.1 spec §3); M12.1's own convergence log tracks the amendment.
   EOF
   )"
   ```
 
-**Risk class:** low — markdown documentation edit; no executable code. The risk is conceptual (missing this task means the executor never populates Vault and every cron firing 401s in validation).
+**Risk class:** low — markdown documentation edit; no executable code. The risk is conceptual: (a) missing the Vault populate step means every cron firing 401s in validation; (b) missing the smoke-file sweep means executor follows stale debugging guidance.
 
 ---
 
