@@ -304,6 +304,48 @@ jobs:
             x6-admin-tables-generated.diff
             x6-pg-cron-pivot.log
 
+  postgrest-dml-lockdown:
+    # M12 Phase 0.B follow-up (2026-05-27): structural meta-test for AGENTS.md
+    # cross-cutting "PostgREST DML lockdown for RPC-gated tables". Runs all
+    # 3 layers (psql has_table_privilege + role=authenticated POSTREST 403 +
+    # role=anon POSTREST 401-with-42501) against the validation Supabase
+    # project. Layer 1 (psql) needs DATABASE_URL — the validation project's
+    # direct Postgres URL via SUPABASE_TEST_DATABASE_URL (NOT the local
+    # 127.0.0.1 default the in-test fallback uses, which would not resolve
+    # in CI). Layers 2+3 need SUPABASE_TEST_REST_URL + SUPABASE_TEST_JWT_SECRET
+    # to talk to the validation REST gateway. Operator wires the secret +
+    # variable via `gh secret set` / `gh variable set` post-commit.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install psql (postgresql-client) for Layer 1
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Run postgrest-dml-lockdown 3-layer meta-test
+        shell: bash
+        env:
+          TEST_DATABASE_URL: ${{ secrets.SUPABASE_TEST_DATABASE_URL }}
+          SUPABASE_TEST_REST_URL: ${{ vars.SUPABASE_TEST_REST_URL }}
+          SUPABASE_TEST_JWT_SECRET: ${{ secrets.SUPABASE_TEST_JWT_SECRET }}
+        run: |
+          set -o pipefail
+          pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts 2>&1 | tee postgrest-dml-lockdown.log
+      - name: Upload postgrest-dml-lockdown audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgrest-dml-lockdown-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: postgrest-dml-lockdown.log
+
   verify-branch-protection:
     # X6-D-1: solo-dev variant — branch protection removed, no team workflow.
     # See DEFERRED.md §X6-D-1 for re-enable triggers (second admin joins, etc.).
