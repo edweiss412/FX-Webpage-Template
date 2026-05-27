@@ -29,6 +29,17 @@ const REPO_ROOT = process.cwd();
 const SELF_RELATIVE = "tests/cross-cutting/no-vercel-cron.test.ts";
 const SELF_ABSOLUTE = resolve(REPO_ROOT, SELF_RELATIVE);
 
+// Sibling doc-guard test files that legitimately contain "Vercel-Cron" prose
+// in their test descriptions or finding-history citations (M12.1 T4 + T5).
+// They are part of the structural defense for the pg_cron pivot and would
+// self-trigger this walker without exemption.
+const SIBLING_EXEMPT_RELATIVE = [
+  "tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts",
+];
+const SIBLING_EXEMPT_ABSOLUTE = new Set(
+  SIBLING_EXEMPT_RELATIVE.map((p) => resolve(REPO_ROOT, p)),
+);
+
 const WALKED_ROOTS = ["app", "lib", "tests"] as const;
 
 const FORBIDDEN = [/x-vercel-cron/i, /vercel-cron/i, /VercelCron/];
@@ -88,6 +99,11 @@ function scanRepoForForbidden(): { matches: Match[]; visitedSelf: boolean } {
       // but skip scanning it (the file MUST contain the forbidden literals).
       if (fileAbs === SELF_ABSOLUTE) {
         visitedSelf = true;
+        continue;
+      }
+      // Sibling-doc-guard exemption: M12.1 T5 amendment doc-guard contains
+      // legitimate Vercel-Cron prose in its assertion test descriptions.
+      if (SIBLING_EXEMPT_ABSOLUTE.has(fileAbs)) {
         continue;
       }
       const content = readFileSync(fileAbs, "utf8");

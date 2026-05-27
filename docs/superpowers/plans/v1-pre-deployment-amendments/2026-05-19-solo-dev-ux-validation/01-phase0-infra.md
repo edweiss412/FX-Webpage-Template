@@ -71,9 +71,68 @@ This makes the dev an admin on the new project. The `lower(trim(email))` CHECK c
 - [ ] **Step 1:** In Vercel dashboard, create a NEW project linked to the FXAV-Webpage-Template repo. Name: `fxav-crew-pages-validation`. Default branch: `main`.
 - [ ] **Step 2:** **DO NOT add a custom domain.** Production deployments work fine on `*.vercel.app` URLs; per spec §9.1, no custom domain is in M12 scope.
 - [ ] **Step 3:** Trigger an initial production deployment: push to `main` OR click "Redeploy" in Vercel. Wait for completion.
-- [ ] **Step 4:** Capture the production `*.vercel.app` URL (the canonical one — NOT a preview URL). This is the dev's working validation URL for every later task.
-- [ ] **Step 5:** Verify the deployment is "Production-target" — Vercel project page should show the URL labeled "Production" (not "Preview"). This matters because Vercel Cron Jobs run only on production deployments (smoke test 3).
+- [ ] **Step 4 (M12.1 T5 Step 2a — R5 F13 stable-alias amendment):** Capture the **stable project production alias** `<project-name>.vercel.app` (e.g., `fxav-crew-pages-validation.vercel.app`) — NOT the per-deployment URL output by `vercel deploy` (which has the form `<project-name>-<hash>-<team>.vercel.app` and is immutable per deployment). Verify via `npx vercel project ls` showing the project's primary domain, OR by checking the Vercel dashboard for the project's stable production URL. The alias auto-points at the latest production deployment, so subsequent redeploys (Task 0.A.5 step 6) transparently route cron traffic to the current code + env vars. The pg_cron + pg_net architecture (M12.1) bakes this URL into `cron.job.command` at T3 migration time via the `app.fxav_vercel_url` GUC + `format()` substitution; using the per-deployment URL means subsequent redeploys leave the cron firing against the OLD deployment indefinitely.
+- [ ] **Step 5 (M12.1 T5 Step 3 — rationale rewrite):** Verify the deployment is "Production-target" — Vercel project page should show the URL labeled "Production" (not "Preview"). This matters because runtime env vars (including `CRON_SECRET`) are scoped to production deployments; the pg_cron + pg_net architecture (M12.1) calls the production URL specifically, and a preview URL would 401 every cron firing.
 - [ ] **Step 6:** **NO commit** — this is project-config.
+
+---
+
+### Task 0.A.4.5: Populate Vault + set GUC + apply M12.1 migrations against validation Supabase
+
+Per M12.1 sub-amendment (2026-05-26). This task lands the operational state the M12.1 architecture requires before env-var wiring.
+
+**Files:**
+- No code changes. SQL editor + Supabase Dashboard Vault UI operations against the validation Supabase project.
+
+- [ ] **Step 1:** Apply the M12.1 migrations to the validation Supabase project: `npx supabase db push` — applies the three new migrations (`enable_pg_net`, `cron_secret_vault`, `schedule_cron_jobs`) on top of the migrations applied in Task 0.A.2. The `schedule_cron_jobs` migration WILL FAIL with a `app.fxav_vercel_url GUC must be set` exception on first run; this is intentional (fail-loud) — proceed to Step 2.
+- [ ] **Step 2 (R5 F13 — stable-alias GUC):** Set the GUC to the stable project alias captured in Task 0.A.4 Step 4. In the Supabase SQL editor, run `alter database postgres set app.fxav_vercel_url = 'https://<project-name>.vercel.app';` (e.g., `https://fxav-crew-pages-validation.vercel.app` — the stable alias, NOT the per-deployment URL). The setting takes effect on new connections. Reconnect the SQL editor session before Step 4 re-apply.
+- [ ] **Step 3 (R23 F47 — Vault UI required, NOT SQL editor):** Populate the Vault secret value via the **Supabase Dashboard Vault UI** (Project Settings → Vault → `fxav_cron_secret` → Edit). The Vault UI updates the encrypted secret value via the Supabase API, bypassing SQL statement logging entirely.
+
+    **DO NOT use the SQL editor for this step.** Per Supabase Vault docs (https://github.com/supabase/vault#turning-off-statement-logging), SQL statements containing secret literals can be logged unencrypted by PostgreSQL's statement-logging infrastructure (`log_statement = 'all'` or `log_min_duration_statement`). A `select vault.update_secret(<id>, '<token>', ...);` call would expose the bearer token in `postgres_logs` (Supabase) + any downstream log-shipping destination. With the bearer in logs, anyone with log-read access can authenticate every `/api/cron/*` endpoint.
+
+    Procedure:
+    1. Generate the bearer locally: `openssl rand -hex 32`. Save to your secret store (locked notes / password manager).
+    2. Open Supabase Dashboard → validation project → Project Settings → Vault.
+    3. Find the `fxav_cron_secret` row (created by T2.2 migration with placeholder `unset-populate-via-vault-ui-or-update`).
+    4. Click Edit → paste the generated bearer → Save.
+    5. Verify the secret was updated via `select name, description from vault.secrets where name = 'fxav_cron_secret';` (returns name + description but NOT the secret value — safe to log).
+
+    Save the same token value locally — Task 0.A.5 wires the matching `CRON_SECRET` env var into Vercel Production scope. The Vercel Production env-var input is also a UI surface (not SQL-logged); use the Vercel Dashboard's "Add Environment Variable" form, NOT a `vercel env add CRON_SECRET ...` CLI call that could land in shell history.
+
+    **Secret-handling checklist for CRON_SECRET (R23 F47):**
+    - [ ] Generated via `openssl rand -hex 32` (one-shot; no echo to shell that survives in history)
+    - [ ] Pasted into Supabase Vault UI ONLY (NOT SQL editor)
+    - [ ] Pasted into Vercel Dashboard env-var UI ONLY (NOT CLI)
+    - [ ] Stored in password manager (NOT in migration files, shell history, SQL snippets, or git)
+    - [ ] Verified via NAME/DESCRIPTION query only, never `select decrypted_secret ...` outside the cron schedule body that consumes it
+- [ ] **Step 4:** Re-run `npx supabase db push` to re-apply `schedule_cron_jobs` now that the GUC + Vault entry are populated. Confirm via `select jobname, schedule from cron.job where jobname like 'fxav\_cron\_%' escape '\';` — should return 7 rows.
+- [ ] **Step 5 (R26 F51 orphan-cleanup verification):** Verify the orphaned `cleanup-bootstrap-nonces` cron was removed by T3: `select count(*) from cron.job where jobname = 'cleanup-bootstrap-nonces';` must return 0. `select count(*) from cron.job where jobname not like 'fxav\_cron\_%' escape '\';` should return 0 (no non-fxav cron remains).
+- [ ] **Step 5a (R12 F31 + R13 F34 + R16 F37 + R17 F38 — validation-env meta-test apply):** Run `pg-cron-coverage.test.ts` against the validation Supabase project to pin the SAME contract that T2.1/T2.2/T3 proved on the local dev DB.
+
+    Get the validation pooler URL from Supabase Dashboard → Project Settings → Database → Connection string (Session pooler, NOT Transaction pooler).
+
+    **Operator invocation (validation env):**
+    ```bash
+    PG_CRON_COVERAGE_TARGET=validation \
+      TEST_DATABASE_URL="<validation-project-pooler-URL>" \
+      VALIDATION_SUPABASE_PROJECT_REF="<project-ref-from-Task-0.A.1>" \
+      pnpm test tests/cross-cutting/pg-cron-coverage.test.ts
+    ```
+
+    Test asserts at setup time that the 4 env-var guards hold (mode=validation; TEST_DATABASE_URL non-local; VALIDATION_SUPABASE_PROJECT_REF set; TEST_DATABASE_URL contains the project ref). Expect PASS for all layers (0a pg_net installed, 0b vault entry, 7-job assertion with command-contains-net.http_get + vault.decrypted_secrets + Bearer auth-header-shape + NOT-net.http_post + active=true; non-fxav snapshot; orphan-absent). Local-PASSES-validation-FAILS would surface validation-specific drift; per AGENTS.md cross-cutting #4 this step is the validation-env equivalent of CI green being a separate gate from local green.
+- [ ] **Step 5b (observability probe — M12.1 handoff §10):** Wait one cron interval (5 min). Confirm at least one `fxav_cron_sync` firing landed via the joined query (jobname lives on `cron.job`, NOT `cron.job_run_details`):
+
+    ```sql
+    select j.jobname, jrd.start_time, jrd.end_time, jrd.status, jrd.return_message
+      from cron.job_run_details jrd
+      join cron.job j on j.jobid = jrd.jobid
+     where j.jobname = 'fxav_cron_sync'
+     order by jrd.start_time desc limit 5;
+    ```
+
+    Expect at least one row with `status = 'succeeded'`. NOTE: per spec §9.1.3 pg_net async semantics, `status = 'succeeded'` proves only that the SQL command (the `net.http_get(...)` enqueue) succeeded — NOT that Vercel returned 2xx. The downstream side effect (Smoke 3 Layer 3) is the binding gate; this probe is Layer 1 diagnostic confirmation that the scheduler is firing.
+
+- [ ] **Step 6:** **NO commit** — this is per-environment operational state, not source code.
 
 ---
 
@@ -179,11 +238,26 @@ VALIDATION_ADMIN_EMAIL=
 ```
 
 - [ ] **Step 2: Verify the file change is sensible:** `git diff .env.local.example` shows only the additions, no existing-var edits.
-- [ ] **Step 3: Set the M12 validation env vars in Vercel Production scope** (Settings → Environment Variables, scope: **Production** only — NOT Preview or Development) per the canonical CLI command-by-command env-var contract at spec §9.1.2. Paste the captured Supabase values from 0.A.1 + 0.A.4 into the corresponding rows the §9.1.2 reseed row names.
+- [ ] **Step 3: Set the M12 validation env vars in Vercel Production scope** (Settings → Environment Variables, scope: **Production** only — NOT Preview or Development) per the canonical CLI command-by-command env-var contract at spec §9.1.2. Paste the captured Supabase values from 0.A.1 + 0.A.4 into the corresponding rows the §9.1.2 reseed row names. **M12.1 T5 amendment:** additionally set `CRON_SECRET` in Vercel Production scope to the same bearer-token value populated into the validation Supabase Vault in Task 0.A.4.5 step 3. The byte-for-byte match is load-bearing: `app/api/cron/_auth.ts:7` compares the incoming `Authorization` header against `process.env.CRON_SECRET`, and the cron job bodies pass the Vault-stored value as the bearer; mismatched values produce 401 from every cron firing (fail-loud).
 - [ ] **Step 3a: Operational note** — set `VALIDATION_J3_CLAIM_EMAIL` to the dev's real Google account email (the one Google OAuth signs the dev in as during the J3 walk). This is an operational instruction for one specific row of the §9.1.2 contract, NOT a re-enumeration of the contract — see R13 commit 30 + spec §1.5 for why the J3 OAuth-claim walk needs a real Google email rather than a synthesized placeholder.
 - [ ] **Step 4: Mirror those env-var values into `.env.local`** (gitignored — do NOT commit the secrets) so local CLIs read the same values as Vercel Production scope.
 - [ ] **Step 5: Set up the existing runtime env vars** if not already in Vercel Production scope: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON`, `WATCHED_FOLDER_ID`, `HASH_FOR_LOG_PEPPER`, `PICKER_COOKIE_SIGNING_KEY` (the M11.5 picker cookie's HMAC signing key — 64 hex chars; runtime-only), plus any other vars `.env.local.example` lists for runtime. These are the production-target deployment's normal env contract; validation only ADDS the `VALIDATION_`-prefixed vars per spec §9.1.2 (R35 commit 71 F33: cross-reference §9.1.2 for the authoritative per-CLI list; the `.env.local.example` template above carries every literal the dev must set locally — including the per-outcome helper `VALIDATION_ADMIN_EMAIL` added in R33 commit 68).
 - [ ] **Step 6: Trigger another production redeploy** in Vercel so the new env vars take effect.
+- [ ] **Step 6a (M12.1 T5 Step 2b — R5 F13 + R18 F40 baked-URL verify):** Inspect the baked URLs in `cron.job.command` post-redeploy. In Supabase SQL editor, run:
+
+    ```sql
+    select jobname, substring(command from 'url := ''([^'']+)''') as baked_url
+      from cron.job
+     where jobname like 'fxav\_cron\_%' escape '\'
+     order by jobname;
+    ```
+
+    **Confirm exactly 7 rows return** (matches the §9.1.3 / pg-cron-jobs.json job table). **R18 F40 per-row check:** for each row, assert:
+
+    1. **Scheme + host equals stable alias:** `baked_url` starts with `https://<project-name>.vercel.app/` (your captured stable alias from Task 0.A.4 Step 4) — NOT a per-deployment URL (`https://<project-name>-<hash>-<team>.vercel.app/...`).
+    2. **Route path matches jobname:** `fxav_cron_sync` → `/api/cron/sync`; `fxav_cron_keepalive` → `/api/cron/keepalive`; etc. (7 pairs per pg-cron-jobs.json).
+
+    If any row's host is per-deployment, T3 was applied with a stale `app.fxav_vercel_url`; correct via `alter database postgres set app.fxav_vercel_url = '<stable-alias>';` then re-run the affected `cron.schedule()` calls manually with the corrected URL. If any row's route is wrong, the T3 migration body has a route-string typo — fix the migration + reapply.
 - [ ] **Step 7: Verify the deployment can reach the new Supabase:** open the production URL in a browser. Click sign-in. Confirm Google OAuth lands you as admin (the email canonicalized in 0.A.2 step 4). If sign-in fails with "unauthorized", admin_emails was not seeded correctly — go back to 0.A.2.
 - [ ] **Step 8: Commit `.env.local.example`** (only the documentation update — secrets stay in `.env.local`).
 

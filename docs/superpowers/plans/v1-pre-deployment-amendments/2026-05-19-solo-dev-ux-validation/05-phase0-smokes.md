@@ -30,10 +30,51 @@
 ### Task 0.F.3: Smoke 3 — Cron + Drive integration
 
 - [ ] **Step 1: Place a fixture sheet into the prod-tier Drive watched folder** (the one configured in Phase 0.A.3).
-- [ ] **Step 2: Wait one cron interval.** Vercel Cron Jobs run only on production deployments — verify cron is enabled in `vercel.json` and that the production URL receives cron pings.
-- [ ] **Step 3: Open `/admin` Active Shows panel.** Confirm the new show appears within the cron interval.
-- [ ] **Step 4: Verify:** cron schedule firing + Drive service-account credentials + parser end-to-end + DB write under per-show advisory lock.
-- [ ] If show doesn't appear: check Vercel Cron logs, Drive service-account permissions, `WATCHED_FOLDER_ID` env var.
+- [ ] **Step 2: Wait one cron interval (5 min).** Post-M12.1 (2026-05-26 pg_cron pivot per M12.1 spec §2.3) cron firing originates from Supabase `pg_cron` + `pg_net`, NOT from Vercel Cron. Observability uses a 3-layer ladder; **Layer 3 (downstream side effect — show appears in `/admin` Active Shows) is the SOLE BINDING PASS criterion per R10 F27 + R11 F28**. Layers 1 + 2 are DIAGNOSTIC ONLY (pg_net response correlation cannot reliably attribute responses to specific cron jobs under concurrent firings — R9 F24). If Layer 3 fails, walk Layers 1 + 2 diagnostically to localize.
+
+  1. **Scheduler fired (pg_cron) — DIAGNOSTIC:** Supabase SQL editor:
+     ```sql
+     select j.jobname, jrd.start_time, jrd.end_time, jrd.status,
+            jrd.return_message, jrd.command
+       from cron.job_run_details jrd
+       join cron.job j on j.jobid = jrd.jobid
+      where j.jobname = 'fxav_cron_sync'
+      order by jrd.start_time desc limit 5;
+     ```
+     Expect at least one row created within the last 5 min with `status = 'succeeded'`. NOTE: `status = 'succeeded'` proves only that the SQL command (the `net.http_get(...)` enqueue) succeeded, NOT that Vercel returned 2xx or that the handler ran. pg_net is asynchronous.
+
+  2. **HTTP request landed (pg_net) — DIAGNOSTIC, correlated by timestamp proximity:** TWO queries:
+     ```sql
+     -- 2a: latest pg_net responses (response keyed by id; no URL column)
+     select id, status_code, content_type, timed_out, error_msg, created
+       from net._http_response
+      order by created desc limit 10;
+
+     -- 2b: cron firings with command (URL baked in by T3 format())
+     select j.jobname, jrd.start_time, jrd.end_time, jrd.status, jrd.command
+       from cron.job_run_details jrd
+       join cron.job j on j.jobid = jrd.jobid
+      where j.jobname like 'fxav\_cron\_%' escape '\'
+        and jrd.start_time > now() - interval '10 minutes'
+      order by jrd.start_time desc;
+     ```
+     Expect a response created shortly after the cron.job_run_details start_time with `status_code = 200` and `error_msg is null`. `status_code = 401` = Vault bearer does not match Vercel `CRON_SECRET` (fail-loud). `status_code = 405` = HTTP-method mismatch (should be impossible if T4 meta-test passes). `timed_out = true` = pg_net worker abandoned the request (R11 F28: pg_net-version-dependent; `timeout_milliseconds` may be ignored in current versions — DIAGNOSTIC-ONLY observation).
+
+  3. **Downstream side effect — THE BINDING PASS CRITERION:** the new show appears in `/admin` Active Shows panel. **THIS LAYER ALONE DECIDES SMOKE 3 PASS/FAIL.** A show appearing in `/admin` Active Shows proves the full pipeline executed end-to-end: pg_cron fired AND pg_net reached Vercel AND auth passed AND the parser ran AND the DB write under per-show advisory lock landed.
+
+- [ ] **Step 3: Verify:** pg_cron schedule firing + pg_net HTTP reach to Vercel route + handler auth pass + Drive service-account credentials + parser end-to-end + DB write under per-show advisory lock.
+- [ ] If show doesn't appear, walk the 3 observability layers in order:
+
+  **Layer 1 (cron.job_run_details):** if no recent row OR `status='failed'`, the scheduler didn't fire — check that T3 migration applied (`select jobname from cron.job where jobname like 'fxav\_cron\_%' escape '\'` returns 7 rows) and that the cluster's pg_cron worker is running.
+
+  **Layer 2 (net._http_response cross-referenced with cron.job_run_details by timestamp proximity):** if no recent response row, the pg_net call enqueued but the worker hasn't processed it (rare; retry in 30-60s).
+  - `status_code=401`: `CRON_SECRET` mismatch between Vercel env var and Vault entry. **R24 F48: DO NOT verify by selecting `decrypted_secret`; that exposes the bearer in SQL editor / browser / session history.** Instead, recover by ROTATING: generate a new bearer via `openssl rand -hex 32`; paste into Vault Dashboard UI (Project Settings → Vault → `fxav_cron_secret` → Edit → Save); paste the SAME value into Vercel Dashboard env-var UI for `CRON_SECRET`; redeploy Vercel. Next cron firing should return `status_code=200`. If 401 persists post-rotation, re-verify Vercel env-var was saved (Dashboard view, NOT a CLI command that could show the value) and confirm the Vault entry's `updated_at` reflects the rotation (`select name, description, updated_at from vault.secrets where name = 'fxav_cron_secret';` is safe — no `decrypted_secret` returned).
+  - `status_code=405`: HTTP method mismatch — should not happen if T4 meta-test is green; check T3 SQL for `net.http_post` drift.
+  - `timed_out=true`: pg_net worker abandoned the request (R11 F28 version-dependent). Check Vercel Logs for the `/api/cron/sync` route's actual execution time.
+  - `error_msg` present: pg_net could not reach Vercel — DNS/network issue at Supabase egress.
+
+  **Layer 3 (Vercel Logs tab + downstream state):**
+  - 2xx but show not in Active Shows: handler ran but parser/DB write failed — check Drive service-account permissions, `GOOGLE_DRIVE_FOLDER_ID` env var, Supabase logs for advisory-lock contention.
 
 ---
 
@@ -112,6 +153,9 @@ Expect both PASS. If either fails or is missing, Phase 0 does NOT close — retu
 ## Phase 0.F failure modes
 
 - **Smoke 2 (iPhone render) fails.** Post-2026-05-26 rebase: most likely `PICKER_COOKIE_SIGNING_KEY` missing from Vercel Production scope (the picker cookie can't be HMAC-signed → `selectIdentity` returns `infra_error`). Verify the env var via `vercel env ls`. Secondary causes: `show_share_tokens` row missing (check via SQL editor), `auth_email_canonical` row missing for the fixture crew.
-- **Smoke 3 (cron) doesn't fire.** Vercel deployment is in Preview, not Production. Re-check Phase 0.A.4.
+- **Smoke 3 (cron) doesn't fire.** Post-M12.1 pivot the cron firing surface is Supabase `pg_cron` + `pg_net`, NOT Vercel Cron. Walk the 3-layer observability ladder at Smoke 3 Step 2 to localize:
+  - **Layer 1 (`cron.job_run_details`)** shows no recent row → pg_cron scheduling failed (check T3 migration applied via `select jobname from cron.job where jobname like 'fxav\_cron\_%' escape '\';` + pg_cron worker process running).
+  - **Layer 2 (`net._http_response`)** shows no recent row OR `error_msg` present → pg_net failed to reach Vercel (check VPC/egress).
+  - **Layer 3 (show in `/admin` Active Shows)** is the SOLE BINDING PASS criterion per R10 F27 (Layer 3 failure with Layers 1+2 green = bearer auth mismatch OR Drive permissions OR handler runtime error — check Vercel Logs).
 - **Smoke 4 (admin_alerts) row missing.** MI-6 staging gates may have changed since spec write. Re-read master spec §6 to confirm MI-6 still triggers on crew row deletion.
 - **Smoke 7 fails to render outcome state.** Harness wrote the wrong row shape; re-read master spec §13.2.3 row contract.

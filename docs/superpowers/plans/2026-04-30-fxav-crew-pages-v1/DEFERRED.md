@@ -80,6 +80,8 @@ The R4 finding is REAL — the drift-detector contract needs an `BRANCH_PROTECTI
 
 **Resolution (2026-05-20).** Branch protection removed via `gh api -X DELETE repos/edweiss412/FX-Webpage-Template/branches/main/protection`. The 6 audit checks (`traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`) STILL run on every PR + push to main and surface red checks in the GitHub UI; they just no longer BLOCK merges. The privileged `verify-branch-protection` job continues to exist in `.github/workflows/x-audits.yml` but its admin-alert path is dormant (no production Supabase per X.6 R3 finding; no protection to evaluate per this deferral). The `verify-branch-protection-status` reader continues to exist but always passes (no required-checks gate to fail closed against).
 
+**M12.1 cross-reference (2026-05-27).** M12.1 sub-amendment added an 8th audit check `x6-pg-cron-pivot` (M12.1 pg_cron pivot defenses: no-vercel-cron + pg-cron-pivot-doc-guard + m12-plan-pg-cron-pivot-amendment). The master spec AC-X.6 paragraph + the `BRANCH_PROTECTION_DRIFT` catalog row + §17.2.1 resolution prose were amended in T5 to include the 8th check name. Both `verify-branch-protection` + `verify-branch-protection-status` workflow jobs remain `if: false` (X6-D-1 dormancy preserved); the 8 audit checks now ALL run on PR + push but none block merges. The amendment is **prep work** so that when X6-D-1 reopens, the re-PUT of branch protection naturally reads the current spec inventory via `loadRequiredChecksFromSpec()` and includes `x6-pg-cron-pivot` — without M12.1's amendment the reopener would have re-PUT with the stale 7-check set. **When X6-D-1 reopens**, the re-PUT step must include `x6-pg-cron-pivot` in the required-checks list (the AC-X.6 inventory + the BRANCH_PROTECTION_DRIFT resolution prose are now correct; verify via `pnpm test:audit:x6-pg-cron-pivot` assertion P which dynamic-imports `loadRequiredChecksFromSpec` and asserts the 8th name is present).
+
 **Trigger to resume.** Pick this back up if/when ANY of these become true:
 1. A second developer or admin gains write access to `edweiss412/FX-Webpage-Template`.
 2. FXAV crew-pages is forked / moved to a team org.
@@ -87,7 +89,7 @@ The R4 finding is REAL — the drift-detector contract needs an `BRANCH_PROTECTI
 
 **Concrete work to land at that point:**
 - R4 Codex repair: env-gated `BRANCH_PROTECTION_VARIANT` (solo|team, default team) in `scripts/verify-branch-protection.ts` + tests for both variants + spec §17.2.1 amendment + plan Task X.6 Step 3c amendment + workflow YAML reads variant from gh vars.
-- Re-PUT branch protection with the 7 required checks + the appropriate variant.
+- Re-PUT branch protection with the 8 required checks (M12.1 added gate #8 `x6-pg-cron-pivot` — see M12.1 cross-reference above) + the appropriate variant.
 - Set `gh variable set BRANCH_PROTECTION_VARIANT --body 'solo'` (or `'team'` per the new workflow shape).
 - Trigger a privileged workflow run; confirm exit 0; confirm reader passes; confirm merges work.
 
