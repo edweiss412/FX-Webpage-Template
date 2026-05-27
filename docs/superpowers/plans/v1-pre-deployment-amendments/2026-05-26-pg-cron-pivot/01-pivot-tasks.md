@@ -324,6 +324,7 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 **Files:**
 - New: `tests/cross-cutting/no-vercel-cron.test.ts`
 - New: `tests/cross-cutting/pg-cron-coverage.test.ts`
+- New (R3 structural-defense calibration): `tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts` — prose-guard walking M12.1 docs for the API-surface-verification class of regressions (per AGENTS.md "structural-defense calibration" — R3 closed the same-vector recurrence after comprehensive re-analysis; the prose-guard prevents re-introduction at CI time)
 - New (REQUIRED, canonical source for pg-cron-coverage): `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json` — canonical job × schedule × route table that the spec §2.3 markdown view mirrors. Shape:
 
   ```json
@@ -360,33 +361,74 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   4. For each row: command does NOT contain the literal substring `net.http_post(`. Pin the inverse contract explicitly (forbidden-substring assertion); guards against a future migration drift adding http_post calls.
   5. Pre-existing non-fxav crons present (count > 0): asserts the migration didn't accidentally `cron.unschedule()` jobs outside its `fxav_cron_%` scope.
 - [ ] **Step 2: Verify it passes post-T3.** `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts`.
-- [ ] **Step 3: Anti-tautology verification (negative-regression discipline).** Per `feedback_negative_regression_verification`: a passing test alone doesn't prove the contract; only a failing test against a known-broken state does. Full procedure:
-  1. Stash one of the `perform cron.schedule(...)` blocks in the T3 migration (delete one of the 7 calls, save the diff)
-  2. Re-apply T3: `npx supabase db push` (since we ran `cron.unschedule()` first, the DB now has only 6 fxav_cron rows)
-  3. Run the test: `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` → expect FAIL on "exactly 7 rows" assertion
-  4. Restore the stashed call to the migration file
-  5. Re-apply T3 — DB returns to 7 fxav_cron rows
-  6. Run the test again → expect PASS
+- [ ] **Step 3: Anti-tautology verification (negative-regression discipline).** Per `feedback_negative_regression_verification`: a passing test alone doesn't prove the contract; only a failing test against a known-broken state does. **R3 F8 fix (conf 0.9):** the original draft used `supabase db push` to "re-apply" the edited migration — but `db push` only applies PENDING migrations (those not in `supabase_migrations.schema_migrations`); already-applied migrations are NOT re-run on push. The corrected procedure uses **live cron-state mutation via `cron.unschedule()`** (no migration file edit) so the live DB enters a known-broken state without touching the migration system:
+
+  1. **Setup check:** before mutating, confirm baseline. `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` → expect PASS with 7 fxav_cron_* rows.
+  2. **Mutate live state:** in Supabase SQL editor (or psql against the validation DB), run `select cron.unschedule('fxav_cron_sync');` — drops one row from `cron.job`. DB now has 6 fxav_cron_* rows.
+  3. **Run the test:** `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` → expect **FAIL** on the "exactly 7 rows" assertion. This proves the test catches a missing-schedule regression.
+  4. **Restore by re-running the T3 migration's relevant `cron.schedule()` call** directly in the SQL editor:
+     ```sql
+     do $$ declare vercel_url text := current_setting('app.fxav_vercel_url', true); begin
+       perform cron.schedule('fxav_cron_sync', '*/5 * * * *', format($body$
+         select net.http_get(url := %L, headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'fxav_cron_secret')), timeout_milliseconds := 30000);
+       $body$, vercel_url || '/api/cron/sync'));
+     end$$;
+     ```
+     **Alternative:** `npx supabase db reset` recreates the DB from all migrations (heavyweight; clobbers data — acceptable on validation env). On `db reset`, the T3 migration re-runs and the 7 schedules are restored.
+  5. **Confirm restoration:** `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` → expect PASS again with 7 rows.
+
+  **Why this procedure works where the R0-R2 procedure didn't:** R0-R2 said "edit T3 migration file, db push, expect FAIL." That fails because db push doesn't re-apply already-tracked migrations (per Supabase CLI docs at https://supabase.com/docs/reference/cli/supabase-db-push — migrations land once and stay tracked in `supabase_migrations.schema_migrations`). The corrected procedure mutates LIVE DB state directly, so the assertion sees the mutation independent of migration apply state.
 - [ ] **Step 4: Live-integration probe (NOT mocks).** The test reads live `cron.job` rows via a Supabase client connection (or `psql` shell-out, same pattern as the M12 drift-repair test at `02-phase0-validation-state.md:146-265`). Per `feedback_mocked_only_tests_invite_tautological_approve` — DB introspection tests MUST hit a real DB. Mocked `cron.job` rows would observe what the test author thinks the migration produces, not what it actually produces.
 
-### T4.3 — Commit
+### T4.3 — `pg-cron-pivot-doc-guard.test.ts` (R3 structural-defense calibration)
+
+- [ ] **Step 1: Author the prose-guard test.** Walks `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot-design.md` + `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/**/*.md` and asserts NONE of the following forbidden patterns appear (case-insensitive, per-pattern):
+
+  | Pattern | Class | Why forbidden |
+  |---|---|---|
+  | `supabase_vault\.(create_secret\|secrets\|decrypted_secrets\|update_secret)` | Schema-name drift (R2 F4) | Functions/tables live in `vault` schema; extension name `supabase_vault` is only valid in `create extension` contexts |
+  | `net\.http_post` | HTTP verb drift (R1 F1) | Cron handlers export GET only; POST → 405 |
+  | `cron\.job_run_details[^.]*\.jobname` OR `from cron\.job_run_details[\s\S]{0,200}where jobname` | jobname-on-job_run_details drift (R3 F7) | `jobname` lives on `cron.job`, not `cron.job_run_details`; queries need a join |
+  | `last_start_time\|last_finish_time` | Non-existent column drift (R2 F5) | pg_cron exposes `start_time`/`end_time` — these names came from a confused R1 draft |
+  | `supabase db push.*expect.*FAIL` OR `db push.*re-?apply` (in negative-regression contexts) | Migration-reapply assumption (R3 F8) | `db push` applies pending migrations only; live-state mutation via `cron.unschedule` is the correct path |
+
+- [ ] **Step 2: Allowlist mechanism for finding-history paragraphs.** The spec's R1/R2/R3 finding-history paragraphs INTENTIONALLY cite forbidden patterns as "what was wrong." Allowlist these via:
+  - Inline waiver comment within 5 lines of the match: `<!-- not-doc-guard-class: <reason> -->` OR
+  - Surrounding-line patterns: lines containing "R[0-9]+ F[0-9]+", "finding history", "Repair:", "was: ", "fix:", inside an HTML comment, OR within a markdown blockquote referencing a prior round.
+  Document the allowlist contract in the test's top-of-file comment so a future editor can extend it.
+
+- [ ] **Step 3: Verify it passes at HEAD post-R3-fix.** `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`. If any of the R1/R2/R3 finding paragraphs trip the assertion despite the allowlist, refine the allowlist regex until clean.
+
+- [ ] **Step 4: Anti-tautology / negative-regression verification.** For each forbidden pattern, manually re-introduce one match into the spec (e.g., change `vault.decrypted_secrets` → `supabase_vault.decrypted_secrets` in a non-finding paragraph), run test → expect FAIL on that specific assertion; restore. Confirms each pattern's check is regression-catching. Do this for all 5 patterns in the table.
+
+### T4.4 — Commit
 
 - [ ] **Step 1: Commit.**
 
   ```bash
-  git add tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-coverage.test.ts docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json
+  git add tests/cross-cutting/no-vercel-cron.test.ts tests/cross-cutting/pg-cron-coverage.test.ts tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json
   git commit -m "$(cat <<'EOF'
-  test(cross-cutting): pin no-vercel-cron + pg-cron-coverage invariants (M12.1 T4)
+  test(cross-cutting): pin no-vercel-cron + pg-cron-coverage + pg-cron-pivot-doc-guard invariants (M12.1 T4)
   
-  Two structural meta-tests defend the pivot:
+  Three structural meta-tests defend the pivot:
   - no-vercel-cron: asserts vercel.json has no crons key + no
     x-vercel-cron / vercel-cron references in app/, lib/, tests/.
   - pg-cron-coverage: live-DB introspection assertion that the 7
-    fxav_cron_* jobs match the spec §2.3 table byte-for-byte and that
-    pre-existing non-fxav crons are preserved.
-  Both verified against the negative-regression contract: stashing the
-  T1/T3 production change makes each assertion fail (per
-  feedback_negative_regression_verification + the anti-tautology rule).
+    fxav_cron_* jobs match pg-cron-jobs.json byte-for-byte (jobname,
+    schedule, command-contains-net.http_get + command-contains-
+    vault.decrypted_secrets + command-NOT-contains-net.http_post) and
+    that pre-existing non-fxav crons are preserved.
+  - pg-cron-pivot-doc-guard: R3 structural-defense calibration —
+    walks M12.1 spec + plan markdown and asserts 5 forbidden patterns
+    (supabase_vault.* schema-name drift; net.http_post verb drift;
+    cron.job_run_details.jobname column-shape drift;
+    last_start_time/last_finish_time non-existent-column drift;
+    'db push expect FAIL' migration-reapply assumption) do NOT appear
+    outside allowlisted finding-history paragraphs. Defends the
+    API-surface-verification class that recurred across R1/R2/R3.
+  
+  All three verified against the negative-regression contract per
+  feedback_negative_regression_verification + the anti-tautology rule.
   EOF
   )"
   ```

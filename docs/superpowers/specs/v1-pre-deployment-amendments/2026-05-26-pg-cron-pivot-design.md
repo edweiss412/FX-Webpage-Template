@@ -80,7 +80,7 @@ Three changes are binding once this sub-amendment is APPROVED. Two are inline te
 
 **Amended text (replace in place):**
 
-> 3. **Cron + Drive integration.** A fixture sheet placed in the prod-tier Drive watched folder is detected by the cron path (`pg_cron` schedule → `net.http_get()` (NOT http_post — handlers are GET-only per `app/api/cron/*/route.ts` verified at HEAD `001c8e4`) with `Authorization: Bearer $CRON_SECRET` → Vercel route handler `/api/cron/sync` → fetch from Drive service account → parse → propagate) within one cron interval. The new show appears in `/admin` Active Shows panel. Verifies: pg_cron schedule firing + pg_net HTTP reach to Vercel route + handler auth pass + Drive service-account credentials + parser end-to-end + DB write under per-show advisory lock. **M12.1 amendment (2026-05-26):** the firing surface pivoted from Vercel Cron to Supabase pg_cron + pg_net. Observability moved: verify firings via `select * from cron.job_run_details where jobname = 'fxav_cron_sync' order by start_time desc limit 5;` (returns one row per pg_cron firing with command status); the Vercel side observability is the route handler's normal application logs (Vercel Logs tab) — cron-tagged structured log entries appear there as they always did, just initiated by pg_net rather than Vercel-Cron infrastructure.
+> 3. **Cron + Drive integration.** A fixture sheet placed in the prod-tier Drive watched folder is detected by the cron path (`pg_cron` schedule → `net.http_get()` (NOT http_post — handlers are GET-only per `app/api/cron/*/route.ts` verified at HEAD `001c8e4`) with `Authorization: Bearer $CRON_SECRET` → Vercel route handler `/api/cron/sync` → fetch from Drive service account → parse → propagate) within one cron interval. The new show appears in `/admin` Active Shows panel. Verifies: pg_cron schedule firing + pg_net HTTP reach to Vercel route + handler auth pass + Drive service-account credentials + parser end-to-end + DB write under per-show advisory lock. **M12.1 amendment (2026-05-26):** the firing surface pivoted from Vercel Cron to Supabase pg_cron + pg_net. Observability moved: verify firings via the **joined query** `select j.jobname, jrd.start_time, jrd.end_time, jrd.status, jrd.return_message from cron.job_run_details jrd join cron.job j on j.jobid = jrd.jobid where j.jobname = 'fxav_cron_sync' order by jrd.start_time desc limit 5;` — the join is load-bearing because `cron.job_run_details` only has `jobid` (NOT `jobname`); jobname lives on `cron.job` (R3 F7 fix, per pg_cron docs). See plan T5 Step 4 for the full 3-layer observability ladder (pg_cron firing → net._http_response HTTP outcome → downstream side effect as binding proof) and the diagnostic walk-through. The Vercel side observability is the route handler's normal application logs (Vercel Logs tab) — cron-tagged structured log entries appear there as they always did, just initiated by pg_net rather than Vercel-Cron infrastructure.
 
 ### §2.3 — Additive new section in M12 spec §9.X — cron architecture (post-§9.1.2, pre-§9.2)
 
@@ -146,6 +146,33 @@ Per AGENTS.md "live-code citation pass": every factual claim above about current
 | Vercel Cron references in M12 spec | `...2026-05-19-solo-dev-ux-validation-design.md:801, :850` (active); `:1017` (HISTORICAL — not edited) | ✅ |
 | `pg_net` extension NOT yet enabled | grep of `supabase/` returns zero matches for `pg_net` | ✅ |
 | Supabase Vault NOT yet used | grep of `supabase/` returns zero matches for `vault.secrets` / `vault.create_secret` | ✅ |
+
+---
+
+## §4.5 — API surface citation registry (R3 comprehensive re-analysis output)
+
+Per AGENTS.md "same-vector recurrence triggers comprehensive re-analysis (mandatory)": R1 F1 (HTTP verb verification), R2 F4 (Vault schema name), R2 F5 (cron.job_run_details column shape), R2 F6 (matrix POST drift), R3 F7 (jobname-on-job_run_details), R3 F8 (db push re-apply assumption) are all the same class — "verify the named API against the actual implementation, not what you remember." Three rounds with this class triggered comprehensive re-analysis. This registry is the output: every external API surface named in M12.1, with canonical citation + verified signature/columns.
+
+| API surface | Canonical citation | Verified at | First named in M12.1 at | Status |
+|---|---|---|---|---|
+| `cron.schedule(jobname text, schedule text, command text) returns bigint` | https://github.com/citusdata/pg_cron#contributing | T3 SQL (7 calls) | Plan T3 step 2 | ✅ |
+| `cron.unschedule(jobname text) returns boolean` | https://github.com/citusdata/pg_cron#contributing | T3 SQL (idempotency block) | Plan T3 step 2 | ✅ |
+| `cron.job` columns (jobid, schedule, command, nodename, nodeport, database, username, active, jobname) | pg_cron README | T3 step 6 (`jobname not like fxav_cron_%`), T4 meta-test, Smoke 3 join | Plan T3 step 6 | ✅ |
+| `cron.job_run_details` columns (jobid, runid, job_pid, database, username, command, status, return_message, start_time, end_time) | pg_cron README | Smoke 3 query (Layer 1) | Plan T5 step 4 + Spec §2.2 | ✅ R3 F7 fixed — joined form on jobid → cron.job for jobname |
+| `net.http_get(url text, params jsonb default null, headers jsonb default null, timeout_milliseconds int default 5000) returns bigint` | https://github.com/supabase/pg_net | T3 SQL (7 calls, body uses `url :=`, `headers :=`, `timeout_milliseconds :=` named-arg form) | Plan T3 step 2 | ✅ R1 F1 fixed (was http_post) |
+| `net.http_get returns request_id (bigint), HTTP response lands in net._http_response asynchronously` | pg_net README | Spec §2.3 + Smoke 3 Layer 2 | Spec §2.3 R2-fix paragraph | ✅ R2 F5 fixed |
+| `net._http_response` columns (id, status_code, content_type, headers, content, timed_out, error_msg, created) | pg_net README | Smoke 3 query (Layer 2) | Plan T5 step 4 | ✅ R2 F5 fixed |
+| `vault.create_secret(new_secret text, new_name text default null, new_description text default '') returns uuid` | https://supabase.com/docs/guides/database/vault | T2.2 migration | Plan T2.2 step 1 | ✅ R2 F4 fixed (was supabase_vault.create_secret) |
+| `vault.update_secret(secret_id uuid, new_secret text default null, new_name text default null, new_description text default null) returns void` | Supabase Vault docs | Plan T5 Task 0.A.4.5 step 3 (Vault populate) | Plan T5 step 1 | ✅ R2 F4 fixed |
+| `vault.secrets` table (id, name, description, secret, key_id, nonce, created_at, updated_at) | Supabase Vault docs | T2.2 + T3 prereq-check | Plan T2.2 + T3 | ✅ R2 F4 fixed (was supabase_vault.secrets) |
+| `vault.decrypted_secrets` view (decrypted_secret column) | Supabase Vault docs | T3 SQL (7 reads) + T4 meta-test + T5 step | Plan T3 SQL | ✅ R2 F4 fixed (was supabase_vault.decrypted_secrets) |
+| `create extension supabase_vault with schema vault` | Supabase Vault docs | T2.2 migration | Plan T2.2 step 1 | ✅ R2 F4 fixed |
+| **`supabase db push` applies PENDING migrations only — already-tracked migrations are NOT re-run** | https://supabase.com/docs/reference/cli/supabase-db-push | T4 anti-tautology procedure | Plan T4 step 3 | ✅ R3 F8 fixed — procedure now uses `cron.unschedule()` for live-state mutation OR `supabase db reset` for migration re-apply |
+| `supabase_migrations.schema_migrations` (migration tracking table) | Supabase CLI docs | T4 anti-tautology procedure rationale | Plan T4 step 3 (post-R3-fix) | ✅ R3 F8 fixed |
+| `current_setting(name text, missing_ok boolean default false) returns text` | PostgreSQL docs | T3 prereq-check (`app.fxav_vercel_url` GUC read) | Plan T3 SQL | ✅ |
+| `alter database <db> set app.fxav_vercel_url = '...';` (operator-facing GUC config) | PostgreSQL docs | T3 prereq-check + Phase 0.A.4.5 step 2 | Plan T5 step 1 (M12 plan amendment) | ✅ |
+
+**Maintenance contract:** any future amendment to M12.1 that introduces a new API surface MUST add a row here with canonical citation + verified signature/columns BEFORE the spec/plan edit references it. Pre-commit grep check (§5.11) catches stale references; this registry is the positive-side enumeration.
 
 ---
 
