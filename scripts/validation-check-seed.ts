@@ -191,8 +191,21 @@ async function runChecks(
     );
   }
 
-  // (e) alias_map storage predicate — for requested set, each R-combo has 9
-  //     aliases; each SW-* has 1. For --combo all, total leaves = 96.
+  // (e) alias_map storage predicate — Codex Phase 0.C R5 F1 tightening:
+  //     compare alias_map[combo] KEYS against the canonical fixture's
+  //     alias set exactly, not just leaf counts. A 9-key R-slice with
+  //     the wrong alias names (e.g., alias_5a_lead replaced with
+  //     alias_foo) would have passed the prior count-only check, then
+  //     predicate (o) would loop expecting alias_5a_lead but the row
+  //     isn't there (continue) → false-green walk gate.
+  //
+  //     Build canonical fixtures HERE so (e) can derive its expected
+  //     alias set from the same source predicate (o) uses below. Avoids
+  //     a second source-of-truth.
+  const expectedFixtures = buildFixtures(validationTodayIso);
+  const expectedByCombo = new Map<Combo, FixtureRow>(
+    expectedFixtures.map((fx) => [fx.combo, fx]),
+  );
   for (const combo of requestedCombos) {
     const slice = row.alias_map[combo];
     if (!slice || typeof slice !== "object") {
@@ -201,12 +214,24 @@ async function runChecks(
         `alias_map missing combo key '${combo}'. Run \`pnpm validation:reseed --combo ${dispatch === "all" ? "all" : combo}\`.`,
       );
     }
-    const aliasCount = Object.keys(slice).length;
-    const expectedCount = (R_COMBOS as readonly string[]).includes(combo) ? 9 : 1;
-    if (aliasCount !== expectedCount) {
+    const expectedFixture = expectedByCombo.get(combo);
+    if (!expectedFixture) {
       throw new CheckSeedFailure(
         "e",
-        `alias_map[${combo}] has ${aliasCount} aliases; expected ${expectedCount} per spec §3.3 + §3.3.1.`,
+        `Internal: no canonical fixture for combo '${combo}' (build error).`,
+      );
+    }
+    const expectedAliasKeys = expectedFixture.crewMembers
+      .map((c) => c.alias)
+      .sort();
+    const liveAliasKeys = Object.keys(slice).sort();
+    if (
+      liveAliasKeys.length !== expectedAliasKeys.length ||
+      liveAliasKeys.some((k, i) => k !== expectedAliasKeys[i])
+    ) {
+      throw new CheckSeedFailure(
+        "e",
+        `alias_map[${combo}] has aliases [${liveAliasKeys.join(",")}]; expected [${expectedAliasKeys.join(",")}] per spec §3.3 + §3.3.1. The walk-session gate requires the exact canonical alias set, not just the right count.`,
       );
     }
   }
@@ -510,10 +535,7 @@ async function runChecks(
   //     subsumes the R3-F2 (medium) claim-email-equality finding —
   //     comparing R1.alias_5a_lead.email between live DB + fixture
   //     proves the env email matches the seeded one.
-  const expectedFixtures = buildFixtures(validationTodayIso);
-  const expectedByCombo = new Map<Combo, FixtureRow>(
-    expectedFixtures.map((fx) => [fx.combo, fx]),
-  );
+  // expectedFixtures / expectedByCombo already built in predicate (e) above.
   // Helper — mirror the mint RPC's role derivation from role_flags:
   //   array_length(role_flags, 1) IS NULL → 'Validation Crew'
   //   else                                 → array_to_string(role_flags, ' / ')
@@ -556,7 +578,21 @@ async function runChecks(
       const liveCrew = (crewByShowId.get(showId) ?? []).find(
         (c) => c.name === expectedCrew.name,
       );
-      if (!liveCrew) continue; // already surfaced by (f) — alias resolution
+      if (!liveCrew) {
+        // Codex Phase 0.C R5 F1 — must NOT silently skip. Predicate (e)
+        // catches non-canonical alias keys, but a manually-deleted
+        // canonical crew row (alias_map intact + slice key present + but
+        // the actual crew_members row missing) would fall through to
+        // here. Predicate (f) catches missing rows reachable via
+        // alias_map UUID, but a row whose name was changed could
+        // theoretically slip if the alias_map UUID still points
+        // somewhere. Belt-and-suspenders: surface the missing canonical
+        // name explicitly.
+        throw new CheckSeedFailure(
+          "o",
+          `validation show ${combo} is missing the canonical crew row named '${expectedCrew.name}' (alias ${expectedCrew.alias}). Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+        );
+      }
       // dateRestriction + stageRestriction live on the fixture-row level
       // (uniform across all crew_members per spec §3.3); compare against
       // expected.dateRestriction / expected.stageRestriction, not the
