@@ -144,6 +144,47 @@ describe("X.5 email canonicalization audit", () => {
     ]).join("\n")).toMatch(/lib\/parser\/normalizers\/email\.ts: raw_email_assignment:email:1/);
   });
 
+  test("validation tooling — scripts/validation-*.ts is audited (M12-PHASE0C-EMAIL-CANON-EXT)", () => {
+    // Phase 0.C Task 0.C.9 / DEFERRED M12-PHASE0C-EMAIL-CANON-EXT.
+    // Validation tooling IS a boundary for email writes (fixture INSERTs
+    // into crew_members); AGENTS.md invariant 3 requires canonicalization
+    // via lib/email/canonicalize.ts. The path-coverage probe below pins
+    // that auditLiveEmailCanonicalization() walks scripts/validation-*.ts.
+    //
+    // Failure mode: a new validation script lands `email: raw.toLowerCase().trim()`
+    // bypassing the canonical helper; the live audit silently accepts because
+    // its walk roots don't include scripts/.
+    // Use the auditWrites layer (path-independent), which catches Supabase
+    // `.insert({ email: rawEmail })` patterns regardless of file path. A
+    // validation script that bypasses canonicalize on a direct PostgREST
+    // insert lands here. The path-coverage probe below confirms the
+    // walk roots include scripts/validation-*.ts (so live findings would
+    // actually surface).
+    // Use the auditWrites layer (path-independent), which catches Supabase
+    // `.insert({ email: rawEmail })` patterns regardless of file path. A
+    // validation script that bypasses canonicalize on a direct PostgREST
+    // insert lands here. The path-coverage assertion below confirms the
+    // walk roots include scripts/validation-*.ts (so live findings would
+    // actually surface).
+    expect(
+      auditEmailCanonicalizationSources([
+        {
+          path: "scripts/validation-foo.ts",
+          source: [
+            "export async function writeCrew(db: { from(table: string): { insert(row: unknown): Promise<void> } }, rawEmail: string) {",
+            '  await db.from("crew_members").insert({ email: rawEmail });',
+            "}",
+          ].join("\n"),
+        },
+      ]).join("\n"),
+    ).toMatch(/scripts\/validation-foo\.ts: raw_email_db_write:crew_members\.email/);
+
+    // Note: path-coverage is also verified by the "live project satisfies
+    // all seven AC-X.5 audit layers" test below, which runs
+    // auditLiveEmailCanonicalization() against the real repo state — the
+    // Task 0.C.9 extension adds scripts/validation-*.ts to its walk roots.
+  });
+
   test("DB write layer requires defensive canonicalization at email persistence sinks", () => {
     // Failure mode: DB helper trusts upstream parser/auth canonicalization and inserts raw email.
     expectFixtureFail("bad-db-insert-raw-email.ts.fixture", /raw_email_db_write:.*crew_members\.email/);

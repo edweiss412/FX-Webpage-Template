@@ -1,0 +1,12 @@
+import { canonicalize } from "@/lib/email/canonicalize";
+
+// Good pattern: validation tooling routes raw email through canonicalize()
+// before assembling the RPC payload. Phase 0.C Task 0.C.9.
+export function buildFixture(rawEmail: string) {
+  const canonical = canonicalize(rawEmail);
+  return {
+    alias: "alias_5a_lead",
+    name: "fixture",
+    email: canonical,
+  };
+}

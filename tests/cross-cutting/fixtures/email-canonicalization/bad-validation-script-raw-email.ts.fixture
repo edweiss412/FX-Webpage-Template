@@ -1,0 +1,11 @@
+// Bad pattern: validation tooling inlines lower()/trim() without going
+// through lib/email/canonicalize. AGENTS.md invariant 3 requires the
+// canonical helper at every boundary that touches raw emails before they
+// enter the system. Phase 0.C Task 0.C.9 / DEFERRED M12-PHASE0C-EMAIL-CANON-EXT.
+export function buildFixture(rawEmail: string) {
+  return {
+    alias: "alias_5a_lead",
+    name: "fixture",
+    email: rawEmail.toLowerCase().trim(),
+  };
+}

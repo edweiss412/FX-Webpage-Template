@@ -695,6 +695,13 @@ export function auditLiveEmailCanonicalization(): string[] {
     ...walkSourceFiles(["lib/parser"]),
     ...walkSourceFiles(["lib/sync", "lib/reports", "lib/auth", "lib/data", "lib/adminAlerts"]),
     ...walkSourceFiles(["app/api/admin"]),
+    // M12 Phase 0.C Task 0.C.9 — extend audit to validation tooling
+    // (DEFERRED.md M12-PHASE0C-EMAIL-CANON-EXT). Validation tooling IS a
+    // boundary for email writes (fixture INSERTs into crew_members); AGENTS.md
+    // invariant 3 requires canonicalization via lib/email/canonicalize.ts.
+    ...walkSourceFiles(["scripts"]).filter((p) =>
+      /(?:^|\/)validation-[\w-]+\.ts$/.test(p),
+    ),
   ];
   const sources = sourcePaths.map((path) => ({ path, source: readFileSync(path, "utf8") }));
   return [
