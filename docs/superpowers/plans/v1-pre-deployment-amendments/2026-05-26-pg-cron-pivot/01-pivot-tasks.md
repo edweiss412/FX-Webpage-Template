@@ -1019,7 +1019,17 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   
   Post-edit grep verification: `rg -n 'seven required|SEVEN required|all seven|the seven' docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` — expected zero matches outside historical audit-trail contexts; if any remain, sweep is incomplete.
 
-- [ ] **Step 5: Verify no other M12 plan files reference Vercel Cron post-amendment.** `rg -n 'Vercel Cron|vercel cron|x-vercel-cron' docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/ docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md` — expected: zero matches in the plan tree post-T5 + zero matches in the M12 spec EXCEPT spec line 1017 (audit-trail row, HISTORICAL — excluded from sweep per M12.1 spec §2.4). Class-sweep verification per AGENTS.md "class-sweep before patching adversarial findings".
+- [ ] **Step 5: Verify no stale Vercel-Cron infrastructure assumptions remain post-amendment (R34 F63 narrowing — 13th hit of structural-defense-self-inconsistency).** The earlier broad grep `'Vercel Cron|vercel cron|x-vercel-cron'` was over-inclusive: the §2.3 amendment body (now inserted into M12 spec as new §9.1.3) intentionally contains CONTRAST prose like "pivoted from Vercel Cron to Supabase pg_cron" and "Cron jobs fire from Supabase pg_cron, not Vercel Cron" + the §9.2 amended smoke 3 description retains "Vercel route handler /api/cron/sync" + "Vercel Logs tab" (legitimate references to Vercel as the route-handler host, NOT to Vercel Cron as the scheduler). A broad grep would force the implementer to weaken the assertion or fail-closed against correct prose. Narrow to STALE infrastructure-assumption phrases only:
+  
+  ```bash
+  rg -n 'Vercel Cron Jobs run only|Vercel Cron Logs|verify cron is enabled in vercel\.json|Vercel Cron → fetch|crons block in vercel\.json' docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/ docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md
+  ```
+  
+  Expected: zero matches in the plan tree post-T5 + zero matches in the M12 spec EXCEPT spec line 1017 (audit-trail row, HISTORICAL — excluded from sweep per M12.1 spec §2.4 + the existing audit-trail allowlist mechanism). The 5 patterns above are the specific stale assumptions that justify M12.1's existence (each was caught by R1 F3 / R2 F5 / R10 F26 / R11 F30 / R18 F39); contrast prose like "not Vercel Cron" or "pivoted from Vercel Cron" is intentional and is NOT a stale assumption.
+  
+  **Positive regression case (R34 F63 add):** the contrast phrase "Cron jobs fire from Supabase pg_cron, not Vercel Cron" (M12.1 spec §2.3 line 89 → inserted into M12 spec §9.1.3 by T5 step 4b) MUST NOT match the narrowed grep. Test this manually pre-commit: append the phrase to a temporary file and run the narrowed rg against it; expect zero matches. Then remove the temp file. This proves the grep targets stale assumptions only, not legitimate contrast prose.
+  
+  Class-sweep verification per AGENTS.md "class-sweep before patching adversarial findings" — the narrowed patterns still catch the actual stale-assumption class while not false-positiving on intentional contrast.
 
 - [ ] **Step 5a: Extend pg-cron-pivot-amendment doc-guard with assertions J + K + L + M + N + O + P + Q + R + S (R11 F30 + R18 F39 + R29 F57 + R31 F60 + R33 F62 fix).** Add 10 assertions to T5's `tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts`:
   - Assertion J: 05-phase0-smokes.md Phase 0.F failure-modes section's "Smoke 3 (cron) doesn't fire" entry does NOT contain the literal "Vercel deployment is Preview" (or any "Preview" mention as the sole failure cause).
