@@ -20,11 +20,14 @@ When picking up a deferred item:
 
 ### M11.5-PLAYWRIGHT-HELPERS — Picker-shaped e2e helper layer
 
-**Status:** Deferred 2026-05-25 from M11.5 close-out (Playwright `.skip` cleanup).
-**Source:** §B continuation report (Opus, `ed1a3ab`).
-**Description:** `tests/e2e/picker-flow.spec.ts` ships 5 scenarios; 1 active (slug-only-404), 4 `.skip` with inline TODOs. The 4 `.skip` scenarios need a picker-shaped e2e helper layer (`signInAs`/`pickIdentity`/`mintShareLink` shapes) that doesn't exist yet — Codex's G1 commit `05ecf7e` correctly deleted the M9.5 signed-link helpers; picker-equivalents weren't authored in either §A or §B because the helper layer wasn't called out as a discrete task in the plan and fell between the two sessions' do-not-touch lists.
-**Why deferred:** Helper layer is a small but non-trivial new surface (~80-150 lines + fixtures + at least one passing scenario per helper). Authoring it requires Playwright project config + Supabase test-isolation conventions that are partly §A (test database setup) and partly §B (front-end interaction shapes). Right home is a focused follow-up dispatch, not the M11.5 close-out scramble.
-**Suggested home:** Land BEFORE M11.5 deployment to prod (concrete trigger: "M11.5 deployment readiness checklist"). Helper-shape signatures pinned in TODOs at `tests/e2e/picker-flow.spec.ts`. Alternatively: M12 UX validation pass picks up alongside its own e2e suite if M12 ships before deployment.
+**Status:** Deferred 2026-05-25 from M11.5 close-out; scope refined 2026-05-27 from M12 Phase 0.A Block 2.3 escalation (handoff `7c58315`).
+**Source:** §B continuation report (Opus, `ed1a3ab`); Block 2.3 scoping pass (Opus, `46b6512` + `7c58315`).
+**Description:** `tests/e2e/picker-flow.spec.ts` currently ships 1 active scenario (slug-only-404) and 5 .skip scenarios that need a picker-shaped e2e helper layer. Block 2.3 scoping pass discovered the real work is **3 new helpers + 5 test bodies + local-Supabase debugging**, not just "enable 4 .skip scenarios" as the M11.5 close-out had estimated:
+- **3 new helpers** — `seedShowWithCrew` (DB-side fixture: show + roster + claim_stamps), `seedPickerCookie` (HTTP-side fixture: signed `__Host-fxav_picker` cookie with byte-identical envelope shape), `claimStamp` (mutate `crew_member_auth.claimed_via_oauth_at` for the staleness-ladder paths).
+- **5 test bodies** — the 5 .skip scenarios at `tests/e2e/picker-flow.spec.ts` (was "4" pre-Block-2.3; one additional was discovered during scoping). Each body wires the helpers above to exercise picker UX end-to-end: cookie-only / cookie+session-fresh / cookie+session-stale / cookie+session-mismatch / re-bootstrap-mint.
+- **Local-Supabase debugging surface** — `seedShowWithCrew` requires test-isolation against a real Supabase instance; integration with the existing `supabase/seed.sql` + per-test cleanup non-trivial. Implementer flagged this is the primary cost driver.
+**Why deferred:** Block 2 escalation: Block 2 dispatch was originally sized as "4 .skip scenarios"; the real shape is significantly larger and deserves a standalone sized dispatch rather than getting absorbed into Block 2's M11.5-carryovers scope. Implementer recommended dispatch with TDD discipline on each helper.
+**Suggested home:** Concrete trigger: **before Phase 1 J3 ("Share-link + picker crew end-to-end") at `06-phase1-matrix-walk.md:161`**. Task 1.6 J3 is the downstream consumer — these helpers are not pure tech-debt, they are Phase 1 J3 infrastructure. Earliest start: after Phase 0.B closes (Phase 0.B is independent — `validation_state` migration + master-spec amendments). Dispatch as standalone sized brief with implementer's revised scope (3+5+debug).
 
 ---
 
@@ -506,13 +509,12 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Why deferred:** Adding the strip requires extending the resolver's return shape OR adding a separate metadata fetch in the route page (which already loads roster via `loadRoster`). Both options are minor but non-trivial — shape change is §A coordination; fetch addition is §B scope but compounds the route's complexity.
 **Suggested home:** M12 amendment scope (resolved 2026-05-26).
 
-### M11.5-IMP-3 — /me consumes extended TerminalFailure (deduplication)
+### M11.5-IMP-3 — /me consumes extended TerminalFailure (deduplication) — **RESOLVED 2026-05-27**
 
-**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 2 — TerminalFailure).
+**Status:** Resolved 2026-05-27 — refactor landed at SHA `93684b1` (M12 Phase 0.A Block 2.1).
 **Source:** External impeccable audit, M11.5 §B close-out.
-**Description:** `app/me/page.tsx:105-126` renders its own inline terminal-failure block (`<main>` shell + `<h1>` + `<p>` + "Try again" link). The C0 commit's `<TerminalFailure>` component now accepts optional `title` + `retryHref` props (landed in `c1936f2`) so /me's inline block can be replaced by `<TerminalFailure code="..." title="..." retryHref="/me" />`.
-**Why deferred:** Refactor touches two render branches in /me (mid-chain failure + post-chain `listShowsForCrew` failure). Each call site has different catalog codes and slightly different copy. Out of M11.5 §B scope; mechanical follow-up that benefits from a dedicated diff.
-**Suggested home:** M12 UX validation. Trigger: M12 touches `app/me/page.tsx` for any reason.
+**Description:** `app/me/page.tsx:105-126` rendered its own inline terminal-failure block; refactor swapped both render branches (mid-chain failure + post-chain `listShowsForCrew` failure) to use the `<TerminalFailure>` component with appropriate `code` / `title` / `retryHref` props per call site.
+**Resolution:** External impeccable v3 critique + audit attestations APPROVED (zero HIGH/CRITICAL findings). Tests pass; manual verification at validation env.
 
 ### M11.5-IMP-4 — DESIGN.md §1.2 contrast amendments for picker color pairs — **RESOLVED 2026-05-26**
 
@@ -522,18 +524,22 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Why deferred:** Small mechanical doc update (compute the two ratios, add two rows to the table). Out of §B scope; lands cleanly alongside any DESIGN.md edit.
 **Suggested home:** M12 amendment scope (resolved 2026-05-26).
 
-### M11.5-IMP-5 — Admin Reset/Rotate destructive-action UX polish set
+### M11.5-IMP-5 — Admin Reset/Rotate destructive-action UX polish set — **PARTIALLY RESOLVED 2026-05-27**
 
-**Status:** Deferred 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 4 — admin affordances).
+**Status:** Items 4 + 5 resolved 2026-05-27 (SHA `65bb627`, M12 Phase 0.A Block 2.2); items 1, 2, 3 remain open with Phase 1 walk trigger.
 **Source:** External impeccable critique + audit, M11.5 §B close-out.
-**Description:** Four small polish items the attestation surfaced that need Doug feedback rather than local critique:
+
+**Resolved items (landed at `65bb627`, impeccable v3 APPROVED):**
+4. ✅ `aria-describedby` link from destructive Confirm button to its warning paragraph (A6).
+5. ✅ Confirm-row layout primitive consistency — Reset + Rotate now share the same layout primitive (A5).
+
+**Open items (Phase 1 walk trigger):**
 1. The simplified "Crew" section + "Preview as a crew member" list are adjacent rosters with similar content. Consider folding the simplified roster into "Share & access" as context (C3).
 2. Two confirm rows (Reset + Rotate) can be open simultaneously — visually noisy, not destructive (C6).
 3. 2s Copy-button success-state duration is borderline short for venue-floor phone glance-back (A3).
-4. `aria-describedby` link from destructive Confirm button to its warning paragraph (group-label suffices for WCAG 2.1; tighter SR experience available) (A6).
-5. Confirm-row layout primitive inconsistency: Reset uses `flex flex-wrap items-center justify-end`; Rotate uses `flex flex-col items-end` containing a nested flex row (A5).
-**Why deferred:** Each is a UX tuning decision that benefits from Doug's actual usage feedback. Local critique can't ground the trade-offs (e.g., 2s vs 5s copy timing depends on Doug's typical scroll cadence).
-**Suggested home:** M12 UX validation. Trigger: M12 admin-surface validation pass.
+
+**Why open items deferred:** Per M12 Phase 0.A Block 2 implementer escalation (handoff `7c58315`) — each of items 1-3 is a UX tuning decision that requires Doug's actual usage feedback to ground the trade-off. Local critique cannot resolve (e.g., 2s vs 5s copy timing depends on Doug's typical scroll cadence; whether to fold the simplified roster depends on which path Doug actually uses; simultaneous-confirm-row state machine UX depends on observed admin task patterns).
+**Suggested home:** Concrete trigger: **observation during Phase 1 J1-J4 walks** at `06-phase1-matrix-walk.md` (specifically Task 1.4 J1 cold-start admin path, Task 1.5 J2 pending-sync triage, Task 1.7 J4 preview-as-crew). Once Doug walks the validation env and exposes actual usage patterns, dispatch sized fixes per item.
 
 ---
 
