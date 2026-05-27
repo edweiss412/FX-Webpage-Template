@@ -17,6 +17,8 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260523000004_rotate_show_share_token.sql",
     "supabase/migrations/20260523000007_select_identity_atomic.sql",
     "supabase/migrations/20260524000002_claim_oauth_identity.sql",
+    // M12 Phase 0.C Task 0.C.4 — validation tooling mint RPC.
+    "supabase/migrations/20260527210000_mint_validation_fixture_atomic.sql",
   ];
 
   const names = new Set<string>();
@@ -43,6 +45,9 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(lockTakingNames).toContain("rotate_show_share_token");
     expect(lockTakingNames).toContain("select_identity_atomic");
     expect(lockTakingNames).toContain("claim_oauth_identity");
+    // M12 Phase 0.C Task 0.C.4 — validation reseed mint RPC is the sole
+    // holder of the per-show advisory lock for validation_<combo> shows.
+    expect(lockTakingNames).toContain("mint_validation_fixture_atomic");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
