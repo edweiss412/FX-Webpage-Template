@@ -6,6 +6,14 @@ const ROOTS = ["app", "lib", "components", "tests"];
 const ALLOWED_FILES = new Set([
   "tests/cross-cutting/no-m9-5-surfaces.test.ts",
   "tests/db/cutover-drop-m9-5.test.ts",
+  // M12 Phase 0.B Task 0.B.2: the PostgREST DML lockdown meta-test
+  // documents WHY crew_member_auth is NOT in its LOCKED_TABLES
+  // registry (R67 F55 — the M11.5 G3 cutover dropped the table;
+  // has_table_privilege probe on a non-existent relation would fail
+  // at catalog lookup). The literal reference is structural
+  // documentation, not legacy code, and points to
+  // tests/db/cutover-drop-m9-5.test.ts as the canonical absence test.
+  "tests/db/postgrest-dml-lockdown.test.ts",
 ]);
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"]);
 

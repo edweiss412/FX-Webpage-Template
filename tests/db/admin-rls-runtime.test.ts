@@ -1,7 +1,7 @@
 /**
  * tests/db/admin-rls-runtime.test.ts (M9 C9.0.5 / closes M2-D2)
  *
- * Runtime RLS behavioral-parity probe for the 17 admin-gated tables
+ * Runtime RLS behavioral-parity probe for the 18 admin-gated tables
  * (Class A: `admin_only FOR ALL` policies that consume
  * `public.is_admin()`). C9 replaced the body of `public.is_admin()`
  * from a hardcoded `array['dlarson@fxav.net','edweiss412@gmail.com']`
@@ -18,7 +18,7 @@
  * enters the matrix.
  *
  * Scope (post-R3):
- *   - Class A only (17 tables after the M11.5 G3 cutover; FOR ALL admin_only policies).
+ *   - Class A only (18 tables after the M11.5 G3 cutover; FOR ALL admin_only policies).
  *   - 2 roles: admin (JWT-role bypass) + non-admin (random email).
  *   - BEHAVIORAL SELECT: admin gets a SELECT response (count ≥ 0, no
  *     permission denied); non-admin gets 0 rows.
@@ -108,8 +108,8 @@ function nonAdminJwtClaims(): string {
 }
 
 describe("Class A runtime RLS behavioral parity (M9 C9.0.5 — closes M2-D2)", () => {
-  test("derived table count matches the 17 admin_only FOR ALL tables", () => {
-    expect(CLASS_A_TABLES).toHaveLength(17);
+  test("derived table count matches the 18 admin_only FOR ALL tables", () => {
+    expect(CLASS_A_TABLES).toHaveLength(18);
   });
 
   test("zero drift from baseline (M2-D2 regression gate)", () => {

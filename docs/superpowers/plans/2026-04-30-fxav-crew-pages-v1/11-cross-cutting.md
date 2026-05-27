@@ -767,8 +767,8 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
     'crew_member_auth', 'revoked_links', 'link_sessions', 'bootstrap_nonces', 'app_settings',
     'deferred_ingestions', 'admin_alerts', 'sync_audit', 'drive_watch_channels',
     'report_rate_limits', 'onboarding_scan_manifest', 'pending_snapshot_uploads',
-    'revision_race_cooldowns', 'wizard_finalize_checkpoints', 'shows_pending_changes',
-    'recovery_drift_cooldowns',
+    'revision_race_cooldowns', 'validation_state', 'wizard_finalize_checkpoints',
+    'shows_pending_changes', 'recovery_drift_cooldowns',
   ] as const;
   const PROTECTED_SINKS = [
     // DB tables — auto-generated from Task 2.3 ADMIN_TABLES registry (spec §4.3 admin-only list,
