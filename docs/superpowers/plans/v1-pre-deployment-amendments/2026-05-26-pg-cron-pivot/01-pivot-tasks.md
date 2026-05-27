@@ -636,12 +636,56 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
     (NOT the per-deployment URL with hash + team suffix). The alias auto-points at the latest
     production deployment, so subsequent redeploys transparently route cron traffic to the
     current code + env vars. The setting takes effect on new connections to the database.
-  - [ ] **Step 3:** Populate the Vault secret: generate a strong random bearer
-    token (e.g., `openssl rand -hex 32`). In the Supabase SQL editor, run
-    `select vault.update_secret(<id-from-vault.secrets>, '<token>', 'fxav_cron_secret', '...');`
-    (or use the Vault UI: Settings → Vault → fxav_cron_secret → Edit). Save
-    the same token value locally — Task 0.A.5 wires the matching `CRON_SECRET`
-    env var into Vercel Production scope.
+  - [ ] **Step 3 (R23 F47 fix — Vault UI required, NOT SQL editor):** Populate
+    the Vault secret via the **Supabase Dashboard Vault UI** (Project Settings
+    → Vault → `fxav_cron_secret` → Edit). The Vault UI updates the encrypted
+    secret value directly via the Supabase API, bypassing SQL statement
+    logging entirely.
+    
+    **DO NOT use the SQL editor for this step.** Per Supabase Vault docs
+    (https://github.com/supabase/vault#turning-off-statement-logging),
+    SQL statements containing secret literals can be logged unencrypted
+    by PostgreSQL's statement-logging infrastructure (`log_statement = 'all'`
+    or `log_min_duration_statement`). A `select vault.update_secret(<id>,
+    '<token>', ...);` call would expose the bearer token in
+    `postgres_logs` (Supabase) + any downstream log-shipping destination.
+    With the bearer in logs, anyone with log-read access (including
+    Supabase Support, integrations, audit pipelines) can authenticate
+    every `/api/cron/*` endpoint and trigger arbitrary internal cron
+    work — defeating the entire reason for moving the secret into Vault.
+    
+    Procedure:
+    1. Generate the bearer locally: `openssl rand -hex 32`. Save to a
+       password manager / 1Password / encrypted notes.
+    2. Open Supabase Dashboard → your validation project → Project
+       Settings → Vault.
+    3. Find the `fxav_cron_secret` row (created by T2.2 migration with
+       placeholder value `unset-populate-via-vault-ui-or-update`).
+    4. Click Edit → paste the generated bearer into the secret-value
+       field → Save.
+    5. Verify the secret was updated via `select name, description from
+       vault.secrets where name = 'fxav_cron_secret';` (this query
+       returns name + description but NOT the secret value — safe to
+       log).
+    
+    Save the same token value locally — Task 0.A.5 wires the matching
+    `CRON_SECRET` env var into Vercel Production scope. The Vercel
+    Production env-var input is also a UI surface (not SQL-logged); use
+    the Vercel Dashboard's "Add Environment Variable" form, NOT a
+    `vercel env add CRON_SECRET ...` CLI call that could land in shell
+    history.
+    
+    **Secret-handling checklist for CRON_SECRET (R23 F47):**
+    - [ ] Generated via `openssl rand -hex 32` (one-shot; no echo to
+          shell that survives in history)
+    - [ ] Pasted into Supabase Vault UI ONLY (NOT SQL editor)
+    - [ ] Pasted into Vercel Dashboard env-var UI ONLY (NOT CLI)
+    - [ ] Stored in password manager (NOT in migration files, shell
+          history, SQL snippets, or git)
+    - [ ] Verified via NAME/DESCRIPTION query only (`select name,
+          description from vault.secrets ...`), never `select
+          decrypted_secret ...` outside the cron schedule body that
+          consumes it
   - [ ] **Step 4:** Re-run `npx supabase db push` to re-apply `schedule_cron_jobs`
     now that the GUC + Vault entry are populated. Confirm: `select jobname,
     schedule from cron.job where jobname like 'fxav\_cron\_%' escape '\';` returns 7 rows.
