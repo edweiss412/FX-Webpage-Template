@@ -444,8 +444,8 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
   | Pattern | Class | Why forbidden |
   |---|---|---|
-  | `supabase_vault\.(create_secret\|secrets\|decrypted_secrets\|update_secret)` | Schema-name drift (R2 F4) | Functions/tables live in `vault` schema; extension name `supabase_vault` is only valid in `create extension` contexts |
-  | `net\.http_post` | HTTP verb drift (R1 F1) | Cron handlers export GET only; POST → 405 |
+  | `supabase_vault\.(create_secret\|secrets\|decrypted_secrets\|update_secret)\b` (R13 F33: word boundary `\b` ensures the pattern only fires on SQL function-call / table-access contexts, NOT on bare prose mentions like "do NOT reference supabase_vault.create_secret" — the trailing `\b` doesn't disambiguate; instead, require a following SQL operator: `\(` for function calls OR `\s+(where\|from\|set\|=)` for table/view references. **R13 F33 refined regex:** `supabase_vault\.(create_secret\|update_secret)\s*\(` OR `(from\|join\|where[^.]{0,5}|update\|insert into)\s+supabase_vault\.(secrets\|decrypted_secrets)\b` — catches SQL-call contexts only, allows prose mentions in contract-NOT-contains / diagnostic-drift / inverse-assertion text) | Schema-name drift (R2 F4 / R13 F33) | Functions/tables live in `vault` schema; extension name `supabase_vault` is only valid in `create extension` contexts. Refined regex per R13 F33 ensures the doc-guard doesn't false-positive on its own walked surface |
+  | `net\.http_post\s*\(` (R13 F33: must be followed by open-paren — i.e., SQL function-call context, NOT bare prose mention) | HTTP verb drift (R1 F1 / R13 F33) | Cron handlers export GET only; POST → 405. R13 F33 refined regex: only function-call SQL (`net.http_post(`) is forbidden; bare prose references in inverse assertions, diagnostic drift checks, contract-NOT-contains text are allowed (those legitimately mention the forbidden literal as the thing NOT to use) |
   | `cron\.job_run_details[^.]*\.jobname` OR `from cron\.job_run_details[\s\S]{0,200}where jobname` (without a `join cron\.job` within 200 chars) | jobname-on-job_run_details drift (R3 F7) | `jobname` lives on `cron.job`, not `cron.job_run_details`; queries need a join |
   | `last_start_time\|last_finish_time` | Non-existent column drift (R2 F5) | pg_cron exposes `start_time`/`end_time` — these names came from a confused R1 draft |
   | `db push[^.\n]{0,150}expect[^.\n]{0,50}(FAIL\|fail)` (the negative-regression assertion shape, NOT general "re-apply" or "retry" text) | Migration-reapply assumption (R3 F8) | `db push` applies pending migrations only; the canonical negative-regression assertion that uses db push to re-apply an edited migration is invalid. **R4 F9 fix:** earlier draft used the broader pattern `db push.*re-?apply` which flagged legitimate Task 0.A.4.5 retry text ("Re-run `npx supabase db push` to re-apply `schedule_cron_jobs` now that GUC is populated") — that's a legitimate retry of a NOT-YET-APPLIED migration (the prior attempt failed during the GUC check, so the migration isn't tracked in `supabase_migrations.schema_migrations`). The narrowed pattern matches only the broken anti-tautology assertion shape, NOT legitimate retry text. |
@@ -474,7 +474,34 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
 
 - [ ] **Step 3: Verify it passes at HEAD post-R3-fix.** `pnpm test tests/cross-cutting/pg-cron-pivot-doc-guard.test.ts`. If any of the R1/R2/R3 finding paragraphs trip the assertion despite the allowlist, refine the allowlist regex until clean.
 
-- [ ] **Step 4: Anti-tautology / negative-regression verification.** For each forbidden pattern, manually re-introduce one match into the spec (e.g., change `vault.decrypted_secrets` → `supabase_vault.decrypted_secrets` in a non-finding paragraph), run test → expect FAIL on that specific assertion; restore. Confirms each pattern's check is regression-catching. Do this for all 7 patterns in the table (the 6th — unescaped LIKE — was added in R4 F10 fix; the 7th — double-backslash ESCAPE — was added in R7 F18 fix).
+- [ ] **Step 4: Anti-tautology / negative-regression + positive-regression verification (R13 F33 structural-defense calibration).** Same-vector recurrence tracker: "structural defense regex catches its own walked surface" has now hit 4 times (R4 F9 db push regex too broad; R6 F15 self-scan; R10 F26 LIKE/ESCAPE lookahead direction; R13 F33 net.http_post / supabase_vault. bare references in inverse assertions). Comprehensive structural defense: every forbidden pattern must have BOTH a negative-regression test (introduce a violation → expect FAIL) AND a positive-regression test (introduce a legitimate near-violation in a non-finding-history non-SQL-call context → expect PASS). The bidirectional regression-set proves the pattern catches real drift WITHOUT false-positiving on legitimate prose.
+  
+  For all 7 forbidden patterns, write paired regression cases:
+  
+  - **Pattern 1 (supabase_vault.SQL-call):**
+    - Negative: introduce `supabase_vault.create_secret(...)` SQL call → FAIL
+    - Positive: prose "the registry forbids supabase_vault.create_secret in SQL function-call contexts" → PASS (bare prose mention, no `(` follow)
+  - **Pattern 2 (net.http_post SQL-call):**
+    - Negative: introduce `net.http_post(...)` SQL call → FAIL
+    - Positive: prose "command does NOT contain net.http_post" → PASS (no `(` follow)
+  - **Pattern 3 (cron.job_run_details.jobname):**
+    - Negative: introduce `from cron.job_run_details where jobname = 'x'` → FAIL
+    - Positive: prose "`cron.job_run_details` has no jobname column" → PASS (no `where jobname` clause within 200 chars)
+  - **Pattern 4 (last_start_time / last_finish_time):**
+    - Negative: introduce `select last_start_time from cron.job_run_details` → FAIL
+    - Positive: prose "Pattern 4 forbids last_start_time" → PASS (regression test will need the literal in test setup; T4.1 self-exclusion handles)
+  - **Pattern 5 (db push expect FAIL):**
+    - Negative: introduce "db push, expect this assertion to FAIL" → FAIL
+    - Positive: prose "Re-run `db push` to re-apply" → PASS (narrowed regex avoids generic re-apply text)
+  - **Pattern 6 (unescaped LIKE):**
+    - Negative: `where jobname like 'fxav_cron_%'` (no escape) → FAIL
+    - Positive 1: `where jobname like 'fxav\_cron\_%' escape '\'` (correct single-backslash) → PASS
+    - Positive 2: `where jobname like 'fxav\_cron\_%' escape '\\'` (broken double-backslash) → FAIL pattern 7 (caught here, not pattern 6)
+  - **Pattern 7 (double-backslash ESCAPE):**
+    - Negative: `escape '\\'` (double backslash) → FAIL
+    - Positive: `escape '\'` (correct single backslash) → PASS
+  
+  Run all 7 paired regression cases; verify each negative produces FAIL on the named pattern + each positive produces PASS. This is the structural calibration that closes the same-vector "doc-guard too broad" class.
 
 ### T4.4 — Wire structural defenses into CI (R5 F11 fix)
 
@@ -628,13 +655,37 @@ Read `00-overview.md` first for the goal, convergence approach, and out-of-scope
   - [ ] **Step 5:** Verify the pre-existing bootstrap signing-key cron is
     untouched: `select count(*) from cron.job where jobname not like 'fxav\_cron\_%' escape '\';`
     should return at least 1.
-  - [ ] **Step 5a (R12 F31 fix — validation-env meta-test apply):** Run
+  - [ ] **Step 5a (R12 F31 + R13 F34 fix — validation-env meta-test apply):** Run
     `pg-cron-coverage.test.ts` against the validation Supabase project to
     pin the SAME contract that T2.1/T2.2/T3 proved on the local dev DB.
-    Point `.env.local` at the validation project's connection string,
-    then `pnpm test tests/cross-cutting/pg-cron-coverage.test.ts` — expect
-    PASS for all layers (0a pg_net installed, 0b vault entry, 7-job
-    assertion with command-contains-net.http_get + command-contains-
+    
+    **R13 F34 fix — exact command + URL guard:** the repo's Vitest config
+    does NOT auto-load `.env.local`; existing live-DB tests use the
+    `TEST_DATABASE_URL` env var with a localhost fallback. Without an
+    explicit override, an operator pointing `.env.local` at the validation
+    project would still see the test run against localhost, silently. The
+    correct invocation is:
+    
+    ```bash
+    TEST_DATABASE_URL="<validation-project-direct-or-pooler-URL>" \
+      pnpm test tests/cross-cutting/pg-cron-coverage.test.ts
+    ```
+    
+    Get the validation pooler URL from Supabase dashboard → Project
+    Settings → Database → Connection string (Session pooler for
+    test-suite use; do NOT use Transaction pooler which can't hold
+    long-lived connections).
+    
+    **Test-side guard (R13 F34):** `pg-cron-coverage.test.ts` MUST assert
+    at setup time that `TEST_DATABASE_URL` is set AND does NOT contain
+    `localhost`, `127.0.0.1`, or `:54322` (the Supabase local dev port)
+    AND DOES contain the validation project ref captured in Task 0.A.1.
+    If any guard fails, the test errors with a clear "validation env not
+    targeted — refusing to run" message. This prevents the silent local-
+    target fallthrough class.
+    
+    Expect PASS for all layers (0a pg_net installed, 0b vault entry,
+    7-job assertion with command-contains-net.http_get + command-contains-
     vault.decrypted_secrets + command-NOT-contains-net.http_post, non-
     fxav cron preservation). Local-PASSES-validation-FAILS would surface
     validation-specific drift in the baked command, vault access path,
