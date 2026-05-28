@@ -6,11 +6,18 @@
  * RPC from Task 0.C.4).
  */
 import { execFileSync } from "node:child_process";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
+import { runValidationCli, type CliRun } from "./_cli-helpers";
 
 import { buildFixtures } from "@/scripts/lib/validation-fixtures";
+
+const CHECK_SEED_SCRIPT = join(
+  process.cwd(),
+  "scripts/validation-check-seed.ts",
+);
 
 const DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
@@ -33,42 +40,26 @@ function runPsql(sql: string): string {
   ).trim();
 }
 
-type CheckSeedRun = { code: number; stdout: string; stderr: string };
 function runCheckSeed(
   combo?: string,
   envOverrides: Record<string, string> = {},
-): CheckSeedRun {
-  const args = ["-s", "validation:check-seed", "--allow-local-override"];
+): CliRun {
+  // R25-F1 — hermetic tmpdir cwd + test-controlled .env.local containing
+  // the VALIDATION_* values. The CLI's loadValidationEnv reads from
+  // <cwd>/.env.local (same code path as production); no env-flag bypass.
+  const args = ["--allow-local-override"];
   if (combo) args.push("--combo", combo);
-  try {
-    const stdout = execFileSync("pnpm", args, {
-      encoding: "utf-8",
-      env: {
-        ...process.env,
-        // R16-F1 — test escape hatch: prevent the script's loader from
-        // reading the repo's real .env.local. Tests supply VALIDATION_*
-        // values via the parent env directly.
-        VALIDATION_ENV_SKIP_LOCAL_FILE: "1",
-        VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
-        VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
-        VALIDATION_SUPABASE_PROJECT_REF: LOCAL_PROJECT_REF,
-        VALIDATION_J3_CLAIM_EMAIL: REAL_CLAIM_EMAIL,
-        ...envOverrides,
-      },
-    });
-    return { code: 0, stdout, stderr: "" };
-  } catch (err) {
-    const e = err as {
-      status?: number;
-      stdout?: Buffer;
-      stderr?: Buffer;
-    };
-    return {
-      code: e.status ?? 1,
-      stdout: e.stdout?.toString() ?? "",
-      stderr: e.stderr?.toString() ?? "",
-    };
-  }
+  return runValidationCli({
+    scriptPath: CHECK_SEED_SCRIPT,
+    args,
+    envLocalValues: {
+      VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
+      VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
+      VALIDATION_SUPABASE_PROJECT_REF: LOCAL_PROJECT_REF,
+      VALIDATION_J3_CLAIM_EMAIL: REAL_CLAIM_EMAIL,
+      ...envOverrides,
+    },
+  });
 }
 
 function mintCombo(combo: string): void {
@@ -130,40 +121,25 @@ describe("validation-check-seed", () => {
     // Pre-R24 the CLI accepted --today YYYY-MM-DD and used it for the
     // freshness predicates + fixture reconstruction. An operator could
     // pass an old date to make a stale seed green. R24 retired the
-    // flag — node:util parseArgs now throws on the unknown option.
-    let stderr = "";
-    let exitCode = 0;
-    try {
-      execFileSync(
-        "pnpm",
-        [
-          "-s",
-          "validation:check-seed",
-          "--allow-local-override",
-          "--combo",
-          "R1",
-          "--today",
-          "2020-01-01",
-        ],
-        {
-          encoding: "utf-8",
-          env: {
-            ...process.env,
-            VALIDATION_ENV_SKIP_LOCAL_FILE: "1",
-            VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
-            VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
-            VALIDATION_SUPABASE_PROJECT_REF: LOCAL_PROJECT_REF,
-            VALIDATION_J3_CLAIM_EMAIL: REAL_CLAIM_EMAIL,
-          },
-        },
-      );
-    } catch (err) {
-      const e = err as { status?: number; stderr?: Buffer; stdout?: Buffer };
-      exitCode = e.status ?? 1;
-      stderr = (e.stderr?.toString() ?? "") + (e.stdout?.toString() ?? "");
-    }
-    expect(exitCode).not.toBe(0);
-    expect(stderr).toMatch(/unknown option|UNKNOWN_OPTION/i);
+    // flag — node:util parseArgs throws on the unknown option.
+    const res = runValidationCli({
+      scriptPath: CHECK_SEED_SCRIPT,
+      args: [
+        "--allow-local-override",
+        "--combo",
+        "R1",
+        "--today",
+        "2020-01-01",
+      ],
+      envLocalValues: {
+        VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
+        VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
+        VALIDATION_SUPABASE_PROJECT_REF: LOCAL_PROJECT_REF,
+        VALIDATION_J3_CLAIM_EMAIL: REAL_CLAIM_EMAIL,
+      },
+    });
+    expect(res.code).not.toBe(0);
+    expect(res.stderr + res.stdout).toMatch(/unknown option|UNKNOWN_OPTION/i);
   });
 
   test("predicate (k): exits 1 when VALIDATION_J3_CLAIM_EMAIL is a placeholder", () => {

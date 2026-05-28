@@ -201,47 +201,12 @@ describe("loadValidationEnv() precedence (R10-F1)", () => {
     expect(result).toBe("from-parent-shell");
   });
 
-  test("R22-F1 — VALIDATION_ENV_SKIP_LOCAL_FILE=1 outside Vitest FAILS CLOSED", () => {
-    // Pre-R22 the loader honored the flag unconditionally. A hostile
-    // env (CI, direnv, shell) setting VALIDATION_ENV_SKIP_LOCAL_FILE=1
-    // would silently bypass .env.local in production CLI runs and
-    // re-open the wrong-database class. R22 gates the flag behind
-    // VITEST_WORKER_ID. Spawning a child WITHOUT VITEST_WORKER_ID but
-    // WITH the flag must throw.
-    writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
-    const childEnv = {
-      ...process.env,
-      VALIDATION_ENV_SKIP_LOCAL_FILE: "1",
-    } as Record<string, string | undefined>;
-    delete childEnv.VITEST_WORKER_ID;
-    let stderr = "";
-    let exitCode = 0;
-    try {
-      execFileSync(
-        "npx",
-        [
-          "tsx",
-          "-e",
-          `
-            import { loadValidationEnv } from "${VALIDATION_ENV_TS}";
-            loadValidationEnv();
-            process.stdout.write(process.env.VALIDATION_TEST_URL ?? "<unset>");
-          `,
-        ],
-        {
-          cwd,
-          encoding: "utf8",
-          env: childEnv as NodeJS.ProcessEnv,
-        },
-      );
-    } catch (err) {
-      const e = err as { status?: number; stderr?: Buffer };
-      exitCode = e.status ?? 1;
-      stderr = e.stderr?.toString() ?? "";
-    }
-    expect(exitCode).not.toBe(0);
-    expect(stderr).toMatch(/VALIDATION_ENV_SKIP_LOCAL_FILE.*outside of Vitest/);
-  });
+  // R22-F1 escape-hatch test deleted per R25-F1 — the
+  // VALIDATION_ENV_SKIP_LOCAL_FILE mechanism was removed entirely
+  // because env-injection could bypass any env-flag gate. Tests now
+  // use tests/scripts/_cli-helpers.ts which spawns child CLIs in
+  // a tmpdir cwd with a test-controlled .env.local; same production
+  // code path, no escape hatch.
 
   test("R16-F1 — CI scenario (no .env.local present) still honors inherited VALIDATION_* keys", () => {
     // GitHub Actions workflow exports VALIDATION_SUPABASE_URL via secret;

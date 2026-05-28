@@ -4,9 +4,16 @@
  * End-to-end probe of the resolve-alias CLI against local Supabase.
  */
 import { execFileSync } from "node:child_process";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
+import { runValidationCli, type CliRun } from "./_cli-helpers";
+
+const RESOLVE_ALIAS_SCRIPT = join(
+  process.cwd(),
+  "scripts/validation-resolve-alias.ts",
+);
 
 const DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
@@ -26,39 +33,17 @@ function runPsql(sql: string): string {
   ).trim();
 }
 
-type Run = { code: number; stdout: string; stderr: string };
-function runResolve(combo: string, alias: string): Run {
-  try {
-    const stdout = execFileSync(
-      "pnpm",
-      [
-        "-s",
-        "validation:resolve-alias",
-        combo,
-        alias,
-        "--allow-local-override",
-      ],
-      {
-        encoding: "utf-8",
-        env: {
-          ...process.env,
-          // R16-F1 — test escape hatch.
-          VALIDATION_ENV_SKIP_LOCAL_FILE: "1",
-          VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
-          VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
-          VALIDATION_SUPABASE_PROJECT_REF: "local",
-        },
-      },
-    );
-    return { code: 0, stdout, stderr: "" };
-  } catch (err) {
-    const e = err as { status?: number; stdout?: Buffer; stderr?: Buffer };
-    return {
-      code: e.status ?? 1,
-      stdout: e.stdout?.toString() ?? "",
-      stderr: e.stderr?.toString() ?? "",
-    };
-  }
+function runResolve(combo: string, alias: string): CliRun {
+  // R25-F1 — hermetic tmpdir cwd + test-controlled .env.local.
+  return runValidationCli({
+    scriptPath: RESOLVE_ALIAS_SCRIPT,
+    args: [combo, alias, "--allow-local-override"],
+    envLocalValues: {
+      VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
+      VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
+      VALIDATION_SUPABASE_PROJECT_REF: "local",
+    },
+  });
 }
 
 function cleanup(): void {
