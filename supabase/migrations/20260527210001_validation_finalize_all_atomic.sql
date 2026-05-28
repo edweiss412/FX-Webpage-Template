@@ -123,10 +123,19 @@ BEGIN
   DECLARE
     v_stale_drive_file_ids text[] := ARRAY[]::text[];
   BEGIN
+    -- Codex Phase 0.C R19-F1 — fixture-ownership sentinel guard.
+    -- The pre-R19 predicate used drive_file_id prefix alone, which is
+    -- not durable ownership proof. A real/imported show with a Drive
+    -- file id starting 'validation_' would be DELETEd. Repair: also
+    -- require client_label = 'M12 Validation', which the mint RPC
+    -- enforces on every reseed (now in INSERT + UPDATE SET). Non-
+    -- validation shows can never carry that label unless they were
+    -- minted by THIS RPC.
     FOR v_combo IN
       SELECT s.drive_file_id
         FROM public.shows s
        WHERE s.drive_file_id LIKE 'validation\_%' ESCAPE '\'
+         AND s.client_label = 'M12 Validation'
          AND NOT EXISTS (
            SELECT 1 FROM unnest(p_required_combos) AS c
             WHERE s.drive_file_id = 'validation_' || c
@@ -139,7 +148,8 @@ BEGIN
 
     IF array_length(v_stale_drive_file_ids, 1) IS NOT NULL THEN
       DELETE FROM public.shows
-       WHERE drive_file_id = ANY(v_stale_drive_file_ids);
+       WHERE drive_file_id = ANY(v_stale_drive_file_ids)
+         AND client_label = 'M12 Validation';
     END IF;
   END;
 

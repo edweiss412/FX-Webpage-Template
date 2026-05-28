@@ -188,6 +188,33 @@ describe("validation_finalize_all_atomic", () => {
     ).toBe("0");
   });
 
+  test("R19-F1 — DELETE skips shows whose client_label != 'M12 Validation' (fixture-ownership sentinel)", () => {
+    runPsql(
+      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
+    );
+    // Insert a show with a 'validation_' prefix AND a NON-validation
+    // client_label — simulating a real/imported show that happens to
+    // have a Drive file id colliding with the validation namespace.
+    // The finalize prune MUST NOT delete this row.
+    runPsql(`
+      INSERT INTO public.shows (drive_file_id, slug, title, client_label, template_version, dates, archived, published)
+      VALUES ('validation_real_show', 'validation-real-show', 'Real Show (collision)', 'Real Producer', 'v4', '{}'::jsonb, false, true);
+    `);
+    runPsql(
+      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
+    );
+    const survived = runPsql(
+      `SELECT count(*)::int FROM public.shows WHERE drive_file_id = 'validation_real_show' AND client_label = 'Real Producer';`,
+    );
+    expect(
+      survived,
+      "Fixture-ownership sentinel: shows with client_label != 'M12 Validation' must survive the finalize prune even when drive_file_id matches the validation prefix.",
+    ).toBe("1");
+    runPsql(
+      `DELETE FROM public.shows WHERE drive_file_id = 'validation_real_show';`,
+    );
+  });
+
   test("R14-F1 — DELETE does not touch non-validation shows (scoped to LIKE 'validation\\_%')", () => {
     runPsql(
       `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,

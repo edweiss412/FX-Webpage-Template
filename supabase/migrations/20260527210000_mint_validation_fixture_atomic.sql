@@ -126,6 +126,14 @@ BEGIN
     venue = EXCLUDED.venue,          -- R7-F1 — repair venue.timezone drift
     dates = EXCLUDED.dates,
     pull_sheet = EXCLUDED.pull_sheet, -- R8-F2 — repair pull_sheet drift
+    -- Codex Phase 0.C R19-F1 — client_label is the fixture-ownership
+    -- sentinel. Adding it to SET ensures every reseed reaffirms the
+    -- 'M12 Validation' marker; the finalize prune below uses this
+    -- sentinel (NOT just the drive_file_id prefix) to determine which
+    -- rows are fixture-owned. A pre-existing real show that happens to
+    -- share the 'validation_' prefix never gets DELETEd because its
+    -- client_label was never 'M12 Validation' from this RPC.
+    client_label = 'M12 Validation',
     archived = false,                -- R27 commit 57 F27 baseline restore
     published = true,                -- R27 commit 57 F27 baseline restore
     last_seen_modified_time = now()

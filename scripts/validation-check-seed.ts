@@ -332,7 +332,7 @@ async function runChecks(
   )
     .from("shows")
     .select(
-      "id,drive_file_id,archived,published,dates,title,slug,venue,pull_sheet",
+      "id,drive_file_id,archived,published,dates,title,slug,venue,pull_sheet,client_label",
     )
     .like("drive_file_id", "validation_%");
   if (showsRes.error) {
@@ -350,18 +350,23 @@ async function runChecks(
     slug: string;
     venue: Record<string, unknown> | null;
     pull_sheet: unknown[] | null;
+    client_label: string;
   };
-  // Codex Phase 0.C R15-F2 — client-side filter to LITERAL 'validation_'
-  // prefix. PostgREST `.like('drive_file_id', 'validation_%')` treats the
-  // `_` as a SQL wildcard (any single char), so non-validation rows like
-  // 'validationX123' would slip through. The finalizer's prune uses
-  // LIKE 'validation\_%' ESCAPE '\' (literal underscore) — namespace
-  // definitions must match across the read-side (check-seed) and the
-  // cleanup-side (finalizer), or check-seed would permanently fail on
-  // data outside the validation namespace that the finalizer can never
-  // remove.
-  const shows = ((showsRes.data ?? []) as ShowRow[]).filter((s) =>
-    s.drive_file_id.startsWith("validation_"),
+  // Codex Phase 0.C R15-F2 + R19-F1 — fixture-ownership filter.
+  //   R15-F2: literal 'validation_' prefix (the SQL `.like()` wildcard
+  //     would let 'validationX123' slip through; client-side startsWith
+  //     enforces the literal underscore).
+  //   R19-F1: client_label === 'M12 Validation' sentinel. The prefix
+  //     alone isn't durable ownership proof — a real/imported show
+  //     could have a Drive file id starting 'validation_'. The mint
+  //     RPC stamps client_label='M12 Validation' on every reseed
+  //     (INSERT + ON CONFLICT UPDATE SET), so the sentinel proves
+  //     fixture ownership. Both check-seed and the finalize prune
+  //     must use the SAME ownership predicate.
+  const shows = ((showsRes.data ?? []) as ShowRow[]).filter(
+    (s) =>
+      s.drive_file_id.startsWith("validation_") &&
+      s.client_label === "M12 Validation",
   );
   for (const s of shows) {
     // R19 F18 — UPPERCASE combo enum verbatim; resolve 'validation_<C>' → <C>.
