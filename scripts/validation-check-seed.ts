@@ -30,7 +30,7 @@ import {
   type FixtureRow,
 } from "./lib/validation-fixtures";
 
-const USAGE = `Usage: pnpm validation:check-seed [--combo <id>|all] [--allow-local-override] [--today YYYY-MM-DD] [--help]
+const USAGE = `Usage: pnpm validation:check-seed [--combo <id>|all] [--allow-local-override] [--help]
 
 Per master spec §3.3.2 — evaluates the picker-fixture lockstep contract
 against the live validation_state singleton + crew_members / show_share_tokens
@@ -41,9 +41,11 @@ Options:
                           or a single combo enum (predicate (b') —
                           combos_seeded_dates[<combo>]). Defaults to \`all\`.
   --allow-local-override  Permit running against http://localhost / 127.0.0.1.
-  --today YYYY-MM-DD      Override the canonical UTC \`today\` date used by
-                          predicates (b/b'/i). Defaults to
-                          \`new Date().toISOString().slice(0, 10)\`.
+                          (--today flag retired R24-F1 — accepting an
+                          arbitrary operator-supplied date allowed a
+                          stale-seed bypass of the freshness gate. The
+                          test suite uses an internal Vitest-gated path
+                          rather than a public flag.)
   --help                  Print this message and exit 0.
 
 Required environment variables (§9.1.2 check-seed row):
@@ -803,7 +805,6 @@ async function main(): Promise<void> {
       help: { type: "boolean", default: false },
       combo: { type: "string" },
       "allow-local-override": { type: "boolean", default: false },
-      today: { type: "string" },
     },
     allowPositionals: false,
   });
@@ -828,13 +829,11 @@ async function main(): Promise<void> {
     values["allow-local-override"] ?? false,
   );
   const j3ClaimEmail = requireEnv("VALIDATION_J3_CLAIM_EMAIL");
-  const validationTodayIso =
-    values.today ?? new Date().toISOString().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(validationTodayIso)) {
-    throw new Error(
-      `--today must be ISO YYYY-MM-DD, got ${validationTodayIso}`,
-    );
-  }
+  // Codex Phase 0.C R24-F1 — validationTodayIso is ALWAYS derived from
+  // the real UTC clock. The pre-R24 `--today YYYY-MM-DD` operator flag
+  // was a stale-seed bypass of the freshness gate (predicate (b/b'/i)
+  // could be made green for any past date).
+  const validationTodayIso = new Date().toISOString().slice(0, 10);
 
   const requestedCombo = values.combo ?? "all";
   const dispatch: "all" | { single: Combo } =

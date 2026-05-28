@@ -126,6 +126,46 @@ describe("validation-check-seed", () => {
     expect(res.stderr).toMatch(/predicate \(a\)/);
   });
 
+  test("R24-F1 — --today flag is rejected (no stale-seed bypass via operator-supplied date)", () => {
+    // Pre-R24 the CLI accepted --today YYYY-MM-DD and used it for the
+    // freshness predicates + fixture reconstruction. An operator could
+    // pass an old date to make a stale seed green. R24 retired the
+    // flag — node:util parseArgs now throws on the unknown option.
+    let stderr = "";
+    let exitCode = 0;
+    try {
+      execFileSync(
+        "pnpm",
+        [
+          "-s",
+          "validation:check-seed",
+          "--allow-local-override",
+          "--combo",
+          "R1",
+          "--today",
+          "2020-01-01",
+        ],
+        {
+          encoding: "utf-8",
+          env: {
+            ...process.env,
+            VALIDATION_ENV_SKIP_LOCAL_FILE: "1",
+            VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
+            VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
+            VALIDATION_SUPABASE_PROJECT_REF: LOCAL_PROJECT_REF,
+            VALIDATION_J3_CLAIM_EMAIL: REAL_CLAIM_EMAIL,
+          },
+        },
+      );
+    } catch (err) {
+      const e = err as { status?: number; stderr?: Buffer; stdout?: Buffer };
+      exitCode = e.status ?? 1;
+      stderr = (e.stderr?.toString() ?? "") + (e.stdout?.toString() ?? "");
+    }
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toMatch(/unknown option|UNKNOWN_OPTION/i);
+  });
+
   test("predicate (k): exits 1 when VALIDATION_J3_CLAIM_EMAIL is a placeholder", () => {
     mintCombo("R1");
     const res = runCheckSeed("R1", {
