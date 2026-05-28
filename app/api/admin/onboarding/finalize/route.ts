@@ -5,6 +5,7 @@ import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/d
 import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult } from "@/lib/parser/types";
 import { insertFirstSeenShowWithSlugRetry } from "@/lib/sync/runScheduledCronSync";
+import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 const BATCH_CAP = 100;
@@ -135,11 +136,19 @@ function errorResponse(status: number, code: string, extra: Record<string, unkno
   return NextResponse.json({ ok: false, code, ...extra }, { status });
 }
 
-function sameTimestamp(left: string | null | undefined, right: string | null | undefined): boolean {
-  if (!left || !right) return false;
-  const leftMs = Date.parse(left);
-  const rightMs = Date.parse(right);
-  return Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs === rightMs;
+// `row.staged_modified_time` is read from pending_syncs via postgres.js, which
+// parses `timestamptz` into a JS Date (NOT an ISO string). Delegating to the
+// shared revisionTimesMatch compares by exact instant without the millisecond
+// loss that `Date.parse(<Date>)` caused — the finalize peer of the apply
+// revision-race false positive (M12 Phase 0.F smoke 3). A genuinely different
+// instant still mismatches, so a real edit still demotes. Missing values stay a
+// non-match (finalize must not publish a sheet it can't reverify).
+function sameTimestamp(
+  left: string | Date | null | undefined,
+  right: string | Date | null | undefined,
+): boolean {
+  if (left == null || right == null) return false;
+  return revisionTimesMatch(left, right);
 }
 
 function reApplyUrl(wizardSessionId: string, driveFileId: string): string {

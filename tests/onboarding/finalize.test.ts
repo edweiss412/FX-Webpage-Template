@@ -297,6 +297,83 @@ async function reapplyDemotedRow(db: FakeFinalizeDb, driveFileId: string): Promi
 }
 
 describe("POST /api/admin/onboarding/finalize", () => {
+  // Regression: the finalize revision-guard peer of the apply revision-race
+  // false positive (M12 Phase 0.F smoke 3). `staged_modified_time` is read from
+  // pending_syncs via postgres.js, which yields a JS Date (not an ISO string).
+  // The route's local sameTimestamp ran Date.parse(<Date>), dropping the
+  // milliseconds, so an UNEDITED sheet whose live Drive modifiedTime matched the
+  // staged value to the millisecond was demoted with
+  // STAGED_PARSE_REVISION_RACE_DURING_FINALIZE — blocking the publish step (the
+  // existing tests never caught this because they used ".000Z", which has no ms
+  // to lose). Every prior onboarding sheet would hit this once apply was fixed.
+  test("does not false-fire the finalize revision guard for a Date staged_modified_time (postgres.js) at the same instant", async () => {
+    const INSTANT = "2026-05-09T03:44:06.040Z"; // nonzero ms — the trigger
+    const db = new FakeFinalizeDb();
+    db.approved = [
+      // postgres.js returns a Date for the timestamptz column.
+      pending("first-seen-1", { staged_modified_time: new Date(INSTANT) as unknown as string }),
+    ];
+
+    const response = await handleOnboardingFinalize(
+      request(),
+      deps(db, {
+        fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
+          driveFileId,
+          name: `${driveFileId}.xlsx`,
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: INSTANT, // same instant, ISO string with milliseconds
+          parents: ["folder-1"],
+        })),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      per_row: [{ drive_file_id: "first-seen-1", wizard_session_id: W1, code: "OK" }],
+    });
+    // Published as a draft (reached the publish step), NOT demoted.
+    expect(db.firstSeenApplied).toEqual(["first-seen-1"]);
+    expect(db.demoted).toEqual([]);
+  });
+
+  // True-positive preserved: a genuine later edit must still demote with the
+  // finalize revision-race code (the guard still fires on a real edit).
+  test("still fires the finalize revision guard when the sheet was genuinely edited", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [
+      pending("first-seen-1", {
+        staged_modified_time: new Date("2026-05-09T03:44:06.040Z") as unknown as string,
+      }),
+    ];
+
+    const response = await handleOnboardingFinalize(
+      request(),
+      deps(db, {
+        fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
+          driveFileId,
+          name: `${driveFileId}.xlsx`,
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: "2026-05-09T03:45:00.000Z", // a real edit, ~1 min later
+          parents: ["folder-1"],
+        })),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      per_row: [
+        {
+          drive_file_id: "first-seen-1",
+          code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+        },
+      ],
+    });
+    expect(db.demoted).toEqual([
+      { driveFileId: "first-seen-1", code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE" },
+    ]);
+    expect(db.firstSeenApplied).toEqual([]);
+  });
+
   test("processes one batch: first-seen rows apply as unpublished drafts and existing rows stage shadow changes", async () => {
     const db = new FakeFinalizeDb();
     db.approved = [pending("first-seen-1"), pending("existing-1")];
