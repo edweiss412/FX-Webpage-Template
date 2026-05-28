@@ -13,14 +13,22 @@ function isLocalUrl(url: string): boolean {
 }
 
 // Supabase project URLs follow the canonical shape
-// `https://<project-ref>.supabase.co`. Subdomains for branched-database
-// previews (`<project-ref>--<branch>.supabase.co`) and the legacy
-// staging form (`.supabase.in`) MAY appear; we recognise both. The
-// project-ref portion is opaque from the operator's perspective; the
-// binding check below just compares the captured host-prefix against
-// the env var that the operator independently set.
+// `https://<project-ref>.supabase.co` (or `.supabase.in` legacy staging).
+//
+// Codex Phase 0.C R11-F2 — REJECT branch-preview hosts of the form
+// `<project-ref>--<branch>.supabase.co`. A branch DB URL paired with a
+// VALIDATION_SUPABASE_PROJECT_REF set to the BASE ref would pass the
+// binding check (host prefix matches base ref before the `--branch`
+// suffix) but reseed would mutate the BRANCH database, then check-seed
+// would assert the BRANCH is seeded — not the base prod-equivalent.
+// Validation tooling must run against the canonical prod-equivalent
+// host only. The branch-preview opt-in path is intentionally unavailable
+// (a separate explicit flag would be required if branch validation
+// ever became a contract).
 const PROJECT_REF_HOST_REGEX =
-  /^https?:\/\/([a-z0-9]+)(?:--[\w-]+)?\.supabase\.(?:co|in)(?::\d+)?(?:\/|$)/i;
+  /^https?:\/\/([a-z0-9]+)\.supabase\.(?:co|in)(?::\d+)?(?:\/|$)/i;
+const BRANCH_PREVIEW_HOST_REGEX =
+  /^https?:\/\/[a-z0-9]+--[\w-]+\.supabase\.(?:co|in)/i;
 
 /**
  * Throws if the URL points at localhost / 127.0.0.1 / [::1] without an
@@ -93,6 +101,18 @@ export function assertSupabaseTargetMatchesProjectRef(
       "VALIDATION_SUPABASE_PROJECT_REF is required — set it to the project ref " +
         "matching VALIDATION_SUPABASE_URL's host (e.g., `vzakgrxqwcalbmagufjh` for " +
         "`https://vzakgrxqwcalbmagufjh.supabase.co`).",
+    );
+  }
+  // R11-F2 — diagnose branch-preview hosts before the generic
+  // "doesn't match canonical shape" message so the operator sees the
+  // specific class of mistake.
+  if (BRANCH_PREVIEW_HOST_REGEX.test(url)) {
+    throw new Error(
+      `VALIDATION_SUPABASE_URL '${url}' is a Supabase branch-preview host ` +
+        "(`<ref>--<branch>.supabase.co`). Validation tooling must run against " +
+        "the canonical prod-equivalent project, NOT a branch preview — reseed " +
+        "would mutate the branch DB while check-seed would mis-attribute. Fix " +
+        "the URL to the base-project host in .env.local.",
     );
   }
   const match = url.match(PROJECT_REF_HOST_REGEX);

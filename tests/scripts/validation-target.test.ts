@@ -76,14 +76,18 @@ describe("assertSupabaseTargetMatchesProjectRef (F2 wrong-project guard — Code
     ).not.toThrow();
   });
 
-  it("permits the branched-preview <ref>--<branch>.supabase.co shape", () => {
+  it("R11-F2 — REJECTS branch-preview hosts (validation tooling must run against base prod-equivalent)", () => {
+    // Pre-R11-F2 the regex captured base ref before the `--branch`
+    // suffix and the binding check passed. That was a wrong-database
+    // bypass: reseed would mutate the branch DB while check-seed
+    // would assert the branch was seeded, not the base prod-equivalent.
     expect(() =>
       assertSupabaseTargetMatchesProjectRef(
         "https://vzakgrxqwcalbmagufjh--preview.supabase.co",
         "vzakgrxqwcalbmagufjh",
         false,
       ),
-    ).not.toThrow();
+    ).toThrow(/branch-preview host/);
   });
 
   it("rejects when URL host prefix does not match project_ref", () => {

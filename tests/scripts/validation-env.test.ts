@@ -36,8 +36,14 @@ function writeEnv(file: string, contents: string): void {
 
 function runProbeIn(probeCwd: string): string {
   // Spawn a node child that imports loadValidationEnv from the repo and
-  // prints whichever VALIDATION_TEST_URL it sees. tsx runs the TS file
-  // directly — no need to compile first.
+  // prints whichever VALIDATION_TEST_URL it sees. Strip the var from
+  // the inherited env to keep the test hermetic — the parent shell (vitest)
+  // may have unrelated VALIDATION_* values that would pollute the result.
+  const childEnv = { ...process.env, NODE_ENV: "development" } as Record<
+    string,
+    string | undefined
+  >;
+  delete childEnv.VALIDATION_TEST_URL;
   return execFileSync(
     "npx",
     [
@@ -49,7 +55,7 @@ function runProbeIn(probeCwd: string): string {
         process.stdout.write(process.env.VALIDATION_TEST_URL ?? "<unset>");
       `,
     ],
-    { cwd: probeCwd, encoding: "utf8", env: { ...process.env, NODE_ENV: "development" } },
+    { cwd: probeCwd, encoding: "utf8", env: childEnv as NodeJS.ProcessEnv },
   );
 }
 
@@ -69,16 +75,94 @@ describe("loadValidationEnv() precedence (R10-F1)", () => {
     ).toBe("from-env-local");
   });
 
-  test("falls back to .env when neither .local file is present", () => {
+  test("R11-F1 — .env (no `.local`) does NOT seed VALIDATION_* (only .env.local is read)", () => {
+    // Narrow-loader contract: only .env.local is read. Other files are
+    // intentionally ignored to eliminate the wrong-database class.
     writeEnv(".env", "VALIDATION_TEST_URL=from-env-base\n");
     const result = runProbeIn(cwd);
-    expect(result).toBe("from-env-base");
+    expect(result).toBe("<unset>");
   });
 
-  test(".env.local wins over .env when both are present", () => {
+  test(".env.local wins over .env when both are present (and .env is ignored)", () => {
     writeEnv(".env", "VALIDATION_TEST_URL=from-env-base\n");
     writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
     const result = runProbeIn(cwd);
     expect(result).toBe("from-env-local");
+  });
+
+  test("R11-F1 — .env.production.local must NOT override .env.local for VALIDATION_*", () => {
+    writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
+    writeEnv(
+      ".env.production.local",
+      "VALIDATION_TEST_URL=from-env-production-local\n",
+    );
+    const result = runProbeIn(cwd);
+    expect(
+      result,
+      ".env.local must be canonical; .env.production.local must NOT override " +
+        "it. Pre-R11 the loader used @next/env loadEnvConfig(false) which puts " +
+        ".env.production.local FIRST in precedence — a coherent wrong-target " +
+        "config there would mutate the wrong DB with the service-role key.",
+    ).toBe("from-env-local");
+  });
+
+  test("R11-F1 — .env.production must NOT override .env.local", () => {
+    writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
+    writeEnv(".env.production", "VALIDATION_TEST_URL=from-env-production\n");
+    const result = runProbeIn(cwd);
+    expect(result).toBe("from-env-local");
+  });
+
+  test("R11-F1 structural defense — every other env-file source loses to .env.local", () => {
+    // Parameterized assertion: the SET of files @next/env would honor in
+    // any mode (.env.development.local, .env.development, .env.production.local,
+    // .env.production, .env) — ALL must lose to .env.local for the
+    // R11-F1 invariant to hold.
+    const conflicting = [
+      ".env.development.local",
+      ".env.development",
+      ".env.production.local",
+      ".env.production",
+      ".env",
+    ];
+    writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
+    for (const file of conflicting) {
+      writeEnv(file, `VALIDATION_TEST_URL=overridden-by-${file}\n`);
+    }
+    const result = runProbeIn(cwd);
+    expect(
+      result,
+      "Validation env loader must read ONLY .env.local — every other dotenv " +
+        "source overriding it is a wrong-database risk for destructive " +
+        "service-role tooling.",
+    ).toBe("from-env-local");
+  });
+
+  test("R11-F1 structural defense — explicit process.env overrides .env.local (parent-shell precedence)", () => {
+    // Required for test scenarios where the parent shell intentionally
+    // sets VALIDATION_* values (matches @next/env's behavior — exported
+    // env wins over dotenv files).
+    writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
+    const result = execFileSync(
+      "npx",
+      [
+        "tsx",
+        "-e",
+        `
+          import { loadValidationEnv } from "${VALIDATION_ENV_TS}";
+          loadValidationEnv();
+          process.stdout.write(process.env.VALIDATION_TEST_URL ?? "<unset>");
+        `,
+      ],
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          VALIDATION_TEST_URL: "from-parent-shell",
+        },
+      },
+    );
+    expect(result).toBe("from-parent-shell");
   });
 });
