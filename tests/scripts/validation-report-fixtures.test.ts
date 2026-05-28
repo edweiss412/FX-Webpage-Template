@@ -13,15 +13,7 @@
  *   • F39 regression (refuse-existing-snapshot guard + force-overwrite
  *     escape hatch + cross-combo-clobber refuse + unlink-on-cleanup)
  */
-import { execFileSync, spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   afterAll,
@@ -33,189 +25,26 @@ import {
   vi,
 } from "vitest";
 
-import { canonicalize } from "@/lib/email/canonicalize";
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
-import { runValidationCli, type CliRun } from "./_cli-helpers";
+import {
+  CANONICAL_ADMIN_IDENTITY,
+  VALIDATION_ADMIN_EMAIL,
+  crewIdFor,
+  makeSharedCwd,
+  mintCombo,
+  pgQuote,
+  reportFixturesCleanup,
+  runHarness,
+  runHarnessInCwd,
+  runPsql,
+  showIdByDrive,
+} from "./_report-fixtures-helpers";
 
 // Every test here spawns one or more `npx tsx` child processes (cold-start
 // ~2-4s each); the snapshot/regression tests chain 3-4 sequentially. Under
 // parallel-worker CPU contention the 5000ms default is too tight, so bump
 // the per-test + hook timeouts file-wide.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
-
-const REPO_ROOT = process.cwd();
-const TSCONFIG_PATH = join(REPO_ROOT, "tsconfig.json");
-const REPORT_FIXTURES_SCRIPT = join(
-  REPO_ROOT,
-  "scripts/validation-report-fixtures.ts",
-);
-
-const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
-const LOCAL_SERVICE_ROLE_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
-
-const VALIDATION_ADMIN_EMAIL = "validation-admin-test@example.com";
-const _canonicalAdminIdentity = canonicalize(VALIDATION_ADMIN_EMAIL);
-if (!_canonicalAdminIdentity) {
-  throw new Error("test setup: canonicalize() returned empty for fixture email");
-}
-const CANONICAL_ADMIN_IDENTITY: string = _canonicalAdminIdentity;
-
-const TODAY = new Date().toISOString().slice(0, 10);
-
-function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
-}
-
-function pgQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-function runHarness(
-  args: string[],
-  extraEnv: Record<string, string> = {},
-): CliRun {
-  return runValidationCli({
-    scriptPath: REPORT_FIXTURES_SCRIPT,
-    args: [...args, "--allow-local-override"],
-    envLocalValues: {
-      VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
-      VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
-      VALIDATION_SUPABASE_PROJECT_REF: "local",
-      VALIDATION_ADMIN_EMAIL,
-      ...extraEnv,
-    },
-  });
-}
-
-/**
- * Spawn the harness in a SHARED tmpdir cwd so the snapshot file persists
- * across multiple invocations (F39 duplicate-seed regression). Returns
- * the cwd path so the caller can inspect `.validation-state/`.
- */
-function makeSharedCwd(): string {
-  const cwd = mkdtempSync(join(tmpdir(), "validation-rpt-fixtures-shared-"));
-  return cwd;
-}
-
-function runHarnessInCwd(
-  cwd: string,
-  args: string[],
-  extraEnv: Record<string, string> = {},
-): CliRun {
-  const envLocal = {
-    VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
-    VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
-    VALIDATION_SUPABASE_PROJECT_REF: "local",
-    VALIDATION_ADMIN_EMAIL,
-    ...extraEnv,
-  };
-  const lines = Object.entries(envLocal)
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
-  writeFileSync(join(cwd, ".env.local"), lines + "\n");
-  const result = spawnSync(
-    "npx",
-    [
-      "tsx",
-      "--tsconfig",
-      TSCONFIG_PATH,
-      REPORT_FIXTURES_SCRIPT,
-      ...args,
-      "--allow-local-override",
-    ],
-    { cwd, encoding: "utf-8", env: process.env },
-  );
-  return {
-    code: result.status ?? 1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-  };
-}
-
-function reportFixturesCleanup(crewIds: string[] = []): void {
-  // Defensive: assert local DB. Mirrors safeValidationCleanup's guard.
-  if (!/^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])/.test(DATABASE_URL)) {
-    throw new Error(
-      `reportFixturesCleanup refused: DATABASE_URL=${DATABASE_URL} is not local`,
-    );
-  }
-  const crewIdList = crewIds
-    .filter((id) => /^[0-9a-f-]+$/i.test(id))
-    .map((id) => `'${id}'`)
-    .join(",");
-  const crewClause = crewIdList
-    ? `OR (kind='crew' AND identity IN (${crewIdList}))`
-    : "";
-  runPsql(`
-    DELETE FROM public.admin_alerts
-      WHERE context->>'validation_tag' LIKE 'm12-fixture-%';
-    DELETE FROM public.report_rate_limits
-      WHERE identity LIKE 'validation:m12-fixture-%'
-         OR (kind='admin' AND identity=${pgQuote(CANONICAL_ADMIN_IDENTITY)})
-         ${crewClause};
-    DELETE FROM public.reports
-      WHERE context->>'validation_tag' LIKE 'm12-fixture-%';
-  `);
-}
-
-function mintCombo(combo: string, showTitle: string): void {
-  // Use the SECURITY DEFINER mint RPC directly via psql (service-role
-  // equivalent locally). The mint derives drive_file_id = 'validation_' ||
-  // combo (per supabase/migrations/20260527210000_*.sql:67), so both shows
-  // land under the `validation\_%` + client_label='M12 Validation' sentinel
-  // that safeValidationCleanup() targets. The harness later attaches
-  // reports/admin_alerts rows to these shows.
-  const payload = JSON.stringify({
-    showName: showTitle,
-    dates: {
-      travelIn: TODAY,
-      set: TODAY,
-      showDays: [TODAY],
-      travelOut: TODAY,
-    },
-    crewMembers: [
-      {
-        alias: "alias_5a_lead",
-        name: `${combo}_alias_5a_lead`,
-        email: "test.validation.user@gmail.com",
-        roleFlags: ["LEAD"],
-        dateRestriction: { kind: "none" },
-        stageRestriction: { kind: "none" },
-      },
-    ],
-    validationTodayIso: TODAY,
-    seededBy: "validation-report-fixtures.test.ts",
-    seededProjectRef: "local",
-  });
-  runPsql(
-    `SELECT public.mint_validation_fixture_atomic(${pgQuote(combo)}, ${pgQuote(
-      payload,
-    )}::jsonb);`,
-  );
-}
-
-function showIdByDrive(driveFileId: string): string {
-  return runPsql(
-    `SELECT id FROM public.shows WHERE drive_file_id=${pgQuote(driveFileId)};`,
-  );
-}
-
-function crewIdFor(driveFileId: string): string {
-  return runPsql(
-    `SELECT cm.id FROM public.crew_members cm
-       JOIN public.shows s ON cm.show_id = s.id
-      WHERE s.drive_file_id=${pgQuote(driveFileId)}
-      LIMIT 1;`,
-  );
-}
 
 const R1_DRIVE = "validation_R1";
 const R7B_DRIVE = "validation_R7b";
