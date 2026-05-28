@@ -49,6 +49,23 @@ describe("validation_seed_rate_limit DB-side defenses (R2/R3/R4 structural pin)"
     );
   });
 
+  test("R6 — write-ahead: harness PEEKs (dry-run) + persists snapshot BEFORE the destructive seed", () => {
+    // The RPC supports a non-mutating peek (p_dry_run) used to capture the
+    // prior+bucket so the snapshot file is durable before the seed mutation.
+    expect(migration).toMatch(/p_dry_run\s+boolean\s+default\s+false/);
+    expect(migration.toLowerCase()).toMatch(/if\s+not\s+p_dry_run\s+then/);
+    // The harness must call the RPC twice: a dry-run peek, then the seed, with
+    // writeSnapshot BETWEEN them (durable restore record before mutation).
+    expect(harness).toMatch(/p_dry_run:\s*true/);
+    expect(harness).toMatch(/p_dry_run:\s*false/);
+    const peekIdx = harness.indexOf("p_dry_run: true");
+    const writeIdx = harness.indexOf("writeSnapshot(file", peekIdx);
+    const seedIdx = harness.indexOf("p_dry_run: false");
+    expect(peekIdx).toBeGreaterThan(-1);
+    expect(writeIdx).toBeGreaterThan(peekIdx);
+    expect(seedIdx).toBeGreaterThan(writeIdx);
+  });
+
   test("R4 — RPC refuses force-overwrite across an hour boundary (p_expected_prev_bucket guard)", () => {
     expect(migration).toMatch(/p_expected_prev_bucket/);
     expect(migration.toLowerCase()).toMatch(/across hour boundary/);
@@ -87,10 +104,10 @@ describe("validation_seed_rate_limit DB-side defenses (R2/R3/R4 structural pin)"
 
   test("RPC is service_role-only (no anon/authenticated execute)", () => {
     expect(migration.toLowerCase()).toMatch(
-      /revoke all on function public\.validation_seed_rate_limit\(text, text, integer, timestamptz\) from public, anon, authenticated/,
+      /revoke all on function public\.validation_seed_rate_limit\(text, text, integer, timestamptz, boolean\) from public, anon, authenticated/,
     );
     expect(migration.toLowerCase()).toMatch(
-      /grant execute on function public\.validation_seed_rate_limit\(text, text, integer, timestamptz\) to service_role/,
+      /grant execute on function public\.validation_seed_rate_limit\(text, text, integer, timestamptz, boolean\) to service_role/,
     );
   });
 });

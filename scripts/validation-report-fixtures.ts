@@ -407,41 +407,64 @@ async function seedRateLimitOutcome(
     );
   }
 
-  // (a+c) DB-side snapshot + seed in one call (R2 MEDIUM fix). The RPC derives
-  // hour_bucket = date_trunc('hour', now()) using the DATABASE clock — the same
-  // expression live enforceQuota uses (rateLimit.ts:82-83) — eliminating the
-  // client/gateway-clock hour-boundary race. SELECT-then-UPSERT yields the
-  // PRE-seed prior count (NULL if no row); under --force-overwrite the prior
-  // row is the already-seeded count (F39 force-overwrite semantics preserved).
+  // Write-ahead seed (R6 HIGH) — the restore record must be DURABLE before the
+  // destructive mutation, else a crash between the seed and the file write
+  // strands the bucket with no recoverable prior. Three phases:
+  //
+  //   (1) PEEK (p_dry_run) — under the SHARE ROW EXCLUSIVE lock, read the
+  //       pre-seed prior count + DB-authoritative bucket WITHOUT mutating. The
+  //       bucket comes from DB date_trunc('hour', now()) (R2: same as live
+  //       enforceQuota); the prior is accurate at peek time (R3 lock).
+  //       p_expected_prev_bucket is the R4 cross-hour guard for --force.
+  //   (2) PERSIST — fsync the snapshot file BEFORE any mutation. A crash here
+  //       leaves a snapshot whose bucket was never seeded; cleanup restores it
+  //       to its (unchanged) prior — a safe no-op.
+  //   (3) SEED — mutate at the recorded bucket, guarding against an hour roll
+  //       between peek and seed (p_expected_prev_bucket = the peeked bucket).
+  //
   // identity is the live shape the caller passed (admin: canonicalize(email);
-  // crew: raw UUID per rateLimit.ts:76 + submit.ts:168). p_expected_prev_bucket
-  // is the R4 cross-hour guard (NULL on the normal non-force path).
+  // crew: raw UUID per rateLimit.ts:76 + submit.ts:168).
   const count = kind === "admin" ? ADMIN_QUOTA_SEED_COUNT : CREW_QUOTA_SEED_COUNT;
-  const { data, error } = await supabase.rpc("validation_seed_rate_limit", {
+
+  // (1) PEEK.
+  const peek = await supabase.rpc("validation_seed_rate_limit", {
     p_kind: kind,
     p_identity: identity,
     p_count: count,
     p_expected_prev_bucket: expectedPrevBucket,
+    p_dry_run: true,
   });
-  if (error) {
-    fail(`validation_seed_rate_limit RPC failed: ${error.message ?? JSON.stringify(error)}`);
+  if (peek.error) {
+    fail(`validation_seed_rate_limit (peek) RPC failed: ${peek.error.message ?? JSON.stringify(peek.error)}`);
   }
-  const result = data as {
+  const peeked = peek.data as {
     recorded_hour_bucket: string;
     snapshot_prior_count: number | null;
   };
 
-  // (b) Persist the snapshot tuple keyed on the DB-AUTHORITATIVE bucket.
+  // (2) PERSIST the restore record durably BEFORE mutating.
   writeSnapshot(file, {
     kind,
     identity,
-    recorded_hour_bucket: result.recorded_hour_bucket,
-    snapshot_prior_count: result.snapshot_prior_count,
+    recorded_hour_bucket: peeked.recorded_hour_bucket,
+    snapshot_prior_count: peeked.snapshot_prior_count,
   });
+
+  // (3) SEED (guard against an hour roll since the peek).
+  const seed = await supabase.rpc("validation_seed_rate_limit", {
+    p_kind: kind,
+    p_identity: identity,
+    p_count: count,
+    p_expected_prev_bucket: peeked.recorded_hour_bucket,
+    p_dry_run: false,
+  });
+  if (seed.error) {
+    fail(`validation_seed_rate_limit (seed) RPC failed: ${seed.error.message ?? JSON.stringify(seed.error)}`);
+  }
 
   process.stdout.write(
     `materialized rate-limit-${kind} report row (kind=${kind}, identity=${identity}, ` +
-      `hour_bucket=${result.recorded_hour_bucket}, count=${count})\n`,
+      `hour_bucket=${peeked.recorded_hour_bucket}, count=${count})\n`,
   );
 }
 

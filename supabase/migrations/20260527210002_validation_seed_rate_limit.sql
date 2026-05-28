@@ -20,6 +20,7 @@
 
 drop function if exists public.validation_seed_rate_limit(text, text, integer);
 drop function if exists public.validation_seed_rate_limit(text, text, integer, timestamptz);
+drop function if exists public.validation_seed_rate_limit(text, text, integer, timestamptz, boolean);
 
 create or replace function public.validation_seed_rate_limit(
   p_kind text,
@@ -34,7 +35,16 @@ create or replace function public.validation_seed_rate_limit(
   -- seeding so the harness exits 1 with the old snapshot intact (the dev runs
   -- cleanup first, which restores the old bucket, then re-seeds). NULL on the
   -- normal (non-force) seed path — no check.
-  p_expected_prev_bucket timestamptz default null
+  p_expected_prev_bucket timestamptz default null,
+  -- R6 (HIGH) — write-ahead durability. When TRUE, this is the PEEK phase:
+  -- acquire the lock and read the pre-seed prior count + DB-authoritative
+  -- bucket, but DO NOT mutate. The harness persists the snapshot file from the
+  -- peek result, then calls again with p_dry_run=false to perform the seed.
+  -- This makes the restore record durable BEFORE the destructive write, so a
+  -- crash between the seed and the file write cannot strand an unrecoverable
+  -- bucket. The peek reads under the same SHARE ROW EXCLUSIVE lock, so the
+  -- prior it returns is accurate at peek time.
+  p_dry_run boolean default false
 )
 returns jsonb
 language plpgsql
@@ -76,9 +86,13 @@ begin
     from public.report_rate_limits
    where kind = p_kind and identity = p_identity and hour_bucket = v_bucket;
 
-  insert into public.report_rate_limits (kind, identity, hour_bucket, count)
-  values (p_kind, p_identity, v_bucket, p_count)
-  on conflict (kind, identity, hour_bucket) do update set count = excluded.count;
+  -- PEEK phase (p_dry_run) returns the prior+bucket WITHOUT mutating, so the
+  -- harness can persist the restore record before the destructive seed (R6).
+  if not p_dry_run then
+    insert into public.report_rate_limits (kind, identity, hour_bucket, count)
+    values (p_kind, p_identity, v_bucket, p_count)
+    on conflict (kind, identity, hour_bucket) do update set count = excluded.count;
+  end if;
 
   return jsonb_build_object(
     'recorded_hour_bucket', v_bucket,
@@ -87,5 +101,5 @@ begin
 end;
 $$;
 
-revoke all on function public.validation_seed_rate_limit(text, text, integer, timestamptz) from public, anon, authenticated;
-grant execute on function public.validation_seed_rate_limit(text, text, integer, timestamptz) to service_role;
+revoke all on function public.validation_seed_rate_limit(text, text, integer, timestamptz, boolean) from public, anon, authenticated;
+grant execute on function public.validation_seed_rate_limit(text, text, integer, timestamptz, boolean) to service_role;
