@@ -1159,4 +1159,56 @@ describe("validation-report-fixtures", () => {
       expect(cnt).toBe("1");
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────
+  // R11 — fixture-ownership sentinel on resolveShowId + banner freshness
+  // ───────────────────────────────────────────────────────────────────
+
+  describe("R11 — show ownership + alert banner freshness", () => {
+    test("non-rate outcome REFUSES a show that lacks the 'M12 Validation' sentinel (R11 HIGH)", () => {
+      // Temporarily strip R1's fixture-ownership sentinel to simulate a
+      // real/imported show that collided on drive_file_id='validation_R1'.
+      runPsql(`
+        UPDATE public.shows SET client_label='Imported Real Client'
+         WHERE drive_file_id='validation_R1';
+      `);
+      try {
+        const res = runHarness(["--outcome", "success-admin", "--combo", "R1"]);
+        expect(res.code).toBe(1);
+        expect(res.stderr).toMatch(/no validation FIXTURE show/);
+        expect(res.stderr).toMatch(/M12 Validation/);
+        // No reports row was attached to the non-fixture show.
+        const attached = runPsql(`
+          SELECT count(*) FROM public.reports
+           WHERE context->>'validation_tag' = 'm12-fixture-success-admin';
+        `);
+        expect(attached).toBe("0");
+      } finally {
+        runPsql(`
+          UPDATE public.shows SET client_label='M12 Validation'
+           WHERE drive_file_id='validation_R1';
+        `);
+      }
+    });
+
+    test("re-seeding a fixture alert refreshes raised_at so it sorts topmost (R11 MED)", () => {
+      // First seed creates the alert.
+      const first = runHarness(["--outcome", "orphaned-lost-lease", "--combo", "R1"]);
+      expect(first.code).toBe(0);
+      // Simulate a stale alert: backdate raised_at far into the past.
+      runPsql(`
+        UPDATE public.admin_alerts SET raised_at = '2020-01-01T00:00:00Z'
+         WHERE context->>'validation_tag' = 'm12-fixture-orphaned-lost-lease';
+      `);
+      // Re-seed: must refresh raised_at to ~now (topmost), not leave it stale.
+      const second = runHarness(["--outcome", "orphaned-lost-lease", "--combo", "R1"]);
+      expect(second.code).toBe(0);
+      const fresh = runPsql(`
+        SELECT (raised_at > now() - interval '5 minutes')::text
+          FROM public.admin_alerts
+         WHERE context->>'validation_tag' = 'm12-fixture-orphaned-lost-lease';
+      `);
+      expect(fresh).toBe("true");
+    });
+  });
 });

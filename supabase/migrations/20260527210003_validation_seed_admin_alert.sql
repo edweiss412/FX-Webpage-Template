@@ -59,6 +59,21 @@ begin
   -- Delegate the actual write to the canonical producer RPC (still under the
   -- table lock, so check+write is atomic).
   v_id := public.upsert_admin_alert(p_show_id, p_code, p_context);
+
+  -- R11 (MEDIUM) — refresh raised_at so a RE-seeded fixture alert becomes the
+  -- TOPMOST unresolved row. AlertBanner orders by raised_at DESC; the canonical
+  -- upsert bumps last_seen_at/occurrence_count but NOT raised_at, so a stale
+  -- re-seeded fixture alert would stay behind newer unresolved alerts and never
+  -- render — defeating the harness's purpose (drive a VISIBLE banner). Scoped
+  -- to THIS (show_id, code) unresolved fixture row only (the guard above proved
+  -- it is a m12-fixture row), so real alerts are untouched. On a first INSERT
+  -- raised_at was already now() (table default); this just keeps re-seeds fresh.
+  update public.admin_alerts
+     set raised_at = now()
+   where coalesce(show_id::text, '') = coalesce(p_show_id::text, '')
+     and code = p_code
+     and resolved_at is null;
+
   return v_id;
 end;
 $$;

@@ -309,14 +309,21 @@ async function resolveShowId(
     .from("shows")
     .select("id")
     .eq("drive_file_id", driveFileId)
+    // R11 (HIGH) — require the fixture-ownership sentinel. A real/imported show
+    // could collide on the `validation_<combo>` drive_file_id; without the
+    // client_label='M12 Validation' proof the harness would attach
+    // reports/admin_alerts service-role writes to a NON-fixture show. Same
+    // sentinel the mint RPC stamps and the cleanup helpers + R7 crew binding
+    // require.
+    .eq("client_label", "M12 Validation")
     .maybeSingle();
   if (error) {
     fail(`shows read failed: ${error.message ?? JSON.stringify(error)}`);
   }
   if (!data) {
     fail(
-      `no validation show for combo '${combo}' (drive_file_id='${driveFileId}'). ` +
-        `Run \`pnpm validation:reseed --combo ${combo}\` first.`,
+      `no validation FIXTURE show for combo '${combo}' (drive_file_id='${driveFileId}' ` +
+        `AND client_label='M12 Validation'). Run \`pnpm validation:reseed --combo ${combo}\` first.`,
     );
   }
   return (data as { id: string }).id;
