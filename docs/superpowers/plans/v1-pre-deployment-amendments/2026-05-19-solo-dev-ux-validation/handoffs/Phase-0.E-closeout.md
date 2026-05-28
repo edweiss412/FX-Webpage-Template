@@ -44,7 +44,9 @@ E2E (Task 0.E.3) seeded `lookup-inconclusive --alert-code inconclusive` + `rate-
 
 ## 4. Adversarial review verdict + triage
 
-**Rounds:** R1 (needs-attention, 1 HIGH) → R2 (needs-attention, 1 HIGH + 1 MED) → R3 (needs-attention, 1 HIGH + 1 MED) → R4 (needs-attention, 1 HIGH) → structural-defense ship → R5 `<PENDING>`.
+**Rounds:** R1 (1 HIGH) → R2 (1 HIGH + 1 MED) → R3 (1 HIGH + 1 MED) → R4 (1 HIGH) → structural-defense ship → R5 (1 HIGH) → R6 `<PENDING>`.
+
+**Convergence note:** R1/R3/R5 are one meta-class — non-atomic *check-then-act* (or unlocked snapshot) on a producer-table row a concurrent live writer can mutate. Each was closed by moving the check+write DB-side under a `SHARE ROW EXCLUSIVE` lock: `validation_seed_rate_limit` (rate-limit; R3/R4) and `validation_seed_admin_alert` (admin_alerts; R5). `reports` is immune (fresh unique `idempotency_key` per seed — INSERT can't coalesce/overwrite). The class is now closed across all three producer tables and pinned by the structural meta-test.
 
 | Round | Verdict | Finding | Disposition |
 |---|---|---|---|
@@ -54,8 +56,9 @@ E2E (Task 0.E.3) seeded `lookup-inconclusive --alert-code inconclusive` + `rate-
 | R3 | needs-attention | [HIGH] `validation_seed_rate_limit` RPC did an unlocked SELECT-then-UPSERT; a concurrent live `enforceQuota` write on the same `(kind,identity,hour_bucket)` could be excluded from `snapshot_prior_count`, losing real quota state at cleanup. | FIXED `bbb11a5` — RPC takes `LOCK TABLE report_rate_limits IN SHARE ROW EXCLUSIVE MODE` (conflicts with `enforceQuota`'s ROW EXCLUSIVE INSERT), serializing snapshot+seed; applied local + validation Supabase. |
 | R3 | needs-attention | [MED] `--force-overwrite-snapshot` only checked file existence, not identity — force-re-seeding a different crew combo would strand the first combo's quota row. | FIXED `bbb11a5` — force path now reads the existing snapshot and refuses if `(kind, identity)` differs; +1 regression test. |
 | R4 | needs-attention | [HIGH] `--force-overwrite-snapshot` guarded identity but not the hour bucket; force-re-seeding after an hour rollover stranded the prior bucket's seeded row (no restore path). | FIXED `e9a26ca` — RPC `p_expected_prev_bucket` param; the harness passes the existing snapshot's bucket under force; the RPC (DB-clock authoritative) refuses cross-hour before seeding, leaving the snapshot intact for cleanup. +1 regression test. |
-| (post-R4) | structural | Same-vector recurrence (R2→R3→R4 all on the rate-limit snapshot vector). Per AGENTS.md structural-defense calibration, convergence shifts from adversarial rounds to a CI-time guard. | SHIPPED `<R4-struct SHA>` — `tests/cross-cutting/validation-seed-rate-limit-defenses.test.ts` pins the DB-side lock, cross-hour guard, service_role-only grant, clobber guard, and harness wiring so a future edit cannot silently drop them. |
-| R5 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
+| (post-R4) | structural | Same-vector recurrence (R2→R3→R4 all on the rate-limit snapshot vector). Per AGENTS.md structural-defense calibration, convergence shifts from adversarial rounds to a CI-time guard. | SHIPPED `3a34053` — `tests/cross-cutting/validation-seed-rate-limit-defenses.test.ts` pins the DB-side lock, cross-hour guard, service_role-only grant, clobber guard, and harness wiring so a future edit cannot silently drop them. |
+| R5 | needs-attention | [HIGH] the R1 admin_alerts clobber guard was a TOCTOU (preflight SELECT + later RPC); a concurrent real producer could insert between them and be overwritten/deleted — same non-atomic class as R3, on admin_alerts. | FIXED `6f0285d` — new atomic `validation_seed_admin_alert` RPC (SHARE ROW EXCLUSIVE lock → refuse-non-fixture → delegate to canonical `upsert_admin_alert`); harness writes alerts before reports (no orphan); preflight removed; structural meta-test extended to pin it. |
+| R6 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
 
 ---
 
