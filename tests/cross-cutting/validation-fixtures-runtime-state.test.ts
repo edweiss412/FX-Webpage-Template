@@ -35,30 +35,11 @@ const TODAY = new Date(`${TODAY_ISO}T12:00:00Z`);
 // venue.timezone='UTC' per the mint RPC R7-F1 contract.
 const SELECTOR_OPTIONS = { timezone: "UTC" } as const;
 
-// Canonical expected Right Now state per combo.
-// For R-combos: viewer-restriction states dominate. For SW-combos: the
-// show-wide ladder runs.
-const EXPECTED_KIND_BY_COMBO: Record<Combo, string> = {
-  // R-combos — driven by viewerDateRestriction OR the show-wide ladder
-  // when restriction.kind = none. Today is set day in most.
-  R1: "set_day",
-  R2: "set_day", // restriction includes today → falls through to ladder, today=set
-  R3: "viewer_off_day",
-  R4: "viewer_unconfirmed",
-  R5: "viewer_off_day_pre",
-  R6: "viewer_after_last_day",
-  R7a: "set_day",
-  R7b: "show_day_n", // today on showDays[last] — Strike day per R8-F1
-  R8a: "show_day_n",
-  R8b: "set_day",
-  // SW combos — drive the show-wide ladder explicitly.
-  "SW-PRE_TRAVEL": "pre_travel",
-  "SW-TRAVEL_IN": "travel_in_day",
-  "SW-SHOW_1": "show_day_n",
-  "SW-SHOW_INTERIOR": "show_day_n",
-  "SW-SHOW_LAST": "show_day_n",
-  "SW-POST_SHOW": "post_show",
-};
+// Codex Phase 0.C R18-F1 — the meta-test now consumes
+// fixture.expectedRuntimeStateKind directly instead of a parallel
+// hardcoded map. Drift between the fixture metadata and the runtime
+// selector now fails CI (the fixture's `expectedRuntimeStateKind` is
+// asserted against `selectRightNowState(...)`'s `.kind` return).
 
 const ALL_COMBOS: Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
@@ -69,22 +50,21 @@ describe("validation fixtures resolve to the expected runtime Right Now state (R
   const fixtures = buildFixtures(TODAY_ISO);
 
   for (const combo of ALL_COMBOS) {
-    test(`${combo} resolves to ${EXPECTED_KIND_BY_COMBO[combo]}`, () => {
-      const fx = fixtures.find((f) => f.combo === combo);
+    const fx = fixtures.find((f) => f.combo === combo)!;
+    test(`${combo} resolves to ${fx.expectedRuntimeStateKind}`, () => {
       expect(fx, `Missing fixture for ${combo}`).toBeDefined();
       const result = selectRightNowState(
         TODAY,
-        fx!.dates,
-        fx!.dateRestriction,
+        fx.dates,
+        fx.dateRestriction,
         SELECTOR_OPTIONS,
       );
       expect(
         result.kind,
-        `${combo}: expected runtime kind '${EXPECTED_KIND_BY_COMBO[combo]}' but selector returned '${result.kind}'. ` +
-          `Fixture dates: ${JSON.stringify(fx!.dates)}. ` +
-          `This is the R13-F1 class: check-seed predicate (o) verifies DB↔fixture parity but doesn't run the selector; ` +
-          `fixture dates that diverge from the spec's intended runtime state would silently leave a walk branch unreachable.`,
-      ).toBe(EXPECTED_KIND_BY_COMBO[combo]);
+        `${combo}: fixture.expectedRuntimeStateKind='${fx.expectedRuntimeStateKind}' but selector returned '${result.kind}'. ` +
+          `Fixture dates: ${JSON.stringify(fx.dates)}. ` +
+          `R18-F1: the meta-test reads the fixture's exported kind directly — drift between fixture metadata and selector output fails CI.`,
+      ).toBe(fx.expectedRuntimeStateKind);
     });
   }
 

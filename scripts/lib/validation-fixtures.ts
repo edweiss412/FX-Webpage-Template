@@ -130,6 +130,24 @@ export const VALIDATION_PULL_SHEET = [
   },
 ] as const;
 
+// Codex Phase 0.C R18-F1 — canonical runtime kind. Matches the
+// selectRightNowState return shape's `kind` field
+// (lib/time/rightNow.ts:55-73). The fixtures-runtime-state meta-test
+// consumes this field as its expectation; drift between FIXTURES and
+// the runtime selector now fails CI rather than silently leaving the
+// field stale. Pre-R18 used ad-hoc labels like 'viewer_assigned_today'
+// that didn't match any selector return kind.
+export type ExpectedRuntimeStateKind =
+  | "viewer_unconfirmed"
+  | "viewer_after_last_day"
+  | "viewer_off_day"
+  | "viewer_off_day_pre"
+  | "pre_travel"
+  | "travel_in_day"
+  | "set_day"
+  | "show_day_n"
+  | "post_show";
+
 export type FixtureRow = {
   combo: Combo;
   showName: string;
@@ -138,7 +156,7 @@ export type FixtureRow = {
   dateRestriction: DateRestriction;
   stageRestriction: StageRestriction;
   dates: FixtureDates;
-  expectedTodayState: string;
+  expectedRuntimeStateKind: ExpectedRuntimeStateKind;
   crewMembers: FixtureCrewMember[];
 };
 
@@ -165,7 +183,7 @@ function buildRCombo(combo: RCombo, today: string): {
   dateRestriction: DateRestriction;
   stageRestriction: StageRestriction;
   dates: FixtureDates;
-  expectedTodayState: string;
+  expectedRuntimeStateKind: ExpectedRuntimeStateKind;
 } {
   const yesterday = isoOffset(today, -1);
   const tomorrow = isoOffset(today, 1);
@@ -181,7 +199,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [today, tomorrow],
           travelOut: isoOffset(today, 2),
         },
-        expectedTodayState: "viewer_assigned_today",
+        expectedRuntimeStateKind: "set_day",
       };
     case "R2":
       // Explicit date_restriction including today.
@@ -194,7 +212,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [today, tomorrow],
           travelOut: isoOffset(today, 2),
         },
-        expectedTodayState: "viewer_assigned_today",
+        expectedRuntimeStateKind: "set_day",
       };
     case "R3":
       // Explicit date_restriction excluding today (off-day).
@@ -207,7 +225,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [yesterday, tomorrow],
           travelOut: isoOffset(today, 2),
         },
-        expectedTodayState: "viewer_off_day",
+        expectedRuntimeStateKind: "viewer_off_day",
       };
     case "R4":
       // unknown_asterisk — viewer_unconfirmed regardless of show-wide state.
@@ -220,7 +238,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [today, tomorrow],
           travelOut: isoOffset(today, 2),
         },
-        expectedTodayState: "viewer_unconfirmed",
+        expectedRuntimeStateKind: "viewer_unconfirmed",
       };
     case "R5":
       // Today before first assigned day (pre-show).
@@ -236,7 +254,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [isoOffset(today, 3), isoOffset(today, 4)],
           travelOut: isoOffset(today, 5),
         },
-        expectedTodayState: "viewer_off_day_pre",
+        expectedRuntimeStateKind: "viewer_off_day_pre",
       };
     case "R6":
       // Today after last assigned day (post-show).
@@ -252,7 +270,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [isoOffset(today, -4), isoOffset(today, -3)],
           travelOut: isoOffset(today, -2),
         },
-        expectedTodayState: "viewer_after_last_day",
+        expectedRuntimeStateKind: "viewer_after_last_day",
       };
     case "R7a":
       // No date restriction; stage=Load In/Set; today=set day.
@@ -265,7 +283,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [today, tomorrow],
           travelOut: isoOffset(today, 2),
         },
-        expectedTodayState: "viewer_assigned_today",
+        expectedRuntimeStateKind: "set_day",
       };
     case "R7b":
       // No date restriction; stage=Load In/Set; today=strike day.
@@ -281,7 +299,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [isoOffset(today, -2), isoOffset(today, -1), today],
           travelOut: isoOffset(today, 1),
         },
-        expectedTodayState: "viewer_assigned_today",
+        expectedRuntimeStateKind: "show_day_n",
       };
     case "R8a":
       // No date restriction; stage=Load Out/Strike; today=strike day.
@@ -298,7 +316,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [isoOffset(today, -2), isoOffset(today, -1), today],
           travelOut: isoOffset(today, 1),
         },
-        expectedTodayState: "viewer_assigned_today",
+        expectedRuntimeStateKind: "show_day_n",
       };
     case "R8b":
       // No date restriction; stage=Load Out/Strike; today=set day.
@@ -314,7 +332,7 @@ function buildRCombo(combo: RCombo, today: string): {
           showDays: [today, tomorrow],
           travelOut: isoOffset(today, 2),
         },
-        expectedTodayState: "viewer_assigned_today",
+        expectedRuntimeStateKind: "set_day",
       };
   }
 }
@@ -323,7 +341,7 @@ function buildSWCombo(combo: SWCombo, today: string): {
   dateRestriction: DateRestriction;
   stageRestriction: StageRestriction;
   dates: FixtureDates;
-  expectedTodayState: string;
+  expectedRuntimeStateKind: ExpectedRuntimeStateKind;
 } {
   // SW combos exercise show-wide state transitions. The dates anchor today
   // at the targeted show-wide phase; date_restriction + stage_restriction
@@ -339,7 +357,7 @@ function buildSWCombo(combo: SWCombo, today: string): {
           showDays: [isoOffset(today, 4), isoOffset(today, 5)],
           travelOut: isoOffset(today, 6),
         },
-        expectedTodayState: "show_pre_travel",
+        expectedRuntimeStateKind: "pre_travel",
       };
     case "SW-TRAVEL_IN":
       return {
@@ -351,7 +369,7 @@ function buildSWCombo(combo: SWCombo, today: string): {
           showDays: [isoOffset(today, 1), isoOffset(today, 2)],
           travelOut: isoOffset(today, 3),
         },
-        expectedTodayState: "show_travel_in",
+        expectedRuntimeStateKind: "travel_in_day",
       };
     case "SW-SHOW_1":
       // Codex Phase 0.C R13-F1 — set day MUST be before today so the
@@ -370,7 +388,7 @@ function buildSWCombo(combo: SWCombo, today: string): {
           showDays: [today, isoOffset(today, 1), isoOffset(today, 2)],
           travelOut: isoOffset(today, 3),
         },
-        expectedTodayState: "show_day_1",
+        expectedRuntimeStateKind: "show_day_n",
       };
     case "SW-SHOW_INTERIOR":
       return {
@@ -386,7 +404,7 @@ function buildSWCombo(combo: SWCombo, today: string): {
           ],
           travelOut: isoOffset(today, 2),
         },
-        expectedTodayState: "show_day_interior",
+        expectedRuntimeStateKind: "show_day_n",
       };
     case "SW-SHOW_LAST":
       return {
@@ -398,7 +416,7 @@ function buildSWCombo(combo: SWCombo, today: string): {
           showDays: [isoOffset(today, -2), isoOffset(today, -1), today],
           travelOut: isoOffset(today, 1),
         },
-        expectedTodayState: "show_day_last",
+        expectedRuntimeStateKind: "show_day_n",
       };
     case "SW-POST_SHOW":
       return {
@@ -410,7 +428,7 @@ function buildSWCombo(combo: SWCombo, today: string): {
           showDays: [isoOffset(today, -4), isoOffset(today, -3)],
           travelOut: isoOffset(today, -2),
         },
-        expectedTodayState: "show_post_show",
+        expectedRuntimeStateKind: "post_show",
       };
   }
 }
@@ -436,7 +454,7 @@ export function buildFixtures(today: string): FixtureRow[] {
   const out: FixtureRow[] = [];
 
   for (const combo of R_COMBOS) {
-    const { dateRestriction, stageRestriction, dates, expectedTodayState } =
+    const { dateRestriction, stageRestriction, dates, expectedRuntimeStateKind } =
       buildRCombo(combo, today);
     out.push({
       combo,
@@ -446,7 +464,7 @@ export function buildFixtures(today: string): FixtureRow[] {
       dateRestriction,
       stageRestriction,
       dates,
-      expectedTodayState,
+      expectedRuntimeStateKind,
       crewMembers: ROLE_VARIANT_ALIASES.map(({ alias, roleFlags }) => {
         // R1.alias_5a_lead is the J3-claim email exception (canonicalized).
         // Every other alias uses the synthesized example.com format.
@@ -465,7 +483,7 @@ export function buildFixtures(today: string): FixtureRow[] {
   }
 
   for (const combo of SW_COMBOS) {
-    const { dateRestriction, stageRestriction, dates, expectedTodayState } =
+    const { dateRestriction, stageRestriction, dates, expectedRuntimeStateKind } =
       buildSWCombo(combo, today);
     out.push({
       combo,
@@ -477,7 +495,7 @@ export function buildFixtures(today: string): FixtureRow[] {
       dateRestriction,
       stageRestriction,
       dates,
-      expectedTodayState,
+      expectedRuntimeStateKind,
       crewMembers: [
         {
           alias: "alias_5a_lead",
