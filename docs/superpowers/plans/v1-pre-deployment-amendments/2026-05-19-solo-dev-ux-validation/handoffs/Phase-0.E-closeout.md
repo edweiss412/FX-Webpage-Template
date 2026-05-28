@@ -87,7 +87,7 @@ R2 (bucket clock) + R3 (seed race) + R4 (force cross-hour) all landed on the rat
 
 ## 5. Real-CI
 
-X audits workflow run `26552971387` (commit `c919b37`) — **success**. The full vitest suite is not a CI workflow on this repo (only `x-audits.yml` + `pages-build-deployment` run on push, per Phase 0.C precedent); local full-suite gate: **4216 passed / 5 skipped / 0 failed**. `<re-confirm CI on final HEAD after R2 APPROVE>`
+X audits workflow run `26560689550` (commit `8212d2b`, the closeout-finalize commit) — **success**. Intermediate pushes also green (e.g. `26559566270` on the R13 chain). The full vitest suite is not a CI workflow on this repo (only `x-audits.yml` + `pages-build-deployment` run on push, per Phase 0.C precedent); local full-suite gate at HEAD: **4244 passed / 5 skipped / 0 failed** (incl. ~63 Phase 0.E assertions across the harness, rendering, and structural-defense suites).
 
 ---
 
