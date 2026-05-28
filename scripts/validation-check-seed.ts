@@ -351,7 +351,18 @@ async function runChecks(
     venue: Record<string, unknown> | null;
     pull_sheet: unknown[] | null;
   };
-  const shows = (showsRes.data ?? []) as ShowRow[];
+  // Codex Phase 0.C R15-F2 — client-side filter to LITERAL 'validation_'
+  // prefix. PostgREST `.like('drive_file_id', 'validation_%')` treats the
+  // `_` as a SQL wildcard (any single char), so non-validation rows like
+  // 'validationX123' would slip through. The finalizer's prune uses
+  // LIKE 'validation\_%' ESCAPE '\' (literal underscore) — namespace
+  // definitions must match across the read-side (check-seed) and the
+  // cleanup-side (finalizer), or check-seed would permanently fail on
+  // data outside the validation namespace that the finalizer can never
+  // remove.
+  const shows = ((showsRes.data ?? []) as ShowRow[]).filter((s) =>
+    s.drive_file_id.startsWith("validation_"),
+  );
   for (const s of shows) {
     // R19 F18 — UPPERCASE combo enum verbatim; resolve 'validation_<C>' → <C>.
     const combo = s.drive_file_id.replace(/^validation_/, "") as Combo;

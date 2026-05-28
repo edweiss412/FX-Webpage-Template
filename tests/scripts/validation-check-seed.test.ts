@@ -343,6 +343,26 @@ describe("validation-check-seed", () => {
     expect(res.stderr).toMatch(/email drifted/);
   });
 
+  test("R15-F2 (Codex Phase 0.C R15) — non-validation row 'validationX123' must NOT be treated as a validation show", () => {
+    // PostgREST `.like('drive_file_id', 'validation_%')` uses SQL LIKE
+    // where `_` is a single-char wildcard, so 'validationX123' matches
+    // server-side. Without R15-F2's client-side startsWith('validation_')
+    // filter, check-seed would treat this as a stale validation show and
+    // fail predicate (n) — but the finalizer's escaped LIKE wouldn't
+    // delete it, blocking the gate permanently.
+    mintCombo("R1");
+    runPsql(`
+      INSERT INTO public.shows (drive_file_id, slug, title, client_label, template_version, dates, archived, published)
+      VALUES ('validationX123', 'validationX123', 'Adjacent Show (not validation)', 'Test', 'v4', '{}'::jsonb, false, true);
+    `);
+    const res = runCheckSeed("R1");
+    // R15-F2 fix: check-seed should NOT classify validationX123 as a
+    // validation show. predicate (n) should not fire on it. With combo R1,
+    // a successful run requires no orphan validation rows.
+    expect(res.code).toBe(0);
+    runPsql(`DELETE FROM public.shows WHERE drive_file_id = 'validationX123';`);
+  });
+
   test("R9-F1 (Codex Phase 0.C R9) — exits 1 when alias_map contains a stale top-level combo key", () => {
     mintCombo("R1");
     // Inject a stale alias_map key simulating a retired-from-spec combo

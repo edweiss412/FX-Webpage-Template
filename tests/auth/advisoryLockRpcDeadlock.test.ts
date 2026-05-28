@@ -19,6 +19,9 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260524000002_claim_oauth_identity.sql",
     // M12 Phase 0.C Task 0.C.4 — validation tooling mint RPC.
     "supabase/migrations/20260527210000_mint_validation_fixture_atomic.sql",
+    // M12 Phase 0.C Codex R15-F1 — finalize RPC acquires per-show
+    // advisory locks before DELETE during stale-show pruning.
+    "supabase/migrations/20260527210001_validation_finalize_all_atomic.sql",
   ];
 
   const names = new Set<string>();
@@ -48,6 +51,9 @@ describe("advisory-lock RPC deadlock guard", () => {
     // M12 Phase 0.C Task 0.C.4 — validation reseed mint RPC is the sole
     // holder of the per-show advisory lock for validation_<combo> shows.
     expect(lockTakingNames).toContain("mint_validation_fixture_atomic");
+    // M12 Phase 0.C Codex R15-F1 — finalize RPC also acquires per-show
+    // locks before DELETEing stale validation shows during prune.
+    expect(lockTakingNames).toContain("validation_finalize_all_atomic");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
