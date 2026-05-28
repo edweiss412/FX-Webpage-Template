@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   asParseResult,
+  coerceJsonbArray,
   coerceJsonbObject,
   JsonbCoercionError,
 } from "@/lib/db/coerceJsonbObject";
@@ -54,6 +55,35 @@ describe("coerceJsonbObject", () => {
 
   test("throws a typed JsonbCoercionError on a number", () => {
     expect(() => coerceJsonbObject(42)).toThrow(JsonbCoercionError);
+  });
+});
+
+describe("coerceJsonbArray", () => {
+  test("returns a real array unchanged", () => {
+    const arr = [{ a: 1 }];
+    expect(coerceJsonbArray(arr)).toBe(arr);
+  });
+
+  test("decodes a JSON-string-of-array (legacy double-encoded jsonb scalar)", () => {
+    // The reviewer_choices legacy shape: postgres.js returns the scalar as a string.
+    expect(coerceJsonbArray(JSON.stringify([{ a: 1 }]))).toEqual([{ a: 1 }]);
+  });
+
+  test("null and undefined are legitimately empty (not corrupt)", () => {
+    expect(coerceJsonbArray(null)).toEqual([]);
+    expect(coerceJsonbArray(undefined)).toEqual([]);
+  });
+
+  test("throws a typed JsonbCoercionError on a JSON-string-of-object (not an array)", () => {
+    expect(() => coerceJsonbArray(JSON.stringify({ a: 1 }))).toThrow(JsonbCoercionError);
+  });
+
+  test("throws a typed JsonbCoercionError on a non-array object", () => {
+    expect(() => coerceJsonbArray({ a: 1 })).toThrow(JsonbCoercionError);
+  });
+
+  test("throws a typed JsonbCoercionError on an unparseable string", () => {
+    expect(() => coerceJsonbArray("{not json")).toThrow(JsonbCoercionError);
   });
 });
 

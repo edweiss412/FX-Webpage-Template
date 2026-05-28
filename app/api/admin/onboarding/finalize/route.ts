@@ -6,7 +6,7 @@ import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult } from "@/lib/parser/types";
 import { insertFirstSeenShowWithSlugRetry } from "@/lib/sync/runScheduledCronSync";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
-import { asParseResult } from "@/lib/db/coerceJsonbObject";
+import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 const BATCH_CAP = 100;
@@ -578,7 +578,15 @@ async function processApprovedRow(input: {
   // 3). asParseResult tolerates BOTH a real object and a JSON-string-of-object,
   // and throws a TYPED error on genuinely-corrupt data (caught by the
   // never-empty-500 wrapper around the publish loop).
-  const coercedRow = { ...row, parse_result: asParseResult(row.parse_result) };
+  // Coerce parse_result AND wizard_reviewer_choices: a row approved before the
+  // double-encode fix carries each as a legacy jsonb STRING SCALAR. Passing the
+  // raw scalar to a `$N::jsonb` audit/shadow param would re-store the corruption
+  // permanently. coerceJsonbArray decodes the legacy string-of-array.
+  const coercedRow = {
+    ...row,
+    parse_result: asParseResult(row.parse_result),
+    wizard_reviewer_choices: coerceJsonbArray(row.wizard_reviewer_choices),
+  };
 
   if (await showExists(tx, row.drive_file_id)) {
     await stageExistingShowShadow(tx, wizardSessionId, coercedRow);

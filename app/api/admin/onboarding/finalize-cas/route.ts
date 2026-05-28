@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
 import { canonicalize } from "@/lib/email/canonicalize";
-import { asParseResult } from "@/lib/db/coerceJsonbObject";
+import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
 import type { ParseResult } from "@/lib/parser/types";
 
 const OK_CODE = "OK" as const;
@@ -326,7 +326,9 @@ async function insertShadowAudit(tx: FinalizeCasRouteTx, row: ShadowRow): Promis
       row.drive_file_id,
       canonicalize(row.applied_by_email),
       row.payload.staged_id ?? null,
-      row.payload.reviewer_choices ?? [],
+      // Coerce a legacy double-encoded reviewer_choices scalar to an array so it
+      // is not re-stored raw into sync_audit.reviewer_choices ($5::jsonb).
+      coerceJsonbArray(row.payload.reviewer_choices),
       row.payload.parse_result ? asParseResult(row.payload.parse_result).show.title : null,
       row.payload.staged_modified_time ?? null,
     ],
@@ -482,10 +484,24 @@ export async function handleOnboardingFinalizeCas(
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
 
-  const result = await deps.withTx((tx) => runFinalizeCas(tx, deps));
-  if (result instanceof Response) return result;
-  await deps.subscribeToWatchedFolder(result.watched_folder_id);
-  return NextResponse.json(result);
+  try {
+    const result = await deps.withTx((tx) => runFinalizeCas(tx, deps));
+    if (result instanceof Response) return result;
+    await deps.subscribeToWatchedFolder(result.watched_folder_id);
+    return NextResponse.json(result);
+  } catch (error) {
+    // Never leak an empty 500: the final-CAS step coerces parse_result /
+    // reviewer_choices (which can throw a typed JsonbCoercionError on genuinely
+    // corrupt data) and runs DB work that may fault. Any unexpected throw
+    // becomes a typed JSON error + console.error, mirroring handleOnboardingFinalize.
+    console.error(
+      `onboarding finalize-cas: unexpected failure: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error,
+    );
+    return errorResponse(500, "ONBOARDING_FINALIZE_INTERNAL_ERROR");
+  }
 }
 
 export async function POST(request: Request): Promise<Response> {

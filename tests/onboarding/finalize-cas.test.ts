@@ -427,4 +427,31 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       unresolved_manifest_count: 1,
     });
   });
+
+  test("never returns an empty 500 — an unexpected throw becomes a typed JSON error + console.error", async () => {
+    // finalize-cas coerces parse_result / reviewer_choices (which can throw a
+    // typed JsonbCoercionError on a genuinely-corrupt legacy shadow payload) and
+    // runs DB work that may fault. Without the wrapper that throw escaped the
+    // route → Next returned an empty 500 body → the client's response.json()
+    // failed with "Unexpected end of JSON input" (the M12 Phase 0.F smoke-3 class,
+    // Codex R1 HIGH: the wrapper existed on /finalize but not on /finalize-cas).
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = new FakeFinalizeCasDb();
+    const response = await handleOnboardingFinalizeCas(request(), {
+      requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
+      withTx: async () => {
+        throw new Error("kaboom: simulated unexpected finalize-cas failure");
+      },
+      withRowTx: async (_driveFileId, fn) => fn(db),
+      subscribeToWatchedFolder: vi.fn(async () => undefined),
+    });
+    expect(response.status).toBe(500);
+    // Would itself throw on an empty body — that is the regression.
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
+    });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
 });

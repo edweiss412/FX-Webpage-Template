@@ -55,6 +55,31 @@ export function coerceJsonbObject<T = Record<string, unknown>>(
 }
 
 /**
+ * The array peer of {@link coerceJsonbObject}, for jsonb columns that must be an
+ * ARRAY read through postgres.js (e.g. `wizard_reviewer_choices`). A legacy
+ * double-encoded row comes back as a JSON-string-of-array scalar; this decodes
+ * it once. `null`/`undefined` are legitimately empty (the callers already treat
+ * a missing value as `[]`). Anything else (object, scalar, unparseable) becomes
+ * a typed `JsonbCoercionError` — so a legacy scalar is never re-written raw into
+ * a `$N::jsonb` audit column, preserving the corruption.
+ */
+export function coerceJsonbArray<T = unknown>(value: unknown, label = "jsonb array"): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value === null || value === undefined) return [];
+  if (typeof value === "string") {
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(value);
+    } catch {
+      throw new JsonbCoercionError(`${label} is an unparseable JSON string`);
+    }
+    if (Array.isArray(decoded)) return decoded as T[];
+    throw new JsonbCoercionError(`${label} decoded to a non-array (${typeof decoded})`);
+  }
+  throw new JsonbCoercionError(`${label} is ${typeof value} (expected an array)`);
+}
+
+/**
  * `parse_result`-specific coercer. Additionally asserts `.show` is an object so
  * the exact production `TypeError` (`parseResult.show.title` on a string) is
  * converted into a typed error at the read boundary, not deep in the publish SQL.

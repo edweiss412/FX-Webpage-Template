@@ -255,7 +255,10 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
   test.skipIf(!dbUp)(
     "real finalize STILL publishes a legacy DOUBLE-ENCODED parse_result row (read coercer decodes the string scalar)",
     async () => {
-      // Simulate a row written by the OLD buggy writer: a jsonb string scalar.
+      // Simulate a row written by the OLD buggy writer: BOTH parse_result and
+      // wizard_reviewer_choices stored as jsonb STRING SCALARS (Codex R1 MEDIUM —
+      // legacy reviewer_choices must be decoded, not re-stored raw into the audit).
+      const REVIEWER_CHOICES = [{ id: "rc1", invariant: "MI-8", choice: "apply" }];
       await sql!.unsafe(
         `insert into public.pending_syncs
            (drive_file_id, staged_modified_time, parse_result, triggered_review_items,
@@ -263,19 +266,28 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
             wizard_approved, wizard_reviewer_choices, wizard_reviewer_choices_version,
             wizard_approved_by_email, wizard_approved_at)
          values ($1, $2::timestamptz, $3::jsonb, '[]'::jsonb, 'onboarding_scan', '', $4::uuid,
-                 true, '[]'::jsonb, 1, 'doug@example.com', now())`,
+                 true, $5::jsonb, 1, 'doug@example.com', now())`,
         // A single JSON.stringify passed as a postgres.js `$N::jsonb` param is
         // exactly what the OLD buggy writer did — postgres.js then serializes
         // the string a SECOND time, producing a jsonb STRING SCALAR whose text
-        // is the object JSON. That is the legacy corruption sitting in prod.
-        [DRIVE_FILE_ID, STAGED_INSTANT, JSON.stringify(PARSE_RESULT), SESSION],
+        // is the object/array JSON. That is the legacy corruption sitting in prod.
+        [
+          DRIVE_FILE_ID,
+          STAGED_INSTANT,
+          JSON.stringify(PARSE_RESULT),
+          SESSION,
+          JSON.stringify(REVIEWER_CHOICES),
+        ],
       );
-      // Confirm the seed really is a string scalar (guards the test itself).
+      // Confirm both seeds really are string scalars (guards the test itself).
       const seed = await sql!.unsafe(
-        `select jsonb_typeof(parse_result) as t from public.pending_syncs where drive_file_id = $1`,
+        `select jsonb_typeof(parse_result) as pr, jsonb_typeof(wizard_reviewer_choices) as rc
+           from public.pending_syncs where drive_file_id = $1`,
         [DRIVE_FILE_ID],
       );
-      expect(first<{ t: string }>(seed).t).toBe("string");
+      const seedRow = first<{ pr: string; rc: string }>(seed);
+      expect(seedRow.pr).toBe("string");
+      expect(seedRow.rc).toBe("string");
 
       const response = await handleOnboardingFinalize(
         new Request("https://crew.fxav.test/api/admin/onboarding/finalize", { method: "POST" }),
@@ -290,6 +302,18 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
         [DRIVE_FILE_ID],
       );
       expect(first<{ title: string }>(showRows).title).toBe(TITLE);
+
+      // The audit row must store reviewer_choices as a proper jsonb ARRAY, not a
+      // re-encoded string scalar (the legacy corruption decoded by coerceJsonbArray).
+      const auditRows = await sql!.unsafe(
+        `select jsonb_typeof(reviewer_choices) as rc_type,
+                jsonb_array_length(reviewer_choices) as rc_len
+           from public.sync_audit where drive_file_id = $1`,
+        [DRIVE_FILE_ID],
+      );
+      const audit = first<{ rc_type: string; rc_len: number }>(auditRows);
+      expect(audit.rc_type).toBe("array");
+      expect(audit.rc_len).toBe(1);
     },
   );
 });
