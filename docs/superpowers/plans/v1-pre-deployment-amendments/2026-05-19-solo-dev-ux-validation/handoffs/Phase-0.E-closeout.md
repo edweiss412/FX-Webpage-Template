@@ -6,7 +6,7 @@
 
 ## 1. Final HEAD + commit chain
 
-**HEAD:** `<PENDING — final SHA after adversarial APPROVE>` on `main`.
+**HEAD:** `a9253ec` on `main` (33 commits past the Phase 0.C base `3bdf8e2`: 5 implementation/self-review + 15 adversarial-repair rounds + 1 structural-defense + closeout updates).
 
 Implementation + repair chain (base `3bdf8e2` = Phase 0.C close-out):
 
@@ -44,7 +44,7 @@ E2E (Task 0.E.3) seeded `lookup-inconclusive --alert-code inconclusive` + `rate-
 
 ## 4. Adversarial review verdict + triage
 
-**Rounds:** R1 (1 HIGH) → R2 (1 HIGH + 1 MED) → R3 (1 HIGH + 1 MED) → R4 (1 HIGH) → structural-defense ship → R5 (1 HIGH) → R6 `<PENDING>`.
+**Rounds: 16 total — R1–R15 needs-attention (all fixed + hosted-verified), R16 APPROVE.** R1 (1H) → R2 (1H+1M) → R3 (1H+1M) → R4 (1H) → struct-defense → R5 (1H) → R6 (1H) → R7 (2H) → R8 (1M) → R9 (1H) → R10 (1H) → R11 (1H+1M) → R12 (1M) → R13 (1M) → R14 (1M) → R15 (1M) → **R16 APPROVE**. The severity/scope trend declined steadily: the early rounds (R1–R7) closed the load-bearing concurrency/durability/fidelity meta-classes on the snapshot+seed vector; the later rounds (R8–R15) were single MED/HIGH polish on cleanup-path guards, ownership sentinels, and banner ordering.
 
 **Convergence note:** R1/R3/R5 are one meta-class — non-atomic *check-then-act* (or unlocked snapshot) on a producer-table row a concurrent live writer can mutate. Each was closed by moving the check+write DB-side under a `SHARE ROW EXCLUSIVE` lock: `validation_seed_rate_limit` (rate-limit; R3/R4) and `validation_seed_admin_alert` (admin_alerts; R5). `reports` is immune (fresh unique `idempotency_key` per seed — INSERT can't coalesce/overwrite). The class is now closed across all three producer tables and pinned by the structural meta-test.
 
@@ -68,7 +68,7 @@ E2E (Task 0.E.3) seeded `lookup-inconclusive --alert-code inconclusive` + `rate-
 | R13 | needs-attention | [MED] `forceCleanupWithoutSnapshot` reported success without checking the deleted-row count — a typo'd bucket / empty crew-id deleted zero rows but printed "deleted". | FIXED `7bfe5be` — delete requests `count:"exact"`; fails on zero-match with a diagnostic; reports the real count; rejects empty `--include-crew-id` on the force path. +1 regression test. |
 | R14 | needs-attention | [MED] horizon-expired fixture left `processing_lease_until` NULL; the §13.2.3 reaper (8.3f) only reaps rows where `processing_lease_until < now()`, so the fixture was non-reapable/unrepresentative of a real 25h-old stale report. | FIXED `7ca9749` — `processing_lease_until = created_at + 90s` (expired, matches the reaper predicate); +reaper-predicate assertion. |
 | R15 | needs-attention | [MED] bot-login dual-write set both alerts' `raised_at=now()` in one txn (transaction-scoped → tie); AlertBanner's `raised_at DESC LIMIT 1` then rendered a nondeterministic alert. | FIXED `949a2b3` — stagger `raised_at` (global = now()-1s, show-scoped = now()) so the show-scoped `REPORT_LOOKUP_INCONCLUSIVE` is deterministically topmost, matching production's separate-autocommit write order. +ordering assertion. |
-| R16 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
+| R16 | **APPROVE** | No ship-blocking defect found in the full diff (harness + RPC migrations + cleanup/restore + rendering predicates re-reviewed; no new material finding). | — converged. |
 
 ---
 
