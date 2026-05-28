@@ -156,6 +156,10 @@ Required environment variables (§9.1.2):
 
 type LooseSupabaseClient = {
   from: (table: string) => any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  rpc: (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
 };
 
 type Snapshot = {
@@ -321,19 +325,28 @@ async function insertReportRow(
   return (data as { id: string }).id;
 }
 
-async function insertAdminAlert(
+// Writes admin_alerts through the canonical upsert_admin_alert RPC
+// (supabase/migrations/20260505000000_*.sql) — the single sanctioned
+// admin_alert producer per the _metaAdminAlertProducer contract. The RPC is
+// SECURITY DEFINER + granted to service_role and performs the same
+// ON CONFLICT (coalesce(show_id::text,''), code) WHERE resolved_at IS NULL
+// upsert the live report pipeline uses, so the materialized row is shape-
+// identical to production.
+async function upsertAdminAlertRow(
   supabase: LooseSupabaseClient,
-  row: Record<string, unknown>,
+  showId: string | null,
+  code: string,
+  context: Record<string, unknown>,
 ): Promise<string> {
-  const { data, error } = await supabase
-    .from("admin_alerts")
-    .insert(row)
-    .select("id")
-    .single();
+  const { data, error } = await supabase.rpc("upsert_admin_alert", {
+    p_show_id: showId,
+    p_code: code,
+    p_context: context,
+  });
   if (error) {
-    fail(`admin_alerts INSERT failed: ${error.message ?? JSON.stringify(error)}`);
+    fail(`upsert_admin_alert RPC failed: ${error.message ?? JSON.stringify(error)}`);
   }
-  return (data as { id: string }).id;
+  return data as string;
 }
 
 async function seedRateLimit(
@@ -808,15 +821,11 @@ async function main(): Promise<void> {
       });
       // (ii) admin_alerts row, code resolved per --alert-code selector.
       const code = ALERT_CODE_VARIANTS[alertCodeVariant];
-      const alertId = await insertAdminAlert(supabase, {
-        show_id: showId,
-        code,
-        context: {
-          idempotency_key: idempotencyKey,
-          reason: "lookup_inconclusive_fixture",
-          code: alertCodeSourceEnum(alertCodeVariant),
-          validation_tag: tag("lookup-inconclusive"),
-        },
+      const alertId = await upsertAdminAlertRow(supabase, showId, code, {
+        idempotency_key: idempotencyKey,
+        reason: "lookup_inconclusive_fixture",
+        code: alertCodeSourceEnum(alertCodeVariant),
+        validation_tag: tag("lookup-inconclusive"),
       });
       process.stdout.write(
         `materialized lookup-inconclusive report row ${reportId} + admin_alerts row ${alertId} ` +
@@ -826,10 +835,11 @@ async function main(): Promise<void> {
     }
     case "orphaned-lost-lease": {
       const orphanIssueNumber = Math.floor(Math.random() * 9000) + 1000;
-      const alertId = await insertAdminAlert(supabase, {
-        show_id: showId,
-        code: "REPORT_ORPHANED_LOST_LEASE",
-        context: {
+      const alertId = await upsertAdminAlertRow(
+        supabase,
+        showId,
+        "REPORT_ORPHANED_LOST_LEASE",
+        {
           idempotency_key: idempotencyKey,
           orphan_url: `https://github.com/fxav-validation/fixtures/issues/${orphanIssueNumber}`,
           orphan_issue_number: orphanIssueNumber,
@@ -840,7 +850,7 @@ async function main(): Promise<void> {
           orphan_close_error: null,
           validation_tag: tag("orphaned-lost-lease"),
         },
-      });
+      );
       process.stdout.write(
         `materialized orphaned-lost-lease admin_alerts row ${alertId} ` +
           `(idempotency_key=${idempotencyKey}, show_id=${showId})\n`,

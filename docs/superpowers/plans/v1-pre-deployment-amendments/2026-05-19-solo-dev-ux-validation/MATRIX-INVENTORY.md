@@ -26,11 +26,13 @@ Per master spec §13.2.3 amendments + plan `04-phase0-tooling-report.md` Task 0.
 
 ### Disposition sum (Phase 0.E.1 entry-condition)
 
+The canonical contract for these outcomes' env-var dependencies (notably `VALIDATION_ADMIN_EMAIL` for the rate-limit-admin identity) lives at **spec §9.1.2** and the **handoff §9 R31 producer map**; the rows below are a disposition summary, not a second contract source.
+
 - **Deep outcomes** (lookup-inconclusive / lease-expired / horizon-expired / orphaned-lost-lease): **4 of 4 INCLUDED-via-harness**.
-- Surface outcomes (success-admin / success-crew / in-flight / rate-limit-admin / rate-limit-crew): **5 of 5 INCLUDED-via-harness**.
+- Surface outcomes (success-admin / success-crew / in-flight / rate-limit-admin / rate-limit-crew): **5 of 5 INCLUDED-via-harness** (rate-limit-admin's identity = `canonicalize($VALIDATION_ADMIN_EMAIL)` per spec §9.1.2).
 - **Total: 9 of 9 INCLUDED-via-harness** → Phase 0.E.1–0.E.3 PROCEED. The harness MUST ship.
 
-EXCLUDED-rely-on-structural was considered for the surface outcomes (F.1–F.5) since their happy-path / quota-deny paths already have unit-test coverage. Rejected: per AGENTS.md `feedback_mocked_only_tests_invite_tautological_approve`, unit tests on `submitReport` and `enforceQuota` observe what the test author thought the surface requires, not what the rendered UI requires. The validation harness's value is wiring the solo dev's eyes onto the rendered modal/banner with a real Supabase round-trip — that's a different surface than the unit-test contract pin, and no existing test covers it.
+EXCLUDED-rely-on-structural was considered for the surface outcomes (F.1–F.5) since their happy-path / quota-deny paths already have unit-test coverage (`VALIDATION_ADMIN_EMAIL` contract per spec §9.1.2). Rejected: per AGENTS.md `feedback_mocked_only_tests_invite_tautological_approve`, unit tests on `submitReport` and `enforceQuota` observe what the test author thought the surface requires, not what the rendered UI requires. The validation harness's value is wiring the solo dev's eyes onto the rendered modal/banner with a real Supabase round-trip — that's a different surface than the unit-test contract pin, and no existing test covers it.
 
 ---
 
