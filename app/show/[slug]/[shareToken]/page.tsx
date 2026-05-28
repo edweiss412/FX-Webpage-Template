@@ -32,10 +32,10 @@
  * is wrapped in try/catch and routed to <TerminalFailure> on failure;
  * the page never throws an uncaught error into Next's generic boundary.
  */
-import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { TerminalFailure } from "@/components/auth/TerminalFailure";
+import { buildShowPageChainRequest } from "@/lib/auth/picker/showPageChainRequest";
 import { resolveShowPageAccess } from "@/lib/auth/picker/resolveShowPageAccess";
 import { getShowForViewer, type Viewer } from "@/lib/data/getShowForViewer";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -63,21 +63,6 @@ async function loadRoster(showId: string): Promise<RosterRow[]> {
   return (data ?? []) as RosterRow[];
 }
 
-/**
- * Build a synthetic Request whose `headers.cookie` carries the live
- * cookie store, so `resolveShowPageAccess` can read the picker cookie
- * and dispatch the chain. Mirrors the discipline of the legacy
- * slug-only page route (`app/show/[slug]/page.tsx:146`).
- */
-async function buildRequestForChain(): Promise<Request> {
-  const h = await headers();
-  const cookieHeader = h.get("cookie") ?? "";
-  const path = h.get("x-pathname") ?? "/";
-  return new Request(`http://internal${path}`, {
-    headers: { cookie: cookieHeader },
-  });
-}
-
 export default async function ShowPage({
   params,
   searchParams,
@@ -89,7 +74,7 @@ export default async function ShowPage({
   const { gate } = await searchParams;
   const gateSkip = gate === "skip";
 
-  const req = await buildRequestForChain();
+  const req = await buildShowPageChainRequest();
   const result = await resolveShowPageAccess({ slug, shareToken, req });
 
   switch (result.kind) {
