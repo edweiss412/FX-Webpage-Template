@@ -152,6 +152,12 @@ export const SPEC_CODES = {
     "followUp": null,
     "helpfulContext": null,
   },
+  "CREW_LINK_UNAVAILABLE": {
+    "crewFacing": "This link isn't available. If you had a working link, it may have been reset. Ask Doug for the current link.",
+    "dougFacing": null,
+    "followUp": "Crew → text Doug for the current link",
+    "helpfulContext": null,
+  },
   "DAY_RESTRICTION_DOUBLE_LOCATION": {
     "crewFacing": null,
     "dougFacing": "_<crew-name>_ has day restrictions written in both the name and role cells. We're using the role-cell version. Remove one copy so the schedule stays clear.",

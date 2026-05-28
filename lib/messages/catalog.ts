@@ -1687,6 +1687,17 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  CREW_LINK_UNAVAILABLE: {
+    code: "CREW_LINK_UNAVAILABLE",
+    dougFacing: null,
+    crewFacing:
+      "This link isn't available. If you had a working link, it may have been reset. Ask Doug for the current link.",
+    followUp: "Crew → text Doug for the current link",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   PICKER_INVALID_INPUT: {
     code: "PICKER_INVALID_INPUT",
     dougFacing: "A picker selection form submitted invalid input. The request was rejected before any cookie was written.",
