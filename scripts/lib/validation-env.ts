@@ -46,15 +46,39 @@ function parseDotenv(body: string): Record<string, string> {
 export function loadValidationEnv(): void {
   if (loaded) return;
   loaded = true;
+  // R16-F1 test escape hatch — when VALIDATION_ENV_SKIP_LOCAL_FILE=1
+  // is set, skip the .env.local read entirely. Used by the test suite
+  // to supply VALIDATION_* values via parent-process env without the
+  // production override semantics. This flag is explicit (not "secret")
+  // because Codex R16-F1 specifically called out that test behavior
+  // should not silently soften the production loader contract.
+  if (process.env.VALIDATION_ENV_SKIP_LOCAL_FILE === "1") return;
   const path = join(process.cwd(), ".env.local");
   if (!existsSync(path)) return;
   const parsed = parseDotenv(readFileSync(path, "utf8"));
   for (const [key, value] of Object.entries(parsed)) {
-    // Don't override pre-existing process.env (env exported in shell
-    // wins — same as @next/env). Especially important for test scenarios
-    // where the parent shell intentionally sets VALIDATION_* values that
-    // should propagate through tsx into the script.
-    if (process.env[key] === undefined) {
+    // Codex Phase 0.C R16-F1 (CRITICAL) — .env.local is AUTHORITATIVE
+    // over inherited process.env for VALIDATION_* keys. A developer
+    // shell, direnv, CI env, or prior dotenv export could set
+    // VALIDATION_SUPABASE_URL/PROJECT_REF/SECRET_KEY for a different
+    // hosted project; if those inherited values were left to win, the
+    // URL/ref binding guard would still pass (both consistent with each
+    // other, just for the WRONG target) and validation:reseed would
+    // mutate the wrong Supabase project with the service-role key.
+    //
+    // Forcing .env.local to win for VALIDATION_* keys closes that
+    // bypass: the operator's documented canonical source is the only
+    // place a destructive target can come from. CI environments
+    // typically have no .env.local — there the loader is a no-op and
+    // inherited values (from GitHub Actions secrets) flow through
+    // unchanged. Local environments with .env.local + inherited
+    // VALIDATION_* always defer to .env.local.
+    //
+    // Non-VALIDATION_* keys retain the conventional inherited-wins
+    // behavior (no destructive bypass concern).
+    if (key.startsWith("VALIDATION_")) {
+      process.env[key] = value;
+    } else if (process.env[key] === undefined) {
       process.env[key] = value;
     }
   }

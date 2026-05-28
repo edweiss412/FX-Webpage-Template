@@ -102,42 +102,46 @@ BEGIN
     RAISE EXCEPTION 'validation_finalize_all_atomic: combos_seeded_dates changed between snapshot and update; concurrent mint_validation_fixture_atomic detected — retry the finalize call. (TOCTOU defense per R52 F47 + R53 commit 93 compare-and-swap repair)';
   END IF;
 
-  -- Codex Phase 0.C R14-F1 + R15-F1 — physical stale-show pruning
-  -- under per-show advisory locks. R9 pruned stale keys from
+  -- Codex Phase 0.C R14-F1 + R15-F1 + R16-F2 — physical stale-show
+  -- pruning under per-show advisory locks. R9 pruned stale keys from
   -- validation_state only; that left retired 'validation_<combo>'
-  -- show rows (cascaded crew_members + share-token rows) reachable.
+  -- show rows reachable. R15 added the per-show lock. R16 closed the
+  -- TOCTOU between lock enumeration and DELETE.
   --
-  -- R15-F1 (CRITICAL) — per AGENTS.md invariant 2, every code path
-  -- mutating `shows` MUST hold pg_advisory_xact_lock(hashtext('show:'
-  -- || drive_file_id)). The pre-R15 DELETE was lock-naked. Repair:
-  -- enumerate stale validation drive_file_ids, acquire each lock in
-  -- deterministic drive_file_id order (matching the multi-lock
-  -- precedent at claim_oauth_identity per
-  -- advisoryLockRpcDeadlock.test.ts:82), then DELETE under the locks.
+  -- R16-F2 (CRITICAL) — under PostgreSQL READ COMMITTED, a separate
+  -- DELETE re-evaluating the broad stale predicate could match rows
+  -- committed AFTER the lock-acquisition loop, deleting them lock-
+  -- naked. Repair: materialize the exact stale drive_file_ids into a
+  -- text[] during the lock loop, then DELETE WHERE drive_file_id =
+  -- ANY(<materialized array>) — the DELETE only touches rows the
+  -- lock loop covered. Rows that appear after the snapshot remain
+  -- for the NEXT finalize call.
   --
   -- LIKE 'validation\_%' ESCAPE '\' scopes strictly to validation
-  -- namespace (literal underscore — non-validation shows can never
-  -- accidentally match). FK cascades on crew_members + show_share_tokens
-  -- handle the per-show cleanup.
-  FOR v_combo IN
-    SELECT s.drive_file_id
-      FROM public.shows s
-     WHERE s.drive_file_id LIKE 'validation\_%' ESCAPE '\'
-       AND NOT EXISTS (
-         SELECT 1 FROM unnest(p_required_combos) AS c
-          WHERE s.drive_file_id = 'validation_' || c
-       )
-     ORDER BY s.drive_file_id
-  LOOP
-    PERFORM pg_advisory_xact_lock(hashtext('show:' || v_combo));
-  END LOOP;
+  -- namespace (literal underscore). FK cascades on crew_members +
+  -- show_share_tokens handle the per-show cleanup.
+  DECLARE
+    v_stale_drive_file_ids text[] := ARRAY[]::text[];
+  BEGIN
+    FOR v_combo IN
+      SELECT s.drive_file_id
+        FROM public.shows s
+       WHERE s.drive_file_id LIKE 'validation\_%' ESCAPE '\'
+         AND NOT EXISTS (
+           SELECT 1 FROM unnest(p_required_combos) AS c
+            WHERE s.drive_file_id = 'validation_' || c
+         )
+       ORDER BY s.drive_file_id
+    LOOP
+      PERFORM pg_advisory_xact_lock(hashtext('show:' || v_combo));
+      v_stale_drive_file_ids := array_append(v_stale_drive_file_ids, v_combo);
+    END LOOP;
 
-  DELETE FROM public.shows s
-   WHERE s.drive_file_id LIKE 'validation\_%' ESCAPE '\'
-     AND NOT EXISTS (
-       SELECT 1 FROM unnest(p_required_combos) AS c
-        WHERE s.drive_file_id = 'validation_' || c
-     );
+    IF array_length(v_stale_drive_file_ids, 1) IS NOT NULL THEN
+      DELETE FROM public.shows
+       WHERE drive_file_id = ANY(v_stale_drive_file_ids);
+    END IF;
+  END;
 
   RETURN jsonb_build_object('finalized_combos', p_required_combos, 'last_seed_date', p_validation_today_iso);
 END;

@@ -43,6 +43,10 @@ function runCheckSeed(
       encoding: "utf-8",
       env: {
         ...process.env,
+        // R16-F1 — test escape hatch: prevent the script's loader from
+        // reading the repo's real .env.local. Tests supply VALIDATION_*
+        // values via the parent env directly.
+        VALIDATION_ENV_SKIP_LOCAL_FILE: "1",
         VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
         VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
         VALIDATION_SUPABASE_PROJECT_REF: LOCAL_PROJECT_REF,

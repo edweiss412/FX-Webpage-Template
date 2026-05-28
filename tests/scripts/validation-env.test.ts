@@ -138,10 +138,16 @@ describe("loadValidationEnv() precedence (R10-F1)", () => {
     ).toBe("from-env-local");
   });
 
-  test("R11-F1 structural defense — explicit process.env overrides .env.local (parent-shell precedence)", () => {
-    // Required for test scenarios where the parent shell intentionally
-    // sets VALIDATION_* values (matches @next/env's behavior — exported
-    // env wins over dotenv files).
+  test("R16-F1 (CRITICAL) — .env.local OVERRIDES inherited process.env for VALIDATION_* keys", () => {
+    // Pre-R16 the loader respected pre-existing process.env (parent-
+    // shell wins). For destructive VALIDATION_* keys, that was a
+    // wrong-database escape hatch: a developer shell, direnv, CI env,
+    // or prior dotenv export setting VALIDATION_SUPABASE_URL would
+    // override .env.local and pass the URL/ref binding guard (both
+    // values consistent with each other, just for the WRONG target).
+    //
+    // R16-F1: VALIDATION_* keys ALWAYS take their value from .env.local
+    // when the file exists. Inherited process.env loses.
     writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
     const result = execFileSync(
       "npx",
@@ -159,10 +165,64 @@ describe("loadValidationEnv() precedence (R10-F1)", () => {
         encoding: "utf8",
         env: {
           ...process.env,
-          VALIDATION_TEST_URL: "from-parent-shell",
+          VALIDATION_TEST_URL: "from-parent-shell-WRONG_TARGET",
         },
       },
     );
+    expect(
+      result,
+      "VALIDATION_* keys must come from .env.local — inherited process.env " +
+        "is not trusted for destructive prod-equivalent tooling. R16-F1 " +
+        "closes the wrong-database escape hatch.",
+    ).toBe("from-env-local");
+  });
+
+  test("R16-F1 — non-VALIDATION_* keys still respect inherited process.env (no security concern)", () => {
+    // Only VALIDATION_* keys get the override-from-.env.local treatment.
+    // Other keys retain the conventional inherited-wins behavior.
+    writeEnv(".env.local", "UNRELATED_KEY=from-env-local\n");
+    const result = execFileSync(
+      "npx",
+      [
+        "tsx",
+        "-e",
+        `
+          import { loadValidationEnv } from "${VALIDATION_ENV_TS}";
+          loadValidationEnv();
+          process.stdout.write(process.env.UNRELATED_KEY ?? "<unset>");
+        `,
+      ],
+      {
+        cwd,
+        encoding: "utf8",
+        env: { ...process.env, UNRELATED_KEY: "from-parent-shell" },
+      },
+    );
     expect(result).toBe("from-parent-shell");
+  });
+
+  test("R16-F1 — CI scenario (no .env.local present) still honors inherited VALIDATION_* keys", () => {
+    // GitHub Actions workflow exports VALIDATION_SUPABASE_URL via secret;
+    // there's no .env.local in CI. The loader becomes a no-op and the
+    // inherited values flow through unchanged. This is the intended
+    // production path.
+    const result = execFileSync(
+      "npx",
+      [
+        "tsx",
+        "-e",
+        `
+          import { loadValidationEnv } from "${VALIDATION_ENV_TS}";
+          loadValidationEnv();
+          process.stdout.write(process.env.VALIDATION_TEST_URL ?? "<unset>");
+        `,
+      ],
+      {
+        cwd,
+        encoding: "utf8",
+        env: { ...process.env, VALIDATION_TEST_URL: "from-ci-secret" },
+      },
+    );
+    expect(result).toBe("from-ci-secret");
   });
 });

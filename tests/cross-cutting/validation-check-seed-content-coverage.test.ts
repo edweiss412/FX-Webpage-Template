@@ -61,6 +61,8 @@ function runCheckSeed(combo: string): Run {
         encoding: "utf-8",
         env: {
           ...process.env,
+          // R16-F1 — test escape hatch.
+          VALIDATION_ENV_SKIP_LOCAL_FILE: "1",
           VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
           VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,
           VALIDATION_SUPABASE_PROJECT_REF: "local",
