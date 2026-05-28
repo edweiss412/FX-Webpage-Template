@@ -880,6 +880,36 @@ describe("validation-report-fixtures", () => {
   // ───────────────────────────────────────────────────────────────────
 
   describe("cleanup robustness — empty values + combined refusal", () => {
+    test("--cleanup --force-overwrite-snapshot REFUSES before deleting (R8 seed-only-flag guard)", () => {
+      // Pre-seed a tagged row so we can prove cleanup did NOT run on refusal.
+      const seedRes = runHarness(["--outcome", "in-flight", "--combo", "R1"]);
+      expect(seedRes.code).toBe(0);
+      const res = runHarness(["--cleanup", "--force-overwrite-snapshot"]);
+      expect(res.code).toBe(1);
+      expect(res.stderr).toMatch(/--force-overwrite-snapshot is a seed-only flag/);
+      // The tagged row must STILL exist — cleanup must not have run.
+      const survived = runPsql(`
+        SELECT count(*) FROM public.reports
+         WHERE context->>'validation_tag' = 'm12-fixture-in-flight';
+      `);
+      expect(survived).toBe("1");
+    });
+
+    test("--cleanup --outcome <x> is rejected (mutually exclusive modes)", () => {
+      const res = runHarness(["--cleanup", "--outcome", "in-flight"]);
+      expect(res.code).toBe(1);
+      expect(res.stderr).toMatch(/mutually exclusive/);
+    });
+
+    test("--cleanup --alert-code <x> and --cleanup --combo <x> are rejected (seed-only flags)", () => {
+      const a = runHarness(["--cleanup", "--alert-code", "inconclusive"]);
+      expect(a.code).toBe(1);
+      expect(a.stderr).toMatch(/--alert-code is a seed-only flag/);
+      const c = runHarness(["--cleanup", "--combo", "R1"]);
+      expect(c.code).toBe(1);
+      expect(c.stderr).toMatch(/--combo is a seed-only flag/);
+    });
+
     test("--include-admin-email '' (empty, e.g. unexpanded $VAR) errors loudly, does NOT silently skip", () => {
       const res = runHarness(["--cleanup", "--include-admin-email", ""]);
       expect(res.code).toBe(1);

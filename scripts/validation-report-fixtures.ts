@@ -650,6 +650,22 @@ async function main(): Promise<void> {
 
   // ── Cleanup mode ──────────────────────────────────────────────────
   if (values.cleanup) {
+    // R8 — reject seed-only flags BEFORE any destructive cleanup. Their scope
+    // validation otherwise lives only in the (unreachable) seed branch, so a
+    // malformed command like `--cleanup --force-overwrite-snapshot` would
+    // silently delete tagged rows and exit 0 instead of refusing.
+    if (values["force-overwrite-snapshot"]) {
+      fail("--force-overwrite-snapshot is a seed-only flag and is not valid with --cleanup.");
+    }
+    if (values.outcome !== undefined) {
+      fail("--outcome (seed mode) and --cleanup are mutually exclusive — pass one or the other.");
+    }
+    if (values["alert-code"] !== undefined) {
+      fail("--alert-code is a seed-only flag (lookup-inconclusive) and is not valid with --cleanup.");
+    }
+    if (values.combo !== undefined) {
+      fail("--combo is a seed-only flag and is not valid with --cleanup; use --include-crew-id <uuid> to scope crew cleanup.");
+    }
     await defaultCleanup(supabase);
 
     const forceWithout = values["force-cleanup-without-snapshot"] ?? false;
