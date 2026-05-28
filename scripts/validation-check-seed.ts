@@ -122,7 +122,17 @@ function utcDayDiff(aIso: string, bIso: string): number {
   return Math.round((a - b) / 86_400_000);
 }
 
-// Phase 0.E close-out §6 finding 4 — bounded-skew freshness gate.
+// Post-midnight grace window (UTC hours) during which a *previous-day* seed
+// stamp is still accepted as fresh — this is the reseed/check straddling a UTC
+// midnight (reseed at 23:59 day N, check at 00:01 day N+1). 2h is far larger
+// than the realistic reseed→check gap (seconds-to-minutes, run back-to-back by
+// the operator or CI) yet far smaller than the 24h that would let a genuinely
+// stale, not-reseeded-today seed pass — adversarial R1 (HIGH) flagged that a
+// calendar-day-only tolerance let yesterday's seed pass at 23:00 the next day.
+const MIDNIGHT_ROLLOVER_GRACE_HOURS = 2;
+
+// Phase 0.E close-out §6 finding 4 (+ adversarial R1) — post-midnight grace
+// freshness gate.
 //
 // Resolves the "effective today" that every downstream predicate
 // (buildFixtures-derived expected state for (e)/(o), and the per-combo
@@ -131,18 +141,22 @@ function utcDayDiff(aIso: string, bIso: string): number {
 // 23:59 UTC (stamp day N) + a check-seed at 00:01 UTC (real day N+1)
 // false-failed predicate (b/b') even though the seed was fresh.
 //
-// This bounds the freshness comparison to a ±1-day UTC skew (mirroring
-// mint_validation_fixture_atomic's R11 F9 bounded-skew guard — abs of the
-// integer-day difference > 1) and, crucially, returns the seed's OWN recorded
-// stamp as the basis — so freshness AND date-relative expected-state
-// computation stay on the same materialized day. R24-F1's anti-stale intent is
-// preserved: a seed stamped >1 day from the real clock is genuinely stale and
-// still FAILS.
+// Freshness is accepted when the seed's stamp is either (a) today, or (b)
+// exactly the previous day AND the real clock is within the first
+// MIDNIGHT_ROLLOVER_GRACE_HOURS of UTC midnight (the actual rollover). It
+// returns the seed's OWN recorded stamp as the basis — so freshness AND
+// date-relative expected-state computation stay on the same materialized day.
+// R24-F1's anti-stale intent is preserved AND tightened per R1: a stamp more
+// than a day old, a previous-day stamp checked after the grace window, or a
+// future-dated stamp are all genuinely stale and FAIL.
 export function resolveEffectiveToday(
   dispatch: "all" | { single: Combo },
   row: Pick<ValidationStateRow, "last_seed_date" | "combos_seeded_dates">,
-  realUtcTodayIso: string,
+  nowUtc: Date,
 ): string {
+  const realUtcTodayIso = nowUtcDateIso(nowUtc);
+  const withinRolloverGrace = nowUtc.getUTCHours() < MIDNIGHT_ROLLOVER_GRACE_HOURS;
+
   if (dispatch === "all") {
     if (row.last_seed_date === null) {
       throw new CheckSeedFailure(
@@ -150,14 +164,15 @@ export function resolveEffectiveToday(
         "validation_state.last_seed_date IS NULL — validation_finalize_all_atomic has never executed; run `pnpm validation:reseed --combo all` to perform the full all-combos reseed which calls the finalizer.",
       );
     }
-    const skew = Math.abs(utcDayDiff(row.last_seed_date, realUtcTodayIso));
-    if (skew > 1) {
-      throw new CheckSeedFailure(
-        "b",
-        `validation_state.last_seed_date = ${row.last_seed_date} is ${skew} days from today (${realUtcTodayIso}); >1-day UTC skew is stale — re-run \`pnpm validation:reseed --combo all\` to refresh.`,
-      );
+    // diff = today - stamp, in days. 0 ⇒ seeded today; 1 + grace ⇒ rollover.
+    const diff = utcDayDiff(realUtcTodayIso, row.last_seed_date);
+    if (diff === 0 || (diff === 1 && withinRolloverGrace)) {
+      return row.last_seed_date;
     }
-    return row.last_seed_date;
+    throw new CheckSeedFailure(
+      "b",
+      `validation_state.last_seed_date = ${row.last_seed_date} is not fresh for today (${realUtcTodayIso}). A previous-day stamp is accepted only within the first ${MIDNIGHT_ROLLOVER_GRACE_HOURS}h after UTC midnight (reseed/check straddling midnight); otherwise the seed must be re-stamped today. Re-run \`pnpm validation:reseed --combo all\` to refresh.`,
+    );
   }
   const single = dispatch.single;
   const stamp = row.combos_seeded_dates[single];
@@ -167,14 +182,14 @@ export function resolveEffectiveToday(
       `validation_state.combos_seeded_dates['${single}'] = <absent> — re-run \`pnpm validation:reseed --combo ${single}\` to refresh the per-combo stamp.`,
     );
   }
-  const skew = Math.abs(utcDayDiff(stamp, realUtcTodayIso));
-  if (skew > 1) {
-    throw new CheckSeedFailure(
-      "b'",
-      `validation_state.combos_seeded_dates['${single}'] = ${stamp} is ${skew} days from today (${realUtcTodayIso}); >1-day UTC skew is stale — re-run \`pnpm validation:reseed --combo ${single}\` to refresh the per-combo stamp.`,
-    );
+  const diff = utcDayDiff(realUtcTodayIso, stamp);
+  if (diff === 0 || (diff === 1 && withinRolloverGrace)) {
+    return stamp;
   }
-  return stamp;
+  throw new CheckSeedFailure(
+    "b'",
+    `validation_state.combos_seeded_dates['${single}'] = ${stamp} is not fresh for today (${realUtcTodayIso}). A previous-day stamp is accepted only within the first ${MIDNIGHT_ROLLOVER_GRACE_HOURS}h after UTC midnight (reseed/check straddling midnight); otherwise the per-combo stamp must be re-stamped today. Re-run \`pnpm validation:reseed --combo ${single}\` to refresh.`,
+  );
 }
 
 async function loadValidationState(
@@ -199,7 +214,7 @@ async function loadValidationState(
 async function runChecks(
   supabase: LooseSupabaseClient,
   dispatch: "all" | { single: Combo },
-  realUtcTodayIso: string,
+  nowUtc: Date,
   projectRef: string,
   j3ClaimEmail: string,
 ): Promise<void> {
@@ -236,11 +251,7 @@ async function runChecks(
   // recorded stamp, which becomes the canonical "today" the rest of the run
   // computes against — so freshness AND the date-relative expected-state
   // checks (e)/(o)/(i) stay mutually consistent with the materialized day.
-  const validationTodayIso = resolveEffectiveToday(
-    dispatch,
-    row,
-    realUtcTodayIso,
-  );
+  const validationTodayIso = resolveEffectiveToday(dispatch, row, nowUtc);
 
   // (c) combos_materialized covers the requested set
   const requestedCombos: Combo[] =
@@ -890,12 +901,13 @@ async function main(): Promise<void> {
   );
   const j3ClaimEmail = requireEnv("VALIDATION_J3_CLAIM_EMAIL");
   // Codex Phase 0.C R24-F1 — the real "today" is ALWAYS derived from the
-  // real UTC clock (nowUtcDateIso). The pre-R24 `--today YYYY-MM-DD` operator
-  // flag was a stale-seed bypass of the freshness gate; it stays retired. The
-  // freshness gate (resolveEffectiveToday, Phase 0.E §6 finding 4) compares
-  // the seed's recorded stamp against this real clock with a ±1-day skew
-  // tolerance and pins the run's effective today to the seed's stamp.
-  const realUtcTodayIso = nowUtcDateIso();
+  // real UTC clock. The pre-R24 `--today YYYY-MM-DD` operator flag was a
+  // stale-seed bypass of the freshness gate; it stays retired. The freshness
+  // gate (resolveEffectiveToday, Phase 0.E §6 finding 4 + adversarial R1)
+  // compares the seed's recorded stamp against this real clock, accepting a
+  // previous-day stamp only within a short post-midnight UTC grace window, and
+  // pins the run's effective today to the seed's stamp.
+  const nowUtc = new Date();
 
   const requestedCombo = values.combo ?? "all";
   const dispatch: "all" | { single: Combo } =
@@ -913,13 +925,7 @@ async function main(): Promise<void> {
     auth: { persistSession: false, autoRefreshToken: false },
   }) as unknown as LooseSupabaseClient;
 
-  await runChecks(
-    supabase,
-    dispatch,
-    realUtcTodayIso,
-    projectRef,
-    j3ClaimEmail,
-  );
+  await runChecks(supabase, dispatch, nowUtc, projectRef, j3ClaimEmail);
 
   const scope =
     dispatch === "all"
