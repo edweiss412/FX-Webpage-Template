@@ -1655,13 +1655,24 @@ function shouldUseRevisionRaceCooldown(mode: SyncMode): boolean {
   return mode === "cron" || mode === "push";
 }
 
-function timestampMs(value: string | null | undefined): number | null {
-  if (!value) return null;
+// Accepts a JS Date as well as an ISO string: `deferred_at_modified_time` is
+// read from a `timestamptz` column via postgres.js, which yields a Date at
+// runtime. `Date.parse(<Date>)` would coerce through toString() and DROP the
+// milliseconds, so an unchanged file at e.g. "...06.040Z" looked advanced and
+// erased a valid defer-until-modified deferral (the cron peer of the apply
+// revision-race false positive, M12 Phase 0.F smoke 3). `getTime()` preserves
+// the milliseconds.
+function timestampMs(value: string | Date | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function modifiedTimeAdvanced(left: string, right: string | null | undefined): boolean {
+function modifiedTimeAdvanced(left: string | Date, right: string | Date | null | undefined): boolean {
   const leftMs = timestampMs(left);
   const rightMs = timestampMs(right);
   if (leftMs === null) return false;

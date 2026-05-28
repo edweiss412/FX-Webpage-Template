@@ -888,6 +888,87 @@ describe("processOneFile", () => {
     ]);
   });
 
+  // Regression: the locked deferral recheck peer of the apply revision-race
+  // false positive (M12 Phase 0.F smoke 3, Codex finding). readLiveDeferral
+  // reads `deferred_at_modified_time` from a timestamptz column via postgres.js,
+  // so at runtime it is a JS Date. modifiedTimeAdvanced fed that Date through a
+  // Date.parse-based timestampMs, which DROPS the milliseconds — so an UNEDITED
+  // file (Drive modifiedTime equal to the deferral watermark to the ms) looked
+  // "advanced", erased a valid defer-until-modified deferral, and resumed sync,
+  // overriding the operator's decision. (Prior tests used ".000Z", no ms to
+  // lose.) A same-instant Date watermark must keep the deferral and skip.
+  test("locked deferral recheck does not delete an unchanged defer-until-modified deferral read as a Date (postgres.js)", async () => {
+    const INSTANT = "2026-05-09T03:44:06.040Z"; // nonzero ms — the trigger
+    const fakeTx = tx();
+    fakeTx.deferredIngestions = [
+      {
+        driveFileId: "file-1",
+        wizardSessionId: null,
+        deferredKind: "defer_until_modified",
+        // postgres.js yields a Date for the timestamptz column.
+        deferredAtModifiedTime: new Date(INSTANT) as unknown as string,
+      },
+    ];
+    const withShowLock = vi.fn(async (_driveFileId, fn) =>
+      fn(fakeTx as LockedShowTx<PipelineTx>),
+    );
+    const runPhase1 = vi.fn(async () => ({ outcome: "pass" as const }));
+    const syncDeps = deps({
+      withShowLock,
+      perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "cron" as const })),
+      runPhase1,
+    });
+
+    // Drive modifiedTime is the SAME instant as the deferral watermark — the
+    // sheet was not edited, so the deferral must hold.
+    await expect(
+      processOneFile("file-1", "cron", fileMeta("file-1", INSTANT), syncDeps),
+    ).resolves.toEqual({ outcome: "skipped", reason: "deferred_modtime" });
+
+    // The deferral was NOT erased and Phase 1 did not run.
+    expect(fakeTx.operations).not.toContain("deleteLiveDeferral:file-1");
+    expect(runPhase1).not.toHaveBeenCalled();
+    expect(fakeTx.deferredIngestions).toEqual([
+      {
+        driveFileId: "file-1",
+        wizardSessionId: null,
+        deferredKind: "defer_until_modified",
+        deferredAtModifiedTime: new Date(INSTANT) as unknown as string,
+      },
+    ]);
+  });
+
+  // True-positive preserved: a genuine later edit must still clear the deferral.
+  test("locked deferral recheck still clears the deferral when Drive modifiedTime genuinely advanced (Date watermark)", async () => {
+    const fakeTx = tx();
+    fakeTx.deferredIngestions = [
+      {
+        driveFileId: "file-1",
+        wizardSessionId: null,
+        deferredKind: "defer_until_modified",
+        deferredAtModifiedTime: new Date("2026-05-09T03:44:06.040Z") as unknown as string,
+      },
+    ];
+    const withShowLock = vi.fn(async (_driveFileId, fn) =>
+      fn(fakeTx as LockedShowTx<PipelineTx>),
+    );
+    const syncDeps = deps({
+      withShowLock,
+      perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "cron" as const })),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "pass" as const };
+      }),
+    });
+
+    await expect(
+      processOneFile("file-1", "cron", fileMeta("file-1", "2026-05-09T03:45:00.000Z"), syncDeps),
+    ).resolves.toEqual({ outcome: "applied", showId: "show-1" });
+
+    expect(fakeTx.operations).toContain("deleteLiveDeferral:file-1");
+    expect(fakeTx.deferredIngestions).toEqual([]);
+  });
+
   test("same revision binding gates parse/enrich/phase1/phase2 and publishes after apply", async () => {
     const fakeTx = tx() as LockedShowTx<PipelineTx>;
     const syncDeps = deps();
