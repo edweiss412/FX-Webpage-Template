@@ -10,6 +10,7 @@
 //
 // Exit 0 with "OK: seed matches today (combos: ...)"; exit 1 to stderr with
 // diagnostic naming the failed predicate.
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { createClient } from "@supabase/supabase-js";
@@ -98,11 +99,82 @@ function requireEnv(name: string): string {
   return v;
 }
 
-class CheckSeedFailure extends Error {
+export class CheckSeedFailure extends Error {
   constructor(public predicate: string, msg: string) {
     super(`predicate (${predicate}) — ${msg}`);
     this.name = "CheckSeedFailure";
   }
+}
+
+// Real UTC calendar day (YYYY-MM-DD). The `now` arg is the test-only clock
+// seam — there is NO operator-facing `--today` flag (retired R24-F1). The
+// freshness gate's comparison basis derives from this real clock plus the
+// seed's own recorded stamp, never an operator argument.
+export function nowUtcDateIso(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+// Integer day difference (a - b) between two YYYY-MM-DD strings on the UTC
+// midnight basis. Positive ⇒ a is later than b.
+function utcDayDiff(aIso: string, bIso: string): number {
+  const a = Date.parse(`${aIso}T00:00:00Z`);
+  const b = Date.parse(`${bIso}T00:00:00Z`);
+  return Math.round((a - b) / 86_400_000);
+}
+
+// Phase 0.E close-out §6 finding 4 — bounded-skew freshness gate.
+//
+// Resolves the "effective today" that every downstream predicate
+// (buildFixtures-derived expected state for (e)/(o), and the per-combo
+// consistency check (i)) computes against. Pre-fix, check-seed compared the
+// seed's stamps to the real UTC clock with STRICT equality, so a reseed at
+// 23:59 UTC (stamp day N) + a check-seed at 00:01 UTC (real day N+1)
+// false-failed predicate (b/b') even though the seed was fresh.
+//
+// This bounds the freshness comparison to a ±1-day UTC skew (mirroring
+// mint_validation_fixture_atomic's R11 F9 bounded-skew guard — abs of the
+// integer-day difference > 1) and, crucially, returns the seed's OWN recorded
+// stamp as the basis — so freshness AND date-relative expected-state
+// computation stay on the same materialized day. R24-F1's anti-stale intent is
+// preserved: a seed stamped >1 day from the real clock is genuinely stale and
+// still FAILS.
+export function resolveEffectiveToday(
+  dispatch: "all" | { single: Combo },
+  row: Pick<ValidationStateRow, "last_seed_date" | "combos_seeded_dates">,
+  realUtcTodayIso: string,
+): string {
+  if (dispatch === "all") {
+    if (row.last_seed_date === null) {
+      throw new CheckSeedFailure(
+        "b",
+        "validation_state.last_seed_date IS NULL — validation_finalize_all_atomic has never executed; run `pnpm validation:reseed --combo all` to perform the full all-combos reseed which calls the finalizer.",
+      );
+    }
+    const skew = Math.abs(utcDayDiff(row.last_seed_date, realUtcTodayIso));
+    if (skew > 1) {
+      throw new CheckSeedFailure(
+        "b",
+        `validation_state.last_seed_date = ${row.last_seed_date} is ${skew} days from today (${realUtcTodayIso}); >1-day UTC skew is stale — re-run \`pnpm validation:reseed --combo all\` to refresh.`,
+      );
+    }
+    return row.last_seed_date;
+  }
+  const single = dispatch.single;
+  const stamp = row.combos_seeded_dates[single];
+  if (stamp === undefined || stamp === null) {
+    throw new CheckSeedFailure(
+      "b'",
+      `validation_state.combos_seeded_dates['${single}'] = <absent> — re-run \`pnpm validation:reseed --combo ${single}\` to refresh the per-combo stamp.`,
+    );
+  }
+  const skew = Math.abs(utcDayDiff(stamp, realUtcTodayIso));
+  if (skew > 1) {
+    throw new CheckSeedFailure(
+      "b'",
+      `validation_state.combos_seeded_dates['${single}'] = ${stamp} is ${skew} days from today (${realUtcTodayIso}); >1-day UTC skew is stale — re-run \`pnpm validation:reseed --combo ${single}\` to refresh the per-combo stamp.`,
+    );
+  }
+  return stamp;
 }
 
 async function loadValidationState(
@@ -127,7 +199,7 @@ async function loadValidationState(
 async function runChecks(
   supabase: LooseSupabaseClient,
   dispatch: "all" | { single: Combo },
-  validationTodayIso: string,
+  realUtcTodayIso: string,
   projectRef: string,
   j3ClaimEmail: string,
 ): Promise<void> {
@@ -157,30 +229,18 @@ async function runChecks(
     );
   }
 
-  // (b) / (b') freshness
-  if (dispatch === "all") {
-    if (row.last_seed_date === null) {
-      throw new CheckSeedFailure(
-        "b",
-        "validation_state.last_seed_date IS NULL — validation_finalize_all_atomic has never executed; run `pnpm validation:reseed --combo all` to perform the full all-combos reseed which calls the finalizer.",
-      );
-    }
-    if (row.last_seed_date !== validationTodayIso) {
-      throw new CheckSeedFailure(
-        "b",
-        `validation_state.last_seed_date = ${row.last_seed_date} != ${validationTodayIso} — re-run \`pnpm validation:reseed --combo all\` to refresh.`,
-      );
-    }
-  } else {
-    const single = dispatch.single;
-    const stamp = row.combos_seeded_dates[single];
-    if (stamp !== validationTodayIso) {
-      throw new CheckSeedFailure(
-        "b'",
-        `validation_state.combos_seeded_dates['${single}'] = ${stamp ?? "<absent>"} != ${validationTodayIso} — re-run \`pnpm validation:reseed --combo ${single}\` to refresh the per-combo stamp.`,
-      );
-    }
-  }
+  // (b) / (b') freshness — bounded-skew gate (Phase 0.E close-out §6 finding
+  // 4). resolveEffectiveToday accepts a ±1-day UTC skew (fixing the
+  // reseed-at-23:59 / check-at-00:01 midnight flake) while still failing
+  // genuinely stale seeds (>1 day, R24-F1 intent). It returns the seed's OWN
+  // recorded stamp, which becomes the canonical "today" the rest of the run
+  // computes against — so freshness AND the date-relative expected-state
+  // checks (e)/(o)/(i) stay mutually consistent with the materialized day.
+  const validationTodayIso = resolveEffectiveToday(
+    dispatch,
+    row,
+    realUtcTodayIso,
+  );
 
   // (c) combos_materialized covers the requested set
   const requestedCombos: Combo[] =
@@ -829,11 +889,13 @@ async function main(): Promise<void> {
     values["allow-local-override"] ?? false,
   );
   const j3ClaimEmail = requireEnv("VALIDATION_J3_CLAIM_EMAIL");
-  // Codex Phase 0.C R24-F1 — validationTodayIso is ALWAYS derived from
-  // the real UTC clock. The pre-R24 `--today YYYY-MM-DD` operator flag
-  // was a stale-seed bypass of the freshness gate (predicate (b/b'/i)
-  // could be made green for any past date).
-  const validationTodayIso = new Date().toISOString().slice(0, 10);
+  // Codex Phase 0.C R24-F1 — the real "today" is ALWAYS derived from the
+  // real UTC clock (nowUtcDateIso). The pre-R24 `--today YYYY-MM-DD` operator
+  // flag was a stale-seed bypass of the freshness gate; it stays retired. The
+  // freshness gate (resolveEffectiveToday, Phase 0.E §6 finding 4) compares
+  // the seed's recorded stamp against this real clock with a ±1-day skew
+  // tolerance and pins the run's effective today to the seed's stamp.
+  const realUtcTodayIso = nowUtcDateIso();
 
   const requestedCombo = values.combo ?? "all";
   const dispatch: "all" | { single: Combo } =
@@ -854,7 +916,7 @@ async function main(): Promise<void> {
   await runChecks(
     supabase,
     dispatch,
-    validationTodayIso,
+    realUtcTodayIso,
     projectRef,
     j3ClaimEmail,
   );
@@ -866,13 +928,28 @@ async function main(): Promise<void> {
   process.stdout.write(`OK: seed matches today (${scope})\n`);
 }
 
-main().catch((err) => {
-  if (err instanceof CheckSeedFailure) {
-    process.stderr.write(`[validation-check-seed] FAIL ${err.message}\n`);
-    process.exit(1);
+// Only run the CLI when this module is the entry script. Unit tests import
+// the exported seam (resolveEffectiveToday / nowUtcDateIso) and must NOT
+// trigger a live Supabase connection or process.exit inside the test worker.
+const isEntryScript = (() => {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    return import.meta.url === pathToFileURL(argv1).href;
+  } catch {
+    return false;
   }
-  process.stderr.write(
-    `[validation-check-seed] ERROR: ${err instanceof Error ? err.message : String(err)}\n`,
-  );
-  process.exit(1);
-});
+})();
+
+if (isEntryScript) {
+  main().catch((err) => {
+    if (err instanceof CheckSeedFailure) {
+      process.stderr.write(`[validation-check-seed] FAIL ${err.message}\n`);
+      process.exit(1);
+    }
+    process.stderr.write(
+      `[validation-check-seed] ERROR: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(1);
+  });
+}
