@@ -70,8 +70,31 @@ BEGIN
 
   -- All requested combos seeded in the snapshot; stamp top-level
   -- last_seed_date with CAS guard.
+  --
+  -- Codex Phase 0.C R9-F1 — stale-key pruning. On every successful
+  -- finalize the singleton's combos_materialized / combos_seeded_dates /
+  -- alias_map are SET to EXACTLY p_required_combos (pruning any stale
+  -- keys from previous matrix versions). Without this, an older
+  -- spec-revision's retired combo (e.g., the pre-split R7 / R8 keys)
+  -- would remain in alias_map forever and validation-resolve-alias
+  -- could return stale identities even after the gate reports OK.
+  --
+  -- The pruning lives in the finalizer (not the per-combo mint) because
+  -- only --combo all has the authoritative full set; single-combo
+  -- dispatch can't know which other keys are stale vs in-progress.
   UPDATE public.validation_state
-    SET last_seed_date = p_validation_today_iso::date
+    SET last_seed_date = p_validation_today_iso::date,
+        combos_materialized = p_required_combos,
+        combos_seeded_dates = (
+          SELECT coalesce(jsonb_object_agg(k, combos_seeded_dates -> k), '{}'::jsonb)
+            FROM unnest(p_required_combos) AS k
+            WHERE combos_seeded_dates ? k
+        ),
+        alias_map = (
+          SELECT coalesce(jsonb_object_agg(k, alias_map -> k), '{}'::jsonb)
+            FROM unnest(p_required_combos) AS k
+            WHERE alias_map ? k
+        )
     WHERE key = 'validation_seed'
       AND combos_seeded_dates = v_combos_dates;
   GET DIAGNOSTICS v_rowcount = ROW_COUNT;

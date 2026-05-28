@@ -343,6 +343,23 @@ describe("validation-check-seed", () => {
     expect(res.stderr).toMatch(/email drifted/);
   });
 
+  test("R9-F1 (Codex Phase 0.C R9) — exits 1 when alias_map contains a stale top-level combo key", () => {
+    mintCombo("R1");
+    // Inject a stale alias_map key simulating a retired-from-spec combo
+    // (e.g., the pre-split R7).
+    runPsql(`
+      UPDATE public.validation_state
+        SET alias_map = jsonb_set(alias_map, '{R7}', '{"alias_5a_lead":"00000000-0000-0000-0000-000000000000"}'::jsonb)
+       WHERE key = 'validation_seed';
+    `);
+    // check-seed --combo R1 should catch the stale R7 key (the stale-key
+    // guard fires regardless of dispatch).
+    const res = runCheckSeed("R1");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/predicate \(c\)/);
+    expect(res.stderr).toMatch(/stale.*R7/);
+  });
+
   test("F1 fail-fast — exits 1 when validation_<combo> show is missing entirely", () => {
     // Setup: mint R1, then DELETE the show row (cascades to crew_members)
     // but leave alias_map[R1] in place. Predicate (f) fail-fast must

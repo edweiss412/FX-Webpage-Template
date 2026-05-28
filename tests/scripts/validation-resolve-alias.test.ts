@@ -113,10 +113,31 @@ describe("validation-resolve-alias", () => {
     );
   });
 
-  test("exits 1 on unknown combo", () => {
+  test("exits 1 on unknown combo (canonical enum guard — Codex Phase 0.C R9-F1)", () => {
     const res = runResolve("R999", "alias_5a_lead");
     expect(res.code).toBe(1);
-    expect(res.stderr).toMatch(/alias_map missing combo 'R999'/);
+    expect(res.stderr).toMatch(/combo 'R999' is not in the canonical enum/);
+  });
+
+  test("R9-F1 — rejects a stale combo even if alias_map has the key (defense-in-depth)", () => {
+    // Inject a stale alias_map entry pointing at a real UUID, then
+    // ensure resolve-alias rejects via the canonical-enum guard BEFORE
+    // it would otherwise return the UUID.
+    const fakeUuid = "11111111-1111-1111-1111-111111111111";
+    runPsql(`
+      UPDATE public.validation_state
+        SET alias_map = jsonb_set(alias_map, '{R7_legacy}', jsonb_build_object('alias_5a_lead', '${fakeUuid}'))
+       WHERE key = 'validation_seed';
+    `);
+    const res = runResolve("R7_legacy", "alias_5a_lead");
+    expect(res.code).toBe(1);
+    expect(res.stderr).toMatch(/not in the canonical enum/);
+    // Restore for cleanup.
+    runPsql(`
+      UPDATE public.validation_state
+        SET alias_map = alias_map #- '{R7_legacy}'
+       WHERE key = 'validation_seed';
+    `);
   });
 
   test("exits 1 on unknown alias", () => {

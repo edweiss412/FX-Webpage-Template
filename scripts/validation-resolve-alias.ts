@@ -13,6 +13,13 @@ import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
+import {
+  R_COMBOS,
+  SW_COMBOS,
+  type Combo,
+} from "./lib/validation-fixtures";
+
+const ALL_COMBOS: readonly Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
 const USAGE = `Usage: pnpm validation:resolve-alias <combo> <alias> [--allow-local-override] [--help]
 
@@ -86,6 +93,13 @@ async function main(): Promise<void> {
   if (!combo || !alias) {
     throw new Error(
       "validation:resolve-alias: combo and alias must be non-empty strings.",
+    );
+  }
+  // Codex Phase 0.C R9-F1 — reject combos outside the canonical enum so
+  // stale alias_map keys from prior matrix versions can't resolve.
+  if (!(ALL_COMBOS as readonly string[]).includes(combo)) {
+    throw new Error(
+      `validation:resolve-alias: combo '${combo}' is not in the canonical enum. Valid: ${ALL_COMBOS.join(", ")}.`,
     );
   }
 

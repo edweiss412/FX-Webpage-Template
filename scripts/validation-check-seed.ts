@@ -183,6 +183,39 @@ async function runChecks(
       `combos_materialized missing: ${missingMaterialized.join(",")}. Expected: ${requestedCombos.join(",")}.`,
     );
   }
+  // Codex Phase 0.C R9-F1 — reject STALE/UNEXPECTED top-level keys in
+  // combos_materialized, alias_map, and combos_seeded_dates regardless
+  // of dispatch. Stale keys from a prior matrix version don't belong in
+  // any dispatch's expected state. Without this check, resolve-alias
+  // would happily return stale identities while check-seed reports OK.
+  const allComboSet = new Set<string>(ALL_COMBOS);
+  const extraMaterialized = row.combos_materialized.filter(
+    (c) => !allComboSet.has(c),
+  );
+  if (extraMaterialized.length > 0) {
+    throw new CheckSeedFailure(
+      "c",
+      `combos_materialized contains stale/unknown combos: ${extraMaterialized.join(",")}. Re-run \`pnpm validation:reseed --combo all\` (the finalizer prunes stale keys).`,
+    );
+  }
+  const extraAliasMap = Object.keys(row.alias_map).filter(
+    (c) => !allComboSet.has(c),
+  );
+  if (extraAliasMap.length > 0) {
+    throw new CheckSeedFailure(
+      "c",
+      `alias_map contains stale/unknown top-level combos: ${extraAliasMap.join(",")}.`,
+    );
+  }
+  const extraSeededDates = Object.keys(row.combos_seeded_dates).filter(
+    (c) => !allComboSet.has(c),
+  );
+  if (extraSeededDates.length > 0) {
+    throw new CheckSeedFailure(
+      "c",
+      `combos_seeded_dates contains stale/unknown combos: ${extraSeededDates.join(",")}.`,
+    );
+  }
 
   // (d) project_ref matches
   if (row.seeded_supabase_project_ref !== projectRef) {
