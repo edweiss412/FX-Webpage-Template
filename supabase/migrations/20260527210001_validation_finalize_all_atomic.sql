@@ -68,69 +68,29 @@ BEGIN
     RAISE EXCEPTION 'validation_finalize_all_atomic: incomplete reseed (missing: %, stale: %)', v_missing, v_stale;
   END IF;
 
-  -- All requested combos seeded in the snapshot; stamp top-level
-  -- last_seed_date with CAS guard.
+  -- Codex Phase 0.C R21-F1 — lock-ordering fix. Pre-R21 finalize did:
+  --   UPDATE validation_state (singleton row lock)
+  --   FOR LOOP { acquire show advisory lock }
+  --   DELETE shows
+  -- Mint RPC does:
+  --   acquire show advisory lock (FIRST)
+  --   UPSERT shows / crew_members
+  --   UPSERT validation_state (singleton row lock LAST)
+  -- Reverse orders → classic A→B vs B→A deadlock.
   --
-  -- Codex Phase 0.C R9-F1 — stale-key pruning. On every successful
-  -- finalize the singleton's combos_materialized / combos_seeded_dates /
-  -- alias_map are SET to EXACTLY p_required_combos (pruning any stale
-  -- keys from previous matrix versions). Without this, an older
-  -- spec-revision's retired combo (e.g., the pre-split R7 / R8 keys)
-  -- would remain in alias_map forever and validation-resolve-alias
-  -- could return stale identities even after the gate reports OK.
-  --
-  -- The pruning lives in the finalizer (not the per-combo mint) because
-  -- only --combo all has the authoritative full set; single-combo
-  -- dispatch can't know which other keys are stale vs in-progress.
-  UPDATE public.validation_state
-    SET last_seed_date = p_validation_today_iso::date,
-        combos_materialized = p_required_combos,
-        combos_seeded_dates = (
-          SELECT coalesce(jsonb_object_agg(k, combos_seeded_dates -> k), '{}'::jsonb)
-            FROM unnest(p_required_combos) AS k
-            WHERE combos_seeded_dates ? k
-        ),
-        alias_map = (
-          SELECT coalesce(jsonb_object_agg(k, alias_map -> k), '{}'::jsonb)
-            FROM unnest(p_required_combos) AS k
-            WHERE alias_map ? k
-        )
-    WHERE key = 'validation_seed'
-      AND combos_seeded_dates = v_combos_dates;
-  GET DIAGNOSTICS v_rowcount = ROW_COUNT;
-  IF v_rowcount = 0 THEN
-    RAISE EXCEPTION 'validation_finalize_all_atomic: combos_seeded_dates changed between snapshot and update; concurrent mint_validation_fixture_atomic detected — retry the finalize call. (TOCTOU defense per R52 F47 + R53 commit 93 compare-and-swap repair)';
-  END IF;
-
-  -- Codex Phase 0.C R14-F1 + R15-F1 + R16-F2 — physical stale-show
-  -- pruning under per-show advisory locks. R9 pruned stale keys from
-  -- validation_state only; that left retired 'validation_<combo>'
-  -- show rows reachable. R15 added the per-show lock. R16 closed the
-  -- TOCTOU between lock enumeration and DELETE.
-  --
-  -- R16-F2 (CRITICAL) — under PostgreSQL READ COMMITTED, a separate
-  -- DELETE re-evaluating the broad stale predicate could match rows
-  -- committed AFTER the lock-acquisition loop, deleting them lock-
-  -- naked. Repair: materialize the exact stale drive_file_ids into a
-  -- text[] during the lock loop, then DELETE WHERE drive_file_id =
-  -- ANY(<materialized array>) — the DELETE only touches rows the
-  -- lock loop covered. Rows that appear after the snapshot remain
-  -- for the NEXT finalize call.
-  --
-  -- LIKE 'validation\_%' ESCAPE '\' scopes strictly to validation
-  -- namespace (literal underscore). FK cascades on crew_members +
-  -- show_share_tokens handle the per-show cleanup.
+  -- R21 repair: finalize acquires all stale-show advisory locks BEFORE
+  -- taking the validation_state row lock. Now both RPCs follow the
+  -- same ordering: per-show advisory lock → validation_state row lock.
+  -- No A→B vs B→A pair possible.
   DECLARE
     v_stale_drive_file_ids text[] := ARRAY[]::text[];
   BEGIN
-    -- Codex Phase 0.C R19-F1 — fixture-ownership sentinel guard.
-    -- The pre-R19 predicate used drive_file_id prefix alone, which is
-    -- not durable ownership proof. A real/imported show with a Drive
-    -- file id starting 'validation_' would be DELETEd. Repair: also
-    -- require client_label = 'M12 Validation', which the mint RPC
-    -- enforces on every reseed (now in INSERT + UPDATE SET). Non-
-    -- validation shows can never carry that label unless they were
-    -- minted by THIS RPC.
+    -- Codex Phase 0.C R19-F1 + R15-F1 + R16-F2 + R21-F1 fixture
+    -- prune. Ownership sentinel: client_label = 'M12 Validation'.
+    -- Lock ordering: per-show advisory locks acquired FIRST (matches
+    -- mint RPC); materialized into v_stale_drive_file_ids so the
+    -- subsequent DELETE only touches the locked set (R16-F2 TOCTOU
+    -- bound).
     FOR v_combo IN
       SELECT s.drive_file_id
         FROM public.shows s
@@ -146,6 +106,32 @@ BEGIN
       v_stale_drive_file_ids := array_append(v_stale_drive_file_ids, v_combo);
     END LOOP;
 
+    -- Now under all the per-show advisory locks, take the
+    -- validation_state row lock via CAS UPDATE. R9-F1 prunes stale
+    -- keys to exactly p_required_combos. R53 F47 CAS guards against
+    -- concurrent mint mutation between snapshot and update.
+    UPDATE public.validation_state
+      SET last_seed_date = p_validation_today_iso::date,
+          combos_materialized = p_required_combos,
+          combos_seeded_dates = (
+            SELECT coalesce(jsonb_object_agg(k, combos_seeded_dates -> k), '{}'::jsonb)
+              FROM unnest(p_required_combos) AS k
+              WHERE combos_seeded_dates ? k
+          ),
+          alias_map = (
+            SELECT coalesce(jsonb_object_agg(k, alias_map -> k), '{}'::jsonb)
+              FROM unnest(p_required_combos) AS k
+              WHERE alias_map ? k
+          )
+      WHERE key = 'validation_seed'
+        AND combos_seeded_dates = v_combos_dates;
+    GET DIAGNOSTICS v_rowcount = ROW_COUNT;
+    IF v_rowcount = 0 THEN
+      RAISE EXCEPTION 'validation_finalize_all_atomic: combos_seeded_dates changed between snapshot and update; concurrent mint_validation_fixture_atomic detected — retry the finalize call. (TOCTOU defense per R52 F47 + R53 commit 93 compare-and-swap repair)';
+    END IF;
+
+    -- DELETE under the held per-show advisory locks + the validation_state
+    -- row lock. Same ownership sentinel as the lock-enumeration SELECT.
     IF array_length(v_stale_drive_file_ids, 1) IS NOT NULL THEN
       DELETE FROM public.shows
        WHERE drive_file_id = ANY(v_stale_drive_file_ids)
