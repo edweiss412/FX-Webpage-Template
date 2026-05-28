@@ -75,6 +75,7 @@ import { runInvariants } from "@/lib/parser/invariants";
 import { enrichWithDrivePins } from "@/lib/sync/enrichWithDrivePins";
 import { mockDriveClient, MOCK_MARKER } from "@/lib/sync/mocks/mockDriveClient";
 import type { ParseResult, InvariantOutcome, ParseWarning } from "@/lib/parser/types";
+import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 
 export type ParseAndStageResult = {
   filename: string;
@@ -348,17 +349,18 @@ export async function getStagedResult(filename: string): Promise<ParseAndStageRe
   const row = syncsRes.data as {
     id: string;
     parse_result: ParseResult;
-    triggered_review_items: Array<{ id: string; invariant: string } & Record<string, unknown>>;
+    triggered_review_items: unknown;
   };
   const parseResult = row.parse_result;
+  const triggeredReviewItems = asTriggeredReviewItems(row.triggered_review_items);
   const outcome: InvariantOutcome["outcome"] =
-    row.triggered_review_items.length > 0 ? "stage" : "pass";
+    triggeredReviewItems.length > 0 ? "stage" : "pass";
 
   return {
     filename,
     driveFileId: fixtureFileId,
     outcome,
-    triggeredItems: row.triggered_review_items.map((t) => {
+    triggeredItems: triggeredReviewItems.map((t) => {
       const { id, invariant, ...rest } = t;
       return { id, invariant, details: rest };
     }),

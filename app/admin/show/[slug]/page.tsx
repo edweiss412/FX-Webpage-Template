@@ -30,7 +30,7 @@ import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
-import type { TriggeredReviewItem } from "@/lib/parser/types";
+import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 
 export const dynamic = "force-dynamic";
 
@@ -75,14 +75,6 @@ function deriveParseSummary(parseResult: unknown): string | undefined {
   if (client) parts.push(client);
   if (parts.length === 0) return undefined;
   return parts.join(" — ");
-}
-
-function asTriggeredReviewItems(value: unknown): TriggeredReviewItem[] {
-  if (!Array.isArray(value)) return [];
-  // Trust the §A producer (Phase 1 emits this jsonb) — the structural
-  // contract is enforced upstream. We narrow only enough to satisfy the
-  // card prop type; further validation happens at the Apply call.
-  return value as TriggeredReviewItem[];
 }
 
 export default async function AdminShowPage({

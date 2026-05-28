@@ -15,6 +15,7 @@ import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
+import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   enrichWithDrivePins,
   type DriveClient,
@@ -561,7 +562,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       baseModifiedTime: row.base_modified_time,
       stagedModifiedTime: row.staged_modified_time,
       parseResult: row.parse_result,
-      triggeredReviewItems: row.triggered_review_items as never[],
+      triggeredReviewItems: asTriggeredReviewItems(row.triggered_review_items),
       priorLastSyncStatus: row.prior_last_sync_status,
       priorLastSyncError: row.prior_last_sync_error,
       stagedId: row.staged_id,

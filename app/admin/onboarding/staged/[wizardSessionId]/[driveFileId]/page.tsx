@@ -26,7 +26,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
-import type { TriggeredReviewItem } from "@/lib/parser/types";
+import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Re-apply staged sheet · Admin · FXAV" };
@@ -41,7 +41,7 @@ type WizardStagedRow = {
   staged_modified_time: string;
   base_modified_time: string | null;
   parse_result: { show?: { title?: string | null } } | null;
-  triggered_review_items: TriggeredReviewItem[] | null;
+  triggered_review_items: unknown;
   last_finalize_failure_code: string | null;
   source_kind: "cron" | "push" | "manual" | "onboarding_scan";
 };
@@ -134,7 +134,7 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
     stagedModifiedTime: row.staged_modified_time,
     baseModifiedTime: row.base_modified_time,
     warningSummary: "",
-    triggeredReviewItems: row.triggered_review_items ?? [],
+    triggeredReviewItems: asTriggeredReviewItems(row.triggered_review_items),
     ...(summaryFromParseResult(row.parse_result) !== undefined
       ? { parseSummaryLine: summaryFromParseResult(row.parse_result)! }
       : {}),
