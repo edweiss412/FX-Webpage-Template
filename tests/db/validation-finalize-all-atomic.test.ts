@@ -156,6 +156,63 @@ describe("validation_finalize_all_atomic", () => {
     ).toThrow(/differs from server current_date.*by >1 day/);
   });
 
+  test("R14-F1 — DELETEs stale validation shows not in p_required_combos", () => {
+    // Seed R1 + a retired-from-spec combo simulant 'R7_legacy' by
+    // directly inserting a validation_R7_legacy show row.
+    runPsql(
+      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
+    );
+    // Direct INSERT to simulate a retired-from-spec show that survived
+    // from a prior matrix version (the mint RPC wouldn't accept
+    // 'R7_legacy' as a valid combo today). Service-role psql bypasses
+    // the RPC entirely.
+    runPsql(`
+      INSERT INTO public.shows (drive_file_id, slug, title, client_label, template_version, dates, archived, published)
+      VALUES ('validation_R7_legacy', 'validation-r7-legacy', 'M12 Validation — R7 (legacy)', 'M12 Validation', 'v4', '{}'::jsonb, false, true);
+    `);
+    const before = runPsql(
+      `SELECT count(*)::int FROM public.shows WHERE drive_file_id = 'validation_R7_legacy';`,
+    );
+    expect(before).toBe("1");
+
+    // Finalize with required_combos=[R1]; R7_legacy should be DELETEd.
+    runPsql(
+      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
+    );
+    const after = runPsql(
+      `SELECT count(*)::int FROM public.shows WHERE drive_file_id = 'validation_R7_legacy';`,
+    );
+    expect(
+      after,
+      "Finalize must DELETE stale validation shows not in p_required_combos.",
+    ).toBe("0");
+  });
+
+  test("R14-F1 — DELETE does not touch non-validation shows (scoped to LIKE 'validation\\_%')", () => {
+    runPsql(
+      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
+    );
+    // Insert a non-validation show — must NOT be affected by the finalize prune.
+    runPsql(`
+      INSERT INTO public.shows (drive_file_id, slug, title, client_label, template_version, dates, archived, published)
+      VALUES ('real_production_show_xyz', 'real-show-xyz', 'Real Show', 'Real Client', 'v4', '{}'::jsonb, false, true);
+    `);
+    runPsql(
+      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
+    );
+    const survived = runPsql(
+      `SELECT count(*)::int FROM public.shows WHERE drive_file_id = 'real_production_show_xyz';`,
+    );
+    expect(
+      survived,
+      "Finalize must scope DELETE to LIKE 'validation\\_%' — non-validation shows must survive.",
+    ).toBe("1");
+    // Cleanup.
+    runPsql(
+      `DELETE FROM public.shows WHERE drive_file_id = 'real_production_show_xyz';`,
+    );
+  });
+
   test("rejects calling before mint (combos_seeded_dates initialized check)", () => {
     expect(() =>
       runPsql(

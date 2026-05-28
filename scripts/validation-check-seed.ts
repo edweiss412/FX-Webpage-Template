@@ -370,6 +370,28 @@ async function runChecks(
     }
   }
 
+  // Codex Phase 0.C R14-F1 — under --combo all dispatch, reject any
+  // physical validation show whose suffix isn't in ALL_COMBOS. Same
+  // class as R9 (validation_state stale keys) extended to the shows
+  // table. The finalize RPC now DELETEs stale validation shows, but
+  // this guard is defense-in-depth: if the prune ever fails to land
+  // (e.g., manual intervention, partial migration), check-seed
+  // surfaces it.
+  if (dispatch === "all") {
+    const expectedShowDriveIds = new Set(
+      ALL_COMBOS.map((c) => `validation_${c}`),
+    );
+    const extraShows = shows.filter(
+      (s) => !expectedShowDriveIds.has(s.drive_file_id),
+    );
+    if (extraShows.length > 0) {
+      throw new CheckSeedFailure(
+        "n",
+        `Stale validation shows found that aren't in ALL_COMBOS: ${extraShows.map((s) => s.drive_file_id).join(", ")}. Run \`pnpm validation:reseed --combo all\` (the finalizer DELETEs stale validation_<combo> rows).`,
+      );
+    }
+  }
+
   // (g) every seeded show has matching show_share_tokens row
   const sstRes = await (
     supabase as unknown as {

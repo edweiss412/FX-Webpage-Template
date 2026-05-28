@@ -102,6 +102,27 @@ BEGIN
     RAISE EXCEPTION 'validation_finalize_all_atomic: combos_seeded_dates changed between snapshot and update; concurrent mint_validation_fixture_atomic detected — retry the finalize call. (TOCTOU defense per R52 F47 + R53 commit 93 compare-and-swap repair)';
   END IF;
 
+  -- Codex Phase 0.C R14-F1 — physical stale-show pruning. R9 pruned
+  -- stale keys from validation_state only; that left retired
+  -- `validation_<combo>` show rows (and their cascaded crew_members +
+  -- share-token rows) reachable in the validation environment. A walk
+  -- using a stale share link could exercise a retired-from-spec combo
+  -- while check-seed reports green.
+  --
+  -- DELETE every validation show whose suffix isn't in p_required_combos.
+  -- FK cascades:
+  --   * crew_members.show_id → shows(id) ON DELETE CASCADE
+  --   * show_share_tokens.show_id → shows(id) ON DELETE CASCADE
+  -- So this single DELETE cleans up the full per-show fixture set.
+  -- LIKE 'validation\_%' ESCAPE '\' scopes strictly to validation namespace
+  -- (escaped underscore so other shows can't accidentally match).
+  DELETE FROM public.shows s
+   WHERE s.drive_file_id LIKE 'validation\_%' ESCAPE '\'
+     AND NOT EXISTS (
+       SELECT 1 FROM unnest(p_required_combos) AS c
+        WHERE s.drive_file_id = 'validation_' || c
+     );
+
   RETURN jsonb_build_object('finalized_combos', p_required_combos, 'last_seed_date', p_validation_today_iso);
 END;
 $$;
