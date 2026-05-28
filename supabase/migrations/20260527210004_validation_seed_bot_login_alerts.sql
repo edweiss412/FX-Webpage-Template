@@ -66,14 +66,23 @@ begin
   v_global_id := public.upsert_admin_alert(null, 'GITHUB_BOT_LOGIN_MISSING', p_context);
   v_show_id := public.upsert_admin_alert(p_show_id, 'REPORT_LOOKUP_INCONCLUSIVE', p_context);
 
+  -- R15 — STAGGER raised_at so AlertBanner (orders by raised_at DESC, limit 1)
+  -- deterministically shows the show-scoped REPORT_LOOKUP_INCONCLUSIVE as the
+  -- topmost alert. now() is transaction-scoped, so setting both rows to now()
+  -- in this single txn would give an identical timestamp and a nondeterministic
+  -- tie. Production writes these in SEPARATE autocommit statements — the global
+  -- GITHUB_BOT_LOGIN_MISSING first, the show-scoped REPORT_LOOKUP_INCONCLUSIVE
+  -- second — so the show-scoped is naturally later/topmost; the explicit 1s
+  -- offset reproduces that order deterministically.
+  update public.admin_alerts
+     set raised_at = now() - interval '1 second'
+   where resolved_at is null
+     and code = 'GITHUB_BOT_LOGIN_MISSING' and show_id is null;
   update public.admin_alerts
      set raised_at = now()
    where resolved_at is null
-     and (
-       (code = 'GITHUB_BOT_LOGIN_MISSING' and show_id is null)
-       or (code = 'REPORT_LOOKUP_INCONCLUSIVE'
-           and coalesce(show_id::text, '') = coalesce(p_show_id::text, ''))
-     );
+     and code = 'REPORT_LOOKUP_INCONCLUSIVE'
+     and coalesce(show_id::text, '') = coalesce(p_show_id::text, '');
 
   return jsonb_build_object('global_id', v_global_id, 'show_scoped_id', v_show_id);
 end;

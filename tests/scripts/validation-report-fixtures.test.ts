@@ -391,6 +391,29 @@ describe("validation-report-fixtures", () => {
          WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive';
       `);
       expect(reportRow.split("\t")).toEqual(["true", "true"]);
+
+      // R15 — the show-scoped REPORT_LOOKUP_INCONCLUSIVE must be DETERMINISTICALLY
+      // topmost (raised_at strictly later than the global GITHUB_BOT_LOGIN_MISSING),
+      // matching production write-order, so AlertBanner (raised_at DESC, limit 1)
+      // renders a deterministic alert rather than a same-timestamp tie.
+      const topmostCode = runPsql(`
+        SELECT code FROM public.admin_alerts
+         WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive'
+           AND resolved_at IS NULL
+         ORDER BY raised_at DESC
+         LIMIT 1;
+      `);
+      expect(topmostCode).toBe("REPORT_LOOKUP_INCONCLUSIVE");
+      const strictlyLater = runPsql(`
+        SELECT (
+          (SELECT raised_at FROM public.admin_alerts
+            WHERE context->>'validation_tag'='m12-fixture-lookup-inconclusive' AND show_id=${pgQuote(R1_SHOW_ID)})
+          >
+          (SELECT raised_at FROM public.admin_alerts
+            WHERE context->>'validation_tag'='m12-fixture-lookup-inconclusive' AND show_id IS NULL)
+        )::text;
+      `);
+      expect(strictlyLater).toBe("true");
     });
   });
 
