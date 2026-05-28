@@ -13,6 +13,11 @@
 // OAuth cannot authenticate against any of these domains — the J3 walk
 // would be unwalkable.
 import { canonicalize } from "@/lib/email/canonicalize";
+import type {
+  DateRestriction,
+  StageRestriction,
+  WorkPhase,
+} from "@/lib/parser/types";
 
 // =============================================================================
 // Canonical enums per spec §3.3 + §3.3.1.
@@ -92,14 +97,10 @@ function resolveR1ClaimEmail(): string {
 // Fixture types.
 // =============================================================================
 
-export type DateRestriction =
-  | { kind: "none" }
-  | { kind: "explicit"; days: string[] }
-  | { kind: "unknown_asterisk" };
-
-export type StageRestriction =
-  | { kind: "none" }
-  | { kind: "explicit"; stages: string[] };
+// Re-export the canonical parser/runtime types so fixture consumers
+// (selectRightNowState, check-seed predicate (o), Phase 1 walk scripts)
+// type-check against the same shape. R17-F1 fix.
+export type { DateRestriction, StageRestriction };
 
 export type FixtureDates = {
   travelIn: string | null;
@@ -211,7 +212,7 @@ function buildRCombo(combo: RCombo, today: string): {
     case "R4":
       // unknown_asterisk — viewer_unconfirmed regardless of show-wide state.
       return {
-        dateRestriction: { kind: "unknown_asterisk" },
+        dateRestriction: { kind: "unknown_asterisk", days: null },
         stageRestriction: { kind: "none" },
         dates: {
           travelIn: yesterday,
