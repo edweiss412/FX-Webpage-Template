@@ -634,9 +634,10 @@ async function forceCleanupWithoutSnapshot(
     .eq("identity", identity)
     .eq("hour_bucket", hourBucketIso);
   if (error) fail(`force-cleanup-without-snapshot delete failed: ${error.message}`);
-  // Best-effort unlink of any stale snapshot file.
-  const file = SNAPSHOT_FILE[kind];
-  if (existsSync(file)) unlinkSync(file);
+  // No snapshot unlink here: the caller has already enforced the precondition
+  // that NO snapshot file exists for this kind (R10). If one existed, normal
+  // `--cleanup --include-*` must be used instead (it restores via the snapshot)
+  // — so there is never a valid restore record to destroy on this path.
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -709,6 +710,20 @@ async function main(): Promise<void> {
       }
       if (!hourBucket) {
         fail("--force-cleanup-without-snapshot requires --hour-bucket <ISO timestamp>.");
+      }
+      // R10 — enforce the documented precondition: this emergency path is ONLY
+      // for when the snapshot file was LOST. If a snapshot still exists, normal
+      // `--cleanup --include-*` must be used (it restores via the snapshot at
+      // the recorded bucket). Refusing here prevents the force path from
+      // deleting a typo'd/zero-row bucket AND destroying a still-valid restore
+      // record — which would strand the real seeded row unrecoverably.
+      if (existsSync(SNAPSHOT_FILE[kind])) {
+        fail(
+          `--force-cleanup-without-snapshot refused: a snapshot file still exists at ` +
+            `${SNAPSHOT_FILE[kind]}. This emergency path is only for a LOST snapshot. ` +
+            `Use \`--cleanup --include-${kind === "admin" ? "admin-email <email>" : "crew-id <uuid>"}\` ` +
+            `instead — it restores the recorded bucket via the snapshot.`,
+        );
       }
       const identity =
         kind === "admin"

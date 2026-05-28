@@ -873,6 +873,51 @@ describe("validation-report-fixtures", () => {
       }
     });
 
+    test("R10 — --force-cleanup-without-snapshot REFUSES when a snapshot still exists (don't destroy a valid restore record)", () => {
+      const sharedCwd = makeSharedCwd();
+      const snapshotPath = join(
+        sharedCwd,
+        ".validation-state/rate-limit-admin-snapshot.json",
+      );
+      try {
+        const seed = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
+        expect(seed.code).toBe(0);
+        expect(existsSync(snapshotPath)).toBe(true);
+        const recordedBucket = JSON.parse(readFileSync(snapshotPath, "utf8")).recorded_hour_bucket;
+
+        // Emergency force path while a snapshot STILL exists must refuse.
+        const forced = runHarnessInCwd(sharedCwd, [
+          "--cleanup",
+          "--force-cleanup-without-snapshot",
+          "--kind",
+          "admin",
+          "--hour-bucket",
+          recordedBucket,
+        ]);
+        expect(forced.code).toBe(1);
+        expect(forced.stderr).toMatch(/--force-cleanup-without-snapshot refused/);
+        // The snapshot file + the seeded row must SURVIVE the refusal.
+        expect(existsSync(snapshotPath)).toBe(true);
+        const survived = runPsql(`
+          SELECT count FROM public.report_rate_limits
+           WHERE kind='admin' AND identity=${pgQuote(CANONICAL_ADMIN_IDENTITY)}
+             AND hour_bucket=date_trunc('hour', now());
+        `);
+        expect(survived).toBe("11");
+
+        // Normal cleanup (via the snapshot) then succeeds.
+        const cleanup = runHarnessInCwd(sharedCwd, [
+          "--cleanup",
+          "--include-admin-email",
+          VALIDATION_ADMIN_EMAIL,
+        ]);
+        expect(cleanup.code).toBe(0);
+        expect(existsSync(snapshotPath)).toBe(false);
+      } finally {
+        rmSync(sharedCwd, { recursive: true, force: true });
+      }
+    });
+
     test("R9 — a 'pending' snapshot (crash between seed and rewrite) WARNS at cleanup but still restores", () => {
       const sharedCwd = makeSharedCwd();
       const snapshotPath = join(
