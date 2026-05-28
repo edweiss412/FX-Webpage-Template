@@ -148,7 +148,7 @@ describe("validation_state", () => {
         migrationCandidates.length,
         `expected exactly one validation_state migration, found ${migrationCandidates.length}: ${migrationCandidates.join(", ")}`,
       ).toBe(1);
-      const migrationPath = path.join(migrationsDir, migrationCandidates[0]);
+      const migrationPath = path.join(migrationsDir, migrationCandidates[0]!);
       const migrationSql = readFileSync(migrationPath, "utf8");
 
       expect(
