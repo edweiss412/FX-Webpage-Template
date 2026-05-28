@@ -19,11 +19,22 @@
 -- (plan-wide invariant 2). Service-role only.
 
 drop function if exists public.validation_seed_rate_limit(text, text, integer);
+drop function if exists public.validation_seed_rate_limit(text, text, integer, timestamptz);
 
 create or replace function public.validation_seed_rate_limit(
   p_kind text,
   p_identity text,
-  p_count integer
+  p_count integer,
+  -- R2 adversarial R4 (HIGH) — when the caller is RE-seeding under
+  -- --force-overwrite-snapshot, it passes the EXISTING snapshot's recorded
+  -- bucket here. If the DB clock has rolled into a new hour since that snapshot
+  -- was taken, the prior hour's seeded row would be stranded (the force path
+  -- would overwrite the only restore record with the new bucket). The DB clock
+  -- is authoritative, so this cross-hour check lives here: refuse before
+  -- seeding so the harness exits 1 with the old snapshot intact (the dev runs
+  -- cleanup first, which restores the old bucket, then re-seeds). NULL on the
+  -- normal (non-force) seed path — no check.
+  p_expected_prev_bucket timestamptz default null
 )
 returns jsonb
 language plpgsql
@@ -39,6 +50,9 @@ begin
   end if;
   if p_identity is null or length(p_identity) = 0 then
     raise exception 'validation_seed_rate_limit: identity must be non-empty';
+  end if;
+  if p_expected_prev_bucket is not null and p_expected_prev_bucket <> v_bucket then
+    raise exception 'validation_seed_rate_limit: force-overwrite across hour boundary — prior snapshot bucket % is not the current bucket %; the prior bucket''s seeded row would be stranded. Run cleanup first (it restores the prior bucket via the existing snapshot), then re-seed.', p_expected_prev_bucket, v_bucket;
   end if;
 
   -- R2 adversarial R3 (HIGH) — serialize snapshot+seed against concurrent
@@ -73,5 +87,5 @@ begin
 end;
 $$;
 
-revoke all on function public.validation_seed_rate_limit(text, text, integer) from public, anon, authenticated;
-grant execute on function public.validation_seed_rate_limit(text, text, integer) to service_role;
+revoke all on function public.validation_seed_rate_limit(text, text, integer, timestamptz) from public, anon, authenticated;
+grant execute on function public.validation_seed_rate_limit(text, text, integer, timestamptz) to service_role;

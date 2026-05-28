@@ -400,6 +400,9 @@ async function seedRateLimitOutcome(
   forceOverwrite: boolean,
 ): Promise<void> {
   const file = SNAPSHOT_FILE[kind];
+  // R4 cross-hour guard — set to the existing snapshot's bucket under
+  // --force-overwrite; passed to the RPC, which refuses if the DB hour rolled.
+  let expectedPrevBucket: string | null = null;
 
   // (a0) F39 refuse-existing-snapshot guard (file-presence).
   if (existsSync(file)) {
@@ -427,6 +430,12 @@ async function seedRateLimitOutcome(
           `for the existing identity first, then re-seed.`,
       );
     }
+    // R4 (HIGH) — pass the existing snapshot's bucket to the RPC so it can
+    // refuse (DB-clock authoritative) if the hour has rolled over since the
+    // snapshot was taken. Without this, force-overwrite in a new hour would
+    // overwrite the snapshot with the new bucket and strand the prior hour's
+    // seeded row with no restore path.
+    if (existingSnap) expectedPrevBucket = existingSnap.recorded_hour_bucket;
     err(
       `--force-overwrite-snapshot: rewriting existing snapshot at ${file} from ` +
         `previous seeded state; original pre-seed prior_count is lost (cleanup ` +
@@ -441,12 +450,14 @@ async function seedRateLimitOutcome(
   // PRE-seed prior count (NULL if no row); under --force-overwrite the prior
   // row is the already-seeded count (F39 force-overwrite semantics preserved).
   // identity is the live shape the caller passed (admin: canonicalize(email);
-  // crew: raw UUID per rateLimit.ts:76 + submit.ts:168).
+  // crew: raw UUID per rateLimit.ts:76 + submit.ts:168). p_expected_prev_bucket
+  // is the R4 cross-hour guard (NULL on the normal non-force path).
   const count = kind === "admin" ? ADMIN_QUOTA_SEED_COUNT : CREW_QUOTA_SEED_COUNT;
   const { data, error } = await supabase.rpc("validation_seed_rate_limit", {
     p_kind: kind,
     p_identity: identity,
     p_count: count,
+    p_expected_prev_bucket: expectedPrevBucket,
   });
   if (error) {
     fail(`validation_seed_rate_limit RPC failed: ${error.message ?? JSON.stringify(error)}`);

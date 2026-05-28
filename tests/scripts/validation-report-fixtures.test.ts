@@ -13,7 +13,7 @@
  *   • F39 regression (refuse-existing-snapshot guard + force-overwrite
  *     escape hatch + cross-combo-clobber refuse + unlink-on-cleanup)
  */
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   afterAll,
@@ -778,6 +778,48 @@ describe("validation-report-fixtures", () => {
         expect(cleanupRes.code).toBe(0);
         expect(existsSync(snapshotPath)).toBe(false);
       } finally {
+        rmSync(sharedCwd, { recursive: true, force: true });
+      }
+    });
+
+    test("rate-limit-admin: --force-overwrite-snapshot REFUSES across an hour boundary (R4 HIGH); snapshot left intact for cleanup", () => {
+      const sharedCwd = makeSharedCwd();
+      const snapshotPath = join(
+        sharedCwd,
+        ".validation-state/rate-limit-admin-snapshot.json",
+      );
+      try {
+        const seed1 = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
+        expect(seed1.code).toBe(0);
+        const snap = JSON.parse(readFileSync(snapshotPath, "utf8"));
+        // Simulate an hour rollover since the seed: rewrite the snapshot's
+        // recorded bucket to 2 hours earlier. (The seeded row is still at the
+        // real current bucket; the snapshot now claims a prior hour.)
+        const rolled = new Date(
+          new Date(snap.recorded_hour_bucket).getTime() - 2 * 3600 * 1000,
+        ).toISOString();
+        writeFileSync(
+          snapshotPath,
+          JSON.stringify({ ...snap, recorded_hour_bucket: rolled }, null, 2) + "\n",
+        );
+
+        // Force-overwrite now: the RPC sees p_expected_prev_bucket (rolled, a
+        // past hour) != current DB bucket → refuses before seeding.
+        const forced = runHarnessInCwd(sharedCwd, [
+          "--outcome",
+          "rate-limit-admin",
+          "--force-overwrite-snapshot",
+        ]);
+        expect(forced.code).toBe(1);
+        expect(forced.stderr).toMatch(/across hour boundary/i);
+        // The snapshot file is UNCHANGED (still records the rolled bucket) so
+        // the dev can `--cleanup` to restore it before re-seeding.
+        expect(JSON.parse(readFileSync(snapshotPath, "utf8")).recorded_hour_bucket).toBe(
+          rolled,
+        );
+      } finally {
+        // The seed1 row sits at the real current bucket; afterEach cleans the
+        // canonical-admin identity, so no manual restore needed here.
         rmSync(sharedCwd, { recursive: true, force: true });
       }
     });
