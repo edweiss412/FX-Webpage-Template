@@ -171,6 +171,18 @@ type Snapshot = {
   identity: string;
   recorded_hour_bucket: string;
   snapshot_prior_count: number | null;
+  // R9 — write-ahead durability marker. The peek writes "pending" BEFORE the
+  // seed; the post-seed rewrite writes "committed" with the seed-time prior.
+  // A "pending" snapshot at cleanup time means the process died between the
+  // seed commit and the rewrite — so snapshot_prior_count is the PEEK-time
+  // value, which may not reflect a concurrent enforceQuota increment that
+  // landed in the [peek, seed] window. Cleanup warns rather than silently
+  // restoring a possibly-stale prior. (Under file-backed-only — the ratified
+  // sole snapshot strategy — this residual crash window cannot be eliminated
+  // without a DB-transactional snapshot store; the realistic impact is zero in
+  // the single-user validation environment, where no concurrent real POSTs hit
+  // the fixture identity during a manual seed. See closeout §4a.)
+  status: "pending" | "committed";
 };
 
 function err(msg: string): void {
@@ -467,12 +479,16 @@ async function seedRateLimitOutcome(
     snapshot_prior_count: number | null;
   };
 
-  // (2) PERSIST the restore record durably BEFORE mutating.
+  // (2) PERSIST the restore record durably BEFORE mutating, marked "pending"
+  // (the seed has not run yet). A crash after this write but before the seed
+  // leaves a "pending" snapshot whose bucket was never mutated — cleanup
+  // restores it to its unchanged prior (safe no-op) + warns.
   writeSnapshot(file, {
     kind,
     identity,
     recorded_hour_bucket: peeked.recorded_hour_bucket,
     snapshot_prior_count: peeked.snapshot_prior_count,
+    status: "pending",
   });
 
   // (3) SEED (guard against an hour roll since the peek). The seed RPC re-reads
@@ -498,13 +514,15 @@ async function seedRateLimitOutcome(
   };
 
   // (4) Rewrite the snapshot with the SEED-time prior so cleanup restores the
-  // true pre-seed count, including any [peek, seed] increment (R7). Same bucket
-  // (the cross-hour guard above guarantees seeded.bucket === peeked.bucket).
+  // true pre-seed count, including any [peek, seed] increment (R7). Marked
+  // "committed" — the seed succeeded and this prior is authoritative. Same
+  // bucket (the cross-hour guard guarantees seeded.bucket === peeked.bucket).
   writeSnapshot(file, {
     kind,
     identity,
     recorded_hour_bucket: seeded.recorded_hour_bucket,
     snapshot_prior_count: seeded.snapshot_prior_count,
+    status: "committed",
   });
 
   process.stdout.write(
@@ -558,6 +576,20 @@ async function restoreRateLimitFromSnapshot(
     throw new Error(
       `rate-limit-${kind} snapshot identity '${snap.identity}' does not match the ` +
         `--include-${kind === "admin" ? "admin-email" : "crew-id"} value '${expectedIdentity}'.`,
+    );
+  }
+  // R9 — a "pending" snapshot means the seed process died between the seed
+  // commit and the snapshot rewrite, so snapshot_prior_count is the PEEK-time
+  // value. In the single-user validation environment this restores the correct
+  // prior (no concurrent writes), but warn so the operator can verify the count
+  // if there was any concurrent quota activity in the peek→seed window.
+  if (snap.status === "pending") {
+    err(
+      `WARNING: rate-limit-${kind} snapshot is "pending" (the seed process did not ` +
+        `complete its post-seed snapshot rewrite). Restoring to the peek-time prior ` +
+        `(${snap.snapshot_prior_count === null ? "delete bucket" : `count=${snap.snapshot_prior_count}`}). ` +
+        `If a real report POST hit this identity+bucket between the peek and the seed, ` +
+        `verify the restored count manually — that increment may not be reflected.`,
     );
   }
   await applyRateLimitRestore(supabase, snap);

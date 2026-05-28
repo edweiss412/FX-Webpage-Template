@@ -872,6 +872,44 @@ describe("validation-report-fixtures", () => {
         rmSync(sharedCwd, { recursive: true, force: true });
       }
     });
+
+    test("R9 — a 'pending' snapshot (crash between seed and rewrite) WARNS at cleanup but still restores", () => {
+      const sharedCwd = makeSharedCwd();
+      const snapshotPath = join(
+        sharedCwd,
+        ".validation-state/rate-limit-admin-snapshot.json",
+      );
+      try {
+        const seed = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
+        expect(seed.code).toBe(0);
+        // A completed seed writes a "committed" snapshot.
+        const committed = JSON.parse(readFileSync(snapshotPath, "utf8"));
+        expect(committed.status).toBe("committed");
+        // Simulate a crash between seed-commit and rewrite: the on-disk snapshot
+        // is still the "pending" peek record.
+        writeFileSync(
+          snapshotPath,
+          JSON.stringify({ ...committed, status: "pending" }, null, 2) + "\n",
+        );
+        const cleanup = runHarnessInCwd(sharedCwd, [
+          "--cleanup",
+          "--include-admin-email",
+          VALIDATION_ADMIN_EMAIL,
+        ]);
+        expect(cleanup.code).toBe(0);
+        expect(cleanup.stderr).toMatch(/snapshot is "pending"/);
+        // Restore still happens (snapshot file unlinked, bucket cleaned).
+        expect(existsSync(snapshotPath)).toBe(false);
+        const residue = runPsql(`
+          SELECT count(*) FROM public.report_rate_limits
+           WHERE kind='admin' AND identity=${pgQuote(CANONICAL_ADMIN_IDENTITY)}
+             AND hour_bucket=date_trunc('hour', now());
+        `);
+        expect(residue).toBe("0");
+      } finally {
+        rmSync(sharedCwd, { recursive: true, force: true });
+      }
+    });
   });
 
   // ───────────────────────────────────────────────────────────────────

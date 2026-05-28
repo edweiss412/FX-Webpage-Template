@@ -66,6 +66,36 @@ describe("validation_seed_rate_limit DB-side defenses (R2/R3/R4 structural pin)"
     expect(seedIdx).toBeGreaterThan(writeIdx);
   });
 
+  test("R7/R9 — seed-time prior rewrite (committed) + pending-status crash marker + cleanup warning", () => {
+    // The peek snapshot is "pending"; the post-seed rewrite is "committed" with
+    // the seed-time authoritative prior. Cleanup warns on a "pending" snapshot
+    // (crash between seed and rewrite) rather than silently restoring a
+    // possibly-stale prior.
+    expect(harness).toMatch(/status:\s*"pending"/);
+    expect(harness).toMatch(/status:\s*"committed"/);
+    expect(harness).toMatch(/snapshot is "pending"/);
+    // The committed rewrite must use the SEED RPC's returned prior (R7), not the
+    // peek's, so a [peek,seed] increment is preserved in the no-crash case.
+    expect(harness).toMatch(/snapshot_prior_count:\s*seeded\.snapshot_prior_count/);
+  });
+
+  test("R7 — rate-limit-crew identity is bound to the combo's validation fixture show", () => {
+    expect(harness).toMatch(/shows!inner\(drive_file_id, client_label\)/);
+    expect(harness).toMatch(/does NOT resolve to a crew_member on/);
+  });
+
+  test("R8 — cleanup mode rejects seed-only flags before any destructive write", () => {
+    // The rejections must appear BEFORE the defaultCleanup call in the source.
+    const cleanupIdx = harness.indexOf("if (values.cleanup) {");
+    const defaultCleanupIdx = harness.indexOf("await defaultCleanup(supabase)", cleanupIdx);
+    const forceFlagRejectIdx = harness.indexOf(
+      "--force-overwrite-snapshot is a seed-only flag and is not valid with --cleanup",
+    );
+    expect(cleanupIdx).toBeGreaterThan(-1);
+    expect(forceFlagRejectIdx).toBeGreaterThan(cleanupIdx);
+    expect(forceFlagRejectIdx).toBeLessThan(defaultCleanupIdx);
+  });
+
   test("R4 — RPC refuses force-overwrite across an hour boundary (p_expected_prev_bucket guard)", () => {
     expect(migration).toMatch(/p_expected_prev_bucket/);
     expect(migration.toLowerCase()).toMatch(/across hour boundary/);
