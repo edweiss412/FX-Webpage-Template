@@ -918,6 +918,63 @@ describe("validation-report-fixtures", () => {
       }
     });
 
+    test("R13 — force-cleanup with a wrong bucket FAILS (0 rows) instead of falsely reporting success", () => {
+      const sharedCwd = makeSharedCwd();
+      const snapshotPath = join(
+        sharedCwd,
+        ".validation-state/rate-limit-admin-snapshot.json",
+      );
+      try {
+        const seed = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
+        expect(seed.code).toBe(0);
+        const recordedBucket = JSON.parse(readFileSync(snapshotPath, "utf8")).recorded_hour_bucket;
+        // Simulate a LOST snapshot so the force path's precondition (R10) passes.
+        rmSync(snapshotPath, { force: true });
+
+        // Wrong bucket → 0 rows matched → must FAIL (not falsely report success).
+        const wrongBucket = new Date(
+          new Date(recordedBucket).getTime() - 5 * 3600 * 1000,
+        ).toISOString();
+        const wrong = runHarnessInCwd(sharedCwd, [
+          "--cleanup",
+          "--force-cleanup-without-snapshot",
+          "--kind",
+          "admin",
+          "--hour-bucket",
+          wrongBucket,
+        ]);
+        expect(wrong.code).toBe(1);
+        expect(wrong.stderr).toMatch(/0 rows matched/);
+        // The seeded row survives the no-op.
+        const survived = runPsql(`
+          SELECT count FROM public.report_rate_limits
+           WHERE kind='admin' AND identity=${pgQuote(CANONICAL_ADMIN_IDENTITY)}
+             AND hour_bucket=date_trunc('hour', now());
+        `);
+        expect(survived).toBe("11");
+
+        // Correct bucket → deletes the row + reports the count.
+        const right = runHarnessInCwd(sharedCwd, [
+          "--cleanup",
+          "--force-cleanup-without-snapshot",
+          "--kind",
+          "admin",
+          "--hour-bucket",
+          recordedBucket,
+        ]);
+        expect(right.code).toBe(0);
+        expect(right.stdout).toMatch(/deleted 1 row/);
+        const gone = runPsql(`
+          SELECT count(*) FROM public.report_rate_limits
+           WHERE kind='admin' AND identity=${pgQuote(CANONICAL_ADMIN_IDENTITY)}
+             AND hour_bucket=date_trunc('hour', now());
+        `);
+        expect(gone).toBe("0");
+      } finally {
+        rmSync(sharedCwd, { recursive: true, force: true });
+      }
+    });
+
     test("R9 — a 'pending' snapshot (crash between seed and rewrite) WARNS at cleanup but still restores", () => {
       const sharedCwd = makeSharedCwd();
       const snapshotPath = join(

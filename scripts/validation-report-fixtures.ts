@@ -633,10 +633,13 @@ async function forceCleanupWithoutSnapshot(
   kind: "admin" | "crew",
   identity: string,
   hourBucketIso: string,
-): Promise<void> {
-  const { error } = await supabase
+): Promise<number> {
+  // R13 — request the affected-row count so the caller can detect a zero-match
+  // (typo'd --hour-bucket / wrong identity) instead of falsely reporting
+  // success and leaving the seeded over-limit row behind.
+  const { error, count } = await supabase
     .from("report_rate_limits")
-    .delete()
+    .delete({ count: "exact" })
     .eq("kind", kind)
     .eq("identity", identity)
     .eq("hour_bucket", hourBucketIso);
@@ -645,6 +648,7 @@ async function forceCleanupWithoutSnapshot(
   // that NO snapshot file exists for this kind (R10). If one existed, normal
   // `--cleanup --include-*` must be used instead (it restores via the snapshot)
   // — so there is never a valid restore record to destroy on this path.
+  return count ?? 0;
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -732,12 +736,31 @@ async function main(): Promise<void> {
             `instead — it restores the recorded bucket via the snapshot.`,
         );
       }
-      const identity =
-        kind === "admin"
-          ? canonicalize(requireEnv("VALIDATION_ADMIN_EMAIL")) || fail("admin email canonicalized to empty")
-          : values["include-crew-id"] ?? fail("--force-cleanup-without-snapshot --kind crew requires --include-crew-id <uuid>.");
-      await forceCleanupWithoutSnapshot(supabase, kind, identity, hourBucket);
-      process.stdout.write(`force-cleanup-without-snapshot: deleted ${kind} bucket ${hourBucket}\n`);
+      let identity: string;
+      if (kind === "admin") {
+        identity = canonicalize(requireEnv("VALIDATION_ADMIN_EMAIL")) || fail("admin email canonicalized to empty");
+      } else {
+        const crewId = values["include-crew-id"];
+        if (!crewId || crewId.trim().length === 0) {
+          fail("--force-cleanup-without-snapshot --kind crew requires a non-empty --include-crew-id <uuid>.");
+        }
+        identity = crewId;
+      }
+      const deleted = await forceCleanupWithoutSnapshot(supabase, kind, identity, hourBucket);
+      // R13 — a zero-match means the bucket/identity didn't match the seeded
+      // row (typo'd --hour-bucket, wrong/stale identity). Fail loudly rather
+      // than falsely reporting success and leaving the over-limit row behind.
+      if (deleted === 0) {
+        fail(
+          `force-cleanup-without-snapshot: 0 rows matched (kind=${kind}, identity=${identity}, ` +
+            `hour_bucket=${hourBucket}) — nothing deleted. Verify --hour-bucket and the identity ` +
+            `(${kind === "admin" ? "VALIDATION_ADMIN_EMAIL" : "--include-crew-id"}); the seeded ` +
+            `row may be at a different bucket.`,
+        );
+      }
+      process.stdout.write(
+        `force-cleanup-without-snapshot: deleted ${deleted} row(s) at ${kind} bucket ${hourBucket}\n`,
+      );
       return;
     }
 
