@@ -57,6 +57,18 @@ E2E (Task 0.E.3) seeded `lookup-inconclusive --alert-code inconclusive` + `rate-
 
 ---
 
+### 4a. Snapshot / quota-state-correctness vector — comprehensive re-analysis
+
+R2 (bucket clock) + R3 (seed race) both landed on the rate-limit snapshot+restore vector; per AGENTS.md "same-vector recurrence" discipline, the full surface was audited end-to-end after R3:
+
+- **Seed snapshot capture** — DB-side RPC under `SHARE ROW EXCLUSIVE` table lock; `snapshot_prior_count` is the true pre-seed count (serialized against `enforceQuota`). ✓
+- **Bucket authority** — `recorded_hour_bucket` = Postgres `date_trunc('hour', now())`, identical to live `enforceQuota`; the snapshot file keys restore on it. ✓
+- **Cross-hour** — restore/delete is `.eq(hour_bucket = recorded)`; never spans buckets. ✓
+- **Snapshot file lifecycle** — F39 refuse-existing (file-presence) + force-overwrite (now identity-matched, R3) + unlink-on-cleanup. ✓
+- **admin_alerts clobber** — `assertAdminAlertNoClobber` on both global + show scopes (R1, R2). ✓
+- **reports** — fresh `idempotency_key` per seed → no coalescing/clobber. ✓
+- **Documented boundary (not a defect):** during the seed→cleanup window the harness OWNS the fixture identity's current-hour bucket. The fixture seed sets an absolute `count`, and cleanup restores the pre-seed `count`; a *real* `enforceQuota` write to that exact identity+bucket *during the window* is overwritten by teardown. This is inherent to the absolute-set fixture model and acceptable in the single-user validation environment (the dev is the sole actor and does not POST real reports while a seed is live). Cleanup's restore is an atomic row UPDATE/DELETE (row-lock-serialized), so no torn write occurs — only the documented "fixture owns the bucket" overwrite.
+
 ## 5. Real-CI
 
 X audits workflow run `26552971387` (commit `c919b37`) — **success**. The full vitest suite is not a CI workflow on this repo (only `x-audits.yml` + `pages-build-deployment` run on push, per Phase 0.C precedent); local full-suite gate: **4216 passed / 5 skipped / 0 failed**. `<re-confirm CI on final HEAD after R2 APPROVE>`
