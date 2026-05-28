@@ -44,22 +44,24 @@ E2E (Task 0.E.3) seeded `lookup-inconclusive --alert-code inconclusive` + `rate-
 
 ## 4. Adversarial review verdict + triage
 
-**Rounds:** R1 (needs-attention, 1 HIGH) → R2 (needs-attention, 1 HIGH + 1 MED) → R3 (needs-attention, 1 HIGH + 1 MED) → R4 `<PENDING>`.
+**Rounds:** R1 (needs-attention, 1 HIGH) → R2 (needs-attention, 1 HIGH + 1 MED) → R3 (needs-attention, 1 HIGH + 1 MED) → R4 (needs-attention, 1 HIGH) → structural-defense ship → R5 `<PENDING>`.
 
 | Round | Verdict | Finding | Disposition |
 |---|---|---|---|
 | R1 | needs-attention | [HIGH] admin_alerts clobber — `upsert_admin_alert` coalesces on unresolved `(show_id, code)` and replaces context; a pre-existing real alert would be overwritten then deleted by cleanup. | FIXED `19a8616` — `assertAdminAlertNoClobber` refuses before any writes; +3 regression tests. |
 | R2 | needs-attention | [HIGH] bot-login-missing seeded a single show-scoped `GITHUB_BOT_LOGIN_MISSING` — production (`handleLookupInconclusive` submit.ts:703-704,731-732) writes a GLOBAL `GITHUB_BOT_LOGIN_MISSING` + a show-scoped `REPORT_LOOKUP_INCONCLUSIVE`. | FIXED `0274641` — dual-write with clobber guards on both scopes; variant + producer-state tests assert both rows. |
 | R2 | needs-attention | [MED] rate-limit `hour_bucket` derived from the Supabase gateway `Date` header (client clock) — hour-boundary race vs live `enforceQuota`'s `date_trunc('hour', now())`. | FIXED `0274641` — new SECURITY DEFINER `validation_seed_rate_limit` RPC derives the bucket DB-side; applied local + validation Supabase. |
-| R3 | needs-attention | [HIGH] `validation_seed_rate_limit` RPC did an unlocked SELECT-then-UPSERT; a concurrent live `enforceQuota` write on the same `(kind,identity,hour_bucket)` could be excluded from `snapshot_prior_count`, losing real quota state at cleanup. | FIXED `<R3 SHA>` — RPC takes `LOCK TABLE report_rate_limits IN SHARE ROW EXCLUSIVE MODE` (conflicts with `enforceQuota`'s ROW EXCLUSIVE INSERT), serializing snapshot+seed; applied local + validation Supabase. |
-| R3 | needs-attention | [MED] `--force-overwrite-snapshot` only checked file existence, not identity — force-re-seeding a different crew combo would strand the first combo's quota row. | FIXED `<R3 SHA>` — force path now reads the existing snapshot and refuses if `(kind, identity)` differs; +1 regression test. |
-| R4 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
+| R3 | needs-attention | [HIGH] `validation_seed_rate_limit` RPC did an unlocked SELECT-then-UPSERT; a concurrent live `enforceQuota` write on the same `(kind,identity,hour_bucket)` could be excluded from `snapshot_prior_count`, losing real quota state at cleanup. | FIXED `bbb11a5` — RPC takes `LOCK TABLE report_rate_limits IN SHARE ROW EXCLUSIVE MODE` (conflicts with `enforceQuota`'s ROW EXCLUSIVE INSERT), serializing snapshot+seed; applied local + validation Supabase. |
+| R3 | needs-attention | [MED] `--force-overwrite-snapshot` only checked file existence, not identity — force-re-seeding a different crew combo would strand the first combo's quota row. | FIXED `bbb11a5` — force path now reads the existing snapshot and refuses if `(kind, identity)` differs; +1 regression test. |
+| R4 | needs-attention | [HIGH] `--force-overwrite-snapshot` guarded identity but not the hour bucket; force-re-seeding after an hour rollover stranded the prior bucket's seeded row (no restore path). | FIXED `e9a26ca` — RPC `p_expected_prev_bucket` param; the harness passes the existing snapshot's bucket under force; the RPC (DB-clock authoritative) refuses cross-hour before seeding, leaving the snapshot intact for cleanup. +1 regression test. |
+| (post-R4) | structural | Same-vector recurrence (R2→R3→R4 all on the rate-limit snapshot vector). Per AGENTS.md structural-defense calibration, convergence shifts from adversarial rounds to a CI-time guard. | SHIPPED `<R4-struct SHA>` — `tests/cross-cutting/validation-seed-rate-limit-defenses.test.ts` pins the DB-side lock, cross-hour guard, service_role-only grant, clobber guard, and harness wiring so a future edit cannot silently drop them. |
+| R5 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
 
 ---
 
 ### 4a. Snapshot / quota-state-correctness vector — comprehensive re-analysis
 
-R2 (bucket clock) + R3 (seed race) both landed on the rate-limit snapshot+restore vector; per AGENTS.md "same-vector recurrence" discipline, the full surface was audited end-to-end after R3:
+R2 (bucket clock) + R3 (seed race) + R4 (force cross-hour) all landed on the rate-limit snapshot+restore vector — three consecutive rounds. The post-R3 re-analysis below missed the cross-hour force case (R4), so per AGENTS.md structural-defense calibration the convergence path shifted from adversarial rounds to a CI-time guard: `tests/cross-cutting/validation-seed-rate-limit-defenses.test.ts` pins every DB-side + harness defense below so a future edit cannot silently re-open the class. Full-surface audit:
 
 - **Seed snapshot capture** — DB-side RPC under `SHARE ROW EXCLUSIVE` table lock; `snapshot_prior_count` is the true pre-seed count (serialized against `enforceQuota`). ✓
 - **Bucket authority** — `recorded_hour_bucket` = Postgres `date_trunc('hour', now())`, identical to live `enforceQuota`; the snapshot file keys restore on it. ✓
