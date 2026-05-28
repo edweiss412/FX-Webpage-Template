@@ -257,6 +257,31 @@ async function resolveCrewMemberId(
         `Available aliases: ${Object.keys(slice).join(", ")}.`,
     );
   }
+  // R7 (HIGH) — bind the alias_map UUID to THIS combo's validation fixture show
+  // before using it as a service-role rate-limit identity. A stale/poisoned
+  // alias_map could otherwise point at a UUID belonging to another combo or a
+  // REAL crew row, and the harness would rate-limit (then have cleanup touch)
+  // the wrong identity. Require the UUID to be a crew_member on the combo's
+  // `validation_<combo>` show carrying the 'M12 Validation' fixture sentinel.
+  const driveFileId = `validation_${combo}`;
+  const { data: bound, error: bindErr } = await supabase
+    .from("crew_members")
+    .select("id, shows!inner(drive_file_id, client_label)")
+    .eq("id", uuid)
+    .eq("shows.drive_file_id", driveFileId)
+    .eq("shows.client_label", "M12 Validation")
+    .maybeSingle();
+  if (bindErr) {
+    fail(`crew_members ownership check failed: ${bindErr.message ?? JSON.stringify(bindErr)}`);
+  }
+  if (!bound) {
+    fail(
+      `alias_map[${combo}].alias_5a_lead UUID '${uuid}' does NOT resolve to a crew_member on ` +
+        `the validation fixture show for combo '${combo}' (drive_file_id='${driveFileId}', ` +
+        `client_label='M12 Validation'). The alias_map may be stale/poisoned — refusing to ` +
+        `seed a rate-limit row for an unverified identity. Re-run \`pnpm validation:reseed --combo ${combo}\`.`,
+    );
+  }
   return uuid;
 }
 
@@ -450,7 +475,13 @@ async function seedRateLimitOutcome(
     snapshot_prior_count: peeked.snapshot_prior_count,
   });
 
-  // (3) SEED (guard against an hour roll since the peek).
+  // (3) SEED (guard against an hour roll since the peek). The seed RPC re-reads
+  // the prior under ITS OWN SHARE ROW EXCLUSIVE lock immediately before the
+  // UPSERT, so its returned snapshot_prior_count is authoritative as of the
+  // seed — it INCLUDES any legitimate enforceQuota increment that landed in the
+  // [peek, seed] window (R7 no-lost-update). The peek's snapshot (step 2) was
+  // the durable fallback for a crash between this seed and the rewrite below
+  // (it restores to a valid prior, never an unrecoverable strand — R6).
   const seed = await supabase.rpc("validation_seed_rate_limit", {
     p_kind: kind,
     p_identity: identity,
@@ -461,10 +492,24 @@ async function seedRateLimitOutcome(
   if (seed.error) {
     fail(`validation_seed_rate_limit (seed) RPC failed: ${seed.error.message ?? JSON.stringify(seed.error)}`);
   }
+  const seeded = seed.data as {
+    recorded_hour_bucket: string;
+    snapshot_prior_count: number | null;
+  };
+
+  // (4) Rewrite the snapshot with the SEED-time prior so cleanup restores the
+  // true pre-seed count, including any [peek, seed] increment (R7). Same bucket
+  // (the cross-hour guard above guarantees seeded.bucket === peeked.bucket).
+  writeSnapshot(file, {
+    kind,
+    identity,
+    recorded_hour_bucket: seeded.recorded_hour_bucket,
+    snapshot_prior_count: seeded.snapshot_prior_count,
+  });
 
   process.stdout.write(
     `materialized rate-limit-${kind} report row (kind=${kind}, identity=${identity}, ` +
-      `hour_bucket=${peeked.recorded_hour_bucket}, count=${count})\n`,
+      `hour_bucket=${seeded.recorded_hour_bucket}, count=${count})\n`,
   );
 }
 

@@ -252,6 +252,39 @@ describe("validation-report-fixtures", () => {
       expect(row).toBe(`4\t${R1_CREW_ID}`);
     });
 
+    test("rate-limit-crew REFUSES a poisoned alias_map UUID not on the combo's show (R7 identity binding)", () => {
+      // Poison alias_map[R1].alias_5a_lead to R7b's crew UUID — a real crew row,
+      // but on R7b's show, NOT R1's. The harness must refuse to seed a quota
+      // row for an identity that doesn't belong to the requested combo's show.
+      const original = runPsql(`
+        SELECT alias_map->'R1'->>'alias_5a_lead' FROM public.validation_state
+         WHERE key='validation_seed';
+      `);
+      runPsql(`
+        UPDATE public.validation_state
+           SET alias_map = jsonb_set(alias_map, '{R1,alias_5a_lead}', to_jsonb(${pgQuote(R7B_CREW_ID)}::text))
+         WHERE key='validation_seed';
+      `);
+      try {
+        const res = runHarness(["--outcome", "rate-limit-crew", "--combo", "R1"]);
+        expect(res.code).toBe(1);
+        expect(res.stderr).toMatch(/does NOT resolve to a crew_member on the validation fixture show/);
+        // No quota row was seeded for the poisoned (R7b) UUID under R1.
+        const seeded = runPsql(`
+          SELECT count(*) FROM public.report_rate_limits
+           WHERE kind='crew' AND identity=${pgQuote(R7B_CREW_ID)}
+             AND hour_bucket=date_trunc('hour', now());
+        `);
+        expect(seeded).toBe("0");
+      } finally {
+        runPsql(`
+          UPDATE public.validation_state
+             SET alias_map = jsonb_set(alias_map, '{R1,alias_5a_lead}', to_jsonb(${pgQuote(original)}::text))
+           WHERE key='validation_seed';
+        `);
+      }
+    });
+
     test("lease-expired → reports row with past processing_lease_until + github_issue_url NULL", () => {
       const res = runHarness([
         "--outcome",
