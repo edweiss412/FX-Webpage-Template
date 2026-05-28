@@ -531,7 +531,7 @@ class AssetRecoveryPostgresTx implements AssetRecoveryTx, LockableSyncTx {
            ) = $3
          returning id
       `,
-      [showId, JSON.stringify(diagrams), expectedSnapshotRevisionId] as never[],
+      [showId, diagrams, expectedSnapshotRevisionId] as never[],
     );
     return rows.length > 0;
   }
@@ -575,7 +575,7 @@ class AssetRecoveryPostgresTx implements AssetRecoveryTx, LockableSyncTx {
     await this.tx.unsafe("select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)", [
       showId,
       code,
-      JSON.stringify(context ?? {}),
+      context ?? {},
     ] as never[]);
   }
 }

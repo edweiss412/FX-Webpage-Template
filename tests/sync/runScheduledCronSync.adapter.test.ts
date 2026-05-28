@@ -35,12 +35,16 @@ vi.mock("postgres", () => ({
       if (/delete from public\.revision_race_cooldowns/i.test(sql)) return [];
       if (/select id from public\.shows where drive_file_id/i.test(sql)) return [];
       if (/select public\.upsert_admin_alert/i.test(sql)) {
-        const [showId, code, context] = params as [string | null, string, string];
-        calls.txAdminAlerts.push({
-          showId,
-          code,
-          context: JSON.parse(context) as Record<string, unknown>,
-        });
+        // The `$3::jsonb` context param is passed as a RAW object now (postgres.js
+        // serializes it once via the cast); the prior code double-encoded it with
+        // JSON.stringify. Mirror production: consume the object directly, not via
+        // JSON.parse (which would choke on "[object Object]").
+        const [showId, code, context] = params as [
+          string | null,
+          string,
+          Record<string, unknown>,
+        ];
+        calls.txAdminAlerts.push({ showId, code, context });
         return [{ id: "tx-alert-1" }];
       }
 

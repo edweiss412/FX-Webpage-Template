@@ -289,7 +289,7 @@ function defaultTx(): DiagramGcTx {
         `
           select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)
         `,
-        [showId, code, JSON.stringify(context ?? {})],
+        [showId, code, context ?? {}],
       );
     },
     async emitStuckAlerts(now) {

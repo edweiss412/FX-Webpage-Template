@@ -19,14 +19,17 @@ describe("sync_log sink", () => {
         "file-1",
         "WEBHOOK_NOOP_ALREADY_SYNCED",
         "skipped:WEBHOOK_NOOP_ALREADY_SYNCED",
-        JSON.stringify([
+        // Raw array (NOT JSON.stringify'd): postgres.js serializes a `$N::jsonb`
+        // param exactly once via the cast; pre-serializing here would
+        // double-encode it into a jsonb string scalar.
+        [
           {
             kind: "watermark",
             modifiedTime: "2026-05-09T12:00:00.000Z",
             outcome: "skipped",
             code: "WEBHOOK_NOOP_ALREADY_SYNCED",
           },
-        ]),
+        ],
       ],
     );
   });

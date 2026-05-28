@@ -132,7 +132,7 @@ async function emitRollbackStuckAlert(
       select public.upsert_admin_alert(
         ${showId}::uuid,
         'PENDING_SNAPSHOT_ROLLBACK_STUCK',
-        ${JSON.stringify({
+        ${sql.json({
           snapshot_revision_id: snapshotRevisionId,
           error: storageErrorMessage(error),
         })}::jsonb

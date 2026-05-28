@@ -144,7 +144,7 @@ class PostgresUnpublishTx implements UnpublishShowTx {
   }): Promise<string | null> {
     const row = await this.one<{ id: string }>(
       "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
-      [input.showId, input.code, JSON.stringify(input.context)],
+      [input.showId, input.code, input.context],
     );
     return row?.id ?? null;
   }

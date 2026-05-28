@@ -356,7 +356,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
            set diagrams = $2::jsonb
          where drive_file_id = $1
       `,
-      [driveFileId, JSON.stringify(diagrams)],
+      [driveFileId, diagrams],
     );
   }
 
@@ -594,7 +594,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         row.driveFileName,
         row.lastErrorCode,
         row.lastErrorMessage,
-        JSON.stringify(row.lastWarnings),
+        row.lastWarnings,
         row.lastSeenModifiedTime,
       ],
     );
@@ -639,8 +639,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
         row.driveFileId,
         row.baseModifiedTime,
         row.stagedModifiedTime,
-        JSON.stringify(row.parseResult),
-        JSON.stringify(row.triggeredReviewItems),
+        row.parseResult,
+        row.triggeredReviewItems,
         row.priorLastSyncStatus,
         row.priorLastSyncError,
         row.stagedId ?? null,
@@ -734,7 +734,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         entry.driveFileId,
         entry.code ?? entry.outcome,
         entry.code ? `${entry.outcome}:${entry.code}` : entry.outcome,
-        JSON.stringify(entry.payload ? [{ ...entry.payload, outcome: entry.outcome }] : []),
+        entry.payload ? [{ ...entry.payload, outcome: entry.outcome }] : [],
       ],
     );
   }
@@ -742,7 +742,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null> {
     const row = await this.one<{ id: string }>(
       "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
-      [input.showId, input.code, JSON.stringify(input.context)],
+      [input.showId, input.code, input.context],
     );
     return row?.id ?? null;
   }
@@ -901,20 +901,20 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.driveFileId,
       args.parseResult.show.title,
       args.parseResult.show.client_label,
-      JSON.stringify(args.parseResult.show.client_contact),
+      args.parseResult.show.client_contact,
       args.parseResult.show.template_version,
-      JSON.stringify(args.parseResult.show.venue),
-      JSON.stringify(args.parseResult.show.dates),
-      JSON.stringify(args.parseResult.show.event_details),
-      JSON.stringify(args.parseResult.show.agenda_links),
-      JSON.stringify(args.parseResult.diagrams),
+      args.parseResult.show.venue,
+      args.parseResult.show.dates,
+      args.parseResult.show.event_details,
+      args.parseResult.show.agenda_links,
+      args.parseResult.diagrams,
       args.parseResult.openingReel?.driveFileId ?? null,
       args.parseResult.openingReel?.drive_modified_time ?? null,
       args.parseResult.openingReel?.headRevisionId ?? null,
       args.parseResult.openingReel?.mimeType ?? null,
       args.modifiedTime,
       args.parseResult.show.coi_status,
-      JSON.stringify(args.parseResult.pullSheet),
+      args.parseResult.pullSheet,
       args.autoPublishFirstSeen?.unpublishToken ?? null,
       args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
     ];
@@ -922,39 +922,39 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.driveFileId,
       args.parseResult.show.title,
       args.parseResult.show.client_label,
-      JSON.stringify(args.parseResult.show.client_contact),
+      args.parseResult.show.client_contact,
       args.parseResult.show.template_version,
-      JSON.stringify(args.parseResult.show.venue),
-      JSON.stringify(args.parseResult.show.dates),
-      JSON.stringify(args.parseResult.show.event_details),
-      JSON.stringify(args.parseResult.show.agenda_links),
+      args.parseResult.show.venue,
+      args.parseResult.show.dates,
+      args.parseResult.show.event_details,
+      args.parseResult.show.agenda_links,
       args.parseResult.openingReel?.driveFileId ?? null,
       args.parseResult.openingReel?.drive_modified_time ?? null,
       args.parseResult.openingReel?.headRevisionId ?? null,
       args.parseResult.openingReel?.mimeType ?? null,
       args.modifiedTime,
       args.parseResult.show.coi_status,
-      JSON.stringify(args.parseResult.pullSheet),
+      args.parseResult.pullSheet,
     ];
     const insertParamsForSlug = (slug: string) => [
       args.driveFileId,
       slug,
       args.parseResult.show.title,
       args.parseResult.show.client_label,
-      JSON.stringify(args.parseResult.show.client_contact),
+      args.parseResult.show.client_contact,
       args.parseResult.show.template_version,
-      JSON.stringify(args.parseResult.show.venue),
-      JSON.stringify(args.parseResult.show.dates),
-      JSON.stringify(args.parseResult.show.event_details),
-      JSON.stringify(args.parseResult.show.agenda_links),
-      JSON.stringify(args.parseResult.diagrams),
+      args.parseResult.show.venue,
+      args.parseResult.show.dates,
+      args.parseResult.show.event_details,
+      args.parseResult.show.agenda_links,
+      args.parseResult.diagrams,
       args.parseResult.openingReel?.driveFileId ?? null,
       args.parseResult.openingReel?.drive_modified_time ?? null,
       args.parseResult.openingReel?.headRevisionId ?? null,
       args.parseResult.openingReel?.mimeType ?? null,
       args.modifiedTime,
       args.parseResult.show.coi_status,
-      JSON.stringify(args.parseResult.pullSheet),
+      args.parseResult.pullSheet,
       args.autoPublishFirstSeen?.unpublishToken ?? null,
       args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
     ];
@@ -1091,8 +1091,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
           member.phone,
           member.role,
           member.role_flags,
-          JSON.stringify(member.date_restriction),
-          JSON.stringify(member.stage_restriction),
+          member.date_restriction,
+          member.stage_restriction,
           member.flight_info,
         ],
       );
@@ -1190,7 +1190,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         row.license_plate,
         row.color,
         row.parking,
-        JSON.stringify(row.schedule),
+        row.schedule,
         row.notes,
       ],
     );
@@ -1225,9 +1225,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
       `,
       [
         showId,
-        JSON.stringify(payload.financials),
-        JSON.stringify(payload.parse_warnings),
-        JSON.stringify(payload.raw_unrecognized),
+        payload.financials,
+        payload.parse_warnings,
+        payload.raw_unrecognized,
       ],
     );
   }

@@ -37,7 +37,7 @@ const REQUIRED_WIZARD_ISOLATION_INDEXES = [
   "pending_ingestions_session_drive_file_idx",
 ] as const;
 
-type PostgresTransaction = {
+export type PostgresTransaction = {
   unsafe(sql: string, params?: unknown[]): Promise<unknown[]>;
 };
 
@@ -212,7 +212,7 @@ function isSpreadsheet(file: DriveListedFile): boolean {
   return file.mimeType === "application/vnd.google-apps.spreadsheet";
 }
 
-class PostgresOnboardingScanTx implements OnboardingScanTx {
+export class PostgresOnboardingScanTx implements OnboardingScanTx {
   constructor(
     private readonly tx: PostgresTransaction,
     private readonly folderId: string,
@@ -323,7 +323,7 @@ class PostgresOnboardingScanTx implements OnboardingScanTx {
         row.driveFileName,
         row.lastErrorCode,
         row.lastErrorMessage,
-        JSON.stringify(row.lastWarnings),
+        row.lastWarnings,
         this.wizardSessionId,
         this.folderId,
         row.lastSeenModifiedTime,
@@ -378,8 +378,8 @@ class PostgresOnboardingScanTx implements OnboardingScanTx {
         row.driveFileId,
         row.baseModifiedTime,
         row.stagedModifiedTime,
-        JSON.stringify(row.parseResult),
-        JSON.stringify(row.triggeredReviewItems),
+        row.parseResult,
+        row.triggeredReviewItems,
         row.priorLastSyncStatus,
         row.priorLastSyncError,
         row.stagedId ?? null,
@@ -445,7 +445,7 @@ class PostgresOnboardingScanTx implements OnboardingScanTx {
         entry.driveFileId ?? null,
         entry.code,
         `onboarding_scan:${entry.code}`,
-        JSON.stringify(entry.payload ? [{ ...entry.payload, code: entry.code }] : []),
+        entry.payload ? [{ ...entry.payload, code: entry.code }] : [],
       ],
     );
   }
@@ -453,7 +453,7 @@ class PostgresOnboardingScanTx implements OnboardingScanTx {
   async upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null> {
     const row = await this.one<{ id: string }>(
       "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
-      [input.showId, input.code, JSON.stringify(input.context)],
+      [input.showId, input.code, input.context],
     );
     return row?.id ?? null;
   }

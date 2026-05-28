@@ -29,7 +29,10 @@ function rowWith(triggered: unknown): PendingSyncForApplyRow {
     wizard_session_id: null,
     base_modified_time: null,
     staged_modified_time: "2026-05-28T12:00:00Z",
-    parse_result: {} as PendingSyncForApplyRow["parse_result"],
+    // A minimally-valid parse_result: the Apply read boundary now coerces it
+    // (asParseResult) so a legacy double-encoded scalar decodes; it asserts
+    // `.show` is present, so the fixture carries one.
+    parse_result: { show: { title: "Fixture" } } as PendingSyncForApplyRow["parse_result"],
     triggered_review_items: triggered,
     prior_last_sync_status: null,
     prior_last_sync_error: null,

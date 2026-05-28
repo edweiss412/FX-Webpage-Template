@@ -40,7 +40,7 @@ export function makePostgresSyncLogSink(
         entry.driveFileId,
         statusFor(entry),
         messageFor(entry),
-        JSON.stringify(warningsFor(entry)),
+        warningsFor(entry),
       ],
     );
   };

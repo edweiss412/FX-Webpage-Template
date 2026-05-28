@@ -5,6 +5,7 @@ import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { asParseResult } from "@/lib/db/coerceJsonbObject";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -526,7 +527,11 @@ export function mapPendingSyncRowForApply(
     // the millisecond-exact revision comparison is correct (see normalizeTimestamptz).
     baseModifiedTime: normalizeTimestamptz(row.base_modified_time),
     stagedModifiedTime: normalizeTimestamptz(row.staged_modified_time) as string,
-    parseResult: row.parse_result,
+    // parse_result is jsonb read via postgres.js; a legacy double-encoded row
+    // comes back as a STRING SCALAR. Coerce so the Apply/publish path never
+    // dereferences `.show` on a string (M12 Phase 0.F smoke-3 class). Tolerates
+    // a real object too; throws a typed error only on genuinely-corrupt data.
+    parseResult: asParseResult(row.parse_result),
     triggeredReviewItems: parsed.ok ? parsed.items : [],
     reviewItemsCorrupt: !parsed.ok,
     priorLastSyncStatus: row.prior_last_sync_status,
@@ -617,7 +622,7 @@ async function defaultApproveWizardPendingSync(
       row.wizardSessionId,
       row.stagedId,
       appliedByEmail,
-      JSON.stringify(row.reviewerChoices),
+      row.reviewerChoices,
     ],
   );
   return Boolean(approved?.approved);
@@ -682,7 +687,7 @@ async function defaultUpsertWizardPendingIngestion(
       row.driveFileName,
       row.lastErrorCode,
       row.lastErrorMessage,
-      JSON.stringify(row.lastWarnings),
+      row.lastWarnings,
       row.wizardSessionId,
       row.pendingFolderId,
       row.lastSeenModifiedTime,
@@ -822,7 +827,7 @@ async function defaultUpsertLivePendingIngestion(
       row.driveFileName,
       row.lastErrorCode,
       row.lastErrorMessage,
-      JSON.stringify(row.lastWarnings),
+      row.lastWarnings,
       row.lastSeenModifiedTime,
     ],
   );
@@ -850,10 +855,10 @@ async function defaultInsertSyncAudit(
       row.driveFileId,
       appliedBy,
       row.stagedId,
-      JSON.stringify(row.triggeredReviewItems),
-      JSON.stringify(row.reviewerChoices),
-      JSON.stringify(row.derivedSideEffects),
-      JSON.stringify(row.parseResultSummary),
+      row.triggeredReviewItems,
+      row.reviewerChoices,
+      row.derivedSideEffects,
+      row.parseResultSummary,
       row.baseModifiedTime,
       row.stagedModifiedTime,
     ],
@@ -1531,14 +1536,14 @@ function makeInlineOnboardingScanTx(
           entry.driveFileId ?? null,
           entry.code,
           `onboarding_scan:${entry.code}`,
-          JSON.stringify(entry.payload ? [{ ...entry.payload, code: entry.code }] : []),
+          entry.payload ? [{ ...entry.payload, code: entry.code }] : [],
         ],
       );
     },
     async upsertAdminAlert(input) {
       const row = await tx.queryOne<{ id: string } | null>(
         "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
-        [input.showId, input.code, JSON.stringify(input.context)],
+        [input.showId, input.code, input.context],
       );
       return row?.id ?? null;
     },
