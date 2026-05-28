@@ -224,7 +224,14 @@ BEGIN
     combos_materialized = (SELECT array_agg(DISTINCT c) FROM unnest(public.validation_state.combos_materialized || ARRAY[p_combo]) c),
     combos_seeded_dates = public.validation_state.combos_seeded_dates || jsonb_build_object(p_combo, v_validation_today_iso),
     alias_map = public.validation_state.alias_map || jsonb_build_object(p_combo, v_alias_map_slice),
-    seeded_supabase_project_ref = EXCLUDED.seeded_supabase_project_ref;
+    seeded_supabase_project_ref = EXCLUDED.seeded_supabase_project_ref,
+    -- Codex Phase 0.C R12-F1 — refresh provenance on every reseed.
+    -- The pre-R12 ON CONFLICT preserved the original seeded_by /
+    -- seeded_at, hiding who/when actually mutated the validation DB
+    -- across multiple reseeds. Auditability requires both fields
+    -- advance with each destructive mint.
+    seeded_by = EXCLUDED.seeded_by,
+    seeded_at = now();
 
   RETURN jsonb_build_object('show_id', v_show_id, 'alias_map_slice', v_alias_map_slice);
 END;

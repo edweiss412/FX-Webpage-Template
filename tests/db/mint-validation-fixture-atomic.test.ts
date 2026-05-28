@@ -241,6 +241,36 @@ describe("mint_validation_fixture_atomic", () => {
     ).toThrow(/differs from server current_date.*by >1 day/);
   });
 
+  test("R12-F1 — provenance freshens on every reseed (seeded_by + seeded_at advance)", () => {
+    // First seed with seededBy='operator-a'.
+    const firstPayload = buildR1Payload();
+    runPsql(
+      `SELECT public.mint_validation_fixture_atomic('R1', jsonb_set('${firstPayload}'::jsonb, '{seededBy}', '"operator-a"'::jsonb));`,
+    );
+    const first = runPsql(`
+      SELECT seeded_by || E'\\t' || seeded_at::text FROM public.validation_state WHERE key='validation_seed';
+    `);
+    const [firstBy, firstAt] = first.split("\t");
+    expect(firstBy).toBe("operator-a");
+
+    // Wait briefly so the timestamp can advance, then re-mint with 'operator-b'.
+    // pg now() has microsecond resolution; a 5ms gap is enough.
+    execFileSync("sh", ["-c", "sleep 0.05"]);
+    const secondPayload = buildR1Payload();
+    runPsql(
+      `SELECT public.mint_validation_fixture_atomic('R1', jsonb_set('${secondPayload}'::jsonb, '{seededBy}', '"operator-b"'::jsonb));`,
+    );
+    const second = runPsql(`
+      SELECT seeded_by || E'\\t' || seeded_at::text FROM public.validation_state WHERE key='validation_seed';
+    `);
+    const [secondBy, secondAt] = second.split("\t");
+    expect(secondBy).toBe("operator-b");
+    expect(
+      new Date(secondAt as string).getTime(),
+      `seeded_at should advance on every reseed; firstAt=${firstAt} secondAt=${secondAt}`,
+    ).toBeGreaterThan(new Date(firstAt as string).getTime());
+  });
+
   test("R1 alias_5a_lead defense-in-depth: rejects placeholder reserved domain", () => {
     const payload = buildR1Payload({
       claimEmail: "fake@example.com",
