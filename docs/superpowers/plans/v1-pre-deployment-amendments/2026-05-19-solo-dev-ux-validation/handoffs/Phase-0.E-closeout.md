@@ -67,7 +67,8 @@ E2E (Task 0.E.3) seeded `lookup-inconclusive --alert-code inconclusive` + `rate-
 | R12 | needs-attention | [MED] bot-login dual-write was two separate guarded calls — a show-scoped refusal after the global write left a stray global fixture alert. | FIXED `2b02e45` — `validation_seed_bot_login_alerts` RPC does both-or-neither under one lock (check both scopes → write both or raise). +1 regression test. |
 | R13 | needs-attention | [MED] `forceCleanupWithoutSnapshot` reported success without checking the deleted-row count — a typo'd bucket / empty crew-id deleted zero rows but printed "deleted". | FIXED `7bfe5be` — delete requests `count:"exact"`; fails on zero-match with a diagnostic; reports the real count; rejects empty `--include-crew-id` on the force path. +1 regression test. |
 | R14 | needs-attention | [MED] horizon-expired fixture left `processing_lease_until` NULL; the §13.2.3 reaper (8.3f) only reaps rows where `processing_lease_until < now()`, so the fixture was non-reapable/unrepresentative of a real 25h-old stale report. | FIXED `7ca9749` — `processing_lease_until = created_at + 90s` (expired, matches the reaper predicate); +reaper-predicate assertion. |
-| R15 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
+| R15 | needs-attention | [MED] bot-login dual-write set both alerts' `raised_at=now()` in one txn (transaction-scoped → tie); AlertBanner's `raised_at DESC LIMIT 1` then rendered a nondeterministic alert. | FIXED `949a2b3` — stagger `raised_at` (global = now()-1s, show-scoped = now()) so the show-scoped `REPORT_LOOKUP_INCONCLUSIVE` is deterministically topmost, matching production's separate-autocommit write order. +ordering assertion. |
+| R16 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
 
 ---
 
