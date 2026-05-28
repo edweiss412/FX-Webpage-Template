@@ -15,10 +15,20 @@ let loaded = false;
 
 export function loadValidationEnv(): void {
   if (loaded) return;
-  // dev=true so .env.local / .env.development.local override .env in the
-  // same Next.js-canonical precedence order; quiet=true suppresses the
-  // "Loaded env from .env.local" banner that would otherwise pollute the
-  // CLIs' stderr.
-  loadEnvConfig(process.cwd(), true, { info: () => {}, error: console.error });
+  // Codex Phase 0.C R10-F1 — use PRODUCTION-mode loading (dev=false) so
+  // .env.development.local CANNOT override .env.local. Validation tooling
+  // mutates prod-equivalent Supabase with the service-role key; allowing
+  // a developer's .env.development.local to take precedence would be a
+  // credible wrong-database risk (the URL/ref binding guard still passes
+  // if both VALIDATION_* values come from the same overriding file).
+  //
+  // Production-mode precedence (per @next/env):
+  //   1. .env.production.local  (unlikely on dev machines)
+  //   2. .env.local             (the documented canonical source)
+  //   3. .env.production
+  //   4. .env
+  // .env.development.local is NOT in this list — that's the intended
+  // safety property.
+  loadEnvConfig(process.cwd(), false, { info: () => {}, error: console.error });
   loaded = true;
 }
