@@ -707,4 +707,67 @@ describe("validation-report-fixtures", () => {
       }
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────
+  // Cleanup robustness — empty --include-* values + combined-refusal
+  // semantics (one side may succeed while the other refuses).
+  // ───────────────────────────────────────────────────────────────────
+
+  describe("cleanup robustness — empty values + combined refusal", () => {
+    test("--include-admin-email '' (empty, e.g. unexpanded $VAR) errors loudly, does NOT silently skip", () => {
+      const res = runHarness(["--cleanup", "--include-admin-email", ""]);
+      expect(res.code).toBe(1);
+      expect(res.stderr).toMatch(/empty value/);
+      expect(res.stderr).toMatch(/--include-admin-email/);
+    });
+
+    test("--include-crew-id '' (empty) errors loudly", () => {
+      const res = runHarness(["--cleanup", "--include-crew-id", ""]);
+      expect(res.code).toBe(1);
+      expect(res.stderr).toMatch(/empty value/);
+      expect(res.stderr).toMatch(/--include-crew-id/);
+    });
+
+    test("combined invocation attempts BOTH sides: crew succeeds while admin refuses → exit 1", () => {
+      const sharedCwd = makeSharedCwd();
+      const crewSnapshot = join(
+        sharedCwd,
+        ".validation-state/rate-limit-crew-snapshot.json",
+      );
+      try {
+        // Seed ONLY crew → crew snapshot exists, admin snapshot does NOT.
+        const seedRes = runHarnessInCwd(sharedCwd, [
+          "--outcome",
+          "rate-limit-crew",
+          "--combo",
+          "R1",
+        ]);
+        expect(seedRes.code).toBe(0);
+        expect(existsSync(crewSnapshot)).toBe(true);
+
+        // Combined cleanup: admin refuses (no snapshot), crew succeeds.
+        const cleanupRes = runHarnessInCwd(sharedCwd, [
+          "--cleanup",
+          "--include-admin-email",
+          VALIDATION_ADMIN_EMAIL,
+          "--include-crew-id",
+          R1_CREW_ID,
+        ]);
+        // Exit 1 because the admin side refused...
+        expect(cleanupRes.code).toBe(1);
+        expect(cleanupRes.stderr).toMatch(/no rate-limit-admin snapshot found/);
+        // ...but the crew side was STILL attempted and succeeded (snapshot
+        // unlinked) — proving the refusal didn't process.exit before crew ran.
+        expect(existsSync(crewSnapshot)).toBe(false);
+        const crewRowCount = runPsql(`
+          SELECT count(*) FROM public.report_rate_limits
+           WHERE kind='crew' AND identity=${pgQuote(R1_CREW_ID)}
+             AND hour_bucket=date_trunc('hour', now());
+        `);
+        expect(crewRowCount).toBe("0");
+      } finally {
+        rmSync(sharedCwd, { recursive: true, force: true });
+      }
+    });
+  });
 });

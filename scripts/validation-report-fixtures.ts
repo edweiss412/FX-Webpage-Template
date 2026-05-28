@@ -464,6 +464,10 @@ async function defaultCleanup(supabase: LooseSupabaseClient): Promise<void> {
   if (rep.error) fail(`reports cleanup failed: ${rep.error.message}`);
 }
 
+// Throws (rather than fail()/exit) on a per-side REFUSAL so a combined
+// --include-admin-email + --include-crew-id invocation can attempt BOTH sides
+// and exit 1 only at the end (plan line 123 — "one side may succeed while the
+// other refuses"). Hard DB faults inside applyRateLimitRestore still fail()/exit.
 async function restoreRateLimitFromSnapshot(
   supabase: LooseSupabaseClient,
   kind: "admin" | "crew",
@@ -472,12 +476,12 @@ async function restoreRateLimitFromSnapshot(
   const file = SNAPSHOT_FILE[kind];
   const snap = readSnapshot(file);
   if (!snap) {
-    fail(
+    throw new Error(
       `no rate-limit-${kind} snapshot found; cleanup aborted to avoid touching prod buckets`,
     );
   }
   if (expectedIdentity && snap.identity !== expectedIdentity) {
-    fail(
+    throw new Error(
       `rate-limit-${kind} snapshot identity '${snap.identity}' does not match the ` +
         `--include-${kind === "admin" ? "admin-email" : "crew-id"} value '${expectedIdentity}'.`,
     );
@@ -594,19 +598,39 @@ async function main(): Promise<void> {
     }
 
     let refused = false;
-    if (values["include-admin-email"]) {
-      const identity = canonicalize(values["include-admin-email"]);
+    // Treat a PRESENT-but-empty value as a loud error, not a silent skip. The
+    // common footgun: `--include-admin-email $VALIDATION_ADMIN_EMAIL` where the
+    // var is unset in the shell (it lives in .env.local, which the harness
+    // loads internally but the SHELL does not export) expands to an empty
+    // string — silently skipping the admin restore would leave a real-identity
+    // rate-limit row behind plus an orphaned snapshot file.
+    if (values["include-admin-email"] !== undefined) {
+      const raw = values["include-admin-email"];
+      if (raw.trim().length === 0) {
+        fail(
+          "--include-admin-email was passed an empty value. If you used " +
+            "$VALIDATION_ADMIN_EMAIL, it lives in .env.local (not the shell env) — " +
+            "pass the admin email literally, e.g. --include-admin-email you@example.com.",
+        );
+      }
+      const identity = canonicalize(raw);
       if (!identity) fail("--include-admin-email canonicalized to empty.");
       try {
         await restoreRateLimitFromSnapshot(supabase, "admin", identity);
-      } catch {
+      } catch (e) {
+        err(e instanceof Error ? e.message : String(e));
         refused = true;
       }
     }
-    if (values["include-crew-id"]) {
+    if (values["include-crew-id"] !== undefined) {
+      const raw = values["include-crew-id"];
+      if (raw.trim().length === 0) {
+        fail("--include-crew-id was passed an empty value; pass the fixture crew_member_id UUID literally.");
+      }
       try {
-        await restoreRateLimitFromSnapshot(supabase, "crew", values["include-crew-id"]);
-      } catch {
+        await restoreRateLimitFromSnapshot(supabase, "crew", raw);
+      } catch (e) {
+        err(e instanceof Error ? e.message : String(e));
         refused = true;
       }
     }
