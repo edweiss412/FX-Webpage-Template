@@ -6,6 +6,7 @@ import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult } from "@/lib/parser/types";
 import { insertFirstSeenShowWithSlugRetry } from "@/lib/sync/runScheduledCronSync";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
+import { asParseResult } from "@/lib/db/coerceJsonbObject";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 const BATCH_CAP = 100;
@@ -16,21 +17,18 @@ const STAGED_PARSE_REVISION_RACE_DURING_FINALIZE =
 const STAGED_PARSE_SOURCE_OUT_OF_SCOPE = "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" as const;
 const WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED =
   "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED" as const;
+// not-subject:M5-D8 — error CODE identifier (admin-log-only, routed through the
+// §12.4 catalog), not inline user-facing copy; matches only because the name ends in ERROR.
+const ONBOARDING_FINALIZE_INTERNAL_ERROR = "ONBOARDING_FINALIZE_INTERNAL_ERROR" as const;
 
 export type FinalizeRouteTx = {
-  query<T>(
-    sql: string,
-    params?: readonly unknown[],
-  ): Promise<{ rows: T[]; rowCount: number }>;
+  query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }>;
 };
 
 export type FinalizeRouteDeps = {
   requireAdminIdentity?: () => Promise<{ email: string }>;
   withTx?: <R>(fn: (tx: FinalizeRouteTx) => Promise<R>) => Promise<R>;
-  withRowTx?: <R>(
-    driveFileId: string,
-    fn: (tx: FinalizeRouteTx) => Promise<R>,
-  ) => Promise<R>;
+  withRowTx?: <R>(driveFileId: string, fn: (tx: FinalizeRouteTx) => Promise<R>) => Promise<R>;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
   batchCap?: number;
 };
@@ -94,7 +92,9 @@ async function defaultWithTx<R>(fn: (tx: FinalizeRouteTx) => Promise<R>): Promis
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     return (await sql.begin(async (rawTx) =>
-      fn(postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> })),
+      fn(
+        postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> }),
+      ),
     )) as R;
   } finally {
     await sql.end({ timeout: 5 });
@@ -108,7 +108,9 @@ async function defaultWithRowTx<R>(
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     return (await sql.begin(async (rawTx) => {
-      const tx = postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> });
+      const tx = postgresTxAdapter(
+        rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> },
+      );
       await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
       return await fn(tx);
     })) as R;
@@ -132,7 +134,11 @@ function depsWithDefaults(deps: FinalizeRouteDeps) {
   };
 }
 
-function errorResponse(status: number, code: string, extra: Record<string, unknown> = {}): Response {
+function errorResponse(
+  status: number,
+  code: string,
+  extra: Record<string, unknown> = {},
+): Response {
   return NextResponse.json({ ok: false, code, ...extra }, { status });
 }
 
@@ -345,20 +351,20 @@ async function applyFirstSeenDraft(
           slug,
           parseResult.show.title,
           parseResult.show.client_label,
-          JSON.stringify(parseResult.show.client_contact),
+          parseResult.show.client_contact,
           parseResult.show.template_version,
-          JSON.stringify(parseResult.show.venue),
-          JSON.stringify(parseResult.show.dates),
-          JSON.stringify(parseResult.show.event_details),
-          JSON.stringify(parseResult.show.agenda_links),
-          JSON.stringify(parseResult.diagrams),
+          parseResult.show.venue,
+          parseResult.show.dates,
+          parseResult.show.event_details,
+          parseResult.show.agenda_links,
+          parseResult.diagrams,
           parseResult.openingReel?.driveFileId ?? null,
           parseResult.openingReel?.drive_modified_time ?? null,
           parseResult.openingReel?.headRevisionId ?? null,
           parseResult.openingReel?.mimeType ?? null,
           row.staged_modified_time,
           parseResult.show.coi_status,
-          JSON.stringify(parseResult.pullSheet),
+          parseResult.pullSheet,
         ],
       );
       return inserted.rows[0]?.show_id ?? null;
@@ -384,7 +390,7 @@ async function insertFinalizeAudit(
       values (
         $1::uuid, $2, $3, $4::uuid, '[]'::jsonb,
         $5::jsonb, '{}'::jsonb,
-        jsonb_build_object('title', $6, 'source', 'onboarding_finalize'),
+        jsonb_build_object('title', $6::text, 'source', 'onboarding_finalize'),
         null, $7::timestamptz
       )
       returning id
@@ -394,7 +400,7 @@ async function insertFinalizeAudit(
       input.row.drive_file_id,
       canonicalize(input.appliedByEmail),
       input.row.staged_id,
-      JSON.stringify(input.row.wizard_reviewer_choices ?? []),
+      input.row.wizard_reviewer_choices ?? [],
       input.row.parse_result.show.title,
       input.row.staged_modified_time,
     ],
@@ -434,10 +440,10 @@ async function stageExistingShowShadow(
     [
       row.drive_file_id,
       wizardSessionId,
-      JSON.stringify(row.parse_result),
+      row.parse_result,
       row.staged_modified_time,
       row.staged_id,
-      JSON.stringify(row.wizard_reviewer_choices ?? []),
+      row.wizard_reviewer_choices ?? [],
       canonicalize(requireApprovedByEmail(row)),
     ],
   );
@@ -514,7 +520,12 @@ async function processApprovedRow(input: {
   const { row, wizardSessionId, tx } = input;
 
   if (row.wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION) {
-    await demotePending(tx, wizardSessionId, row.drive_file_id, WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED);
+    await demotePending(
+      tx,
+      wizardSessionId,
+      row.drive_file_id,
+      WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
+    );
     return {
       drive_file_id: row.drive_file_id,
       wizard_session_id: wizardSessionId,
@@ -547,7 +558,12 @@ async function processApprovedRow(input: {
   }
 
   if (!sameTimestamp(metadata.modifiedTime, row.staged_modified_time)) {
-    await demotePending(tx, wizardSessionId, row.drive_file_id, STAGED_PARSE_REVISION_RACE_DURING_FINALIZE);
+    await demotePending(
+      tx,
+      wizardSessionId,
+      row.drive_file_id,
+      STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+    );
     return {
       drive_file_id: row.drive_file_id,
       wizard_session_id: wizardSessionId,
@@ -556,18 +572,26 @@ async function processApprovedRow(input: {
     };
   }
 
+  // `parse_result` is jsonb read via postgres.js. A legacy row written by the
+  // old double-encoding writer comes back as a STRING SCALAR; dereferencing
+  // `.show` on it threw an uncaught TypeError → empty 500 (M12 Phase 0.F smoke
+  // 3). asParseResult tolerates BOTH a real object and a JSON-string-of-object,
+  // and throws a TYPED error on genuinely-corrupt data (caught by the
+  // never-empty-500 wrapper around the publish loop).
+  const coercedRow = { ...row, parse_result: asParseResult(row.parse_result) };
+
   if (await showExists(tx, row.drive_file_id)) {
-    await stageExistingShowShadow(tx, wizardSessionId, row);
+    await stageExistingShowShadow(tx, wizardSessionId, coercedRow);
     await deleteApprovedPending(tx, wizardSessionId, row);
     return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
   }
 
-  const showId = await applyFirstSeenDraft(tx, row);
+  const showId = await applyFirstSeenDraft(tx, coercedRow);
   if (showId) {
     await insertFinalizeAudit(tx, {
       showId,
-      row,
-      appliedByEmail: requireApprovedByEmail(row),
+      row: coercedRow,
+      appliedByEmail: requireApprovedByEmail(coercedRow),
     });
   }
   await deleteApprovedPending(tx, wizardSessionId, row);
@@ -582,84 +606,105 @@ export async function handleOnboardingFinalize(
   try {
     await runtime.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
       return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
     }
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
 
-  return await runtime.withTx(async (tx) => {
-    const wizardSessionId = await readActiveSession(tx);
-    if (!wizardSessionId) {
-      return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
-    }
+  try {
+    return await runtime.withTx(async (tx) => {
+      const wizardSessionId = await readActiveSession(tx);
+      if (!wizardSessionId) {
+        return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
+      }
 
-    const locked = await tryFinalizeLock(tx, wizardSessionId);
-    if (!locked) return errorResponse(409, "CONCURRENT_FINALIZE_IN_FLIGHT");
+      const locked = await tryFinalizeLock(tx, wizardSessionId);
+      if (!locked) return errorResponse(409, "CONCURRENT_FINALIZE_IN_FLIGHT");
 
-    const checkpoint = await ensureCheckpoint(tx, wizardSessionId);
-    if (!checkpoint) return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
-    if (checkpoint.status === "final_cas_done") {
-      return NextResponse.json({
-        status: "all_batches_complete",
-        wizard_session_id: wizardSessionId,
-        remaining_count: 0,
-        unresolved_manifest_count: 0,
-        per_row: [],
-      });
-    }
+      const checkpoint = await ensureCheckpoint(tx, wizardSessionId);
+      if (!checkpoint) return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
+      if (checkpoint.status === "final_cas_done") {
+        return NextResponse.json({
+          status: "all_batches_complete",
+          wizard_session_id: wizardSessionId,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        });
+      }
 
-    const approvedRows = await selectApprovedRows(tx, wizardSessionId, runtime.batchCap);
-    const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
-    if (checkpoint.status === "all_batches_complete" && approvedRows.length === 0 && unresolved === 0) {
-      return NextResponse.json({
-        status: "all_batches_complete",
-        wizard_session_id: wizardSessionId,
-        remaining_count: 0,
-        unresolved_manifest_count: 0,
-        per_row: [],
-      });
-    }
-    if (approvedRows.length === 0 && unresolved > 0) {
-      return errorResponse(409, "ONBOARDING_NOT_RESOLVED", {
-        unresolved_manifest_count: unresolved,
-      });
-    }
+      const approvedRows = await selectApprovedRows(tx, wizardSessionId, runtime.batchCap);
+      const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
+      if (
+        checkpoint.status === "all_batches_complete" &&
+        approvedRows.length === 0 &&
+        unresolved === 0
+      ) {
+        return NextResponse.json({
+          status: "all_batches_complete",
+          wizard_session_id: wizardSessionId,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        });
+      }
+      if (approvedRows.length === 0 && unresolved > 0) {
+        return errorResponse(409, "ONBOARDING_NOT_RESOLVED", {
+          unresolved_manifest_count: unresolved,
+        });
+      }
 
-    if (approvedRows.length === 0) {
+      if (approvedRows.length === 0) {
+        return await finalizeBatchTailResponse({
+          tx,
+          wizardSessionId,
+          remainingCount: 0,
+          unresolvedManifestCount: 0,
+          perRow: [],
+        });
+      }
+
+      const perRow: PerRowResult[] = [];
+      for (const row of approvedRows) {
+        const result = await runtime.withRowTx(row.drive_file_id, (rowTx) =>
+          processApprovedRow({
+            row,
+            wizardSessionId,
+            tx: rowTx,
+            fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
+          }),
+        );
+        perRow.push(result);
+      }
+
+      const remainingCount = await countApprovedRows(tx, wizardSessionId);
+      const unresolvedAfterBatch = await unresolvedManifestCount(tx, wizardSessionId);
       return await finalizeBatchTailResponse({
         tx,
         wizardSessionId,
-        remainingCount: 0,
-        unresolvedManifestCount: 0,
-        perRow: [],
+        remainingCount,
+        unresolvedManifestCount: unresolvedAfterBatch,
+        perRow,
       });
-    }
-
-    const perRow: PerRowResult[] = [];
-    for (const row of approvedRows) {
-      const result = await runtime.withRowTx(row.drive_file_id, (rowTx) =>
-        processApprovedRow({
-          row,
-          wizardSessionId,
-          tx: rowTx,
-          fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
-        }),
-      );
-      perRow.push(result);
-    }
-
-    const remainingCount = await countApprovedRows(tx, wizardSessionId);
-    const unresolvedAfterBatch = await unresolvedManifestCount(tx, wizardSessionId);
-    return await finalizeBatchTailResponse({
-      tx,
-      wizardSessionId,
-      remainingCount,
-      unresolvedManifestCount: unresolvedAfterBatch,
-      perRow,
     });
-  });
+  } catch (error) {
+    // Never leak an empty 500 (Next returns no body for an uncaught throw → the
+    // client's response.json() fails with "Unexpected end of JSON input"). Any
+    // unexpected throw in the finalize transaction becomes a typed, parseable
+    // JSON error, and the underlying message is logged so the next failure is
+    // diagnosable from logs rather than a truncated TypeError. (M12 Phase 0.F
+    // smoke-3 structural defense.)
+    console.error(
+      `onboarding finalize: unexpected failure: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error,
+    );
+    return errorResponse(500, ONBOARDING_FINALIZE_INTERNAL_ERROR);
+  }
 }
 
 export async function POST(request: Request): Promise<Response> {

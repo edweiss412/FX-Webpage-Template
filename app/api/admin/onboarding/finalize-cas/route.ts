@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { asParseResult } from "@/lib/db/coerceJsonbObject";
 import type { ParseResult } from "@/lib/parser/types";
 
 const OK_CODE = "OK" as const;
@@ -241,11 +242,15 @@ async function applyShadow(
   tx: FinalizeCasRouteTx,
   row: ShadowRow,
 ): Promise<ShadowApplyResult> {
-  const parseResult = row.payload.parse_result;
-  if (!parseResult) {
+  // payload.parse_result is jsonb read via postgres.js; a legacy double-encoded
+  // shadow payload carries it as a STRING SCALAR. Coerce so the publish UPDATE
+  // never dereferences `.show` on a string (M12 Phase 0.F smoke-3 class).
+  const rawParseResult = row.payload.parse_result;
+  if (!rawParseResult) {
     await deleteAppliedShadowRow(tx, row);
     return { drive_file_id: row.drive_file_id, code: OK_CODE };
   }
+  const parseResult = asParseResult(rawParseResult);
   const applied = await tx.query<{ applied: boolean }>(
     `
       update public.shows
@@ -276,20 +281,20 @@ async function applyShadow(
       row.drive_file_id,
       parseResult.show.title,
       parseResult.show.client_label,
-      JSON.stringify(parseResult.show.client_contact),
+      parseResult.show.client_contact,
       parseResult.show.template_version,
-      JSON.stringify(parseResult.show.venue),
-      JSON.stringify(parseResult.show.dates),
-      JSON.stringify(parseResult.show.event_details),
-      JSON.stringify(parseResult.show.agenda_links),
-      JSON.stringify(parseResult.diagrams),
+      parseResult.show.venue,
+      parseResult.show.dates,
+      parseResult.show.event_details,
+      parseResult.show.agenda_links,
+      parseResult.diagrams,
       parseResult.openingReel?.driveFileId ?? null,
       parseResult.openingReel?.drive_modified_time ?? null,
       parseResult.openingReel?.headRevisionId ?? null,
       parseResult.openingReel?.mimeType ?? null,
       row.payload.staged_modified_time ?? null,
       parseResult.show.coi_status,
-      JSON.stringify(parseResult.pullSheet),
+      parseResult.pullSheet,
     ],
   );
   if (applied.rowCount === 0) {
@@ -311,7 +316,7 @@ async function insertShadowAudit(tx: FinalizeCasRouteTx, row: ShadowRow): Promis
       values (
         $1::uuid, $2, $3, ($4)::uuid, '[]'::jsonb,
         $5::jsonb, '{}'::jsonb,
-        jsonb_build_object('title', $6, 'source', 'onboarding_finalize_cas'),
+        jsonb_build_object('title', $6::text, 'source', 'onboarding_finalize_cas'),
         null, $7::timestamptz
       )
       returning id
@@ -321,8 +326,8 @@ async function insertShadowAudit(tx: FinalizeCasRouteTx, row: ShadowRow): Promis
       row.drive_file_id,
       canonicalize(row.applied_by_email),
       row.payload.staged_id ?? null,
-      JSON.stringify(row.payload.reviewer_choices ?? []),
-      row.payload.parse_result?.show.title ?? null,
+      row.payload.reviewer_choices ?? [],
+      row.payload.parse_result ? asParseResult(row.payload.parse_result).show.title : null,
       row.payload.staged_modified_time ?? null,
     ],
   );

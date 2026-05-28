@@ -710,12 +710,43 @@ describe("POST /api/admin/onboarding/finalize", () => {
     ]);
   });
 
-  test("throws instead of fabricating attribution when an approved row has no approver email", async () => {
+  test("never returns an empty 500 — an unexpected throw becomes a typed JSON error + console.error", async () => {
+    // Failure mode this catches: the publish loop threw an uncaught error (the
+    // M12 Phase 0.F smoke-3 parse_result TypeError was one instance), Next.js
+    // returned a 500 with an EMPTY body, and the client's `response.json()`
+    // failed with "Unexpected end of JSON input". The wrapper must turn ANY
+    // unexpected throw into a parseable JSON body carrying a typed code, and log
+    // the underlying message so the next failure is diagnosable from logs.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const boom = new Error("kaboom: simulated unexpected finalize failure");
+    const response = await handleOnboardingFinalize(request(), {
+      requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
+      withTx: async () => {
+        throw boom;
+      },
+    });
+
+    expect(response.status).toBe(500);
+    // This line would itself throw on an empty body — that is the regression.
+    const body = (await json(response)) as { ok?: boolean; code?: string };
+    expect(body).toMatchObject({ ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  test("a missing-approver-email defensive throw is surfaced as a typed 500, not an empty body", async () => {
+    // The DB CHECK (pending_syncs_approved_requires_full_payload) makes this
+    // unreachable in practice; if it ever fires, finalize must NOT leak an empty
+    // 500. The wrapper converts the throw into a diagnosable JSON 500.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const db = new FakeFinalizeDb();
     db.approved = [pending("missing-email-1", { wizard_approved_by_email: null })];
 
-    await expect(handleOnboardingFinalize(request(), deps(db))).rejects.toThrow(
-      "approved onboarding row is missing wizard_approved_by_email",
-    );
+    const response = await handleOnboardingFinalize(request(), deps(db));
+    expect(response.status).toBe(500);
+    const body = (await json(response)) as { ok?: boolean; code?: string };
+    expect(body).toMatchObject({ ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });

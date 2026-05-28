@@ -470,6 +470,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → reopen the link; Eric if persistent",
     "helpfulContext": "Google OAuth uses a one-time security token (the `state` parameter) to make sure the sign-in callback came from the request your browser actually started. The token was missing, expired, or didn't match — most often because you started sign-in in one window and clicked the callback in another, or the cookie storing the expected value was cleared. Click the original link from Doug again to start fresh.",
   },
+  "ONBOARDING_FINALIZE_INTERNAL_ERROR": {
+    "crewFacing": null,
+    "dougFacing": null,
+    "followUp": "Eric → investigate",
+    "helpfulContext": null,
+  },
   "ONBOARDING_FOLDER_INVALID_URL": {
     "crewFacing": null,
     "dougFacing": "That doesn't look like a Google Drive folder URL. It should look like `https://drive.google.com/drive/folders/...`.",

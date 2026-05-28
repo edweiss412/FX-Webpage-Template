@@ -89,6 +89,9 @@ export const INTERNAL_CODE_ENUMS = {
   ok: {
     source: "shows.last_sync_status"
   },
+  ONBOARDING_FINALIZE_INTERNAL_ERROR: {
+    source: "pending_ingestions.last_error_code"
+  },
   OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
     source: "pending_ingestions.last_error_code"
   },

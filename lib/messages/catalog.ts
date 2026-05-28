@@ -511,6 +511,16 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  ONBOARDING_FINALIZE_INTERNAL_ERROR: {
+    code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → investigate",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   NO_FOLDER_CONFIGURED: {
     code: "NO_FOLDER_CONFIGURED",
     dougFacing: "(admin-log only on first occurrence; the dashboard explicitly shows the onboarding wizard CTA when no folder is configured, not an error)",
