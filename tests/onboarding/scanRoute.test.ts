@@ -151,7 +151,10 @@ describe("POST /api/admin/onboarding/scan", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({
       outcome: "completed",
-      processed: [{ driveFileId: "sheet-1", outcome: "staged" }],
+      wizardSessionId: W1,
+      folderId: "folder-1",
+      folderName: "FXAV Onboarding",
+      totals: { staged: 1, hard_failed: 0, skipped_non_sheet: 0, live_row_conflict: 0 },
     });
     expect(db.settings).toMatchObject({
       pending_wizard_session_id: W1,
@@ -159,6 +162,42 @@ describe("POST /api/admin/onboarding/scan", () => {
       pending_folder_id: "folder-1",
     });
     expect(routeDeps.runOnboardingScan).toHaveBeenCalledWith("folder-1", W1);
+  });
+
+  test("AC-10.2 completed: aggregates processed[] into client-facing totals + folder context", async () => {
+    // Phase 0.F smoke-3 launch-blocker regression: the route used to return
+    // the raw runOnboardingScan result ({ outcome, processed }) verbatim, but
+    // <Step2Verify> reads result.totals.staged — so every successful scan
+    // crashed the page with "Cannot read properties of undefined (reading
+    // 'staged')". The route must aggregate processed[] into the totals shape.
+    // Expected totals are DERIVED from the fixture's processed[] (anti-
+    // tautology), not hardcoded.
+    const processed = [
+      { driveFileId: "sheet-1", outcome: "staged" as const },
+      { driveFileId: "sheet-2", outcome: "staged" as const },
+      { driveFileId: "sheet-3", outcome: "hard_failed" as const },
+    ];
+    const expectedTotals = { staged: 0, hard_failed: 0, skipped_non_sheet: 0, live_row_conflict: 0 };
+    for (const p of processed) expectedTotals[p.outcome] += 1;
+
+    const db = new FakeScanDb();
+    const routeDeps = deps(db, {
+      runOnboardingScan: vi.fn(async () => ({ outcome: "completed" as const, processed })),
+    });
+
+    const response = await handleOnboardingScan(
+      request("https://drive.google.com/drive/folders/folder-1"),
+      routeDeps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({
+      outcome: "completed",
+      wizardSessionId: W1,
+      folderId: "folder-1",
+      folderName: "FXAV Onboarding",
+      totals: expectedTotals,
+    });
   });
 
   test.each([
@@ -341,6 +380,8 @@ describe("POST /api/admin/onboarding/scan", () => {
     expect(db.pendingSyncs[0]?.triggered_review_items).not.toContain("FIRST_SEEN_REVIEW");
   });
 
+  // schema_missing / superseded pass through verbatim — the client reads only
+  // their outcome + code, so the route does not reshape them.
   test.each([
     [
       "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
@@ -352,13 +393,6 @@ describe("POST /api/admin/onboarding/scan", () => {
         outcome: "schema_missing",
         code: "WIZARD_ISOLATION_INDEXES_MISSING",
         missingIndexes: ["pending_syncs_session_drive_file_idx"],
-      },
-    ],
-    [
-      "LIVE_ROW_CONFLICT",
-      {
-        outcome: "completed",
-        processed: [{ driveFileId: "sheet-1", outcome: "live_row_conflict" }],
       },
     ],
   ] satisfies Array<[string, OnboardingScanResult]>)(
@@ -376,4 +410,32 @@ describe("POST /api/admin/onboarding/scan", () => {
       expect(await json(response)).toEqual(result);
     },
   );
+
+  test("completed with a live_row_conflict counts it into totals (not a verbatim passthrough)", async () => {
+    const processed = [
+      { driveFileId: "sheet-1", outcome: "staged" as const },
+      { driveFileId: "sheet-2", outcome: "live_row_conflict" as const },
+    ];
+    const expectedTotals = { staged: 0, hard_failed: 0, skipped_non_sheet: 0, live_row_conflict: 0 };
+    for (const p of processed) expectedTotals[p.outcome] += 1;
+
+    const db = new FakeScanDb();
+    const routeDeps = deps(db, {
+      runOnboardingScan: vi.fn(async () => ({ outcome: "completed" as const, processed })),
+    });
+
+    const response = await handleOnboardingScan(
+      request("https://drive.google.com/drive/folders/folder-1"),
+      routeDeps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({
+      outcome: "completed",
+      wizardSessionId: W1,
+      folderId: "folder-1",
+      folderName: "FXAV Onboarding",
+      totals: expectedTotals,
+    });
+  });
 });

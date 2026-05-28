@@ -45,6 +45,11 @@ import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import type { MessageCode } from "@/lib/messages/catalog";
+import type {
+  OnboardingScanCompletedBody,
+  OnboardingScanResponseBody,
+  OnboardingScanTotals,
+} from "@/lib/onboarding/scanResponse";
 
 const RECOGNIZED_CODES = new Set<MessageCode>([
   "INVALID_FOLDER_URL",
@@ -55,26 +60,13 @@ const RECOGNIZED_CODES = new Set<MessageCode>([
   "WIZARD_ISOLATION_INDEXES_MISSING",
 ]);
 
-type ScanItemsTotals = {
-  staged: number;
-  hard_failed: number;
-  skipped_non_sheet: number;
-  live_row_conflict?: number;
-};
+// The success/outcome shapes are the canonical scan-response contract shared
+// with the route (lib/onboarding/scanResponse.ts) — importing it here makes a
+// server/client drift a compile error. The `{ ok: false }` error shape is the
+// route's errorResponse() body, orthogonal to the outcome union.
+type ScanCompleted = OnboardingScanCompletedBody;
 
-type ScanCompleted = {
-  outcome: "completed";
-  wizardSessionId: string;
-  folderId: string;
-  folderName?: string;
-  totals: ScanItemsTotals;
-};
-
-type ScanResponseBody =
-  | ScanCompleted
-  | { outcome: "schema_missing"; code: "WIZARD_ISOLATION_INDEXES_MISSING" }
-  | { outcome: "superseded"; code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" }
-  | { ok: false; code: string };
+type ScanResponseBody = OnboardingScanResponseBody | { ok: false; code: string };
 
 // Spec §12.4 (line 2693): WIZARD_SESSION_SUPERSEDED_DURING_SCAN is
 // admin-log-only — emitted to structured logs + sync_log but NEVER
@@ -91,7 +83,7 @@ type FormState =
   | { kind: "success"; result: ScanCompleted }
   | { kind: "error"; copy: string; code: string | null };
 
-function formatTotals(totals: ScanItemsTotals): number {
+function formatTotals(totals: OnboardingScanTotals): number {
   return (
     totals.staged +
     totals.hard_failed +

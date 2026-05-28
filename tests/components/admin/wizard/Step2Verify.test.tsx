@@ -21,6 +21,22 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { Step2Verify } from "@/components/admin/wizard/Step2Verify";
+import { toScanResponseBody } from "@/lib/onboarding/scanResponse";
+import type { OnboardingManifestStatus } from "@/lib/sync/runOnboardingScan";
+
+// De-tautologization (Phase 0.F smoke-3 launch-blocker): build the completed
+// scan mock from a processed[] fixture run through the REAL route transform
+// (toScanResponseBody), not a hand-authored `totals` body. This pins the
+// client against the shape the server actually emits — a previous version of
+// this test mocked a `totals` body the route never produced, so it passed
+// while production crashed with "Cannot read properties of undefined".
+function completedScanBody(outcomes: OnboardingManifestStatus[], folderName?: string) {
+  const processed = outcomes.map((outcome, i) => ({ driveFileId: `file-${i}`, outcome }));
+  return toScanResponseBody(
+    { outcome: "completed", processed },
+    { wizardSessionId: "wsid", folderId: "fid", folderName },
+  );
+}
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -57,14 +73,9 @@ describe("Step2Verify", () => {
 
   test("POSTs the folder URL to /api/admin/onboarding/scan on submit", async () => {
     fetchMock.mockResolvedValue(
-      mockJsonResponse({
-        outcome: "completed",
-        wizardSessionId: "wsid",
-        folderId: "fid",
-        folderName: "Shows 2026",
-        totals: { staged: 3, hard_failed: 1, skipped_non_sheet: 0 },
-        items: [],
-      }),
+      mockJsonResponse(
+        completedScanBody(["staged", "staged", "staged", "hard_failed"], "Shows 2026"),
+      ),
     );
     const { getByTestId } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
@@ -104,30 +115,25 @@ describe("Step2Verify", () => {
     expect(progressText).toMatch(/Looking through your folder/i);
     // Resolve so cleanup proceeds.
     await act(async () => {
-      resolveFetch(
-        mockJsonResponse({
-          outcome: "completed",
-          wizardSessionId: "wsid",
-          folderId: "fid",
-          folderName: "Shows 2026",
-          totals: { staged: 0, hard_failed: 0, skipped_non_sheet: 0 },
-          items: [],
-        }),
-      );
+      resolveFetch(mockJsonResponse(completedScanBody([], "Shows 2026")));
     });
   });
 
   test("on outcome=completed, renders folder name + sheet count summary + advance link to Step 3", async () => {
-    fetchMock.mockResolvedValue(
-      mockJsonResponse({
-        outcome: "completed",
-        wizardSessionId: "wsid",
-        folderId: "fid",
-        folderName: "Shows 2026",
-        totals: { staged: 5, hard_failed: 2, skipped_non_sheet: 1 },
-        items: [],
-      }),
-    );
+    // Total Drive items the scan saw = number of processed entries; derive the
+    // expectation from the fixture, never hardcode (anti-tautology).
+    const outcomes: OnboardingManifestStatus[] = [
+      "staged",
+      "staged",
+      "staged",
+      "staged",
+      "staged",
+      "hard_failed",
+      "hard_failed",
+      "skipped_non_sheet",
+    ];
+    const expectedTotal = outcomes.length;
+    fetchMock.mockResolvedValue(mockJsonResponse(completedScanBody(outcomes, "Shows 2026")));
     const { getByTestId } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
       target: { value: "https://drive.google.com/drive/folders/abc123" },
@@ -140,8 +146,9 @@ describe("Step2Verify", () => {
     });
     const summary = getByTestId("wizard-step2-success").textContent ?? "";
     expect(summary).toContain("Shows 2026");
-    // 8 sheets found = 5 + 2 + 1 (total Drive items the scan saw).
-    expect(summary).toMatch(/\b8\b/);
+    expect(summary).toMatch(new RegExp(`\\b${expectedTotal}\\b`));
+    // Per-bucket counts come from the fixture too.
+    expect(summary).toContain("Sheets ready for review:");
     expect(getByTestId("wizard-step2-advance").getAttribute("href")).toBe(
       "/admin?step=3",
     );

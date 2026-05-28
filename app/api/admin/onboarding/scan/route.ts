@@ -6,6 +6,7 @@ import {
   runOnboardingScan as defaultRunOnboardingScan,
   type OnboardingScanResult,
 } from "@/lib/sync/runOnboardingScan";
+import { toScanResponseBody } from "@/lib/onboarding/scanResponse";
 
 const DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const DRIVE_FOLDER_FIELDS = "id, name, mimeType, trashed";
@@ -231,7 +232,13 @@ export async function handleOnboardingScan(
   );
 
   const result = await runtime.runOnboardingScan(folder.folderId, wizardSessionId);
-  return NextResponse.json(result);
+  return NextResponse.json(
+    toScanResponseBody(result, {
+      wizardSessionId,
+      folderId: folder.folderId,
+      folderName: folder.folderName,
+    }),
+  );
 }
 
 export async function POST(request: Request): Promise<Response> {
