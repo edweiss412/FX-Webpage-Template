@@ -46,13 +46,28 @@ function parseDotenv(body: string): Record<string, string> {
 export function loadValidationEnv(): void {
   if (loaded) return;
   loaded = true;
-  // R16-F1 test escape hatch — when VALIDATION_ENV_SKIP_LOCAL_FILE=1
-  // is set, skip the .env.local read entirely. Used by the test suite
-  // to supply VALIDATION_* values via parent-process env without the
-  // production override semantics. This flag is explicit (not "secret")
-  // because Codex R16-F1 specifically called out that test behavior
-  // should not silently soften the production loader contract.
-  if (process.env.VALIDATION_ENV_SKIP_LOCAL_FILE === "1") return;
+  // R16-F1 + R22-F1 test escape hatch — when VALIDATION_ENV_SKIP_LOCAL_FILE=1
+  // is set AND we're running under Vitest (VITEST_WORKER_ID defined
+  // on every worker), skip the .env.local read entirely.
+  //
+  // R22-F1 gate: outside of Vitest, the flag is treated as a hostile
+  // env-injection attempt and we FAIL CLOSED. Pre-R22 the flag honored
+  // unconditionally — a CI / shell / direnv with this flag set could
+  // silently bypass .env.local in production CLI runs and let
+  // inherited VALIDATION_* drive the target. The wrong-database risk
+  // R16-F1 was meant to close re-opened.
+  const skipLocalFile = process.env.VALIDATION_ENV_SKIP_LOCAL_FILE === "1";
+  const inVitest = process.env.VITEST_WORKER_ID !== undefined;
+  if (skipLocalFile && !inVitest) {
+    throw new Error(
+      "VALIDATION_ENV_SKIP_LOCAL_FILE=1 is set outside of Vitest. " +
+        "This flag is a test-only escape hatch (it disables the .env.local " +
+        "loader so tests can supply VALIDATION_* via parent env). Honoring it " +
+        "outside Vitest re-opens the wrong-database risk per Codex R16-F1 / " +
+        "R22-F1. Unset it to run validation tooling.",
+    );
+  }
+  if (skipLocalFile) return;
   const path = join(process.cwd(), ".env.local");
   if (!existsSync(path)) return;
   const parsed = parseDotenv(readFileSync(path, "utf8"));
