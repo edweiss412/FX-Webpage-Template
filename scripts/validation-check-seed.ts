@@ -20,7 +20,9 @@ import {
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
 import {
+  EMAIL_SHAPE_RX,
   R_COMBOS,
+  REJECTED_DOMAIN_RX,
   SW_COMBOS,
   VALIDATION_PULL_SHEET,
   buildFixtures,
@@ -53,10 +55,9 @@ Required environment variables (§9.1.2 check-seed row):
 
 const ALL_COMBOS: Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
-// R15 commit 35 canonical rejected-domain set — mirrors the same regex in
-// scripts/lib/validation-fixtures.ts + supabase/migrations/<...>_mint.sql.
-const REJECTED_DOMAIN_RX =
-  /@(example\.com|example\.org|example\.net|[^@\s]+\.test|[^@\s]+\.invalid|localhost|[^@\s]+\.localhost|[^@\s]+\.local|dev\.local)$/i;
+// R15 commit 35 canonical rejected-domain set — single source of truth at
+// scripts/lib/validation-fixtures.ts. Imported above (REJECTED_DOMAIN_RX +
+// EMAIL_SHAPE_RX). Local declaration removed to eliminate drift risk.
 
 type ValidationStateRow = {
   key: string;
@@ -133,6 +134,15 @@ async function runChecks(
     throw new CheckSeedFailure(
       "k",
       `VALIDATION_J3_CLAIM_EMAIL='${j3ClaimEmail}' matches placeholder/dev-only reserved domain (RFC 2606 + RFC 6761 + mDNS RFC 6762 + project-conventional) — J3 leg (c) unwalkable.`,
+    );
+  }
+  // R23-F1 — real-email-shape guard. A value like 'not-an-email' would
+  // pass the rejected-domain check but fail at Google OAuth time. Mirror
+  // the EMAIL_SHAPE_RX guard from fixtures.
+  if (!EMAIL_SHAPE_RX.test(j3ClaimEmail)) {
+    throw new CheckSeedFailure(
+      "k",
+      `VALIDATION_J3_CLAIM_EMAIL='${j3ClaimEmail}' is not a real-email shape (must be <local>@<domain>.<tld>). Google OAuth cannot authenticate against malformed addresses; J3 leg (c) unwalkable.`,
     );
   }
 
@@ -594,6 +604,13 @@ async function runChecks(
       throw new CheckSeedFailure(
         "k",
         `crew_members row for R1.alias_5a_lead has email=${r1Lead.email} matching placeholder/dev-only reserved domain. A previous run with a bad VALIDATION_J3_CLAIM_EMAIL landed a placeholder in the DB; fix the env var and reseed --combo R1.`,
+      );
+    }
+    // R23-F1 — DB-side real-email-shape check (mirrors env-side check above).
+    if (r1Lead?.email && !EMAIL_SHAPE_RX.test(r1Lead.email)) {
+      throw new CheckSeedFailure(
+        "k",
+        `crew_members row for R1.alias_5a_lead has email=${r1Lead.email} which is not a real-email shape. A previous run with a malformed VALIDATION_J3_CLAIM_EMAIL landed a bad value in the DB; fix the env var and reseed --combo R1.`,
       );
     }
   }

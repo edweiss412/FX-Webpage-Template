@@ -180,6 +180,15 @@ BEGIN
     THEN
       RAISE EXCEPTION 'mint_validation_fixture_atomic: R1.alias_5a_lead.email % matches a placeholder/dev-only reserved domain (RFC 2606 + RFC 6761 + mDNS RFC 6762 + project-conventional) — set VALIDATION_J3_CLAIM_EMAIL to your real Google account email (see spec §3.3 step 5 R13-amendment paragraph + .env.local.example).', v_crew_member->>'email';
     END IF;
+    -- Codex Phase 0.C R23-F1 — real-email-shape guard. Mirrors
+    -- EMAIL_SHAPE_RX in scripts/lib/validation-fixtures.ts. Rejects
+    -- malformed values like 'not-an-email' or 'missing-tld@gmail'.
+    IF p_combo = 'R1'
+       AND v_crew_member->>'alias' = 'alias_5a_lead'
+       AND v_crew_member->>'email' !~ '^[^@[:space:]]+@[^@[:space:].]+(\.[^@[:space:].]+)*\.[^@[:space:].]{2,}$'
+    THEN
+      RAISE EXCEPTION 'mint_validation_fixture_atomic: R1.alias_5a_lead.email % is not a real-email shape (must be <local>@<domain>.<tld>). Google OAuth cannot authenticate against malformed addresses.', v_crew_member->>'email';
+    END IF;
 
     INSERT INTO public.crew_members (
       show_id, name, email, role, role_flags, date_restriction, stage_restriction

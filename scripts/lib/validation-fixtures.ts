@@ -69,8 +69,17 @@ export const ROLE_VARIANT_ALIASES = [
 // Canonical rejected-domain set (single source of truth, mirrored by check-
 // seed predicate (k) + mint RPC defense-in-depth at plan 03 Task 0.C.4).
 // RFC 2606 + RFC 6761 + mDNS RFC 6762 + project-conventional dev.
-const REJECTED_DOMAIN_RX =
+export const REJECTED_DOMAIN_RX =
   /@(example\.com|example\.org|example\.net|[^@\s]+\.test|[^@\s]+\.invalid|localhost|[^@\s]+\.localhost|[^@\s]+\.local|dev\.local)$/i;
+
+// Codex Phase 0.C R23-F1 — real-email-shape guard. Pre-R23 the loader
+// only rejected reserved-domain placeholders, so 'not-an-email' or
+// 'missing-tld@gmail' would seed as R1.alias_5a_lead and the J3
+// Google OAuth walk would be unwalkable at runtime while the gate
+// reported green. Requires <local>@<domain>.<tld>; not RFC-strict
+// (that's not the goal) — just "looks like a real address Google
+// OAuth could authenticate against."
+export const EMAIL_SHAPE_RX = /^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)*\.[^@\s.]{2,}$/;
 
 function resolveR1ClaimEmail(): string {
   const raw = process.env.VALIDATION_J3_CLAIM_EMAIL;
@@ -88,6 +97,20 @@ function resolveR1ClaimEmail(): string {
   if (canonical === null) {
     throw new Error(
       "VALIDATION_J3_CLAIM_EMAIL canonicalized to null — value is whitespace-only or empty",
+    );
+  }
+  // R23-F1 — re-check rejected-domain set + shape AFTER canonicalize
+  // (canonicalize is lower(trim()) so 'FAKE@EXAMPLE.COM' would slip
+  // past the pre-canonicalize check). Real-email-shape filter rejects
+  // 'not-an-email' / 'missing-tld@gmail' / similar.
+  if (REJECTED_DOMAIN_RX.test(canonical)) {
+    throw new Error(
+      `VALIDATION_J3_CLAIM_EMAIL canonicalized to '${canonical}' which still matches the rejected-domain set.`,
+    );
+  }
+  if (!EMAIL_SHAPE_RX.test(canonical)) {
+    throw new Error(
+      `VALIDATION_J3_CLAIM_EMAIL='${canonical}' is not a real-email shape (must be <local>@<domain>.<tld>). Google OAuth cannot authenticate against malformed addresses; the J3 walk would be unwalkable. Set VALIDATION_J3_CLAIM_EMAIL to your real Google account email.`,
     );
   }
   return canonical;

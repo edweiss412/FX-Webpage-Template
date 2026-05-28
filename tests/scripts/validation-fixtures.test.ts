@@ -173,4 +173,32 @@ describe("buildFixtures (validation-fixtures)", () => {
       });
     }
   });
+
+  describe("R23-F1 — real-email-shape guard", () => {
+    const malformed = [
+      "not-an-email",
+      "missing-tld@gmail",
+      "missing-local@.com",
+      "no-at-sign.example.com",
+      "trailing.dot@gmail.com.",
+      "double@@gmail.com",
+    ];
+    for (const bad of malformed) {
+      it(`aborts on malformed shape: ${bad}`, async () => {
+        process.env.VALIDATION_J3_CLAIM_EMAIL = bad;
+        const { buildFixtures } = await import(
+          "@/scripts/lib/validation-fixtures"
+        );
+        expect(() => buildFixtures(TODAY)).toThrow(/real-email shape/);
+      });
+    }
+
+    it("accepts a canonicalized real-email-shape value (Gmail)", async () => {
+      process.env.VALIDATION_J3_CLAIM_EMAIL = "real.dev@gmail.com";
+      const { buildFixtures } = await import(
+        "@/scripts/lib/validation-fixtures"
+      );
+      expect(() => buildFixtures(TODAY)).not.toThrow();
+    });
+  });
 });
