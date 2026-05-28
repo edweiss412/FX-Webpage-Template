@@ -4,6 +4,7 @@ import { getDriveClient } from "@/lib/drive/client";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
+import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -425,23 +426,53 @@ function parseResultSummary(parseResult: Phase2Args["parseResult"]): Record<stri
   };
 }
 
+export type PendingSyncForApplyRow = {
+  drive_file_id: string;
+  staged_id: string;
+  source_kind: string;
+  wizard_session_id: string | null;
+  base_modified_time: string | null;
+  staged_modified_time: string;
+  parse_result: Phase2Args["parseResult"];
+  triggered_review_items: unknown;
+  prior_last_sync_status: string | null;
+  prior_last_sync_error: string | null;
+  warning_summary: string;
+};
+
+/**
+ * Single row→PendingSyncForApply mapping shared by both the live and wizard
+ * Apply readers. `triggered_review_items` is coerced here — the Apply READ
+ * boundary — for the same reason the render boundary coerces it: a malformed
+ * jsonb value (object / double-encoded string / corrupt historical scan data)
+ * must not reach validateReviewerChoices (`.map`) or the asset-review
+ * `.find`/`.some` paths and 500 the Apply. Exported so the malformed-input
+ * case is regression-covered directly against the production read mapping,
+ * not only through StagedReviewCard rendering.
+ */
+export function mapPendingSyncRowForApply(
+  row: PendingSyncForApplyRow,
+): PendingSyncForApply {
+  return {
+    driveFileId: row.drive_file_id,
+    stagedId: row.staged_id,
+    sourceKind: row.source_kind,
+    wizardSessionId: row.wizard_session_id,
+    baseModifiedTime: row.base_modified_time,
+    stagedModifiedTime: row.staged_modified_time,
+    parseResult: row.parse_result,
+    triggeredReviewItems: asTriggeredReviewItems(row.triggered_review_items),
+    priorLastSyncStatus: row.prior_last_sync_status,
+    priorLastSyncError: row.prior_last_sync_error,
+    warningSummary: row.warning_summary,
+  };
+}
+
 async function defaultReadLivePendingSyncForApply(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
 ): Promise<PendingSyncForApply | null> {
-  const row = await tx.queryOne<{
-    drive_file_id: string;
-    staged_id: string;
-    source_kind: string;
-    wizard_session_id: string | null;
-    base_modified_time: string | null;
-    staged_modified_time: string;
-    parse_result: Phase2Args["parseResult"];
-    triggered_review_items: TriggeredReviewItem[];
-    prior_last_sync_status: string | null;
-    prior_last_sync_error: string | null;
-    warning_summary: string;
-  } | null>(
+  const row = await tx.queryOne<PendingSyncForApplyRow | null>(
     `
       select drive_file_id, staged_id, source_kind, wizard_session_id,
              base_modified_time, staged_modified_time, parse_result,
@@ -455,19 +486,7 @@ async function defaultReadLivePendingSyncForApply(
     [driveFileId],
   );
   if (!row) return null;
-  return {
-    driveFileId: row.drive_file_id,
-    stagedId: row.staged_id,
-    sourceKind: row.source_kind,
-    wizardSessionId: row.wizard_session_id,
-    baseModifiedTime: row.base_modified_time,
-    stagedModifiedTime: row.staged_modified_time,
-    parseResult: row.parse_result,
-    triggeredReviewItems: row.triggered_review_items,
-    priorLastSyncStatus: row.prior_last_sync_status,
-    priorLastSyncError: row.prior_last_sync_error,
-    warningSummary: row.warning_summary,
-  };
+  return mapPendingSyncRowForApply(row);
 }
 
 async function defaultReadWizardPendingSyncForApply(
@@ -475,19 +494,7 @@ async function defaultReadWizardPendingSyncForApply(
   driveFileId: string,
   wizardSessionId: string,
 ): Promise<PendingSyncForApply | null> {
-  const row = await tx.queryOne<{
-    drive_file_id: string;
-    staged_id: string;
-    source_kind: string;
-    wizard_session_id: string | null;
-    base_modified_time: string | null;
-    staged_modified_time: string;
-    parse_result: Phase2Args["parseResult"];
-    triggered_review_items: TriggeredReviewItem[];
-    prior_last_sync_status: string | null;
-    prior_last_sync_error: string | null;
-    warning_summary: string;
-  } | null>(
+  const row = await tx.queryOne<PendingSyncForApplyRow | null>(
     `
       select drive_file_id, staged_id, source_kind, wizard_session_id,
              base_modified_time, staged_modified_time, parse_result,
@@ -501,19 +508,7 @@ async function defaultReadWizardPendingSyncForApply(
     [driveFileId, wizardSessionId],
   );
   if (!row) return null;
-  return {
-    driveFileId: row.drive_file_id,
-    stagedId: row.staged_id,
-    sourceKind: row.source_kind,
-    wizardSessionId: row.wizard_session_id,
-    baseModifiedTime: row.base_modified_time,
-    stagedModifiedTime: row.staged_modified_time,
-    parseResult: row.parse_result,
-    triggeredReviewItems: row.triggered_review_items,
-    priorLastSyncStatus: row.prior_last_sync_status,
-    priorLastSyncError: row.prior_last_sync_error,
-    warningSummary: row.warning_summary,
-  };
+  return mapPendingSyncRowForApply(row);
 }
 
 async function defaultReadActiveWizardSession(
