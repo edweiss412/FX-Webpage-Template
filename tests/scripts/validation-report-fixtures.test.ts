@@ -1158,6 +1158,31 @@ describe("validation-report-fixtures", () => {
       `);
       expect(cnt).toBe("1");
     });
+
+    test("R12 — bot-login dual-write is atomic: show-scoped clobber → NEITHER alert written (no stray global)", () => {
+      // A pre-existing real (non-fixture) show-scoped REPORT_LOOKUP_INCONCLUSIVE
+      // must make the bot-login dual-write refuse WITHOUT leaving a stray global
+      // GITHUB_BOT_LOGIN_MISSING fixture alert.
+      insertNonFixtureAlert(R1_SHOW_ID, "REPORT_LOOKUP_INCONCLUSIVE");
+      try {
+        const res = runHarness(["--outcome", "lookup-inconclusive", "--combo", "R1"]); // default = bot-login-missing
+        expect(res.code).toBe(1);
+        expect(res.stderr).toMatch(/validation_seed_bot_login_alerts: refusing/);
+        // NO stray global fixture alert.
+        const strayGlobal = runPsql(`
+          SELECT count(*) FROM public.admin_alerts
+           WHERE code='GITHUB_BOT_LOGIN_MISSING' AND show_id IS NULL
+             AND context->>'validation_tag' = 'm12-fixture-lookup-inconclusive';
+        `);
+        expect(strayGlobal).toBe("0");
+        // The pre-existing real show-scoped alert is untouched.
+        expect(alertContextReason(R1_SHOW_ID, "REPORT_LOOKUP_INCONCLUSIVE")).toBe(
+          "real_alert_not_a_fixture",
+        );
+      } finally {
+        deleteAlert(R1_SHOW_ID, "REPORT_LOOKUP_INCONCLUSIVE");
+      }
+    });
   });
 
   // ───────────────────────────────────────────────────────────────────

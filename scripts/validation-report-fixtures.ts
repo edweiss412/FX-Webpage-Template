@@ -952,26 +952,28 @@ async function main(): Promise<void> {
       // before the reports INSERT, so no reports row is orphaned.
       let alertSummary: string;
       if (isBotLogin) {
-        const globalId = await upsertAdminAlertRow(supabase, null, "GITHUB_BOT_LOGIN_MISSING", {
-          idempotency_key: idempotencyKey,
-          reason: "lookup_inconclusive_fixture",
-          code: sourceCode,
-          validation_tag: tag("lookup-inconclusive"),
-        });
-        const showScopedId = await upsertAdminAlertRow(
-          supabase,
-          showId,
-          "REPORT_LOOKUP_INCONCLUSIVE",
-          {
+        // R12 — the bot-login dual-write (global GITHUB_BOT_LOGIN_MISSING +
+        // show-scoped REPORT_LOOKUP_INCONCLUSIVE) goes through ONE atomic RPC so
+        // it is both-or-neither: under a single table lock it checks both scopes
+        // for a non-fixture clobber, then writes both (or raises, writing
+        // neither). Two separate upserts could leave a stray global fixture
+        // alert if the show-scoped write refused.
+        const { data, error } = await supabase.rpc("validation_seed_bot_login_alerts", {
+          p_show_id: showId,
+          p_context: {
             idempotency_key: idempotencyKey,
             reason: "lookup_inconclusive_fixture",
             code: sourceCode,
             validation_tag: tag("lookup-inconclusive"),
           },
-        );
+        });
+        if (error) {
+          fail(`validation_seed_bot_login_alerts RPC failed: ${error.message ?? JSON.stringify(error)}`);
+        }
+        const ids = data as { global_id: string; show_scoped_id: string };
         alertSummary =
-          `global GITHUB_BOT_LOGIN_MISSING ${globalId} + ` +
-          `show-scoped REPORT_LOOKUP_INCONCLUSIVE ${showScopedId}`;
+          `global GITHUB_BOT_LOGIN_MISSING ${ids.global_id} + ` +
+          `show-scoped REPORT_LOOKUP_INCONCLUSIVE ${ids.show_scoped_id}`;
       } else {
         const code = ALERT_CODE_VARIANTS[alertCodeVariant];
         const alertId = await upsertAdminAlertRow(supabase, showId, code, {

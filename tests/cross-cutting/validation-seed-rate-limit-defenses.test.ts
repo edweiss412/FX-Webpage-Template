@@ -84,6 +84,36 @@ describe("validation_seed_rate_limit DB-side defenses (R2/R3/R4 structural pin)"
     expect(harness).toMatch(/does NOT resolve to a crew_member on/);
   });
 
+  test("R11 — resolveShowId requires the 'M12 Validation' ownership sentinel", () => {
+    // The non-rate outcomes' show lookup must carry the fixture-ownership proof.
+    expect(harness).toMatch(/\.eq\("client_label", "M12 Validation"\)/);
+  });
+
+  test("R12 — bot-login dual-write is one atomic both-or-neither RPC", () => {
+    const alertMigration = read(
+      join(ROOT, "supabase/migrations/20260527210004_validation_seed_bot_login_alerts.sql"),
+    );
+    // The harness routes the bot-login dual-write through the combined RPC.
+    expect(harness).toMatch(/\.rpc\(\s*["']validation_seed_bot_login_alerts["']/);
+    // The RPC checks BOTH scopes under one lock before writing either.
+    expect(alertMigration.toLowerCase()).toMatch(
+      /lock\s+table\s+public\.admin_alerts\s+in\s+share\s+row\s+exclusive\s+mode/,
+    );
+    expect(alertMigration).toMatch(/GITHUB_BOT_LOGIN_MISSING/);
+    expect(alertMigration).toMatch(/REPORT_LOOKUP_INCONCLUSIVE/);
+    expect(alertMigration).toMatch(/upsert_admin_alert\(null, 'GITHUB_BOT_LOGIN_MISSING'/);
+    expect(alertMigration.toLowerCase()).toMatch(
+      /grant execute on function public\.validation_seed_bot_login_alerts\(uuid, jsonb\) to service_role/,
+    );
+  });
+
+  test("R11 — re-seeded fixture alert refreshes raised_at (banner freshness)", () => {
+    const alertMigration = read(
+      join(ROOT, "supabase/migrations/20260527210003_validation_seed_admin_alert.sql"),
+    );
+    expect(alertMigration.toLowerCase()).toMatch(/set raised_at = now\(\)/);
+  });
+
   test("R8 — cleanup mode rejects seed-only flags before any destructive write", () => {
     // The rejections must appear BEFORE the defaultCleanup call in the source.
     const cleanupIdx = harness.indexOf("if (values.cleanup) {");
