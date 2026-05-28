@@ -902,6 +902,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → review the refreshed parse",
     "helpfulContext": "The wizard re-parsed the sheet inside your current setup session because Doug edited it after the original scan. Review the refreshed parse — any decisions you made on the prior version were discarded.",
   },
+  "STAGED_PARSE_RESULT_CORRUPT": {
+    "crewFacing": null,
+    "dougFacing": "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it.",
+    "followUp": "Doug → discard + re-sync the sheet",
+    "helpfulContext": "The saved data for this staged sheet is stored in a format we can't read — it should be the parsed sheet but isn't. Rather than apply something we can't interpret, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds it cleanly. This usually only affects rows left over from an earlier app issue.",
+  },
   "STAGED_PARSE_REVISION_RACE": {
     "crewFacing": null,
     "dougFacing": null,

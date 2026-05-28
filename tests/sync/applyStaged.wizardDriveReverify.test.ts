@@ -88,6 +88,7 @@ function pending(overrides: Partial<PendingSyncForApply> = {}): PendingSyncForAp
     parseResult: parseResult(),
     triggeredReviewItems: [],
     reviewItemsCorrupt: false,
+    parseResultCorrupt: false,
     priorLastSyncStatus: null,
     priorLastSyncError: null,
     warningSummary: "none",

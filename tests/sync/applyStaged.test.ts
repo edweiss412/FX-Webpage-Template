@@ -19,6 +19,7 @@ import {
   STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
   STAGED_PARSE_SUPERSEDED,
   STAGED_REVIEW_ITEMS_CORRUPT,
+  STAGED_PARSE_RESULT_CORRUPT,
   WIZARD_SESSION_SUPERSEDED,
   type ApplyStagedDeps,
   type PendingSyncForApply,
@@ -81,6 +82,7 @@ function pending(overrides: Partial<PendingSyncForApply> = {}): PendingSyncForAp
     parseResult: parseResult(),
     triggeredReviewItems: [],
     reviewItemsCorrupt: false,
+    parseResultCorrupt: false,
     priorLastSyncStatus: "ok",
     priorLastSyncError: null,
     warningSummary: "none",
@@ -416,6 +418,36 @@ describe("applyStaged live-scope", () => {
     expect(result).toEqual({
       outcome: "review_items_corrupt",
       code: STAGED_REVIEW_ITEMS_CORRUPT,
+    });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(syncDeps.insertSyncAudit).not.toHaveBeenCalled();
+  });
+
+  test("a corrupt parse_result refuses Apply with a typed parse_result_corrupt result, no throw, no Phase 2", async () => {
+    // Codex R2 HIGH: asParseResult throws on genuinely-corrupt parse_result, but
+    // the Apply routes call applyStaged directly and would 500 on a thrown reader.
+    // The mapper flags parseResultCorrupt instead; applyStaged must REFUSE with a
+    // typed (parseable) code BEFORE dereferencing parseResult.show.
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ parseResultCorrupt: true })),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({
+      outcome: "parse_result_corrupt",
+      code: STAGED_PARSE_RESULT_CORRUPT,
     });
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
     expect(syncDeps.insertSyncAudit).not.toHaveBeenCalled();

@@ -167,6 +167,9 @@ export const INTERNAL_CODE_ENUMS = {
   STAGED_PARSE_RESTAGED_INLINE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  STAGED_PARSE_RESULT_CORRUPT: {
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
   STAGED_PARSE_REVISION_RACE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },

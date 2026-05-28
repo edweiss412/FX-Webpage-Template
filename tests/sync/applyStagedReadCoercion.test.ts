@@ -77,6 +77,46 @@ describe("mapPendingSyncRowForApply — Apply read boundary (fail closed on corr
 });
 
 /**
+ * Codex R2 HIGH: the mapper now coerces parse_result (asParseResult). asParseResult
+ * THROWS a typed JsonbCoercionError on genuinely-corrupt data; the live + wizard
+ * Apply routes call applyStaged directly and map result codes — they do not catch a
+ * thrown reader, so a corrupt row would still 500. The mapper must convert that
+ * into a parseResultCorrupt FLAG (mirroring reviewItemsCorrupt), never throw.
+ */
+function rowWithParseResult(parseResult: unknown): PendingSyncForApplyRow {
+  return { ...rowWith([]), parse_result: parseResult as PendingSyncForApplyRow["parse_result"] };
+}
+
+describe("mapPendingSyncRowForApply — parse_result coercion (flag, never throw)", () => {
+  test("a valid parse_result object is not corrupt", () => {
+    const mapped = mapPendingSyncRowForApply(rowWithParseResult({ show: { title: "T" } }));
+    expect(mapped.parseResultCorrupt).toBe(false);
+    expect(mapped.parseResult.show.title).toBe("T");
+  });
+
+  test("a legacy double-encoded JSON-string-of-object decodes and is NOT corrupt", () => {
+    const mapped = mapPendingSyncRowForApply(
+      rowWithParseResult(JSON.stringify({ show: { title: "T" } })),
+    );
+    expect(mapped.parseResultCorrupt).toBe(false);
+    expect(mapped.parseResult.show.title).toBe("T");
+  });
+
+  test("a genuinely-corrupt parse_result FLAGS parseResultCorrupt and does NOT throw", () => {
+    // Missing `.show` — exactly the shape that would have made `.show.title` a
+    // TypeError. The mapper must flag, not throw (Apply returns a typed code).
+    expect(() => mapPendingSyncRowForApply(rowWithParseResult({ diagrams: {} }))).not.toThrow();
+    const mapped = mapPendingSyncRowForApply(rowWithParseResult({ diagrams: {} }));
+    expect(mapped.parseResultCorrupt).toBe(true);
+  });
+
+  test("an unparseable / null parse_result also flags corrupt without throwing", () => {
+    expect(mapPendingSyncRowForApply(rowWithParseResult("{not json")).parseResultCorrupt).toBe(true);
+    expect(mapPendingSyncRowForApply(rowWithParseResult(null)).parseResultCorrupt).toBe(true);
+  });
+});
+
+/**
  * Regression for the onboarding apply revision-race FALSE POSITIVE (M12 Phase
  * 0.F smoke 3 → 4th onboarding defect).
  *

@@ -5,7 +5,7 @@ import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
-import { asParseResult } from "@/lib/db/coerceJsonbObject";
+import { asParseResult, JsonbCoercionError } from "@/lib/db/coerceJsonbObject";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -48,6 +48,7 @@ export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RE
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
 export const STAGED_PARSE_RESTAGED_INLINE = "STAGED_PARSE_RESTAGED_INLINE" as const;
 export const STAGED_REVIEW_ITEMS_CORRUPT = "STAGED_REVIEW_ITEMS_CORRUPT" as const;
+export const STAGED_PARSE_RESULT_CORRUPT = "STAGED_PARSE_RESULT_CORRUPT" as const;
 
 export type ReviewerChoice = {
   item_id: string;
@@ -72,6 +73,16 @@ export type PendingSyncForApply = {
    * review_items_corrupt guard in applyStaged_unlocked.
    */
   reviewItemsCorrupt: boolean;
+  /**
+   * True when the stored parse_result jsonb could not be coerced to a usable
+   * ParseResult object (genuinely corrupt — NOT a legacy double-encoded scalar,
+   * which asParseResult decodes). parseResult is a safe stub in that case; Apply
+   * must REFUSE via the parse_result_corrupt guard rather than dereference
+   * `.show` on the stub. Mirrors reviewItemsCorrupt; converts what would
+   * otherwise be an uncaught JsonbCoercionError at the Apply read boundary into a
+   * typed result (Codex R2).
+   */
+  parseResultCorrupt: boolean;
   priorLastSyncStatus: string | null;
   priorLastSyncError: string | null;
   warningSummary: string;
@@ -211,7 +222,8 @@ export type ApplyStagedResult =
   | { outcome: "discarded"; variant: "try_again" }
   | { outcome: "wizard_applied"; wizardSessionId: string; stagedId: string }
   | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED }
-  | { outcome: "review_items_corrupt"; code: typeof STAGED_REVIEW_ITEMS_CORRUPT };
+  | { outcome: "review_items_corrupt"; code: typeof STAGED_REVIEW_ITEMS_CORRUPT }
+  | { outcome: "parse_result_corrupt"; code: typeof STAGED_PARSE_RESULT_CORRUPT };
 
 export type ApplyStagedDeps = {
   readLivePendingSyncForApply?: (
@@ -518,6 +530,23 @@ export function mapPendingSyncRowForApply(
   row: PendingSyncForApplyRow,
 ): PendingSyncForApply {
   const parsed = parseTriggeredReviewItems(row.triggered_review_items);
+  // parse_result is jsonb read via postgres.js; a legacy double-encoded row
+  // comes back as a STRING SCALAR — asParseResult decodes it. Genuinely-corrupt
+  // data (unparseable / missing `.show`) makes asParseResult throw a typed
+  // JsonbCoercionError. The Apply routes call applyStaged directly and map result
+  // CODES; they don't catch a thrown reader. So, mirroring reviewItemsCorrupt,
+  // we convert that failure into a parseResultCorrupt FLAG (with a safe stub) and
+  // let the parse_result_corrupt guard return a typed result instead of letting
+  // an uncaught exception become an empty 500 (Codex R2 HIGH).
+  let parseResult: PendingSyncForApply["parseResult"];
+  let parseResultCorrupt = false;
+  try {
+    parseResult = asParseResult(row.parse_result);
+  } catch (error) {
+    if (!(error instanceof JsonbCoercionError)) throw error;
+    parseResultCorrupt = true;
+    parseResult = { show: {} } as PendingSyncForApply["parseResult"];
+  }
   return {
     driveFileId: row.drive_file_id,
     stagedId: row.staged_id,
@@ -527,11 +556,8 @@ export function mapPendingSyncRowForApply(
     // the millisecond-exact revision comparison is correct (see normalizeTimestamptz).
     baseModifiedTime: normalizeTimestamptz(row.base_modified_time),
     stagedModifiedTime: normalizeTimestamptz(row.staged_modified_time) as string,
-    // parse_result is jsonb read via postgres.js; a legacy double-encoded row
-    // comes back as a STRING SCALAR. Coerce so the Apply/publish path never
-    // dereferences `.show` on a string (M12 Phase 0.F smoke-3 class). Tolerates
-    // a real object too; throws a typed error only on genuinely-corrupt data.
-    parseResult: asParseResult(row.parse_result),
+    parseResult,
+    parseResultCorrupt,
     triggeredReviewItems: parsed.ok ? parsed.items : [],
     reviewItemsCorrupt: !parsed.ok,
     priorLastSyncStatus: row.prior_last_sync_status,
@@ -1167,6 +1193,9 @@ export async function applyStaged_unlocked(
       args.wizardSessionId,
     );
     if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+    if (pending.parseResultCorrupt) {
+      return { outcome: "parse_result_corrupt", code: STAGED_PARSE_RESULT_CORRUPT };
+    }
     if (pending.reviewItemsCorrupt) {
       return { outcome: "review_items_corrupt", code: STAGED_REVIEW_ITEMS_CORRUPT };
     }
@@ -1224,6 +1253,9 @@ export async function applyStaged_unlocked(
 
   const pending = await deps.readLivePendingSyncForApply(tx, args.driveFileId);
   if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+  if (pending.parseResultCorrupt) {
+    return { outcome: "parse_result_corrupt", code: STAGED_PARSE_RESULT_CORRUPT };
+  }
   if (pending.reviewItemsCorrupt) {
     return { outcome: "review_items_corrupt", code: STAGED_REVIEW_ITEMS_CORRUPT };
   }
@@ -1361,6 +1393,9 @@ async function readLiveApplyPreflight(
 
   const pending = await deps.readLivePendingSyncForApply(tx, args.driveFileId);
   if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+  if (pending.parseResultCorrupt) {
+    return { outcome: "parse_result_corrupt", code: STAGED_PARSE_RESULT_CORRUPT };
+  }
   if (pending.reviewItemsCorrupt) {
     return { outcome: "review_items_corrupt", code: STAGED_REVIEW_ITEMS_CORRUPT };
   }
@@ -1428,6 +1463,9 @@ async function readWizardApplyPreflight(
     args.wizardSessionId,
   );
   if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+  if (pending.parseResultCorrupt) {
+    return { outcome: "parse_result_corrupt", code: STAGED_PARSE_RESULT_CORRUPT };
+  }
   if (pending.reviewItemsCorrupt) {
     return { outcome: "review_items_corrupt", code: STAGED_REVIEW_ITEMS_CORRUPT };
   }

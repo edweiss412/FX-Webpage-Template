@@ -1056,6 +1056,19 @@ export const MESSAGE_CATALOG = {
       "The stored triggered_review_items for this staged sheet is not a readable list of review items, so we can't tell which changes need your review. Apply is blocked to avoid applying unreviewed changes. Discard the row and re-sync the sheet to rebuild a clean review checklist.",
     helpHref: "/help/errors#STAGED_REVIEW_ITEMS_CORRUPT",
   },
+  STAGED_PARSE_RESULT_CORRUPT: {
+    code: "STAGED_PARSE_RESULT_CORRUPT",
+    dougFacing:
+      "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it.",
+    crewFacing: null,
+    followUp: "Doug → discard + re-sync the sheet",
+    helpfulContext:
+      "The saved data for this staged sheet is stored in a format we can't read — it should be the parsed sheet but isn't. Rather than apply something we can't interpret, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds it cleanly. This usually only affects rows left over from an earlier app issue.",
+    title: "Staged sheet data corrupted",
+    longExplanation:
+      "The stored parse_result for this staged sheet could not be coerced to a usable parsed-sheet object at the Apply read boundary, so Apply is blocked rather than dereferencing a corrupt value. Discard the row and re-sync the sheet to rebuild it.",
+    helpHref: "/help/errors#STAGED_PARSE_RESULT_CORRUPT",
+  },
   LIVE_ROW_REQUIRED: {
     code: "LIVE_ROW_REQUIRED",
     dougFacing: "That sheet belongs to an in-progress setup wizard. Open the wizard in this browser to act on it, or use the dashboard once setup is finished.",
