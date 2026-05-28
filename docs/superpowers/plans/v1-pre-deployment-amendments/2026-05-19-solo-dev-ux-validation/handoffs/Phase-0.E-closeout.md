@@ -65,7 +65,8 @@ E2E (Task 0.E.3) seeded `lookup-inconclusive --alert-code inconclusive` + `rate-
 | R10 | needs-attention | [HIGH] `--force-cleanup-without-snapshot` never checked its "no snapshot exists" precondition; it deleted the named bucket then unconditionally unlinked any snapshot file, so invoking it while a valid snapshot existed destroyed the only restore record. (Emergency-cleanup precondition — off the converged vector.) | FIXED `f82dc61` — refuses if a snapshot file exists (directs to normal `--cleanup --include-*`); unconditional unlink removed. +1 regression test. |
 | R11 | needs-attention | [HIGH] `resolveShowId` matched `drive_file_id` without the `client_label='M12 Validation'` sentinel — a colliding real/imported show could receive non-rate writes. [MED] re-seeded fixture alerts didn't refresh `raised_at`, so they stayed behind newer alerts and never rendered (AlertBanner orders by `raised_at DESC`). | FIXED `edfaf4e` — `resolveShowId` requires the sentinel; `validation_seed_admin_alert` refreshes `raised_at=now()` for the fixture row after the upsert. +2 regression tests. |
 | R12 | needs-attention | [MED] bot-login dual-write was two separate guarded calls — a show-scoped refusal after the global write left a stray global fixture alert. | FIXED `2b02e45` — `validation_seed_bot_login_alerts` RPC does both-or-neither under one lock (check both scopes → write both or raise). +1 regression test. |
-| R13 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
+| R13 | needs-attention | [MED] `forceCleanupWithoutSnapshot` reported success without checking the deleted-row count — a typo'd bucket / empty crew-id deleted zero rows but printed "deleted". | FIXED `7bfe5be` — delete requests `count:"exact"`; fails on zero-match with a diagnostic; reports the real count; rejects empty `--include-crew-id` on the force path. +1 regression test. |
+| R14 | `<PENDING>` | `<PENDING>` | `<PENDING>` |
 
 ---
 
