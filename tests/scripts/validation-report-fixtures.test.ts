@@ -770,4 +770,114 @@ describe("validation-report-fixtures", () => {
       }
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────
+  // admin_alerts clobber guard (R1 adversarial finding) — upsert_admin_alert
+  // coalesces on unresolved (show_id, code); the harness must NOT overwrite a
+  // pre-existing REAL (non-fixture) unresolved alert, since cleanup would then
+  // delete it. F34/F36-class data-loss protection for the admin_alerts surface.
+  // ───────────────────────────────────────────────────────────────────
+
+  describe("admin_alerts clobber guard (R1 finding)", () => {
+    function insertNonFixtureAlert(showId: string, code: string): void {
+      runPsql(`
+        INSERT INTO public.admin_alerts (show_id, code, context)
+        VALUES (${pgQuote(showId)}, ${pgQuote(code)},
+                '{"reason":"real_alert_not_a_fixture"}'::jsonb);
+      `);
+    }
+    function alertContextReason(showId: string, code: string): string {
+      return runPsql(`
+        SELECT context->>'reason' FROM public.admin_alerts
+         WHERE show_id=${pgQuote(showId)} AND code=${pgQuote(code)}
+           AND resolved_at IS NULL;
+      `);
+    }
+    function deleteAlert(showId: string, code: string): void {
+      runPsql(`
+        DELETE FROM public.admin_alerts
+         WHERE show_id=${pgQuote(showId)} AND code=${pgQuote(code)};
+      `);
+    }
+
+    test("lookup-inconclusive refuses when a pre-existing non-fixture alert exists; leaves it untouched + no orphaned reports row", () => {
+      insertNonFixtureAlert(R1_SHOW_ID, "REPORT_LOOKUP_INCONCLUSIVE");
+      try {
+        const res = runHarness([
+          "--outcome",
+          "lookup-inconclusive",
+          "--alert-code",
+          "inconclusive",
+          "--combo",
+          "R1",
+        ]);
+        expect(res.code).toBe(1);
+        expect(res.stderr).toMatch(/refusing to seed admin_alert/);
+        // Pre-existing real alert untouched (context.reason still present,
+        // NOT overwritten with a validation_tag).
+        expect(alertContextReason(R1_SHOW_ID, "REPORT_LOOKUP_INCONCLUSIVE")).toBe(
+          "real_alert_not_a_fixture",
+        );
+        // The reports row write must NOT have happened (guard runs first).
+        const orphanReports = runPsql(`
+          SELECT count(*) FROM public.reports
+           WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive';
+        `);
+        expect(orphanReports).toBe("0");
+      } finally {
+        deleteAlert(R1_SHOW_ID, "REPORT_LOOKUP_INCONCLUSIVE");
+      }
+    });
+
+    test("orphaned-lost-lease refuses when a pre-existing non-fixture alert exists; leaves it untouched", () => {
+      insertNonFixtureAlert(R1_SHOW_ID, "REPORT_ORPHANED_LOST_LEASE");
+      try {
+        const res = runHarness([
+          "--outcome",
+          "orphaned-lost-lease",
+          "--combo",
+          "R1",
+        ]);
+        expect(res.code).toBe(1);
+        expect(res.stderr).toMatch(/refusing to seed admin_alert/);
+        expect(alertContextReason(R1_SHOW_ID, "REPORT_ORPHANED_LOST_LEASE")).toBe(
+          "real_alert_not_a_fixture",
+        );
+      } finally {
+        deleteAlert(R1_SHOW_ID, "REPORT_ORPHANED_LOST_LEASE");
+      }
+    });
+
+    test("re-seeding is allowed when the pre-existing unresolved alert is ALREADY a m12-fixture row (idempotent refresh)", () => {
+      // First seed creates the fixture alert.
+      const first = runHarness([
+        "--outcome",
+        "lookup-inconclusive",
+        "--alert-code",
+        "inconclusive",
+        "--combo",
+        "R1",
+      ]);
+      expect(first.code).toBe(0);
+      // Second seed must NOT refuse — the existing row is a m12-fixture row.
+      const second = runHarness([
+        "--outcome",
+        "lookup-inconclusive",
+        "--alert-code",
+        "inconclusive",
+        "--combo",
+        "R1",
+      ]);
+      expect(second.code).toBe(0);
+      expect(second.stderr).not.toMatch(/refusing to seed/);
+      // Still exactly one unresolved fixture alert (coalesced, not duplicated).
+      const cnt = runPsql(`
+        SELECT count(*) FROM public.admin_alerts
+         WHERE show_id=${pgQuote(R1_SHOW_ID)} AND code='REPORT_LOOKUP_INCONCLUSIVE'
+           AND resolved_at IS NULL
+           AND context->>'validation_tag' = 'm12-fixture-lookup-inconclusive';
+      `);
+      expect(cnt).toBe("1");
+    });
+  });
 });

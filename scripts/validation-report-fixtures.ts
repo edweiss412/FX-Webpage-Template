@@ -332,6 +332,47 @@ async function insertReportRow(
 // ON CONFLICT (coalesce(show_id::text,''), code) WHERE resolved_at IS NULL
 // upsert the live report pipeline uses, so the materialized row is shape-
 // identical to production.
+// Clobber guard (F34/F36-class, applied to admin_alerts). upsert_admin_alert
+// coalesces on the unresolved (show_id, code) unique index and REPLACES
+// context. If the validation show already carries a REAL unresolved alert of
+// this code (e.g. the dev triggered a genuine lookup-inconclusive on the
+// fixture show during validation), the fixture upsert would overwrite its
+// context with validation_tag=m12-fixture-*, and defaultCleanup would then
+// DELETE that pre-existing real alert. Refuse rather than clobber — the dev
+// resolves the real alert first, then re-seeds. A row that is ALREADY a
+// m12-fixture-* row is safe to re-seed (idempotent fixture refresh).
+//
+// Called BEFORE any writes in the alert-producing outcome branches so a
+// refusal never orphans a half-written reports row.
+async function assertAdminAlertNoClobber(
+  supabase: LooseSupabaseClient,
+  showId: string | null,
+  code: string,
+): Promise<void> {
+  const existing = await supabase
+    .from("admin_alerts")
+    .select("id, context")
+    .eq("code", code)
+    .eq("show_id", showId)
+    .is("resolved_at", null)
+    .maybeSingle();
+  if (existing.error) {
+    fail(`admin_alerts pre-seed read failed: ${existing.error.message}`);
+  }
+  if (!existing.data) return;
+  const ctx = (existing.data as { context: Record<string, unknown> | null }).context;
+  const existingTag = ctx && typeof ctx === "object" ? ctx["validation_tag"] : undefined;
+  if (typeof existingTag !== "string" || !existingTag.startsWith("m12-fixture-")) {
+    fail(
+      `refusing to seed admin_alert: a pre-existing UNRESOLVED '${code}' alert exists for ` +
+        `show ${showId ?? "<global>"} and is NOT a m12-fixture row ` +
+        `(context.validation_tag=${typeof existingTag === "string" ? `'${existingTag}'` : "<absent>"}). ` +
+        `The upsert_admin_alert RPC coalesces on (show_id, code) and would overwrite its ` +
+        `context; cleanup would then DELETE a real alert. Resolve the existing alert first.`,
+    );
+  }
+}
+
 async function upsertAdminAlertRow(
   supabase: LooseSupabaseClient,
   showId: string | null,
@@ -807,6 +848,10 @@ async function main(): Promise<void> {
       return;
     }
     case "lookup-inconclusive": {
+      // Clobber guard BEFORE any writes (so a refusal can't orphan the reports
+      // row written below). code resolved per --alert-code selector.
+      const code = ALERT_CODE_VARIANTS[alertCodeVariant];
+      await assertAdminAlertNoClobber(supabase, showId, code);
       // Two-write: (i) reports row in post-lease-expired state.
       const reportId = await insertReportRow(supabase, {
         idempotency_key: idempotencyKey,
@@ -819,8 +864,7 @@ async function main(): Promise<void> {
         processing_lease_until: offsetSeconds(now, -60),
         lease_holder: null,
       });
-      // (ii) admin_alerts row, code resolved per --alert-code selector.
-      const code = ALERT_CODE_VARIANTS[alertCodeVariant];
+      // (ii) admin_alerts row, code resolved per --alert-code selector (above).
       const alertId = await upsertAdminAlertRow(supabase, showId, code, {
         idempotency_key: idempotencyKey,
         reason: "lookup_inconclusive_fixture",
@@ -834,6 +878,7 @@ async function main(): Promise<void> {
       return;
     }
     case "orphaned-lost-lease": {
+      await assertAdminAlertNoClobber(supabase, showId, "REPORT_ORPHANED_LOST_LEASE");
       const orphanIssueNumber = Math.floor(Math.random() * 9000) + 1000;
       const alertId = await upsertAdminAlertRow(
         supabase,
