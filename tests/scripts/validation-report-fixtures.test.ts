@@ -726,6 +726,62 @@ describe("validation-report-fixtures", () => {
       }
     });
 
+    test("rate-limit-crew: --force-overwrite-snapshot REFUSES when the existing snapshot is a different identity (R3 MED)", () => {
+      const sharedCwd = makeSharedCwd();
+      const snapshotPath = join(
+        sharedCwd,
+        ".validation-state/rate-limit-crew-snapshot.json",
+      );
+      try {
+        // Seed R1 → snapshot identifies R1's crew_member_id.
+        const seed1 = runHarnessInCwd(sharedCwd, [
+          "--outcome",
+          "rate-limit-crew",
+          "--combo",
+          "R1",
+        ]);
+        expect(seed1.code).toBe(0);
+        expect(JSON.parse(readFileSync(snapshotPath, "utf8")).identity).toBe(R1_CREW_ID);
+
+        // Force-overwrite with R7b (DIFFERENT identity) must REFUSE — blindly
+        // overwriting would strand R1's quota row with no restore path.
+        const forced = runHarnessInCwd(sharedCwd, [
+          "--outcome",
+          "rate-limit-crew",
+          "--combo",
+          "R7b",
+          "--force-overwrite-snapshot",
+        ]);
+        expect(forced.code).toBe(1);
+        expect(forced.stderr).toMatch(/--force-overwrite-snapshot refused/);
+        expect(forced.stderr).toMatch(/different identity/i);
+        // Snapshot STILL identifies R1 (not clobbered by the refused force).
+        expect(JSON.parse(readFileSync(snapshotPath, "utf8")).identity).toBe(R1_CREW_ID);
+
+        // Force-overwrite with the SAME identity (R1) is allowed.
+        const sameForced = runHarnessInCwd(sharedCwd, [
+          "--outcome",
+          "rate-limit-crew",
+          "--combo",
+          "R1",
+          "--force-overwrite-snapshot",
+        ]);
+        expect(sameForced.code).toBe(0);
+        expect(sameForced.stderr).toMatch(/rewriting existing snapshot/);
+
+        // Cleanup R1 to restore.
+        const cleanupRes = runHarnessInCwd(sharedCwd, [
+          "--cleanup",
+          "--include-crew-id",
+          R1_CREW_ID,
+        ]);
+        expect(cleanupRes.code).toBe(0);
+        expect(existsSync(snapshotPath)).toBe(false);
+      } finally {
+        rmSync(sharedCwd, { recursive: true, force: true });
+      }
+    });
+
     test("orphaned cleanup (no snapshot) refuses without --force-cleanup-without-snapshot", () => {
       const sharedCwd = makeSharedCwd();
       try {

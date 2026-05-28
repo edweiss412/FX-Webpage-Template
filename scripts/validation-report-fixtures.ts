@@ -410,6 +410,23 @@ async function seedRateLimitOutcome(
           `(loses original pre-seed prior_count).`,
       );
     }
+    // R2 adversarial R3 (MEDIUM) — force-overwrite must NOT silently discard a
+    // DIFFERENT identity's snapshot. Re-seeding crew combo R7b with
+    // --force-overwrite-snapshot while an R1 snapshot exists would replace the
+    // R1 snapshot and strand R1's quota row with no restore path. Require the
+    // existing snapshot's (kind, identity) to match the seed being forced;
+    // otherwise refuse and direct the dev to clean up the other identity first.
+    const existingSnap = readSnapshot(file);
+    if (existingSnap && (existingSnap.kind !== kind || existingSnap.identity !== identity)) {
+      fail(
+        `--force-overwrite-snapshot refused: the existing snapshot at ${file} belongs to ` +
+          `a DIFFERENT identity (kind=${existingSnap.kind}, identity=${existingSnap.identity}) ` +
+          `than the seed being forced (kind=${kind}, identity=${identity}). Overwriting it ` +
+          `would strand that identity's seeded quota row with no restore path. Run ` +
+          `\`--cleanup --include-${existingSnap.kind === "admin" ? "admin-email <email>" : "crew-id <uuid>"}\` ` +
+          `for the existing identity first, then re-seed.`,
+      );
+    }
     err(
       `--force-overwrite-snapshot: rewriting existing snapshot at ${file} from ` +
         `previous seeded state; original pre-seed prior_count is lost (cleanup ` +

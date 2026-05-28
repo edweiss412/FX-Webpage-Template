@@ -41,6 +41,22 @@ begin
     raise exception 'validation_seed_rate_limit: identity must be non-empty';
   end if;
 
+  -- R2 adversarial R3 (HIGH) — serialize snapshot+seed against concurrent
+  -- live quota writes. Live enforceQuota (lib/reports/rateLimit.ts:82-86)
+  -- mutates the same (kind, identity, hour_bucket) row via
+  -- INSERT ... ON CONFLICT ... count + 1, acquiring a ROW EXCLUSIVE table
+  -- lock. Without serialization, a real increment landing between this
+  -- function's SELECT and UPSERT would be excluded from snapshot_prior_count,
+  -- and cleanup would later restore/delete from the stale snapshot — silently
+  -- losing legitimate quota state (the F34/F36 data-loss class). SHARE ROW
+  -- EXCLUSIVE conflicts with ROW EXCLUSIVE, so any concurrent enforceQuota
+  -- write blocks until this transaction commits; the snapshot then captures
+  -- the true pre-seed count. The lock is held only for the brief
+  -- snapshot+upsert and released at function-transaction commit. No deadlock
+  -- risk: this function touches only report_rate_limits and takes no other
+  -- lock; enforceQuota likewise touches only this table.
+  lock table public.report_rate_limits in share row exclusive mode;
+
   -- Pre-seed prior count at the DB-authoritative bucket (NULL if no row).
   select count into v_prior
     from public.report_rate_limits
