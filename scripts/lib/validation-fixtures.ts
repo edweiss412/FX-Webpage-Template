@@ -353,12 +353,19 @@ function buildSWCombo(combo: SWCombo, today: string): {
         expectedTodayState: "show_travel_in",
       };
     case "SW-SHOW_1":
+      // Codex Phase 0.C R13-F1 — set day MUST be before today so the
+      // runtime selector's `set_day` branch (lib/time/rightNow.ts:334-348,
+      // evaluated BEFORE `show_day_n`) doesn't claim today. Pre-R13 the
+      // fixture set `set = today AND showDays[0] = today`, so the
+      // runtime returned set_day and never reached show_day_1 —
+      // check-seed reported green while the show_day_1 walk branch
+      // was unreachable.
       return {
         dateRestriction: { kind: "none" },
         stageRestriction: { kind: "none" },
         dates: {
-          travelIn: isoOffset(today, -1),
-          set: today,
+          travelIn: isoOffset(today, -2),
+          set: isoOffset(today, -1),
           showDays: [today, isoOffset(today, 1), isoOffset(today, 2)],
           travelOut: isoOffset(today, 3),
         },
