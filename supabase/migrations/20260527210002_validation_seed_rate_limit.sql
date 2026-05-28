@@ -1,0 +1,61 @@
+-- M12 Phase 0.E adversarial R2 (MEDIUM) — DB-side rate-limit bucket derivation.
+--
+-- The report-fixtures harness seeds report_rate_limits for the rate-limit-admin
+-- / rate-limit-crew outcomes. The seeded hour_bucket MUST equal what the live
+-- enforceQuota path writes — Postgres `date_trunc('hour', now())` at INSERT
+-- time (lib/reports/rateLimit.ts:82-83). Deriving the bucket from the harness's
+-- client clock (or the REST gateway Date header, second-granularity) admits an
+-- hour-boundary race: the harness could seed bucket H while the validation POST
+-- lands in H+1, missing the seeded quota row and mutating the real quota path.
+--
+-- This RPC snapshots the prior count and UPSERTs the seed in a single call
+-- using the database clock, returning the DB-authoritative recorded bucket for
+-- the harness's file-backed snapshot. SELECT-then-UPSERT yields the PRE-seed
+-- prior count (NULL if no row), preserving the F34/F36 snapshot+restore + F39
+-- force-overwrite semantics (under force-overwrite the prior row is the
+-- already-seeded count, which becomes the new restore target).
+--
+-- No advisory lock: report_rate_limits is NOT in the per-show lock set
+-- (plan-wide invariant 2). Service-role only.
+
+drop function if exists public.validation_seed_rate_limit(text, text, integer);
+
+create or replace function public.validation_seed_rate_limit(
+  p_kind text,
+  p_identity text,
+  p_count integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_bucket timestamptz := date_trunc('hour', now());
+  v_prior integer;
+begin
+  if p_kind not in ('admin', 'crew') then
+    raise exception 'validation_seed_rate_limit: invalid kind %', p_kind;
+  end if;
+  if p_identity is null or length(p_identity) = 0 then
+    raise exception 'validation_seed_rate_limit: identity must be non-empty';
+  end if;
+
+  -- Pre-seed prior count at the DB-authoritative bucket (NULL if no row).
+  select count into v_prior
+    from public.report_rate_limits
+   where kind = p_kind and identity = p_identity and hour_bucket = v_bucket;
+
+  insert into public.report_rate_limits (kind, identity, hour_bucket, count)
+  values (p_kind, p_identity, v_bucket, p_count)
+  on conflict (kind, identity, hour_bucket) do update set count = excluded.count;
+
+  return jsonb_build_object(
+    'recorded_hour_bucket', v_bucket,
+    'snapshot_prior_count', v_prior
+  );
+end;
+$$;
+
+revoke all on function public.validation_seed_rate_limit(text, text, integer) from public, anon, authenticated;
+grant execute on function public.validation_seed_rate_limit(text, text, integer) to service_role;

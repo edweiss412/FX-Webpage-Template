@@ -323,7 +323,7 @@ describe("validation-report-fixtures", () => {
       ]);
     });
 
-    test("lookup-inconclusive (default --alert-code bot-login-missing) → admin_alerts row + reports row", () => {
+    test("lookup-inconclusive (default bot-login-missing) → GLOBAL GITHUB_BOT_LOGIN_MISSING + show-scoped REPORT_LOOKUP_INCONCLUSIVE + reports row (R2 HIGH dual-write)", () => {
       const res = runHarness([
         "--outcome",
         "lookup-inconclusive",
@@ -331,11 +331,21 @@ describe("validation-report-fixtures", () => {
         "R1",
       ]);
       expect(res.code).toBe(0);
-      const alertRow = runPsql(`
+      // Production handleLookupInconclusive (submit.ts:703-704,731-732) for
+      // BOT_LOGIN_MISSING writes BOTH a global GITHUB_BOT_LOGIN_MISSING
+      // (show_id IS NULL) AND a show-scoped REPORT_LOOKUP_INCONCLUSIVE.
+      const globalCode = runPsql(`
         SELECT code FROM public.admin_alerts
-         WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive';
+         WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive'
+           AND show_id IS NULL;
       `);
-      expect(alertRow).toBe("GITHUB_BOT_LOGIN_MISSING");
+      expect(globalCode).toBe("GITHUB_BOT_LOGIN_MISSING");
+      const showScopedCode = runPsql(`
+        SELECT code FROM public.admin_alerts
+         WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive'
+           AND show_id = ${pgQuote(R1_SHOW_ID)};
+      `);
+      expect(showScopedCode).toBe("REPORT_LOOKUP_INCONCLUSIVE");
       const reportRow = runPsql(`
         SELECT (processing_lease_until < now())::text,
                (github_issue_url IS NULL)::text
@@ -351,13 +361,14 @@ describe("validation-report-fixtures", () => {
   // ─────────────────────────────────────────────────────────────────
 
   describe("lookup-inconclusive --alert-code variant selector (R43 F40)", () => {
+    // The 3 NON-bot-login variants write a single show-scoped alert whose code
+    // is lookupAlertCode(error.code) — matches production resolveStateGatedAlert.
     test.each([
-      ["bot-login-missing", "GITHUB_BOT_LOGIN_MISSING"],
       ["duplicate-live-matches", "REPORT_DUPLICATE_LIVE_MATCHES"],
       ["open-orphan-label", "REPORT_OPEN_ORPHAN_LABEL"],
       ["inconclusive", "REPORT_LOOKUP_INCONCLUSIVE"],
     ])(
-      "--alert-code %s → admin_alerts.code %s",
+      "--alert-code %s → single show-scoped admin_alerts.code %s",
       (variant, expectedCode) => {
         const res = runHarness([
           "--outcome",
@@ -368,13 +379,37 @@ describe("validation-report-fixtures", () => {
           "R1",
         ]);
         expect(res.code).toBe(0);
-        const code = runPsql(`
+        const rows = runPsql(`
           SELECT code FROM public.admin_alerts
-           WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive';
+           WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive'
+           ORDER BY code;
         `);
-        expect(code).toBe(expectedCode);
+        // Exactly one alert row, show-scoped, with the resolved code.
+        expect(rows).toBe(expectedCode);
       },
     );
+
+    test("--alert-code bot-login-missing → global GITHUB_BOT_LOGIN_MISSING + show-scoped REPORT_LOOKUP_INCONCLUSIVE (dual-write, R2 HIGH)", () => {
+      const res = runHarness([
+        "--outcome",
+        "lookup-inconclusive",
+        "--alert-code",
+        "bot-login-missing",
+        "--combo",
+        "R1",
+      ]);
+      expect(res.code).toBe(0);
+      const rows = runPsql(`
+        SELECT code || ':' || COALESCE(show_id::text, 'GLOBAL')
+          FROM public.admin_alerts
+         WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive'
+         ORDER BY code;
+      `);
+      expect(rows.split("\n").sort()).toEqual([
+        `GITHUB_BOT_LOGIN_MISSING:GLOBAL`,
+        `REPORT_LOOKUP_INCONCLUSIVE:${R1_SHOW_ID}`,
+      ]);
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────

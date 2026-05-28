@@ -114,7 +114,11 @@ Options:
                               bot-login-missing | duplicate-live-matches |
                               open-orphan-label | inconclusive
                               (default ${DEFAULT_ALERT_CODE}). IGNORED for the
-                              other 8 outcomes.
+                              other 8 outcomes. bot-login-missing mirrors
+                              production's dual-write (a GLOBAL
+                              GITHUB_BOT_LOGIN_MISSING alert + a show-scoped
+                              REPORT_LOOKUP_INCONCLUSIVE alert); the other 3
+                              variants write a single show-scoped alert.
   --force-overwrite-snapshot  Valid ONLY with --outcome rate-limit-{admin,crew}.
                               Re-snapshots the CURRENTLY-seeded count as the new
                               restore target (loses the original pre-seed
@@ -207,12 +211,6 @@ async function serverNow(supabaseUrl: string, supabaseKey: string): Promise<Date
     fail(`Supabase Date header is unparseable: '${dateHeader}'.`);
   }
   return parsed;
-}
-
-function truncToHourUtc(d: Date): Date {
-  const t = new Date(d.getTime());
-  t.setUTCMinutes(0, 0, 0);
-  return t;
 }
 
 function offsetSeconds(d: Date, seconds: number): string {
@@ -349,13 +347,14 @@ async function assertAdminAlertNoClobber(
   showId: string | null,
   code: string,
 ): Promise<void> {
-  const existing = await supabase
+  let query = supabase
     .from("admin_alerts")
     .select("id, context")
     .eq("code", code)
-    .eq("show_id", showId)
-    .is("resolved_at", null)
-    .maybeSingle();
+    .is("resolved_at", null);
+  // Global alerts (show_id IS NULL) need `.is`, not `.eq` (PostgREST null match).
+  query = showId === null ? query.is("show_id", null) : query.eq("show_id", showId);
+  const existing = await query.maybeSingle();
   if (existing.error) {
     fail(`admin_alerts pre-seed read failed: ${existing.error.message}`);
   }
@@ -390,56 +389,6 @@ async function upsertAdminAlertRow(
   return data as string;
 }
 
-async function seedRateLimit(
-  supabase: LooseSupabaseClient,
-  kind: "admin" | "crew",
-  identity: string,
-  hourBucketIso: string,
-  count: number,
-): Promise<void> {
-  const { error } = await supabase
-    .from("report_rate_limits")
-    .upsert(
-      {
-        kind,
-        // Mirrors live persistedIdentity at lib/reports/rateLimit.ts:76 —
-        // admin identity is canonicalized, crew identity is the raw UUID.
-        // The caller already passes the correct shape (admin: pre-
-        // canonicalized email; crew: raw crew_member_id), and canonicalize
-        // is idempotent (lower(trim)) so re-applying it to an already-
-        // canonical admin email is a no-op. The conditional ALSO keeps the
-        // canonicalize() call visible to the email-canonicalization static
-        // audit at the write site (invariant 3).
-        identity: kind === "admin" ? canonicalize(identity) : identity,
-        hour_bucket: hourBucketIso,
-        count,
-      },
-      { onConflict: "kind,identity,hour_bucket" },
-    );
-  if (error) {
-    fail(`report_rate_limits UPSERT failed: ${error.message ?? JSON.stringify(error)}`);
-  }
-}
-
-async function readRateLimitCount(
-  supabase: LooseSupabaseClient,
-  kind: "admin" | "crew",
-  identity: string,
-  hourBucketIso: string,
-): Promise<number | null> {
-  const { data, error } = await supabase
-    .from("report_rate_limits")
-    .select("count")
-    .eq("kind", kind)
-    .eq("identity", identity)
-    .eq("hour_bucket", hourBucketIso)
-    .maybeSingle();
-  if (error) {
-    fail(`report_rate_limits read failed: ${error.message ?? JSON.stringify(error)}`);
-  }
-  return data ? (data as { count: number }).count : null;
-}
-
 // ───────────────────────────────────────────────────────────────────────
 // Rate-limit seed (admin / crew) — snapshot+restore lifecycle
 // ───────────────────────────────────────────────────────────────────────
@@ -448,14 +397,11 @@ async function seedRateLimitOutcome(
   supabase: LooseSupabaseClient,
   kind: "admin" | "crew",
   identity: string,
-  serverDate: Date,
   forceOverwrite: boolean,
 ): Promise<void> {
   const file = SNAPSHOT_FILE[kind];
-  const hourBucket = truncToHourUtc(serverDate);
-  const hourBucketIso = hourBucket.toISOString();
 
-  // (a0) F39 refuse-existing-snapshot guard.
+  // (a0) F39 refuse-existing-snapshot guard (file-presence).
   if (existsSync(file)) {
     if (!forceOverwrite) {
       fail(
@@ -471,25 +417,39 @@ async function seedRateLimitOutcome(
     );
   }
 
-  // (a) Snapshot the prior count at the recorded bucket (under force-overwrite
-  // this reads the post-prior-seed count, per F39 force-overwrite semantics).
-  const priorCount = await readRateLimitCount(supabase, kind, identity, hourBucketIso);
+  // (a+c) DB-side snapshot + seed in one call (R2 MEDIUM fix). The RPC derives
+  // hour_bucket = date_trunc('hour', now()) using the DATABASE clock — the same
+  // expression live enforceQuota uses (rateLimit.ts:82-83) — eliminating the
+  // client/gateway-clock hour-boundary race. SELECT-then-UPSERT yields the
+  // PRE-seed prior count (NULL if no row); under --force-overwrite the prior
+  // row is the already-seeded count (F39 force-overwrite semantics preserved).
+  // identity is the live shape the caller passed (admin: canonicalize(email);
+  // crew: raw UUID per rateLimit.ts:76 + submit.ts:168).
+  const count = kind === "admin" ? ADMIN_QUOTA_SEED_COUNT : CREW_QUOTA_SEED_COUNT;
+  const { data, error } = await supabase.rpc("validation_seed_rate_limit", {
+    p_kind: kind,
+    p_identity: identity,
+    p_count: count,
+  });
+  if (error) {
+    fail(`validation_seed_rate_limit RPC failed: ${error.message ?? JSON.stringify(error)}`);
+  }
+  const result = data as {
+    recorded_hour_bucket: string;
+    snapshot_prior_count: number | null;
+  };
 
-  // (b) Persist the snapshot tuple before mutating.
+  // (b) Persist the snapshot tuple keyed on the DB-AUTHORITATIVE bucket.
   writeSnapshot(file, {
     kind,
     identity,
-    recorded_hour_bucket: hourBucketIso,
-    snapshot_prior_count: priorCount,
+    recorded_hour_bucket: result.recorded_hour_bucket,
+    snapshot_prior_count: result.snapshot_prior_count,
   });
-
-  // (c) UPSERT the seed at the recorded bucket.
-  const count = kind === "admin" ? ADMIN_QUOTA_SEED_COUNT : CREW_QUOTA_SEED_COUNT;
-  await seedRateLimit(supabase, kind, identity, hourBucketIso, count);
 
   process.stdout.write(
     `materialized rate-limit-${kind} report row (kind=${kind}, identity=${identity}, ` +
-      `hour_bucket=${hourBucketIso}, count=${count})\n`,
+      `hour_bucket=${result.recorded_hour_bucket}, count=${count})\n`,
   );
 }
 
@@ -724,8 +684,7 @@ async function main(): Promise<void> {
       const adminEmail = requireEnv("VALIDATION_ADMIN_EMAIL");
       const identity = canonicalize(adminEmail);
       if (!identity) fail("VALIDATION_ADMIN_EMAIL canonicalized to empty.");
-      const now = await serverNow(supabaseUrl, supabaseKey);
-      await seedRateLimitOutcome(supabase, "admin", identity, now, forceOverwrite);
+      await seedRateLimitOutcome(supabase, "admin", identity, forceOverwrite);
       return;
     }
     case "rate-limit-crew": {
@@ -737,8 +696,7 @@ async function main(): Promise<void> {
         );
       }
       const identity = await resolveCrewMemberId(supabase, combo);
-      const now = await serverNow(supabaseUrl, supabaseKey);
-      await seedRateLimitOutcome(supabase, "crew", identity, now, forceOverwrite);
+      await seedRateLimitOutcome(supabase, "crew", identity, forceOverwrite);
       return;
     }
     default:
@@ -848,11 +806,26 @@ async function main(): Promise<void> {
       return;
     }
     case "lookup-inconclusive": {
-      // Clobber guard BEFORE any writes (so a refusal can't orphan the reports
-      // row written below). code resolved per --alert-code selector.
-      const code = ALERT_CODE_VARIANTS[alertCodeVariant];
-      await assertAdminAlertNoClobber(supabase, showId, code);
-      // Two-write: (i) reports row in post-lease-expired state.
+      // R2 HIGH fix — mirror live handleLookupInconclusive (submit.ts:691-735).
+      // BOT_LOGIN_MISSING is special: production writes a GLOBAL
+      // GITHUB_BOT_LOGIN_MISSING alert (show_id=null, line 704) AND a
+      // show-scoped REPORT_LOOKUP_INCONCLUSIVE state-gated alert (line 731-732).
+      // The other 3 variants write a single show-scoped alert whose code is
+      // lookupAlertCode(error.code) (REPORT_DUPLICATE_LIVE_MATCHES /
+      // REPORT_OPEN_ORPHAN_LABEL / REPORT_LOOKUP_INCONCLUSIVE).
+      const isBotLogin = alertCodeVariant === "bot-login-missing";
+      const sourceCode = alertCodeSourceEnum(alertCodeVariant);
+
+      // Clobber guards BEFORE any writes (a refusal must not orphan the reports
+      // row written below). Both scopes for bot-login-missing.
+      if (isBotLogin) {
+        await assertAdminAlertNoClobber(supabase, null, "GITHUB_BOT_LOGIN_MISSING");
+        await assertAdminAlertNoClobber(supabase, showId, "REPORT_LOOKUP_INCONCLUSIVE");
+      } else {
+        await assertAdminAlertNoClobber(supabase, showId, ALERT_CODE_VARIANTS[alertCodeVariant]);
+      }
+
+      // (i) reports row in post-lease-expired state (all variants).
       const reportId = await insertReportRow(supabase, {
         idempotency_key: idempotencyKey,
         show_id: showId,
@@ -864,16 +837,43 @@ async function main(): Promise<void> {
         processing_lease_until: offsetSeconds(now, -60),
         lease_holder: null,
       });
-      // (ii) admin_alerts row, code resolved per --alert-code selector (above).
-      const alertId = await upsertAdminAlertRow(supabase, showId, code, {
-        idempotency_key: idempotencyKey,
-        reason: "lookup_inconclusive_fixture",
-        code: alertCodeSourceEnum(alertCodeVariant),
-        validation_tag: tag("lookup-inconclusive"),
-      });
+
+      // (ii) admin_alerts.
+      let alertSummary: string;
+      if (isBotLogin) {
+        const globalId = await upsertAdminAlertRow(supabase, null, "GITHUB_BOT_LOGIN_MISSING", {
+          idempotency_key: idempotencyKey,
+          reason: "lookup_inconclusive_fixture",
+          code: sourceCode,
+          validation_tag: tag("lookup-inconclusive"),
+        });
+        const showScopedId = await upsertAdminAlertRow(
+          supabase,
+          showId,
+          "REPORT_LOOKUP_INCONCLUSIVE",
+          {
+            idempotency_key: idempotencyKey,
+            reason: "lookup_inconclusive_fixture",
+            code: sourceCode,
+            validation_tag: tag("lookup-inconclusive"),
+          },
+        );
+        alertSummary =
+          `global GITHUB_BOT_LOGIN_MISSING ${globalId} + ` +
+          `show-scoped REPORT_LOOKUP_INCONCLUSIVE ${showScopedId}`;
+      } else {
+        const code = ALERT_CODE_VARIANTS[alertCodeVariant];
+        const alertId = await upsertAdminAlertRow(supabase, showId, code, {
+          idempotency_key: idempotencyKey,
+          reason: "lookup_inconclusive_fixture",
+          code: sourceCode,
+          validation_tag: tag("lookup-inconclusive"),
+        });
+        alertSummary = `admin_alerts row ${alertId} (code=${code})`;
+      }
       process.stdout.write(
-        `materialized lookup-inconclusive report row ${reportId} + admin_alerts row ${alertId} ` +
-          `(code=${code}, idempotency_key=${idempotencyKey}, show_id=${showId})\n`,
+        `materialized lookup-inconclusive report row ${reportId} + ${alertSummary} ` +
+          `(idempotency_key=${idempotencyKey}, show_id=${showId})\n`,
       );
       return;
     }
