@@ -72,3 +72,68 @@ describe("mapPendingSyncRowForApply — Apply read boundary (fail closed on corr
     expect(mapped.reviewItemsCorrupt).toBe(false);
   });
 });
+
+/**
+ * Regression for the onboarding apply revision-race FALSE POSITIVE (M12 Phase
+ * 0.F smoke 3 → 4th onboarding defect).
+ *
+ * The DB layer is postgres.js, which parses `timestamptz` columns into JS
+ * `Date` objects (NOT ISO strings) — confirmed live: `instanceof Date === true`.
+ * `staged_modified_time` is typed `string` on PendingSyncForApplyRow but is a
+ * `Date` at runtime. The revision guard then did
+ * `sameTimestamp(driveModifiedTime [ISO string ".040Z"], pending.stagedModifiedTime [Date])`,
+ * and `timestampMs` ran `Date.parse(<Date object>)`, which coerces the Date via
+ * `toString()` and DROPS the milliseconds (".040" -> ".000"). An unedited sheet
+ * (whose live modifiedTime matches the staged value to the millisecond) then
+ * tripped a false `revision_race` -> deterministic 409 STAGED_PARSE_REVISION_RACE
+ * blocking finalize for every sheet whose modifiedTime has nonzero ms.
+ *
+ * The mapper is the single Apply read boundary; it must normalize the
+ * timestamptz Date to a full-precision ISO string so the `string` type is
+ * honest and the downstream millisecond-exact comparison is correct.
+ */
+function rowWithStagedModified(
+  staged: unknown,
+  base: unknown = null,
+): PendingSyncForApplyRow {
+  return {
+    ...rowWith([]),
+    // Cast through the row's declared types: production passes a Date here
+    // (postgres.js), even though the row type says string.
+    staged_modified_time: staged as string,
+    base_modified_time: base as string | null,
+  };
+}
+
+describe("mapPendingSyncRowForApply — timestamptz read boundary (postgres.js Date -> ISO string)", () => {
+  // The exact failure mode: a Date-valued staged_modified_time (postgres.js)
+  // must become a full-precision ISO STRING, not leak as a Date typed string.
+  // A Date that survives to the guard loses its ms under Date.parse -> false race.
+  test("a Date staged_modified_time (postgres.js) normalizes to a full-ms ISO string", () => {
+    const instant = "2026-05-09T03:44:06.040Z";
+    const mapped = mapPendingSyncRowForApply(rowWithStagedModified(new Date(instant)));
+    expect(typeof mapped.stagedModifiedTime).toBe("string");
+    // Full millisecond precision preserved (the .040 the bug dropped).
+    expect(new Date(mapped.stagedModifiedTime).toISOString()).toBe(instant);
+  });
+
+  test("a Date base_modified_time normalizes to ISO string; null stays null", () => {
+    const baseInstant = "2026-05-08T11:22:33.500Z";
+    const mapped = mapPendingSyncRowForApply(
+      rowWithStagedModified(new Date("2026-05-09T03:44:06.040Z"), new Date(baseInstant)),
+    );
+    expect(typeof mapped.baseModifiedTime).toBe("string");
+    expect(new Date(mapped.baseModifiedTime as string).toISOString()).toBe(baseInstant);
+
+    const nullBase = mapPendingSyncRowForApply(
+      rowWithStagedModified(new Date("2026-05-09T03:44:06.040Z"), null),
+    );
+    expect(nullBase.baseModifiedTime).toBeNull();
+  });
+
+  test("an ISO-string staged_modified_time passes through unchanged", () => {
+    const instant = "2026-05-28T12:00:00.123Z";
+    const mapped = mapPendingSyncRowForApply(rowWithStagedModified(instant));
+    expect(new Date(mapped.stagedModifiedTime).toISOString()).toBe(instant);
+  });
+});

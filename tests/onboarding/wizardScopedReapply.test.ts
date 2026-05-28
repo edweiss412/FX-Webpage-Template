@@ -293,6 +293,127 @@ describe("wizard-scoped staged apply/discard routes", () => {
   });
 });
 
+/**
+ * Onboarding apply revision-race regression (M12 Phase 0.F smoke 3 — 4th
+ * onboarding defect). Drives the REAL applyStaged wizard path through the REAL
+ * revision guard (verifyWizardApplyDriveScope), NOT a mocked reverify result.
+ *
+ * Crucially, `readWizardPendingSyncForApply` returns a `stagedModifiedTime`
+ * that is a JS `Date` — the value postgres.js actually yields for the
+ * `timestamptz` column. Every other test in this file passes a STRING, which is
+ * exactly why this bug slipped through: the harness masked the Date coercion.
+ * `fetchDriveFileMetadata` returns the live Drive `modifiedTime` as an ISO
+ * string (with milliseconds), as the real Drive client does.
+ */
+describe("onboarding apply revision-race — real guard, postgres.js Date staged time", () => {
+  const INSTANT = "2026-05-09T03:44:06.040Z"; // sub-second ms — the bug's trigger
+  const FOLDER = "folder-1";
+
+  function publishDeps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps & {
+    approveWizardPendingSync: ReturnType<typeof vi.fn>;
+    markWizardManifestApplied: ReturnType<typeof vi.fn>;
+    runOnboardingScan: ReturnType<typeof vi.fn>;
+  } {
+    const approveWizardPendingSync = vi.fn(async () => true);
+    const markWizardManifestApplied = vi.fn(async () => true);
+    // Only reached if the guard FALSE-fires (revision_race -> inline restage).
+    const runOnboardingScan = vi.fn(async () => ({
+      outcome: "completed" as const,
+      processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
+    }));
+    const base = applyDeps({
+      // postgres.js returns a Date for staged_modified_time — reproduce that.
+      readWizardPendingSyncForApply: vi.fn(async () =>
+        pendingSync({ stagedModifiedTime: new Date(INSTANT) as unknown as string }),
+      ),
+      readPendingFolderId: vi.fn(async () => FOLDER),
+      approveWizardPendingSync,
+      markWizardManifestApplied,
+      runOnboardingScan,
+      ...overrides,
+    });
+    return Object.assign(base, {
+      approveWizardPendingSync,
+      markWizardManifestApplied,
+      runOnboardingScan,
+    });
+  }
+
+  function driveMetaAt(modifiedTime: string) {
+    return vi.fn(async () => ({
+      driveFileId: "file-1",
+      name: "Demo Show",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime,
+      parents: [FOLDER],
+      // Native Google Sheets carry NO headRevisionId (confirmed live) — the
+      // guard must rely on modifiedTime, so it must be precision-exact.
+    }));
+  }
+
+  // FALSE POSITIVE (the bug): unedited sheet — Drive modifiedTime equals the
+  // staged instant to the millisecond. Must NOT be a revision_race; the apply
+  // must proceed to publish. Failure mode: deterministic 409 blocking finalize.
+  test("an unedited sheet (same instant, Date staged) applies and publishes — no false race", async () => {
+    const deps = publishDeps({ fetchDriveFileMetadata: driveMetaAt(INSTANT) });
+
+    const result = await applyStaged(wizardApplyArgs(), deps);
+
+    expect(result).toEqual({
+      outcome: "wizard_applied",
+      wizardSessionId: W1,
+      stagedId: STAGED,
+    });
+    // Apply actually reached the publish step (not just "didn't 409").
+    expect(deps.approveWizardPendingSync).toHaveBeenCalledTimes(1);
+    expect(deps.markWizardManifestApplied).toHaveBeenCalledTimes(1);
+    // The guard did NOT false-fire, so no inline rescan happened.
+    expect(deps.runOnboardingScan).not.toHaveBeenCalled();
+  });
+
+  // TRUE POSITIVE (guard preserved): a real edit bumps modifiedTime past the
+  // staged instant. The guard must fire -> inline restage for re-review, and
+  // must NOT blindly publish the stale staged revision.
+  test("a genuinely edited sheet (later modifiedTime) fires the guard and re-stages, does not publish", async () => {
+    const NEW_INSTANT = "2026-05-09T03:45:00.000Z";
+    // Stateful pending: the preflight read sees the OLD (Date) staged time; the
+    // inline rescan re-stages at the NEW Drive instant, so the inner reverify
+    // matches and the result is restaged_inline (re-review), not a bounded race.
+    let currentPending: PendingSyncForApply = pendingSync({
+      stagedModifiedTime: new Date(INSTANT) as unknown as string,
+    });
+    const freshStagedId = "33333333-3333-4333-8333-333333333333";
+    const approveWizardPendingSync = vi.fn(async () => true);
+    const runOnboardingScan = vi.fn(async () => {
+      currentPending = pendingSync({
+        stagedId: freshStagedId,
+        stagedModifiedTime: NEW_INSTANT,
+      });
+      return {
+        outcome: "completed" as const,
+        processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
+      };
+    });
+    const deps = applyDeps({
+      readWizardPendingSyncForApply: vi.fn(async () => currentPending),
+      readPendingFolderId: vi.fn(async () => FOLDER),
+      fetchDriveFileMetadata: driveMetaAt(NEW_INSTANT),
+      approveWizardPendingSync,
+      runOnboardingScan,
+    });
+
+    const result = await applyStaged(wizardApplyArgs(), deps);
+
+    expect(result).toMatchObject({
+      outcome: "restaged_inline",
+      code: "STAGED_PARSE_RESTAGED_INLINE",
+      stagedId: freshStagedId,
+    });
+    expect(runOnboardingScan).toHaveBeenCalledTimes(1);
+    expect(approveWizardPendingSync).not.toHaveBeenCalled();
+  });
+});
+
 function pendingSync(overrides: Partial<PendingSyncForApply> = {}): PendingSyncForApply {
   return {
     driveFileId: "file-1",

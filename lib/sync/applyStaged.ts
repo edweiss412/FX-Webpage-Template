@@ -314,25 +314,75 @@ export type ApplyStagedDeps = {
   runOnboardingScan?: typeof runOnboardingScan;
 };
 
-function timestampMs(value: string | null | undefined): number | null {
-  if (!value) return null;
+/**
+ * A `Timestampish` is whatever a timestamp value can be at the read boundary.
+ * The DB layer is postgres.js, which parses `timestamptz` columns into JS
+ * `Date` objects, NOT ISO strings — even though the row types here say
+ * `string`. Drive metadata, by contrast, arrives as ISO strings. Comparison
+ * helpers must accept both without losing precision.
+ *
+ * The original `timestampMs` only accepted strings and ran `Date.parse(value)`.
+ * When fed a `Date` (a postgres.js timestamptz), `Date.parse` coerces it via
+ * `toString()` — which DROPS the milliseconds — so a Date staged time
+ * ".040" became ".000" and never equalled the millisecond-exact Drive ISO
+ * string. That mis-compare produced a deterministic false revision race on
+ * unedited sheets (M12 Phase 0.F smoke 3, 4th onboarding defect). Handling
+ * `Date` via `getTime()` preserves the milliseconds.
+ */
+type Timestampish = string | Date | null | undefined;
+
+function timestampMs(value: Timestampish): number | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function sameTimestamp(left: string | null, right: string | null): boolean {
-  if (left === null && right === null) return true;
-  return timestampMs(left) === timestampMs(right);
+function sameTimestamp(left: Timestampish, right: Timestampish): boolean {
+  const leftMs = timestampMs(left);
+  const rightMs = timestampMs(right);
+  if (leftMs === null && rightMs === null) return true;
+  return leftMs === rightMs;
 }
 
-function isAfter(left: string, right: string): boolean {
+/**
+ * Exported revision-guard time equality. The Apply revision guard
+ * (verifyWizardApplyDriveScope, the inline-restage reverify) compares the live
+ * Drive `modifiedTime` against the staged `modifiedTime` to decide whether the
+ * sheet was edited between stage and Apply. This is the single predicate those
+ * sites call, so the unit contract that pins "a postgres.js Date equals an ISO
+ * string for the same sub-second instant, but a real edit does not" pins the
+ * exact comparison the guard performs.
+ */
+export function revisionTimesMatch(left: Timestampish, right: Timestampish): boolean {
+  return sameTimestamp(left, right);
+}
+
+function isAfter(left: Timestampish, right: Timestampish): boolean {
   const leftMs = timestampMs(left);
   const rightMs = timestampMs(right);
   return leftMs !== null && rightMs !== null && leftMs > rightMs;
 }
 
-function isValidTimestamp(value: string | null | undefined): boolean {
+function isValidTimestamp(value: Timestampish): boolean {
   return timestampMs(value) !== null;
+}
+
+/**
+ * Normalize a timestamptz value read from the DB (postgres.js `Date`) to a
+ * full-precision ISO string at the read boundary, so the `string` row/field
+ * types are honest and every downstream consumer (millisecond-exact revision
+ * comparison, the `bindingToken`/`modifiedTime` string passed to the live
+ * reverify, the value echoed back to the client) gets a real string. A value
+ * that is already a string is returned unchanged; `null` stays `null`.
+ */
+function normalizeTimestamptz(value: string | Date | null): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  return value;
 }
 
 function uniqueSorted(values: string[]): string[] {
@@ -441,8 +491,11 @@ export type PendingSyncForApplyRow = {
   staged_id: string;
   source_kind: string;
   wizard_session_id: string | null;
-  base_modified_time: string | null;
-  staged_modified_time: string;
+  // postgres.js parses `timestamptz` into a JS `Date`, not an ISO string. The
+  // mapper normalizes both to ISO strings; the row type admits the Date so the
+  // boundary is honest. (Drive-sourced values arrive as strings.)
+  base_modified_time: string | Date | null;
+  staged_modified_time: string | Date;
   parse_result: Phase2Args["parseResult"];
   triggered_review_items: unknown;
   prior_last_sync_status: string | null;
@@ -469,8 +522,10 @@ export function mapPendingSyncRowForApply(
     stagedId: row.staged_id,
     sourceKind: row.source_kind,
     wizardSessionId: row.wizard_session_id,
-    baseModifiedTime: row.base_modified_time,
-    stagedModifiedTime: row.staged_modified_time,
+    // Normalize postgres.js timestamptz Dates to full-precision ISO strings so
+    // the millisecond-exact revision comparison is correct (see normalizeTimestamptz).
+    baseModifiedTime: normalizeTimestamptz(row.base_modified_time),
+    stagedModifiedTime: normalizeTimestamptz(row.staged_modified_time) as string,
     parseResult: row.parse_result,
     triggeredReviewItems: parsed.ok ? parsed.items : [],
     reviewItemsCorrupt: !parsed.ok,
@@ -1422,7 +1477,7 @@ async function verifyWizardApplyDriveScope(
     return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
   }
 
-  if (!sameTimestamp(metadata.modifiedTime, pending.stagedModifiedTime)) {
+  if (!revisionTimesMatch(metadata.modifiedTime, pending.stagedModifiedTime)) {
     return {
       outcome: "revision_race",
       code: STAGED_PARSE_REVISION_RACE,
@@ -1541,7 +1596,7 @@ async function restageWizardRevisionRaceInline(
     args.wizardSessionId,
   );
   if (!fresh) return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
-  if (!sameTimestamp(fresh.stagedModifiedTime, metadata.modifiedTime)) {
+  if (!revisionTimesMatch(fresh.stagedModifiedTime, metadata.modifiedTime)) {
     return { outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE };
   }
 
