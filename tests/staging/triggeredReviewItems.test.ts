@@ -1,12 +1,45 @@
 import { describe, expect, test } from "vitest";
 
-import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import {
+  asTriggeredReviewItems,
+  parseTriggeredReviewItems,
+} from "@/lib/staging/triggeredReviewItems";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
 const VALID: TriggeredReviewItem[] = [
   { id: "a", invariant: "FIRST_SEEN_REVIEW" },
   { id: "b", invariant: "MI-8", field: "po" },
 ];
+
+describe("parseTriggeredReviewItems (gate boundary — fail closed on corrupt)", () => {
+  // The fail-OPEN this guards (Codex R2): a corrupt non-array review gate must
+  // NOT be silently treated as "no review required" — that would let a row
+  // requiring review (e.g. MI-11 crew-email change) be applied unreviewed.
+  test("legitimate empty: null / undefined / [] are ok with empty items", () => {
+    expect(parseTriggeredReviewItems(null)).toEqual({ ok: true, items: [] });
+    expect(parseTriggeredReviewItems(undefined)).toEqual({ ok: true, items: [] });
+    expect(parseTriggeredReviewItems([])).toEqual({ ok: true, items: [] });
+  });
+
+  test("valid array is ok and passed through", () => {
+    expect(parseTriggeredReviewItems(VALID)).toEqual({ ok: true, items: VALID });
+  });
+
+  test("double-encoded JSON-string array is ok and parsed", () => {
+    expect(parseTriggeredReviewItems(JSON.stringify(VALID))).toEqual({ ok: true, items: VALID });
+  });
+
+  test("corrupt: a non-array object is NOT ok (fails closed)", () => {
+    expect(parseTriggeredReviewItems({ id: "x", invariant: "MI-8" })).toEqual({ ok: false });
+  });
+
+  test("corrupt: scalar, JSON-string-of-object, and garbage string are NOT ok", () => {
+    expect(parseTriggeredReviewItems(3)).toEqual({ ok: false });
+    expect(parseTriggeredReviewItems(true)).toEqual({ ok: false });
+    expect(parseTriggeredReviewItems('{"id":"x"}')).toEqual({ ok: false });
+    expect(parseTriggeredReviewItems("not json {")).toEqual({ ok: false });
+  });
+});
 
 describe("asTriggeredReviewItems", () => {
   // The crash this guards (M12 Phase 0.F smoke 3): StagedReviewCard calls

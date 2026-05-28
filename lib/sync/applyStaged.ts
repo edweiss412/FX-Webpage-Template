@@ -4,7 +4,7 @@ import { getDriveClient } from "@/lib/drive/client";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
-import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -46,6 +46,7 @@ export const WIZARD_SESSION_SUPERSEDED = "WIZARD_SESSION_SUPERSEDED" as const;
 export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" as const;
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
 export const STAGED_PARSE_RESTAGED_INLINE = "STAGED_PARSE_RESTAGED_INLINE" as const;
+export const STAGED_REVIEW_ITEMS_CORRUPT = "STAGED_REVIEW_ITEMS_CORRUPT" as const;
 
 export type ReviewerChoice = {
   item_id: string;
@@ -62,6 +63,14 @@ export type PendingSyncForApply = {
   stagedModifiedTime: string;
   parseResult: Phase2Args["parseResult"];
   triggeredReviewItems: TriggeredReviewItem[];
+  /**
+   * True when the stored triggered_review_items jsonb could not be interpreted
+   * as a review-item array (corrupt gate). triggeredReviewItems is [] in that
+   * case to keep downstream array ops safe, but Apply must REFUSE rather than
+   * treat the row as choice-free — see mapPendingSyncRowForApply + the
+   * review_items_corrupt guard in applyStaged_unlocked.
+   */
+  reviewItemsCorrupt: boolean;
   priorLastSyncStatus: string | null;
   priorLastSyncError: string | null;
   warningSummary: string;
@@ -200,7 +209,8 @@ export type ApplyStagedResult =
   | { outcome: "infra_error"; code: typeof SYNC_INFRA_ERROR }
   | { outcome: "discarded"; variant: "try_again" }
   | { outcome: "wizard_applied"; wizardSessionId: string; stagedId: string }
-  | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED };
+  | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED }
+  | { outcome: "review_items_corrupt"; code: typeof STAGED_REVIEW_ITEMS_CORRUPT };
 
 export type ApplyStagedDeps = {
   readLivePendingSyncForApply?: (
@@ -453,6 +463,7 @@ export type PendingSyncForApplyRow = {
 export function mapPendingSyncRowForApply(
   row: PendingSyncForApplyRow,
 ): PendingSyncForApply {
+  const parsed = parseTriggeredReviewItems(row.triggered_review_items);
   return {
     driveFileId: row.drive_file_id,
     stagedId: row.staged_id,
@@ -461,7 +472,8 @@ export function mapPendingSyncRowForApply(
     baseModifiedTime: row.base_modified_time,
     stagedModifiedTime: row.staged_modified_time,
     parseResult: row.parse_result,
-    triggeredReviewItems: asTriggeredReviewItems(row.triggered_review_items),
+    triggeredReviewItems: parsed.ok ? parsed.items : [],
+    reviewItemsCorrupt: !parsed.ok,
     priorLastSyncStatus: row.prior_last_sync_status,
     priorLastSyncError: row.prior_last_sync_error,
     warningSummary: row.warning_summary,
@@ -1095,6 +1107,9 @@ export async function applyStaged_unlocked(
       args.wizardSessionId,
     );
     if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+    if (pending.reviewItemsCorrupt) {
+      return { outcome: "review_items_corrupt", code: STAGED_REVIEW_ITEMS_CORRUPT };
+    }
     const activeWizardSession = await deps.readActiveWizardSession(tx);
     if (
       activeWizardSession !== args.wizardSessionId ||
@@ -1149,6 +1164,9 @@ export async function applyStaged_unlocked(
 
   const pending = await deps.readLivePendingSyncForApply(tx, args.driveFileId);
   if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+  if (pending.reviewItemsCorrupt) {
+    return { outcome: "review_items_corrupt", code: STAGED_REVIEW_ITEMS_CORRUPT };
+  }
   if (pending.stagedId !== args.stagedId) {
     return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
   }
@@ -1283,6 +1301,9 @@ async function readLiveApplyPreflight(
 
   const pending = await deps.readLivePendingSyncForApply(tx, args.driveFileId);
   if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+  if (pending.reviewItemsCorrupt) {
+    return { outcome: "review_items_corrupt", code: STAGED_REVIEW_ITEMS_CORRUPT };
+  }
   if (pending.stagedId !== args.stagedId) {
     return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
   }
@@ -1347,6 +1368,9 @@ async function readWizardApplyPreflight(
     args.wizardSessionId,
   );
   if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+  if (pending.reviewItemsCorrupt) {
+    return { outcome: "review_items_corrupt", code: STAGED_REVIEW_ITEMS_CORRUPT };
+  }
 
   const activeWizardSession = await deps.readActiveWizardSession(tx);
   if (

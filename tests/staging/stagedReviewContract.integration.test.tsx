@@ -26,7 +26,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
-import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
 vi.mock("next/navigation", () => ({
@@ -43,9 +43,11 @@ const PARSER_SHAPED_ITEMS: TriggeredReviewItem[] = [
   { id: "rev-2", invariant: "FIRST_SEEN_REVIEW" },
 ];
 
-// Mirrors the staged-review pages' row→StagedRow mapping at the one field
-// under test. `raw` stands in for the jsonb value a `pending_syncs` row carries.
+// Mirrors the staged-review pages' row→StagedRow mapping exactly (parse the
+// jsonb, fail closed on corrupt). `raw` stands in for the jsonb value a
+// `pending_syncs` row carries.
 function renderCardForRawJsonb(raw: unknown) {
+  const parsed = parseTriggeredReviewItems(raw);
   const row: StagedRow = {
     driveFileId: "drive-1",
     stagedId: "11111111-1111-4111-8111-111111111111",
@@ -53,7 +55,8 @@ function renderCardForRawJsonb(raw: unknown) {
     stagedModifiedTime: "2026-05-28T12:00:00Z",
     baseModifiedTime: null,
     warningSummary: "",
-    triggeredReviewItems: asTriggeredReviewItems(raw),
+    triggeredReviewItems: parsed.ok ? parsed.items : [],
+    reviewItemsCorrupt: !parsed.ok,
   };
   return render(<StagedReviewCard row={row} mode="first_seen" showId="show-1" />);
 }
@@ -72,18 +75,21 @@ describe("staged-review server→client contract (real component + real coercer)
   });
 
   // THE failure mode this catches: a non-array jsonb value (the literal crash
-  // input) must not reach the component as a non-array. Before the fix this
-  // threw "triggeredReviewItems.some is not a function" during render.
-  test("a non-array object jsonb value renders the empty state, never crashes", () => {
-    // If the coercer let the non-array through, render() itself would throw
-    // ".some is not a function" — so a successful render IS the no-crash proof.
+  // input) must (a) not crash render, and (b) FAIL CLOSED — render the corrupt
+  // recovery state with NO Apply button, never the choice-free empty state that
+  // would let the operator approve an uninterpretable review gate.
+  test("a non-array object jsonb value renders the fail-closed recovery state, no Apply", () => {
     let result: ReturnType<typeof renderCardForRawJsonb> | undefined;
     expect(() => {
       result = renderCardForRawJsonb({ id: "x", invariant: "MI-8", field: "po" });
     }).not.toThrow();
 
-    expect(result!.queryByTestId("staged-review-no-items")).not.toBeNull();
+    expect(result!.queryByTestId("staged-review-items-corrupt")).not.toBeNull();
+    // Not the choice-free empty state, and not the items list.
+    expect(result!.queryByTestId("staged-review-no-items")).toBeNull();
     expect(result!.queryByTestId("staged-review-items")).toBeNull();
+    // Apply is suppressed — a corrupt gate cannot be applied.
+    expect(result!.queryByTestId("staged-review-apply")).toBeNull();
   });
 
   // Double-encoded jsonb (a JSON string of an array) is parsed and rendered,

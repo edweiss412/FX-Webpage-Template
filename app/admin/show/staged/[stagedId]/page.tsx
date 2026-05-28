@@ -28,7 +28,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
-import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Review first-seen sheet · Admin · FXAV" };
@@ -178,6 +178,7 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
 
   const row = result.row;
 
+  const parsedReviewItems = parseTriggeredReviewItems(row.triggered_review_items);
   const stagedRow: StagedRow = {
     driveFileId: row.drive_file_id,
     stagedId: row.staged_id,
@@ -185,7 +186,8 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
     stagedModifiedTime: row.staged_modified_time,
     baseModifiedTime: row.base_modified_time,
     warningSummary: "",
-    triggeredReviewItems: asTriggeredReviewItems(row.triggered_review_items),
+    triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
+    reviewItemsCorrupt: !parsedReviewItems.ok,
     ...(summaryFromParseResult(row.parse_result) !== undefined
       ? { parseSummaryLine: summaryFromParseResult(row.parse_result)! }
       : {}),

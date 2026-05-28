@@ -308,6 +308,7 @@ function pendingSync(overrides: Partial<PendingSyncForApply> = {}): PendingSyncF
       warnings: [],
     } as unknown) as PendingSyncForApply["parseResult"],
     triggeredReviewItems: [],
+    reviewItemsCorrupt: false,
     priorLastSyncStatus: null,
     priorLastSyncError: null,
     warningSummary: "",

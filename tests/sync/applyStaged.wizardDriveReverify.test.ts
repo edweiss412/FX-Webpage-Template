@@ -87,6 +87,7 @@ function pending(overrides: Partial<PendingSyncForApply> = {}): PendingSyncForAp
     stagedModifiedTime: "2026-05-08T12:00:00.000Z",
     parseResult: parseResult(),
     triggeredReviewItems: [],
+    reviewItemsCorrupt: false,
     priorLastSyncStatus: null,
     priorLastSyncError: null,
     warningSummary: "none",

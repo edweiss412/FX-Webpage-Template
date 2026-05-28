@@ -18,6 +18,7 @@ import {
   STAGED_PARSE_SOURCE_GONE,
   STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
   STAGED_PARSE_SUPERSEDED,
+  STAGED_REVIEW_ITEMS_CORRUPT,
   WIZARD_SESSION_SUPERSEDED,
   type ApplyStagedDeps,
   type PendingSyncForApply,
@@ -79,6 +80,7 @@ function pending(overrides: Partial<PendingSyncForApply> = {}): PendingSyncForAp
     stagedModifiedTime: "2026-05-08T12:00:00.000Z",
     parseResult: parseResult(),
     triggeredReviewItems: [],
+    reviewItemsCorrupt: false,
     priorLastSyncStatus: "ok",
     priorLastSyncError: null,
     warningSummary: "none",
@@ -388,6 +390,35 @@ describe("applyStaged live-scope", () => {
 
     expect(result).toEqual({ outcome: "not_found", code: PENDING_SYNC_NOT_FOUND });
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
+  test("a corrupt review gate fails closed: review_items_corrupt, no Phase 2 apply", async () => {
+    // Fail-closed enforcement (Codex R2): a row whose triggered_review_items
+    // could not be interpreted (reviewItemsCorrupt) must REFUSE Apply rather
+    // than approve an empty review set and mutate shows unreviewed.
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ reviewItemsCorrupt: true })),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({
+      outcome: "review_items_corrupt",
+      code: STAGED_REVIEW_ITEMS_CORRUPT,
+    });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(syncDeps.insertSyncAudit).not.toHaveBeenCalled();
   });
 
   test("staged_id CAS mismatch returns STAGED_PARSE_SUPERSEDED without mutating", async () => {

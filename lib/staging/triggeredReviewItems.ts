@@ -1,40 +1,54 @@
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
-/**
- * The single coercion boundary for `pending_syncs.triggered_review_items`
- * (jsonb) wherever it crosses into a consumer that iterates it —
- * StagedReviewCard's `.some()/.map()/.length/for-of`, and applyStaged's
- * `.find()/.some()` on the server.
- *
- * Why this exists (M12 Phase 0.F smoke 3): the staged-review pages guarded the
- * jsonb value with `?? []`, which only neutralizes null/undefined. A non-array
- * value — an object, a double-encoded JSON string, or malformed data left in
- * the table by the earlier broken-code scans — passed straight through and
- * crashed the client render with "triggeredReviewItems.some is not a function".
- * Routing every read through this coercer makes the array guarantee structural
- * instead of per-site, closing the recurrence class rather than patching one
- * call site.
- *
- * Contract: always returns a fresh `TriggeredReviewItem[]`.
- *   - array            → narrowed and returned (trusting the §A producer shape;
- *                        deeper validation happens at the Apply call)
- *   - JSON-string of an array → parsed then returned (double-encoded jsonb)
- *   - anything else (null/undefined/object/number/non-array string) → []
- */
-export function asTriggeredReviewItems(value: unknown): TriggeredReviewItem[] {
-  if (Array.isArray(value)) return value as TriggeredReviewItem[];
+export type ParsedTriggeredReviewItems =
+  | { ok: true; items: TriggeredReviewItem[] }
+  | { ok: false };
 
-  // Defensive: a value persisted/returned as a JSON string of an array.
-  // jsonb normally deserializes to a JS array, but a double-encoded write
-  // (or a raw text column) can surface a string here.
+/**
+ * The single interpretation boundary for `pending_syncs.triggered_review_items`
+ * (jsonb) — the stored gate for MI / asset-review decisions an operator must
+ * resolve before Apply.
+ *
+ * Two failure axes were conflated by the first crash fix and split apart here
+ * (M12 Phase 0.F smoke 3 → Codex R2):
+ *   - LEGITIMATE EMPTY (null / undefined / []) — the sheet triggered no review
+ *     items. Apply proceeds with no choices. → { ok: true, items: [] }
+ *   - CORRUPT (any non-array, non-null value: object, scalar, JSON-string of a
+ *     non-array, unparseable string) — we cannot interpret the review gate.
+ *     Collapsing this to [] would FAIL OPEN: a row that should require review
+ *     (e.g. an MI-11 crew-email change) would be applied unreviewed. So corrupt
+ *     fails CLOSED — the render shows a recovery state and Apply refuses with
+ *     STAGED_REVIEW_ITEMS_CORRUPT. → { ok: false }
+ *
+ * A value persisted as a JSON STRING of an array (double-encoded jsonb) is
+ * interpretable and parsed to its array.
+ */
+export function parseTriggeredReviewItems(value: unknown): ParsedTriggeredReviewItems {
+  if (Array.isArray(value)) return { ok: true, items: value as TriggeredReviewItem[] };
+  if (value === null || value === undefined) return { ok: true, items: [] };
+
   if (typeof value === "string") {
     try {
-      const parsed: unknown = JSON.parse(value);
-      if (Array.isArray(parsed)) return parsed as TriggeredReviewItem[];
+      const decoded: unknown = JSON.parse(value);
+      if (Array.isArray(decoded)) return { ok: true, items: decoded as TriggeredReviewItem[] };
     } catch {
-      // fall through to []
+      // unparseable → corrupt
     }
   }
 
-  return [];
+  return { ok: false };
+}
+
+/**
+ * Crash-safe convenience for NON-GATE contexts only — where a non-array value
+ * should be treated as "no items" without blocking (the dev fixture tool and
+ * the scan-time prior-state reads, which re-derive review items from the fresh
+ * parse anyway, so an uninterpretable prior value is safely empty).
+ *
+ * GATE boundaries (the staged-review render + the Apply read mapping) MUST use
+ * `parseTriggeredReviewItems` and fail closed on `{ ok: false }` — never this.
+ */
+export function asTriggeredReviewItems(value: unknown): TriggeredReviewItem[] {
+  const parsed = parseTriggeredReviewItems(value);
+  return parsed.ok ? parsed.items : [];
 }

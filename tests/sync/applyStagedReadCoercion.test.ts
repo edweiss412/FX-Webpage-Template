@@ -42,26 +42,33 @@ const VALID: TriggeredReviewItem[] = [
   { id: "i2", invariant: "FIRST_SEEN_REVIEW" },
 ];
 
-describe("mapPendingSyncRowForApply — Apply read boundary coercion", () => {
-  test("a non-array object jsonb value becomes [] (cannot 500 the Apply)", () => {
+describe("mapPendingSyncRowForApply — Apply read boundary (fail closed on corrupt)", () => {
+  test("a non-array object jsonb value is flagged corrupt (Apply must refuse, not silently approve)", () => {
     const mapped = mapPendingSyncRowForApply(rowWith({ id: "x", invariant: "MI-8" }));
+    // Array-safe (no .map/.find/.some crash) ...
     expect(Array.isArray(mapped.triggeredReviewItems)).toBe(true);
     expect(mapped.triggeredReviewItems).toEqual([]);
-    // Proves the downstream .map/.find/.some on the Apply path is array-safe.
     expect(() => mapped.triggeredReviewItems.map((i) => i.id)).not.toThrow();
+    // ... AND flagged corrupt so applyStaged returns review_items_corrupt
+    // instead of fail-opening the review gate to an empty approval.
+    expect(mapped.reviewItemsCorrupt).toBe(true);
   });
 
-  test("a valid array passes through unchanged", () => {
+  test("a valid array passes through and is NOT corrupt", () => {
     const mapped = mapPendingSyncRowForApply(rowWith(VALID));
     expect(mapped.triggeredReviewItems).toEqual(VALID);
+    expect(mapped.reviewItemsCorrupt).toBe(false);
   });
 
-  test("a double-encoded JSON-string array is parsed", () => {
+  test("a double-encoded JSON-string array is parsed and not corrupt", () => {
     const mapped = mapPendingSyncRowForApply(rowWith(JSON.stringify(VALID)));
     expect(mapped.triggeredReviewItems).toEqual(VALID);
+    expect(mapped.reviewItemsCorrupt).toBe(false);
   });
 
-  test("null jsonb becomes []", () => {
-    expect(mapPendingSyncRowForApply(rowWith(null)).triggeredReviewItems).toEqual([]);
+  test("null jsonb is legitimately empty, not corrupt", () => {
+    const mapped = mapPendingSyncRowForApply(rowWith(null));
+    expect(mapped.triggeredReviewItems).toEqual([]);
+    expect(mapped.reviewItemsCorrupt).toBe(false);
   });
 });

@@ -197,6 +197,15 @@ export type StagedRow = {
   baseModifiedTime: string | null;
   warningSummary: string;
   triggeredReviewItems: TriggeredReviewItem[];
+  /**
+   * True when the stored `triggered_review_items` jsonb could not be
+   * interpreted as a review-item array (corrupt review gate). The card then
+   * renders a recovery state (cataloged STAGED_REVIEW_ITEMS_CORRUPT message +
+   * Discard, no Apply) instead of presenting the corrupt row as choice-free —
+   * the fail-closed counterpart to the Apply-path refusal. triggeredReviewItems
+   * is [] in that case so the card's array ops stay safe.
+   */
+  reviewItemsCorrupt?: boolean;
   /** Optional one-line summary derived from `parse_result` by the page. */
   parseSummaryLine?: string;
 };
@@ -255,6 +264,11 @@ export function StagedReviewCard({
 }: StagedReviewCardProps) {
   const isWizardMode = mode === "wizard_failed_reapply";
   const isFirstSeenMode = mode === "first_seen";
+  // Corrupt review gate (server flagged triggered_review_items uninterpretable):
+  // render a recovery state and suppress Apply — the row must be discarded and
+  // re-synced, never applied as if it had no review items. Fail-closed mirror
+  // of the Apply-path STAGED_REVIEW_ITEMS_CORRUPT refusal.
+  const reviewItemsCorrupt = row.reviewItemsCorrupt === true;
   // Items with a single allowed action default to that action so an
   // operator can apply immediately. Multi-action items (MI-12 / MI-13 /
   // MI-14) start unset and force an explicit choice.
@@ -511,7 +525,15 @@ export function StagedReviewCard({
         ) : null}
       </header>
 
-      {row.triggeredReviewItems.length > 0 ? (
+      {reviewItemsCorrupt ? (
+        <div
+          data-testid="staged-review-items-corrupt"
+          className="rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
+        >
+          <ErrorExplainer code="STAGED_REVIEW_ITEMS_CORRUPT" surface="admin" />
+          <HelpAffordance code="STAGED_REVIEW_ITEMS_CORRUPT" />
+        </div>
+      ) : row.triggeredReviewItems.length > 0 ? (
         <ul className="space-y-4" data-testid="staged-review-items">
           {row.triggeredReviewItems.map((item) => {
             const allowed = allowedActionsFor(item);
@@ -587,16 +609,18 @@ export function StagedReviewCard({
           consequence. Mitigates impeccable critique P0 ("destructive
           action visually identical to safe action"). */}
       <div className="mt-6 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={handleApply}
-          disabled={pending}
-          data-testid="staged-review-apply"
-          aria-busy={pending}
-          className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Apply
-        </button>
+        {!reviewItemsCorrupt && (
+          <button
+            type="button"
+            onClick={handleApply}
+            disabled={pending}
+            data-testid="staged-review-apply"
+            aria-busy={pending}
+            className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Apply
+          </button>
+        )}
         <button
           type="button"
           onClick={() => handleDiscard("try_again")}

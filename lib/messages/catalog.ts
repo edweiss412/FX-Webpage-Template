@@ -1033,6 +1033,19 @@ export const MESSAGE_CATALOG = {
     longExplanation: "When you clicked Retry or Discard, the server looked up the pending sheet by id and didn't find a row; it had already been resolved, probably from another browser tab. Refresh the dashboard to load the current state.",
     helpHref: "/help/errors#PENDING_INGESTION_NOT_FOUND",
   },
+  STAGED_REVIEW_ITEMS_CORRUPT: {
+    code: "STAGED_REVIEW_ITEMS_CORRUPT",
+    dougFacing:
+      "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review.",
+    crewFacing: null,
+    followUp: "Doug → discard + re-sync the sheet",
+    helpfulContext:
+      "The saved list of changes that need your review for this staged sheet is stored in a format we can't read — it should be a list of review items but isn't. Rather than risk applying changes you never got to see, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds a clean review checklist. This usually only affects rows left over from an earlier app issue.",
+    title: "Staged review checklist corrupted",
+    longExplanation:
+      "The stored triggered_review_items for this staged sheet is not a readable list of review items, so we can't tell which changes need your review. Apply is blocked to avoid applying unreviewed changes. Discard the row and re-sync the sheet to rebuild a clean review checklist.",
+    helpHref: "/help/errors#STAGED_REVIEW_ITEMS_CORRUPT",
+  },
   LIVE_ROW_REQUIRED: {
     code: "LIVE_ROW_REQUIRED",
     dougFacing: "That sheet belongs to an in-progress setup wizard. Open the wizard in this browser to act on it, or use the dashboard once setup is finished.",

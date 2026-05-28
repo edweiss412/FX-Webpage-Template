@@ -932,6 +932,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → refresh",
     "helpfulContext": "A newer parse was applied (probably by a different admin or a cron run) before your Apply landed. Refresh the admin page to see the current state.",
   },
+  "STAGED_REVIEW_ITEMS_CORRUPT": {
+    "crewFacing": null,
+    "dougFacing": "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review.",
+    "followUp": "Doug → discard + re-sync the sheet",
+    "helpfulContext": "The saved list of changes that need your review for this staged sheet is stored in a format we can't read — it should be a list of review items but isn't. Rather than risk applying changes you never got to see, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds a clean review checklist. This usually only affects rows left over from an earlier app issue.",
+  },
   "STALE_DISCARD_REJECTED": {
     "crewFacing": null,
     "dougFacing": "The staged parse you were viewing was replaced by a newer sync. Refresh and review the latest version before deciding.",

@@ -30,7 +30,7 @@ import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
-import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 
 export const dynamic = "force-dynamic";
 
@@ -157,6 +157,7 @@ export default async function AdminShowPage({
 
   const rows: StagedRow[] = (pendingRows ?? []).map((row) => {
     const summary = deriveParseSummary(row.parse_result);
+    const parsed = parseTriggeredReviewItems(row.triggered_review_items);
     const base: StagedRow = {
       driveFileId: row.drive_file_id,
       stagedId: row.staged_id,
@@ -164,7 +165,8 @@ export default async function AdminShowPage({
       stagedModifiedTime: row.staged_modified_time,
       baseModifiedTime: row.base_modified_time,
       warningSummary: row.warning_summary,
-      triggeredReviewItems: asTriggeredReviewItems(row.triggered_review_items),
+      triggeredReviewItems: parsed.ok ? parsed.items : [],
+      reviewItemsCorrupt: !parsed.ok,
     };
     return summary ? { ...base, parseSummaryLine: summary } : base;
   });

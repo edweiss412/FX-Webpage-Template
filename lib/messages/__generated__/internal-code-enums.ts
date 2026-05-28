@@ -182,6 +182,9 @@ export const INTERNAL_CODE_ENUMS = {
   STAGED_PARSE_SUPERSEDED: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  STAGED_REVIEW_ITEMS_CORRUPT: {
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
   STALE_DISCARD_REJECTED: {
     source: "pending_ingestions.last_error_code"
   },
