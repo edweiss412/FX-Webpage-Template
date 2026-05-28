@@ -26,6 +26,8 @@
 import { execFileSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
+
 const DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -82,14 +84,7 @@ function runCheckSeed(combo: string): Run {
 }
 
 function cleanup(): void {
-  runPsql(`
-    DELETE FROM public.validation_state WHERE key = 'validation_seed';
-    DELETE FROM public.show_share_tokens
-      WHERE show_id IN (SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation_%');
-    DELETE FROM public.crew_members
-      WHERE show_id IN (SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation_%');
-    DELETE FROM public.shows WHERE drive_file_id LIKE 'validation_%';
-  `);
+  safeValidationCleanup();
 }
 
 function mintR1Canonical(): void {

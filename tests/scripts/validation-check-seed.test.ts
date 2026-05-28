@@ -8,6 +8,8 @@
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
+
 import { buildFixtures } from "@/scripts/lib/validation-fixtures";
 
 const DATABASE_URL =
@@ -107,14 +109,7 @@ function finalizeAll(combos: string[]): void {
 }
 
 function cleanup(): void {
-  runPsql(`
-    DELETE FROM public.validation_state WHERE key = 'validation_seed';
-    DELETE FROM public.show_share_tokens
-      WHERE show_id IN (SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation_%');
-    DELETE FROM public.crew_members
-      WHERE show_id IN (SELECT id FROM public.shows WHERE drive_file_id LIKE 'validation_%');
-    DELETE FROM public.shows WHERE drive_file_id LIKE 'validation_%';
-  `);
+  safeValidationCleanup();
 }
 
 describe("validation-check-seed", () => {
