@@ -304,7 +304,7 @@ describe("validation-report-fixtures", () => {
       expect(row.split("\t")).toEqual(["true", "true", "true", "true"]);
     });
 
-    test("horizon-expired → reports row with created_at > 24h ago", () => {
+    test("horizon-expired → reports row reapable per §13.2.3 reaper predicate (R14)", () => {
       const res = runHarness([
         "--outcome",
         "horizon-expired",
@@ -312,13 +312,18 @@ describe("validation-report-fixtures", () => {
         "R1",
       ]);
       expect(res.code).toBe(0);
+      // R14 — the row must match the 8.3f reaper predicate so it's a faithful
+      // stale-report fixture: github_issue_url IS NULL AND created_at < now-24h
+      // AND processing_lease_until < now() (NOT null — a real 25h-old report's
+      // lease lapsed in the past).
       const row = runPsql(`
         SELECT (created_at < now() - interval '24 hours')::text,
-               (github_issue_url IS NULL)::text
+               (github_issue_url IS NULL)::text,
+               (processing_lease_until IS NOT NULL AND processing_lease_until < now())::text
           FROM public.reports
          WHERE context->>'validation_tag' = 'm12-fixture-horizon-expired';
       `);
-      expect(row.split("\t")).toEqual(["true", "true"]);
+      expect(row.split("\t")).toEqual(["true", "true", "true"]);
     });
 
     test("orphaned-lost-lease → admin_alerts row with REPORT_ORPHANED_LOST_LEASE + full context", () => {

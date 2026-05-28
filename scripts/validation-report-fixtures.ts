@@ -950,7 +950,15 @@ async function main(): Promise<void> {
         // 25h ago — live acquireReportLease uses default now() so the live
         // submit path can never reach this state (leaseProtocol.ts:80-126).
         created_at: offsetSeconds(now, -25 * 3600),
-        processing_lease_until: null,
+        // R14 — processing_lease_until must be in the PAST, not NULL. A real
+        // 25h-old report acquired a ~90s lease at creation, so its lease lapsed
+        // ~25h ago. The §13.2.3-amendment-2 reaper (8.3f) only deletes stale
+        // rows where `processing_lease_until < now()`; a NULL would make this
+        // fixture non-reapable and unrepresentative of the live stale-report
+        // shape the retention predicate targets. (The horizon-expired RESPONSE
+        // is created_at-based, so it fires either way — but the row must match
+        // the reaper to be a faithful fixture.)
+        processing_lease_until: offsetSeconds(now, -25 * 3600 + 90),
         lease_holder: null,
       });
       process.stdout.write(
