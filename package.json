@@ -12,6 +12,7 @@
     "validation:reseed": "tsx scripts/validation-reseed.ts",
     "validation:check-seed": "tsx scripts/validation-check-seed.ts",
     "validation:resolve-alias": "tsx scripts/validation-resolve-alias.ts",
+    "validation:report-fixtures": "tsx scripts/validation-report-fixtures.ts",
     "gen:internal-code-enums": "tsx scripts/extract-internal-code-enums.ts",
     "gen:admin-tables": "tsx scripts/generate-admin-tables.ts",
     "gen:watermark-symbols": "tsx scripts/extract-watermark-symbols.ts",
