@@ -23,6 +23,10 @@ const MIGRATION = join(
   ROOT,
   "supabase/migrations/20260527210002_validation_seed_rate_limit.sql",
 );
+const ALERT_MIGRATION = join(
+  ROOT,
+  "supabase/migrations/20260527210003_validation_seed_admin_alert.sql",
+);
 const HARNESS = join(ROOT, "scripts/validation-report-fixtures.ts");
 
 function read(path: string): string {
@@ -59,9 +63,26 @@ describe("validation_seed_rate_limit DB-side defenses (R2/R3/R4 structural pin)"
     expect(harness).toMatch(/existingSnap\.kind\s*!==\s*kind\s*\|\|\s*existingSnap\.identity\s*!==\s*identity/);
   });
 
-  test("R1/R2 — admin_alerts writes go through a clobber guard (refuse pre-existing non-fixture)", () => {
-    expect(harness).toMatch(/assertAdminAlertNoClobber/);
-    expect(harness).toMatch(/refusing to seed admin_alert/);
+  test("R1/R5 — admin_alerts writes go through the ATOMIC validation_seed_admin_alert RPC (lock + refuse-non-fixture + delegate)", () => {
+    const alertMigration = read(ALERT_MIGRATION);
+    // The harness writes alerts ONLY through the atomic RPC (no raw upsert, no
+    // TOCTOU preflight).
+    expect(harness).toMatch(/\.rpc\(\s*["']validation_seed_admin_alert["']/);
+    expect(harness).not.toMatch(/assertAdminAlertNoClobber/);
+    // The RPC atomically locks, refuses a pre-existing non-fixture row, and
+    // delegates the actual write to the canonical upsert_admin_alert.
+    expect(alertMigration.toLowerCase()).toMatch(
+      /lock\s+table\s+public\.admin_alerts\s+in\s+share\s+row\s+exclusive\s+mode/,
+    );
+    expect(alertMigration.toLowerCase()).toMatch(/refusing to seed admin_alert/);
+    expect(alertMigration).toMatch(/not like 'm12-fixture-%'/);
+    expect(alertMigration).toMatch(/public\.upsert_admin_alert\(/);
+    expect(alertMigration.toLowerCase()).toMatch(
+      /revoke all on function public\.validation_seed_admin_alert\(uuid, text, jsonb\) from public, anon, authenticated/,
+    );
+    expect(alertMigration.toLowerCase()).toMatch(
+      /grant execute on function public\.validation_seed_admin_alert\(uuid, text, jsonb\) to service_role/,
+    );
   });
 
   test("RPC is service_role-only (no anon/authenticated execute)", () => {

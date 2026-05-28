@@ -324,67 +324,31 @@ async function insertReportRow(
 }
 
 // Writes admin_alerts through the canonical upsert_admin_alert RPC
-// (supabase/migrations/20260505000000_*.sql) — the single sanctioned
-// admin_alert producer per the _metaAdminAlertProducer contract. The RPC is
-// SECURITY DEFINER + granted to service_role and performs the same
-// ON CONFLICT (coalesce(show_id::text,''), code) WHERE resolved_at IS NULL
-// upsert the live report pipeline uses, so the materialized row is shape-
-// identical to production.
-// Clobber guard (F34/F36-class, applied to admin_alerts). upsert_admin_alert
-// coalesces on the unresolved (show_id, code) unique index and REPLACES
-// context. If the validation show already carries a REAL unresolved alert of
-// this code (e.g. the dev triggered a genuine lookup-inconclusive on the
-// fixture show during validation), the fixture upsert would overwrite its
-// context with validation_tag=m12-fixture-*, and defaultCleanup would then
-// DELETE that pre-existing real alert. Refuse rather than clobber — the dev
-// resolves the real alert first, then re-seeds. A row that is ALREADY a
-// m12-fixture-* row is safe to re-seed (idempotent fixture refresh).
+// Writes a fixture admin_alert through the validation_seed_admin_alert RPC
+// (supabase/migrations/20260527210003_*.sql). That RPC ATOMICALLY (under a
+// SHARE ROW EXCLUSIVE table lock) refuses if a pre-existing UNRESOLVED
+// (show_id, code) row is NOT a m12-fixture row — then delegates the actual
+// write to the canonical upsert_admin_alert RPC. The atomic check closes the
+// R5 TOCTOU: a harness-side preflight SELECT + later upsert could be raced by
+// a real producer (live submit.ts writes admin_alerts via raw INSERT) inserting
+// between the check and the write; the table lock serializes them. A row that
+// is ALREADY a m12-fixture-* row is safe to re-seed (idempotent refresh).
 //
-// Called BEFORE any writes in the alert-producing outcome branches so a
-// refusal never orphans a half-written reports row.
-async function assertAdminAlertNoClobber(
-  supabase: LooseSupabaseClient,
-  showId: string | null,
-  code: string,
-): Promise<void> {
-  let query = supabase
-    .from("admin_alerts")
-    .select("id, context")
-    .eq("code", code)
-    .is("resolved_at", null);
-  // Global alerts (show_id IS NULL) need `.is`, not `.eq` (PostgREST null match).
-  query = showId === null ? query.is("show_id", null) : query.eq("show_id", showId);
-  const existing = await query.maybeSingle();
-  if (existing.error) {
-    fail(`admin_alerts pre-seed read failed: ${existing.error.message}`);
-  }
-  if (!existing.data) return;
-  const ctx = (existing.data as { context: Record<string, unknown> | null }).context;
-  const existingTag = ctx && typeof ctx === "object" ? ctx["validation_tag"] : undefined;
-  if (typeof existingTag !== "string" || !existingTag.startsWith("m12-fixture-")) {
-    fail(
-      `refusing to seed admin_alert: a pre-existing UNRESOLVED '${code}' alert exists for ` +
-        `show ${showId ?? "<global>"} and is NOT a m12-fixture row ` +
-        `(context.validation_tag=${typeof existingTag === "string" ? `'${existingTag}'` : "<absent>"}). ` +
-        `The upsert_admin_alert RPC coalesces on (show_id, code) and would overwrite its ` +
-        `context; cleanup would then DELETE a real alert. Resolve the existing alert first.`,
-    );
-  }
-}
-
+// Callers in the alert-producing branches invoke this BEFORE writing the
+// reports row, so a refusal (RPC raise → fail) never orphans a reports row.
 async function upsertAdminAlertRow(
   supabase: LooseSupabaseClient,
   showId: string | null,
   code: string,
   context: Record<string, unknown>,
 ): Promise<string> {
-  const { data, error } = await supabase.rpc("upsert_admin_alert", {
+  const { data, error } = await supabase.rpc("validation_seed_admin_alert", {
     p_show_id: showId,
     p_code: code,
     p_context: context,
   });
   if (error) {
-    fail(`upsert_admin_alert RPC failed: ${error.message ?? JSON.stringify(error)}`);
+    fail(`validation_seed_admin_alert RPC failed: ${error.message ?? JSON.stringify(error)}`);
   }
   return data as string;
 }
@@ -844,29 +808,10 @@ async function main(): Promise<void> {
       const isBotLogin = alertCodeVariant === "bot-login-missing";
       const sourceCode = alertCodeSourceEnum(alertCodeVariant);
 
-      // Clobber guards BEFORE any writes (a refusal must not orphan the reports
-      // row written below). Both scopes for bot-login-missing.
-      if (isBotLogin) {
-        await assertAdminAlertNoClobber(supabase, null, "GITHUB_BOT_LOGIN_MISSING");
-        await assertAdminAlertNoClobber(supabase, showId, "REPORT_LOOKUP_INCONCLUSIVE");
-      } else {
-        await assertAdminAlertNoClobber(supabase, showId, ALERT_CODE_VARIANTS[alertCodeVariant]);
-      }
-
-      // (i) reports row in post-lease-expired state (all variants).
-      const reportId = await insertReportRow(supabase, {
-        idempotency_key: idempotencyKey,
-        show_id: showId,
-        reported_by_kind: "admin",
-        reported_by: adminEmail ?? "validation-admin@example.com",
-        reporter_role: null,
-        context: baseReportContext("lookup-inconclusive"),
-        github_issue_url: null,
-        processing_lease_until: offsetSeconds(now, -60),
-        lease_holder: null,
-      });
-
-      // (ii) admin_alerts.
+      // (i) admin_alerts FIRST — upsertAdminAlertRow's atomic guard (R5)
+      // refuses if a pre-existing non-fixture unresolved (show_id, code) row
+      // exists. Writing alerts before the reports row means a refusal exits
+      // before the reports INSERT, so no reports row is orphaned.
       let alertSummary: string;
       if (isBotLogin) {
         const globalId = await upsertAdminAlertRow(supabase, null, "GITHUB_BOT_LOGIN_MISSING", {
@@ -899,6 +844,19 @@ async function main(): Promise<void> {
         });
         alertSummary = `admin_alerts row ${alertId} (code=${code})`;
       }
+
+      // (ii) reports row in post-lease-expired state (all variants).
+      const reportId = await insertReportRow(supabase, {
+        idempotency_key: idempotencyKey,
+        show_id: showId,
+        reported_by_kind: "admin",
+        reported_by: adminEmail ?? "validation-admin@example.com",
+        reporter_role: null,
+        context: baseReportContext("lookup-inconclusive"),
+        github_issue_url: null,
+        processing_lease_until: offsetSeconds(now, -60),
+        lease_holder: null,
+      });
       process.stdout.write(
         `materialized lookup-inconclusive report row ${reportId} + ${alertSummary} ` +
           `(idempotency_key=${idempotencyKey}, show_id=${showId})\n`,
@@ -906,7 +864,6 @@ async function main(): Promise<void> {
       return;
     }
     case "orphaned-lost-lease": {
-      await assertAdminAlertNoClobber(supabase, showId, "REPORT_ORPHANED_LOST_LEASE");
       const orphanIssueNumber = Math.floor(Math.random() * 9000) + 1000;
       const alertId = await upsertAdminAlertRow(
         supabase,
