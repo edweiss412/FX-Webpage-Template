@@ -29,6 +29,11 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
 import { runValidationCli, type CliRun } from "../scripts/_cli-helpers";
+// fixtureCrewName is a pure alias→name lookup (no env / no buildFixtures side
+// effects), so importing it keeps this meta-test hermetic while binding the
+// minted name + the mutation probes to the SAME single source of truth the
+// reseed + check-seed use — they can never drift to a stale literal.
+import { fixtureCrewName } from "@/scripts/lib/validation-fixtures";
 
 const CHECK_SEED_SCRIPT = join(
   process.cwd(),
@@ -109,7 +114,7 @@ function mintR1Canonical(): void {
     },
     crewMembers: aliases.map(({ alias, roleFlags }) => ({
       alias,
-      name: `R1_${alias}`,
+      name: fixtureCrewName(alias),
       email:
         alias === "alias_5a_lead"
           ? REAL_CLAIM_EMAIL
@@ -183,31 +188,31 @@ const MUTATIONS: Array<{
   },
   {
     field: "crew_members.date_restriction",
-    sql: `UPDATE public.crew_members SET date_restriction = '{"kind":"unknown_asterisk"}'::jsonb WHERE name = 'R1_alias_5a_lead' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
+    sql: `UPDATE public.crew_members SET date_restriction = '{"kind":"unknown_asterisk"}'::jsonb WHERE name = '${fixtureCrewName("alias_5a_lead")}' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
     expectsPredicate: "o",
     matchHint: /date_restriction drifted/,
   },
   {
     field: "crew_members.stage_restriction",
-    sql: `UPDATE public.crew_members SET stage_restriction = '{"kind":"explicit","stages":["Strike"]}'::jsonb WHERE name = 'R1_alias_5a_lead' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
+    sql: `UPDATE public.crew_members SET stage_restriction = '{"kind":"explicit","stages":["Strike"]}'::jsonb WHERE name = '${fixtureCrewName("alias_5a_lead")}' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
     expectsPredicate: "o",
     matchHint: /stage_restriction drifted/,
   },
   {
     field: "crew_members.email",
-    sql: `UPDATE public.crew_members SET email = 'wrong@gmail.com' WHERE name = 'R1_alias_6a_a1' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
+    sql: `UPDATE public.crew_members SET email = 'wrong@gmail.com' WHERE name = '${fixtureCrewName("alias_6a_a1")}' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
     expectsPredicate: "o",
     matchHint: /email drifted/,
   },
   {
     field: "crew_members.role_flags",
-    sql: `UPDATE public.crew_members SET role_flags = ARRAY['WRONG']::text[] WHERE name = 'R1_alias_5a_lead' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
+    sql: `UPDATE public.crew_members SET role_flags = ARRAY['WRONG']::text[] WHERE name = '${fixtureCrewName("alias_5a_lead")}' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
     expectsPredicate: "o",
     matchHint: /role_flags drifted/,
   },
   {
     field: "crew_members.role",
-    sql: `UPDATE public.crew_members SET role = 'WRONG ROLE' WHERE name = 'R1_alias_5a_lead' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
+    sql: `UPDATE public.crew_members SET role = 'WRONG ROLE' WHERE name = '${fixtureCrewName("alias_5a_lead")}' AND show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');`,
     expectsPredicate: "o",
     matchHint: /role drifted/,
   },

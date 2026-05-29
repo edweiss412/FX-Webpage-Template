@@ -63,6 +63,38 @@ export const ROLE_VARIANT_ALIASES = [
   { alias: "alias_6f_empty", roleFlags: [] },
 ] as const;
 
+// Human-readable crew names per alias (Phase 1 walk ergonomics — the picker /
+// preview list shows these, so the solo dev taps "Dana Cole — Crew Lead", not
+// "R1_alias_5a_lead"). SINGLE SOURCE OF TRUTH: buildFixtures() writes these as
+// crew_members.name AND check-seed's predicate (f) reads them via
+// fixtureCrewName() (NOT a `${combo}_${alias}` reconstruction), so the two can
+// never drift. Names are reused across every combo — the same person plays each
+// role in every scenario — which is fine because the mint RPC's uniqueness key
+// is (show_id, name) and these 9 are distinct within any one show.
+// The `alias` keys (alias_map contract) and `client_label='M12 Validation'`
+// ownership sentinel are deliberately UNCHANGED.
+export const ALIAS_DISPLAY_NAME: Record<string, string> = {
+  alias_5a_lead: "Dana Cole",
+  alias_5b_lead_a1: "Morgan Reyes",
+  alias_5c_bo_lead: "Casey Brooks",
+  alias_6a_a1: "Sam Rivera",
+  alias_6b_v1: "Jesse Nguyen",
+  alias_6c_l1: "Alex Kim",
+  alias_6d_bo: "Jordan Diaz",
+  alias_6e_a1_l1: "Priya Anand",
+  alias_6f_empty: "Robin Shaw",
+};
+
+/** Canonical human display name for a role-variant alias. Throws on unknown
+ *  alias so a typo can't silently seed a blank/undefined name. */
+export function fixtureCrewName(alias: string): string {
+  const name = ALIAS_DISPLAY_NAME[alias];
+  if (!name) {
+    throw new Error(`fixtureCrewName: no display name registered for alias '${alias}'`);
+  }
+  return name;
+}
+
 // =============================================================================
 // J3-claim-email guard — R13 commit 30 + R15 commit 35.
 // =============================================================================
@@ -497,7 +529,7 @@ export function buildFixtures(today: string): FixtureRow[] {
             : synthesizeEmail(combo, alias);
         return {
           alias,
-          name: `${combo}_${alias}`,
+          name: fixtureCrewName(alias),
           email,
           roleFlags: [...roleFlags],
         };
@@ -522,7 +554,7 @@ export function buildFixtures(today: string): FixtureRow[] {
       crewMembers: [
         {
           alias: "alias_5a_lead",
-          name: `${combo}_alias_5a_lead`,
+          name: fixtureCrewName("alias_5a_lead"),
           email: synthesizeEmail(combo, "alias_5a_lead"),
           roleFlags: ["LEAD"],
         },

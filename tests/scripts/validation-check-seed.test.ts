@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
 import { runValidationCli, type CliRun } from "./_cli-helpers";
 
-import { buildFixtures } from "@/scripts/lib/validation-fixtures";
+import { buildFixtures, fixtureCrewName } from "@/scripts/lib/validation-fixtures";
 
 const CHECK_SEED_SCRIPT = join(
   process.cwd(),
@@ -208,7 +208,7 @@ describe("validation-check-seed", () => {
     runPsql(`
       UPDATE public.crew_members SET claimed_via_oauth_at = now()
        WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
-         AND name = 'R1_alias_5a_lead';
+         AND name = '${fixtureCrewName("alias_5a_lead")}';
     `);
     const res = runCheckSeed("R1");
     expect(res.code).toBe(1);
@@ -295,7 +295,7 @@ describe("validation-check-seed", () => {
       UPDATE public.crew_members
         SET date_restriction = '{"kind":"unknown_asterisk"}'::jsonb
        WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
-         AND name = 'R1_alias_5a_lead';
+         AND name = '${fixtureCrewName("alias_5a_lead")}';
     `);
     const res = runCheckSeed("R1");
     expect(res.code).toBe(1);
@@ -311,7 +311,7 @@ describe("validation-check-seed", () => {
       UPDATE public.crew_members
         SET role_flags = ARRAY[]::text[]
        WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
-         AND name = 'R1_alias_5a_lead';
+         AND name = '${fixtureCrewName("alias_5a_lead")}';
     `);
     const res = runCheckSeed("R1");
     expect(res.code).toBe(1);
@@ -336,7 +336,7 @@ describe("validation-check-seed", () => {
     runPsql(`
       UPDATE public.crew_members SET role = 'WRONG ROLE'
        WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
-         AND name = 'R1_alias_5a_lead';
+         AND name = '${fixtureCrewName("alias_5a_lead")}';
     `);
     const res = runCheckSeed("R1");
     expect(res.code).toBe(1);
