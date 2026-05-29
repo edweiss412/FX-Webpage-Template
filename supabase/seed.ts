@@ -286,11 +286,6 @@ function crewInsertSql(seed: FixtureSeed): string {
           ${sqlNullableString(crew.flight_info)}
         from public.shows
         where drive_file_id = ${sqlString(seed.driveFileId)};
-
-        insert into public.crew_member_auth (show_id, crew_name)
-        select id, ${sqlString(crew.name)}
-        from public.shows
-        where drive_file_id = ${sqlString(seed.driveFileId)};
       `,
     )
     .join("\n");
