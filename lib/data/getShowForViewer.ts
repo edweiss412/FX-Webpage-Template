@@ -316,10 +316,16 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     // projection boundary so every UI consumer sees ISO. See
     // lib/data/normalizeDateRestriction.ts.
     dateRestriction: normalizeDateRestriction(
-      (row.date_restriction as DateRestriction | null) ?? { kind: "none" },
+      // decodeJsonbColumn: a legacy double-encoded restriction comes back from
+      // Supabase-JS as a STRING scalar; without decoding, restriction.kind is
+      // undefined → normalizeDateRestriction returns the string and ScheduleTile
+      // mis-renders all days (visibility regression). No-op for correct rows (R8).
+      decodeJsonbColumn<DateRestriction>(row.date_restriction) ?? { kind: "none" },
       show.dates,
     ),
-    stageRestriction: (row.stage_restriction as StageRestriction | null) ?? { kind: "none" },
+    stageRestriction: decodeJsonbColumn<StageRestriction>(row.stage_restriction) ?? {
+      kind: "none",
+    },
   }));
 
   // Per-tile-domain error map (M9 H1 fix). Each tile-owned sub-query
@@ -418,12 +424,16 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
         // to defend against a future projector dropping `assigned_names`
         // (regression test #7 enforces this).
         schedule: (
-          (transRes.data.schedule as Array<{
-            stage: string;
-            date: string | null;
-            time: string | null;
-            assigned_names: string[];
-          }>) ?? []
+          // decodeJsonbColumn: a legacy double-encoded transportation.schedule is a
+          // STRING scalar from Supabase-JS; without decoding, `.map` throws (R8).
+          decodeJsonbColumn<
+            Array<{
+              stage: string;
+              date: string | null;
+              time: string | null;
+              assigned_names: string[];
+            }>
+          >(transRes.data.schedule) ?? []
         ).map((entry) => ({
           stage: entry.stage,
           date: entry.date ?? null,
@@ -476,7 +486,14 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
       if (internalRes.error) {
         tileErrors["financials"] = internalRes.error.message;
       } else if (internalRes.data?.financials) {
-        const f = internalRes.data.financials as FinancialsRow;
+        // decodeJsonbColumn: a legacy double-encoded financials is a STRING scalar
+        // from Supabase-JS; decode so f.po/proposal/... read as fields, not chars (R8).
+        const f = decodeJsonbColumn<FinancialsRow>(internalRes.data.financials) ?? {
+          po: null,
+          proposal: null,
+          invoice: null,
+          invoice_notes: null,
+        };
         financials = {
           po: f.po ?? null,
           proposal: f.proposal ?? null,

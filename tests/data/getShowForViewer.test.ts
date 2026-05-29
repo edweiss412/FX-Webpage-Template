@@ -266,6 +266,38 @@ describe("getShowForViewer (§7.4)", () => {
     expect(r.transportation?.schedule[0]?.assigned_names).toEqual(["Alice"]);
     expect(r.transportation?.schedule[1]?.assigned_names).toEqual(["Alice", "Bob"]);
   });
+
+  test("legacy double-encoded crew restriction (jsonb string scalar) is decoded, not mis-rendered (Codex R8)", async () => {
+    const showId = await seedShow({ title: "Legacy Restriction Show" });
+    const crewId = await seedCrew({ showId, name: "Restricted Crew", roleFlags: ["A1"] });
+    // Simulate a row written by the pre-fix double-encoding writer: passing a JS
+    // string to a jsonb column via PostgREST stores a jsonb STRING SCALAR whose
+    // text is the object JSON — exactly the legacy corruption.
+    const { error } = await admin
+      .from("crew_members")
+      .update({
+        date_restriction: JSON.stringify({ kind: "explicit", days: ["2026-04-15"] }),
+        stage_restriction: JSON.stringify({ kind: "explicit", stages: ["Show"] }),
+      })
+      .eq("id", crewId);
+    if (error) throw new Error(`seed legacy restriction failed: ${error.message}`);
+
+    // Self-guard: confirm the seed really is a jsonb string scalar (not an object).
+    const raw = await admin
+      .from("crew_members")
+      .select("date_restriction")
+      .eq("id", crewId)
+      .single();
+    expect(typeof raw.data?.date_restriction).toBe("string");
+
+    const r = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId });
+    const me = r.crewMembers.find((c) => c.id === crewId);
+    expect(me).toBeDefined();
+    // Decoded to objects (kind defined), NOT left as a raw string scalar that
+    // would make ScheduleTile render all days / crash PackList stage filtering.
+    expect(me?.dateRestriction.kind).toBe("explicit");
+    expect(me?.stageRestriction).toEqual({ kind: "explicit", stages: ["Show"] });
+  });
 });
 
 /**
