@@ -128,46 +128,62 @@ export async function handleWizardStagedApply(
     return errorResponse(400, "INVALID_REVIEWER_ACTION");
   }
 
-  const result = await deps.applyStaged(
-    {
-      sourceScope: "wizard",
-      wizardSessionId,
-      driveFileId,
-      stagedId: body.stagedId as string,
-      reviewerChoices,
-      appliedByEmail: admin.email,
-    },
-    {
-      withPipelineLock: async (lockedDriveFileId, fn) =>
-        deps.withRowTx(lockedDriveFileId, (lockedTx) =>
-          fn(
-            lockedTx as unknown as Parameters<
-              Parameters<NonNullable<ApplyStagedDeps["withPipelineLock"]>>[1]
-            >[0],
+  try {
+    const result = await deps.applyStaged(
+      {
+        sourceScope: "wizard",
+        wizardSessionId,
+        driveFileId,
+        stagedId: body.stagedId as string,
+        reviewerChoices,
+        appliedByEmail: admin.email,
+      },
+      {
+        withPipelineLock: async (lockedDriveFileId, fn) =>
+          deps.withRowTx(lockedDriveFileId, (lockedTx) =>
+            fn(
+              lockedTx as unknown as Parameters<
+                Parameters<NonNullable<ApplyStagedDeps["withPipelineLock"]>>[1]
+              >[0],
+            ),
           ),
-        ),
-    },
-  );
-  if ("skipped" in result) return errorResponse(409, "SHOW_BUSY_RETRY");
-  if (result.outcome === "wizard_applied") {
-    return NextResponse.json({
-      status: "reapplied",
-      wizard_session_id: wizardSessionId,
-      drive_file_id: driveFileId,
-    });
+      },
+    );
+    if ("skipped" in result) return errorResponse(409, "SHOW_BUSY_RETRY");
+    if (result.outcome === "wizard_applied") {
+      return NextResponse.json({
+        status: "reapplied",
+        wizard_session_id: wizardSessionId,
+        drive_file_id: driveFileId,
+      });
+    }
+    if (result.outcome === "restaged_inline") {
+      return NextResponse.json({
+        status: "restaged_inline",
+        wizard_session_id: wizardSessionId,
+        drive_file_id: driveFileId,
+        staged_id: result.stagedId,
+        staged_modified_time: result.stagedModifiedTime,
+        code: "STAGED_PARSE_RESTAGED_INLINE",
+      });
+    }
+    const mapped = statusForApplyResult(result);
+    return errorResponse(mapped.status, mapped.code);
+  } catch (error) {
+    // Never leak an empty 500. The Apply read mapper flags a corrupt parse_result
+    // (→ STAGED_PARSE_RESULT_CORRUPT) for the common case, but ANY other unexpected
+    // throw inside applyStaged (e.g. a deref of a corrupt-but-object field the
+    // coercer's shape gate doesn't cover, or a DB fault) must still return a typed
+    // JSON body, not a body-less 500 (Codex R5 — the structural backstop that makes
+    // field-by-field shape completeness non-load-bearing for the empty-500 contract).
+    console.error(
+      `wizard staged apply: unexpected failure: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error,
+    );
+    return errorResponse(500, "SYNC_INFRA_ERROR");
   }
-  if (result.outcome === "restaged_inline") {
-    return NextResponse.json({
-      status: "restaged_inline",
-      wizard_session_id: wizardSessionId,
-      drive_file_id: driveFileId,
-      staged_id: result.stagedId,
-      staged_modified_time: result.stagedModifiedTime,
-      code: "STAGED_PARSE_RESTAGED_INLINE",
-    });
-  }
-  const mapped = statusForApplyResult(result);
-  return errorResponse(mapped.status, mapped.code);
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {

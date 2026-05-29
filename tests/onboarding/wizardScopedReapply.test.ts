@@ -76,6 +76,21 @@ async function json(response: Response): Promise<unknown> {
 }
 
 describe("wizard-scoped staged apply/discard routes", () => {
+  test("never returns an empty 500 — an unexpected throw in applyStaged becomes a typed JSON error (Codex R5)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tx = new FakeWizardStagedTx();
+    const response = await handleWizardStagedApply(applyRequest(), context, {
+      ...deps(tx),
+      applyStaged: vi.fn(async () => {
+        throw new Error("kaboom: corrupt parse_result deref");
+      }),
+    });
+    expect(response.status).toBe(500);
+    expect(await json(response)).toEqual({ ok: false, code: "SYNC_INFRA_ERROR" });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   test("apply delegates to applyStaged with sourceScope wizard", async () => {
     const tx = new FakeWizardStagedTx();
     const routeDeps = deps(tx);

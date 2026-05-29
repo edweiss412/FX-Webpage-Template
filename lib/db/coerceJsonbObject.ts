@@ -134,9 +134,15 @@ export function asParseResult(value: unknown): ParseResult {
     }
   }
 
-  // Object fields.
+  // Object fields. diagrams.embeddedImages / .linkedFolderItems are iterated
+  // (`.map`) by the Apply diagram-snapshot path, so they must be arrays.
   if (!isPlainObject(obj.diagrams)) {
     throw new JsonbCoercionError("parse_result.diagrams is missing or not an object");
+  }
+  for (const field of ["embeddedImages", "linkedFolderItems"] as const) {
+    if (!Array.isArray((obj.diagrams as Record<string, unknown>)[field])) {
+      throw new JsonbCoercionError(`parse_result.diagrams.${field} is missing or not an array`);
+    }
   }
 
   // Nullable object/array fields: must be present as null OR the right kind

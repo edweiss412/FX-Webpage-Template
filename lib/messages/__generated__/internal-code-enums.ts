@@ -20,6 +20,9 @@ export const INTERNAL_CODE_ENUMS = {
   ASSET_RECOVERY_REVISION_DRIFT: {
     source: "admin_alerts.code"
   },
+  CONCURRENT_SYNC_SKIPPED: {
+    source: "pending_ingestions.last_error_code"
+  },
   DAY_RESTRICTION_DOUBLE_LOCATION: {
     source: "parse_warnings.code"
   },

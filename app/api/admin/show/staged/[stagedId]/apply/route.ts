@@ -151,22 +151,37 @@ export async function handleLiveStagedApply(
   const reviewerChoices = Array.isArray(candidateChoices) ? candidateChoices : [];
   if (!reviewerChoices.every(isReviewerChoice)) return errorResponse(400, "INVALID_REVIEWER_ACTION");
 
-  const result = await deps.applyStaged(
-    {
-      sourceScope: "live",
-      driveFileId,
-      stagedId,
-      reviewerChoices,
-      appliedByEmail: admin.email,
-    },
-    {},
-  );
-  if (!("skipped" in result) && result.outcome === "applied") {
-    const slug = await deps.readShowSlug(result.showId);
-    return NextResponse.json({ slug });
+  try {
+    const result = await deps.applyStaged(
+      {
+        sourceScope: "live",
+        driveFileId,
+        stagedId,
+        reviewerChoices,
+        appliedByEmail: admin.email,
+      },
+      {},
+    );
+    if (!("skipped" in result) && result.outcome === "applied") {
+      const slug = await deps.readShowSlug(result.showId);
+      return NextResponse.json({ slug });
+    }
+    const mapped = statusFor(result);
+    return errorResponse(mapped.status, mapped.code);
+  } catch (error) {
+    // Never leak an empty 500: the Apply read mapper flags a corrupt parse_result
+    // (→ STAGED_PARSE_RESULT_CORRUPT) for the common case, but ANY other unexpected
+    // throw inside applyStaged (a deref of a corrupt-but-object field the coercer's
+    // shape gate doesn't cover, or a DB fault) must still return a typed JSON body,
+    // not a body-less 500 (Codex R5 structural backstop).
+    console.error(
+      `live staged apply: unexpected failure: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error,
+    );
+    return errorResponse(500, "SYNC_INFRA_ERROR");
   }
-  const mapped = statusFor(result);
-  return errorResponse(mapped.status, mapped.code);
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {

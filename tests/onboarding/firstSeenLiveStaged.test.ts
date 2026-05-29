@@ -101,6 +101,25 @@ describe("live first-seen staged apply/discard", () => {
     );
   });
 
+  test("never returns an empty 500 — an unexpected throw in applyStaged becomes a typed JSON error (Codex R5)", async () => {
+    // Structural backstop: a corrupt parse_result that slips past the coercer's
+    // shape gate (or any DB fault) would throw inside applyStaged; the route must
+    // return a typed JSON body, not a body-less 500 that breaks the client's
+    // response.json() (the M12 Phase 0.F smoke-3 empty-500 class).
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tx = new FakeLiveStagedTx();
+    const response = await handleLiveStagedApply(req({ reviewer_choices: [] }), context, {
+      ...deps(tx),
+      applyStaged: vi.fn(async () => {
+        throw new Error("kaboom: corrupt parse_result deref");
+      }),
+    });
+    expect(response.status).toBe(500);
+    expect(await json(response)).toEqual({ ok: false, code: "SYNC_INFRA_ERROR" });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   test("missing live staged row returns STALE_DISCARD_REJECTED", async () => {
     const tx = new FakeLiveStagedTx();
     tx.driveFileId = null;

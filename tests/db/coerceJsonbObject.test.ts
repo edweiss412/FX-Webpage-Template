@@ -145,6 +145,16 @@ describe("asParseResult", () => {
     ["warnings not an array", (pr: Record<string, unknown>) => (pr.warnings = null)],
     ["hardErrors missing", (pr: Record<string, unknown>) => delete pr.hardErrors],
     ["diagrams not an object", (pr: Record<string, unknown>) => (pr.diagrams = [])],
+    [
+      "diagrams.embeddedImages not an array",
+      (pr: Record<string, unknown>) =>
+        ((pr.diagrams as Record<string, unknown>).embeddedImages = {}),
+    ],
+    [
+      "diagrams.linkedFolderItems missing (deref'd via .map)",
+      (pr: Record<string, unknown>) =>
+        delete (pr.diagrams as Record<string, unknown>).linkedFolderItems,
+    ],
     ["transportation a scalar (not object|null)", (pr: Record<string, unknown>) => (pr.transportation = "x")],
     ["openingReel a scalar (not object|null)", (pr: Record<string, unknown>) => (pr.openingReel = 1)],
     ["pullSheet an object (not array|null)", (pr: Record<string, unknown>) => (pr.pullSheet = {})],
