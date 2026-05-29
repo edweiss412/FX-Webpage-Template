@@ -112,23 +112,27 @@ export async function handleWizardStagedApply(
   try {
     admin = await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, code);
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
 
-  const { wizardSessionId, driveFileId } = await context.params;
-  const body = await readBody(request);
-  if (typeof body.stagedId !== "string") return errorResponse(400, "INVALID_REVIEWER_ACTION");
-  if (body.reviewerChoicesVersion !== 1) {
-    return errorResponse(409, "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED");
-  }
-  const reviewerChoices = Array.isArray(body.reviewerChoices) ? body.reviewerChoices : [];
-  if (!reviewerChoices.every(isReviewerChoice)) {
-    return errorResponse(400, "INVALID_REVIEWER_ACTION");
-  }
-
+  // Wrap everything after the admin check so no infra fault (or jsonb-deref throw
+  // inside applyStaged) can leak a body-less 500. Early returns below are returns,
+  // not throws, so the typed 400/409 paths are preserved (Codex R5/R6).
   try {
+    const { wizardSessionId, driveFileId } = await context.params;
+    const body = await readBody(request);
+    if (typeof body.stagedId !== "string") return errorResponse(400, "INVALID_REVIEWER_ACTION");
+    if (body.reviewerChoicesVersion !== 1) {
+      return errorResponse(409, "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED");
+    }
+    const reviewerChoices = Array.isArray(body.reviewerChoices) ? body.reviewerChoices : [];
+    if (!reviewerChoices.every(isReviewerChoice)) {
+      return errorResponse(400, "INVALID_REVIEWER_ACTION");
+    }
+
     const result = await deps.applyStaged(
       {
         sourceScope: "wizard",

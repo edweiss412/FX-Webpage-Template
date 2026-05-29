@@ -80,7 +80,8 @@ async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
 function depsWithDefaults(deps: LiveStagedRouteDeps) {
   return {
     requireAdminIdentity: deps.requireAdminIdentity ?? defaultRequireAdminIdentity,
-    readDriveFileIdForStagedId: deps.readDriveFileIdForStagedId ?? defaultReadDriveFileIdForStagedId,
+    readDriveFileIdForStagedId:
+      deps.readDriveFileIdForStagedId ?? defaultReadDriveFileIdForStagedId,
     readShowSlug: deps.readShowSlug ?? defaultReadShowSlug,
     applyStaged: deps.applyStaged ?? defaultApplyStaged,
   };
@@ -137,21 +138,27 @@ export async function handleLiveStagedApply(
   try {
     admin = await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, code);
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
 
-  const { stagedId } = await context.params;
-  const driveFileId = await deps.readDriveFileIdForStagedId(stagedId);
-  if (!driveFileId) return errorResponse(404, "STALE_DISCARD_REJECTED");
-
-  const body = await readBody(request);
-  const candidateChoices = body.reviewer_choices ?? body.reviewerChoices;
-  const reviewerChoices = Array.isArray(candidateChoices) ? candidateChoices : [];
-  if (!reviewerChoices.every(isReviewerChoice)) return errorResponse(400, "INVALID_REVIEWER_ACTION");
-
+  // Wrap EVERYTHING after the admin check (incl. the postgres.js
+  // readDriveFileIdForStagedId lookup) so an infra fault before applyStaged can't
+  // leak a body-less 500 either (Codex R6). The early returns below are returns,
+  // not throws, so the typed 404/400 paths are preserved.
   try {
+    const { stagedId } = await context.params;
+    const driveFileId = await deps.readDriveFileIdForStagedId(stagedId);
+    if (!driveFileId) return errorResponse(404, "STALE_DISCARD_REJECTED");
+
+    const body = await readBody(request);
+    const candidateChoices = body.reviewer_choices ?? body.reviewerChoices;
+    const reviewerChoices = Array.isArray(candidateChoices) ? candidateChoices : [];
+    if (!reviewerChoices.every(isReviewerChoice))
+      return errorResponse(400, "INVALID_REVIEWER_ACTION");
+
     const result = await deps.applyStaged(
       {
         sourceScope: "live",

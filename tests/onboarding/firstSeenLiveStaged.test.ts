@@ -120,6 +120,23 @@ describe("live first-seen staged apply/discard", () => {
     errorSpy.mockRestore();
   });
 
+  test("an infra fault in readDriveFileIdForStagedId (before applyStaged) is a typed 500, not an empty body (Codex R6)", async () => {
+    // The pre-applyStaged DB lookup opens postgres.js; a DB outage / bad UUID cast
+    // there must NOT bypass the never-empty-500 wrapper.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tx = new FakeLiveStagedTx();
+    const response = await handleLiveStagedApply(req({ reviewer_choices: [] }), context, {
+      ...deps(tx),
+      readDriveFileIdForStagedId: vi.fn(async () => {
+        throw new Error("kaboom: DB outage resolving staged_id");
+      }),
+    });
+    expect(response.status).toBe(500);
+    expect(await json(response)).toEqual({ ok: false, code: "SYNC_INFRA_ERROR" });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   test("missing live staged row returns STALE_DISCARD_REJECTED", async () => {
     const tx = new FakeLiveStagedTx();
     tx.driveFileId = null;
