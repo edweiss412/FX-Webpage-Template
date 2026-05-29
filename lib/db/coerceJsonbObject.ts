@@ -79,16 +79,56 @@ export function coerceJsonbArray<T = unknown>(value: unknown, label = "jsonb arr
   throw new JsonbCoercionError(`${label} is ${typeof value} (expected an array)`);
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
 /**
- * `parse_result`-specific coercer. Additionally asserts `.show` is an object so
- * the exact production `TypeError` (`parseResult.show.title` on a string) is
- * converted into a typed error at the read boundary, not deep in the publish SQL.
+ * `parse_result`-specific coercer. Beyond decoding a legacy double-encoded
+ * scalar (asParseResult tolerates a real object OR a JSON-string-of-object), it
+ * validates the MINIMAL ParseResult shape that the Apply / finalize / publish /
+ * deriveSlug consumers dereference WITHOUT optional chaining — so a corrupt-but-
+ * object row (e.g. `{ show: {} }`) is rejected at the read boundary with a TYPED
+ * JsonbCoercionError rather than throwing an uncaught TypeError downstream
+ * (Codex R3: validating only `.show` let partial objects through).
+ *
+ * The validated set is the comprehensive enumeration of unsafe derefs across the
+ * consumers (grep `parseResult.<field>` chains in applyStaged / finalize /
+ * finalize-cas / runScheduledCronSync / lib/parser/slug). Every field below is
+ * required-non-null in a real ParseResult (see lib/parser/types) — so a genuine
+ * row always passes; only genuinely-corrupt data fails:
+ *   - show (object)                     ← `.show.title`, deriveSlug `{dates,title}=show`
+ *   - show.title (string)               ← shows.title NOT NULL insert param
+ *   - show.dates (object) + .showDays (array)
+ *                                       ← deriveSlug `dates.set ?? dates.travelIn ?? dates.showDays[0]`
+ *   - crewMembers / rooms / warnings (arrays)
+ *                                       ← parseResultSummary `.length`
+ *   - diagrams (object)                 ← `.diagrams.linkedFolder`
+ * Adding a new unsafe consumer deref means adding the field here (and to the
+ * contract test in tests/db/coerceJsonbObject.test.ts).
  */
 export function asParseResult(value: unknown): ParseResult {
   const obj = coerceJsonbObject<Record<string, unknown>>(value, "parse_result");
   const show = obj.show;
-  if (show === null || typeof show !== "object" || Array.isArray(show)) {
+  if (!isPlainObject(show)) {
     throw new JsonbCoercionError("parse_result.show is missing or not an object");
+  }
+  if (typeof show.title !== "string") {
+    throw new JsonbCoercionError("parse_result.show.title is missing or not a string");
+  }
+  if (!isPlainObject(show.dates)) {
+    throw new JsonbCoercionError("parse_result.show.dates is missing or not an object");
+  }
+  if (!Array.isArray((show.dates as Record<string, unknown>).showDays)) {
+    throw new JsonbCoercionError("parse_result.show.dates.showDays is missing or not an array");
+  }
+  for (const field of ["crewMembers", "rooms", "warnings"] as const) {
+    if (!Array.isArray(obj[field])) {
+      throw new JsonbCoercionError(`parse_result.${field} is missing or not an array`);
+    }
+  }
+  if (!isPlainObject(obj.diagrams)) {
+    throw new JsonbCoercionError("parse_result.diagrams is missing or not an object");
   }
   return obj as unknown as ParseResult;
 }

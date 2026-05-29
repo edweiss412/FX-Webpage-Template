@@ -88,22 +88,55 @@ describe("coerceJsonbArray", () => {
 });
 
 describe("asParseResult", () => {
-  test("returns the parse result for a correctly-encoded object", () => {
-    const pr = { show: { title: "T", client_label: "CL" }, diagrams: {} };
+  // A minimally-VALID ParseResult: every field the Apply/finalize/publish/slug
+  // consumers dereference without optional chaining. A real ParseResult always
+  // has all of these (lib/parser/types).
+  const validParseResult = () => ({
+    show: {
+      title: "T",
+      client_label: "CL",
+      dates: { showDays: ["2026-05-09"], set: "2026-05-08" },
+    },
+    crewMembers: [],
+    rooms: [],
+    warnings: [],
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+  });
+
+  test("returns the parse result for a correctly-encoded, complete object", () => {
+    const pr = validParseResult();
     expect(asParseResult(pr)).toBe(pr);
   });
 
-  test("decodes a double-encoded parse_result string scalar (the production bug)", () => {
-    const scalar = JSON.stringify({ show: { title: "T" } });
-    expect(asParseResult(scalar)).toEqual({ show: { title: "T" } });
-  });
-
-  test("throws JsonbCoercionError when show is missing (would have been the TypeError)", () => {
-    // The exact failure: parse_result decodes to an object with no `.show`.
-    expect(() => asParseResult({ diagrams: {} })).toThrow(JsonbCoercionError);
+  test("decodes a double-encoded complete parse_result string scalar (the production bug)", () => {
+    const scalar = JSON.stringify(validParseResult());
+    expect(asParseResult(scalar)).toEqual(validParseResult());
   });
 
   test("throws JsonbCoercionError on a string scalar (not an object) instead of TypeError", () => {
     expect(() => asParseResult("hello")).toThrow(JsonbCoercionError);
+  });
+
+  // Codex R3 contract: every unsafe-deref field is validated, so a corrupt-but-
+  // object row can never pass the gate and TypeError downstream at Apply.
+  // Each case removes/breaks exactly one required field.
+  test.each([
+    ["show missing", (pr: Record<string, unknown>) => delete pr.show],
+    ["show not an object", (pr: Record<string, unknown>) => (pr.show = "x")],
+    ["show.title missing", (pr: Record<string, unknown>) => delete (pr.show as Record<string, unknown>).title],
+    ["show.dates missing", (pr: Record<string, unknown>) => delete (pr.show as Record<string, unknown>).dates],
+    [
+      "show.dates.showDays not an array",
+      (pr: Record<string, unknown>) =>
+        ((pr.show as { dates: Record<string, unknown> }).dates.showDays = "nope"),
+    ],
+    ["crewMembers not an array", (pr: Record<string, unknown>) => (pr.crewMembers = {})],
+    ["rooms missing", (pr: Record<string, unknown>) => delete pr.rooms],
+    ["warnings not an array", (pr: Record<string, unknown>) => (pr.warnings = null)],
+    ["diagrams not an object", (pr: Record<string, unknown>) => (pr.diagrams = [])],
+  ])("throws JsonbCoercionError when %s (no downstream TypeError)", (_label, mutate) => {
+    const pr = validParseResult() as unknown as Record<string, unknown>;
+    mutate(pr);
+    expect(() => asParseResult(pr)).toThrow(JsonbCoercionError);
   });
 });

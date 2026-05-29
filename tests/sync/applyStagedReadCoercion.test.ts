@@ -29,10 +29,16 @@ function rowWith(triggered: unknown): PendingSyncForApplyRow {
     wizard_session_id: null,
     base_modified_time: null,
     staged_modified_time: "2026-05-28T12:00:00Z",
-    // A minimally-valid parse_result: the Apply read boundary now coerces it
-    // (asParseResult) so a legacy double-encoded scalar decodes; it asserts
-    // `.show` is present, so the fixture carries one.
-    parse_result: { show: { title: "Fixture" } } as PendingSyncForApplyRow["parse_result"],
+    // A minimally-COMPLETE parse_result: the Apply read boundary coerces it
+    // (asParseResult), which validates every field consumers deref unsafely
+    // (Codex R3) — so the fixture carries the full minimal shape, not just `.show`.
+    parse_result: {
+      show: { title: "Fixture", dates: { showDays: ["2026-05-09"] } },
+      crewMembers: [],
+      rooms: [],
+      warnings: [],
+      diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    } as unknown as PendingSyncForApplyRow["parse_result"],
     triggered_review_items: triggered,
     prior_last_sync_status: null,
     prior_last_sync_error: null,
@@ -87,19 +93,33 @@ function rowWithParseResult(parseResult: unknown): PendingSyncForApplyRow {
   return { ...rowWith([]), parse_result: parseResult as PendingSyncForApplyRow["parse_result"] };
 }
 
+  const validPR = () => ({
+    show: { title: "T", dates: { showDays: ["2026-05-09"] } },
+    crewMembers: [],
+    rooms: [],
+    warnings: [],
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+  });
+
 describe("mapPendingSyncRowForApply — parse_result coercion (flag, never throw)", () => {
-  test("a valid parse_result object is not corrupt", () => {
-    const mapped = mapPendingSyncRowForApply(rowWithParseResult({ show: { title: "T" } }));
+  test("a valid (complete) parse_result object is not corrupt", () => {
+    const mapped = mapPendingSyncRowForApply(rowWithParseResult(validPR()));
     expect(mapped.parseResultCorrupt).toBe(false);
     expect(mapped.parseResult.show.title).toBe("T");
   });
 
   test("a legacy double-encoded JSON-string-of-object decodes and is NOT corrupt", () => {
-    const mapped = mapPendingSyncRowForApply(
-      rowWithParseResult(JSON.stringify({ show: { title: "T" } })),
-    );
+    const mapped = mapPendingSyncRowForApply(rowWithParseResult(JSON.stringify(validPR())));
     expect(mapped.parseResultCorrupt).toBe(false);
     expect(mapped.parseResult.show.title).toBe("T");
+  });
+
+  test("a corrupt-but-object parse_result (partial — missing dates/arrays) FLAGS corrupt (Codex R3)", () => {
+    // The exact R3 case: an object that passes the old `.show`-only gate but
+    // would TypeError downstream. Must flag, not pass.
+    expect(mapPendingSyncRowForApply(rowWithParseResult({ show: { title: "T" } })).parseResultCorrupt).toBe(
+      true,
+    );
   });
 
   test("a genuinely-corrupt parse_result FLAGS parseResultCorrupt and does NOT throw", () => {
