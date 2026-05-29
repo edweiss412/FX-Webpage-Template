@@ -725,7 +725,9 @@ async function runChecks(
         `validation show ${combo} shows.dates drifted from canonical fixture. live=${JSON.stringify(show.dates)} expected=${JSON.stringify(expected.dates)}. A stale same-day seed or manual edit would falsely PASS the walk-session gate without this predicate; re-run \`pnpm validation:reseed --combo ${combo}\`.`,
       );
     }
-    // (o.5) shows.title — canonical fixture writes 'M12 Validation — <combo>'.
+    // (o.5) shows.title — canonical fixture writes fixtureShowName(combo),
+    // e.g. 'Validation — Day off (R3)'. Compared against expected.showName
+    // read from the SAME buildFixtures output, so no drift.
     if (show.title !== expected.showName) {
       throw new CheckSeedFailure(
         "o",

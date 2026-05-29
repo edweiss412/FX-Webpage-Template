@@ -33,7 +33,7 @@ import { runValidationCli, type CliRun } from "../scripts/_cli-helpers";
 // effects), so importing it keeps this meta-test hermetic while binding the
 // minted name + the mutation probes to the SAME single source of truth the
 // reseed + check-seed use — they can never drift to a stale literal.
-import { fixtureCrewName } from "@/scripts/lib/validation-fixtures";
+import { fixtureCrewName, fixtureShowName } from "@/scripts/lib/validation-fixtures";
 
 const CHECK_SEED_SCRIPT = join(
   process.cwd(),
@@ -105,7 +105,7 @@ function mintR1Canonical(): void {
     { alias: "alias_6f_empty", roleFlags: [] as string[] },
   ];
   const payload = JSON.stringify({
-    showName: "M12 Validation — R1",
+    showName: fixtureShowName("R1"),
     dates: {
       travelIn: yesterday,
       set: TODAY,
