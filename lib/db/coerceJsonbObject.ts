@@ -86,29 +86,25 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 /**
  * `parse_result`-specific coercer. Beyond decoding a legacy double-encoded
  * scalar (asParseResult tolerates a real object OR a JSON-string-of-object), it
- * validates the MINIMAL ParseResult shape that the Apply / finalize / publish /
- * deriveSlug consumers dereference WITHOUT optional chaining — so a corrupt-but-
- * object row (e.g. `{ show: {} }`) is rejected at the read boundary with a TYPED
- * JsonbCoercionError rather than throwing an uncaught TypeError downstream
- * (Codex R3: validating only `.show` let partial objects through).
+ * validates the FULL non-optional ParseResult contract — so a corrupt-but-object
+ * row (e.g. `{ show: {} }`, or one missing `hotelReservations`/`contacts`/...) is
+ * rejected at the read boundary with a TYPED JsonbCoercionError rather than
+ * throwing an uncaught TypeError in some downstream consumer.
  *
- * The validated set is the comprehensive enumeration of unsafe derefs across the
- * consumers (grep `parseResult.<field>` chains in applyStaged / finalize /
- * finalize-cas / runScheduledCronSync / lib/parser/slug). Every field below is
- * required-non-null in a real ParseResult (see lib/parser/types) — so a genuine
- * row always passes; only genuinely-corrupt data fails:
- *   - show (object)                     ← `.show.title`, deriveSlug `{dates,title}=show`
- *   - show.title (string)               ← shows.title NOT NULL insert param
- *   - show.dates (object) + .showDays (array)
- *                                       ← deriveSlug `dates.set ?? dates.travelIn ?? dates.showDays[0]`
- *   - crewMembers / rooms / warnings (arrays)
- *                                       ← parseResultSummary `.length`
- *   - diagrams (object)                 ← `.diagrams.linkedFolder`
- * Adding a new unsafe consumer deref means adding the field here (and to the
- * contract test in tests/db/coerceJsonbObject.test.ts).
+ * IMPORTANT (Codex R3→R4 convergence): the validated set mirrors the ParseResult
+ * type in `lib/parser/types.ts` ONE-FOR-ONE, NOT a hand-picked list of "unsafe
+ * derefs" — because that list was repeatedly under-enumerated (R3 missed the
+ * arrays; R4 missed hotelReservations/transportation/contacts/raw_unrecognized
+ * that `lib/sync/applyParseResult.ts` iterates). Mirroring the type means a new
+ * consumer deref of ANY non-optional field is covered by construction. Every
+ * field below is non-optional in a real ParseResult, so a genuine row (or a
+ * legacy double-encoded one) always passes; only genuinely-corrupt data fails.
+ * If the ParseResult type gains/loses a non-optional field, update this list AND
+ * the contract test in tests/db/coerceJsonbObject.test.ts.
  */
 export function asParseResult(value: unknown): ParseResult {
   const obj = coerceJsonbObject<Record<string, unknown>>(value, "parse_result");
+
   const show = obj.show;
   if (!isPlainObject(show)) {
     throw new JsonbCoercionError("parse_result.show is missing or not an object");
@@ -122,13 +118,39 @@ export function asParseResult(value: unknown): ParseResult {
   if (!Array.isArray((show.dates as Record<string, unknown>).showDays)) {
     throw new JsonbCoercionError("parse_result.show.dates.showDays is missing or not an array");
   }
-  for (const field of ["crewMembers", "rooms", "warnings"] as const) {
+
+  // Array fields (always present, possibly empty, in a real ParseResult).
+  for (const field of [
+    "crewMembers",
+    "hotelReservations",
+    "rooms",
+    "contacts",
+    "raw_unrecognized",
+    "warnings",
+    "hardErrors",
+  ] as const) {
     if (!Array.isArray(obj[field])) {
       throw new JsonbCoercionError(`parse_result.${field} is missing or not an array`);
     }
   }
+
+  // Object fields.
   if (!isPlainObject(obj.diagrams)) {
     throw new JsonbCoercionError("parse_result.diagrams is missing or not an object");
   }
+
+  // Nullable object/array fields: must be present as null OR the right kind
+  // (a scalar/string here would be a corrupt double-encode that downstream
+  // consumers passing the value to `$::jsonb` or dereferencing would mishandle).
+  if (obj.transportation !== null && !isPlainObject(obj.transportation)) {
+    throw new JsonbCoercionError("parse_result.transportation must be an object or null");
+  }
+  if (obj.openingReel !== null && !isPlainObject(obj.openingReel)) {
+    throw new JsonbCoercionError("parse_result.openingReel must be an object or null");
+  }
+  if (obj.pullSheet !== null && !Array.isArray(obj.pullSheet)) {
+    throw new JsonbCoercionError("parse_result.pullSheet must be an array or null");
+  }
+
   return obj as unknown as ParseResult;
 }

@@ -88,9 +88,8 @@ describe("coerceJsonbArray", () => {
 });
 
 describe("asParseResult", () => {
-  // A minimally-VALID ParseResult: every field the Apply/finalize/publish/slug
-  // consumers dereference without optional chaining. A real ParseResult always
-  // has all of these (lib/parser/types).
+  // A COMPLETE ParseResult mirroring lib/parser/types (every non-optional field).
+  // asParseResult validates the full contract, not a hand-picked subset.
   const validParseResult = () => ({
     show: {
       title: "T",
@@ -98,9 +97,16 @@ describe("asParseResult", () => {
       dates: { showDays: ["2026-05-09"], set: "2026-05-08" },
     },
     crewMembers: [],
+    hotelReservations: [],
     rooms: [],
-    warnings: [],
+    transportation: null,
+    contacts: [],
+    pullSheet: null,
     diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null,
+    raw_unrecognized: [],
+    warnings: [],
+    hardErrors: [],
   });
 
   test("returns the parse result for a correctly-encoded, complete object", () => {
@@ -117,9 +123,10 @@ describe("asParseResult", () => {
     expect(() => asParseResult("hello")).toThrow(JsonbCoercionError);
   });
 
-  // Codex R3 contract: every unsafe-deref field is validated, so a corrupt-but-
-  // object row can never pass the gate and TypeError downstream at Apply.
-  // Each case removes/breaks exactly one required field.
+  // Codex R3→R4 contract: EVERY non-optional ParseResult field is validated, so a
+  // corrupt-but-object row can never pass the gate and TypeError in any downstream
+  // consumer (applyStaged, applyParseResult, finalize, deriveSlug). Each case
+  // breaks exactly one required field. Mirrors lib/parser/types ParseResult.
   test.each([
     ["show missing", (pr: Record<string, unknown>) => delete pr.show],
     ["show not an object", (pr: Record<string, unknown>) => (pr.show = "x")],
@@ -131,12 +138,27 @@ describe("asParseResult", () => {
         ((pr.show as { dates: Record<string, unknown> }).dates.showDays = "nope"),
     ],
     ["crewMembers not an array", (pr: Record<string, unknown>) => (pr.crewMembers = {})],
+    ["hotelReservations missing", (pr: Record<string, unknown>) => delete pr.hotelReservations],
     ["rooms missing", (pr: Record<string, unknown>) => delete pr.rooms],
+    ["contacts not an array", (pr: Record<string, unknown>) => (pr.contacts = "x")],
+    ["raw_unrecognized missing", (pr: Record<string, unknown>) => delete pr.raw_unrecognized],
     ["warnings not an array", (pr: Record<string, unknown>) => (pr.warnings = null)],
+    ["hardErrors missing", (pr: Record<string, unknown>) => delete pr.hardErrors],
     ["diagrams not an object", (pr: Record<string, unknown>) => (pr.diagrams = [])],
+    ["transportation a scalar (not object|null)", (pr: Record<string, unknown>) => (pr.transportation = "x")],
+    ["openingReel a scalar (not object|null)", (pr: Record<string, unknown>) => (pr.openingReel = 1)],
+    ["pullSheet an object (not array|null)", (pr: Record<string, unknown>) => (pr.pullSheet = {})],
   ])("throws JsonbCoercionError when %s (no downstream TypeError)", (_label, mutate) => {
     const pr = validParseResult() as unknown as Record<string, unknown>;
     mutate(pr);
     expect(() => asParseResult(pr)).toThrow(JsonbCoercionError);
+  });
+
+  test("accepts transportation/openingReel as objects and pullSheet as an array (the non-null variants)", () => {
+    const pr = validParseResult() as unknown as Record<string, unknown>;
+    pr.transportation = { driver: "x" };
+    pr.openingReel = { driveFileId: "f" };
+    pr.pullSheet = [{ caseLabel: "C", items: [] }];
+    expect(() => asParseResult(pr)).not.toThrow();
   });
 });

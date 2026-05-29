@@ -29,14 +29,21 @@ function rowWith(triggered: unknown): PendingSyncForApplyRow {
     wizard_session_id: null,
     base_modified_time: null,
     staged_modified_time: "2026-05-28T12:00:00Z",
-    // A minimally-COMPLETE parse_result: the Apply read boundary coerces it
-    // (asParseResult), which validates every field consumers deref unsafely
-    // (Codex R3) — so the fixture carries the full minimal shape, not just `.show`.
+    // A COMPLETE parse_result: the Apply read boundary coerces it (asParseResult),
+    // which validates the full non-optional ParseResult contract (Codex R3→R4) —
+    // so the fixture carries every field, not just `.show`.
     parse_result: {
       show: { title: "Fixture", dates: { showDays: ["2026-05-09"] } },
       crewMembers: [],
+      hotelReservations: [],
       rooms: [],
+      transportation: null,
+      contacts: [],
+      pullSheet: null,
       warnings: [],
+      raw_unrecognized: [],
+      hardErrors: [],
+      openingReel: null,
       diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
     } as unknown as PendingSyncForApplyRow["parse_result"],
     triggered_review_items: triggered,
@@ -96,8 +103,15 @@ function rowWithParseResult(parseResult: unknown): PendingSyncForApplyRow {
   const validPR = () => ({
     show: { title: "T", dates: { showDays: ["2026-05-09"] } },
     crewMembers: [],
+    hotelReservations: [],
     rooms: [],
+    transportation: null,
+    contacts: [],
+    pullSheet: null,
     warnings: [],
+    raw_unrecognized: [],
+    hardErrors: [],
+    openingReel: null,
     diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
   });
 

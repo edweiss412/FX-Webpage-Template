@@ -240,7 +240,9 @@ function reportContext(body: RequestBody): Record<string, unknown> {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Not captured";
   if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2);
+  // Pretty-prints a value into the GitHub issue MARKDOWN body (a display string),
+  // NOT a `$N::jsonb` DB param — no double-encode risk.
+  return JSON.stringify(value, null, 2); // jsonb-text-exempt: markdown body, not a DB param
 }
 
 function formatWarnings(value: unknown[] | null | undefined): string {

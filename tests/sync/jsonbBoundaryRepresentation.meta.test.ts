@@ -29,8 +29,27 @@ import { describe, expect, test } from "vitest";
  * Sibling to `timestampInstantSafety.meta.test.ts` (the Date-vs-ISO peer class).
  */
 const ROOT = join(__dirname, "..", "..");
-const SUBTREES = ["lib/sync", "app/api/admin/onboarding"];
+// ALL postgres.js raw-SQL DB-layer roots — NOT just lib/sync + onboarding. The
+// double-encode class spans every file that builds a `$N::jsonb` param (Codex
+// R4 found lib/reports/leaseProtocol.ts outside the original narrow scope). A
+// new DB-layer dir that runs postgres.js SQL must be added here.
+const SUBTREES = [
+  "lib/sync",
+  "lib/reports",
+  "lib/onboarding",
+  "lib/drive",
+  "lib/db",
+  "lib/adminAlerts",
+  "app/api/admin",
+  "app/api/cron",
+  "app/api/drive",
+];
 const EXEMPTION = "jsonb-text-exempt";
+
+function isCommentLine(line: string): boolean {
+  const t = line.trim();
+  return t.startsWith("*") || t.startsWith("//") || t.startsWith("/*");
+}
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -52,12 +71,16 @@ describe("jsonb write-boundary representation (structural defense)", () => {
     expect(files.length).toBeGreaterThan(10);
   });
 
-  test("no `JSON.stringify(` feeds a postgres.js jsonb param in lib/sync or onboarding routes", () => {
+  test("no `JSON.stringify(` feeds a postgres.js jsonb param in any DB-layer root", () => {
     const offenders: string[] = [];
     for (const file of files) {
       const lines = readFileSync(file, "utf8").split("\n");
       lines.forEach((line, i) => {
-        if (line.includes("JSON.stringify(") && !line.includes(EXEMPTION)) {
+        if (
+          line.includes("JSON.stringify(") &&
+          !line.includes(EXEMPTION) &&
+          !isCommentLine(line)
+        ) {
           const rel = file.slice(ROOT.length + 1);
           offenders.push(`${rel}:${i + 1}  ${line.trim()}`);
         }

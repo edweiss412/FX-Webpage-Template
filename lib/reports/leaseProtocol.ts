@@ -113,7 +113,10 @@ export async function acquireReportLease(
       input.reportedByKind,
       input.reportedBy,
       input.reporterRole,
-      JSON.stringify(input.context),
+      // Raw value, NOT JSON.stringify: postgres.js serializes a `$6::jsonb` param
+      // once via the cast; pre-stringifying double-encodes it into a jsonb string
+      // scalar (the M12 Phase 0.F smoke-3 class — Codex R4).
+      input.context,
       input.message,
       input.leaseHolder,
       leaseInterval(input.leaseSeconds),
