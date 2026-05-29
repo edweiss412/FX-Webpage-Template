@@ -4,6 +4,7 @@ import {
   asParseResult,
   coerceJsonbArray,
   coerceJsonbObject,
+  decodeJsonbColumn,
   JsonbCoercionError,
 } from "@/lib/db/coerceJsonbObject";
 
@@ -84,6 +85,26 @@ describe("coerceJsonbArray", () => {
 
   test("throws a typed JsonbCoercionError on an unparseable string", () => {
     expect(() => coerceJsonbArray("{not json")).toThrow(JsonbCoercionError);
+  });
+});
+
+describe("decodeJsonbColumn (lenient READ-side decoder for Supabase-JS readers)", () => {
+  test("passes a real object/array through unchanged (no-op for correctly-encoded rows)", () => {
+    const obj = { a: 1 };
+    const arr = [1, 2];
+    expect(decodeJsonbColumn(obj)).toBe(obj);
+    expect(decodeJsonbColumn(arr)).toBe(arr);
+  });
+
+  test("decodes a legacy string-scalar (the value a crew-page reader gets for a double-encoded row)", () => {
+    expect(decodeJsonbColumn(JSON.stringify({ showDays: ["d1"] }))).toEqual({ showDays: ["d1"] });
+    expect(decodeJsonbColumn(JSON.stringify([{ label: "x" }]))).toEqual([{ label: "x" }]);
+  });
+
+  test("returns null (fail-soft) for null/undefined/unparseable so the caller's ?? default applies", () => {
+    expect(decodeJsonbColumn(null)).toBeNull();
+    expect(decodeJsonbColumn(undefined)).toBeNull();
+    expect(decodeJsonbColumn("{not json")).toBeNull();
   });
 });
 

@@ -43,6 +43,7 @@
  * bound client can't read `shows_internal` under RLS for them.
  */
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { decodeJsonbColumn } from "@/lib/db/coerceJsonbObject";
 import { deriveSchedulePhases } from "@/lib/parser";
 import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
 import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
@@ -242,7 +243,13 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   if (!isAdmin && showRowDb.published !== true) {
     throw new Error("PICKER_CREW_MEMBER_WRONG_SHOW");
   }
-  const datesValue: ShowRow["dates"] = showRowDb.dates ?? {
+  // Decode legacy double-encoded jsonb string scalars (Codex R7): the write fix
+  // prevents new ones, but a reader must degrade gracefully if a stale/cron-written
+  // row is a string scalar rather than passing a string to a tile expecting an
+  // object/array. No-op for correctly-encoded (object/array) rows.
+  const datesDecoded = decodeJsonbColumn<ShowRow["dates"]>(showRowDb.dates);
+  const eventDetailsDecoded = decodeJsonbColumn<ShowRow["event_details"]>(showRowDb.event_details);
+  const datesValue: ShowRow["dates"] = datesDecoded ?? {
     travelIn: null,
     set: null,
     showDays: [],
@@ -257,7 +264,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   //     writes only the parser's `event_details` Record without merging
   //     schedule_phases, so this fallback keeps PackListTile (Task 4.9)
   //     working end-to-end at the M4 ship boundary.
-  const persistedPhases = showRowDb.event_details?.schedule_phases as
+  const persistedPhases = eventDetailsDecoded?.schedule_phases as
     | ShowRow["schedule_phases"]
     | undefined;
   const schedulePhases: ShowRow["schedule_phases"] =
@@ -267,13 +274,13 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   const show: ShowRow = {
     title: showRowDb.title,
     client_label: showRowDb.client_label,
-    client_contact: showRowDb.client_contact ?? null,
+    client_contact: decodeJsonbColumn<ShowRow["client_contact"]>(showRowDb.client_contact) ?? null,
     template_version: showRowDb.template_version,
-    venue: showRowDb.venue ?? null,
+    venue: decodeJsonbColumn<ShowRow["venue"]>(showRowDb.venue) ?? null,
     dates: datesValue,
     schedule_phases: schedulePhases,
-    event_details: showRowDb.event_details ?? {},
-    agenda_links: showRowDb.agenda_links ?? [],
+    event_details: eventDetailsDecoded ?? {},
+    agenda_links: decodeJsonbColumn<ShowRow["agenda_links"]>(showRowDb.agenda_links) ?? [],
     coi_status: showRowDb.coi_status ?? null,
     po: null, // public ShowRow.po/proposal/invoice/invoice_notes were on the
     proposal: null, // pre-§4.4 single-table schema. Now financials lives ONLY
@@ -451,7 +458,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
 
   // === Pull sheet (JSONB on shows) ===
   const pullSheet: PullSheetCase[] | null =
-    (showRowDb.pull_sheet as PullSheetCase[] | null) ?? null;
+    decodeJsonbColumn<PullSheetCase[]>(showRowDb.pull_sheet) ?? null;
 
   // === Financials — JOIN shows_internal ONLY when authorized ===
   // The first-line-of-defense gate: when not LEAD, this branch is never
@@ -498,7 +505,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   }
   const viewerVersionToken: string = typeof versionRpc.data === "string" ? versionRpc.data : "";
 
-  const diagrams = resolveCurrentDiagrams(showRowDb.diagrams);
+  const diagrams = resolveCurrentDiagrams(decodeJsonbColumn(showRowDb.diagrams));
   const openingReelHasVideo = projectOpeningReelHasVideo({
     opening_reel_drive_file_id:
       (showRowDb.opening_reel_drive_file_id as string | null | undefined) ?? null,

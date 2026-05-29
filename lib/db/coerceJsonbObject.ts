@@ -13,6 +13,34 @@ export class JsonbCoercionError extends Error {
 }
 
 /**
+ * Lenient READ-side decoder for a jsonb column read through Supabase-JS / PostgREST
+ * (the crew-page / admin / asset readers), where a LEGACY double-encoded row comes
+ * back as a JS STRING scalar instead of the object/array the column should hold.
+ *
+ * Unlike asParseResult/coerceJsonbObject (Apply/finalize boundaries that fail
+ * CLOSED with a typed error), a crew-page read must fail SOFT: it returns `null`
+ * for null/undefined/unparseable so the caller's existing `?? <default>` fallback
+ * applies, decodes a JSON-string-of-object/array to its value, and passes a real
+ * object/array through unchanged. Behaviour only differs from a bare read for the
+ * string-scalar case — so it is a no-op for correctly-encoded rows.
+ *
+ * The write fix prevents NEW string-scalar `shows` rows; this hardens the readers
+ * against any legacy/cron-written row so a stale scalar degrades gracefully rather
+ * than reaching a tile that expects an array/object (Codex R7).
+ */
+export function decodeJsonbColumn<T = unknown>(value: unknown): T | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return null;
+    }
+  }
+  return value as T;
+}
+
+/**
  * The single read boundary for a jsonb column that must be an OBJECT, read
  * through postgres.js.
  *
