@@ -88,6 +88,17 @@ export default defineConfig({
       env: {
         ADMIN_DEV_PANEL_ENABLED: "true",
         ENABLE_TEST_AUTH: "true",
+        // Build-time required: lib/email/hashForLog.ts throws at module
+        // evaluation unless HASH_FOR_LOG_PEPPER is >= 32 chars (R41 admin_alerts
+        // PII-hash contract; AGENTS.md invariant 9 / spec §8.4). `next build`
+        // collects page data for /api/auth/picker-bootstrap, which imports
+        // hashForLog, so the build fails without it. CI checkouts have no
+        // .env.local, so it must be supplied here. Deterministic test value
+        // (mirrors tests/setup.ts); it only feeds a SHA-256 of logged emails and
+        // never affects rendered pixels, so screenshot baselines are unchanged.
+        HASH_FOR_LOG_PEPPER:
+          process.env.HASH_FOR_LOG_PEPPER ??
+          "fxav-r41-test-pepper-32-chars-min-deterministic",
         JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min",
         NEXT_DIST_DIR: ".next-screenshots-help",
         NEXT_PUBLIC_SUPABASE_URL:
