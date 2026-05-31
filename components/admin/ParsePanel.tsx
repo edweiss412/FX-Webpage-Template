@@ -27,9 +27,14 @@ export type ParsePanelProps = {
    * back-compat with admin contexts that don't surface the reporter.
    */
   showId?: string;
+  /**
+   * M12.2 Phase A (§6 / R32) — render every card read-only (apply/discard
+   * suppressed) for an ARCHIVED show; the staged change stays viewable.
+   */
+  readOnly?: boolean;
 };
 
-export function ParsePanel({ rows, onMutated, showId }: ParsePanelProps) {
+export function ParsePanel({ rows, onMutated, showId, readOnly }: ParsePanelProps) {
   if (rows.length === 0) {
     return (
       <section
@@ -68,6 +73,7 @@ export function ParsePanel({ rows, onMutated, showId }: ParsePanelProps) {
             row,
             ...(onMutated ? { onMutated } : {}),
             ...(showId ? { showId } : {}),
+            ...(readOnly ? { readOnly: true } : {}),
           };
           return (
             <li key={row.stagedId}>

@@ -53,7 +53,7 @@ type PageProps = {
 };
 
 type ShowLookup =
-  | { kind: "found"; id: string }
+  | { kind: "found"; id: string; published: boolean; archived: boolean }
   | { kind: "not_found" }
   | { kind: "infra_error" };
 
@@ -68,14 +68,19 @@ export async function lookupShow(slug: string): Promise<ShowLookup> {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("shows")
-      .select("id")
+      .select("id, published, archived")
       .eq("slug", slug)
       .maybeSingle();
     if (error) return { kind: "infra_error" };
     if (!data) return { kind: "not_found" };
     const id = (data as { id?: string }).id;
     if (!id) return { kind: "not_found" };
-    return { kind: "found", id };
+    return {
+      kind: "found",
+      id,
+      published: Boolean((data as { published?: boolean }).published),
+      archived: Boolean((data as { archived?: boolean }).archived),
+    };
   } catch {
     return { kind: "infra_error" };
   }
@@ -147,6 +152,12 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
     );
   }
   const showId = showLookup.id;
+
+  // M12.2 Phase A (§6 / R12) — defense-in-depth: reject preview unless the show
+  // is published AND not archived. getShowForViewer(admin_preview) rejects
+  // unpublished but NOT archived, so a drifted archived+published row could
+  // otherwise render content crew cannot reach. A direct-URL hit is blocked here.
+  if (!(showLookup.published && !showLookup.archived)) notFound();
 
   // Cross-show fail-closed: confirm the crew member belongs to this
   // show BEFORE rendering the banner. getShowForViewer would also
