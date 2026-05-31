@@ -40,7 +40,7 @@ export function StatusIndicator({
         {known === "live" && (
           <span
             aria-hidden="true"
-            className="absolute inline-flex h-full w-full rounded-full bg-status-live opacity-60 animate-ping motion-reduce:hidden"
+            className="absolute inline-flex size-full rounded-full bg-status-live opacity-60 animate-ping motion-reduce:hidden"
           />
         )}
         <span

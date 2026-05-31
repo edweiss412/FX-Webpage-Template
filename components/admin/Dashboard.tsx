@@ -174,8 +174,7 @@ export async function fetchDashboardData(): Promise<
   if (activeShowIds.length > 0) {
     try {
       let offset = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
+      for (;;) {
         const q = await supabase
           .from("crew_members")
           .select("show_id")
