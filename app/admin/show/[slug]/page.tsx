@@ -221,10 +221,20 @@ export default async function AdminShowPage({
   // reads "Archived", never "Published".
   const archived = Boolean(show.archived);
   const published = show.published;
-  const isCrewLinkActive = published && !archived && token !== null;
-  const crewUrl = isCrewLinkActive ? `${resolveOrigin()}/show/${slug}/${token}` : null;
+  // SHOW eligibility (spec §6 R27/R29) — whether crew-link features apply at
+  // all. Distinct from TOKEN presence: a transient loadShowShareToken failure
+  // on an eligible show must NOT make the show read as unpublished/archived
+  // (Codex R1). Rotate/reset visibility + the rotate-success URL + the
+  // Share-panel CurrentShareLinkPanel-vs-inactive-notice decision key off this.
+  const isShowEligibleForCrewLink = published && !archived;
+  // TOKEN-dependent surfaces (header chip, Open crew page, the real crew URL)
+  // need an actual token — never render /show/<slug>/null. CurrentShareLinkPanel
+  // owns its OWN token-null "unavailable / rotate to recover" state, so it is
+  // gated on show-eligibility, not token presence.
+  const hasCrewLinkUrl = isShowEligibleForCrewLink && token !== null;
+  const crewUrl = hasCrewLinkUrl ? `${resolveOrigin()}/show/${slug}/${token}` : null;
   // Host-stripped display of the real crew URL (never the prototype's fake host).
-  const crewPathDisplay = isCrewLinkActive ? `/show/${slug}/${token}` : null;
+  const crewPathDisplay = hasCrewLinkUrl ? `/show/${slug}/${token}` : null;
 
   const statusPill = archived
     ? ({ status: "idle", label: "Archived" } as const)
@@ -259,7 +269,7 @@ export default async function AdminShowPage({
         <p className="text-sm text-text-subtle">
           Slug: <code className="rounded-sm bg-surface-sunken px-1">{show.slug}</code>
         </p>
-        {isCrewLinkActive && crewUrl && crewPathDisplay ? (
+        {hasCrewLinkUrl && crewUrl && crewPathDisplay ? (
           <div
             data-testid="admin-show-share-chip"
             className="flex items-center gap-2 text-sm text-text-subtle"
@@ -296,7 +306,7 @@ export default async function AdminShowPage({
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
-            {isCrewLinkActive && crewUrl ? (
+            {hasCrewLinkUrl && crewUrl ? (
               <a
                 data-testid="admin-show-open-crew"
                 href={crewUrl}
@@ -386,7 +396,11 @@ export default async function AdminShowPage({
             One share-link reaches the whole crew. Rotate the link if it leaks;
             reset the picker if a crew member needs to re-pick their identity.
           </p>
-          {isCrewLinkActive ? (
+          {isShowEligibleForCrewLink ? (
+            // CurrentShareLinkPanel renders the URL when a token exists and its
+            // own "unavailable — refresh / rotate" recovery state when the token
+            // read failed (so a transient failure on a published show is NOT
+            // mislabeled "unpublished/archived" — Codex R1).
             <CurrentShareLinkPanel showId={show.id} slug={show.slug} />
           ) : (
             <p
@@ -401,13 +415,17 @@ export default async function AdminShowPage({
           {/* Rotate + Reset gated on published && !archived (R29 — finalize-owned
               write hazard; publishing rows are finalize-owned, archived are
               retired). The server-side RPC guard is §16 DEF-1. */}
-          {published && !archived ? (
+          {isShowEligibleForCrewLink ? (
             <div className="flex flex-col items-end gap-4 border-t border-border pt-4">
               <ResetPickerEpochButton showId={show.id} />
+              {/* isCrewLinkActive = show eligibility (published && !archived),
+                  NOT token presence (spec §6 R27). A successful rotate returns a
+                  fresh token, so the success URL must show even if the initial
+                  token read failed — Codex R1. */}
               <RotateShareTokenButton
                 showId={show.id}
                 slug={show.slug}
-                isCrewLinkActive={isCrewLinkActive}
+                isCrewLinkActive={isShowEligibleForCrewLink}
               />
             </div>
           ) : null}

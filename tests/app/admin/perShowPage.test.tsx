@@ -157,13 +157,23 @@ describe("per-show page (§6)", () => {
     expect(screen.queryByTestId("admin-show-share-chip")).toBeNull();
     expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
     expect(screen.getByTestId("admin-share-link-inactive")).toBeInTheDocument();
+    // ineligible show → the inactive notice REPLACES CurrentShareLinkPanel
+    expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
   });
 
-  it("crew-link surfaces hidden when token is null", async () => {
+  it("token-read failure on a PUBLISHED ACTIVE show: token surfaces hidden but Share panel recovers (NOT the unpublished/archived notice) — Codex R1", async () => {
+    // A transient loadShowShareToken null/throw must NOT make a published+active
+    // show read as unpublished/archived. The token-dependent chip/open-crew are
+    // hidden (no real URL), but CurrentShareLinkPanel renders (its own
+    // unavailable/recovery state), and the inactive notice is NOT shown.
     state.token = null;
     await renderPage();
     expect(screen.queryByTestId("admin-show-share-chip")).toBeNull();
-    expect(screen.getByTestId("admin-share-link-inactive")).toBeInTheDocument();
+    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
+    expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("admin-share-link-inactive")).toBeNull();
+    // rotate still rendered for the eligible show (its success URL must show)
+    expect(screen.getByTestId("admin-rotate-share-token-button")).toBeInTheDocument();
   });
 
   it("preview-as links rendered only when published && !archived", async () => {
