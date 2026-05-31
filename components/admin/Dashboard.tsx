@@ -432,19 +432,19 @@ export async function Dashboard() {
         statsScope={result.statsScope}
       />
 
-      {/* Two-col split: shows table ⟷ needs-attention. md:items-stretch gives
+      {/* Two-col split: shows table ⟷ needs-attention. min-[720px]:items-stretch gives
           equal column height on desktop (Tailwind v4 default is NOT stretch,
           DESIGN §7). NB: the columns must NOT also set h-full — height:100% on a
           flex child is a non-auto cross-size that SUPPRESSES align-items:stretch
           (the real-browser layout test caught this). Stacks on mobile. */}
       <div
         data-testid="dashboard-split"
-        className="flex flex-col gap-tile-gap md:flex-row md:items-stretch"
+        className="flex flex-col gap-tile-gap min-[720px]:flex-row min-[720px]:items-stretch"
       >
         <section
           data-testid="dashboard-shows-col"
           aria-label="Active shows"
-          className="flex min-w-0 flex-col gap-3 md:flex-1"
+          className="flex min-w-0 flex-col gap-3 min-[720px]:flex-1"
         >
           <h3 className="text-lg font-semibold text-text-strong">Active shows</h3>
           <ShowsTable
@@ -457,7 +457,7 @@ export async function Dashboard() {
         <section
           data-testid="dashboard-inbox-col"
           aria-label="Needs attention"
-          className="flex flex-col gap-3 md:w-80 md:shrink-0"
+          className="flex flex-col gap-3 min-[720px]:w-80 min-[720px]:shrink-0"
         >
           <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
           <NeedsAttentionInbox

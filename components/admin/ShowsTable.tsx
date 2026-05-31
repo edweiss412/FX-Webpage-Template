@@ -33,7 +33,7 @@ type ShowsTableProps = {
 // test caught this). Fixed lengths + a 1fr title track make every grid resolve
 // to identical tracks at the same container width.
 const ROW_GRID =
-  "md:grid md:grid-cols-[minmax(0,1fr)_8rem_5rem_12rem_1.25rem] md:items-center md:gap-4";
+  "min-[720px]:grid min-[720px]:grid-cols-[minmax(0,1fr)_8rem_5rem_12rem_1.25rem] min-[720px]:items-center min-[720px]:gap-4";
 
 function StatePill({ row }: { row: ActiveShowRow }) {
   if (row.isLive) {
@@ -120,7 +120,7 @@ export function ShowsTable({ rows, now, activeCount, overflowCount }: ShowsTable
                   {/* Mobile stacked meta sub-line (hidden ≥md) */}
                   <div
                     data-testid={`shows-meta-mobile-${row.slug}`}
-                    className="flex flex-col gap-1 text-sm text-text-subtle md:hidden"
+                    className="flex flex-col gap-1 text-sm text-text-subtle min-[720px]:hidden"
                   >
                     {dates ? <span className="tabular-nums">{dates}</span> : null}
                     <span className="tabular-nums">{crewLabel}</span>
@@ -130,22 +130,22 @@ export function ShowsTable({ rows, now, activeCount, overflowCount }: ShowsTable
 
                 {/* Desktop columns (hidden <md). min-w-0 + truncate so content
                     stays within its fixed grid track and never pushes alignment. */}
-                <span className="hidden min-w-0 truncate text-sm text-text-subtle tabular-nums md:block">
+                <span className="hidden min-w-0 truncate text-sm text-text-subtle tabular-nums min-[720px]:block">
                   {dates ?? "—"}
                 </span>
-                <span className="hidden min-w-0 truncate text-sm text-text-subtle tabular-nums md:block">
+                <span className="hidden min-w-0 truncate text-sm text-text-subtle tabular-nums min-[720px]:block">
                   {crewLabel}
                 </span>
                 <span
                   data-testid={`shows-sync-${row.slug}`}
-                  className="hidden min-w-0 overflow-hidden text-sm md:block"
+                  className="hidden min-w-0 overflow-hidden text-sm min-[720px]:block"
                 >
                   <SyncCell row={row} now={now} />
                 </span>
                 <span
                   data-testid={`shows-chevron-${row.slug}`}
                   aria-hidden="true"
-                  className="hidden text-text-faint md:block"
+                  className="hidden text-text-faint min-[720px]:block"
                 >
                   <ChevronRight size={16} />
                 </span>

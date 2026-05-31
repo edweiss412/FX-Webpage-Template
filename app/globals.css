@@ -174,11 +174,14 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
-  /* ── Breakpoints (sm: md: lg: xl: utilities) ── */
+  /* ── Breakpoints (sm: lg: xl: utilities) ── */
+  /* NOTE: `md` is intentionally ABSENT from this project's scale. Do NOT add a
+     global `--breakpoint-md`: 4 existing files (app/help/layout, app/help/_components/
+     Sidebar + RefAnchor, the crew _PickerInterstitial) carry dormant `md:` classes
+     that a global md would silently activate, drifting /help + crew layout (caught by
+     screenshots-drift, M12.2). The admin ShowsTable's 720px column⟷stacked switch uses
+     the non-global `min-[720px]:` arbitrary variant instead (spec §5.2/§9). */
   --breakpoint-sm: 640px;
-  /* md (720px) is the M12.2 admin ShowsTable column⟷stacked-sub-line switch
-     (spec §5.2/§9: dense columns ≥720px, stacked meta sub-line <720px). */
-  --breakpoint-md: 720px;
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1200px;
 
