@@ -782,6 +782,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → reopen link",
     "helpfulContext": null,
   },
+  "SHEET_PROCESS_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't process the latest version of this sheet. Open the show to see the staged change and what needs fixing, or contact the developer if it keeps happening.",
+    "followUp": "Doug → open show; persistent → Eric",
+    "helpfulContext": "Something in this sheet stopped us from processing its latest version automatically, and the specific reason wasn't one we could turn into a clear message. Open the show's parse panel to see the staged change, fix the issue in the sheet, and the next sync will try again. If it keeps happening, contact the developer.",
+  },
   "SHEET_UNAVAILABLE": {
     "crewFacing": "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     "dougFacing": "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",

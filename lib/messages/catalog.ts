@@ -61,6 +61,25 @@ export const MESSAGE_CATALOG = {
     longExplanation: "Google Drive temporarily blocked or refused our request to read this sheet. We keep retrying automatically; if this stays for more than an hour, confirm the folder is still shared with the service account and that the sheet is still in the watched folder.",
     helpHref: "/help/errors#DRIVE_FETCH_FAILED",
   },
+  // M12.2 Phase A (§7/V8) — fixed generic Doug-facing fallback for a pending-
+  // ingestion whose specific last_error_code can't be resolved to catalog copy
+  // (unknown code, code-as-message, or an unresolved <…> placeholder). Rendered
+  // by NeedsAttentionInbox so the admin never sees a raw code / raw producer
+  // message (invariant 5). severity:"info" → non-predicate (no title/
+  // longExplanation/helpHref required), mirroring ROLE_FLAGS_NOTICE.
+  SHEET_PROCESS_FAILED: {
+    code: "SHEET_PROCESS_FAILED",
+    severity: "info",
+    dougFacing:
+      "We couldn't process the latest version of this sheet. Open the show to see the staged change and what needs fixing, or contact the developer if it keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → open show; persistent → Eric",
+    helpfulContext:
+      "Something in this sheet stopped us from processing its latest version automatically, and the specific reason wasn't one we could turn into a clear message. Open the show's parse panel to see the staged change, fix the issue in the sheet, and the next sync will try again. If it keeps happening, contact the developer.",
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   SHEET_UNAVAILABLE: {
     code: "SHEET_UNAVAILABLE",
     dougFacing: "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
