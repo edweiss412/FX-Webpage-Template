@@ -19,6 +19,10 @@ export type ActiveShowRow = {
   lastSyncedAt: string | null;
   lastSyncStatus: string | null;
   published: boolean;
+  // M12.2 Phase A (§3.2) — single-source live flag computed once in
+  // fetchDashboardData (published && today∈span, show tz). ShowsTable's Live
+  // pill reads this; it is never recomputed in the component.
+  isLive: boolean;
 };
 
 type ActiveShowsPanelProps = {
