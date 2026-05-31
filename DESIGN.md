@@ -38,6 +38,11 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-info-bg`        | `#EEEAE3`                          | `#1F1E22`                       | Informational notices (e.g., "we're syncing now"). Neutral-tinted, not blue.                                                                                                                                                                                                                                                        |
 | `--color-focus-ring`     | `rgba(255, 140, 26, 0.55)`         | `rgba(255, 160, 71, 0.65)`      | Focus outline color for keyboard-visible focus. Always orange-derived, 3px ring + 2px offset.                                                                                                                                                                                                                                       |
 | `--shadow-tile`          | `0 1px 2px rgba(20, 18, 12, 0.04)` | `0 1px 3px rgba(0, 0, 0, 0.45)` | Quiet drop-shadow applied to tile/card surfaces (Right Now card, tile-as-card). Light mode reads as a near-imperceptible warm lift; dark mode uses a deeper pure-black drop tuned for the warm-charcoal `--color-bg`. Components consume via `shadow-(--shadow-tile)` — NEVER inline a `shadow-[…]` literal (token discipline §10). |
+| `--color-status-live` / `-text`     | `#FF8C1A` / `#C25E00`              | `#FF8C1A` / `#FFA047`           | Live (in active window). **Reuses `--color-accent` / `--color-accent-on-bg`** — not a new hue; contrast governed by the accent rows above. Dot is always paired with a "Live" text label.                                                                                                                                            |
+| `--color-status-positive` / `-text` | `#3F8A83` / `#2C655F`              | `#5FB0A8` / `#74C3BB`           | OK / synced / healthy. **Calm desaturated teal-leaning-neutral — NOT green** (color-blind floor §1, no green semantic). Dot uses the base; tinted text uses `-text`. Narrowly scoped to status dots/pills (§1.3).                                                                                                                       |
+| `--color-status-review` / `-text`   | `#A87716` / `#6E4E00`              | `#E0B84E` / `#F0C860`           | Needs review. Amber. Dot base + `-text` for the tinted "Need review" count.                                                                                                                                                                                                                                                          |
+| `--color-status-warn` / `-text`     | `#B26A16` / `#7A3D00`              | `#E9A23A` / `#F0B454`           | Stale / problem (sync failure). Amber, stronger than review. Dot base + `-text`.                                                                                                                                                                                                                                                      |
+| `--color-status-idle` / `-text`     | `#8B8C92` / `#5A5B62`              | `#74736D` / `#9C9A93`           | Publishing / none / not-yet-synced. **Reuses `--color-text-faint` / `--color-text-subtle`** (neutral/faint), not a new hue.                                                                                                                                                                                                           |
 
 ### 1.2 Contrast summary (calculated, not estimated)
 
@@ -49,8 +54,27 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-accent` on `--color-bg` (text-on-bg use) | 3.0:1  | 6.7:1  | AA-large only — use `--color-accent-on-bg` for body text |
 | `--color-accent-on-bg` on `--color-bg`            | 4.6:1  | 9.8:1  | AA body / AAA body                                       |
 | `--color-accent-text` on `--color-accent`         | 4.07:1 | 11.3:1 | AA-large+bold / AAA                                      |
+| `--color-status-positive` dot on bg/surface       | 3.9:1  | 7.5:1  | ≥3:1 graphical (dot)                                     |
+| `--color-status-positive-text` on bg/surface      | 6.4:1  | 9.3:1  | AA body (≥4.5:1)                                         |
+| `--color-status-review` dot on bg/surface         | 3.8:1  | 10.1:1 | ≥3:1 graphical (dot)                                     |
+| `--color-status-review-text` on bg/surface        | 7.3:1  | 11.9:1 | AA body (≥4.5:1)                                         |
+| `--color-status-warn` dot on bg/surface           | 4.1:1  | 8.8:1  | ≥3:1 graphical (dot)                                     |
+| `--color-status-warn-text` on bg/surface          | 8.1:1  | 10.3:1 | AA body (≥4.5:1)                                         |
+| `--color-status-idle` dot on bg/surface           | 3.2:1  | 4.0:1  | ≥3:1 graphical (dot)                                     |
 
 **Direct-sunlight rule:** body text (`--color-text` on `--color-bg`, light mode) must hit ≥7:1 — 16.5:1 clears the bar with margin. Verified.
+
+### 1.3 Status-signal hues (M12.2 Phase A amendment — the one scoped exception to "orange stays alone")
+
+§1 commits to a single brand accent and "no competing accent hue (no blue, no purple, no teal)". The admin redesign (M12.2 Phase A) introduces **one narrowly-scoped exception**: a named **status-signal hue set** for sync/health/review state on the admin dashboard and per-show page. This is a *status* hue family, **not a second brand accent**, and the exception is bounded by these rules:
+
+- **Where it is allowed:** status **dots** (a few px) and small **status pills** on sync/health/review state only — the `StatusIndicator` component and the dashboard stat strip / shows table / needs-attention inbox. Nowhere else.
+- **Never** a CTA, brand surface, large fill, or body-text color outside a status label. The FXAV orange accent remains the only brand accent and keeps its ≤10%-of-viewport coverage cap; the status hues do not count against — and must not visually compete with — the brand accent.
+- **Always dot + text paired**, never color-only — honors the §1 color-blind floor (no information carried by hue alone). The `-text` variants exist for the cases where the hue is used *as* small text (e.g. the tinted "Need review" count).
+- **No green as a positive signal.** The "ok / synced / healthy" state uses a **calm desaturated teal-leaning-neutral** (`--color-status-positive`), explicitly NOT green — consistent with §1's red/green color-blind floor. (The originating design prototype used a green `ok` dot; that green is the violation this amendment replaces.)
+- **Live** reuses `--color-accent` (orange) for the in-active-window dot; **idle** reuses `--color-text-faint`/`--color-text-subtle`. Only **positive / review / warn** introduce net-new hues, and all three are amber-or-teal status families confined to dots/pills.
+
+The token rows are in §1.1 and the computed AA contrast figures (both modes, WCAG relative-luminance formula) are in §1.2: every status **dot** clears the ≥3:1 graphical-object floor and every status **`-text`** variant clears the ≥4.5:1 AA body floor, on both `--color-bg` and `--color-surface`, in light and dark. `tests/styles/status-token-contrast.test.ts` pins these floors against the live `app/globals.css` values.
 
 ---
 
