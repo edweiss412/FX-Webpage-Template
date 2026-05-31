@@ -6,18 +6,18 @@ Two queues exist for the cases where the app cannot publish on its own. The firs
 
 Both queues are durable. Nothing here clears itself.
 
-No sheets are waiting in the captured state below, so the panel is showing the empty queue message you will see after every review item has been cleared.
+Both queues surface in one place on the dashboard: the **Needs attention** panel, in the right column next to **Active shows**. No sheets are waiting in the captured state below, so the panel is showing the empty message you will see after every review item has been cleared.
 
 <Screenshot
   name="review-queues-empty-state"
-  alt="The Sheets-we-couldn't-auto-apply panel with the empty pending-queue message."
+  alt="The Needs attention panel showing its empty state: Nothing waiting on you."
 />
 
 <h2 id="first-seen">First-seen review</h2>
 
 A first-seen sheet is one the app has never published. Most first-seen sheets in your watched folder publish on their own, and you see them in the Active shows panel right away. A first-seen sheet only lands in this queue when the parse tripped a review rule (a crew count that shrank unexpectedly, a LEAD status that toggled, an email that moved between rows, a diagram tab that came back empty, and so on), or when you discovered the sheet through the onboarding wizard's scan step (which always routes to you before activating sync).
 
-You'll find first-seen review rows in the **Sheets we couldn't auto-apply** panel on the dashboard. Each row shows the candidate title and dates the parser pulled out of the sheet, plus the list of items that need your decision.
+You'll find first-seen review rows in the **Needs attention** panel on the dashboard. Each row shows the candidate title and a **Review** link that opens the staged-review surface, where the items that need your decision are listed.
 
 Two actions are available:
 
@@ -32,7 +32,7 @@ Discard is one-way for the staged candidate, but it does not touch your sheet. T
 
 A re-stage happens when you edit a show that's already live and the edit tripped a review rule. The app catches it, holds the new version in staging, and keeps serving the prior approved version to crew. The crew page does not flicker, and stale data does not go out.
 
-Re-stage rows don't show up in the **Sheets we couldn't auto-apply** panel. They appear as a yellow **Review staged changes** badge on the affected show's row in the **Active shows** panel. The row's primary action becomes **Review staged changes**, which takes you straight to the per-show parse panel with the staged review at the top.
+Re-stage rows also appear in the **Needs attention** panel, marked **Changes to review**. The **Open show** link takes you straight to the per-show parse panel with the staged review at the top. The show keeps serving its prior approved version to crew until you Apply.
 
 Common triggers:
 

@@ -60,7 +60,13 @@ export const MANIFEST: readonly ManifestEntry[] = [
     fixture: RPAS_CENTRAL_2026,
     frozenClockInstant: MID_SHOW_INSTANT,
     viewport: DESKTOP,
-    captureSelector: "[data-testid=admin-pending-panel]",
+    // M12.2 Phase A: the redesign retired the standalone "Sheets we couldn't
+    // auto-apply" panel (admin-pending-panel, no longer rendered on /admin) and
+    // folded both review queues into the right-column "Needs attention" inbox.
+    // Capture that section (heading + empty-state box) — the direct analog of
+    // the old panel's empty state. The RPAS fixture has 0 pending rows, so the
+    // inbox renders "Nothing waiting on you."
+    captureSelector: "[data-testid=dashboard-inbox-col]",
   },
   {
     key: "preview-as-crew-banner",
