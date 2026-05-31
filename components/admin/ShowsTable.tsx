@@ -10,6 +10,7 @@
 // Mobile (<md=720px): the Dates/Crew/Sync columns collapse into a stacked
 // sub-line under the title; the Live/Publishing pill stays with the title.
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import {
   formatDateRange,
   formatRelative,
@@ -146,7 +147,7 @@ export function ShowsTable({ rows, now, activeCount, overflowCount }: ShowsTable
                   aria-hidden="true"
                   className="hidden text-text-faint md:block"
                 >
-                  ›
+                  <ChevronRight size={16} />
                 </span>
               </Link>
             </li>

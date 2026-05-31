@@ -79,7 +79,9 @@ function deriveParseSummary(parseResult: unknown): string | undefined {
   if (title) parts.push(title);
   if (client) parts.push(client);
   if (parts.length === 0) return undefined;
-  return parts.join(" — ");
+  // " · " (middot), not an em-dash — the project copy rule bans em-dashes in
+  // rendered copy (impeccable audit P3).
+  return parts.join(" · ");
 }
 
 function initialsFor(name: string): string {
