@@ -277,9 +277,11 @@ export default async function AdminShowPage({
         highlightAlertId={sp.alert_id ?? null}
       />
 
-      {/* Two-col split: Crew ⟷ Share & access. items-stretch + h-full give
-          equal column height on desktop (Tailwind v4 default is NOT stretch,
-          DESIGN §7); stacks on mobile. */}
+      {/* Two-col split: Crew ⟷ Share & access. md:items-stretch gives equal
+          column height on desktop (Tailwind v4 default is NOT stretch, DESIGN
+          §7). The columns must NOT also set h-full — height:100% on a flex child
+          is a non-auto cross-size that SUPPRESSES align-items:stretch (the
+          real-browser layout test caught this). Stacks on mobile. */}
       <div
         data-testid="per-show-split"
         className="flex flex-col gap-tile-gap md:flex-row md:items-stretch"
@@ -288,7 +290,7 @@ export default async function AdminShowPage({
         <section
           data-testid="per-show-crew-col"
           aria-label="Crew"
-          className="flex min-w-0 flex-col gap-3 md:h-full md:flex-1"
+          className="flex min-w-0 flex-col gap-3 md:flex-1"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
@@ -375,7 +377,7 @@ export default async function AdminShowPage({
         <section
           data-testid="per-show-share-col"
           aria-label="Share & access"
-          className="flex flex-col gap-3 md:h-full md:w-96 md:shrink-0"
+          className="flex flex-col gap-3 md:w-96 md:shrink-0"
         >
           <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
           <p className="text-sm text-text-subtle">

@@ -26,8 +26,13 @@ type ShowsTableProps = {
 };
 
 // Shared column tracks (header + every row) so the columns line up (spec §9).
+// Explicit track widths (NOT `auto`): `auto` tracks size to each grid's own
+// content, so the header grid and each row grid would compute DIFFERENT
+// gridTemplateColumns and the labels wouldn't align (the real-browser layout
+// test caught this). Fixed lengths + a 1fr title track make every grid resolve
+// to identical tracks at the same container width.
 const ROW_GRID =
-  "md:grid md:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] md:items-center md:gap-4";
+  "md:grid md:grid-cols-[minmax(0,1fr)_8rem_5rem_12rem_1.25rem] md:items-center md:gap-4";
 
 function StatePill({ row }: { row: ActiveShowRow }) {
   if (row.isLive) {
@@ -122,14 +127,18 @@ export function ShowsTable({ rows, now, activeCount, overflowCount }: ShowsTable
                   </div>
                 </div>
 
-                {/* Desktop columns (hidden <md) */}
-                <span className="hidden text-sm text-text-subtle tabular-nums md:block">
+                {/* Desktop columns (hidden <md). min-w-0 + truncate so content
+                    stays within its fixed grid track and never pushes alignment. */}
+                <span className="hidden min-w-0 truncate text-sm text-text-subtle tabular-nums md:block">
                   {dates ?? "—"}
                 </span>
-                <span className="hidden text-sm text-text-subtle tabular-nums md:block">
+                <span className="hidden min-w-0 truncate text-sm text-text-subtle tabular-nums md:block">
                   {crewLabel}
                 </span>
-                <span data-testid={`shows-sync-${row.slug}`} className="hidden text-sm md:block">
+                <span
+                  data-testid={`shows-sync-${row.slug}`}
+                  className="hidden min-w-0 overflow-hidden text-sm md:block"
+                >
                   <SyncCell row={row} now={now} />
                 </span>
                 <span
