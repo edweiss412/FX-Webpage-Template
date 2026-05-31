@@ -397,11 +397,13 @@ export default async function AdminShowPage({
             reset the picker if a crew member needs to re-pick their identity.
           </p>
           {isShowEligibleForCrewLink ? (
-            // CurrentShareLinkPanel renders the URL when a token exists and its
-            // own "unavailable — refresh / rotate" recovery state when the token
-            // read failed (so a transient failure on a published show is NOT
-            // mislabeled "unpublished/archived" — Codex R1).
-            <CurrentShareLinkPanel showId={show.id} slug={show.slug} />
+            // Pass the page's SINGLE token snapshot (Codex R2) so the header
+            // chip and this panel can never render two different tokens from a
+            // concurrent rotation. CurrentShareLinkPanel renders the URL when
+            // the token exists and its own "unavailable — refresh / rotate"
+            // recovery state when token is null — so a transient read failure on
+            // a published show is NOT mislabeled "unpublished/archived" (R1).
+            <CurrentShareLinkPanel showId={show.id} slug={show.slug} token={token} />
           ) : (
             <p
               data-testid="admin-share-link-inactive"
