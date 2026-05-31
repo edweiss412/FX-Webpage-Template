@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
+import { resolveOrigin } from "./resolveOrigin";
 
 const AUTO_REVERT_MS = 3_000;
 
@@ -34,9 +35,18 @@ type Result =
 export function RotateShareTokenButton({
   showId,
   slug,
+  isCrewLinkActive = true,
 }: {
   showId: string;
   slug: string;
+  /**
+   * M12.2 Phase A (§6 / R27) — published && !archived && token. When false,
+   * the rotate-success state shows a NON-LINK "crew link inactive" message
+   * (no URL, no copy) so rotating an inactive show never surfaces a dead URL.
+   * The active success URL uses the canonical NEXT_PUBLIC_SITE_ORIGIN (R28),
+   * not window.location.origin.
+   */
+  isCrewLinkActive?: boolean;
 }) {
   const router = useRouter();
   const [ui, setUi] = useState<UiState>("idle");
@@ -121,10 +131,15 @@ export function RotateShareTokenButton({
     }
   };
 
+  // Active success URL uses the canonical NEXT_PUBLIC_SITE_ORIGIN (R28), NOT
+  // window.location.origin — rotating from an admin/internal host must still
+  // copy the crew-facing origin. When the crew link is inactive, no URL is
+  // built (the success state shows a non-link message instead, R27).
   const newUrl =
-    result?.ok && typeof window !== "undefined"
-      ? `${window.location.origin}/show/${slug}/${result.new_share_token}`
+    result?.ok && isCrewLinkActive
+      ? `${resolveOrigin()}/show/${slug}/${result.new_share_token}`
       : null;
+  const rotatedInactive = result?.ok === true && !isCrewLinkActive;
   const refusedMessage =
     result && result.ok === false
       ? "Couldn't rotate the share-token. Please try again."
@@ -186,6 +201,20 @@ export function RotateShareTokenButton({
               {copied ? "URL copied to clipboard" : ""}
             </span>
           </div>
+        )}
+        {rotatedInactive && (
+          <p
+            data-testid="admin-rotate-share-token-ok-inactive"
+            role="status"
+            aria-live="polite"
+            className="w-full max-w-md rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
+          >
+            <span aria-hidden="true" className="mr-1 font-semibold text-accent">
+              ✓
+            </span>
+            Share-token rotated. The crew link stays inactive while this show is
+            unpublished or archived.
+          </p>
         )}
         {refusedMessage && (
           <p

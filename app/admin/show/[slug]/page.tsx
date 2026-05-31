@@ -25,7 +25,8 @@ import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/components/admin/ActiveShowsPanel";
 import { syncStatusBucket } from "@/lib/admin/syncStatus";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
-import { CurrentShareLinkPanel, resolveOrigin } from "./CurrentShareLinkPanel";
+import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
+import { resolveOrigin } from "./resolveOrigin";
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
 import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
@@ -399,9 +400,11 @@ export default async function AdminShowPage({
           {published && !archived ? (
             <div className="flex flex-col items-end gap-4 border-t border-border pt-4">
               <ResetPickerEpochButton showId={show.id} />
-              {/* isCrewLinkActive wiring + canonical-origin success URL land in
-                  Task 10; here rotate renders only when the link is active. */}
-              <RotateShareTokenButton showId={show.id} slug={show.slug} />
+              <RotateShareTokenButton
+                showId={show.id}
+                slug={show.slug}
+                isCrewLinkActive={isCrewLinkActive}
+              />
             </div>
           ) : null}
         </section>

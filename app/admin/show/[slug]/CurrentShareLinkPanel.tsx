@@ -28,19 +28,10 @@
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
-
-// Exported (M12.2 Phase A Task 9/10) so the per-show header share chip AND
-// RotateShareTokenButton's active-success URL build the crew URL from the SAME
-// canonical NEXT_PUBLIC_SITE_ORIGIN — never window.location.origin (R28).
-export function resolveOrigin(): string {
-  const raw = process.env.NEXT_PUBLIC_SITE_ORIGIN;
-  if (!raw) return "http://localhost:3000";
-  try {
-    return new URL(raw).origin;
-  } catch {
-    return "http://localhost:3000";
-  }
-}
+// resolveOrigin moved to a standalone client-safe module (Task 10) so the
+// client RotateShareTokenButton can share it without importing this server
+// module's loadShowShareToken into the client bundle.
+import { resolveOrigin } from "./resolveOrigin";
 
 export async function CurrentShareLinkPanel({
   showId,
