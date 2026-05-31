@@ -268,6 +268,24 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ---
 
+## BL-LINT-DEBT-PREEXISTING — ~90 pre-existing eslint errors in unrelated files
+
+**Filed:** 2026-05-31 from M12.2 Phase A close-out.
+
+**Description:** During M12.2 Phase A close-out, `pnpm lint` surfaced ~90 eslint errors across files unrelated to
+the M12.2 diff (changed-files lint was clean; the milestone shipped green). These pre-date Phase A and are not a
+Phase-A regression. Flagged by the implementer, not fixed (out of scope for a UI reskin).
+
+**Why backlog, not deferred:** no single plan/milestone owns "repo-wide lint debt"; the errors span unrelated
+subsystems and fixing them is speculative cleanup with no concrete trigger. A fix would touch code outside any
+active milestone's scope.
+
+**Promotion prerequisite:** EITHER (a) a CI lint gate is tightened to fail on these (forcing a cleanup pass), OR
+(b) a dedicated repo-hygiene/tech-debt milestone is scoped. Until then, changed-files-lint-clean is the standing
+bar (matches the existing per-task discipline). Capture the exact error list at promotion via `pnpm lint`.
+
+---
+
 ## Promoted (was backlog, now scheduled)
 
 _(empty — no items have been promoted yet)_
