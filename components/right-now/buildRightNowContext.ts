@@ -14,6 +14,7 @@
  * no React imports).
  */
 import type { ContactRow, DateRestriction, HotelReservationRow, ShowRow } from "@/lib/parser/types";
+import { resolveShowTimezone } from "@/lib/time/showTimezone";
 
 /**
  * Everything the card needs to render any of the 12 §8.2 states.
@@ -80,13 +81,10 @@ export function buildRightNowContext(opts: {
       ? ed.first_show_room
       : null;
 
-  const venueWithTz = show.venue as
-    | (NonNullable<ShowRow["venue"]> & { timezone?: string | null })
-    | null;
-  const timezone =
-    typeof venueWithTz?.timezone === "string" && venueWithTz.timezone.length > 0
-      ? venueWithTz.timezone
-      : "America/New_York";
+  // Shared show-tz resolver (lib/time/showTimezone.ts) — the same helper crew
+  // pack-list and the admin dashboard live compute use, so "today" is derived
+  // in one notion of the show timezone everywhere (spec §3.1(a)).
+  const timezone = resolveShowTimezone(show.venue);
 
   return {
     dates: show.dates,

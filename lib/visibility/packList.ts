@@ -45,6 +45,7 @@
  * Server-safe (pure function; no environment reads, no side effects).
  */
 import type { ShowRow, StageRestriction, WorkPhase } from "@/lib/parser/types";
+import { resolveShowTimezone } from "@/lib/time/showTimezone";
 
 /**
  * Pack-list visibility set per spec §8.1 — the tile renders only on days
@@ -56,26 +57,6 @@ export const PACK_LIST_VISIBLE_PHASES: ReadonlySet<WorkPhase> = new Set<WorkPhas
   "Strike",
   "Load Out",
 ]);
-
-/** Default timezone for shows whose venue carries no timezone field. */
-const DEFAULT_TIMEZONE = "America/New_York";
-
-/**
- * Type widening so we can read a future `venue.timezone` field without
- * fighting the (current) ShowRow.venue type. The projection passes the
- * venue object through verbatim, so any future field lights up here.
- */
-type VenueWithTimezone = NonNullable<ShowRow["venue"]> & {
-  timezone?: string | null;
-};
-
-/** Resolve the show's effective timezone. */
-function resolveTimezone(show: Pick<ShowRow, "venue">): string {
-  const venue = show.venue as VenueWithTimezone | null;
-  const tz = venue?.timezone;
-  if (typeof tz === "string" && tz.length > 0) return tz;
-  return DEFAULT_TIMEZONE;
-}
 
 /**
  * Format a Date as ISO `YYYY-MM-DD` in the given IANA timezone using
@@ -103,7 +84,7 @@ export function todayWorkPhases(
   show: Pick<ShowRow, "schedule_phases" | "venue">,
   today: Date,
 ): WorkPhase[] {
-  const tz = resolveTimezone(show);
+  const tz = resolveShowTimezone(show.venue);
   const isoDate = formatIsoInTimeZone(today, tz);
   return show.schedule_phases?.[isoDate] ?? [];
 }
@@ -119,7 +100,7 @@ export function todayWorkPhases(
  * Date()` at the page handler and threads it through.
  */
 export function todayIsoInShowTimezone(show: Pick<ShowRow, "venue">, today: Date): string {
-  const tz = resolveTimezone(show);
+  const tz = resolveShowTimezone(show.venue);
   return formatIsoInTimeZone(today, tz);
 }
 

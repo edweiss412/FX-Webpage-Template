@@ -46,6 +46,8 @@
  * Server-safe (pure function; no environment reads, no side effects).
  */
 import type { DateRestriction, ShowRow } from "@/lib/parser/types";
+import { compareIso } from "@/lib/time/isoDate";
+import { hasFullShowDates } from "@/lib/time/showSpan";
 
 /**
  * Discriminated union of the twelve §8.2 states. Per-state payloads
@@ -114,14 +116,6 @@ export function formatIsoForTimezone(date: Date, timeZone: string): string {
   return getFormatter(timeZone).format(date);
 }
 
-/** Compare two ISO `YYYY-MM-DD` strings as days. -1 / 0 / 1. */
-function compareIso(a: string, b: string): number {
-  // Lexical compare on YYYY-MM-DD is equivalent to chronological compare.
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
-}
-
 /**
  * Whole-day delta b - a (positive when b is later). Exported so the
  * Right Now card client island can reuse the same implementation
@@ -182,12 +176,11 @@ function hasFullDates(dates: ShowRow["dates"]): dates is {
   showDays: string[];
   travelOut: string;
 } {
-  return (
-    Boolean(dates.travelIn) &&
-    Boolean(dates.travelOut) &&
-    Array.isArray(dates.showDays) &&
-    dates.showDays.length > 0
-  );
+  // Delegates to the shared predicate (lib/time/showSpan.ts) so crew + admin
+  // share ONE notion of "complete date data". Behavior-preserving: the
+  // shared helper's added null-guard is a superset (callers here pass
+  // non-null dates), so the boolean result is identical for crew input.
+  return hasFullShowDates(dates);
 }
 
 /**

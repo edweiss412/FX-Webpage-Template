@@ -39,7 +39,7 @@ function contrast(a: string, b: string): number {
 function tokenIn(block: string, token: string): string {
   const re = new RegExp(`${token}\\s*:\\s*(#[0-9a-fA-F]{6})\\s*;`);
   const m = block.match(re);
-  if (!m) throw new Error(`token ${token} not found in block`);
+  if (!m || !m[1]) throw new Error(`token ${token} not found in block`);
   return m[1];
 }
 
