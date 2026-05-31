@@ -174,8 +174,11 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
-  /* ── Breakpoints (sm: lg: xl: utilities) ── */
+  /* ── Breakpoints (sm: md: lg: xl: utilities) ── */
   --breakpoint-sm: 640px;
+  /* md (720px) is the M12.2 admin ShowsTable column⟷stacked-sub-line switch
+     (spec §5.2/§9: dense columns ≥720px, stacked meta sub-line <720px). */
+  --breakpoint-md: 720px;
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1200px;
 
