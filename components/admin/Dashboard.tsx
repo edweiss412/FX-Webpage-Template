@@ -19,8 +19,11 @@
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
-import { ActiveShowsPanel, type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
+import { type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
+import { StatStrip } from "@/components/admin/StatStrip";
+import { ShowsTable } from "@/components/admin/ShowsTable";
+import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import { formatIsoForTimezone } from "@/lib/time/rightNow";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
 import { isShowLiveOnDate } from "@/lib/time/showSpan";
@@ -395,12 +398,10 @@ export async function Dashboard() {
     );
   }
 
-  // Interim composition (data layer landed in Task 3). The redesigned strip +
-  // shows-table ⟷ needs-attention two-col lands in Task 7.
   return (
     <main
       data-testid="admin-dashboard"
-      className="mx-auto flex max-w-4xl flex-col gap-section-gap"
+      className="mx-auto flex max-w-5xl flex-col gap-section-gap"
     >
       <header className="flex flex-col gap-2">
         <p
@@ -424,7 +425,48 @@ export async function Dashboard() {
         </p>
       </header>
 
-      <ActiveShowsPanel rows={result.rows} now={now} />
+      <StatStrip
+        activeCount={result.activeCount}
+        liveCount={result.liveCount}
+        needReviewCount={result.needReviewCount}
+        crewTotal={result.crewTotal}
+        statsScope={result.statsScope}
+      />
+
+      {/* Two-col split: shows table ⟷ needs-attention. items-stretch + h-full
+          give equal column height on desktop (Tailwind v4 default is NOT
+          stretch, DESIGN §7); stacks on mobile. */}
+      <div
+        data-testid="dashboard-split"
+        className="flex flex-col gap-tile-gap md:flex-row md:items-stretch"
+      >
+        <section
+          data-testid="dashboard-shows-col"
+          aria-label="Active shows"
+          className="flex min-w-0 flex-col gap-3 md:h-full md:flex-1"
+        >
+          <h3 className="text-lg font-semibold text-text-strong">Active shows</h3>
+          <ShowsTable
+            rows={result.rows}
+            now={now}
+            activeCount={result.activeCount}
+            overflowCount={result.overflowCount}
+          />
+        </section>
+        <section
+          data-testid="dashboard-inbox-col"
+          aria-label="Needs attention"
+          className="flex flex-col gap-3 md:h-full md:w-80 md:shrink-0"
+        >
+          <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
+          <NeedsAttentionInbox
+            items={result.needsAttention.items}
+            totalCount={result.needsAttention.totalCount}
+            renderedCount={result.needsAttention.renderedCount}
+            overflowCount={result.needsAttention.overflowCount}
+          />
+        </section>
+      </div>
 
       <DashboardFooter />
     </main>
