@@ -50,13 +50,27 @@ export type BuildNeedsAttentionInput = {
 };
 
 export type NeedsAttentionItem =
-  | { variant: "pending_ingestion"; key: string; driveFileId: string; copy: string }
-  | { variant: "first_seen"; key: string; driveFileId: string; candidateTitle: string | null }
+  | {
+      variant: "pending_ingestion";
+      key: string;
+      id: string; // pending_ingestions.id — drives the retry/discard actions
+      driveFileId: string;
+      driveFileName: string | null;
+      copy: string;
+    }
+  | {
+      variant: "first_seen";
+      key: string;
+      stagedId: string; // routes to /admin/show/staged/{stagedId} (onboarding review)
+      driveFileId: string;
+      candidateTitle: string | null;
+    }
   | {
       variant: "existing_staged";
       key: string;
+      stagedId: string;
       driveFileId: string;
-      slug: string;
+      slug: string; // routes to /admin/show/{slug} (per-show review, archived-safe)
       title: string | null;
     };
 
@@ -145,7 +159,9 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
       return {
         variant: "pending_ingestion",
         key: `ingestion:${entry.id}`,
+        id: entry.id,
         driveFileId: entry.driveFileId,
+        driveFileName: entry.driveFileName,
         copy: resolveIngestionCopy({ code: entry.code, driveFileName: entry.driveFileName }),
       };
     }
@@ -154,6 +170,7 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
       return {
         variant: "existing_staged",
         key: `sync:${entry.id}`,
+        stagedId: entry.id,
         driveFileId: entry.driveFileId,
         slug: existing.slug,
         title: existing.title,
@@ -162,6 +179,7 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
     return {
       variant: "first_seen",
       key: `sync:${entry.id}`,
+      stagedId: entry.id,
       driveFileId: entry.driveFileId,
       candidateTitle: entry.candidateTitle,
     };
