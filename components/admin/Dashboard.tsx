@@ -402,27 +402,19 @@ export async function Dashboard() {
       data-testid="admin-dashboard"
       className="mx-auto flex max-w-5xl flex-col gap-section-gap"
     >
-      <header className="flex flex-col gap-2">
-        <p
-          className="text-xs font-medium uppercase text-text-subtle"
-          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+      {/* Title + sub + eyebrow now live in the shared <AdminPageHeader>
+          rendered above <Dashboard/> in app/admin/page.tsx (Task 4.1 single
+          title source). The settings link stays here as a dashboard-local
+          affordance. */}
+      <p className="text-sm text-text-subtle">
+        <Link
+          href="/admin/settings"
+          data-testid="admin-dashboard-settings-link"
+          className="text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
-          Admin
-        </p>
-        <h2 className="text-2xl font-semibold text-text-strong">Dashboard</h2>
-        <p className="max-w-prose text-base text-text-subtle">
-          Your live shows and anything that needs review.
-        </p>
-        <p className="text-sm text-text-subtle">
-          <Link
-            href="/admin/settings"
-            data-testid="admin-dashboard-settings-link"
-            className="text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            Open settings
-          </Link>
-        </p>
-      </header>
+          Open settings
+        </Link>
+      </p>
 
       <StatStrip
         activeCount={result.activeCount}
