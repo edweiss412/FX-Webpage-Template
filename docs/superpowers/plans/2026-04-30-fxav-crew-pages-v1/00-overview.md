@@ -300,10 +300,11 @@
        and, as the inverse, **re-enables emission of the `FIRST_SEEN_REVIEW` sentinel** (which amendment 9 retired)
        when the toggle is OFF — across BOTH first-seen auto-publish entry points (`phase1.sentinelFor` cron/push AND
        `runManualStageForFirstSeen` manual retry). B2 also adds the **archive/unarchive/publish lifecycle** (new `Held`
-       state), the **segmented Active/Archived dashboard bucket**, and **four archived-immutability guards** (spec §16
-       DEF-1/2/3 + a fourth cron/push/missing-file guard). DB changes: `app_settings.auto_publish_clean_first_seen` +
-       `shows.archived_at` columns, three lifecycle RPCs (`archive_show`/`unarchive_show`/`publish_show`) + the lockless
-       `_archive_show_core` primitive, a legacy-archived-row token-rotation backfill, and 6 new §12.4 codes. When this
+       state), the **segmented Active/Archived dashboard bucket**, and **five archived-immutability guards** (spec §16
+       DEF-1/2/3 + DEF-4 cron/push/missing-file + DEF-5 pending-ingestion retry/discard routes). DB changes: three columns
+       (`app_settings.auto_publish_clean_first_seen`, `shows.archived_at`, `shows.requires_resync`), three lifecycle RPCs
+       (`archive_show`/`unarchive_show`/`publish_show`) + two lockless cores (`_archive_show_core`, `_publish_show_core`),
+       a legacy-archived-row token-rotation backfill, and 7 new §12.4 codes. When this
        amendment is RATIFIED, update line 25's count and flip this entry's status (mirroring amendment 11).
 
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
