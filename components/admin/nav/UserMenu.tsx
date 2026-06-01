@@ -36,8 +36,9 @@ export function UserMenu({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
-  // Close on route change.
+  // Close on route change — legitimate external-state sync, not a derived-state cascade.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpen(false);
   }, [pathname]);
 

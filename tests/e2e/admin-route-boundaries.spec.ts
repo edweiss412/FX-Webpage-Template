@@ -50,20 +50,6 @@ const ROUTE_LOAD_FAILED = getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED");
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
-async function lookupSeedShowSlug(): Promise<string> {
-  const res = await admin
-    .from("shows")
-    .select("slug")
-    .eq("drive_file_id", SEED_DRIVE_FILE_ID)
-    .single();
-  if (res.error || !res.data) {
-    throw new Error(
-      `admin-route-boundaries.spec: seed show not found (run \`pnpm db:seed\`). drive_file_id=${SEED_DRIVE_FILE_ID}, error=${res.error?.message ?? "no row"}`,
-    );
-  }
-  return res.data.slug as string;
-}
-
 /** A real published, non-archived show + one of its crew members. */
 async function lookupPublishedShowWithCrew(): Promise<{ slug: string; crewId: string }> {
   const showRes = await admin

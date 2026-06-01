@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readdirSync, readFileSync } from "node:fs";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, it, expect } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -27,7 +28,7 @@ it("no sub/crumb/backHref/rightSlot → title only, no crash (guard: all optiona
 });
 it("architectural guard: header is prop-driven — NO global HEADERS / route-to-header map exists in components/admin/nav/", () => {
   // an unknown route cannot crash a global header lookup because there is none.
-  const { readdirSync, readFileSync } = require("node:fs");
+  // imports are at top of file
   const dir = "components/admin/nav";
   for (const f of readdirSync(dir)) {
     if (!f.endsWith(".ts") && !f.endsWith(".tsx")) continue;

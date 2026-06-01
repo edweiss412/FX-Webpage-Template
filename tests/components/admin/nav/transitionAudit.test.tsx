@@ -37,7 +37,6 @@ import {
   cleanup,
   fireEvent,
   render,
-  waitFor,
 } from "@testing-library/react";
 
 // --- next/navigation: usePathname is mutable so the compound route-change

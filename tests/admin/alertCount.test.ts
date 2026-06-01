@@ -1,5 +1,6 @@
 // tests/admin/alertCount.test.ts
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { it, expect, vi, beforeEach } from "vitest";
 const state = { throwOnConstruct: false, throwOnFrom: false, returnError: false, nullCount: false, count: 0 };
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => {
@@ -7,10 +8,11 @@ vi.mock("@/lib/supabase/server", () => ({
     return {
       from: () => {
         if (state.throwOnFrom) throw new Error("boom");
-        const b: any = {};
+        type Builder = { select: () => Builder; is: () => Builder; not: () => Builder; then: (f: (r: { data: null; count: number | null; error: { message: string } | null }) => unknown) => unknown };
+        const b = {} as Builder;
         const pass = () => b;
         b.select = pass; b.is = pass; b.not = pass;
-        b.then = (f: any) => f({
+        b.then = (f) => f({
           data: null,
           count: state.returnError || state.nullCount ? null : state.count, // nullCount = null count WITHOUT an error
           error: state.returnError ? { message: "rls" } : null,
@@ -48,7 +50,6 @@ it("numeric 0 → clean { kind:'ok', count:0 } (the ONLY clean no-badge state)",
   expect(await fetchUnresolvedAlertCount()).toEqual({ kind: "ok", count: 0 });
 });
 it("invariant 9: destructures { data, error } from the query (not bare { count, error })", () => {
-  const { readFileSync } = require("node:fs");
   const src = readFileSync("lib/admin/alertCount.ts", "utf8");
   // data must be destructured (renamed _countData), alongside count + error
   expect(src).toMatch(/const\s*\{\s*data:\s*_countData\s*,\s*count\s*,\s*error\s*\}\s*=\s*await/);
