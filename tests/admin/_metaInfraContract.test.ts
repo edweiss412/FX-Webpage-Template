@@ -654,23 +654,41 @@ describe("META §B Supabase call-boundary contract", () => {
   // AlertBanner is the admin-layout-mounted banner. Codex R3 caught that
   // builder construction (`.from(...).select(...).is(...)`) was OUTSIDE
   // the try block, so a synchronous `.from()` throw would have crashed
-  // the admin layout despite the await being wrapped. These behavioral
-  // tests pin the contract: throws (construction OR builder OR await)
-  // resolve to null and do NOT propagate.
+  // the admin layout despite the await being wrapped. The try/catch
+  // wrapping is still pinned by the grep-shape surface above; these
+  // behavioral tests pin the SUCCESSOR contract (M12.2 B1 Task 1.3,
+  // fail-visible matrix line 79 / spec §2.4): every infra fault —
+  // construction throw, detail returned-error, OR detail thrown — now
+  // renders the cataloged degraded banner (`admin-alert-banner-degraded`
+  // via ADMIN_ALERT_COUNT_FAILED), NEVER null. A positive/degraded
+  // NotifBell count and a null banner would route the operator to an
+  // empty /admin#alerts surface, hiding alert context exactly when
+  // degraded. Only the genuinely-empty queue (no unresolved rows) still
+  // returns null. The throw must still be CAUGHT (not propagated) — it
+  // is surfaced as the degraded banner element, not an uncaught throw.
   describe("AlertBanner", () => {
-    test("server-client construction throw → resolves to null (banner hides)", async () => {
+    test("server-client construction throw → degraded banner element, not null", async () => {
       infraMock.throwOnConstruct = true;
       const { AlertBanner } = await import("@/components/admin/AlertBanner");
       const result = await AlertBanner();
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      // The caught throw surfaces as the cataloged degraded banner, not a
+      // propagated error and not a null (hidden) banner.
+      expect(
+        (result as { props?: { ["data-testid"]?: string } } | null)?.props?.["data-testid"],
+      ).toBe("admin-alert-banner-degraded");
     });
 
-    test("from() throw on SELECT builder construction → resolves to null", async () => {
+    test("from() throw on SELECT builder construction → degraded banner element, not null", async () => {
       infraMock.throwOnFrom = true;
       const { AlertBanner } = await import("@/components/admin/AlertBanner");
-      // The component should NOT propagate the synchronous .from() throw;
-      // it must catch and log + return null.
-      await expect(AlertBanner()).resolves.toBeNull();
+      // The component must NOT propagate the synchronous .from() throw;
+      // it catches and renders the degraded banner (fail-visible).
+      const result = await AlertBanner();
+      expect(result).not.toBeNull();
+      expect(
+        (result as { props?: { ["data-testid"]?: string } } | null)?.props?.["data-testid"],
+      ).toBe("admin-alert-banner-degraded");
     });
   });
 });
