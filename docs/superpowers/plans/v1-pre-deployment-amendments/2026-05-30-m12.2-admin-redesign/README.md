@@ -1,6 +1,6 @@
 # M12.2 — Admin redesign (v1 pre-deployment amendment)
 
-Pre-launch admin UI overhaul spawned by the M12 UX-validation walk's band-A findings. A full admin redesign was produced in Claude Design (all four admin surfaces, on the existing token system) and reconciled against the live codebase; owner decisions are in `.validation-local/design-admin/RECONCILIATION.md §E` (Opus-local, gitignored). Supersedes master spec §9.1/§9.2 on layout/chrome — ratified as **plan amendments 10 + 11** in the main plan's `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md` (the amendment ledger stays with the main v1 plan it amends; this folder holds the workstream's specs/plans).
+Pre-launch admin UI overhaul spawned by the M12 UX-validation walk's band-A findings. A full admin redesign was produced in Claude Design (all four admin surfaces, on the existing token system) and reconciled against the live codebase; owner decisions are in `.validation-local/design-admin/RECONCILIATION.md §E` (Opus-local, gitignored). Supersedes master spec §9.1/§9.2 on layout/chrome via the main plan's amendment ledger `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md` (the ledger stays with the main v1 plan it amends; this folder holds the workstream's specs/plans). **Amendment 10 (Phase A) is RATIFIED** (Phase A merged). **Amendment 11 (B1) is PROPOSED** — it becomes authoritative only when the B1 spec's adversarial review APPROVEs AND the user signs off; until then master spec §9 remains canonical for any B1 conflict.
 
 ## Phases
 
