@@ -243,9 +243,17 @@ export default async function AdminShowPage({
       : ({ status: "positive", label: "Published" } as const);
 
   const syncBucket = syncStatusBucket(show.last_sync_status);
+  // Mirror ShowsTable's SyncCell (components/admin/ShowsTable.tsx:64-68) and the
+  // syncStatus.ts:10-11 intent: a non-ok status must surface its TEXTUAL health
+  // label, not just the dot color (StatusIndicator's dot is aria-hidden — a
+  // color-only failure signal is an a11y/observability regression). ok → plain
+  // "Last synced {rel}"; non-ok with a timestamp → "<label> · Last synced
+  // {rel}"; never-synced → the bucket label ("Not synced yet" for null status).
   const syncFooterLabel = show.last_synced_at
-    ? `Last synced ${formatRelative(show.last_synced_at, now)}`
-    : "Not synced yet";
+    ? show.last_sync_status === "ok"
+      ? `Last synced ${formatRelative(show.last_synced_at, now)}`
+      : `${syncBucket.label} · Last synced ${formatRelative(show.last_synced_at, now)}`
+    : syncBucket.label;
 
   return (
     <main data-testid="admin-show-page" className="space-y-section-gap">

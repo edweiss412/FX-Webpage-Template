@@ -228,4 +228,31 @@ describe("per-show page (§6)", () => {
     await renderPage();
     expect(screen.getByTestId("admin-show-sync-footer").textContent).toMatch(/Not synced yet/);
   });
+
+  // Codex impl-diff finding (M12.2-A close-out): a non-ok sync status with a
+  // non-null last_synced_at must surface its TEXTUAL health label, not just a
+  // color dot (the dot is aria-hidden — color-only would be an a11y/observability
+  // regression and contradicts ShowsTable's SyncCell + syncStatus.ts intent).
+  it.each([
+    ["drive_error", /Couldn't reach Drive/],
+    ["parse_error", /Couldn't read the sheet/],
+    ["pending_review", /Changes to review/],
+    ["pending", /Sync in progress/],
+  ])("sync footer surfaces the textual label for non-ok status %s", async (status, labelRe) => {
+    state.show = { ...baseShow, last_sync_status: status, last_synced_at: "2026-06-03T08:00:00.000Z" };
+    await renderPage();
+    const footer = screen.getByTestId("admin-show-sync-footer");
+    // The descriptive health label appears (not color-only)…
+    expect(footer.textContent).toMatch(labelRe);
+    // …and the relative timestamp stays as secondary context.
+    expect(footer.textContent).toMatch(/Last synced/);
+  });
+
+  it("sync footer keeps plain 'Last synced {rel}' for ok status (no redundant label)", async () => {
+    state.show = { ...baseShow, last_sync_status: "ok", last_synced_at: "2026-06-03T08:00:00.000Z" };
+    await renderPage();
+    const footer = screen.getByTestId("admin-show-sync-footer");
+    expect(footer.textContent).toMatch(/Last synced/);
+    expect(footer.textContent).not.toMatch(/Synced\b.*Last synced/); // no "Synced · Last synced" doubling
+  });
 });
