@@ -44,6 +44,11 @@ vi.mock("@/components/admin/AlertBanner", () => ({
   AlertBanner: () => null,
 }));
 
+// On the success path the layout now renders <AdminNav>, a client island
+// that calls usePathname. Stub it so the success-path render doesn't throw
+// outside a Next request scope.
+vi.mock("next/navigation", () => ({ usePathname: () => "/admin" }));
+
 vi.mock("@/lib/admin/alertCount", () => ({
   fetchUnresolvedAlertCount: vi.fn(async () => ({ kind: "ok", count: 0 })),
 }));

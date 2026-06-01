@@ -25,6 +25,7 @@
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { AlertBanner } from "@/components/admin/AlertBanner";
+import { AdminNav } from "@/components/admin/nav/AdminNav";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 
@@ -85,22 +86,13 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   // Threaded into <AdminNav> in Phase 3; stored as a local for now.
   const alertCount = await fetchUnresolvedAlertCount();
   const adminEmail = identity.email;
-  // Reference the locals so the diff compiles cleanly before Phase 3
-  // consumes them; no behavioral effect (noUnusedLocals is not set, but
-  // void keeps lint quiet without a placeholder render).
-  void adminEmail;
-  void alertCount;
 
   return (
     <div
       data-testid="admin-layout"
-      className="mx-auto max-w-6xl p-page-pad-mobile sm:p-page-pad-desktop"
+      className="mx-auto max-w-6xl p-page-pad-mobile pb-20 sm:p-page-pad-desktop min-[720px]:pb-0"
     >
-      <header className="mb-section-gap">
-        <h1 className="text-xl font-semibold" data-testid="admin-header">
-          Admin
-        </h1>
-      </header>
+      <AdminNav email={adminEmail} alertCount={alertCount} />
 
       {/* AlertBanner is async — it self-fetches admin_alerts and renders
           null when the queue is empty, so this slot is invisible in

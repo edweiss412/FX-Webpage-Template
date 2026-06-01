@@ -75,7 +75,7 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
     expect(response?.status()).toBe(200);
     // The admin layout renders for admins; the banner slot is empty when
     // no unresolved rows exist.
-    await expect(page.locator("[data-testid=admin-header]")).toBeVisible();
+    await expect(page.locator("[data-testid=admin-nav-brand]")).toBeVisible();
     await expect(page.locator("[data-testid=admin-alert-banner]")).toHaveCount(0);
   });
 
