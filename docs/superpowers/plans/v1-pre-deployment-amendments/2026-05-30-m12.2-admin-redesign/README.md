@@ -7,7 +7,7 @@ Pre-launch admin UI overhaul spawned by the M12 UX-validation walk's band-A find
 | Phase | Scope | Spec | Plan | Status |
 |---|---|---|---|---|
 | **A** | Dashboard + per-show reskin (stat strip, shows table, needs-attention inbox, per-show two-col, status tokens, real Live-now, `<sheet-name>` fix) | `…/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-a-admin-dashboard-per-show-design.md` | `./M12.2-phase-a-admin-redesign.md` | ✅ **MERGED** to `main` 2026-06-01 (`b77d7c3`). Handoff: `./handoffs/`. |
-| **B1** | Persistent nav shell + settings shell (read-only Drive-connection health panel + Administrators + revoke-hang fix + build-gated dev-tools row) + AlertBanner/NotifBell | `…/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-b1-admin-nav-settings-design.md` | _(plan in progress — writing-plans)_ | ✅ spec APPROVED (Codex 27 rounds + owner sign-off, 2026-05-31) |
+| **B1** | Persistent nav shell + settings shell (read-only Drive-connection health panel + Administrators + revoke-hang fix + build-gated dev-tools row) + AlertBanner/NotifBell | `…/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-b1-admin-nav-settings-design.md` | `./M12.2-phase-b1-admin-nav-settings.md` ✅ APPROVED (Codex 13 rounds, 2026-06-01) | ✅ spec APPROVED (Codex 27 rounds + owner sign-off, 2026-05-31) |
 | **B2** | Show lifecycle — archive/unarchive + auto-publish-clean-first-seen + unpublish/undo + spec §16 DEF-1/2/3 mutation guards | _(not yet specced)_ | — | planned |
 | **B3** | Email-delivery notification subsystem + "Alert me about sync problems" toggle | _(not yet specced)_ | — | planned |
 
