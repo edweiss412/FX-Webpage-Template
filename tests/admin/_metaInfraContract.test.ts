@@ -201,6 +201,7 @@ const infraRegistry = [
     contract: "crew_members lookup throws → { kind: 'infra_error' }",
   },
   { helper: "fetchUnresolvedAlertCount", path: "lib/admin/alertCount.ts", contract: "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)" },
+  { helper: "getActiveWatchedFolder", path: "lib/appSettings/getWatchedFolderId.ts", contract: "app_settings { watched_folder_id, watched_folder_name } maybeSingle; client construction (createClientResult) + returned-error + thrown await → { kind:'infra_error' }; destructures { data, error }" },
 ];
 
 // Every helper file gets a grep-shape assertion that EVERY supabase-derived

@@ -35,6 +35,41 @@ function createClientResult():
   }
 }
 
+export type ActiveWatchedFolder =
+  | { folderId: string; folderName: string | null }
+  | { kind: "no_folder_configured" }
+  | Extract<ActiveWatchedFolderResult, { kind: "infra_error" }>;
+
+export async function getActiveWatchedFolder(
+  client?: AppSettingsSupabaseClient,
+): Promise<ActiveWatchedFolder> {
+  const resolvedClient = client ? { client } : createClientResult();
+  if ("kind" in resolvedClient) return resolvedClient;
+  try {
+    // Bind to a local named `supabase` so `await supabase.from(...)` is recognized by the
+    // _metaInfraContract grep-shape (it matches `await supabase` / `await <builderVar=supabase…>`,
+    // NOT an indirect `resolvedClient.client.from(...)` chain). Required for the registry row to pass.
+    const supabase = resolvedClient.client;
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("watched_folder_id, watched_folder_name")
+      .eq("id", "default")
+      .maybeSingle();
+    if (error) {
+      return { kind: "infra_error", operation: "readActiveWatchedFolderId", source: "returned_error", cause: error };
+    }
+    const row = data as { watched_folder_id: string | null; watched_folder_name: string | null } | null;
+    if (row?.watched_folder_id) return { folderId: row.watched_folder_id, folderName: row.watched_folder_name ?? null };
+    if (!row) {
+      const folderId = firstBootEnvFolderId();
+      if (folderId) return { folderId, folderName: null };
+    }
+    return { kind: "no_folder_configured" };
+  } catch (cause) {
+    return { kind: "infra_error", operation: "readActiveWatchedFolderId", source: "thrown_error", cause };
+  }
+}
+
 export async function getActiveWatchedFolderId(
   client?: AppSettingsSupabaseClient,
 ): Promise<ActiveWatchedFolderResult> {
