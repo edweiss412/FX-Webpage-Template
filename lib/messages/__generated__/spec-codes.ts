@@ -42,7 +42,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We can't load the administrator list right now. Refresh in a moment; if the problem continues, check the database connection.",
     "followUp": "Doug → retry; if persistent, check Supabase admin_emails RLS + grants",
-    "helpfulContext": "AdminEmailsInfraError thrown from listAdminEmails() — typically RLS denial, missing grant, schema-cache skew, or network fault. The route-level error boundary at app/admin/settings/admins/error.tsx renders this message + a retry button.",
+    "helpfulContext": "AdminEmailsInfraError from listAdminEmails() (typically RLS denial, missing grant, schema-cache skew, or network fault). Surfaced IN-SECTION by the Administrators section (via the typed fetchEmbeddedAdminEmails wrapper) on BOTH the embedded /admin/settings and the deep-link /admin/settings/admins; renders this message + retry. (Route/session faults on those segments are NOT this code — they bubble to the error.tsx boundary as ADMIN_ROUTE_LOAD_FAILED.)",
   },
   "ADMIN_EMAIL_RE_ADD_PROMPT": {
     "crewFacing": null,

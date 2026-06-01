@@ -27,4 +27,9 @@ describe("B1 catalog codes", () => {
     expect(MESSAGE_CATALOG.ADMIN_ROUTE_LOAD_FAILED).toBeDefined();
     expect(getDougFacing("ADMIN_ROUTE_LOAD_FAILED")).toMatch(/admin page couldn't load/i);
   });
+
+  it("ADMIN_EMAIL_LIST_FAILED has surface-neutral helpfulContext", () => {
+    expect(MESSAGE_CATALOG.ADMIN_EMAIL_LIST_FAILED.helpfulContext).not.toMatch(/route-level error boundary/);
+    expect(MESSAGE_CATALOG.ADMIN_EMAIL_LIST_FAILED.helpfulContext).toMatch(/embedded \/admin\/settings/);
+  });
 });
