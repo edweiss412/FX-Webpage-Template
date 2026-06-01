@@ -20,8 +20,10 @@ import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
-import { messageFor } from "@/lib/messages/lookup";
+import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+
+const UNRESOLVED_PLACEHOLDER_RE = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
 
 function formatRelative(iso: string, now: Date): string {
   const parsed = Date.parse(iso);
@@ -49,9 +51,18 @@ type PerShowAlertSectionProps = {
   highlightAlertId?: string | null;
 };
 
-function safeDougFacing(code: string): string | null {
+// §7 fix: interpolate the alert's context so placeholders like `<sheet-name>`
+// resolve to the real value instead of leaking literally. Guards not-in-catalog
+// codes AND any still-unresolved `<…>` placeholder (missing context key) → null,
+// so the caller's Doug-facing fallback shows rather than a leaked token
+// (invariant 5). Call-site-only change; lookup.ts's contract is untouched.
+function safeDougFacing(code: string, context: Record<string, unknown> | null): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
-  return messageFor(code as MessageCode).dougFacing ?? null;
+  const doug = messageFor(code as MessageCode, (context as MessageParams | null) ?? undefined)
+    .dougFacing;
+  if (!doug) return null;
+  if (UNRESOLVED_PLACEHOLDER_RE.test(doug)) return null;
+  return doug;
 }
 
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row
@@ -158,7 +169,7 @@ export async function PerShowAlertSection({
       </div>
       <ul className="flex flex-col gap-3">
         {result.map((alert) => {
-          const copy = safeDougFacing(alert.code);
+          const copy = safeDougFacing(alert.code, alert.context);
           const isHighlighted = highlightAlertId === alert.id;
           return (
             <li
@@ -172,7 +183,10 @@ export async function PerShowAlertSection({
               <p className="text-sm font-semibold text-text-strong">
                 {copy ?? "Something needs your attention on this show."}
               </p>
-              <HelpAffordance code={alert.code} />
+              <HelpAffordance
+                code={alert.code}
+                {...(alert.context ? { params: alert.context as MessageParams } : {})}
+              />
               <p className="text-xs text-text-subtle tabular-nums">
                 Raised{" "}
                 <time dateTime={alert.raised_at} suppressHydrationWarning>

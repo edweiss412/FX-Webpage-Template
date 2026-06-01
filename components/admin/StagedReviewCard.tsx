@@ -252,6 +252,13 @@ export type StagedReviewCardProps = {
    * per-row commit aborted.
    */
   lastFinalizeFailureCode?: string | null;
+  /**
+   * M12.2 Phase A (§6 / R32) — read-only mode for an ARCHIVED show. The staged
+   * change stays VIEWABLE (work isn't hidden) but apply/discard controls are
+   * suppressed, since archived mutation semantics are deferred to Phase B
+   * (§16 DEF-2). A view-only notice replaces the action bar.
+   */
+  readOnly?: boolean;
 };
 
 export function StagedReviewCard({
@@ -261,6 +268,7 @@ export function StagedReviewCard({
   mode = "live",
   wizardSessionId,
   lastFinalizeFailureCode,
+  readOnly = false,
 }: StagedReviewCardProps) {
   const isWizardMode = mode === "wizard_failed_reapply";
   const isFirstSeenMode = mode === "first_seen";
@@ -608,6 +616,16 @@ export function StagedReviewCard({
           quieter affordance and an inline note explaining the
           consequence. Mitigates impeccable critique P0 ("destructive
           action visually identical to safe action"). */}
+      {readOnly ? (
+        <p
+          data-testid="staged-review-read-only"
+          className="mt-6 rounded-sm border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
+        >
+          This show is archived. Staged changes are view-only here; applying or
+          discarding for an archived show isn&rsquo;t available in Phase A.
+        </p>
+      ) : null}
+      {!readOnly && (
       <div className="mt-6 flex flex-wrap gap-2">
         {!reviewItemsCorrupt && (
           <button
@@ -644,7 +662,8 @@ export function StagedReviewCard({
           </button>
         ) : null}
       </div>
-      {isFirstSeen ? (
+      )}
+      {!readOnly && isFirstSeen ? (
         <div className="mt-4 border-t border-border pt-4">
           <button
             type="button"

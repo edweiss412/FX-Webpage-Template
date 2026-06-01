@@ -71,3 +71,6 @@ tmp/
 # `validation_state` cannot be used as backend due to `CHECK (key = 'validation_seed')`
 # singleton constraint — file-backed is the sole supported strategy per R41 F37)
 .validation-state/
+
+# M12 Phase 1 walk launchpad (local-only; embeds live validation share-tokens — must never be committed)
+.validation-local/

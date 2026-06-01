@@ -231,19 +231,18 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     note: "Pending-row action — components/admin/StagedReviewCard.tsx.",
   },
   {
-    label: "Review staged changes",
-    file: "app/help/admin/review-queues/page.mdx",
-    note: "Badge label — components/admin/ActiveShowsPanel.tsx:69.",
-  },
-  {
-    label: "Sheets we couldn't auto-apply",
-    file: "app/help/admin/review-queues/page.mdx",
-    note: "Panel section name — components/admin/PendingPanel.tsx:75.",
-  },
-  {
+    // M12.2 Phase A: the review-queues help page was reworked to describe the
+    // redesigned "Needs attention" inbox (Dashboard.tsx h3 + NeedsAttentionInbox
+    // variants), which folded in both review queues. The prior prose named the
+    // retired "Sheets we couldn't auto-apply" panel and a "Review staged changes"
+    // row badge; neither appears in the page anymore, so those two declarations
+    // were removed to keep the stale-entry guard green. "Needs attention",
+    // "Changes to review", and "Open show" are now bolded in the MDX and clear
+    // the heuristic crosswalk directly (shipped in NeedsAttentionInbox.tsx /
+    // Dashboard.tsx), so they need no declared-registry entry here.
     label: "Active shows",
     file: "app/help/admin/review-queues/page.mdx",
-    note: "Dashboard panel section heading — components/admin/ActiveShowsPanel.tsx:103.",
+    note: "Dashboard split-column heading — components/admin/Dashboard.tsx:449.",
   },
   {
     label: "Apply",

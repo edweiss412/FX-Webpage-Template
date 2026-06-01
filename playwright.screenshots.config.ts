@@ -43,6 +43,16 @@ export default defineConfig({
       name: "screenshots-help-capture",
       testMatch: /screenshots-help-capture\.spec\.ts/,
       dependencies: ["screenshots-help-setup"],
+      // captureAll() serially navigates + stabilizes every manifest entry x
+      // theme in ONE test, so its budget scales with entry count. The M12.2
+      // admin redesign also made /admin heavier. (The acute failure that
+      // surfaced this was a manifest selector pointing at a retired element —
+      // fixed in help-screenshots.manifest.ts; this bump is defensive headroom
+      // above the 60s global so a future entry addition or a slow CI runner
+      // doesn't tip the whole capture into a timeout before git-diff runs.)
+      // Scope the bump to this capture project only (not the :8 global) so the
+      // lighter clock-pipeline + help-docs projects keep the tighter ceiling.
+      timeout: 180_000,
       use: {
         ...devices["Desktop Chrome"],
         baseURL: "http://localhost:3004",

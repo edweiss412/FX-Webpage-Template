@@ -22,7 +22,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with nine ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with ten ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified spec amendments (in `docs/superpowers/specs/master-spec-patches/`):**
    - **§12.4 AGENDA_* crew-facing catalog rows** _(2026-05-12, ratified at SHA `ac905da` after R1–R4 cross-CLI review; integrated into spec body by Task 9.0.A1)_. Adds `AGENDA_GONE_FOR_CREW` (410/403) and `AGENDA_UNAUTHENTICATED` (401) crew-only display codes covering the `AgendaPdfViewer` proxy's error states. See `docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md`. M7-D2 (`components/agenda/AgendaPdfViewer.tsx` routing to these codes) is the consumer; Task 9.M7-D2's TDD checklist owns the exhaustive status→code coverage.
@@ -253,6 +253,26 @@
       consumed token → 400 with `UNPUBLISH_TOKEN_CONSUMED`; (f) call after 24h → 400 with
       `UNPUBLISH_TOKEN_EXPIRED`; (g) onboarding-scan first-seen + all MI pass → still stages
       with `ONBOARDING_SCAN_REVIEW` (regression that the two pathways stay distinct).
+
+   10. **Spec §9.1 / §9.2 — M12.2 Phase A admin IA reskin + admin-visibility compliance**
+       _(ratified 2026-05-31; spawned by the M12 UX-validation walk; spec
+       `docs/superpowers/specs/2026-05-31-m12.2-phase-a-admin-dashboard-per-show-design.md`, converged via
+       32-round cross-model adversarial review)_. The spec at §9.1 specifies a flat active-shows list dashboard
+       and §9.2 a flat stacked per-show page. The walk found these damage Doug's "dashboard = overview" /
+       per-show command-surface experience. **The M12.2 Phase A plan supersedes §9.1/§9.2 on layout/IA only:**
+       (a) §9.1 flat list → **stat strip (Active / Live now / Need review / Crew total) + dense shows table ⟷
+       needs-attention inbox**; (b) §9.2 flat sections → **two-col Crew ⟷ Share&access (rotate/reset folded into
+       the share panel) + sync-as-footer + status pill + header share-link chip**. The crew share/picker model
+       follows the 2026-05-23 picker-pivot amendment (`v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md`),
+       NOT the stale signed-link spec. **Admin-visibility COMPLIANCE (not a supersession):** the current
+       `fetchDashboardData` `published = true` filter is an implementation bug vs the master spec's `shows.published`
+       note (line ~186 of the master spec: "admin read paths … do NOT [scope to published] — admin needs to see
+       in-flight finalize rows with a yellow 'publishing…' badge"). Phase A fixes it: the dashboard shows
+       `archived = false` rows (published AND in-flight), unpublished rows carry a "Publishing…" badge, and
+       `isLive`/`liveCount` require `published`. **Out of Phase A (→ Phase B):** persistent nav, settings, the
+       archived dashboard bucket + archive/unarchive action, and the server-side rotate/reset + archived
+       apply/discard mutation guards (spec §16 DEF-1/DEF-2 — pre-existing backend gaps, deferred with concrete
+       triggers + Phase-A UI mitigations). No DB writes / no migrations land in Phase A.
 
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
 3. **Commit per task.** Commit messages take the form `feat(<area>): <one-line summary>` or `test(<area>): ...` — area names are `parser`, `db`, `sync`, `auth`, `crew-page`, `admin`, `report`, `onboarding`, `assets`, `infra`.

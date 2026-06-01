@@ -66,6 +66,8 @@ type AwaitableQuery = Promise<{ data: null; error: null }> & {
   in: (..._args: unknown[]) => AwaitableQuery;
   is: (..._args: unknown[]) => AwaitableQuery;
   order: (..._args: unknown[]) => AwaitableQuery;
+  limit: (..._args: unknown[]) => AwaitableQuery;
+  range: (..._args: unknown[]) => AwaitableQuery;
   maybeSingle: (..._args: unknown[]) => Promise<{ data: null; error: null }>;
   returns: (..._args: unknown[]) => AwaitableQuery;
 };
@@ -104,6 +106,8 @@ function makeThrowingClient() {
       builder.in = passthrough;
       builder.is = passthrough;
       builder.order = passthrough;
+      builder.limit = passthrough;
+      builder.range = passthrough;
       builder.returns = passthrough;
       builder.maybeSingle = async () =>
         result as { data: null; error: null };

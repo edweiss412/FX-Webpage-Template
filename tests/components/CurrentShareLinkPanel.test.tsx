@@ -76,6 +76,34 @@ describe("<CurrentShareLinkPanel>", () => {
     expect(loadShowShareToken).toHaveBeenCalledWith(SHOW_ID);
   });
 
+  // Codex R2 — single render-scoped token snapshot. When the caller passes a
+  // `token` prop, the panel MUST use that exact value and NOT re-read (so the
+  // header chip and this panel can't render two different tokens from a
+  // concurrent rotation).
+  test("uses the passed token snapshot and does NOT re-read (no race-prone double read)", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
+    // If the panel ignored the prop and re-read, it would get DIFFERENT_TOKEN.
+    const DIFFERENT_TOKEN = "b".repeat(64);
+    vi.mocked(loadShowShareToken).mockResolvedValue(DIFFERENT_TOKEN);
+    const { getByTestId } = render(
+      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG, token: TOKEN }),
+    );
+    expect(loadShowShareToken).not.toHaveBeenCalled();
+    expect(getByTestId("admin-current-share-link-url").textContent).toBe(
+      `https://crew.fxav.show/show/${SLUG}/${TOKEN}`,
+    );
+  });
+
+  test("passed token=null renders the unavailable state without re-reading", async () => {
+    vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN); // would succeed if (wrongly) re-read
+    const { getByTestId, queryByTestId } = render(
+      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG, token: null }),
+    );
+    expect(loadShowShareToken).not.toHaveBeenCalled();
+    expect(queryByTestId("admin-current-share-link-url")).toBeNull();
+    expect(getByTestId("admin-current-share-link-unavailable")).toBeTruthy();
+  });
+
   test("renders 'unavailable' state when loadShowShareToken returns null (non-admin / row missing)", async () => {
     vi.mocked(loadShowShareToken).mockResolvedValue(null);
     const { queryByTestId, getByTestId } = render(

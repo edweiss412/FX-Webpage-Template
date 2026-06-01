@@ -1,40 +1,89 @@
 /**
- * components/admin/Dashboard.tsx (M10 §B Task 10.6 / Phase 2)
+ * components/admin/Dashboard.tsx (M12.2 Phase A — spec §3/§5)
  *
- * Post-onboarding /admin dashboard per spec §9.1. Server Component
- * orchestrator. Fetches the panel data via the cookie-bound Supabase
- * server client (admin-RLS gated) and composes:
- *   - <ActiveShowsPanel /> (panel 1) — published shows list
- *   - <PendingPanel /> (panel 2) — pending_ingestions hard-fails +
- *     first-seen pending_syncs awaiting review
+ * Post-onboarding /admin dashboard. Server Component orchestrator.
+ * `fetchDashboardData` is the bounded data layer (spec §3.2/§3.3/§3.4):
+ *   - Active shows = `archived = false` (BOTH published + unpublished in-flight),
+ *     bounded `.limit(ACTIVE_SHOWS_CAP)` + exact `activeCount` (head:true).
+ *   - per-row `isLive = published && today∈[travelIn..travelOut]` in the show's
+ *     timezone (shared resolveShowTimezone), single `now` read; `liveCount = Σ`.
+ *   - `crewTotal` = exact head:true count; per-show `crewCount` = paginate-
+ *     until-complete (child rows never truncated, R17).
+ *   - needs-attention = two bounded pending streams + bounded existence lookup,
+ *     merged/sliced/classified by buildNeedsAttention (catalog-safe copy).
  *
- * The admin_alerts banner is already mounted at the layout level
- * (app/admin/layout.tsx → <AlertBanner />), so this surface does not
- * re-render it; we provide a header link to its #alerts anchor for
- * keyboard / a11y users that land on the dashboard scroll position.
+ * Every Supabase await is wrapped per AGENTS.md §1.9 (typed infra_error).
+ * The redesigned composition (StatStrip + ShowsTable ⟷ NeedsAttentionInbox +
+ * footer) lands in Task 7; this file ships the data layer + interim render.
  */
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
-import {
-  ActiveShowsPanel,
-  type ActiveShowRow,
-} from "@/components/admin/ActiveShowsPanel";
-import {
-  PendingPanel,
-  type PendingIngestionRow,
-  type FirstSeenStagedRow,
-} from "@/components/admin/PendingPanel";
+import { type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
+import { StatStrip } from "@/components/admin/StatStrip";
+import { ShowsTable } from "@/components/admin/ShowsTable";
+import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
+import { formatIsoForTimezone } from "@/lib/time/rightNow";
+import { resolveShowTimezone } from "@/lib/time/showTimezone";
+import { isShowLiveOnDate } from "@/lib/time/showSpan";
+import {
+  RENDER_CAP,
+  buildNeedsAttention,
+  type NeedsAttention,
+  type ShowExistence,
+} from "@/lib/admin/needsAttention";
 
-type DashboardData = {
-  shows: ActiveShowRow[];
-  pendingIngestions: PendingIngestionRow[];
-  firstSeenStaged: FirstSeenStagedRow[];
+// V7 — pinned literals, chosen ≫ FXAV scale and < PostgREST's ~1000 row cap.
+export const ACTIVE_SHOWS_CAP = 500;
+// Page size for the per-show crew-count paginate-until-complete loop (R17).
+export const CREW_PAGE_SIZE = 1000;
+
+export type DashboardData = {
+  rows: ActiveShowRow[];
+  activeCount: number;
+  liveCount: number;
+  needReviewCount: number;
+  crewTotal: number;
+  statsScope: "global" | "shown";
+  overflowCount: number;
+  needsAttention: NeedsAttention;
 };
 
-// Exported for tests/admin/_metaInfraContract.test.ts — registry row
-// for the §B Supabase call-boundary contract (AGENTS.md §1.9).
+type DatesJson = {
+  travelIn?: string | null;
+  set?: string | null;
+  showDays?: unknown;
+  travelOut?: string | null;
+};
+
+function deriveStart(dates: DatesJson | null): string | null {
+  if (!dates) return null;
+  const candidates: string[] = [];
+  if (typeof dates.travelIn === "string") candidates.push(dates.travelIn);
+  if (typeof dates.set === "string") candidates.push(dates.set);
+  if (Array.isArray(dates.showDays) && dates.showDays.length > 0) {
+    const first = dates.showDays[0];
+    if (typeof first === "string") candidates.push(first);
+  }
+  if (candidates.length === 0) return null;
+  return candidates.sort()[0] ?? null;
+}
+
+function deriveEnd(dates: DatesJson | null): string | null {
+  if (!dates) return null;
+  const candidates: string[] = [];
+  if (Array.isArray(dates.showDays) && dates.showDays.length > 0) {
+    const last = dates.showDays[dates.showDays.length - 1];
+    if (typeof last === "string") candidates.push(last);
+  }
+  if (typeof dates.travelOut === "string") candidates.push(dates.travelOut);
+  if (candidates.length === 0) return null;
+  return candidates.sort().reverse()[0] ?? null;
+}
+
+// Exported for tests/admin/_metaInfraContract.test.ts — registry row for the
+// §B Supabase call-boundary contract (AGENTS.md §1.9).
 export async function fetchDashboardData(): Promise<
   DashboardData | { kind: "infra_error"; message: string }
 > {
@@ -48,23 +97,21 @@ export async function fetchDashboardData(): Promise<
     };
   }
 
-  // AGENTS.md §1.9: every Supabase await wraps in try/catch so a thrown
-  // infra fault surfaces as the same typed `infra_error` result as the
-  // returned `.error` branch — never as an uncaught framework exception.
+  const now = await nowDate();
+
+  // ── Active shows (archived = false; both published + in-flight), bounded ──
   let showsRows: ReadonlyArray<Record<string, unknown>>;
   try {
     const q = await supabase
       .from("shows")
       .select(
-        "id, slug, title, drive_file_id, dates, last_synced_at, last_sync_status, published",
+        "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, published",
       )
-      .eq("published", true)
-      .order("last_synced_at", { ascending: false, nullsFirst: false });
+      .eq("archived", false)
+      .order("last_synced_at", { ascending: false, nullsFirst: false })
+      .limit(ACTIVE_SHOWS_CAP);
     if (q.error) {
-      return {
-        kind: "infra_error",
-        message: `shows query failed: ${q.error.message}`,
-      };
+      return { kind: "infra_error", message: `shows query failed: ${q.error.message}` };
     }
     showsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
@@ -74,76 +121,92 @@ export async function fetchDashboardData(): Promise<
     };
   }
 
-  const showIds = showsRows.map((s) => s.id as string);
-  const crewCountByShow = new Map<string, number>();
-  if (showIds.length > 0) {
-    // Treat crew_members errors like other dashboard queries — fail closed.
-    // Silently converting a query error to "0 crew" hides RLS / schema /
-    // infra failures behind plausible-but-false dashboard data and violates
-    // the Supabase call-boundary invariant (AGENTS.md §1.9).
-    let crewRows: ReadonlyArray<Record<string, unknown>>;
+  // Exact total — truthful even if the rendered list is capped (§3.3).
+  let activeCount: number;
+  try {
+    const q = await supabase
+      .from("shows")
+      .select("id", { count: "exact", head: true })
+      .eq("archived", false);
+    if (q.error) {
+      return { kind: "infra_error", message: `shows count query failed: ${q.error.message}` };
+    }
+    activeCount = q.count ?? showsRows.length;
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `shows count query threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const statsScope: "global" | "shown" =
+    activeCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
+  const overflowCount = Math.max(0, activeCount - showsRows.length);
+
+  // ── isLive per row (single `now`; shared tz + span helpers), liveCount = Σ ──
+  const activeShowIds = showsRows.map((s) => s.id as string);
+
+  // crewTotal — exact head:true count over the active set (never a truncatable
+  // row-fetch sum, §3.4). Short-circuit on empty id set (R28 — no .in([])).
+  let crewTotal = 0;
+  if (activeShowIds.length > 0) {
     try {
       const q = await supabase
         .from("crew_members")
-        .select("show_id")
-        .in("show_id", showIds);
+        .select("show_id", { count: "exact", head: true })
+        .in("show_id", activeShowIds);
       if (q.error) {
-        return {
-          kind: "infra_error",
-          message: `crew_members query failed: ${q.error.message}`,
-        };
+        return { kind: "infra_error", message: `crew_members count query failed: ${q.error.message}` };
       }
-      crewRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+      crewTotal = q.count ?? 0;
+    } catch (err) {
+      return {
+        kind: "infra_error",
+        message: `crew_members count query threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Per-show crewCount — paginate-until-complete so one-to-many child rows are
+  // never truncated by the PostgREST cap (R17 / §3.4). NOT a single .in() row
+  // fetch. Short-circuit on empty id set.
+  const crewCountByShow = new Map<string, number>();
+  if (activeShowIds.length > 0) {
+    try {
+      let offset = 0;
+      for (;;) {
+        const q = await supabase
+          .from("crew_members")
+          .select("show_id")
+          .in("show_id", activeShowIds)
+          .order("show_id", { ascending: true })
+          .range(offset, offset + CREW_PAGE_SIZE - 1);
+        if (q.error) {
+          return { kind: "infra_error", message: `crew_members query failed: ${q.error.message}` };
+        }
+        const page = (q.data ?? []) as ReadonlyArray<{ show_id?: string }>;
+        for (const row of page) {
+          if (!row.show_id) continue;
+          crewCountByShow.set(row.show_id, (crewCountByShow.get(row.show_id) ?? 0) + 1);
+        }
+        if (page.length < CREW_PAGE_SIZE) break;
+        offset += CREW_PAGE_SIZE;
+      }
     } catch (err) {
       return {
         kind: "infra_error",
         message: `crew_members query threw: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
-    for (const row of crewRows) {
-      const id = (row as { show_id?: string }).show_id;
-      if (!id) continue;
-      crewCountByShow.set(id, (crewCountByShow.get(id) ?? 0) + 1);
-    }
   }
 
-  // Derive show date range from the `dates` jsonb column. Real schema
-  // has dates: { travelIn, set, showDays: string[], travelOut }. Start =
-  // earliest of {travelIn, set, showDays[0]}; end = latest of
-  // {showDays[last], travelOut}. Each field can be null; missing rows
-  // collapse to null endpoints.
-  type DatesJson = {
-    travelIn?: string | null;
-    set?: string | null;
-    showDays?: unknown;
-    travelOut?: string | null;
-  };
-  const deriveStart = (dates: DatesJson | null): string | null => {
-    if (!dates) return null;
-    const candidates: string[] = [];
-    if (typeof dates.travelIn === "string") candidates.push(dates.travelIn);
-    if (typeof dates.set === "string") candidates.push(dates.set);
-    if (Array.isArray(dates.showDays) && dates.showDays.length > 0) {
-      const first = dates.showDays[0];
-      if (typeof first === "string") candidates.push(first);
-    }
-    if (candidates.length === 0) return null;
-    return candidates.sort()[0] ?? null;
-  };
-  const deriveEnd = (dates: DatesJson | null): string | null => {
-    if (!dates) return null;
-    const candidates: string[] = [];
-    if (Array.isArray(dates.showDays) && dates.showDays.length > 0) {
-      const last = dates.showDays[dates.showDays.length - 1];
-      if (typeof last === "string") candidates.push(last);
-    }
-    if (typeof dates.travelOut === "string") candidates.push(dates.travelOut);
-    if (candidates.length === 0) return null;
-    return candidates.sort().reverse()[0] ?? null;
-  };
-
-  const shows: ActiveShowRow[] = showsRows.map((s) => {
+  let liveCount = 0;
+  const rows: ActiveShowRow[] = showsRows.map((s) => {
     const dates = (s.dates as DatesJson | null) ?? null;
+    const published = Boolean(s.published);
+    const todayIso = formatIsoForTimezone(now, resolveShowTimezone(s.venue as never));
+    const isLive = published && isShowLiveOnDate(dates as never, todayIso);
+    if (isLive) liveCount += 1;
     return {
       id: s.id as string,
       slug: s.slug as string,
@@ -153,26 +216,24 @@ export async function fetchDashboardData(): Promise<
       crewCount: crewCountByShow.get(s.id as string) ?? 0,
       lastSyncedAt: (s.last_synced_at as string | null) ?? null,
       lastSyncStatus: (s.last_sync_status as string | null) ?? null,
-      published: Boolean(s.published),
+      published,
+      isLive,
     };
   });
 
-  let pendingIngestionsRows: ReadonlyArray<Record<string, unknown>>;
+  // ── Needs-attention: two bounded pending streams + exact counts ──
+  let ingestionRows: ReadonlyArray<Record<string, unknown>>;
   try {
     const q = await supabase
       .from("pending_ingestions")
-      .select(
-        "id, drive_file_id, drive_file_name, first_seen_at, attempt_count, last_error_code, last_error_message",
-      )
+      .select("id, drive_file_id, drive_file_name, last_attempt_at, last_error_code")
       .is("wizard_session_id", null)
-      .order("first_seen_at", { ascending: false });
+      .order("last_attempt_at", { ascending: false, nullsFirst: false })
+      .limit(RENDER_CAP + 1);
     if (q.error) {
-      return {
-        kind: "infra_error",
-        message: `pending_ingestions query failed: ${q.error.message}`,
-      };
+      return { kind: "infra_error", message: `pending_ingestions query failed: ${q.error.message}` };
     }
-    pendingIngestionsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    ingestionRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -180,65 +241,135 @@ export async function fetchDashboardData(): Promise<
     };
   }
 
-  const pendingIngestions: PendingIngestionRow[] = pendingIngestionsRows.map((row) => ({
-    id: row.id as string,
-    driveFileId: row.drive_file_id as string,
-    driveFileName: (row.drive_file_name as string | null) ?? null,
-    firstSeenAt: (row.first_seen_at as string | null) ?? null,
-    attemptCount: (row.attempt_count as number) ?? 0,
-    errorCode: (row.last_error_code as string | null) ?? null,
-    errorMessage: (row.last_error_message as string | null) ?? null,
-  }));
+  let ingestionCount: number;
+  try {
+    const q = await supabase
+      .from("pending_ingestions")
+      .select("id", { count: "exact", head: true })
+      .is("wizard_session_id", null);
+    if (q.error) {
+      return { kind: "infra_error", message: `pending_ingestions count query failed: ${q.error.message}` };
+    }
+    ingestionCount = q.count ?? ingestionRows.length;
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `pending_ingestions count query threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 
-  const firstSeenStaged: FirstSeenStagedRow[] = [];
-  if (showIds.length >= 0) {
-    const knownDriveIds = new Set(
-      showsRows.map((s) => s.drive_file_id as string),
-    );
-    let stagedRows: ReadonlyArray<Record<string, unknown>>;
+  let syncRows: ReadonlyArray<Record<string, unknown>>;
+  try {
+    const q = await supabase
+      .from("pending_syncs")
+      .select("staged_id, drive_file_id, staged_modified_time, parse_result")
+      .is("wizard_session_id", null)
+      .order("staged_modified_time", { ascending: false })
+      .limit(RENDER_CAP + 1);
+    if (q.error) {
+      return { kind: "infra_error", message: `pending_syncs query failed: ${q.error.message}` };
+    }
+    syncRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `pending_syncs query threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  let syncCount: number;
+  try {
+    const q = await supabase
+      .from("pending_syncs")
+      .select("staged_id", { count: "exact", head: true })
+      .is("wizard_session_id", null);
+    if (q.error) {
+      return { kind: "infra_error", message: `pending_syncs count query failed: ${q.error.message}` };
+    }
+    syncCount = q.count ?? syncRows.length;
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `pending_syncs count query threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // Existence lookup keyed FROM the pending rows' drive_file_ids (bounded by the
+  // capped pending reads, §3.3) — spans ALL shows (no published/archived
+  // filter) so an archived/unpublished existing show classifies as
+  // existing_staged, not first_seen. Short-circuit on empty id set (R28).
+  const pendingDriveFileIds = Array.from(
+    new Set(
+      [
+        ...ingestionRows.map((r) => r.drive_file_id as string),
+        ...syncRows.map((r) => r.drive_file_id as string),
+      ].filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  );
+  const existence: Record<string, ShowExistence> = {};
+  if (pendingDriveFileIds.length > 0) {
     try {
       const q = await supabase
-        .from("pending_syncs")
-        .select("staged_id, drive_file_id, staged_modified_time, parse_result")
-        .is("wizard_session_id", null)
-        .order("staged_modified_time", { ascending: false });
+        .from("shows")
+        .select("drive_file_id, slug, title, archived, published")
+        .in("drive_file_id", pendingDriveFileIds);
       if (q.error) {
-        return {
-          kind: "infra_error",
-          message: `pending_syncs query failed: ${q.error.message}`,
+        return { kind: "infra_error", message: `existence query failed: ${q.error.message}` };
+      }
+      const existenceRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+      for (const row of existenceRows) {
+        const id = row.drive_file_id as string | undefined;
+        if (!id) continue;
+        existence[id] = {
+          slug: row.slug as string,
+          title: (row.title as string | null) ?? null,
+          published: Boolean(row.published),
+          archived: Boolean(row.archived),
         };
       }
-      stagedRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
     } catch (err) {
       return {
         kind: "infra_error",
-        message: `pending_syncs query threw: ${err instanceof Error ? err.message : String(err)}`,
+        message: `existence query threw: ${err instanceof Error ? err.message : String(err)}`,
       };
-    }
-    for (const row of stagedRows) {
-      const driveFileId = row.drive_file_id as string;
-      // First-seen = no `shows` row yet for this drive_file_id.
-      if (knownDriveIds.has(driveFileId)) continue;
-      const parseResult = row.parse_result as
-        | { show?: { title?: string | null } }
-        | null;
-      firstSeenStaged.push({
-        stagedId: row.staged_id as string,
-        driveFileId,
-        candidateTitle: parseResult?.show?.title ?? null,
-        stagedModifiedTime: (row.staged_modified_time as string | null) ?? null,
-      });
     }
   }
 
-  return { shows, pendingIngestions, firstSeenStaged };
+  const needsAttention = buildNeedsAttention({
+    ingestions: ingestionRows.map((r) => ({
+      id: r.id as string,
+      driveFileId: r.drive_file_id as string,
+      driveFileName: (r.drive_file_name as string | null) ?? null,
+      lastErrorCode: (r.last_error_code as string | null) ?? null,
+      lastAttemptAt: (r.last_attempt_at as string | null) ?? null,
+    })),
+    syncs: syncRows.map((r) => {
+      const parseResult = r.parse_result as { show?: { title?: string | null } } | null;
+      return {
+        stagedId: r.staged_id as string,
+        driveFileId: r.drive_file_id as string,
+        candidateTitle: parseResult?.show?.title ?? null,
+        stagedModifiedTime: (r.staged_modified_time as string | null) ?? null,
+      };
+    }),
+    existence,
+    totalCounts: { ingestions: ingestionCount, syncs: syncCount },
+  });
+
+  return {
+    rows,
+    activeCount,
+    liveCount,
+    needReviewCount: needsAttention.totalCount,
+    crewTotal,
+    statsScope,
+    overflowCount,
+    needsAttention,
+  };
 }
 
 export async function Dashboard() {
   const result = await fetchDashboardData();
-  // M11 Phase C (C.2 extension): hoist request-scoped wall-clock instant
-  // and thread into <ActiveShowsPanel /> so the panel's relative-time
-  // labels honor screenshot-frozen-now.
   const now = await nowDate();
 
   if ("kind" in result) {
@@ -258,8 +389,8 @@ export async function Dashboard() {
             We could not load your dashboard.
           </h2>
           <p className="max-w-prose text-base text-text-subtle">
-            The admin database query failed. Refresh in a moment. If this
-            keeps happening, contact the developer.
+            The admin database query failed. Refresh in a moment. If this keeps
+            happening, contact the developer.
           </p>
         </header>
       </main>
@@ -269,7 +400,7 @@ export async function Dashboard() {
   return (
     <main
       data-testid="admin-dashboard"
-      className="mx-auto flex max-w-4xl flex-col gap-section-gap"
+      className="mx-auto flex max-w-5xl flex-col gap-section-gap"
     >
       <header className="flex flex-col gap-2">
         <p
@@ -293,11 +424,63 @@ export async function Dashboard() {
         </p>
       </header>
 
-      <ActiveShowsPanel rows={result.shows} now={now} />
-      <PendingPanel
-        pendingIngestions={result.pendingIngestions}
-        firstSeenStaged={result.firstSeenStaged}
+      <StatStrip
+        activeCount={result.activeCount}
+        liveCount={result.liveCount}
+        needReviewCount={result.needReviewCount}
+        crewTotal={result.crewTotal}
+        statsScope={result.statsScope}
       />
+
+      {/* Two-col split: shows table ⟷ needs-attention. min-[720px]:items-stretch gives
+          equal column height on desktop (Tailwind v4 default is NOT stretch,
+          DESIGN §7). NB: the columns must NOT also set h-full — height:100% on a
+          flex child is a non-auto cross-size that SUPPRESSES align-items:stretch
+          (the real-browser layout test caught this). Stacks on mobile. */}
+      {/* Two-col split gated at min-[1080px], NOT min-[720px]. This <main> is
+          max-w-5xl (1024px) and the admin layout wrapper is max-w-6xl
+          (app/admin/layout.tsx), so usable content tops out ~1024px at desktop.
+          The shows col must host ShowsTable's fixed tracks (8+5+12+1.25rem +
+          gaps ≈ 484px) AND a usable minmax(0,1fr) title track after the 320px
+          inbox col is subtracted; the constant overhead is ~862px, so the title
+          track = contentWidth − 862. Below ~1046px viewport that goes negative
+          (title starves to 0px — the bug this gate caught). Below 1080px the
+          split stacks (single-column, full-width table → title has ample room);
+          at/above 1080px it goes side-by-side with a title track kept
+          comfortably above the 120px floor. Verified in the band-sweep layout
+          test (do not lower without re-running it — a lower breakpoint
+          re-collapses the title). */}
+      <div
+        data-testid="dashboard-split"
+        className="flex flex-col gap-tile-gap min-[1080px]:flex-row min-[1080px]:items-stretch"
+      >
+        <section
+          data-testid="dashboard-shows-col"
+          aria-label="Active shows"
+          className="flex min-w-0 flex-col gap-3 min-[1080px]:flex-1"
+        >
+          <h3 className="text-lg font-semibold text-text-strong">Active shows</h3>
+          <ShowsTable
+            rows={result.rows}
+            now={now}
+            activeCount={result.activeCount}
+            overflowCount={result.overflowCount}
+          />
+        </section>
+        <section
+          data-testid="dashboard-inbox-col"
+          aria-label="Needs attention"
+          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0"
+        >
+          <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
+          <NeedsAttentionInbox
+            items={result.needsAttention.items}
+            totalCount={result.needsAttention.totalCount}
+            renderedCount={result.needsAttention.renderedCount}
+            overflowCount={result.needsAttention.overflowCount}
+          />
+        </section>
+      </div>
 
       <DashboardFooter />
     </main>

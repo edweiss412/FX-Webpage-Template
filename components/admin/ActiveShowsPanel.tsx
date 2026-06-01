@@ -19,6 +19,10 @@ export type ActiveShowRow = {
   lastSyncedAt: string | null;
   lastSyncStatus: string | null;
   published: boolean;
+  // M12.2 Phase A (§3.2) — single-source live flag computed once in
+  // fetchDashboardData (published && today∈span, show tz). ShowsTable's Live
+  // pill reads this; it is never recomputed in the component.
+  isLive: boolean;
 };
 
 type ActiveShowsPanelProps = {
@@ -32,7 +36,9 @@ type ActiveShowsPanelProps = {
   now: Date;
 };
 
-function formatDateRange(start: string | null, end: string | null): string | null {
+// Exported for reuse by the M12.2 ShowsTable (Task 5) so date/relative
+// formatting stays identical between the legacy panel and the redesign.
+export function formatDateRange(start: string | null, end: string | null): string | null {
   if (!start && !end) return null;
   const toShort = (iso: string) => {
     const d = new Date(iso);
@@ -43,7 +49,7 @@ function formatDateRange(start: string | null, end: string | null): string | nul
   return toShort((start ?? end)!);
 }
 
-function formatRelative(iso: string | null, now: Date): string {
+export function formatRelative(iso: string | null, now: Date): string {
   if (!iso) return "never";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

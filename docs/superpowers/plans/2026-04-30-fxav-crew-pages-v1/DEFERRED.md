@@ -18,6 +18,32 @@ When picking up a deferred item:
 
 ## Open
 
+### M12.2-A-DEF-1 — rotate/reset RPC server-side mutation gate (finalize-owned / archived)
+
+**Status:** Deferred 2026-05-31 from M12.2 Phase A; orchestrator-ratified (spec §16 DEF-1, R29/R30 finding 1).
+**Source:** M12.2 Phase A spec `docs/superpowers/specs/2026-05-31-m12.2-phase-a-admin-dashboard-per-show-design.md` §16; plan Task 13.
+**Description:** `rotate_show_share_token` + `reset_picker_epoch_atomic` only check admin-role + show-exists; they do NOT reject finalize-owned / `published=false` / `archived` rows (unlike the re-sync path's `FINALIZE_OWNED_SHOW` gate at `runManualSyncForShow.ts:231-303`). A stale-UI or direct-action call could mutate `show_share_tokens` / `shows.picker_epoch` mid-finalize or on a retired show.
+**Why deferred (pre-existing, NOT a Phase-A regression):** these RPCs never gated finalize-owned rows; the per-show page was always slug-reachable. Phase A only changes UI visibility and, via §6, *reduces* exposure. Hardening the mutation boundary is DB/RPC work that requires Phase B's migration layer; pulling it into Phase A would violate the §11 no-DB-writes/no-migrations invariant.
+**Phase-A interim mitigation (shipped):** rotate + reset are hidden in the UI unless `published && !archived` (per-show page §6 gating, branch `m12.2-phase-a-admin-redesign`); `RotateShareTokenButton` also takes `isCrewLinkActive` so an inactive context never surfaces a crew URL.
+**Suggested home:** Concrete trigger: **Phase B's settings/archive work** (which already touches these share/picker surfaces + the migration layer). Phase-B action: re-read the show inside the locked txn and reject unless `published && !archived` (return `FINALIZE_OWNED_SHOW` or an archived-specific code); add stale-UI / direct-action tests on publishing + archived rows. Phase B (the M12.2 umbrella's second plan — nav + settings) is unscheduled; needs planning before pickup.
+
+### M12.2-A-DEF-2 — archived apply/discard semantics + server-side guard
+
+**Status:** Deferred 2026-05-31 from M12.2 Phase A; orchestrator-ratified (spec §16 DEF-2, R30 finding 2).
+**Source:** M12.2 Phase A spec §16; plan Task 13.
+**Description:** The apply/discard path (`lib/sync/applyStaged.ts` / `discardStaged.ts`) does not define or guard what applying staged data to an `archived` (retired) show means. The per-show page loads by slug regardless of archived state (the inbox routes archived existing shows there so their staged work isn't hidden), so the mutation path is reachable.
+**Why deferred (pre-existing, NOT a Phase-A regression):** the apply/discard path already lacks this guard today; the page was always slug-reachable. Defining archived mutation semantics requires Phase B's archive/unarchive lifecycle model, and the server-side guard is DB/RPC work outside Phase A's UI-only charter (§11).
+**Phase-A interim mitigation (shipped):** an archived show's staged change is surfaced + routed (R10 — work isn't hidden) but rendered **READ-ONLY** on the per-show page — apply/discard controls suppressed via `ParsePanel readOnly` → `StagedReviewCard readOnly` (branch `m12.2-phase-a-admin-redesign`). This removes the *invitation* into the undefined archived mutation path; a direct route/RPC call could still attempt it — that pre-existing server gap is what this item closes.
+**Suggested home:** Concrete trigger: **Phase B's archive/unarchive model** (which defines the archived lifecycle). Phase-B action: decide read-only vs guarded mutation for archived staged changes, add server-side archived guards + direct route/RPC tests + `pending_sync` consumption expectations. Phase B is unscheduled; needs planning before pickup.
+
+### M12.2-A-DEF-3 — manual re-sync server-side archived guard
+
+**Status:** Deferred 2026-05-31 from M12.2 Phase A close-out (Codex impl-diff review [high], branch `m12.2-phase-a-admin-redesign`).
+**Description:** The manual re-sync path (`POST /api/admin/sync/[slug]` → `lib/sync/runManualSyncForShow.ts`) gates only on **finalize-ownership** (`readFinalizeOwnershipGuard_unlocked`, line 98-132 — checks onboarding-wizard / pending-changes finalize checkpoints; `FINALIZE_OWNED_SHOW`). It does **NOT** reject `archived` rows. Because the NeedsAttentionInbox routes archived `existing_staged` shows into `/admin/show/[slug]` (per DEF-2, so retired work isn't hidden), a stale-UI or direct POST could re-sync a retired show — mutating `shows` / `pending_syncs` / sync status+history despite the page being the archived read-only surface. Sibling of DEF-1 (rotate/reset) and DEF-2 (apply/discard) — same "archived mutation reachable server-side" class, different path.
+**Why deferred (pre-existing, NOT a Phase-A regression):** the re-sync path already lacked an archived guard before M12.2; archived mutation semantics require Phase B's archive/unarchive lifecycle model, and the server-side guard is DB/RPC work outside Phase A's UI-only charter (§11).
+**Phase-A interim mitigation (shipped):** the per-show page suppresses the `ReSyncButton` for archived shows (renders `admin-show-resync-archived` "Re-sync is paused while this show is archived." in place of the CTA), matching the ParsePanel `readOnly={archived}` + share/rotate/preview `!archived` gating. This removes the UI invitation; a direct route call could still attempt it — that pre-existing server gap is what this item closes. Regression: `tests/app/admin/perShowPage.test.tsx` ("archived show: Re-sync CTA suppressed + read-only note shown").
+**Suggested home:** Concrete trigger: **Phase B's archive/unarchive model** (alongside DEF-1/DEF-2). Phase-B action: re-read the show inside the locked txn and reject `archived` (return an archived-specific catalog code) before any mutation; add stale-UI / direct-POST tests on archived rows. Phase B is unscheduled; needs planning before pickup.
+
 ### M11.5-PLAYWRIGHT-HELPERS — Picker-shaped e2e helper layer
 
 **Status:** Deferred 2026-05-25 from M11.5 close-out; scope refined 2026-05-27 from M12 Phase 0.A Block 2.3 escalation (handoff `7c58315`).

@@ -27,6 +27,7 @@ import {
   SW_COMBOS,
   VALIDATION_PULL_SHEET,
   buildFixtures,
+  fixtureCrewName,
   type Combo,
   type FixtureRow,
 } from "./lib/validation-fixtures";
@@ -617,11 +618,12 @@ async function runChecks(
           `crew_members row for ${combo}.${alias} has email IS NULL — picker eligibility broken.`,
         );
       }
-      // Bind alias to the canonical fixture name `<combo>_<alias>`
-      // (per FIXTURES build in scripts/lib/validation-fixtures.ts).
+      // Bind alias to the canonical human display name (single source of
+      // truth: fixtureCrewName() — the SAME helper buildFixtures() writes
+      // crew_members.name from, so this can never drift from the seed).
       // A row at the right show but with the wrong name would still
       // pass the show_id check above; this assertion closes that gap.
-      const expectedName = `${combo}_${alias}`;
+      const expectedName = fixtureCrewName(alias);
       if (crew.name !== expectedName) {
         throw new CheckSeedFailure(
           "f",
@@ -723,7 +725,9 @@ async function runChecks(
         `validation show ${combo} shows.dates drifted from canonical fixture. live=${JSON.stringify(show.dates)} expected=${JSON.stringify(expected.dates)}. A stale same-day seed or manual edit would falsely PASS the walk-session gate without this predicate; re-run \`pnpm validation:reseed --combo ${combo}\`.`,
       );
     }
-    // (o.5) shows.title — canonical fixture writes 'M12 Validation — <combo>'.
+    // (o.5) shows.title — canonical fixture writes fixtureShowName(combo),
+    // e.g. 'Validation — Day off (R3)'. Compared against expected.showName
+    // read from the SAME buildFixtures output, so no drift.
     if (show.title !== expected.showName) {
       throw new CheckSeedFailure(
         "o",

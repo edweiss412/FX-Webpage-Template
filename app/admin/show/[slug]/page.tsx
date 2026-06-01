@@ -1,31 +1,33 @@
 /**
- * app/admin/show/[slug]/page.tsx (M6 §B Task 6.11 — UI portion)
+ * app/admin/show/[slug]/page.tsx (M12.2 Phase A — per-show reskin, spec §6)
  *
- * Per-show admin parse panel. Lists the live `pending_syncs` rows for the
- * show (`AND wizard_session_id IS NULL` — wizard partition is M10's
- * surface) and renders one <StagedReviewCard> per row, plus a "Re-sync"
- * CTA that POSTs to §A's manual-sync route.
+ * Per-show admin page. Header (status pill, archived-first; gated share-link
+ * chip) → two-col Crew ⟷ Share & access → parse warnings → quiet sync footer.
  *
- * AlertBanner is mounted by `app/admin/layout.tsx`, so admin alerts
- * surface above the page chrome automatically — no per-page mount.
+ * Archived-safety (R10/R11/R12/R29/R32): the page loads by slug regardless of
+ * published/archived (the inbox routes archived existing shows here). Crew-link
+ * surfaces (header chip, Open crew page, share URL, rotate/reset) render ONLY
+ * when published && !archived && token; preview-as links + the preview route
+ * gate on published && !archived; an archived show's ParsePanel is read-only.
  *
- * RLS: `requireAdmin()` runs at the layout level AND here as
- * defense-in-depth (per AGENTS.md §1.6 Server Action discipline);
- * `pending_syncs.admin_only` policy gates the SELECT regardless.
- *
- * Server Component (no 'use client'); the Re-sync button and review
- * cards are Client Components mounted as children.
+ * AlertBanner is mounted by app/admin/layout.tsx. requireAdmin() runs here as
+ * defense-in-depth. Every Supabase await wraps in try/catch (AGENTS.md §1.9).
  */
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { HelpTooltip } from "@/components/admin/HelpTooltip";
+import { nowDate } from "@/lib/time/now";
 import { ParsePanel } from "@/components/admin/ParsePanel";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
-import { PerShowCrewSection } from "@/components/admin/PerShowCrewSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
+import { StatusIndicator } from "@/components/admin/StatusIndicator";
+import { formatRelative } from "@/components/admin/ActiveShowsPanel";
+import { syncStatusBucket } from "@/lib/admin/syncStatus";
+import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
+import { resolveOrigin } from "./resolveOrigin";
+import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
 import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
@@ -40,6 +42,9 @@ type ShowLookupRow = {
   title: string;
   drive_file_id: string;
   published: boolean;
+  archived: boolean;
+  last_synced_at: string | null;
+  last_sync_status: string | null;
 };
 
 type PendingSyncRow = {
@@ -74,7 +79,18 @@ function deriveParseSummary(parseResult: unknown): string | undefined {
   if (title) parts.push(title);
   if (client) parts.push(client);
   if (parts.length === 0) return undefined;
-  return parts.join(" — ");
+  // " · " (middot), not an em-dash — the project copy rule bans em-dashes in
+  // rendered copy (impeccable audit P3).
+  return parts.join(" · ");
+}
+
+function initialsFor(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]!.toUpperCase())
+    .join("");
 }
 
 export default async function AdminShowPage({
@@ -88,13 +104,6 @@ export default async function AdminShowPage({
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
 
-  // AGENTS.md §1.9: every Supabase await wraps in try/catch so a thrown
-  // infra fault (auth expiration, network reset, RLS reject mid-query)
-  // surfaces as the same Error("<surface>_lookup_failed") this file
-  // already throws on the returned `.error` branch — Next.js routes
-  // both through the same error boundary. Client construction is also
-  // wrapped so a thrown service-client construction failure does not
-  // leak as a raw framework exception.
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -110,7 +119,9 @@ export default async function AdminShowPage({
   try {
     const { data, error: showError } = await supabase
       .from("shows")
-      .select("id, slug, title, drive_file_id, published")
+      .select(
+        "id, slug, title, drive_file_id, published, archived, last_synced_at, last_sync_status",
+      )
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
     if (showError) {
@@ -194,6 +205,56 @@ export default async function AdminShowPage({
     crewLookupFailed = true;
   }
 
+  // Share token (admin-only RPC). Wrapped per the CurrentShareLinkPanel
+  // pattern — a thrown/absent token → no crew-link surfaces, never a dead URL.
+  let token: string | null = null;
+  try {
+    token = await loadShowShareToken(show.id);
+  } catch {
+    token = null;
+  }
+
+  const now = await nowDate();
+
+  // Archived-FIRST precedence (R10/R11): archived and published are independent
+  // booleans; evaluate archived first so a drifted archived+published row still
+  // reads "Archived", never "Published".
+  const archived = Boolean(show.archived);
+  const published = show.published;
+  // SHOW eligibility (spec §6 R27/R29) — whether crew-link features apply at
+  // all. Distinct from TOKEN presence: a transient loadShowShareToken failure
+  // on an eligible show must NOT make the show read as unpublished/archived
+  // (Codex R1). Rotate/reset visibility + the rotate-success URL + the
+  // Share-panel CurrentShareLinkPanel-vs-inactive-notice decision key off this.
+  const isShowEligibleForCrewLink = published && !archived;
+  // TOKEN-dependent surfaces (header chip, Open crew page, the real crew URL)
+  // need an actual token — never render /show/<slug>/null. CurrentShareLinkPanel
+  // owns its OWN token-null "unavailable / rotate to recover" state, so it is
+  // gated on show-eligibility, not token presence.
+  const hasCrewLinkUrl = isShowEligibleForCrewLink && token !== null;
+  const crewUrl = hasCrewLinkUrl ? `${resolveOrigin()}/show/${slug}/${token}` : null;
+  // Host-stripped display of the real crew URL (never the prototype's fake host).
+  const crewPathDisplay = hasCrewLinkUrl ? `/show/${slug}/${token}` : null;
+
+  const statusPill = archived
+    ? ({ status: "idle", label: "Archived" } as const)
+    : !published
+      ? ({ status: "warn", label: "Publishing…" } as const)
+      : ({ status: "positive", label: "Published" } as const);
+
+  const syncBucket = syncStatusBucket(show.last_sync_status);
+  // Mirror ShowsTable's SyncCell (components/admin/ShowsTable.tsx:64-68) and the
+  // syncStatus.ts:10-11 intent: a non-ok status must surface its TEXTUAL health
+  // label, not just the dot color (StatusIndicator's dot is aria-hidden — a
+  // color-only failure signal is an a11y/observability regression). ok → plain
+  // "Last synced {rel}"; non-ok with a timestamp → "<label> · Last synced
+  // {rel}"; never-synced → the bucket label ("Not synced yet" for null status).
+  const syncFooterLabel = show.last_synced_at
+    ? show.last_sync_status === "ok"
+      ? `Last synced ${formatRelative(show.last_synced_at, now)}`
+      : `${syncBucket.label} · Last synced ${formatRelative(show.last_synced_at, now)}`
+    : syncBucket.label;
+
   return (
     <main data-testid="admin-show-page" className="space-y-section-gap">
       <header className="space-y-2">
@@ -202,12 +263,32 @@ export default async function AdminShowPage({
             ← Admin home
           </a>
         </p>
-        <h1 className="text-2xl font-semibold text-text-strong" data-testid="admin-show-title">
-          {show.title}
-        </h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold text-text-strong" data-testid="admin-show-title">
+            {show.title}
+          </h1>
+          <span
+            data-testid="admin-show-status-pill"
+            className="inline-flex items-center rounded-pill border border-border px-2 py-0.5"
+          >
+            <StatusIndicator status={statusPill.status} label={statusPill.label} />
+          </span>
+        </div>
         <p className="text-sm text-text-subtle">
           Slug: <code className="rounded-sm bg-surface-sunken px-1">{show.slug}</code>
         </p>
+        {hasCrewLinkUrl && crewUrl && crewPathDisplay ? (
+          <div
+            data-testid="admin-show-share-chip"
+            className="flex items-center gap-2 text-sm text-text-subtle"
+          >
+            <span>Crew link:</span>
+            <code className="min-w-0 break-all rounded-sm bg-surface-sunken px-2 py-0.5 text-xs text-text-strong">
+              {crewPathDisplay}
+            </code>
+            <ShareLinkCopyButton url={crewUrl} />
+          </div>
+        ) : null}
       </header>
 
       <PerShowAlertSection
@@ -216,206 +297,185 @@ export default async function AdminShowPage({
         highlightAlertId={sp.alert_id ?? null}
       />
 
-      <section
-        data-testid="admin-show-sync-health-section"
-        aria-labelledby="admin-show-sync-health-heading"
-        className="flex flex-col gap-3"
+      {/* Two-col split: Crew ⟷ Share & access. min-[720px]:items-stretch gives equal
+          column height on desktop (Tailwind v4 default is NOT stretch, DESIGN
+          §7). The columns must NOT also set h-full — height:100% on a flex child
+          is a non-auto cross-size that SUPPRESSES align-items:stretch (the
+          real-browser layout test caught this). Stacks on mobile. */}
+      <div
+        data-testid="per-show-split"
+        className="flex flex-col gap-tile-gap min-[720px]:flex-row min-[720px]:items-stretch"
       >
-        <div className="flex items-center gap-2">
-          <h2
-            id="admin-show-sync-health-heading"
-            className="text-lg font-semibold text-text-strong"
-          >
-            Sync health
-          </h2>
-          <HelpTooltip
-            label="Help: Sync health"
-            testId="help-affordance--per-show-sync-health--tooltip"
-          >
-            <p>
-              When the app last read this show&apos;s sheet from Drive, and
-              whether the latest read succeeded. Use Re-sync to fetch the
-              sheet again on demand; the dashboard&apos;s show row also
-              shows the result of every sync.
-            </p>
-            <p className="mt-2">
+        {/* Crew column (preview-as merged into each row) */}
+        <section
+          data-testid="per-show-crew-col"
+          aria-label="Crew"
+          className="flex min-w-0 flex-col gap-3 min-[720px]:flex-1"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
+            {hasCrewLinkUrl && crewUrl ? (
               <a
-                href="/help/admin/per-show-panel#sync-health"
-                aria-label="Learn more about sync health"
-                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                data-testid="admin-show-open-crew"
+                href={crewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
-                Learn more →
+                Open crew page →
               </a>
-            </p>
-          </HelpTooltip>
-        </div>
-        <ReSyncButton slug={show.slug} />
-      </section>
+            ) : null}
+          </div>
 
-      <section
-        data-testid="admin-show-preview-as-section"
-        aria-labelledby="admin-show-preview-as-heading"
-        data-published={String(show.published)}
-        className="flex flex-col gap-3"
-      >
-        <div className="flex items-center gap-2">
-          <h2
-            id="admin-show-preview-as-heading"
-            className="text-lg font-semibold text-text-strong"
-          >
-            Preview as a crew member
-          </h2>
-          <HelpTooltip
-            label="Help: Preview as a crew member"
-            testId="help-affordance--per-show-preview-links--tooltip"
-          >
-            <p>
-              Open the crew page the way one of these crew members sees
-              it. A yellow banner at the top reminds you that you are
-              previewing. This is the same data Doug sees on the crew
-              page, including any role-based redactions.
+          {crewLookupFailed ? (
+            <p
+              data-testid="per-show-crew-lookup-failed"
+              className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
+            >
+              We could not load the crew list right now. Refresh the page; if the
+              problem repeats, contact the developer.
             </p>
-            <p className="mt-2">
-              <a
-                href="/help/admin/preview-as-crew"
-                aria-label="Learn more about previewing as a crew member"
-                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-              >
-                Learn more →
-              </a>
+          ) : crew.length === 0 ? (
+            <p data-testid="per-show-crew-empty" className="text-sm text-text-subtle">
+              No crew members on this show yet. Once a sync brings them in, they
+              will appear here.
             </p>
-          </HelpTooltip>
-        </div>
-        {!show.published ? (
-          // Per spec §9.0 amendment: hide preview-as for shows that
-          // have not yet been published (the crew-side route gates
-          // non-admin viewers behind `published = TRUE`, and
-          // `admin_preview` resolves identically to crew inside
-          // `getShowForViewer`). Linking from here would 404 the
-          // operator on click, which is the broken admin flow the
-          // adversarial review flagged.
-          <p
-            data-testid="admin-show-preview-as-unpublished"
-            className="rounded-sm border border-border bg-info-bg p-3 text-sm text-text-subtle"
-          >
-            This show is not published to crew yet. Preview becomes
-            available once publishing finishes.
-          </p>
-        ) : crewLookupFailed ? (
-          <p
-            data-testid="admin-show-preview-as-error"
-            className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
-          >
-            We could not load the crew list right now. Refresh the
-            page; if the problem repeats, contact the developer.
-          </p>
-        ) : crew.length === 0 ? (
-          <p
-            data-testid="admin-show-preview-as-empty"
-            className="text-sm text-text-subtle"
-          >
-            This show has no crew members yet. Once a sync brings them
-            in, they will appear here.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {crew.map((member) => {
-              const id = (member as { id?: string }).id ?? "";
-              const name = (member as { name?: string }).name ?? "";
-              const role = (member as { role?: string }).role ?? null;
-              if (!id || !name) return null;
-              return (
-                <li
-                  key={id}
-                  data-testid={`admin-show-preview-as-row-${id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
+          ) : (
+            <>
+              {!(published && !archived) ? (
+                <p
+                  data-testid="admin-show-preview-as-unavailable"
+                  className="rounded-sm border border-border bg-info-bg p-3 text-sm text-text-subtle"
                 >
-                  <div className="flex flex-col">
-                    <span className="text-base font-semibold text-text-strong">
-                      {name}
-                    </span>
-                    {role ? (
-                      <span className="text-xs text-text-subtle">{role}</span>
-                    ) : null}
-                  </div>
-                  <Link
-                    data-testid={`admin-show-preview-as-link-${id}`}
-                    href={`/admin/show/${encodeURIComponent(show.slug)}/preview/${encodeURIComponent(id)}`}
-                    className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-                  >
-                    Preview as
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                  {archived
+                    ? "This show is archived. Preview-as is unavailable."
+                    : "This show is not published to crew yet. Preview becomes available once publishing finishes."}
+                </p>
+              ) : null}
+              <ul className="flex flex-col gap-2">
+                {crew.map((member) => {
+                  const id = (member as { id?: string }).id ?? "";
+                  const name = (member as { name?: string }).name ?? "";
+                  const role = (member as { role?: string }).role ?? null;
+                  if (!id || !name) return null;
+                  return (
+                    <li
+                      key={id}
+                      data-testid={`admin-show-crew-row-${id}`}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          aria-hidden="true"
+                          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-xs font-semibold text-text-subtle"
+                        >
+                          {initialsFor(name)}
+                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-base font-semibold text-text-strong">{name}</span>
+                          {role ? <span className="text-xs text-text-subtle">{role}</span> : null}
+                        </div>
+                      </div>
+                      {published && !archived ? (
+                        <Link
+                          data-testid={`admin-show-preview-as-link-${id}`}
+                          href={`/admin/show/${encodeURIComponent(show.slug)}/preview/${encodeURIComponent(id)}`}
+                          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                        >
+                          Preview as
+                        </Link>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </section>
 
+        {/* Share & access column (rotate/reset folded in, gated) */}
+        <section
+          data-testid="per-show-share-col"
+          aria-label="Share & access"
+          className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0"
+        >
+          <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
+          <p className="text-sm text-text-subtle">
+            One share-link reaches the whole crew. Rotate the link if it leaks;
+            reset the picker if a crew member needs to re-pick their identity.
+          </p>
+          {isShowEligibleForCrewLink ? (
+            // Pass the page's SINGLE token snapshot (Codex R2) so the header
+            // chip and this panel can never render two different tokens from a
+            // concurrent rotation. CurrentShareLinkPanel renders the URL when
+            // the token exists and its own "unavailable — refresh / rotate"
+            // recovery state when token is null — so a transient read failure on
+            // a published show is NOT mislabeled "unpublished/archived" (R1).
+            <CurrentShareLinkPanel showId={show.id} slug={show.slug} token={token} />
+          ) : (
+            <p
+              data-testid="admin-share-link-inactive"
+              className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+            >
+              The crew link is inactive while this show is{" "}
+              {archived ? "archived" : "unpublished"}. It will be available once the
+              show is published.
+            </p>
+          )}
+          {/* Rotate + Reset gated on published && !archived (R29 — finalize-owned
+              write hazard; publishing rows are finalize-owned, archived are
+              retired). The server-side RPC guard is §16 DEF-1. */}
+          {isShowEligibleForCrewLink ? (
+            <div className="flex flex-col items-end gap-4 border-t border-border pt-4">
+              <ResetPickerEpochButton showId={show.id} />
+              {/* isCrewLinkActive = show eligibility (published && !archived),
+                  NOT token presence (spec §6 R27). A successful rotate returns a
+                  fresh token, so the success URL must show even if the initial
+                  token read failed — Codex R1. */}
+              <RotateShareTokenButton
+                showId={show.id}
+                slug={show.slug}
+                isCrewLinkActive={isShowEligibleForCrewLink}
+              />
+            </div>
+          ) : null}
+        </section>
+      </div>
+
+      {/* Parse warnings — read-only for an archived show (R32 / §16 DEF-2). */}
       <section
         data-testid="admin-show-parse-warnings-section"
         aria-labelledby="admin-show-parse-warnings-heading"
         className="flex flex-col gap-3"
       >
-        <div className="flex items-center gap-2">
-          <h2
-            id="admin-show-parse-warnings-heading"
-            className="text-lg font-semibold text-text-strong"
-          >
-            Parse warnings
-          </h2>
-          <HelpTooltip
-            label="Help: Parse warnings"
-            testId="help-affordance--per-show-parse-warnings--tooltip"
-          >
-            <p>
-              Anything the app couldn&apos;t auto-apply for this show shows
-              up below as a staged review card with the rows that need a
-              decision. Apply once you&apos;ve resolved the warning, or
-              discard with a reason if the change shouldn&apos;t land.
-            </p>
-            <p className="mt-2">
-              <a
-                href="/help/admin/parse-warnings"
-                aria-label="Learn more about parse warnings"
-                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-              >
-                Learn more →
-              </a>
-            </p>
-          </HelpTooltip>
-        </div>
-        <ParsePanel rows={rows} showId={show.id} />
-      </section>
-
-      <section
-        data-testid="admin-share-access-section"
-        aria-labelledby="admin-share-access-heading"
-        className="space-y-3"
-      >
         <h2
-          id="admin-share-access-heading"
+          id="admin-show-parse-warnings-heading"
           className="text-lg font-semibold text-text-strong"
         >
-          Share &amp; access
+          Parse warnings
         </h2>
-        <p className="max-w-prose text-sm text-text-subtle">
-          One share-link reaches the whole crew. Rotate the link if it
-          leaks; reset the picker if a crew member needs to re-pick
-          their identity (e.g. they tapped the wrong name).
-        </p>
-        <CurrentShareLinkPanel showId={show.id} slug={show.slug} />
-        <div className="flex flex-col items-end gap-4">
-          <ResetPickerEpochButton showId={show.id} />
-          <RotateShareTokenButton showId={show.id} slug={show.slug} />
-        </div>
+        <ParsePanel rows={rows} showId={show.id} readOnly={archived} />
       </section>
 
-      <PerShowCrewSection
-        showId={show.id}
-        crew={crew}
-        crewLookupFailed={crewLookupFailed}
-      />
+      {/* Quiet sync footer (replaces the standalone Sync health section). */}
+      <footer
+        data-testid="admin-show-sync-footer"
+        className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"
+      >
+        <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
+        {archived ? (
+          // Archived shows are the read-only surface; Re-sync mutates shows /
+          // pending_syncs via /api/admin/sync, whose only server gate is
+          // finalize-ownership (NOT archived — lib/sync/runManualSyncForShow.ts).
+          // Suppress the CTA so this page never invites mutating a retired show.
+          // The server-side archived refusal is deferred (DEFERRED.md DEF-3).
+          <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
+            Re-sync is paused while this show is archived.
+          </span>
+        ) : (
+          <ReSyncButton slug={show.slug} />
+        )}
+      </footer>
     </main>
   );
 }

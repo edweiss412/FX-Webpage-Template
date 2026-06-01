@@ -68,6 +68,7 @@ describe("ActiveShowsPanel", () => {
         lastSyncedAt: new Date(now.getTime() - 12 * 60 * 1000).toISOString(),
         lastSyncStatus: "ok",
         published: true,
+        isLive: false,
       },
     ];
     const { getByTestId } = render(<ActiveShowsPanel rows={rows} now={now} />);
@@ -89,6 +90,7 @@ describe("ActiveShowsPanel", () => {
         lastSyncedAt: null,
         lastSyncStatus: null,
         published: false,
+        isLive: false,
       },
     ];
     const { getByTestId } = render(<ActiveShowsPanel rows={rows} now={new Date()} />);

@@ -28,29 +28,37 @@
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
-
-function resolveOrigin(): string {
-  const raw = process.env.NEXT_PUBLIC_SITE_ORIGIN;
-  if (!raw) return "http://localhost:3000";
-  try {
-    return new URL(raw).origin;
-  } catch {
-    return "http://localhost:3000";
-  }
-}
+// resolveOrigin moved to a standalone client-safe module (Task 10) so the
+// client RotateShareTokenButton can share it without importing this server
+// module's loadShowShareToken into the client bundle.
+import { resolveOrigin } from "./resolveOrigin";
 
 export async function CurrentShareLinkPanel({
   showId,
   slug,
+  token: tokenProp,
 }: {
   showId: string;
   slug: string;
+  /**
+   * M12.2 Phase A (Codex R2) — single render-scoped token snapshot. When the
+   * caller has ALREADY read the share token (the per-show page reads it once
+   * for the header chip), it passes that exact value here so the header and
+   * this panel can never render two different token snapshots from a
+   * concurrent rotation. When omitted (`undefined`), the panel falls back to
+   * reading it itself (standalone use). `null` means "read failed / no token".
+   */
+  token?: string | null;
 }) {
   let token: string | null;
-  try {
-    token = await loadShowShareToken(showId);
-  } catch {
-    token = null;
+  if (tokenProp !== undefined) {
+    token = tokenProp;
+  } else {
+    try {
+      token = await loadShowShareToken(showId);
+    } catch {
+      token = null;
+    }
   }
 
   if (!token) {

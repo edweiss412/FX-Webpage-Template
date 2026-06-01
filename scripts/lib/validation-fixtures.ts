@@ -63,6 +63,83 @@ export const ROLE_VARIANT_ALIASES = [
   { alias: "alias_6f_empty", roleFlags: [] },
 ] as const;
 
+// Human-readable crew names per alias (Phase 1 walk ergonomics — the picker /
+// preview list shows these, so the solo dev taps "Dana Cole — Crew Lead", not
+// "R1_alias_5a_lead"). SINGLE SOURCE OF TRUTH: buildFixtures() writes these as
+// crew_members.name AND check-seed's predicate (f) reads them via
+// fixtureCrewName() (NOT a `${combo}_${alias}` reconstruction), so the two can
+// never drift. Names are reused across every combo — the same person plays each
+// role in every scenario — which is fine because the mint RPC's uniqueness key
+// is (show_id, name) and these 9 are distinct within any one show.
+// The `alias` keys (alias_map contract) and `client_label='M12 Validation'`
+// ownership sentinel are deliberately UNCHANGED.
+export const ALIAS_DISPLAY_NAME: Record<string, string> = {
+  alias_5a_lead: "Dana Cole",
+  alias_5b_lead_a1: "Morgan Reyes",
+  alias_5c_bo_lead: "Casey Brooks",
+  alias_6a_a1: "Sam Rivera",
+  alias_6b_v1: "Jesse Nguyen",
+  alias_6c_l1: "Alex Kim",
+  alias_6d_bo: "Jordan Diaz",
+  alias_6e_a1_l1: "Priya Anand",
+  alias_6f_empty: "Robin Shaw",
+};
+
+/** Canonical human display name for a role-variant alias. Throws on unknown
+ *  alias so a typo can't silently seed a blank/undefined name. */
+export function fixtureCrewName(alias: string): string {
+  const name = ALIAS_DISPLAY_NAME[alias];
+  if (!name) {
+    throw new Error(`fixtureCrewName: no display name registered for alias '${alias}'`);
+  }
+  return name;
+}
+
+// Human-readable show titles per combo (Phase 1 walk ergonomics — the admin
+// dashboard + per-show pages show shows.title, so the dev sees
+// "Validation — Day off (R3)" instead of "M12 Validation — R3"). The combo
+// tag stays in parens for traceability, and the "Validation —" prefix keeps
+// these visibly distinct from real shows on the dashboard.
+//
+// IMPORTANT — this is the show TITLE only. The fixture-OWNERSHIP sentinel is a
+// SEPARATE column, `client_label = 'M12 Validation'` (check-seed line ~453,
+// report-fixtures resolveShowId, the finalize prune) — it is deliberately
+// UNCHANGED. Renaming the title does not touch ownership scoping. `slug` is
+// also a separate field (validation-<combo>), unchanged, so share-link URLs
+// are stable.
+//
+// SINGLE SOURCE OF TRUTH: buildFixtures() writes shows.title = fixtureShowName(combo)
+// AND check-seed predicate (o.5) compares shows.title to expected.showName
+// (read from the SAME buildFixtures output) — they can never drift.
+const SCENARIO_TITLE: Record<Combo, string> = {
+  R1: "Normal day",
+  R2: "Scheduled to work",
+  R3: "Day off",
+  R4: "Unconfirmed schedule",
+  R5: "Before opening",
+  R6: "After the show",
+  R7a: "Setup day (setup crew)",
+  R7b: "Teardown day (setup crew)",
+  R8a: "Teardown day (teardown crew)",
+  R8b: "Setup day (teardown crew)",
+  "SW-PRE_TRAVEL": "Before travel",
+  "SW-TRAVEL_IN": "Travel day",
+  "SW-SHOW_1": "First show day",
+  "SW-SHOW_INTERIOR": "Mid show day",
+  "SW-SHOW_LAST": "Last show day",
+  "SW-POST_SHOW": "After show, heading home",
+};
+
+/** Canonical human show title for a combo, e.g. "Validation — Day off (R3)".
+ *  Throws on unknown combo so a typo can't silently seed a blank title. */
+export function fixtureShowName(combo: Combo): string {
+  const scenario = SCENARIO_TITLE[combo];
+  if (!scenario) {
+    throw new Error(`fixtureShowName: no scenario title registered for combo '${combo}'`);
+  }
+  return `Validation — ${scenario} (${combo})`;
+}
+
 // =============================================================================
 // J3-claim-email guard — R13 commit 30 + R15 commit 35.
 // =============================================================================
@@ -481,7 +558,7 @@ export function buildFixtures(today: string): FixtureRow[] {
       buildRCombo(combo, today);
     out.push({
       combo,
-      showName: `M12 Validation — ${combo}`,
+      showName: fixtureShowName(combo),
       drive_file_id: `validation_${combo}`,
       slug: `validation-${combo.toLowerCase().replace(/_/g, "-")}`,
       dateRestriction,
@@ -497,7 +574,7 @@ export function buildFixtures(today: string): FixtureRow[] {
             : synthesizeEmail(combo, alias);
         return {
           alias,
-          name: `${combo}_${alias}`,
+          name: fixtureCrewName(alias),
           email,
           roleFlags: [...roleFlags],
         };
@@ -510,7 +587,7 @@ export function buildFixtures(today: string): FixtureRow[] {
       buildSWCombo(combo, today);
     out.push({
       combo,
-      showName: `M12 Validation — ${combo}`,
+      showName: fixtureShowName(combo),
       drive_file_id: `validation_${combo}`,
       // SW slugs preserve the SW- prefix for traceability while lowercasing
       // the suffix half. Underscores → dashes for URL-friendliness.
@@ -522,7 +599,7 @@ export function buildFixtures(today: string): FixtureRow[] {
       crewMembers: [
         {
           alias: "alias_5a_lead",
-          name: `${combo}_alias_5a_lead`,
+          name: fixtureCrewName("alias_5a_lead"),
           email: synthesizeEmail(combo, "alias_5a_lead"),
           roleFlags: ["LEAD"],
         },
