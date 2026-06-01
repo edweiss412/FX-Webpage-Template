@@ -248,6 +248,25 @@ describe("per-show page (§6)", () => {
     expect(footer.textContent).toMatch(/Last synced/);
   });
 
+  // Codex impl-diff finding [high] (M12.2-A close-out): the per-show page is the
+  // archived-safe READ-ONLY surface (ParsePanel readOnly, share/rotate/preview
+  // gated on !archived), but the sync footer's Re-sync CTA mutates shows/
+  // pending_syncs via /api/admin/sync — and the server's only gate is
+  // finalize-ownership, NOT archived. So Re-sync must be suppressed for archived
+  // shows (UI mitigation; the server-side archived guard is DEFERRED — DEF-3).
+  it("archived show: Re-sync CTA suppressed + read-only note shown", async () => {
+    state.show = { ...baseShow, archived: true, published: true };
+    await renderPage();
+    expect(screen.queryByTestId("admin-resync-button")).toBeNull();
+    expect(screen.getByTestId("admin-show-resync-archived")).toBeInTheDocument();
+  });
+
+  it("non-archived show: Re-sync CTA present", async () => {
+    await renderPage();
+    expect(screen.getByTestId("admin-resync-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
+  });
+
   it("sync footer keeps plain 'Last synced {rel}' for ok status (no redundant label)", async () => {
     state.show = { ...baseShow, last_sync_status: "ok", last_synced_at: "2026-06-03T08:00:00.000Z" };
     await renderPage();

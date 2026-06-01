@@ -463,7 +463,18 @@ export default async function AdminShowPage({
         className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"
       >
         <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
-        <ReSyncButton slug={show.slug} />
+        {archived ? (
+          // Archived shows are the read-only surface; Re-sync mutates shows /
+          // pending_syncs via /api/admin/sync, whose only server gate is
+          // finalize-ownership (NOT archived — lib/sync/runManualSyncForShow.ts).
+          // Suppress the CTA so this page never invites mutating a retired show.
+          // The server-side archived refusal is deferred (DEFERRED.md DEF-3).
+          <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
+            Re-sync is paused while this show is archived.
+          </span>
+        ) : (
+          <ReSyncButton slug={show.slug} />
+        )}
       </footer>
     </main>
   );
