@@ -256,7 +256,7 @@
 
    10. **Spec §9.1 / §9.2 — M12.2 Phase A admin IA reskin + admin-visibility compliance**
        _(ratified 2026-05-31; spawned by the M12 UX-validation walk; spec
-       `docs/superpowers/specs/2026-05-31-m12.2-phase-a-admin-dashboard-per-show-design.md`, converged via
+       `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-a-admin-dashboard-per-show-design.md`, converged via
        32-round cross-model adversarial review)_. The spec at §9.1 specifies a flat active-shows list dashboard
        and §9.2 a flat stacked per-show page. The walk found these damage Doug's "dashboard = overview" /
        per-show command-surface experience. **The M12.2 Phase A plan supersedes §9.1/§9.2 on layout/IA only:**
@@ -276,7 +276,7 @@
 
    11. **Spec §9.1 / §9.2 — M12.2 Phase B1 admin nav shell + settings shell** _(PROPOSED)_
        _(design owner-approved 2026-05-31; second half of the owner's "Milestone B" per `.validation-local/design-admin/RECONCILIATION.md §E`;
-       spec `docs/superpowers/specs/2026-05-31-m12.2-phase-b1-admin-nav-settings-design.md`. **Status: PROPOSED — the spec is
+       spec `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-b1-admin-nav-settings-design.md`. **Status: PROPOSED — the spec is
        still in cross-model adversarial review; this amendment becomes authoritative only when the review APPROVEs AND the
        user signs off on the spec. Until then the master spec §9 remains canonical for any conflict.**)_. The master spec §9 describes a chrome-less admin section (a static "Admin" header + the
        global AlertBanner, `app/admin/layout.tsx`). **The M12.2 Phase B1 plan supersedes §9.1/§9.2 on
