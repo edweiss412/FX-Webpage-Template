@@ -298,8 +298,8 @@
        sign-off (mirroring amendment 11's PROPOSED→RATIFIED flow).**)_. B2 makes amendment 9's clean-first-seen
        auto-publish **conditional on `app_settings.auto_publish_clean_first_seen` (default `true` = current behavior)**
        and, as the inverse, **re-enables emission of the `FIRST_SEEN_REVIEW` sentinel** (which amendment 9 retired)
-       when the toggle is OFF — across BOTH first-seen auto-publish entry points (`phase1.sentinelFor` cron/push AND
-       `runManualStageForFirstSeen` manual retry). B2 also adds the **archive/unarchive/publish lifecycle** (new `Held`
+       when the toggle is OFF — across BOTH first-seen auto-publish entry points (the cron/push `phase1` **post-`reviewItems`
+       clean outcome branch**, NOT `sentinelFor`, AND `runManualStageForFirstSeen` manual retry). B2 also adds the **archive/unarchive/publish lifecycle** (new `Held`
        state), the **segmented Active/Archived dashboard bucket**, and **five archived-immutability guards** (spec §16
        DEF-1/2/3 + DEF-4 cron/push/missing-file + DEF-5 pending-ingestion retry/discard routes). DB changes: three columns
        (`app_settings.auto_publish_clean_first_seen`, `shows.archived_at`, `shows.requires_resync`), three lifecycle RPCs
