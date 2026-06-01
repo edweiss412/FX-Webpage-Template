@@ -23,9 +23,10 @@
  * Server Component (no 'use client').
  */
 import type { ReactNode } from "react";
-import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
+import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { AlertBanner } from "@/components/admin/AlertBanner";
-import { messageFor } from "@/lib/messages/lookup";
+import { getRequiredDougFacing } from "@/lib/messages/lookup";
+import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 
 export const dynamic = "force-dynamic";
 
@@ -44,11 +45,21 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   // 500-class error with retry guidance instead of an opaque framework
   // error. notFound() / forbidden() throws still propagate (those are
   // Next navigation control flow with NEXT_HTTP_ERROR_FALLBACK digest).
+  // B1 Task 2.2: read identity here (was requireAdmin()). The explicit
+  // `layer: "layout"` exempts the layout gate from Task 2.3's page-scoped
+  // force header, so the route-render proof can let the layout succeed
+  // while a page gate throws. Pages call the helpers with the default
+  // `layer: "page"`. `identity.email` + the alert count are stored as
+  // locals here; Phase 3 (Task 3.4) threads them into <AdminNav>.
+  let identity: Awaited<ReturnType<typeof requireAdminIdentity>>;
   try {
-    await requireAdmin();
+    identity = await requireAdminIdentity({ layer: "layout" });
   } catch (err) {
     if (err instanceof AdminInfraError) {
-      const entry = messageFor(err.code as never);
+      // Fixed generic ADMIN_ROUTE_LOAD_FAILED copy (Task 0.7). Replaces
+      // the prior messageFor(err.code) → crewFacing fallback, which would
+      // show ADMIN_SESSION_LOOKUP_FAILED's crew-facing copy (wrong
+      // audience: its dougFacing is null) on the admin shell.
       return (
         <div
           data-testid="admin-layout-infra-error"
@@ -56,7 +67,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         >
           <h1 className="text-2xl font-semibold">Admin session unavailable</h1>
           <p className="mt-4 text-base text-text-subtle">
-            {entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."}
+            {getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED")}
           </p>
           <a
             href="/admin"
@@ -69,6 +80,16 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     }
     throw err;
   }
+
+  // Phase 1 helper (already meta-pinned in lib/admin/alertCount.ts).
+  // Threaded into <AdminNav> in Phase 3; stored as a local for now.
+  const alertCount = await fetchUnresolvedAlertCount();
+  const adminEmail = identity.email;
+  // Reference the locals so the diff compiles cleanly before Phase 3
+  // consumes them; no behavioral effect (noUnusedLocals is not set, but
+  // void keeps lint quiet without a placeholder render).
+  void adminEmail;
+  void alertCount;
 
   return (
     <div
