@@ -20,6 +20,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → refresh page",
     "helpfulContext": "When you clicked Mark resolved, the server looked up that alert by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
   },
+  "ADMIN_DRIVE_HEALTH_UNAVAILABLE": {
+    "crewFacing": null,
+    "dougFacing": "Couldn't read sync status right now. Refresh in a moment.",
+    "followUp": "Doug → refresh; if persistent, check Supabase shows + drive_watch_channels access",
+    "helpfulContext": "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_synced_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
+  },
   "ADMIN_EMAIL_ALREADY_ACTIVE": {
     "crewFacing": null,
     "dougFacing": "_<email>_ is already an administrator.",

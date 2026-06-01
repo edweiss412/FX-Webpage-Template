@@ -1268,6 +1268,16 @@ export const MESSAGE_CATALOG = {
     longExplanation: "We couldn't read the alert count, usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the admin_alerts table access.",
     helpHref: "/help/errors#ADMIN_ALERT_COUNT_FAILED",
   },
+  ADMIN_DRIVE_HEALTH_UNAVAILABLE: {
+    code: "ADMIN_DRIVE_HEALTH_UNAVAILABLE",
+    dougFacing: "Couldn't read sync status right now. Refresh in a moment.",
+    crewFacing: null,
+    followUp: "Doug → refresh; if persistent, check Supabase shows + drive_watch_channels access",
+    helpfulContext: "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_synced_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
+    title: "Couldn't read sync status",
+    longExplanation: "We couldn't read how your Drive sync is doing. Refresh in a moment; if it keeps failing, the developer needs to check the database connection.",
+    helpHref: "/help/errors#ADMIN_DRIVE_HEALTH_UNAVAILABLE",
+  },
   SYNC_STATUS_UNKNOWN: {
     code: "SYNC_STATUS_UNKNOWN",
     dougFacing: "A show's sync state isn't recognized right now. The developer should take a look.",

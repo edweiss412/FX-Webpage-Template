@@ -12,4 +12,9 @@ describe("B1 catalog codes", () => {
     expect(MESSAGE_CATALOG.SYNC_STATUS_UNKNOWN).toBeDefined();
     expect(getDougFacing("SYNC_STATUS_UNKNOWN")).toMatch(/isn't recognized|not recognized/i);
   });
+
+  it("ADMIN_DRIVE_HEALTH_UNAVAILABLE is cataloged + Doug-facing", () => {
+    expect(MESSAGE_CATALOG.ADMIN_DRIVE_HEALTH_UNAVAILABLE).toBeDefined();
+    expect(getDougFacing("ADMIN_DRIVE_HEALTH_UNAVAILABLE")).toMatch(/read sync status/i);
+  });
 });
