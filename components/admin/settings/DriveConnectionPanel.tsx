@@ -59,8 +59,15 @@ function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
     case "watch_inactive":
     case "watch_expired":
       return `Connection needs attention${lastReadClause}`;
+    case "sync_unknown":
+      // B1-D2 (owner-ratified §3.1 amendment, option i): sync_unknown is a
+      // developer-attention / data-integrity state (enum drift or a corrupt
+      // row), categorically distinct from routine staleness — render
+      // SYNC_STATUS_UNKNOWN's specific cataloged copy via the carried code,
+      // NOT the generic group line. health.code === "SYNC_STATUS_UNKNOWN".
+      return `${getRequiredDougFacing(health.code)}${lastReadClause}`;
     default: {
-      // sync_* | stale_* | sync_unknown → failing-row count drives the copy.
+      // sync_* | stale_* → failing-row count drives the generic group line.
       const noun = health.attentionCount === 1 ? "show needs" : "shows need";
       return `Syncing, but ${health.attentionCount} ${noun} attention${lastReadClause}`;
     }

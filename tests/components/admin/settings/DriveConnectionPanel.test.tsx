@@ -114,6 +114,32 @@ describe("DriveConnectionPanel", () => {
     expect(statusLine()).toBe(`Syncing, but 3 shows need attention · last read ${REL_2HR}`);
   });
 
+  // B1-D2 (owner-ratified §3.1 amendment, option i): sync_unknown is a
+  // developer-attention / data-integrity state, NOT routine staleness, so it
+  // renders SYNC_STATUS_UNKNOWN's specific cataloged copy via
+  // getRequiredDougFacing(health.code) instead of the generic group line.
+  it("warn/sync_unknown → SYNC_STATUS_UNKNOWN developer-attention copy + last-read clause, NOT the generic 'shows need attention' line (B1-D2)", () => {
+    const health: DriveConnectionHealth = {
+      health: "warn",
+      reason: "sync_unknown",
+      code: "SYNC_STATUS_UNKNOWN",
+      folderName: "Show Sheets 2026",
+      folderId: "abc123",
+      syncingCount: 501,
+      attentionCount: 2,
+      lastReadAt: TWO_HR_AGO,
+    };
+    render(<DriveConnectionPanel health={health} now={NOW} />);
+    // Anti-tautology: assert against the catalog accessor, not a literal.
+    const expected = getRequiredDougFacing("SYNC_STATUS_UNKNOWN");
+    expect(statusLine()).toBe(`${expected} · last read ${REL_2HR}`);
+    // The generic group line must be ABSENT for sync_unknown.
+    expect(statusLine()).not.toContain("Syncing, but");
+    expect(statusLine()).not.toContain("need attention");
+    expect(statusLine().startsWith("Connected")).toBe(false);
+    expect(screen.getByTestId("status-dot-warn")).toBeInTheDocument();
+  });
+
   it("infra_error → 'Couldn't read sync status' via ADMIN_DRIVE_HEALTH_UNAVAILABLE (cataloged, not a literal); Warn pill", () => {
     const health: DriveConnectionHealth = { kind: "infra_error" };
     render(<DriveConnectionPanel health={health} now={NOW} />);
