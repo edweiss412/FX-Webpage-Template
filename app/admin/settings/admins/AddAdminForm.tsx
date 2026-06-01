@@ -26,7 +26,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useActionState } from "react";
 
-import { getDougFacing } from "@/lib/messages/lookup";
+import { getDougFacing, getRequiredDougFacing } from "@/lib/messages/lookup";
 
 import { addAdminAction, type AdminEmailActionResult } from "./actions";
 
@@ -178,6 +178,18 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
           className="text-sm text-text-subtle"
         >
           {getDougFacing("ADMIN_EMAIL_ALREADY_ACTIVE", { email: result.email })}
+        </p>
+      )}
+      {/* Task 6.4: transient DB / permissions fault on the add RPC,
+          caught as AdminEmailsInfraError and surfaced inline so Doug can
+          retry without losing the section. */}
+      {result?.kind === "infra_error" && (
+        <p
+          data-testid="admin-allowlist-error-write-failed"
+          role="alert"
+          className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+        >
+          {getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED")}
         </p>
       )}
     </form>

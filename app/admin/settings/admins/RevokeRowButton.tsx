@@ -30,7 +30,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useActionState } from "react";
 
-import { getDougFacing } from "@/lib/messages/lookup";
+import { getDougFacing, getRequiredDougFacing } from "@/lib/messages/lookup";
 
 import { revokeAdminAction, type AdminEmailActionResult } from "./actions";
 
@@ -91,6 +91,16 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
       ? getDougFacing("LAST_ADMIN_LOCKOUT_REFUSED")
       : null;
 
+  // Task 6.4: transient DB / permissions fault on the revoke RPC,
+  // caught as AdminEmailsInfraError and surfaced inline so Doug can
+  // retry. Like lockoutMessage, the non-ok result snaps ui→idle (see
+  // `refused` above), so this renders in the idle return block; the
+  // confirm block also renders it to cover any mid-resolve render.
+  const writeFailMessage =
+    result?.kind === "infra_error"
+      ? getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED")
+      : null;
+
   if (effectiveUi === "idle") {
     // Audit P3 fix: when the Revoke button is disabled because actor
     // is the only active admin, render the explanation as a visible
@@ -134,6 +144,15 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
           >
             {lockoutMessage}
+          </p>
+        )}
+        {writeFailMessage && (
+          <p
+            data-testid="admin-allowlist-error-write-failed"
+            role="alert"
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          >
+            {writeFailMessage}
           </p>
         )}
       </div>
@@ -181,6 +200,15 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
         >
           {lockoutMessage}
+        </p>
+      )}
+      {writeFailMessage && (
+        <p
+          data-testid="admin-allowlist-error-write-failed"
+          role="alert"
+          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+        >
+          {writeFailMessage}
         </p>
       )}
     </div>
