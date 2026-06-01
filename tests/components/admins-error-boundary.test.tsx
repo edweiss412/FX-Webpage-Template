@@ -7,14 +7,15 @@
  * AdminEmailsInfraError, Doug MUST see a cataloged retryable message
  * instead of Next.js's generic error page.
  *
- * Both AdminEmailsInfraError and unknown throws render the same
- * ADMIN_EMAIL_LIST_FAILED catalog copy — the message ("can't load
- * the administrator list right now") fits both classes, and
- * distinguishing them in user-facing text would leak implementation
- * detail. Operator-facing distinction lives in server logs + the
- * client console.error.
- *
- * Both branches expose a Retry button wired to Next's reset() callback.
+ * M12.2 B1 (Task 2.1) REPOINT: this boundary now renders the FIXED
+ * generic ADMIN_ROUTE_LOAD_FAILED copy (was ADMIN_EMAIL_LIST_FAILED).
+ * After B1 the administrator-list read flows through the typed
+ * fetchEmbeddedAdminEmails wrapper (Task 6.2) and list-read faults are
+ * handled IN-SECTION, so the only faults that reach this client
+ * boundary are route/session/uncaught faults. A client boundary cannot
+ * inspect err.code, so a fixed list-read label would mislabel a
+ * session/auth fault. Both branches render the same fixed code and
+ * expose a Retry button wired to Next's reset() callback.
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -30,23 +31,24 @@ afterEach(() => {
 });
 
 describe("admins/error.tsx — M9 final-review fix", () => {
-  it("renders the cataloged ADMIN_EMAIL_LIST_FAILED message when AdminEmailsInfraError is thrown", () => {
+  it("renders the cataloged ADMIN_ROUTE_LOAD_FAILED message when a fault is thrown (REPOINTED)", () => {
     const err = new AdminEmailsInfraError("simulated RLS denial on admin_emails SELECT");
     const reset = vi.fn();
     const { getByTestId } = render(<AdminsPageError error={err} reset={reset} />);
     const boundary = getByTestId("admin-allowlist-error-boundary");
-    expect(boundary.textContent).toContain("can't load the administrator list");
+    expect(boundary.textContent).toContain("This admin page couldn't load");
+    // The old in-section list-read copy must NOT appear here anymore.
+    expect(boundary.textContent).not.toContain("administrator list");
   });
 
-  it("renders the same cataloged message for non-AdminEmailsInfraError throws (defense in depth)", () => {
+  it("renders the same fixed code for non-AdminEmailsInfraError throws (defense in depth)", () => {
     const err = new Error("unexpected generic error");
     const reset = vi.fn();
     const { getByTestId } = render(<AdminsPageError error={err} reset={reset} />);
     const boundary = getByTestId("admin-allowlist-error-boundary");
-    // Same ADMIN_EMAIL_LIST_FAILED copy as the infra branch — the
-    // message fits both classes and avoids leaking implementation
-    // detail in user-facing text.
-    expect(boundary.textContent).toContain("can't load the administrator list");
+    // Same fixed ADMIN_ROUTE_LOAD_FAILED copy — a client boundary cannot
+    // inspect err.code, so all faults reaching it render the generic code.
+    expect(boundary.textContent).toContain("This admin page couldn't load");
   });
 
   it("Retry button is wired to Next's reset() callback", () => {

@@ -22,7 +22,7 @@
 import { useEffect, useTransition } from "react";
 import Link from "next/link";
 
-import { getDougFacing } from "@/lib/messages/lookup";
+import { getRequiredDougFacing } from "@/lib/messages/lookup";
 
 export default function AdminsPageError({
   error,
@@ -40,13 +40,17 @@ export default function AdminsPageError({
     console.error("[admins/error.tsx]", error);
   }, [error]);
 
-  // Single catalog code covers both AdminEmailsInfraError and any
-  // unknown throw — the copy ("can't load the administrator list
-  // right now") fits both classes. Distinguishing them in user-facing
-  // text would leak implementation detail; the operator-facing
-  // distinction lives in the console.error above + Next's server
-  // logs which carry the original stack + error.name.
-  const message = getDougFacing("ADMIN_EMAIL_LIST_FAILED");
+  // M12.2 B1 (Task 2.1) REPOINT: ADMIN_EMAIL_LIST_FAILED → the fixed
+  // generic ADMIN_ROUTE_LOAD_FAILED. After B1, the administrator-list
+  // read flows through the typed fetchEmbeddedAdminEmails wrapper
+  // (Task 6.2), so list-read faults are handled IN-SECTION. The only
+  // faults that reach this client boundary are route/session/uncaught
+  // faults (e.g. the page's requireAdminIdentity() gate). A client
+  // boundary cannot inspect err.code, so a fixed ADMIN_EMAIL_LIST_FAILED
+  // here would mislabel a session/auth fault as "couldn't load the
+  // administrator list." All three admin error.tsx boundaries render the
+  // same fixed code.
+  const message = getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED");
 
   return (
     <main className="mx-auto max-w-2xl px-tile-pad pb-section-gap">
