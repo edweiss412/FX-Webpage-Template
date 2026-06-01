@@ -22,6 +22,34 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 vi.mock("@/lib/onboarding/serverActions", () => ({
   rerunSetupServerAction: async () => {},
 }));
+vi.mock("@/lib/time/now", () => ({
+  nowDate: async () => new Date("2026-06-01T12:00:00.000Z"),
+}));
+vi.mock("@/lib/admin/driveConnectionHealth", () => ({
+  fetchDriveConnectionHealth: async () => ({
+    health: "positive" as const,
+    folderName: "Show Sheets",
+    folderId: "folder-123",
+    syncingCount: 3,
+    attentionCount: 0,
+    lastReadAt: "2026-06-01T11:00:00.000Z",
+  }),
+}));
+vi.mock("@/lib/admin/embeddedAdminEmails", () => ({
+  fetchEmbeddedAdminEmails: async () => ({
+    kind: "ok" as const,
+    rows: [
+      {
+        email: "admin@example.com",
+        added_by: null,
+        added_at: "2026-05-01T00:00:00.000Z",
+        revoked_by: null,
+        revoked_at: null,
+        note: null,
+      },
+    ],
+  }),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin/settings",
@@ -61,9 +89,13 @@ describe("Settings header (Task 4.2)", () => {
     expect(screen.getByTestId("admin-settings-page").className).toMatch(/max-w-\[740px\]/);
   });
 
-  it("keeps the re-run-setup + administrators body sections", async () => {
+  it("mounts the Drive connection panel + embedded Administrators section", async () => {
     await renderSettings();
-    expect(screen.getByTestId("admin-settings-rerun-setup-section")).toBeInTheDocument();
-    expect(screen.getByTestId("admin-settings-admins-link")).toBeInTheDocument();
+    // Task 6.2 rebuild: the standalone re-run-setup section + the admins link
+    // are subsumed by DriveConnectionPanel (own Re-run setup button) and the
+    // embedded AdministratorsSection.
+    expect(screen.getByTestId("admin-settings-drive-connection-section")).toBeInTheDocument();
+    expect(screen.getByTestId("drive-connection-rerun-setup-button")).toBeInTheDocument();
+    expect(screen.getByTestId("admin-active-list")).toBeInTheDocument();
   });
 });
