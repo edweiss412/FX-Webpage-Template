@@ -1268,6 +1268,16 @@ export const MESSAGE_CATALOG = {
     longExplanation: "We couldn't read the alert count, usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the admin_alerts table access.",
     helpHref: "/help/errors#ADMIN_ALERT_COUNT_FAILED",
   },
+  ADMIN_ROUTE_LOAD_FAILED: {
+    code: "ADMIN_ROUTE_LOAD_FAILED",
+    dougFacing: "This admin page couldn't load. Refresh in a moment; if it keeps failing, contact the developer.",
+    crewFacing: null,
+    followUp: "Doug → refresh; if persistent, contact the developer",
+    helpfulContext: "Fixed code for the app/admin/error.tsx + app/admin/settings/error.tsx client boundaries AND the layout's identity-fault catch (app/admin/layout.tsx). Used instead of ADMIN_SESSION_LOOKUP_FAILED, whose dougFacing is null + crew-facing (wrong audience). error.tsx files are client components; Next serializes errors as Error & { digest } so a thrown code field is unreliable — the boundary renders this fixed code, not err.code.",
+    title: "Admin page couldn't load",
+    longExplanation: "Something went wrong loading this admin page. Refresh in a moment; if it keeps failing, the developer needs to take a look.",
+    helpHref: "/help/errors#ADMIN_ROUTE_LOAD_FAILED",
+  },
   ADMIN_EMAIL_WRITE_FAILED: {
     code: "ADMIN_EMAIL_WRITE_FAILED",
     dougFacing: "Couldn't update administrators right now. Try again in a moment.",

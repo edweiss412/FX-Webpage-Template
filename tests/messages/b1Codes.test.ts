@@ -22,4 +22,9 @@ describe("B1 catalog codes", () => {
     expect(MESSAGE_CATALOG.ADMIN_EMAIL_WRITE_FAILED).toBeDefined();
     expect(getDougFacing("ADMIN_EMAIL_WRITE_FAILED")).toMatch(/update administrators/i);
   });
+
+  it("ADMIN_ROUTE_LOAD_FAILED is cataloged + Doug-facing", () => {
+    expect(MESSAGE_CATALOG.ADMIN_ROUTE_LOAD_FAILED).toBeDefined();
+    expect(getDougFacing("ADMIN_ROUTE_LOAD_FAILED")).toMatch(/admin page couldn't load/i);
+  });
 });

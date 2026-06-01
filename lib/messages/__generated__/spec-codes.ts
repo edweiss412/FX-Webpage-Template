@@ -62,6 +62,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → sign in again",
     "helpfulContext": "Admin-only endpoints return this when the request does not carry a valid admin session.",
   },
+  "ADMIN_ROUTE_LOAD_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "This admin page couldn't load. Refresh in a moment; if it keeps failing, contact the developer.",
+    "followUp": "Doug → refresh; if persistent, contact the developer",
+    "helpfulContext": "Fixed code for the app/admin/error.tsx + app/admin/settings/error.tsx client boundaries AND the layout's identity-fault catch (app/admin/layout.tsx). Used instead of ADMIN_SESSION_LOOKUP_FAILED, whose dougFacing is null + crew-facing (wrong audience). error.tsx files are client components; Next serializes errors as Error & { digest } so a thrown code field is unreliable — the boundary renders this fixed code, not err.code.",
+  },
   "ADMIN_SESSION_LOOKUP_FAILED": {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
     "dougFacing": null,
