@@ -8,7 +8,9 @@
  *   - <AdministratorsSection> (Task 6.2) — embedded admin allow-list (the old
  *     "Manage administrators" link is subsumed; the deep link
  *     /admin/settings/admins still renders the same section).
- *   - DevToolsRow lands in Task 8.3 (NOT here).
+ *   - <DevToolsRow> (Task 8.3) — gated on the build-time DEV_PANEL_PRESENT
+ *     constant; renders null in normal builds (committed false), so it is the
+ *     only "Preferences"-area content for B1 and is invisible by default.
  *
  * The layout gates admin access; we still re-call requireAdminIdentity here
  * defensively (matching app/admin/dev/page.tsx) and to source the actor's
@@ -22,6 +24,7 @@ import { fetchEmbeddedAdminEmails } from "@/lib/admin/embeddedAdminEmails";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import { DriveConnectionPanel } from "@/components/admin/settings/DriveConnectionPanel";
 import { AdministratorsSection } from "@/components/admin/settings/AdministratorsSection";
+import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings · Admin · FXAV" };
@@ -47,6 +50,8 @@ export default async function AdminSettingsPage() {
         actorCanonicalEmail={canonicalize(identity.email) ?? ""}
         now={now}
       />
+
+      <DevToolsRow />
     </main>
   );
 }
