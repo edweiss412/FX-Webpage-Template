@@ -22,7 +22,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with ten ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with eleven ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified spec amendments (in `docs/superpowers/specs/master-spec-patches/`):**
    - **§12.4 AGENDA_* crew-facing catalog rows** _(2026-05-12, ratified at SHA `ac905da` after R1–R4 cross-CLI review; integrated into spec body by Task 9.0.A1)_. Adds `AGENDA_GONE_FOR_CREW` (410/403) and `AGENDA_UNAUTHENTICATED` (401) crew-only display codes covering the `AgendaPdfViewer` proxy's error states. See `docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md`. M7-D2 (`components/agenda/AgendaPdfViewer.tsx` routing to these codes) is the consumer; Task 9.M7-D2's TDD checklist owns the exhaustive status→code coverage.
@@ -273,6 +273,23 @@
        archived dashboard bucket + archive/unarchive action, and the server-side rotate/reset + archived
        apply/discard mutation guards (spec §16 DEF-1/DEF-2 — pre-existing backend gaps, deferred with concrete
        triggers + Phase-A UI mitigations). No DB writes / no migrations land in Phase A.
+
+   11. **Spec §9.1 / §9.2 — M12.2 Phase B1 admin nav shell + settings shell**
+       _(ratified 2026-05-31; second half of the owner's "Milestone B" per `.validation-local/design-admin/RECONCILIATION.md §E`;
+       spec `docs/superpowers/specs/2026-05-31-m12.2-phase-b1-admin-nav-settings-design.md`, converged via cross-model
+       adversarial review)_. The master spec §9 describes a chrome-less admin section (a static "Admin" header + the
+       global AlertBanner, `app/admin/layout.tsx`). **The M12.2 Phase B1 plan supersedes §9.1/§9.2 on
+       navigation/chrome + settings layout only:** (a) a **persistent nav shell** wrapping every `/admin/*` route —
+       desktop top bar (brand + Admin badge + Dashboard/Settings nav + NotifBell + dark toggle + UserMenu) + mobile
+       top bar + bottom tab bar + per-route page header/breadcrumbs (`<AdminPageHeader>`, page-owned data); (b) a
+       **settings shell** at `/admin/settings` — read-only Drive-connection health panel + embedded Administrators
+       (with the revoke-hang fix) + a build-gated Developer-tools row. The crew share/picker model on these surfaces
+       follows the 2026-05-23 picker-pivot amendment, NOT the stale signed-link spec. **Out of B1 (→ B2 / B3):** the
+       two settings "Preferences" toggles are backend subsystems, not chrome — auto-publish-clean-first-seen → **B2**
+       (show lifecycle, with archive/unarchive + unpublish/undo + spec §16 DEF-1/2/3 guards); alert-me-about-sync-problems
+       → **B3** (email-delivery subsystem). B1 adds **no DB writes** (settings is read-only health + the existing
+       allowlist RPCs); its only DB-adjacent change is the §12.4 `ADMIN_EMAIL_LIST_FAILED` `helpfulContext` edit
+       (surface-neutral copy for the embedded admin-list, three-lockstep).
 
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
 3. **Commit per task.** Commit messages take the form `feat(<area>): <one-line summary>` or `test(<area>): ...` — area names are `parser`, `db`, `sync`, `auth`, `crew-page`, `admin`, `report`, `onboarding`, `assets`, `infra`.
