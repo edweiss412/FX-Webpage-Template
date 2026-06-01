@@ -1,0 +1,85 @@
+name: Screenshots regen (manual)
+
+# Manual, byte-correct regeneration of the committed screenshot baselines.
+# Captures on the native-amd64 GitHub runner using the SAME pinned Playwright
+# image + capture command as the screenshots-drift gate, then commits the
+# regenerated public/help/screenshots/ back to the dispatched branch. This is
+# the sanctioned way to refresh baselines after a captured-route UI change
+# (e.g. an /admin chrome redesign): regenerating from a dev host produces
+# different bytes (Apple Silicon / arm64 emulation diverges from native x64),
+# so the authoritative source is this native-amd64 runner. Dispatch from the
+# feature branch; screenshots-drift then passes on the PR.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  screenshots-regen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start Supabase (supply cron-schedule GUC; local-only placeholder)
+        run: |
+          set -euo pipefail
+          # Mirror screenshots-drift.yml: migration 20260527000003 refuses to
+          # apply without the app.fxav_vercel_url GUC (ratified prod-safety
+          # contract). Hold it aside, boot the DB, set the GUC as a per-database
+          # default via supabase_admin, restore, then migration up --include-all.
+          GUC_URL="https://fxav-screenshots-ci.invalid"
+          HELD="supabase/migrations/20260527000003_schedule_cron_jobs.sql"
+          STASH="$(mktemp -d)/$(basename "$HELD")"
+          mv "$HELD" "$STASH"
+          restore() { [ -f "$STASH" ] && mv -f "$STASH" "$HELD" || true; }
+          trap restore EXIT
+          supabase start
+          DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -1)"
+          test -n "$DB_CONTAINER"
+          docker exec "$DB_CONTAINER" \
+            psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 \
+            -c "alter database postgres set app.fxav_vercel_url = '$GUC_URL';"
+          restore
+          trap - EXIT
+          supabase migration up --include-all
+      - name: Capture screenshots in pinned Playwright image (native amd64)
+        run: |
+          docker run --rm --platform linux/amd64 --network host \
+            -v "$PWD:/work" \
+            -w /work \
+            -e CI=true \
+            mcr.microsoft.com/playwright:v1.59.1-jammy \
+            bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"
+      - name: Commit regenerated baselines (only if changed)
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet public/help/screenshots/ && [ -z "$(git ls-files --others --exclude-standard public/help/screenshots/)" ]; then
+            echo "No baseline changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/help/screenshots/
+          git commit -m "test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)
+
+Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image
+on a native-amd64 runner after the M12.2 B1 /admin chrome redesign. Produced
+by the screenshots-regen workflow_dispatch job so the bytes match the
+screenshots-drift gate's native-amd64 capture environment."
+          git push origin "HEAD:$BRANCH"
