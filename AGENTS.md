@@ -22,20 +22,6 @@ These are hard constraints from the spec. Violating any of them is a P0 bug rega
 
 ---
 
-## §13.2.3 amendments (must be followed verbatim in M8)
-
-These three amendments were ratified after rounds 24–40 of cross-model adversarial review. They ARE in the spec file; the plan README documents them for visibility. Anyone implementing M8 must read them before touching `api/report/route.ts` or the reaper.
-
-1. **Recovery uses `octokit.rest.issues.listForRepo`, not code search.** GitHub's code-search index lags tens of seconds; the list endpoint is immediately consistent with create writes. Filter by `creator: GITHUB_BOT_LOGIN, since: <T-24h>, state: 'all'`, scan page bodies for `<!-- fxav-report-id: <key> -->`, and additionally filter returned issues by `issue.created_at >= <T-24h>` client-side (since `since` filters by last-updated, not create-time). `LookupInconclusive` returns 502 and never authorizes `createIssue`.
-
-2. **Retention horizon and reaper predicate align on `reports.created_at`, with lease-expired race fix.**
-   - `expiredLeaseRetry`: rejects rows where `created_at < now - interval '24 hours'` (return 410 `REPORT_HORIZON_EXPIRED`, do NOT call `createIssue`). Lease-claim UPDATE additionally requires `created_at >= now - interval '24 hours'` to fence the boundary at the serialized step.
-   - 8.3f reaper: deletes rows where `github_issue_url IS NULL AND created_at < now - interval '24 hours' AND processing_lease_until < now`. The third clause prevents the reaper removing a row a retry actively holds. A row whose `created_at` is past 24h but whose lease is still live is preserved; it becomes reapable only after the lease expires.
-
-3. **`lease_holder uuid` ownership protocol.** Stamped at reservation, rotated on every lease re-acquisition. Required (`AND lease_holder = $myToken`) on every URL-writing tail UPDATE. A 0-row tail UPDATE triggers orphan cleanup: close GH issue with `state_reason: 'not_planned'`, add `fxav-orphan-lost-lease` label, INSERT `admin_alerts` `REPORT_ORPHANED_LOST_LEASE`. If re-SELECT returns null, return 410 `REPORT_HORIZON_EXPIRED`.
-
----
-
 ## Spec self-review additions (mirrors global guidance, project-scoped)
 
 Run these checks during the self-review step in `superpowers:brainstorming` (or its Codex equivalent). They are derived from past adversarial-review findings on this project.
