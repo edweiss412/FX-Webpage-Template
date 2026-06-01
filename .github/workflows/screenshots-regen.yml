@@ -76,10 +76,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/help/screenshots/
-          git commit -m "test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)
-
-Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image
-on a native-amd64 runner after the M12.2 B1 /admin chrome redesign. Produced
-by the screenshots-regen workflow_dispatch job so the bytes match the
-screenshots-drift gate's native-amd64 capture environment."
+          git commit \
+            -m "test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)" \
+            -m "Regenerated from the pinned mcr.microsoft.com/playwright:v1.59.1-jammy image on a native-amd64 runner after the M12.2 B1 /admin chrome redesign (screenshots-regen workflow_dispatch job), so the bytes match the screenshots-drift gate capture environment."
           git push origin "HEAD:$BRANCH"
