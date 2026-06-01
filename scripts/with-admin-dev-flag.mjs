@@ -25,7 +25,7 @@
  * forwarded so Playwright's webServer cleanup works correctly.
  */
 import { spawn } from "node:child_process";
-import { renameSync, existsSync, openSync, closeSync, unlinkSync, mkdirSync, writeFileSync } from "node:fs";
+import { renameSync, existsSync, openSync, closeSync, unlinkSync, mkdirSync, writeFileSync, writeSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,8 +53,44 @@ export const DEV_PANEL_PRESENT = ${present};
 // prod-build, prod-runtime-flip) don't race on the rename-away/restore cycle.
 // Without this, one project's `next build` mid-disable can starve another's
 // TypeScript validation phase that reads app/admin/dev/page.tsx.
-const LOCK_FILE = join(ROOT, ".next-prod-flip", ".admin-dev-flag.lock");
-const LOCK_DIR = join(ROOT, ".next-prod-flip");
+//
+// CRITICAL: the lock MUST live OUTSIDE every NEXT_DIST_DIR. The prod-runtime-flip
+// Playwright project builds with `NEXT_DIST_DIR=.next-prod-flip`, and Next
+// (`next/dist/build/index.js`) cleans the distDir at build start via
+// `recursiveDeleteSyncWithAsyncRetries(distDir, /^(cache|dev|lock)/)`. That regex
+// is ANCHORED, so it preserves ONLY entries whose name starts with cache/dev/lock.
+// A lock named `.admin-dev-flag.lock` starts with `.` → not preserved → the clean
+// would delete a lock held by a concurrent wrapper mid-build, letting a second
+// build acquire a fresh lock and race on the renames + DEV_PANEL_PRESENT write.
+// `.build-locks/` is a repo-root dir that is never a distDir and never cleaned.
+const LOCK_DIR = join(ROOT, ".build-locks");
+const LOCK_FILE = join(LOCK_DIR, "admin-dev-flag.lock");
+
+// True if `pid` is a live process. `process.kill(pid, 0)` sends no signal but
+// throws ESRCH if no such process exists (EPERM means it exists but we can't
+// signal it → still live). Any throw other than EPERM ⇒ treat as not-live.
+function isPidLive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err && err.code === "EPERM";
+  }
+}
+
+// Returns the pid stored in an existing lock file, or null if the file is
+// missing / empty / unparseable. Treated by callers as "stale" when null.
+function readLockPid() {
+  try {
+    const raw = readFileSync(LOCK_FILE, "utf8").trim();
+    if (!raw) return null;
+    const pid = Number.parseInt(raw, 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
 
 function tryAcquireLock() {
   // Ensure parent dir exists for the lock; mkdir -p semantics.
@@ -63,7 +99,13 @@ function tryAcquireLock() {
   try {
     // O_EXCL flag — atomic create; fails if file exists.
     const fd = openSync(LOCK_FILE, "wx");
-    closeSync(fd);
+    try {
+      // Stamp our pid so releaseLock() can prove ownership and so a concurrent
+      // wrapper can detect+steal a stale lock left by a killed process.
+      writeSync(fd, String(process.pid));
+    } finally {
+      closeSync(fd);
+    }
     return true;
   } catch {
     return false;
@@ -72,7 +114,12 @@ function tryAcquireLock() {
 
 function releaseLock() {
   try {
-    if (existsSync(LOCK_FILE)) unlinkSync(LOCK_FILE);
+    // Owner-aware: only unlink if the lock still stores OUR pid. This prevents
+    // one process from deleting a lock another process freshly acquired (e.g.
+    // after a stale-lock steal). If the stored pid isn't ours, leave it.
+    if (existsSync(LOCK_FILE) && readLockPid() === process.pid) {
+      unlinkSync(LOCK_FILE);
+    }
   } catch {
     // Best-effort; another process may have already cleaned up.
   }
@@ -81,6 +128,20 @@ function releaseLock() {
 async function acquireLockWithRetry(maxWaitMs = 240_000) {
   const start = Date.now();
   while (!tryAcquireLock()) {
+    // Stale-lock steal: if the held lock's pid is dead (killed mid-build, or an
+    // empty/unparseable orphan), remove it and retry immediately rather than
+    // waiting out the full timeout.
+    if (existsSync(LOCK_FILE)) {
+      const pid = readLockPid();
+      if (pid === null || !isPidLive(pid)) {
+        try {
+          unlinkSync(LOCK_FILE);
+        } catch {
+          // Another wrapper may have stolen it first; fall through to retry.
+        }
+        continue;
+      }
+    }
     if (Date.now() - start > maxWaitMs) {
       console.error("[with-admin-dev-flag] lock acquisition timeout");
       process.exit(75);

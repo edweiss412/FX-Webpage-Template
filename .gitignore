@@ -74,3 +74,5 @@ tmp/
 
 # M12 Phase 1 walk launchpad (local-only; embeds live validation share-tokens — must never be committed)
 .validation-local/
+
+.build-locks/
