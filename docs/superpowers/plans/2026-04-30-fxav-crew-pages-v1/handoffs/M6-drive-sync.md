@@ -164,7 +164,7 @@ export function fetchSheetAsMarkdownAtRevision(
 
 ### Pinned contract @ 6277169 (Pin-stop 1.5 — 2026-05-08)
 
-Pin-stop 2 halted because the live Google Sheet fixture does not support the Pin-stop 1 markdown/revision export assumption. Probe output is committed at `docs/m6/pin-1.5-export-probe.md`.
+Pin-stop 2 halted because the live Google Sheet fixture does not support the Pin-stop 1 markdown/revision export assumption. The raw probe output (a one-off Drive export-shape dump, formerly at `docs/m6/pin-1.5-export-probe.md`) was removed as a stale artifact; its conclusion is captured in the **Probe summary** below.
 
 **Probe summary:**
 
