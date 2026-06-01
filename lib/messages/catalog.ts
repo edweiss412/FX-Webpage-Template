@@ -1268,6 +1268,16 @@ export const MESSAGE_CATALOG = {
     longExplanation: "We couldn't read the alert count, usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the admin_alerts table access.",
     helpHref: "/help/errors#ADMIN_ALERT_COUNT_FAILED",
   },
+  SYNC_STATUS_UNKNOWN: {
+    code: "SYNC_STATUS_UNKNOWN",
+    dougFacing: "A show's sync state isn't recognized right now. The developer should take a look.",
+    crewFacing: null,
+    followUp: "Doug → contact the developer; enum drift in shows.last_sync_status",
+    helpfulContext: "fetchDriveConnectionHealth (lib/admin/driveConnectionHealth.ts) found an active show whose last_sync_status is outside the recognized set, or a null status on a fresh-timestamp row. Surfaces the Warn pill so enum drift is visible at any age (precedes the age-based stale tiers).",
+    title: "Sync state not recognized",
+    longExplanation: "One of your shows reports a sync state the app doesn't recognize. This usually means the sync code changed and the developer needs to update how states are read.",
+    helpHref: "/help/errors#SYNC_STATUS_UNKNOWN",
+  },
   ADMIN_EMAIL_INVALID: {
     code: "ADMIN_EMAIL_INVALID",
     dougFacing: "Enter a valid email address.",

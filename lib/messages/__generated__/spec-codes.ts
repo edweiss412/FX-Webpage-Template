@@ -1016,6 +1016,12 @@ export const SPEC_CODES = {
     "followUp": "Eric → inspect sync_log payload",
     "helpfulContext": "A database or Supabase boundary returned an infrastructure error. The structured log payload keeps the original operation and error class for debugging.",
   },
+  "SYNC_STATUS_UNKNOWN": {
+    "crewFacing": null,
+    "dougFacing": "A show's sync state isn't recognized right now. The developer should take a look.",
+    "followUp": "Doug → contact the developer; enum drift in shows.last_sync_status",
+    "helpfulContext": "fetchDriveConnectionHealth (lib/admin/driveConnectionHealth.ts) found an active show whose last_sync_status is outside the recognized set, or a null status on a fresh-timestamp row. Surfaces the Warn pill so enum drift is visible at any age (precedes the age-based stale tiers).",
+  },
   "SYNC_STEP_TIMEOUT": {
     "crewFacing": null,
     "dougFacing": "A Drive sync step timed out. We'll retry on the next run.",

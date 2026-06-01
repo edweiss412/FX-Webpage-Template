@@ -7,4 +7,9 @@ describe("B1 catalog codes", () => {
     expect(MESSAGE_CATALOG.ADMIN_ALERT_COUNT_FAILED).toBeDefined();
     expect(getDougFacing("ADMIN_ALERT_COUNT_FAILED")).toMatch(/check for alerts/i);
   });
+
+  it("SYNC_STATUS_UNKNOWN is cataloged + Doug-facing", () => {
+    expect(MESSAGE_CATALOG.SYNC_STATUS_UNKNOWN).toBeDefined();
+    expect(getDougFacing("SYNC_STATUS_UNKNOWN")).toMatch(/isn't recognized|not recognized/i);
+  });
 });
