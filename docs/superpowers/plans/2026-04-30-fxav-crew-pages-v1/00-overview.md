@@ -22,7 +22,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with ten ratified plan amendments (plus one PROPOSED — #11, pending B1 spec adversarial-review APPROVE + user sign-off) AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with eleven ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified spec amendments (in `docs/superpowers/specs/master-spec-patches/`):**
    - **§12.4 AGENDA_* crew-facing catalog rows** _(2026-05-12, ratified at SHA `ac905da` after R1–R4 cross-CLI review; integrated into spec body by Task 9.0.A1)_. Adds `AGENDA_GONE_FOR_CREW` (410/403) and `AGENDA_UNAUTHENTICATED` (401) crew-only display codes covering the `AgendaPdfViewer` proxy's error states. See `docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md`. M7-D2 (`components/agenda/AgendaPdfViewer.tsx` routing to these codes) is the consumer; Task 9.M7-D2's TDD checklist owns the exhaustive status→code coverage.
@@ -274,11 +274,11 @@
        apply/discard mutation guards (spec §16 DEF-1/DEF-2 — pre-existing backend gaps, deferred with concrete
        triggers + Phase-A UI mitigations). No DB writes / no migrations land in Phase A.
 
-   11. **Spec §9.1 / §9.2 — M12.2 Phase B1 admin nav shell + settings shell** _(PROPOSED)_
+   11. **Spec §9.1 / §9.2 — M12.2 Phase B1 admin nav shell + settings shell** _(RATIFIED 2026-05-31)_
        _(design owner-approved 2026-05-31; second half of the owner's "Milestone B" per `.validation-local/design-admin/RECONCILIATION.md §E`;
-       spec `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-b1-admin-nav-settings-design.md`. **Status: PROPOSED — the spec is
-       still in cross-model adversarial review; this amendment becomes authoritative only when the review APPROVEs AND the
-       user signs off on the spec. Until then the master spec §9 remains canonical for any conflict.**)_. The master spec §9 describes a chrome-less admin section (a static "Admin" header + the
+       spec `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-b1-admin-nav-settings-design.md`. **Status: RATIFIED — the B1 spec's
+       cross-model adversarial review APPROVEd (Codex, 27 rounds, 2026-05-31) and the owner signed off on 2026-05-31; this
+       amendment is authoritative and supersedes master spec §9 on the surfaces below.**)_. The master spec §9 describes a chrome-less admin section (a static "Admin" header + the
        global AlertBanner, `app/admin/layout.tsx`). **The M12.2 Phase B1 plan supersedes §9.1/§9.2 on
        navigation/chrome + settings layout only:** (a) a **persistent nav shell** wrapping every `/admin/*` route —
        desktop top bar (brand + Admin badge + Dashboard/Settings nav + NotifBell + dark toggle + UserMenu) + mobile
