@@ -50,3 +50,11 @@ export function getCrewFacing(code: MessageCode, params?: MessageParams): string
 export function lookupHelpfulContext(code: MessageCode, params?: MessageParams): string | null {
   return messageFor(code, params).helpfulContext;
 }
+
+export function getRequiredDougFacing(code: MessageCode, params?: MessageParams): string {
+  const value = getDougFacing(code, params);
+  if (value === null) {
+    throw new Error(`getRequiredDougFacing: code ${code} has no Doug-facing copy`);
+  }
+  return value;
+}
