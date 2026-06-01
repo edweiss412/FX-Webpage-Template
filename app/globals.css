@@ -366,6 +366,27 @@
   }
 }
 
+@keyframes route-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.route-enter {
+  animation: route-enter var(--duration-fast) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-enter {
+    animation: none;
+  }
+}
+
 /*
  * Tabular figures default for elements that semantically carry numbers.
  * Components MAY opt in at any element via class="tabular-nums" or via
