@@ -256,7 +256,16 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             type="submit"
             data-testid="admin-allowlist-revoke-confirm-button"
             onClick={onConfirmClick}
-            disabled={isResolving}
+            // Bug fix (B1 §4 / Task 7.1): this is the form SUBMITTER. It must
+            // NOT be disabled by the synchronous setUi("resolving") in its own
+            // onClick — a discrete-event re-render would disable it BEFORE the
+            // native submit event fires, cancelling the dispatch and stranding
+            // the button on "Revoking…" with zero POSTs (the misdiagnosed
+            // "server hang"). Disable on isPending, which useActionState sets
+            // AFTER React dispatches the action, so the submit always fires and
+            // double-submit is still prevented (isPending true within the same
+            // tick). Visual feedback stays keyed on isResolving below.
+            disabled={isPending}
             aria-busy={isResolving}
             className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
