@@ -202,6 +202,7 @@ const infraRegistry = [
   },
   { helper: "fetchUnresolvedAlertCount", path: "lib/admin/alertCount.ts", contract: "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)" },
   { helper: "getActiveWatchedFolder", path: "lib/appSettings/getWatchedFolderId.ts", contract: "app_settings { watched_folder_id, watched_folder_name } maybeSingle; client construction (createClientResult) + returned-error + thrown await → { kind:'infra_error' }; destructures { data, error }" },
+  { helper: "fetchDriveConnectionHealth", path: "lib/admin/driveConnectionHealth.ts", contract: "watch-status row + per-predicate active-shows head:true counts + max last_synced_at; client construction + any await/throw → { kind:'infra_error' } (never a false Healthy)" },
 ];
 
 // Every helper file gets a grep-shape assertion that EVERY supabase-derived
