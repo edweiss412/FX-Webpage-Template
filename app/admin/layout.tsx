@@ -93,7 +93,15 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   return (
     <div
       data-testid="admin-layout"
-      className="mx-auto max-w-6xl p-page-pad-mobile pb-20 sm:p-page-pad-desktop min-[720px]:pb-0"
+      // Bottom padding reserves space for the fixed mobile bottom tab bar so
+      // the last content row is never occluded (spec §6). It MUST stay large
+      // across the entire mobile band (< 720px) and only drop at >= 720px when
+      // the bar is hidden. Splitting the padding per-edge (px/pt vs pb) keeps
+      // the `sm:` (640px) desktop padding from clobbering `pb` in the 640-719px
+      // band — a global-`sm:`-shorthand-resets-pb collapse the jsdom Phase-3
+      // tests could not catch (Tailwind v4, no global `md`; DESIGN §7). The
+      // bottom tab bar is ~58px tall; pb-20 (80px) clears it with margin.
+      className="mx-auto max-w-6xl px-page-pad-mobile pt-page-pad-mobile pb-20 sm:px-page-pad-desktop sm:pt-page-pad-desktop min-[720px]:pb-page-pad-desktop"
     >
       <AdminNav email={adminEmail} alertCount={alertCount} />
 
