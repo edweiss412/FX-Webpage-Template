@@ -86,14 +86,26 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
     // ShowsTable header + rows share column tracks (only when rows render).
     const rowCount = await page.locator("[data-testid^='shows-table-row-']").count();
     if (rowCount > 0) {
-      const header = await gridTemplate(page, "shows-table-header");
+      const header = (await gridTemplate(page, "shows-table-header"))
+        .split(" ")
+        .map((v) => Number.parseFloat(v));
       const firstRowId = await page
         .locator("[data-testid^='shows-table-row-']")
         .first()
         .getAttribute("data-testid");
       expect(firstRowId).toBeTruthy();
-      const row = await gridTemplate(page, firstRowId!);
-      expect(row).toBe(header);
+      const row = (await gridTemplate(page, firstRowId!)).split(" ").map((v) => Number.parseFloat(v));
+      expect(row.length).toBe(header.length);
+      // The four FIXED tracks (8rem/5rem/12rem/1.25rem) must align exactly —
+      // those are what keep the dates/crew/sync/chevron columns lined up between
+      // the header and every row. The first (minmax(0,1fr)) title track differs
+      // by ~2px because each row carries a 1px border the header does not, so
+      // the flexible track absorbs the border-box delta. Tolerate only that 1fr
+      // delta; everything else is exact.
+      for (let i = 1; i < header.length; i++) {
+        expect(Math.abs(row[i]! - header[i]!), `fixed track ${i} alignment`).toBeLessThanOrEqual(TOL);
+      }
+      expect(Math.abs(row[0]! - header[0]!), "1fr title track (row border delta)").toBeLessThanOrEqual(3);
     }
   });
 
@@ -120,6 +132,67 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
     expect(Math.abs(active.height - live.height)).toBeLessThanOrEqual(TOL);
     expect(Math.abs(review.height - crew.height)).toBeLessThanOrEqual(TOL);
   });
+
+  // ── Responsive band sweep (R-fix: dashboard two-col split must not collapse
+  // the ShowsTable title track). The original gate tested only 1200px + 390px;
+  // it never swept the intermediate band where the active split narrows the
+  // shows col while ShowsTable's grid (min-[720px]) is simultaneously active,
+  // starving the minmax(0,1fr) title track to ~0px (titles vanish, Show/Dates
+  // headers overlap). Breakpoint-agnostic by design: at every band the first
+  // show-title cell must stay >= MIN_TITLE_PX with no horizontal overflow and
+  // no header/title overlap, regardless of whether the split is on or off at
+  // that width. Fails at the collapse band on pre-fix code; passes once the
+  // split is gated late enough that the activation width still affords the
+  // title track. ──
+  // Sweep across the split-off band (single-column, full-width table) AND the
+  // split-on band (two-col, narrowed shows col), including the exact split
+  // activation width (1080px) where the title track is narrowest in two-col
+  // mode. The fix (admin layout max-w-6xl + split gated at min-[1080px]) must
+  // keep the title >= MIN_TITLE_PX at every width.
+  const TITLE_BANDS = [720, 810, 960, 1024, 1080, 1100, 1152, 1280];
+  const MIN_TITLE_PX = 120;
+
+  for (const width of TITLE_BANDS) {
+    test(`dashboard band ${width}px: show-title track does not collapse`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto("/admin");
+      await expect(page.getByTestId("stat-strip")).toBeVisible();
+
+      const rows = page.locator("[data-testid^='shows-table-row-']");
+      const rowCount = await rows.count();
+      expect(rowCount, `seeded rows must render at ${width}px (run pnpm db:seed)`).toBeGreaterThan(0);
+      const firstRow = rows.first();
+
+      // (a) Title track = the row grid's first column (minmax(0,1fr)). Measure
+      // the browser's RESOLVED track width via gridTemplateColumns (ground
+      // truth), not a child's getBoundingClientRect (a flex/min-w-0 child can
+      // report 0 even when the track is non-zero). minmax(0,1fr) lets the title
+      // track starve to ~0px when the fixed tracks + a narrowed shows col exceed
+      // the available width — that is the collapse this gate must catch. Header
+      // grid is active at >= 720px, so all bands resolve to px tracks.
+      const titleTrack = await firstRow.evaluate((el) => {
+        const cols = getComputedStyle(el).gridTemplateColumns;
+        if (!cols || cols === "none") return -1; // not in grid mode (< 720px)
+        return Number.parseFloat(cols.split(" ")[0] ?? "0");
+      });
+      expect(titleTrack, `title grid track width at ${width}px`).toBeGreaterThanOrEqual(MIN_TITLE_PX);
+
+      // (b) No horizontal overflow on the row (collapsed tracks push content out).
+      const overflow = await firstRow.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow, `row horizontal overflow at ${width}px`).toBeLessThanOrEqual(TOL);
+
+      // (c) Header "Show" label must not overlap the "Dates" label (the visible
+      // symptom of a collapsed title track). Header grid is active at >= 720px.
+      const headerOverlap = await page.getByTestId("shows-table-header").evaluate((el) => {
+        const cells = el.children;
+        if (cells.length < 2) return -1; // header not in grid mode at this width
+        const show = cells[0]!.getBoundingClientRect();
+        const dates = cells[1]!.getBoundingClientRect();
+        return show.right - dates.left; // <= 0 ⇒ no overlap
+      });
+      expect(headerOverlap, `header Show/Dates overlap at ${width}px`).toBeLessThanOrEqual(TOL);
+    });
+  }
 
   test("per-show desktop: Crew ⟷ Share & access columns equal-height", async ({ page }) => {
     const slug = await lookupSeededSlug();

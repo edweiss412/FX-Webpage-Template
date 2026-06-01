@@ -73,7 +73,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   return (
     <div
       data-testid="admin-layout"
-      className="mx-auto max-w-4xl p-page-pad-mobile sm:p-page-pad-desktop"
+      className="mx-auto max-w-6xl p-page-pad-mobile sm:p-page-pad-desktop"
     >
       <header className="mb-section-gap">
         <h1 className="text-xl font-semibold" data-testid="admin-header">

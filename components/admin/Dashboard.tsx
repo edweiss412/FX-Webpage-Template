@@ -437,14 +437,27 @@ export async function Dashboard() {
           DESIGN §7). NB: the columns must NOT also set h-full — height:100% on a
           flex child is a non-auto cross-size that SUPPRESSES align-items:stretch
           (the real-browser layout test caught this). Stacks on mobile. */}
+      {/* Two-col split gated at min-[1080px], NOT min-[720px]. This <main> is
+          max-w-5xl (1024px) and the admin layout wrapper is max-w-6xl
+          (app/admin/layout.tsx), so usable content tops out ~1024px at desktop.
+          The shows col must host ShowsTable's fixed tracks (8+5+12+1.25rem +
+          gaps ≈ 484px) AND a usable minmax(0,1fr) title track after the 320px
+          inbox col is subtracted; the constant overhead is ~862px, so the title
+          track = contentWidth − 862. Below ~1046px viewport that goes negative
+          (title starves to 0px — the bug this gate caught). Below 1080px the
+          split stacks (single-column, full-width table → title has ample room);
+          at/above 1080px it goes side-by-side with a title track kept
+          comfortably above the 120px floor. Verified in the band-sweep layout
+          test (do not lower without re-running it — a lower breakpoint
+          re-collapses the title). */}
       <div
         data-testid="dashboard-split"
-        className="flex flex-col gap-tile-gap min-[720px]:flex-row min-[720px]:items-stretch"
+        className="flex flex-col gap-tile-gap min-[1080px]:flex-row min-[1080px]:items-stretch"
       >
         <section
           data-testid="dashboard-shows-col"
           aria-label="Active shows"
-          className="flex min-w-0 flex-col gap-3 min-[720px]:flex-1"
+          className="flex min-w-0 flex-col gap-3 min-[1080px]:flex-1"
         >
           <h3 className="text-lg font-semibold text-text-strong">Active shows</h3>
           <ShowsTable
@@ -457,7 +470,7 @@ export async function Dashboard() {
         <section
           data-testid="dashboard-inbox-col"
           aria-label="Needs attention"
-          className="flex flex-col gap-3 min-[720px]:w-80 min-[720px]:shrink-0"
+          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0"
         >
           <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
           <NeedsAttentionInbox
