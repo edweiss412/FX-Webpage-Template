@@ -50,6 +50,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → confirm re-add or cancel",
     "helpfulContext": "The submitted email matches a row with revoked_at set. UI surfaces this as a confirmation prompt; submitting the same form with confirm_re_add=true re-activates the row per amendment §5.4.",
   },
+  "ADMIN_EMAIL_WRITE_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "Couldn't update administrators right now. Try again in a moment.",
+    "followUp": "Doug → retry; if persistent, check Supabase admin_emails RPC + grants",
+    "helpfulContext": "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireAdminIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
+  },
   "ADMIN_FORBIDDEN": {
     "crewFacing": null,
     "dougFacing": "Your admin session cannot access this action. Sign in again and retry.",

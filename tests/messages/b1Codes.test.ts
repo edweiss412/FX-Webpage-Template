@@ -17,4 +17,9 @@ describe("B1 catalog codes", () => {
     expect(MESSAGE_CATALOG.ADMIN_DRIVE_HEALTH_UNAVAILABLE).toBeDefined();
     expect(getDougFacing("ADMIN_DRIVE_HEALTH_UNAVAILABLE")).toMatch(/read sync status/i);
   });
+
+  it("ADMIN_EMAIL_WRITE_FAILED is cataloged + Doug-facing", () => {
+    expect(MESSAGE_CATALOG.ADMIN_EMAIL_WRITE_FAILED).toBeDefined();
+    expect(getDougFacing("ADMIN_EMAIL_WRITE_FAILED")).toMatch(/update administrators/i);
+  });
 });

@@ -1268,6 +1268,16 @@ export const MESSAGE_CATALOG = {
     longExplanation: "We couldn't read the alert count, usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the admin_alerts table access.",
     helpHref: "/help/errors#ADMIN_ALERT_COUNT_FAILED",
   },
+  ADMIN_EMAIL_WRITE_FAILED: {
+    code: "ADMIN_EMAIL_WRITE_FAILED",
+    dougFacing: "Couldn't update administrators right now. Try again in a moment.",
+    crewFacing: null,
+    followUp: "Doug → retry; if persistent, check Supabase admin_emails RPC + grants",
+    helpfulContext: "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireAdminIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
+    title: "Couldn't update administrators",
+    longExplanation: "We couldn't add or revoke that administrator, usually a transient database or permissions issue. Try again in a moment; if it keeps failing, the developer needs to check the database connection.",
+    helpHref: "/help/errors#ADMIN_EMAIL_WRITE_FAILED",
+  },
   ADMIN_DRIVE_HEALTH_UNAVAILABLE: {
     code: "ADMIN_DRIVE_HEALTH_UNAVAILABLE",
     dougFacing: "Couldn't read sync status right now. Refresh in a moment.",
