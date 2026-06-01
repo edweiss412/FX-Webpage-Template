@@ -101,6 +101,7 @@ export async function addAdminAction(
   switch (outcome.kind) {
     case "ok":
       revalidatePath("/admin/settings/admins");
+      revalidatePath("/admin/settings");
       return outcome.row?.email
         ? { kind: "ok", email: outcome.row.email }
         : { kind: "ok" };
@@ -137,6 +138,7 @@ export async function revokeAdminAction(
   switch (outcome.kind) {
     case "ok":
       revalidatePath("/admin/settings/admins");
+      revalidatePath("/admin/settings");
       return { kind: "ok" };
     case "invalid_email":
       return { kind: "invalid_email" };
@@ -148,6 +150,7 @@ export async function revokeAdminAction(
       // economy). Surface as a successful no-op so the UI doesn't
       // light a red error region for a benign case.
       revalidatePath("/admin/settings/admins");
+      revalidatePath("/admin/settings");
       return { kind: "ok" };
     case "re_add_required":
       // Not reachable from revokeAdminEmail.
