@@ -22,6 +22,7 @@ import { ParsePanel } from "@/components/admin/ParsePanel";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
+import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import { formatRelative } from "@/components/admin/ActiveShowsPanel";
 import { syncStatusBucket } from "@/lib/admin/syncStatus";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
@@ -255,41 +256,50 @@ export default async function AdminShowPage({
       : `${syncBucket.label} · Last synced ${formatRelative(show.last_synced_at, now)}`
     : syncBucket.label;
 
+  // Task 4.3 (B1): the breadcrumb + back link + status pill + crew-link chip
+  // consolidate into the shared <AdminPageHeader>. pill + chip are computed
+  // from the page's already-fetched data (NO second query) and moved into
+  // rightSlot. The in-body "← Admin home" link is removed (the header back
+  // link is the single back affordance). The share-token / published &&
+  // !archived gating is unchanged (Phase A contract).
+  const pill = (
+    <span
+      data-testid="admin-show-status-pill"
+      className="inline-flex items-center rounded-pill border border-border px-2 py-0.5"
+    >
+      <StatusIndicator status={statusPill.status} label={statusPill.label} />
+    </span>
+  );
+  const chip =
+    hasCrewLinkUrl && crewUrl && crewPathDisplay ? (
+      <div
+        data-testid="admin-show-share-chip"
+        className="flex items-center gap-2 text-sm text-text-subtle"
+      >
+        <span>Crew link:</span>
+        <code className="min-w-0 break-all rounded-sm bg-surface-sunken px-2 py-0.5 text-xs text-text-strong">
+          {crewPathDisplay}
+        </code>
+        <ShareLinkCopyButton url={crewUrl} />
+      </div>
+    ) : null;
+
   return (
     <main data-testid="admin-show-page" className="space-y-section-gap">
-      <header className="space-y-2">
-        <p className="text-sm text-text-subtle">
-          <a href="/admin" className="underline underline-offset-2">
-            ← Admin home
-          </a>
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold text-text-strong" data-testid="admin-show-title">
-            {show.title}
-          </h1>
-          <span
-            data-testid="admin-show-status-pill"
-            className="inline-flex items-center rounded-pill border border-border px-2 py-0.5"
-          >
-            <StatusIndicator status={statusPill.status} label={statusPill.label} />
-          </span>
-        </div>
-        <p className="text-sm text-text-subtle">
-          Slug: <code className="rounded-sm bg-surface-sunken px-1">{show.slug}</code>
-        </p>
-        {hasCrewLinkUrl && crewUrl && crewPathDisplay ? (
-          <div
-            data-testid="admin-show-share-chip"
-            className="flex items-center gap-2 text-sm text-text-subtle"
-          >
-            <span>Crew link:</span>
-            <code className="min-w-0 break-all rounded-sm bg-surface-sunken px-2 py-0.5 text-xs text-text-strong">
-              {crewPathDisplay}
-            </code>
-            <ShareLinkCopyButton url={crewUrl} />
-          </div>
-        ) : null}
-      </header>
+      <AdminPageHeader
+        crumb="Admin › Active shows"
+        backHref="/admin"
+        title={show.title}
+        rightSlot={
+          <>
+            {pill}
+            {chip}
+          </>
+        }
+      />
+      <p className="text-sm text-text-subtle">
+        Slug: <code className="rounded-sm bg-surface-sunken px-1">{show.slug}</code>
+      </p>
 
       <PerShowAlertSection
         showId={show.id}
