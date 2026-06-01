@@ -92,7 +92,7 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
       {isReAddPrompt && result?.kind === "re_add_required" ? (
         <div
           data-testid="admin-allowlist-re-add-prompt"
-          className="rounded-sm border border-warning-text bg-warning-bg p-tile-pad text-sm text-warning-text"
+          className="route-enter rounded-sm border border-warning-text bg-warning-bg p-tile-pad text-sm text-warning-text"
         >
           <p>
             <strong>{result.email}</strong> was previously revoked. Re-add this email to restore
