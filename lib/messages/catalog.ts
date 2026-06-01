@@ -1258,6 +1258,16 @@ export const MESSAGE_CATALOG = {
     longExplanation: "You tried to re-add an email that's already on the active administrator list. The row is unchanged; no harm done.",
     helpHref: "/help/errors#ADMIN_EMAIL_ALREADY_ACTIVE",
   },
+  ADMIN_ALERT_COUNT_FAILED: {
+    code: "ADMIN_ALERT_COUNT_FAILED",
+    dougFacing: "We couldn't check for alerts right now. Refresh in a moment.",
+    crewFacing: null,
+    followUp: "Doug → refresh; if persistent, check Supabase admin_alerts RLS + grants",
+    helpfulContext: "The shared admin_alerts head:true count (lib/admin/alertCount.ts) returned/threw an error. The NotifBell renders a degraded warn bell and the AlertBanner renders a degraded summary instead of hiding, so a broken count is visible.",
+    title: "Couldn't check alerts",
+    longExplanation: "We couldn't read the alert count, usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the admin_alerts table access.",
+    helpHref: "/help/errors#ADMIN_ALERT_COUNT_FAILED",
+  },
   ADMIN_EMAIL_INVALID: {
     code: "ADMIN_EMAIL_INVALID",
     dougFacing: "Enter a valid email address.",

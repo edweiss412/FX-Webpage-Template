@@ -2903,6 +2903,7 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | **Runtime catalog parity backfill (X.1)** | | | | |
 | `ADMIN_EMAIL_ALREADY_ACTIVE` | Runtime catalog row backfilled by X.1 parity audit. | "_<email>_ is already an administrator." | — | — |
 | `ADMIN_EMAIL_INVALID` | Runtime catalog row backfilled by X.1 parity audit. | "Enter a valid email address." | — | Doug → retype the email |
+| `ADMIN_ALERT_COUNT_FAILED` | M12.2 B1 — the shared admin_alerts head:true count returned/threw an error. NotifBell renders a degraded warn bell; AlertBanner renders a degraded summary. | "We couldn't check for alerts right now. Refresh in a moment." | — | Doug → refresh; if persistent, check Supabase admin_alerts RLS + grants |
 | `ADMIN_EMAIL_LIST_FAILED` | Runtime catalog row backfilled by X.1 parity audit. | "We can't load the administrator list right now. Refresh in a moment; if the problem continues, check the database connection." | — | Doug → retry; if persistent, check Supabase admin_emails RLS + grants |
 | `ADMIN_EMAIL_RE_ADD_PROMPT` | Runtime catalog row backfilled by X.1 parity audit. | "_<email>_ was previously revoked. Re-add this email to restore admin access?" | — | Doug → confirm re-add or cancel |
 | `ADMIN_FORBIDDEN` | Runtime catalog row backfilled by X.1 parity audit. | "Your admin session cannot access this action. Sign in again and retry." | — | Doug → sign in again |
@@ -3093,6 +3094,7 @@ LINK_REDEEM_KEY_ROTATED: "While you were finishing sign-in, the developer rotate
 # §12.4 had machine-parseable table/YAML coverage. Keep in sync with the table above.
 ADMIN_EMAIL_ALREADY_ACTIVE: "Idempotent re-add of an already-active admin email. Not a destructive condition; the row is unchanged."
 ADMIN_EMAIL_INVALID: "The submitted email failed canonicalization or HTML5 type=email validation."
+ADMIN_ALERT_COUNT_FAILED: "The shared admin_alerts head:true count (lib/admin/alertCount.ts) returned/threw an error. The NotifBell renders a degraded warn bell and the AlertBanner renders a degraded summary instead of hiding, so a broken count is visible."
 ADMIN_EMAIL_LIST_FAILED: "AdminEmailsInfraError thrown from listAdminEmails() — typically RLS denial, missing grant, schema-cache skew, or network fault. The route-level error boundary at app/admin/settings/admins/error.tsx renders this message + a retry button."
 ADMIN_EMAIL_RE_ADD_PROMPT: "The submitted email matches a row with revoked_at set. UI surfaces this as a confirmation prompt; submitting the same form with confirm_re_add=true re-activates the row per amendment §5.4."
 ADMIN_FORBIDDEN: "Admin-only endpoints return this when the request does not carry a valid admin session."
