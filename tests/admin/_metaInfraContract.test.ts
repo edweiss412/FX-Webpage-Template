@@ -200,6 +200,7 @@ const infraRegistry = [
     path: "app/admin/show/[slug]/preview/[crewId]/page.tsx",
     contract: "crew_members lookup throws → { kind: 'infra_error' }",
   },
+  { helper: "fetchUnresolvedAlertCount", path: "lib/admin/alertCount.ts", contract: "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)" },
 ];
 
 // Every helper file gets a grep-shape assertion that EVERY supabase-derived
