@@ -28,34 +28,27 @@
  */
 import Link from "next/link";
 import { rerunSetupServerAction } from "@/lib/onboarding/serverActions";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings · Admin · FXAV" };
 
 export default async function AdminSettingsPage() {
-  await requireAdmin();
+  // The page owns its actor identity (spec §3.2). Consumed in Phase 6
+  // (self-revoke actor identity); read here now so the wiring is in place.
+  const identity = await requireAdminIdentity();
+  void identity; // Phase 6 (self-revoke actor identity)
 
   return (
     <main
       data-testid="admin-settings-page"
-      className="mx-auto flex max-w-2xl flex-col gap-section-gap"
+      className="mx-auto flex max-w-[740px] flex-col gap-section-gap"
     >
-      <header className="flex flex-col gap-2">
-        <p
-          className="text-xs font-medium uppercase text-text-subtle"
-          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-        >
-          Admin settings
-        </p>
-        <h2 className="text-2xl font-semibold text-text-strong">
-          Settings
-        </h2>
-        <p className="max-w-prose text-base text-text-subtle">
-          Manage who can administer the app and how its connection to your
-          Drive folder is set up.
-        </p>
-      </header>
+      <AdminPageHeader
+        title="Settings"
+        sub="Manage your Drive connection, who can administer, and how the app behaves."
+      />
 
       <section
         data-testid="admin-settings-rerun-setup-section"
