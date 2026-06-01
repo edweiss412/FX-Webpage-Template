@@ -120,9 +120,37 @@ describe("per-show page (§6)", () => {
     expect(cols).toMatch(/last_sync_status/);
   });
 
-  it("keeps ← Admin home", async () => {
+  // Task 4.3 (B1): the back affordance moved into AdminPageHeader. There is
+  // exactly ONE back link (admin-page-header-back → "Back to dashboard") and NO
+  // standalone in-body "← Admin home" link. Supersedes the Phase-A
+  // "keeps ← Admin home" assertion (the in-body link was removed).
+  it("renders AdminPageHeader back link, NOT a duplicate in-body '← Admin home'", async () => {
     await renderPage();
-    expect(screen.getByText(/Admin home/)).toBeInTheDocument();
+    expect(screen.getByTestId("admin-page-header-back")).toBeInTheDocument();
+    expect(screen.queryByText(/Admin home/)).toBeNull();
+    // exactly one back affordance overall
+    expect(screen.getAllByRole("link", { name: /Back to dashboard/ })).toHaveLength(1);
+  });
+
+  it("renders the AdminPageHeader breadcrumb 'Admin › Active shows'", async () => {
+    await renderPage();
+    expect(screen.getByTestId("admin-page-header-crumb").textContent).toBe(
+      "Admin › Active shows",
+    );
+  });
+
+  it("title + pill + chip live in the AdminPageHeader (single source, rendered once)", async () => {
+    await renderPage();
+    // title is the header's title node
+    expect(screen.getByTestId("admin-page-header-title").textContent).toBe("RPAS Central");
+    // pill + chip live inside admin-page-header-right, each rendered exactly once
+    const right = screen.getByTestId("admin-page-header-right");
+    const pill = screen.getByTestId("admin-show-status-pill");
+    const chip = screen.getByTestId("admin-show-share-chip");
+    expect(right).toContainElement(pill);
+    expect(right).toContainElement(chip);
+    expect(screen.getAllByTestId("admin-show-status-pill")).toHaveLength(1);
+    expect(screen.getAllByTestId("admin-show-share-chip")).toHaveLength(1);
   });
 
   it("status pill: published+!archived -> Published", async () => {

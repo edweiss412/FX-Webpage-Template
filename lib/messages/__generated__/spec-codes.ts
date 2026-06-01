@@ -8,11 +8,23 @@ export type SpecCodePayload = {
 };
 
 export const SPEC_CODES = {
+  "ADMIN_ALERT_COUNT_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't check for alerts right now. Refresh in a moment.",
+    "followUp": "Doug → refresh; if persistent, check Supabase admin_alerts RLS + grants",
+    "helpfulContext": "The shared admin_alerts head:true count (lib/admin/alertCount.ts) returned/threw an error. The NotifBell renders a degraded warn bell and the AlertBanner renders a degraded summary instead of hiding, so a broken count is visible.",
+  },
   "ADMIN_ALERT_NOT_FOUND": {
     "crewFacing": null,
     "dougFacing": "We couldn't find that alert anymore. It may have been resolved already. Refresh the page to see the current state.",
     "followUp": "Doug → refresh page",
     "helpfulContext": "When you clicked Mark resolved, the server looked up that alert by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+  },
+  "ADMIN_DRIVE_HEALTH_UNAVAILABLE": {
+    "crewFacing": null,
+    "dougFacing": "Couldn't read sync status right now. Refresh in a moment.",
+    "followUp": "Doug → refresh; if persistent, check Supabase shows + drive_watch_channels access",
+    "helpfulContext": "fetchDriveConnectionHealth returned { kind: 'infra_error' } — a watch-status, active-shows count, or last_synced_at read returned/threw. Renders the Warn pill + this status line, never a false Healthy.",
   },
   "ADMIN_EMAIL_ALREADY_ACTIVE": {
     "crewFacing": null,
@@ -30,7 +42,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We can't load the administrator list right now. Refresh in a moment; if the problem continues, check the database connection.",
     "followUp": "Doug → retry; if persistent, check Supabase admin_emails RLS + grants",
-    "helpfulContext": "AdminEmailsInfraError thrown from listAdminEmails() — typically RLS denial, missing grant, schema-cache skew, or network fault. The route-level error boundary at app/admin/settings/admins/error.tsx renders this message + a retry button.",
+    "helpfulContext": "AdminEmailsInfraError from listAdminEmails() (typically RLS denial, missing grant, schema-cache skew, or network fault). Surfaced IN-SECTION by the Administrators section (via the typed fetchEmbeddedAdminEmails wrapper) on BOTH the embedded /admin/settings and the deep-link /admin/settings/admins; renders this message + retry. (Route/session faults on those segments are NOT this code — they bubble to the error.tsx boundary as ADMIN_ROUTE_LOAD_FAILED.)",
   },
   "ADMIN_EMAIL_RE_ADD_PROMPT": {
     "crewFacing": null,
@@ -38,11 +50,23 @@ export const SPEC_CODES = {
     "followUp": "Doug → confirm re-add or cancel",
     "helpfulContext": "The submitted email matches a row with revoked_at set. UI surfaces this as a confirmation prompt; submitting the same form with confirm_re_add=true re-activates the row per amendment §5.4.",
   },
+  "ADMIN_EMAIL_WRITE_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "Couldn't update administrators right now. Try again in a moment.",
+    "followUp": "Doug → retry; if persistent, check Supabase admin_emails RPC + grants",
+    "helpfulContext": "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireAdminIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
+  },
   "ADMIN_FORBIDDEN": {
     "crewFacing": null,
     "dougFacing": "Your admin session cannot access this action. Sign in again and retry.",
     "followUp": "Doug → sign in again",
     "helpfulContext": "Admin-only endpoints return this when the request does not carry a valid admin session.",
+  },
+  "ADMIN_ROUTE_LOAD_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "This admin page couldn't load. Refresh in a moment; if it keeps failing, contact the developer.",
+    "followUp": "Doug → refresh; if persistent, contact the developer",
+    "helpfulContext": "Fixed code for the app/admin/error.tsx + app/admin/settings/error.tsx client boundaries AND the layout's identity-fault catch (app/admin/layout.tsx). Used instead of ADMIN_SESSION_LOOKUP_FAILED, whose dougFacing is null + crew-facing (wrong audience). error.tsx files are client components; Next serializes errors as Error & { digest } so a thrown code field is unreliable — the boundary renders this fixed code, not err.code.",
   },
   "ADMIN_SESSION_LOOKUP_FAILED": {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
@@ -1009,6 +1033,12 @@ export const SPEC_CODES = {
     "dougFacing": "A sync infrastructure step failed. The rest of the folder continued.",
     "followUp": "Eric → inspect sync_log payload",
     "helpfulContext": "A database or Supabase boundary returned an infrastructure error. The structured log payload keeps the original operation and error class for debugging.",
+  },
+  "SYNC_STATUS_UNKNOWN": {
+    "crewFacing": null,
+    "dougFacing": "A show's sync state isn't recognized right now. The developer should take a look.",
+    "followUp": "Doug → contact the developer; enum drift in shows.last_sync_status",
+    "helpfulContext": "fetchDriveConnectionHealth (lib/admin/driveConnectionHealth.ts) found an active show whose last_sync_status is outside the recognized set, or a null status on a fresh-timestamp row. Surfaces the Warn pill so enum drift is visible at any age (precedes the age-based stale tiers).",
   },
   "SYNC_STEP_TIMEOUT": {
     "crewFacing": null,

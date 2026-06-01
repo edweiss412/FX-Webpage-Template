@@ -26,6 +26,8 @@
 import Link from "next/link";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
+import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
@@ -66,7 +68,12 @@ export async function AlertBanner() {
   // returned-`.error` posture: log + return null (the banner is
   // intentionally invisible in any failure mode; the steady-state
   // "no unresolved alerts" path also returns null).
-  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  // M12.2 B1 Task 1.3: every infra fault is now fail-VISIBLE — instead
+  // of returning null (which would route a positive/degraded bell to an
+  // empty surface), we set `detailFailed` and render the cataloged
+  // degraded banner. Only the genuinely-empty queue stays invisible.
+  let detailFailed = false;
+  let supabase!: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
   } catch (err) {
@@ -74,7 +81,7 @@ export async function AlertBanner() {
       "[AlertBanner] supabase client construction threw:",
       err instanceof Error ? err.message : String(err),
     );
-    return null;
+    detailFailed = true;
   }
 
   // RLS-gated SELECT. The admin_only policy on admin_alerts requires
@@ -91,36 +98,64 @@ export async function AlertBanner() {
   // §1.9 meta-test models this exact case), and a sync throw outside
   // the try would have crashed the admin layout despite the await
   // being wrapped.
-  let data: Array<Record<string, unknown>> | null;
-  try {
-    let query = supabase
-      .from("admin_alerts")
-      .select("id, code, raised_at, show_id, context, shows(slug)")
-      .is("resolved_at", null);
-    if (INFO_SEVERITY_CODES.length > 0) {
-      query = query.not(
-        "code",
-        "in",
-        `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
+  let data: Array<Record<string, unknown>> | null = null;
+  if (!detailFailed) {
+    try {
+      let query = supabase
+        .from("admin_alerts")
+        .select("id, code, raised_at, show_id, context, shows(slug)")
+        .is("resolved_at", null);
+      if (INFO_SEVERITY_CODES.length > 0) {
+        query = query.not(
+          "code",
+          "in",
+          `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
+        );
+      }
+      const result = await query.order("raised_at", { ascending: false }).limit(1);
+      if (result.error) {
+        // I3 fix: distinguish DB error from empty result. Empty (no unresolved
+        // alerts) is the steady-state — banner stays invisible. An error means
+        // the banner system itself is broken (RLS denial after admin gate,
+        // network failure, mis-applied migration). Task 1.3: this is now
+        // fail-VISIBLE — set detailFailed so the degraded banner renders
+        // instead of silently hiding a broken read.
+        console.error("[AlertBanner] admin_alerts SELECT failed:", result.error.message);
+        detailFailed = true;
+      } else {
+        data = result.data as Array<Record<string, unknown>> | null;
+      }
+    } catch (err) {
+      console.error(
+        "[AlertBanner] admin_alerts SELECT threw:",
+        err instanceof Error ? err.message : String(err),
       );
+      detailFailed = true;
     }
-    const result = await query.order("raised_at", { ascending: false }).limit(1);
-    if (result.error) {
-      // I3 fix: distinguish DB error from empty result. Empty (no unresolved
-      // alerts) is the steady-state — banner stays invisible. An error means
-      // the banner system itself is broken (RLS denial after admin gate,
-      // network failure, mis-applied migration); log so an operator tailing
-      // server logs has a signal even though the visible behavior is the same.
-      console.error("[AlertBanner] admin_alerts SELECT failed:", result.error.message);
-      return null;
-    }
-    data = result.data as Array<Record<string, unknown>> | null;
-  } catch (err) {
-    console.error(
-      "[AlertBanner] admin_alerts SELECT threw:",
-      err instanceof Error ? err.message : String(err),
+  }
+
+  // M12.2 B1 Task 1.3: every infra fault (construction throw, detail
+  // returned-error, detail thrown) renders the cataloged degraded banner.
+  // Because the NotifBell count and this banner are SEPARATE reads, a
+  // positive/degraded bell must never route to an empty /admin#alerts.
+  if (detailFailed) {
+    const msg = getRequiredDougFacing("ADMIN_ALERT_COUNT_FAILED"); // string; Task 0.7
+    return (
+      <section
+        data-testid="admin-alert-banner-degraded"
+        role="status"
+        aria-live="polite"
+        className="mb-section-gap rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+      >
+        <p className="text-base font-medium">{msg}</p>
+        <Link
+          href="/admin#alerts"
+          className="mt-2 inline-flex min-h-tap-min items-center text-sm underline underline-offset-2"
+        >
+          View alerts
+        </Link>
+      </section>
     );
-    return null;
   }
   if (!data || data.length === 0) {
     // No unresolved alerts. The banner is intentionally invisible in the
@@ -128,48 +163,16 @@ export async function AlertBanner() {
     return null;
   }
 
-  // M9 C4 / M5-D3: queue-depth probe. Build the SAME filter chain
-  // (resolved_at IS NULL + info-severity exclusion) and request the
-  // exact count via head:true so no row payload comes back. The chip
-  // renders only when (count - 1) >= 1, i.e., there are alerts beyond
-  // the topmost shown.
-  //
-  // Codex R3 fix: countQuery construction is INSIDE the try block (see
-  // the SELECT block above for the same rationale — `.from()` is a
-  // synchronous throw site that the §1.9 meta-test exercises).
-  let queueDepth: number | null = null;
-  try {
-    let countQuery = supabase
-      .from("admin_alerts")
-      .select("id", { count: "exact", head: true })
-      .is("resolved_at", null);
-    if (INFO_SEVERITY_CODES.length > 0) {
-      countQuery = countQuery.not(
-        "code",
-        "in",
-        `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
-      );
-    }
-    // C4 R2 fix: invariant 9 (Supabase call-boundary discipline) requires
-    // every call destructure `{ data, error }`. head:true makes the data
-    // payload null but the binding shape stays uniform across the codebase.
-    const { data: _countData, count, error: countError } = await countQuery;
-    void _countData;
-    if (countError) {
-      // Non-fatal: the banner still renders the topmost alert without
-      // the count chip. Log so an operator sees the partial degradation.
-      console.error("[AlertBanner] admin_alerts COUNT failed:", countError.message);
-    } else {
-      queueDepth = count ?? null;
-    }
-  } catch (err) {
-    // Non-fatal mirror of the .error branch above — chip silently drops.
-    console.error(
-      "[AlertBanner] admin_alerts COUNT threw:",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
-  const moreCount = typeof queueDepth === "number" && queueDepth > 1 ? queueDepth - 1 : 0;
+  // M9 C4 / M5-D3: queue-depth chip. Task 1.3 replaces the inline
+  // head:true count probe with the shared fetchUnresolvedAlertCount()
+  // helper so the bell badge and this chip read from ONE source (no
+  // drift). The chip renders only when (count - 1) >= 1, i.e., there are
+  // alerts beyond the topmost shown. An infra_error from the helper
+  // collapses moreCount to 0 (chip silently drops; the topmost alert
+  // still renders) — the helper's own degraded state already feeds the
+  // fail-visible bell.
+  const countResult = await fetchUnresolvedAlertCount();
+  const moreCount = countResult.kind === "ok" && countResult.count > 1 ? countResult.count - 1 : 0;
 
   // M11 Phase C (C.2 extension): request-scoped wall-clock instant for
   // the relative-time suffix. Hoisted here (after early returns) so the

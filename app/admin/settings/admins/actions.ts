@@ -36,7 +36,11 @@
 import { revalidatePath } from "next/cache";
 
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
-import { addAdminEmail, revokeAdminEmail } from "@/lib/data/adminEmails";
+import {
+  addAdminEmail,
+  revokeAdminEmail,
+  AdminEmailsInfraError,
+} from "@/lib/data/adminEmails";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 /**
@@ -49,7 +53,14 @@ export type AdminEmailActionResult =
   | { kind: "invalid_email" }
   | { kind: "already_active"; email: string }
   | { kind: "re_add_required"; email: string; previously_revoked_at: string }
-  | { kind: "last_admin_lockout"; email: string };
+  | { kind: "last_admin_lockout"; email: string }
+  // Task 6.4: the data-layer mutation hit an AdminEmailsInfraError
+  // (transient DB / permissions fault) AFTER the requireAdminIdentity
+  // gate passed. Surfaced inline + retryable by all three write UI
+  // surfaces (ADMIN_EMAIL_WRITE_FAILED) instead of tearing down the
+  // settings section. Gate AdminInfraError still propagates to the
+  // catalog 500 boundary — it is NOT mapped to this kind.
+  | { kind: "infra_error" };
 
 export async function addAdminAction(
   _prev: AdminEmailActionResult | null,
@@ -87,20 +98,31 @@ export async function addAdminAction(
     }
   }
 
-  const outcome = await addAdminEmail({
-    rawEmail,
-    // M9 C9 — store note as-submitted (no inline normalization here so
-    // the no-inline-email-normalization meta-test stays clean). Empty
-    // string → NULL so the UI's "render only if truthy" branch hides
-    // empty notes. Whitespace-only notes are stored as-is and
-    // gracefully hidden by the page-level visibility predicate.
-    note: typeof note === "string" && note.length > 0 ? note : null,
-    confirmReAdd,
-  });
+  // Task 6.4: wrap ONLY the data call (the gate above stays OUTSIDE the
+  // try so its AdminInfraError propagates to the catalog 500 boundary).
+  // An AdminEmailsInfraError → retryable inline { kind: "infra_error" };
+  // anything else (Next control-flow digests, unknown) rethrows.
+  let outcome;
+  try {
+    outcome = await addAdminEmail({
+      rawEmail,
+      // M9 C9 — store note as-submitted (no inline normalization here so
+      // the no-inline-email-normalization meta-test stays clean). Empty
+      // string → NULL so the UI's "render only if truthy" branch hides
+      // empty notes. Whitespace-only notes are stored as-is and
+      // gracefully hidden by the page-level visibility predicate.
+      note: typeof note === "string" && note.length > 0 ? note : null,
+      confirmReAdd,
+    });
+  } catch (err) {
+    if (err instanceof AdminEmailsInfraError) return { kind: "infra_error" };
+    throw err; // gate AdminInfraError, Next control-flow digests, unknown → boundary
+  }
 
   switch (outcome.kind) {
     case "ok":
       revalidatePath("/admin/settings/admins");
+      revalidatePath("/admin/settings");
       return outcome.row?.email
         ? { kind: "ok", email: outcome.row.email }
         : { kind: "ok" };
@@ -132,11 +154,20 @@ export async function revokeAdminAction(
   const rawEmail = formData.get("email");
   if (typeof rawEmail !== "string") return { kind: "invalid_email" };
 
-  const outcome = await revokeAdminEmail({ rawEmail });
+  // Task 6.4: wrap ONLY the data call; gate stays outside (see
+  // addAdminAction). AdminEmailsInfraError → inline retryable state.
+  let outcome;
+  try {
+    outcome = await revokeAdminEmail({ rawEmail });
+  } catch (err) {
+    if (err instanceof AdminEmailsInfraError) return { kind: "infra_error" };
+    throw err; // gate AdminInfraError, Next control-flow digests, unknown → boundary
+  }
 
   switch (outcome.kind) {
     case "ok":
       revalidatePath("/admin/settings/admins");
+      revalidatePath("/admin/settings");
       return { kind: "ok" };
     case "invalid_email":
       return { kind: "invalid_email" };
@@ -148,6 +179,7 @@ export async function revokeAdminAction(
       // economy). Surface as a successful no-op so the UI doesn't
       // light a red error region for a benign case.
       revalidatePath("/admin/settings/admins");
+      revalidatePath("/admin/settings");
       return { kind: "ok" };
     case "re_add_required":
       // Not reachable from revokeAdminEmail.

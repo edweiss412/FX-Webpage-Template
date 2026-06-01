@@ -28,7 +28,7 @@ test.describe("admin layout (mobile-safari, /admin/dev)", () => {
 
     // Layout chrome is present.
     await expect(page.locator("[data-testid=admin-layout]")).toBeVisible();
-    await expect(page.locator("[data-testid=admin-header]")).toHaveText("Admin");
+    await expect(page.locator("[data-testid=admin-nav-brand]")).toContainText("Admin");
 
     // The /admin/dev page render is nested inside the layout (the page's
     // <main> with the /admin/dev — fixture upload-test heading still mounts).

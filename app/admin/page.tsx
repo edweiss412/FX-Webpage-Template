@@ -39,6 +39,7 @@ import { FinalizeInProgress } from "@/components/admin/FinalizeInProgress";
 import { ReadyToPublish } from "@/components/admin/ReadyToPublish";
 import { StaleReadyToPublish } from "@/components/admin/StaleReadyToPublish";
 import { Dashboard } from "@/components/admin/Dashboard";
+import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import {
   readFinalizeCheckpoint,
   isCheckpointStale,
@@ -75,6 +76,25 @@ function CheckpointInfraErrorPlaceholder() {
         </p>
       </header>
     </main>
+  );
+}
+
+/**
+ * Task 4.1: the Dashboard surface's single title source is the shared
+ * <AdminPageHeader>, rendered ABOVE <Dashboard/>. Dashboard.tsx no longer
+ * renders its own <h2>Dashboard</h2> + sub line. Both Dashboard-dispatch
+ * return sites (settled steady-state + the defensive final_cas_done branch)
+ * route through this wrapper so the header is the one canonical heading.
+ */
+function DashboardWithHeader() {
+  return (
+    <>
+      <AdminPageHeader
+        title="Dashboard"
+        sub="Your live shows and anything that needs review."
+      />
+      <Dashboard />
+    </>
   );
 }
 
@@ -128,7 +148,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         // inconsistent snapshot. Render Dashboard explicitly per plan
         // §M10 Task 10.1 finding 2 dispatch logic rather than strand the
         // operator on a wizard surface.
-        return <Dashboard />;
+        return <DashboardWithHeader />;
       }
     }
     // No checkpoint yet → wizard pre-finalize (steps 1/2/3, possibly mid-Apply).
@@ -151,5 +171,5 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   }
 
   // Precedence 3: settled (post-onboarding steady state).
-  return <Dashboard />;
+  return <DashboardWithHeader />;
 }

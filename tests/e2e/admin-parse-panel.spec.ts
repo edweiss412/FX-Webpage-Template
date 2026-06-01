@@ -99,7 +99,9 @@ test.describe("admin parse panel — /admin/show/[slug]", () => {
     const card = page.locator(`[data-staged-id="${staged.staged_id}"]`);
     await expect(card).toBeVisible();
     await expect(page.getByTestId("staged-parse-summary")).toContainText("Hello Show");
-    await expect(page.getByTestId("admin-show-title")).toBeVisible();
+    // B1 Task 4.3: the per-show title now renders inside the shared
+    // <AdminPageHeader> as admin-page-header-title (was admin-show-title).
+    await expect(page.getByTestId("admin-page-header-title")).toBeVisible();
 
     await clearPendingSyncs(seed.driveFileId);
   });

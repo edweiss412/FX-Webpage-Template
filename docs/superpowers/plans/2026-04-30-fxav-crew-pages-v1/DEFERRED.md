@@ -21,7 +21,7 @@ When picking up a deferred item:
 ### M12.2-A-DEF-1 — rotate/reset RPC server-side mutation gate (finalize-owned / archived)
 
 **Status:** Deferred 2026-05-31 from M12.2 Phase A; orchestrator-ratified (spec §16 DEF-1, R29/R30 finding 1).
-**Source:** M12.2 Phase A spec `docs/superpowers/specs/2026-05-31-m12.2-phase-a-admin-dashboard-per-show-design.md` §16; plan Task 13.
+**Source:** M12.2 Phase A spec `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-a-admin-dashboard-per-show-design.md` §16; plan Task 13.
 **Description:** `rotate_show_share_token` + `reset_picker_epoch_atomic` only check admin-role + show-exists; they do NOT reject finalize-owned / `published=false` / `archived` rows (unlike the re-sync path's `FINALIZE_OWNED_SHOW` gate at `runManualSyncForShow.ts:231-303`). A stale-UI or direct-action call could mutate `show_share_tokens` / `shows.picker_epoch` mid-finalize or on a retired show.
 **Why deferred (pre-existing, NOT a Phase-A regression):** these RPCs never gated finalize-owned rows; the per-show page was always slug-reachable. Phase A only changes UI visibility and, via §6, *reduces* exposure. Hardening the mutation boundary is DB/RPC work that requires Phase B's migration layer; pulling it into Phase A would violate the §11 no-DB-writes/no-migrations invariant.
 **Phase-A interim mitigation (shipped):** rotate + reset are hidden in the UI unless `published && !archived` (per-show page §6 gating, branch `m12.2-phase-a-admin-redesign`); `RotateShareTokenButton` also takes `isCrewLinkActive` so an inactive context never surfaces a crew URL.

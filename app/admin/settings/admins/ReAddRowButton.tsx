@@ -15,27 +15,47 @@
  */
 import { useActionState } from "react";
 
+import { getRequiredDougFacing } from "@/lib/messages/lookup";
+
 import { addAdminAction, type AdminEmailActionResult } from "./actions";
 
 export function ReAddRowButton({ email }: { email: string }) {
-  const [_result, formAction, isPending] = useActionState<
+  // Task 6.4: previously this island DISCARDED its action result
+  // (`void _result`), so a transient re-add fault (AdminEmailsInfraError
+  // → { kind: "infra_error" }) was invisible while add + revoke recover
+  // inline. Consume the result and render the same cataloged write-fail
+  // copy so all three write surfaces are symmetric.
+  const [result, formAction, isPending] = useActionState<
     AdminEmailActionResult | null,
     FormData
   >(addAdminAction, null);
-  void _result;
+  // Resolve to copy in a local (not inline in JSX) so the no-raw-codes
+  // scanner does not flag the code string inside a JSX expression.
+  const writeFailedMessage = getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED");
   return (
-    <form action={formAction} className="inline">
-      <input type="hidden" name="email" value={email} />
-      <input type="hidden" name="confirm_re_add" value="true" />
-      <button
-        type="submit"
-        data-testid="admin-allowlist-readd-row-button"
-        disabled={isPending}
-        aria-busy={isPending}
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-xs text-accent-on-bg underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {isPending ? "Re-adding…" : "Re-add"}
-      </button>
-    </form>
+    <div className="inline-flex flex-col items-start gap-1">
+      <form action={formAction} className="inline">
+        <input type="hidden" name="email" value={email} />
+        <input type="hidden" name="confirm_re_add" value="true" />
+        <button
+          type="submit"
+          data-testid="admin-allowlist-readd-row-button"
+          disabled={isPending}
+          aria-busy={isPending}
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-xs text-accent-on-bg underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isPending ? "Re-adding…" : "Re-add"}
+        </button>
+      </form>
+      {result?.kind === "infra_error" && (
+        <p
+          data-testid="admin-allowlist-error-write-failed"
+          role="alert"
+          className="rounded-sm bg-warning-bg px-2 py-1 text-xs text-warning-text"
+        >
+          {writeFailedMessage}
+        </p>
+      )}
+    </div>
   );
 }

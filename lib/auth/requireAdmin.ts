@@ -86,7 +86,58 @@ export class AdminInfraError extends Error {
 
 export type AdminIdentity = { email: string };
 
-export async function requireAdminIdentity(): Promise<AdminIdentity> {
+/**
+ * Layer for the test-only infra-fail hook. The route-render proof
+ * (M12.2 B1 Task 2.3) forces a POST-LAYOUT page gate to throw WHILE the
+ * layout gate succeeds, so the force is scoped to the caller's layer.
+ * Pages call the helpers with the default `"page"`; the admin layout
+ * passes `"layout"` explicitly so a page-scoped force header does not
+ * trip the layout catch (and vice-versa).
+ */
+export type RequireAdminOpts = { layer?: "layout" | "page" };
+
+/**
+ * Test-only, production-gated, layer-aware infra-fail hook (Task 2.0).
+ * Throws an AdminInfraError when ALL hold:
+ *   - process.env.ENABLE_TEST_AUTH === "true"
+ *   - process.env.TEST_AUTH_SECRET is defined with length >= 16
+ *   - the request Authorization header is `Bearer ${TEST_AUTH_SECRET}`
+ *   - the request `x-test-force-infra-fail` header EQUALS the caller's layer
+ *
+ * Gated identically to the existing `x-help-force-infra-fail` hook so it
+ * can never fire in production (ENABLE_TEST_AUTH is unset there; even if
+ * set, the Bearer secret gate stops it). The header-value-equals-layer
+ * match is what makes it layer-scoped: a `page` force does not trip a
+ * `layout` gate.
+ */
+function maybeForceTestInfraFail(
+  reqHeaders: Awaited<ReturnType<typeof headers>> | null,
+  layer: "layout" | "page",
+): void {
+  const expectedSecret = process.env.TEST_AUTH_SECRET;
+  if (
+    process.env.ENABLE_TEST_AUTH === "true" &&
+    expectedSecret !== undefined &&
+    expectedSecret.length >= 16 &&
+    reqHeaders?.get("authorization") === `Bearer ${expectedSecret}` &&
+    reqHeaders?.get("x-test-force-infra-fail") === layer
+  ) {
+    throw new AdminInfraError("test-forced infra fail (layer=" + layer + ")");
+  }
+}
+
+export async function requireAdminIdentity(
+  opts?: RequireAdminOpts,
+): Promise<AdminIdentity> {
+  const layer = opts?.layer ?? "page";
+  let forceHeaders: Awaited<ReturnType<typeof headers>> | null = null;
+  try {
+    forceHeaders = await headers();
+  } catch {
+    forceHeaders = null;
+  }
+  maybeForceTestInfraFail(forceHeaders, layer);
+
   // Auth gate: ask Postgres' is_admin() helper. Reading via the cookie-bound
   // client means RLS-side helpers see the same auth.jwt() the rest of the
   // request would. Empty cookies → unauthenticated → fail closed before RPC.
@@ -163,13 +214,17 @@ export async function requireAdminIdentity(): Promise<AdminIdentity> {
   return { email };
 }
 
-export async function requireAdmin(): Promise<void> {
+export async function requireAdmin(opts?: RequireAdminOpts): Promise<void> {
+  const layer = opts?.layer ?? "page";
   let reqHeaders: Awaited<ReturnType<typeof headers>> | null = null;
   try {
     reqHeaders = await headers();
   } catch {
     reqHeaders = null;
   }
+
+  // Task 2.0 layer-aware hook (additive). Honored by BOTH helpers.
+  maybeForceTestInfraFail(reqHeaders, layer);
 
   const expectedSecret = process.env.TEST_AUTH_SECRET;
   if (

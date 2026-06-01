@@ -1,116 +1,57 @@
 /**
- * app/admin/settings/page.tsx (M10 §B Task 10.1 §B / Phase 1)
+ * app/admin/settings/page.tsx (M10 §B / M12.2 B1 Task 4.2 + 6.2)
  *
- * Post-onboarding settings landing. Phase 1 ships ONE affordance —
- * "Re-run Setup" — wired to the §A `rerunSetupServerAction` (Pin-1
- * export). The full settings surface (folder rebind, watch-channel
- * status, signing-key rotation, etc.) lands in Phase 3.
+ * Canonical post-onboarding settings surface. Body (top → bottom):
+ *   - <DriveConnectionPanel> (Task 5.4) — Drive-connection health readout +
+ *     its OWN "Re-run setup" button (subsumes the old standalone re-run-setup
+ *     section).
+ *   - <AdministratorsSection> (Task 6.2) — embedded admin allow-list (the old
+ *     "Manage administrators" link is subsumed; the deep link
+ *     /admin/settings/admins still renders the same section).
+ *   - <DevToolsRow> (Task 8.3) — gated on the build-time DEV_PANEL_PRESENT
+ *     constant; renders null in normal builds (committed false), so it is the
+ *     only "Preferences"-area content for B1 and is invisible by default.
  *
- * Per spec §9.0:
- *   "After onboarding succeeds the [pre-onboarding 'Start over']
- *    affordance disappears — restart goes through `/admin/settings`
- *    instead."
- *
- * `rerunSetupServerAction` (lib/onboarding/serverActions.ts):
- *   - admin-gates via requireAdminIdentity
- *   - rotates pending_wizard_session_id + purges stale wizard rows
- *     unless a multi-batch finalize is in flight, in which case the
- *     action redirects to /admin?show_finalize=true so the operator
- *     resumes the finalize first.
- *
- * The Administrators link below is preserved from the prior M9 admin
- * landing so /admin/settings/admins/ remains reachable now that this
- * page is the canonical settings surface.
- *
- * The layout gates admin access; we still re-call requireAdmin here
- * defensively, matching the pattern in app/admin/dev/page.tsx so a
- * direct-render path (future routing change) can never bypass it.
+ * The layout gates admin access; we still re-call requireAdminIdentity here
+ * defensively (matching app/admin/dev/page.tsx) and to source the actor's
+ * canonical email for the embedded self-revoke policy.
  */
-import Link from "next/link";
-import { rerunSetupServerAction } from "@/lib/onboarding/serverActions";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { canonicalize } from "@/lib/email/canonicalize";
+import { nowDate } from "@/lib/time/now";
+import { fetchDriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
+import { fetchEmbeddedAdminEmails } from "@/lib/admin/embeddedAdminEmails";
+import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
+import { DriveConnectionPanel } from "@/components/admin/settings/DriveConnectionPanel";
+import { AdministratorsSection } from "@/components/admin/settings/AdministratorsSection";
+import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings · Admin · FXAV" };
 
 export default async function AdminSettingsPage() {
-  await requireAdmin();
+  const identity = await requireAdminIdentity();
+  const now = await nowDate();
 
   return (
     <main
       data-testid="admin-settings-page"
-      className="mx-auto flex max-w-2xl flex-col gap-section-gap"
+      className="mx-auto flex max-w-[740px] flex-col gap-section-gap"
     >
-      <header className="flex flex-col gap-2">
-        <p
-          className="text-xs font-medium uppercase text-text-subtle"
-          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-        >
-          Admin settings
-        </p>
-        <h2 className="text-2xl font-semibold text-text-strong">
-          Settings
-        </h2>
-        <p className="max-w-prose text-base text-text-subtle">
-          Manage who can administer the app and how its connection to your
-          Drive folder is set up.
-        </p>
-      </header>
+      <AdminPageHeader
+        title="Settings"
+        sub="Manage your Drive connection, who can administer, and how the app behaves."
+      />
 
-      <section
-        data-testid="admin-settings-rerun-setup-section"
-        aria-labelledby="admin-settings-rerun-setup-heading"
-        className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
-      >
-        <h3
-          id="admin-settings-rerun-setup-heading"
-          className="text-lg font-semibold text-text-strong"
-        >
-          Re-run setup
-        </h3>
-        <p className="max-w-prose text-sm text-text-subtle">
-          Start the setup wizard again to change the Drive folder the app
-          syncs from. The live folder keeps syncing while the new wizard
-          runs; the swap happens only after you finish.
-        </p>
-        <form
-          data-testid="admin-settings-rerun-setup-form"
-          data-action="rerunSetupServerAction"
-          action={rerunSetupServerAction}
-          className="flex"
-        >
-          <button
-            type="submit"
-            data-testid="admin-settings-rerun-setup-button"
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            Re-run setup
-          </button>
-        </form>
-      </section>
+      <DriveConnectionPanel health={await fetchDriveConnectionHealth()} now={now} />
 
-      <section
-        data-testid="admin-settings-admins-section"
-        aria-labelledby="admin-settings-admins-heading"
-        className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
-      >
-        <h3
-          id="admin-settings-admins-heading"
-          className="text-lg font-semibold text-text-strong"
-        >
-          Administrators
-        </h3>
-        <p className="max-w-prose text-sm text-text-subtle">
-          Add or revoke who can view and edit show data.
-        </p>
-        <Link
-          data-testid="admin-settings-admins-link"
-          href="/admin/settings/admins"
-          className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          Manage administrators
-        </Link>
-      </section>
+      <AdministratorsSection
+        result={await fetchEmbeddedAdminEmails()}
+        actorCanonicalEmail={canonicalize(identity.email) ?? ""}
+        now={now}
+      />
+
+      <DevToolsRow />
     </main>
   );
 }

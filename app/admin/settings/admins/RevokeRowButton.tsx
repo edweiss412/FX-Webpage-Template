@@ -30,17 +30,28 @@
 import { useEffect, useRef, useState } from "react";
 import { useActionState } from "react";
 
-import { getDougFacing } from "@/lib/messages/lookup";
+import { getDougFacing, getRequiredDougFacing } from "@/lib/messages/lookup";
 
 import { revokeAdminAction, type AdminEmailActionResult } from "./actions";
 
 const AUTO_REVERT_MS = 3_000;
 
-type UiState = "idle" | "confirm" | "resolving";
+// Task 7.1: no-response watchdog. A React server action dispatched via
+// useActionState routes a THROWN/hung action to the error boundary, not
+// back to local state, so a hung revoke (no result, no throw the island
+// can catch) strands the Confirm button on "Revoking…" forever. If the
+// island is still "resolving" after this window with no result, we move to
+// a conservative "couldnt_confirm" state: it prompts a refresh, never
+// returns to idle, and disables the submit (no duplicate revoke). A late
+// commit is reconciled by the §6.3 revalidatePath on the user's refresh.
+const WATCHDOG_MS = 12_000;
+
+type UiState = "idle" | "confirm" | "resolving" | "couldnt_confirm";
 
 export function RevokeRowButton({ email, disabled }: { email: string; disabled: boolean }) {
   const [ui, setUi] = useState<UiState>("idle");
   const autoRevertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const watchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [result, formAction, isPending] = useActionState<
     AdminEmailActionResult | null,
     FormData
@@ -52,7 +63,25 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
       autoRevertTimerRef.current = null;
     }
   };
-  useEffect(() => clearAutoRevert, []);
+  const clearWatchdog = () => {
+    if (watchdogTimerRef.current !== null) {
+      clearTimeout(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
+    }
+  };
+  useEffect(
+    () => () => {
+      clearAutoRevert();
+      clearWatchdog();
+    },
+    [],
+  );
+
+  // When a result arrives, the action did NOT hang, clear the watchdog so a
+  // late timer can't override the resolved (ok / infra_error / lockout) path.
+  useEffect(() => {
+    if (result !== null) clearWatchdog();
+  }, [result]);
 
   // R8 MEDIUM FIX (refined at R9): when the Server Action returns a
   // non-ok terminal result (last_admin_lockout, invalid_email), the
@@ -66,7 +95,11 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // from resolving (e.g., user clicks Revoke again → ui=confirm)
   // bypasses the snap and the confirm row renders normally.
   const refused = result && result.kind !== "ok" && ui === "resolving";
-  const effectiveUi: UiState = refused ? "idle" : ui;
+  // couldnt_confirm is sticky and outranks the refused snap (a result can't
+  // be present when the watchdog fired, the result-effect clears the
+  // watchdog, but guard defensively so a late render never re-derives idle).
+  const effectiveUi: UiState =
+    ui === "couldnt_confirm" ? "couldnt_confirm" : refused ? "idle" : ui;
 
   const onRevokeClick = () => {
     clearAutoRevert();
@@ -83,13 +116,74 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
 
   const onConfirmClick = () => {
     clearAutoRevert();
+    clearWatchdog();
     setUi("resolving");
+    // Start the no-response watchdog. If we're still resolving with no result
+    // when it fires, the action hung, go conservative.
+    watchdogTimerRef.current = setTimeout(() => {
+      setUi((prev) => (prev === "resolving" ? "couldnt_confirm" : prev));
+    }, WATCHDOG_MS);
+  };
+
+  const onRefreshClick = () => {
+    if (typeof window !== "undefined") window.location.reload();
   };
 
   const lockoutMessage =
     result?.kind === "last_admin_lockout"
       ? getDougFacing("LAST_ADMIN_LOCKOUT_REFUSED")
       : null;
+
+  // Task 6.4: transient DB / permissions fault on the revoke RPC,
+  // caught as AdminEmailsInfraError and surfaced inline so Doug can
+  // retry. Like lockoutMessage, the non-ok result snaps ui→idle (see
+  // `refused` above), so this renders in the idle return block; the
+  // confirm block also renders it to cover any mid-resolve render.
+  const writeFailMessage =
+    result?.kind === "infra_error"
+      ? getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED")
+      : null;
+
+  if (effectiveUi === "couldnt_confirm") {
+    // The revoke neither returned a result nor surfaced a catchable error
+    // within WATCHDOG_MS. Stay conservative: never imply the revoke failed
+    // (it may have committed late), never re-enable a submit (no double
+    // revoke), and steer Doug to refresh, the §6.3 revalidatePath on the
+    // refreshed render reconciles the row's true state.
+    return (
+      <div className="flex flex-col items-end gap-2">
+        <div
+          data-testid="admin-allowlist-revoke-confirm-row"
+          className="flex flex-wrap items-center gap-3"
+        >
+          <button
+            type="button"
+            data-testid="admin-allowlist-revoke-confirm-button"
+            disabled
+            aria-busy={false}
+            className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text opacity-60 disabled:cursor-not-allowed"
+          >
+            Revoking…
+          </button>
+        </div>
+        <p
+          data-testid="admin-allowlist-couldnt-confirm"
+          role="status"
+          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+        >
+          Couldn&rsquo;t confirm. Refresh to check.{" "}
+          <button
+            type="button"
+            data-testid="admin-allowlist-couldnt-confirm-refresh"
+            onClick={onRefreshClick}
+            className="font-medium underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          >
+            Refresh
+          </button>
+        </p>
+      </div>
+    );
+  }
 
   if (effectiveUi === "idle") {
     // Audit P3 fix: when the Revoke button is disabled because actor
@@ -136,6 +230,15 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             {lockoutMessage}
           </p>
         )}
+        {writeFailMessage && (
+          <p
+            data-testid="admin-allowlist-error-write-failed"
+            role="alert"
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          >
+            {writeFailMessage}
+          </p>
+        )}
       </div>
     );
   }
@@ -153,7 +256,16 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             type="submit"
             data-testid="admin-allowlist-revoke-confirm-button"
             onClick={onConfirmClick}
-            disabled={isResolving}
+            // Bug fix (B1 §4 / Task 7.1): this is the form SUBMITTER. It must
+            // NOT be disabled by the synchronous setUi("resolving") in its own
+            // onClick — a discrete-event re-render would disable it BEFORE the
+            // native submit event fires, cancelling the dispatch and stranding
+            // the button on "Revoking…" with zero POSTs (the misdiagnosed
+            // "server hang"). Disable on isPending, which useActionState sets
+            // AFTER React dispatches the action, so the submit always fires and
+            // double-submit is still prevented (isPending true within the same
+            // tick). Visual feedback stays keyed on isResolving below.
+            disabled={isPending}
             aria-busy={isResolving}
             className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -181,6 +293,15 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
         >
           {lockoutMessage}
+        </p>
+      )}
+      {writeFailMessage && (
+        <p
+          data-testid="admin-allowlist-error-write-failed"
+          role="alert"
+          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+        >
+          {writeFailMessage}
         </p>
       )}
     </div>

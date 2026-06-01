@@ -73,10 +73,10 @@ test.describe("admin Phase 2 surfaces (mobile-safari)", () => {
     expect(response?.status()).toBe(200);
 
     await expect(
-      page.locator("[data-testid=admin-settings-rerun-setup-button]"),
+      page.locator("[data-testid=drive-connection-rerun-setup-button]"),
     ).toBeVisible();
     await expect(
-      page.locator("[data-testid=admin-settings-rerun-setup-button]"),
+      page.locator("[data-testid=drive-connection-rerun-setup-button]"),
     ).toHaveText(/Re-run setup/i);
 
     await assertNoRawCodes(page);
