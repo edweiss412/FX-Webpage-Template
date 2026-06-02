@@ -110,3 +110,36 @@ begin
 end $$;
 revoke all on function public.unarchive_show(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.unarchive_show(uuid) to authenticated;
+
+-- Task 1.4: _publish_show_core (lockless, private) + publish_show (admin-gated, self-locking, atomic gate).
+create or replace function public._publish_show_core(p_show_id uuid)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_drive text; v_archived boolean; v_pub boolean; v_req boolean;
+begin
+  select drive_file_id, archived, published, requires_resync
+    into v_drive, v_archived, v_pub, v_req from public.shows where id = p_show_id;
+  if v_pub then return; end if;                              -- idempotent
+  if v_archived then raise exception using errcode='P0001', message='SHOW_ARCHIVED_IMMUTABLE'; end if;
+  if public.readfinalizeowned_b2(p_show_id) then raise exception using errcode='P0001', message='FINALIZE_OWNED_SHOW'; end if;
+  if v_req
+     or exists (select 1 from public.pending_syncs       where drive_file_id=v_drive and wizard_session_id is null)
+     or exists (select 1 from public.pending_ingestions  where drive_file_id=v_drive and wizard_session_id is null)
+     or exists (select 1 from public.deferred_ingestions where drive_file_id=v_drive and wizard_session_id is null)
+  then raise exception using errcode='P0001', message='PUBLISH_BLOCKED_PENDING_REVIEW'; end if;
+  update public.shows set published = true where id = p_show_id;
+  perform public.publish_show_invalidation(p_show_id);
+end $$;
+revoke all on function public._publish_show_core(uuid) from public, anon, authenticated, service_role;
+
+create or replace function public.publish_show(p_show_id uuid)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_drive text;
+begin
+  if not public.is_admin() then raise exception using errcode='42501', message='forbidden', hint='publish_show is admin-only'; end if;
+  select drive_file_id into v_drive from public.shows where id = p_show_id;
+  if v_drive is null then raise exception using errcode='P0002', message='ADMIN_LINK_SHOW_NOT_FOUND'; end if;
+  perform pg_advisory_xact_lock(hashtext('show:' || v_drive));   -- gate + flip atomic under one lock
+  perform public._publish_show_core(p_show_id);
+end $$;
+revoke all on function public.publish_show(uuid) from public, anon, authenticated, service_role;
+grant execute on function public.publish_show(uuid) to authenticated;
