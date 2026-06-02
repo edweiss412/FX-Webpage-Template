@@ -16,7 +16,10 @@ export type AutoPublishCleanFirstSeenResult =
 export async function getAutoPublishCleanFirstSeen(
   client?: AppSettingsSupabaseClient,
 ): Promise<AutoPublishCleanFirstSeenResult> {
-  // Bind a local `supabase` so `await supabase.from(...)` is grep-recognized by the infra meta-test.
+  // not-subject-to-meta: fail-closed on BOTH paths — a returned `error` yields `infra_error` (handled
+  // by the caller as "do not auto-publish this pass"), and a thrown construction/await error propagates
+  // up the sync pipeline (retried, still no auto-publish). It deliberately does NOT coerce thrown faults
+  // into a returned `infra_error`, so it is not the 3-path returned-result contract the infraRegistry pins.
   const supabase = client ?? createSupabaseServiceRoleClient();
   const { data, error } = await supabase
     .from("app_settings")
