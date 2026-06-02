@@ -944,6 +944,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_ARCHIVED_BY_ADMIN: {
     code: "SHOW_ARCHIVED_BY_ADMIN",
+    severity: "info",
     dougFacing: "Archived. Crew links are dead until you re-publish and issue a new link.",
     crewFacing: null,
     followUp: "Doug → re-publish + issue new link when ready",
@@ -955,6 +956,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_UNARCHIVED: {
     code: "SHOW_UNARCHIVED",
+    severity: "info",
     dougFacing: "Unarchived. The show is held (not published) — publish it to go live again.",
     crewFacing: null,
     followUp: "Doug → publish to go live",
@@ -966,6 +968,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_PUBLISHED_BY_ADMIN: {
     code: "SHOW_PUBLISHED_BY_ADMIN",
+    severity: "info",
     dougFacing: "Published. Issue a crew link to give your crew access.",
     crewFacing: null,
     followUp: "Doug → issue crew link",
@@ -982,9 +985,10 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → unarchive first",
     helpfulContext:
       "Archived shows are frozen — re-syncs, applies, discards, token rotation, and similar write actions are blocked so an archived show can't be changed underneath you. If you need to make a change, unarchive the show first; it returns in a held state where you can re-sync and review before publishing.",
-    title: null,
-    longExplanation: null,
-    helpHref: null,
+    title: "Show is archived",
+    longExplanation:
+      "Archived shows are frozen: re-syncs, applies, discards, and token rotation are blocked so an archived show can't change underneath you. Unarchive it first — it returns in a held (not-published) state where you can re-sync and review before publishing again.",
+    helpHref: "/help/errors#SHOW_ARCHIVED_IMMUTABLE",
   },
   PUBLISH_BLOCKED_PENDING_REVIEW: {
     code: "PUBLISH_BLOCKED_PENDING_REVIEW",
@@ -994,12 +998,14 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → re-sync + clear, then publish",
     helpfulContext:
       "We can't publish this show because it isn't in a clean, fully-reconciled state: there are unsynced changes, a pending review in the inbox, or an active sync-suppression rule on the sheet. Re-sync the show from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
-    title: null,
-    longExplanation: null,
-    helpHref: null,
+    title: "Can't publish yet — not fully synced",
+    longExplanation:
+      "Publishing is blocked because the show isn't fully reconciled with its sheet: there are unsynced changes, a pending review in the inbox, or an active sync-suppression rule. Re-sync from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
+    helpHref: "/help/errors#PUBLISH_BLOCKED_PENDING_REVIEW",
   },
   SHOW_AWAITING_PUBLISH_APPROVAL: {
     code: "SHOW_AWAITING_PUBLISH_APPROVAL",
+    severity: "info",
     dougFacing: "A new show parsed cleanly and is waiting for your approval to publish.",
     crewFacing: null,
     followUp: "Doug → review + publish",
