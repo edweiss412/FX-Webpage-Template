@@ -4,10 +4,17 @@ type AppSettingsSupabaseClient = ReturnType<typeof createSupabaseServiceRoleClie
 
 /**
  * Fail-closed read of the auto-publish-clean-first-seen toggle (app_settings singleton id='default').
- * - error reading the row → `infra_error` (NOT fail-open true): the caller must NOT auto-publish this pass.
+ * - returned error OR a THROWN client-construction/query fault → `infra_error` (NOT fail-open true).
  * - missing row / non-boolean value → `{ value, autoPublish: false }` (fail closed → stage for approval).
  * - column true → `{ value, autoPublish: true }`.
- * Registered in tests/sync/_metaInfraContract.test.ts (Supabase call-boundary discipline, invariant 9).
+ *
+ * R8: this is the full 3-path returned-result contract (AGENTS.md invariant 9) — it NEVER throws to its
+ * callers. Both callers depend on that: the sync pipeline (lib/sync/phase1.ts:308-318) converts a
+ * returned `infra_error` into a Phase1InfraError (retry, still no auto-publish), and the settings page
+ * (app/admin/settings/page.tsx) renders the DEGRADED toggle on `infra_error`. Before R8 the helper let a
+ * thrown construction/network fault escape, which tore down the whole settings page (500) instead of the
+ * documented degraded control. Pinned by behavioral throwOnConstruct/throwOnFrom regressions in
+ * tests/sync/_metaInfraContract.test.ts.
  */
 export type AutoPublishCleanFirstSeenResult =
   | { kind: "value"; autoPublish: boolean }
@@ -16,20 +23,21 @@ export type AutoPublishCleanFirstSeenResult =
 export async function getAutoPublishCleanFirstSeen(
   client?: AppSettingsSupabaseClient,
 ): Promise<AutoPublishCleanFirstSeenResult> {
-  // not-subject-to-meta: fail-closed on BOTH paths — a returned `error` yields `infra_error` (handled
-  // by the caller as "do not auto-publish this pass"), and a thrown construction/await error propagates
-  // up the sync pipeline (retried, still no auto-publish). It deliberately does NOT coerce thrown faults
-  // into a returned `infra_error`, so it is not the 3-path returned-result contract the infraRegistry pins.
-  const supabase = client ?? createSupabaseServiceRoleClient();
-  const { data, error } = await supabase
-    .from("app_settings")
-    .select("auto_publish_clean_first_seen")
-    .eq("id", "default")
-    .maybeSingle();
-  if (error) {
+  try {
+    const supabase = client ?? createSupabaseServiceRoleClient();
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("auto_publish_clean_first_seen")
+      .eq("id", "default")
+      .maybeSingle();
+    if (error) {
+      return { kind: "infra_error" };
+    }
+    const value = (data as { auto_publish_clean_first_seen?: unknown } | null)
+      ?.auto_publish_clean_first_seen;
+    return { kind: "value", autoPublish: value === true };
+  } catch {
+    // Thrown construction/query/network fault → typed infra_error (never propagate to UI callers).
     return { kind: "infra_error" };
   }
-  const value = (data as { auto_publish_clean_first_seen?: unknown } | null)
-    ?.auto_publish_clean_first_seen;
-  return { kind: "value", autoPublish: value === true };
 }

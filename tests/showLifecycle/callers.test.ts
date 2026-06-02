@@ -62,9 +62,10 @@ describe("lifecycle callers", () => {
     expect(await publishShow("show-1", { rpc })).toEqual({ ok: false, code: "PUBLISH_BLOCKED_PENDING_REVIEW" });
   });
 
-  it("unarchiveShow runs the catch-up sync AFTER the RPC (separate call, not nested in a lock)", async () => {
+  it("unarchiveShow runs the catch-up sync AFTER a REAL transition (RPC returns true)", async () => {
     const order: string[] = [];
-    const rpc = vi.fn().mockImplementation(async () => { order.push("rpc"); return { data: null, error: null }; });
+    // R8: unarchive_show returns TRUE when it performed the archived->held transition.
+    const rpc = vi.fn().mockImplementation(async () => { order.push("rpc"); return { data: true, error: null }; });
     const catchUp = vi.fn().mockImplementation(async () => { order.push("sync"); return { outcome: "applied" }; });
     const res = await unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp });
     expect(order).toEqual(["rpc", "sync"]);
@@ -72,6 +73,16 @@ describe("lifecycle callers", () => {
     // (lib/sync/runManualSyncForShow.ts:217-220), NOT an options object.
     expect(catchUp).toHaveBeenCalledWith("drive-1", "manual");
     expect(res).toEqual({ ok: true });
+  });
+
+  it("R8: a stale/double Unarchive (RPC no-op → returns false) does NOT run the mutating catch-up sync", async () => {
+    // unarchive_show returns FALSE when the show was already non-archived under the lock. The caller must
+    // NOT run runManualSyncForShow (which clears live deferrals) against a show it did not transition.
+    const rpc = vi.fn().mockResolvedValue({ data: false, error: null });
+    const catchUp = vi.fn();
+    const res = await unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp });
+    expect(catchUp).not.toHaveBeenCalled();
+    expect(res).toEqual({ ok: true }); // the RPC succeeded (idempotent no-op), so the action still reports ok
   });
 
   it("unarchiveShow does NOT run the catch-up when the RPC fails, and surfaces the typed result", async () => {

@@ -8,5 +8,5 @@ export async function publishShow(
   deps?: { rpc?: LifecycleRpc },
 ): Promise<LifecycleResult> {
   const rpc = deps?.rpc ?? defaultRpc();
-  return callLifecycleRpc(rpc, "publish_show", { p_show_id: showId });
+  return (await callLifecycleRpc(rpc, "publish_show", { p_show_id: showId })).result;
 }

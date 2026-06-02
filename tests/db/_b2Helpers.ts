@@ -54,6 +54,14 @@ export async function asAdminRpc(fn: AdminRpcFn, args: { p_show_id: string }): P
   });
 }
 
+/** Call unarchive_show as admin and return its boolean result (R8: true iff it performed archived→held). */
+export async function unarchiveShowReturning(showId: string): Promise<boolean> {
+  return asAdminTx(sql, async (tx) => {
+    const [row] = await tx.unsafe(`select public.unarchive_show($1::uuid) as transitioned`, [showId]);
+    return (row as unknown as { transitioned: boolean }).transitioned;
+  });
+}
+
 export async function readShow(showId: string): Promise<Record<string, any>> {
   const [row] = await sql`select * from public.shows where id = ${showId}::uuid`;
   if (!row) throw new Error(`readShow: show not found (${showId})`);

@@ -8,5 +8,5 @@ export async function archiveShow(
   deps?: { rpc?: LifecycleRpc },
 ): Promise<LifecycleResult> {
   const rpc = deps?.rpc ?? defaultRpc();
-  return callLifecycleRpc(rpc, "archive_show", { p_show_id: showId });
+  return (await callLifecycleRpc(rpc, "archive_show", { p_show_id: showId })).result;
 }

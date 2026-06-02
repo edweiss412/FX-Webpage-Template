@@ -52,11 +52,11 @@ export async function callLifecycleRpc(
   rpc: LifecycleRpc,
   fn: string,
   args: Record<string, unknown>,
-): Promise<LifecycleResult> {
+): Promise<{ result: LifecycleResult; data: unknown }> {
   try {
-    const { error } = await rpc(fn, args);
-    return mapRpcResult(error);
+    const { data, error } = await rpc(fn, args);
+    return { result: mapRpcResult(error), data };
   } catch {
-    return { ok: false, code: "infra_error" };
+    return { result: { ok: false, code: "infra_error" }, data: null };
   }
 }

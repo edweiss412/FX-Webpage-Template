@@ -17,8 +17,14 @@ export async function unarchiveShow(
 ): Promise<LifecycleResult> {
   const rpc = deps?.rpc ?? defaultRpc();
   const catchUp = deps?.runManualSyncForShow ?? (defaultRunManualSyncForShow as CatchUpSync);
-  const result = await callLifecycleRpc(rpc, "unarchive_show", { p_show_id: showId });
+  const { result, data } = await callLifecycleRpc(rpc, "unarchive_show", { p_show_id: showId });
   if (!result.ok) return result;
-  await catchUp(driveFileId, "manual"); // best-effort catch-up; separate self-locked txn
+  // R8: unarchive_show returns TRUE iff it actually performed the archived->held transition, FALSE on an
+  // idempotent no-op (stale/double Unarchive on an already-Held/Live show). Run the MUTATING catch-up sync
+  // ONLY on a real transition — otherwise a stale button click would re-sync (and clear live deferrals on)
+  // a show that was never archived in this call.
+  if (data === true) {
+    await catchUp(driveFileId, "manual"); // best-effort catch-up; separate self-locked txn
+  }
   return result;
 }

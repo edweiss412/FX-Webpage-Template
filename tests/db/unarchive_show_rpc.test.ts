@@ -1,10 +1,20 @@
 import { describe, it, expect } from "vitest";
 import {
   seedArchivedShow, seedArchivedButPublishedShow, seedLegacyArchivedShow, seedHeldShow, seedLiveShowWithToken,
-  asAdminRpc, readShow, readShareToken, scratchCount,
+  asAdminRpc, unarchiveShowReturning, readShow, readShareToken, scratchCount,
 } from "@/tests/db/_b2Helpers";
 
 describe("unarchive_show (revival-sanitization chokepoint)", () => {
+  it("R8: returns TRUE on a real archived→held transition, FALSE on an idempotent no-op", async () => {
+    // The boolean return is what lets the JS caller run the MUTATING catch-up sync ONLY on a real
+    // transition — a stale/double Unarchive (already non-archived) returns false and skips the sync.
+    const { showId } = await seedArchivedShow();
+    expect(await unarchiveShowReturning(showId)).toBe(true); // archived → performed the transition
+    expect(await unarchiveShowReturning(showId)).toBe(false); // now Held → idempotent no-op
+    const live = await seedLiveShowWithToken();
+    expect(await unarchiveShowReturning(live.showId)).toBe(false); // already Live → no-op
+  });
+
   it("Archived→Held: archived=false, archived_at=null, requires_resync=true, published stays false", async () => {
     const { showId } = await seedArchivedShow();
     await asAdminRpc("unarchive_show", { p_show_id: showId });

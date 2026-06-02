@@ -81,6 +81,12 @@ const infraRegistry = [
     contract: "sync_log sink thrown SQL faults propagate to the route/orchestrator caller",
   },
   {
+    helper: "getAutoPublishCleanFirstSeen",
+    path: "lib/appSettings/getAutoPublishCleanFirstSeen.ts",
+    contract:
+      "auto-publish toggle read: returned error AND thrown construction/query faults → { kind:'infra_error' } (never throws to callers; R8 — both the sync pipeline AND the settings page depend on the typed degraded result)",
+  },
+  {
     helper: "getActiveWatchedFolderId",
     path: "lib/appSettings/getWatchedFolderId.ts",
     contract: "app_settings watched-folder lookup faults become typed infra_error results",
@@ -361,6 +367,11 @@ async function importWatchedFolderHelper() {
   return import("@/lib/appSettings/getWatchedFolderId");
 }
 
+async function importAutoPublishHelper() {
+  vi.resetModules();
+  return import("@/lib/appSettings/getAutoPublishCleanFirstSeen");
+}
+
 async function importPushSync() {
   vi.resetModules();
   const mod = await import("@/lib/sync/runPushSyncForShow");
@@ -420,6 +431,23 @@ describe("sync Supabase infra-failure contract", () => {
       infraMock.throwOnFrom = true;
       const { runPushSyncForShow, SyncInfraError } = await importPushSync();
       await expect(runPushSyncForShow("file-1")).rejects.toBeInstanceOf(SyncInfraError);
+    });
+  });
+
+  describe("getAutoPublishCleanFirstSeen (auto-publish toggle read)", () => {
+    // R8: the helper must NEVER throw to its callers — the sync pipeline converts a returned infra_error
+    // to Phase1InfraError (retry) and the settings page renders the degraded toggle on infra_error. A
+    // thrown construction/query fault used to escape and 500 the settings page.
+    test("service-role construction throw → { kind:'infra_error' } (never throws)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { getAutoPublishCleanFirstSeen } = await importAutoPublishHelper();
+      await expect(getAutoPublishCleanFirstSeen()).resolves.toEqual({ kind: "infra_error" });
+    });
+
+    test("Supabase .from() throw → { kind:'infra_error' } (never throws)", async () => {
+      infraMock.throwOnFrom = true;
+      const { getAutoPublishCleanFirstSeen } = await importAutoPublishHelper();
+      await expect(getAutoPublishCleanFirstSeen()).resolves.toEqual({ kind: "infra_error" });
     });
   });
 
