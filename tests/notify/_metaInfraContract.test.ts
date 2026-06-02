@@ -7,6 +7,8 @@ export const REGISTERED: { path: string }[] = [
   // lib/notify/recipients.ts — service-role read of admin_emails; returns
   // { kind: "infra_error" } on returned/thrown DB fault (Task 2.5, invariant 9).
   { path: "lib/notify/recipients.ts" },
+  { path: "lib/appSettings/getAlertOnSyncProblems.ts" },
+  { path: "lib/appSettings/getDailyReviewDigest.ts" },
 ];
 
 // Inline recursive .ts walker (R9/R10 fix — no shared walkTs exists in the repo).
@@ -63,5 +65,38 @@ describe("notify + app-settings infra-contract (structural)", () => {
   test("every REGISTERED path exists (a renamed/deleted boundary is caught)", () => {
     const missing = REGISTERED.filter((r) => !existsSync(r.path));
     expect(missing.map((r) => r.path), "REGISTERED paths that no longer exist").toEqual([]);
+  });
+
+  test("notify app-settings toggle getters return infra_error for returned DB errors", async () => {
+    const maybeSingle = async () => ({ data: null, error: { message: "boom" } });
+    const client = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({ maybeSingle }),
+        }),
+      }),
+    };
+    const { getAlertOnSyncProblems } = await import("@/lib/appSettings/getAlertOnSyncProblems");
+    const { getDailyReviewDigest } = await import("@/lib/appSettings/getDailyReviewDigest");
+
+    await expect(getAlertOnSyncProblems(client as never)).resolves.toEqual({
+      kind: "infra_error",
+    });
+    await expect(getDailyReviewDigest(client as never)).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("notify app-settings toggle getters return infra_error for thrown query faults", async () => {
+    const client = {
+      from: () => {
+        throw new Error("query fault");
+      },
+    };
+    const { getAlertOnSyncProblems } = await import("@/lib/appSettings/getAlertOnSyncProblems");
+    const { getDailyReviewDigest } = await import("@/lib/appSettings/getDailyReviewDigest");
+
+    await expect(getAlertOnSyncProblems(client as never)).resolves.toEqual({
+      kind: "infra_error",
+    });
+    await expect(getDailyReviewDigest(client as never)).resolves.toEqual({ kind: "infra_error" });
   });
 });
