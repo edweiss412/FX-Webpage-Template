@@ -5,6 +5,7 @@ import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { asParseResult, JsonbCoercionError } from "@/lib/db/coerceJsonbObject";
 import {
   assertShowLockHeld,
@@ -223,7 +224,8 @@ export type ApplyStagedResult =
   | { outcome: "wizard_applied"; wizardSessionId: string; stagedId: string }
   | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED }
   | { outcome: "review_items_corrupt"; code: typeof STAGED_REVIEW_ITEMS_CORRUPT }
-  | { outcome: "parse_result_corrupt"; code: typeof STAGED_PARSE_RESULT_CORRUPT };
+  | { outcome: "parse_result_corrupt"; code: typeof STAGED_PARSE_RESULT_CORRUPT }
+  | { outcome: "blocked"; code: typeof SHOW_ARCHIVED_IMMUTABLE };
 
 export type ApplyStagedDeps = {
   readLivePendingSyncForApply?: (
@@ -1184,6 +1186,11 @@ export async function applyStaged_unlocked(
   injectedDeps: ApplyStagedDeps = {},
 ): Promise<ApplyStagedResult> {
   await assertShowLockHeld(tx, args.driveFileId);
+
+  // DEF-2: refuse mutation of an archived show (re-read under the held lock) before any consumption.
+  if (await readShowArchived_unlocked(tx, args.driveFileId)) {
+    return { outcome: "blocked", code: SHOW_ARCHIVED_IMMUTABLE };
+  }
 
   const deps = depsWithDefaults(injectedDeps);
   if (args.sourceScope === "wizard") {
