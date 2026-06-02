@@ -159,7 +159,7 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   SHOW_UNPUBLISHED: {
-    source: "admin_alerts.code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   STAGED_PARSE_OUTDATED: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
@@ -219,10 +219,10 @@ export const INTERNAL_CODE_ENUMS = {
     source: "parse_warnings.code"
   },
   UNPUBLISH_TOKEN_CONSUMED: {
-    source: "admin_alerts.code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   UNPUBLISH_TOKEN_EXPIRED: {
-    source: "admin_alerts.code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   WATCH_CHANNEL_ORPHANED: {
     source: "admin_alerts.code"

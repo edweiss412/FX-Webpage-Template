@@ -26,6 +26,8 @@ function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
     lastSyncStatus: "ok",
     published: true,
     isLive: false,
+    finalizeOwned: false,
+    archivedAt: null,
     ...over,
   };
 }

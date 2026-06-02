@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "config": {
+    "stopReviewGate": false
+  },
+  "jobs": [
+    {
+      "createdAt": "2026-06-02T01:21:45.457Z",
+      "updatedAt": "2026-06-02T01:27:05.533Z",
+      "id": "task-mpvyceep-9gegc5",
+      "kind": "task",
+      "kindLabel": "rescue",
+      "title": "Codex Task",
+      "workspaceRoot": "/Users/ericweiss/FX-Webpage-Template",
+      "jobClass": "task",
+      "summary": "Blocked at Task 1.1 due sandbox permissions. I stopped before adding/applying the migration or committing Task 1.1 because the RED test cannot reach local Supabase from this session.",
+      "write": true,
+      "sessionId": "5a4c1e00-836e-4b3c-883a-e9ad3717a130",
+      "status": "completed",
+      "phase": "done",
+      "pid": null,
+      "logFile": "/Users/ericweiss/FX-Webpage-Template/.codex-companion-b2/state/FX-Webpage-Template-2bdac1b018457a90/jobs/task-mpvyceep-9gegc5.log",
+      "request": {
+        "cwd": "/Users/ericweiss/FX-Webpage-Template",
+        "model": null,
+        "effort": "high",
+        "prompt": "You are the BACKEND IMPLEMENTER for M12.2 Phase B2 (show lifecycle). This is a write-mode implementation session, NOT a review. Implement code, run tests, commit per task.\n\nAUTHORITATIVE DOCS (read these first, in the repo):\n- Plan: docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md\n- Handoff: docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/handoffs/M12.2-phase-b2-show-lifecycle.md  (read §4 pre-handoff state, §5 invariants, §6 watchpoints, §7 test commands, §9 git protocol)\n- Spec (canonical, wins on disagreement): docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md\n\nSCOPE FOR THIS DISPATCH — ONLY Task 1.0 and Task 1.1. Do NOT proceed past Task 1.1. (This is the first dispatch; we verify the harness before the full migration.)\n- Task 1.0: create tests/db/_b2Helpers.ts EXACTLY as the plan specifies (postgres.js; seeds, asAdminRpc, reads, applyMigrationBackfill, archiveRaceExactlyOnce/archivedImmutabilityRace, sqlClient export). Step 2 = `pnpm tsc --noEmit` clean for that file. Commit per the plan's commit line.\n- Task 1.1: create supabase/migrations/20260601000000_b2_show_lifecycle.sql with the 3 columns; write tests/db/b2-schema-introspection.test.ts (it imports sqlClient from @/tests/db/_b2Helpers); run RED (columns absent) → add the 3 ALTER TABLE ... ADD COLUMN IF NOT EXISTS lines → apply the migration → GREEN. Commit per the plan's commit line.\n\nCRITICAL CONSTRAINTS:\n1. TDD per task: failing test first → minimal impl → passing test → commit. Never implementation before its test. Verify each red step actually fails for the stated reason, and each green step passes.\n2. Commit per task, conventional-commits format exactly as the plan's Step-5 commit messages specify. Do NOT add a Co-Authored-By trailer (that is Opus's convention, not yours). One commit per task; do not batch.\n3. UI hard rule: do NOT touch anything under app/ (except app/api/), components/, or design/theme files. This dispatch is backend/test-only.\n4. Local Supabase is already running (Postgres reachable on 127.0.0.1:54322). To apply the NEW migration, use `supabase migration up` (do NOT run `pnpm db:reset` — it wipes local data). If it errors on a missing `app.fxav_vercel_url` GUC, set it with psql then retry (see handoff §4). Tests run via `pnpm vitest run <path>` with DATABASE_URL/TEST_DATABASE_URL pointing at local Supabase.\n5. The plan code is complete and was adversarially reviewed (3 rounds) — implement it faithfully. If you find a genuine defect, STOP and report it rather than silently diverging; the spec wins on any disagreement.\n6. Do NOT invoke any nested cross-model review (no adversarial-review, no /codex:* sub-reviews) from within this session.\n\nWHEN DONE (after Task 1.1 only): report (a) the per-task commit SHAs, (b) the exact red→green test command output lines proving each task's red then green, (c) `pnpm tsc --noEmit` + `pnpm lint` status, (d) any deviation from the plan or any defect found, (e) STOP — do not start Task 1.2.",
+        "write": true,
+        "resumeLast": false,
+        "jobId": "task-mpvyceep-9gegc5"
+      },
+      "startedAt": "2026-06-02T01:21:45.552Z",
+      "threadId": "019e85ec-2463-7270-818a-8f72d52222a6",
+      "turnId": "019e85ec-2510-7f21-9581-aaaf7d86c6e6",
+      "completedAt": "2026-06-02T01:27:05.518Z"
+    }
+  ]
+}

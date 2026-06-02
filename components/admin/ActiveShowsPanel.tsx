@@ -23,6 +23,19 @@ export type ActiveShowRow = {
   // fetchDashboardData (published && today∈span, show tz). ShowsTable's Live
   // pill reads this; it is never recomputed in the component.
   isLive: boolean;
+  // M12.2 Phase B2 (§3.2) — finalize-ownership for the Held-vs-Publishing pill
+  // split. Derived once in fetchDashboardData as
+  // `!published && !archived && !requires_resync`: a Held show (the NEW B2
+  // post-Unarchive state) carries `requires_resync=true`, which is set ONLY by
+  // `unarchive_show` (migration 20260601000000:100); a wizard-finalize-in-flight
+  // ("Publishing…") row never has it. ShowsTable reads this to pick the pill
+  // (Held → status-idle; Publishing… → status-warn); never recomputed.
+  finalizeOwned: boolean;
+  // M12.2 Phase B2 (§3.1) — archived-segment rows only. `shows.archived_at`
+  // ISO string, or null for a row seeded outside the legacy backfill (the
+  // ArchivedShowRow renders "Archived (date unknown)" + sorts last). Always
+  // null for active-segment rows.
+  archivedAt: string | null;
 };
 
 type ActiveShowsPanelProps = {

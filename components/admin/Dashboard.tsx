@@ -39,9 +39,20 @@ export const ACTIVE_SHOWS_CAP = 500;
 // Page size for the per-show crew-count paginate-until-complete loop (R17).
 export const CREW_PAGE_SIZE = 1000;
 
+// M12.2 Phase B2 (§3.1) — the dashboard show list is a two-state segmented
+// bucket. The selected segment is a URL search-param threaded from the page;
+// the RSC re-fetches server-side so back/forward + refresh behave.
+export type DashboardBucket = "active" | "archived";
+
 export type DashboardData = {
   rows: ActiveShowRow[];
+  // Which segment `rows` belongs to (echoed back so the component can render
+  // the right list shape — read-only ArchivedShowRows vs ShowsTable).
+  bucket: DashboardBucket;
   activeCount: number;
+  // M12.2 Phase B2 (§3.1) — ALWAYS computed (the inactive segment's label needs
+  // its count even when its rows aren't fetched), via a count-only head query.
+  archivedCount: number;
   liveCount: number;
   needReviewCount: number;
   crewTotal: number;
@@ -84,9 +95,12 @@ function deriveEnd(dates: DatesJson | null): string | null {
 
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row for the
 // §B Supabase call-boundary contract (AGENTS.md §1.9).
-export async function fetchDashboardData(): Promise<
-  DashboardData | { kind: "infra_error"; message: string }
-> {
+export async function fetchDashboardData(
+  options: { bucket?: DashboardBucket } = {},
+): Promise<DashboardData | { kind: "infra_error"; message: string }> {
+  // §3.1 — default to the Active segment; the page threads the ?bucket param.
+  const bucket: DashboardBucket = options.bucket === "archived" ? "archived" : "active";
+  const isArchived = bucket === "archived";
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -99,21 +113,31 @@ export async function fetchDashboardData(): Promise<
 
   const now = await nowDate();
 
-  // ── Active shows (archived = false; both published + in-flight), bounded ──
+  // ── Show list for the SELECTED segment, bounded (§3.1) ──
+  //   Active   = archived=false (Live + Publishing… + Held), ordered by sync.
+  //   Archived = archived=true, ordered archived_at DESC NULLS LAST, id
+  //              (deterministic — most-recently-archived first; null times last,
+  //              tie-broken by id so the order is stable across reads).
+  // `requires_resync` feeds the Held-vs-Publishing pill split (§3.2);
+  // `archived_at` feeds the ArchivedShowRow time line (§3.1).
   let showsRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    let q = supabase
       .from("shows")
       .select(
-        "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, published",
+        "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, published, requires_resync, archived_at",
       )
-      .eq("archived", false)
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
-      .limit(ACTIVE_SHOWS_CAP);
-    if (q.error) {
-      return { kind: "infra_error", message: `shows query failed: ${q.error.message}` };
+      .eq("archived", isArchived);
+    q = isArchived
+      ? q
+          .order("archived_at", { ascending: false, nullsFirst: false })
+          .order("id", { ascending: true })
+      : q.order("last_synced_at", { ascending: false, nullsFirst: false });
+    const res = await q.limit(ACTIVE_SHOWS_CAP);
+    if (res.error) {
+      return { kind: "infra_error", message: `shows query failed: ${res.error.message}` };
     }
-    showsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    showsRows = (res.data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -121,7 +145,10 @@ export async function fetchDashboardData(): Promise<
     };
   }
 
-  // Exact total — truthful even if the rendered list is capped (§3.3).
+  // Exact totals — truthful even if the rendered list is capped (§3.3). BOTH
+  // counts are ALWAYS computed regardless of `bucket`: the inactive segment's
+  // label ("Archived (N)" / "Active") needs its count even though its rows are
+  // not fetched (§3.1). Two count-only (head:true) queries.
   let activeCount: number;
   try {
     const q = await supabase
@@ -129,19 +156,41 @@ export async function fetchDashboardData(): Promise<
       .select("id", { count: "exact", head: true })
       .eq("archived", false);
     if (q.error) {
-      return { kind: "infra_error", message: `shows count query failed: ${q.error.message}` };
+      return { kind: "infra_error", message: `shows active count query failed: ${q.error.message}` };
     }
-    activeCount = q.count ?? showsRows.length;
+    // Fall back to the rendered length ONLY when this is the selected bucket
+    // (so a null count from a head-less mock still resolves); otherwise 0.
+    activeCount = q.count ?? (isArchived ? 0 : showsRows.length);
   } catch (err) {
     return {
       kind: "infra_error",
-      message: `shows count query threw: ${err instanceof Error ? err.message : String(err)}`,
+      message: `shows active count query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 
+  let archivedCount: number;
+  try {
+    const q = await supabase
+      .from("shows")
+      .select("id", { count: "exact", head: true })
+      .eq("archived", true);
+    if (q.error) {
+      return { kind: "infra_error", message: `shows archived count query failed: ${q.error.message}` };
+    }
+    archivedCount = q.count ?? (isArchived ? showsRows.length : 0);
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `shows archived count query threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // stats/overflow are scoped to the SELECTED bucket (that is what `showsRows`
+  // holds); the StatStrip's "Active shows" stat keeps reading `activeCount`.
+  const selectedCount = isArchived ? archivedCount : activeCount;
   const statsScope: "global" | "shown" =
-    activeCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
-  const overflowCount = Math.max(0, activeCount - showsRows.length);
+    selectedCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
+  const overflowCount = Math.max(0, selectedCount - showsRows.length);
 
   // ── isLive per row (single `now`; shared tz + span helpers), liveCount = Σ ──
   const activeShowIds = showsRows.map((s) => s.id as string);
@@ -204,9 +253,15 @@ export async function fetchDashboardData(): Promise<
   const rows: ActiveShowRow[] = showsRows.map((s) => {
     const dates = (s.dates as DatesJson | null) ?? null;
     const published = Boolean(s.published);
+    const requiresResync = Boolean(s.requires_resync);
     const todayIso = formatIsoForTimezone(now, resolveShowTimezone(s.venue as never));
     const isLive = published && isShowLiveOnDate(dates as never, todayIso);
     if (isLive) liveCount += 1;
+    // §3.2 — finalize-owned ("Publishing…") vs Held: a Held show carries
+    // requires_resync=true (set ONLY by unarchive_show); an unpublished row
+    // WITHOUT it is wizard-finalize-in-flight. Archived rows are never
+    // finalize-owned (the selected bucket's `archived` is `isArchived`).
+    const finalizeOwned = !isArchived && !published && !requiresResync;
     return {
       id: s.id as string,
       slug: s.slug as string,
@@ -218,6 +273,8 @@ export async function fetchDashboardData(): Promise<
       lastSyncStatus: (s.last_sync_status as string | null) ?? null,
       published,
       isLive,
+      finalizeOwned,
+      archivedAt: (s.archived_at as string | null) ?? null,
     };
   });
 
@@ -262,7 +319,9 @@ export async function fetchDashboardData(): Promise<
   try {
     const q = await supabase
       .from("pending_syncs")
-      .select("staged_id, drive_file_id, staged_modified_time, parse_result")
+      .select(
+        "staged_id, drive_file_id, staged_modified_time, parse_result, triggered_review_items",
+      )
       .is("wizard_session_id", null)
       .order("staged_modified_time", { ascending: false })
       .limit(RENDER_CAP + 1);
@@ -358,7 +417,9 @@ export async function fetchDashboardData(): Promise<
 
   return {
     rows,
+    bucket,
     activeCount,
+    archivedCount,
     liveCount,
     needReviewCount: needsAttention.totalCount,
     crewTotal,
