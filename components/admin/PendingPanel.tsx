@@ -123,7 +123,11 @@ export function PendingPanel({
                   {row.candidateTitle ?? row.driveFileId}
                 </p>
                 <p className="text-sm text-text-subtle">
-                  First-time review needed
+                  {/* §4.3 / AC-B2.9: catalog-driven copy (invariant 5 — no raw
+                      codes). When auto-publish is OFF, a clean first-seen sheet
+                      stages with the reused FIRST_SEEN_REVIEW sentinel and waits
+                      for approval; this is the per-staged inbox line. */}
+                  {messageFor("SHOW_AWAITING_PUBLISH_APPROVAL").dougFacing}
                 </p>
               </div>
               <Link

@@ -130,7 +130,10 @@ function describeItem(item: TriggeredReviewItem): string {
   // user copy where possible.
   switch (item.invariant) {
     case "FIRST_SEEN_REVIEW":
-      return "New show sheet. Confirm before publishing.";
+      // §4.3 approval-gate context: auto-publish for clean new shows is off, so
+      // this brand-new sheet parsed cleanly and is waiting for your approval.
+      // Apply to publish it (with the same 24h undo as the auto-publish path).
+      return "New show, parsed clean. Apply to publish it (you can still undo within 24 hours).";
     case "ONBOARDING_SCAN_REVIEW":
       return "Onboarding scan staged this sheet for review.";
     case "MI-6":
