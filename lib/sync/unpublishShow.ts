@@ -121,20 +121,40 @@ class PostgresUnpublishTx implements UnpublishShowTx {
   }
 
   async archiveAndConsumeUnpublishToken(showId: string, token: string): Promise<boolean> {
-    const row = await this.one<{ id: string }>(
+    // Mirror the FULL archive_show mutation set inline (B2 §2.5) so the token-Unpublish end-state is
+    // identical to the admin archive RPC: archived_at stamp, picker_epoch bump, share_token rotation,
+    // and live non-wizard scratch/suppressor clearing. The `and unpublish_token = $2` consume guard is
+    // preserved; the follow-on statements run only when this call performs the consume.
+    const row = await this.one<{ id: string; drive_file_id: string }>(
       `
         update public.shows
            set archived = true,
                published = false,
                unpublish_token = null,
-               unpublish_token_expires_at = null
+               unpublish_token_expires_at = null,
+               archived_at = now(),
+               picker_epoch = picker_epoch + 1,
+               picker_epoch_bumped_at = clock_timestamp()
          where id = $1::uuid
            and unpublish_token = $2::uuid
-         returning id
+         returning id, drive_file_id
       `,
       [showId, token],
     );
-    return Boolean(row);
+    if (!row) return false;
+    await this.rows(
+      `
+        update public.show_share_tokens
+           set share_token = encode(extensions.gen_random_bytes(32), 'hex'),
+               rotated_at = clock_timestamp()
+         where show_id = $1::uuid
+      `,
+      [showId],
+    );
+    await this.rows("delete from public.pending_syncs      where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
+    await this.rows("delete from public.pending_ingestions where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
+    await this.rows("delete from public.deferred_ingestions where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
+    return true;
   }
 
   async upsertAdminAlert(input: {
