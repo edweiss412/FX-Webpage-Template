@@ -3,6 +3,40 @@ import { archiveShow } from "@/lib/showLifecycle/archiveShow";
 import { publishShow } from "@/lib/showLifecycle/publishShow";
 import { unarchiveShow } from "@/lib/showLifecycle/unarchiveShow";
 
+// R-impl-1 CRITICAL regression: the default RPC binding MUST be the session-bound server client (the
+// authenticated admin's JWT), NOT service_role — the lifecycle RPCs are granted only to `authenticated`
+// and gate on is_admin(), so a service-role caller fails every action. These spies prove the binding.
+const { sessionRpc, serviceRoleClient } = vi.hoisted(() => ({
+  sessionRpc: vi.fn(async () => ({ data: null, error: null })),
+  serviceRoleClient: vi.fn(() => {
+    throw new Error("service_role client must NOT back the lifecycle RPC callers");
+  }),
+}));
+vi.mock("@/lib/supabase/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/supabase/server")>()),
+  createSupabaseServerClient: vi.fn(async () => ({ rpc: sessionRpc })),
+  createSupabaseServiceRoleClient: serviceRoleClient,
+}));
+
+describe("lifecycle callers — default RPC binding (R-impl-1)", () => {
+  it("archiveShow with NO injected rpc calls the SESSION client, never service_role", async () => {
+    sessionRpc.mockClear();
+    serviceRoleClient.mockClear();
+    const res = await archiveShow("show-1"); // no deps → exercises defaultRpc (the production path)
+    expect(sessionRpc).toHaveBeenCalledWith("archive_show", { p_show_id: "show-1" });
+    expect(serviceRoleClient).not.toHaveBeenCalled();
+    expect(res).toEqual({ ok: true });
+  });
+
+  it("publishShow with NO injected rpc also routes through the session client", async () => {
+    sessionRpc.mockClear();
+    serviceRoleClient.mockClear();
+    await publishShow("show-1");
+    expect(sessionRpc).toHaveBeenCalledWith("publish_show", { p_show_id: "show-1" });
+    expect(serviceRoleClient).not.toHaveBeenCalled();
+  });
+});
+
 describe("lifecycle callers", () => {
   it("archiveShow returns {ok:true} on RPC success", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: null });

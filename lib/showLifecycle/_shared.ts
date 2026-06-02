@@ -1,4 +1,4 @@
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /** Typed result of a lifecycle RPC caller. `code` is a known §12.4 code or `infra_error`. */
 export type LifecycleResult = { ok: true } | { ok: false; code: string };
@@ -17,9 +17,17 @@ const KNOWN = [
   "ADMIN_LINK_SHOW_NOT_FOUND",
 ];
 
-/** Default RPC binding: the service-role client (invariant 9 — destructure {data,error}). */
+/**
+ * Default RPC binding: the SESSION-bound server client (the admin user's JWT), NOT service_role.
+ * The lifecycle RPCs are granted ONLY to `authenticated` and gate on `is_admin()` (which reads the
+ * caller's JWT email/role) — a service-role caller is both un-granted AND not-admin, so it would fail
+ * every action with infra_error. These callers only ever run from admin server actions AFTER
+ * requireAdmin(), so the session client (authenticated, admin email) is the correct, authorized caller.
+ * (invariant 9 — destructure {data,error}.)
+ */
 export const defaultRpc = (): LifecycleRpc => async (fn, args) => {
-  const { data, error } = await createSupabaseServiceRoleClient().rpc(fn, args);
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc(fn, args);
   return { data, error };
 };
 

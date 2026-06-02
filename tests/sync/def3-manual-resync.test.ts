@@ -67,4 +67,40 @@ describe("DEF-3 — runManualSyncForShow archived guard + manual deferral delete
     expect(tx.deletedDeferrals).toContain("drive-1"); // manual overrides auto-suppression
     expect(tx.calls.some((c) => /update public\.shows set requires_resync = false/i.test(c.sql))).toBe(true);
   });
+
+  it("R-impl-1 TOCTOU: a recovery branch re-reads archived under ITS lock — Archive landing after preflight blocks the marked error (no shows mutation / no sync_log)", async () => {
+    // Preflight lock sees archived=false (proceeds); the folder-config-error recovery lock (a SEPARATE
+    // lock acquired after the preflight lock released) sees archived=true because an Archive committed in
+    // between. The recovery branch must abort with SHOW_ARCHIVED_IMMUTABLE BEFORE markManualDriveError_unlocked
+    // touches `shows` / writes sync_log. (Before the fix, only finalize-ownership was re-checked here.)
+    let archivedReads = 0;
+    const markShowDriveError = vi.fn(async () => ({ showId: "show-1", lastSeenModifiedTime: null }));
+    const insertSyncLog = vi.fn(async () => undefined);
+    const tx = {
+      async queryOne<T>(sql: string) {
+        if (/pg_locks/i.test(sql)) return { held: true } as T;
+        if (/select archived from public\.shows/i.test(sql)) {
+          archivedReads += 1;
+          return { archived: archivedReads > 1 } as T; // 1st (preflight)=false, 2nd (recovery)=true
+        }
+        throw new Error(`unexpected SQL in fakeTx: ${sql}`);
+      },
+      async deleteLiveDeferral() {},
+      markShowDriveError,
+      insertSyncLog,
+    } as unknown as LockedShowTx<SyncPipelineTx>;
+    const fetchDriveFileMetadata = vi.fn(async () => fileMeta());
+
+    const result = await runManualSyncForShow("drive-1", "manual", {
+      withPipelineLock: async (_id, fn) => fn(tx),
+      checkFinalizeOwnership: async () => false,
+      getActiveWatchedFolderId: async () => ({ kind: "no_folder_configured" as const }),
+      fetchDriveFileMetadata,
+    });
+
+    expect(result).toEqual({ outcome: "blocked", code: "SHOW_ARCHIVED_IMMUTABLE" });
+    expect(markShowDriveError).not.toHaveBeenCalled(); // no shows mutation on the archived show
+    expect(insertSyncLog).not.toHaveBeenCalled(); // no sync_log row
+    expect(fetchDriveFileMetadata).not.toHaveBeenCalled(); // folder error short-circuits before fetch
+  });
 });

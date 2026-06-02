@@ -251,6 +251,12 @@ export async function runManualSyncForShow(
   const folderResult = await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
   if ("kind" in folderResult) {
     return await withLock(driveFileId, async (tx) => {
+      // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
+      // ran under a separate lock that was released before the Drive/folder work; an Archive may have
+      // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
+      if (await readShowArchived_unlocked(tx, driveFileId)) {
+        return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+      }
       const isFinalizeOwned = await (
         deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
       )(tx, driveFileId);
@@ -268,6 +274,10 @@ export async function runManualSyncForShow(
   } catch (error) {
     if (!isDriveSourceGone(error)) {
       return await withLock(driveFileId, async (tx) => {
+        // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock (preflight lock released).
+        if (await readShowArchived_unlocked(tx, driveFileId)) {
+          return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+        }
         const isFinalizeOwned = await (
           deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
         )(tx, driveFileId);
@@ -278,6 +288,12 @@ export async function runManualSyncForShow(
       });
     }
     return await withLock(driveFileId, async (tx) => {
+      // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
+      // ran under a separate lock that was released before the Drive/folder work; an Archive may have
+      // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
+      if (await readShowArchived_unlocked(tx, driveFileId)) {
+        return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+      }
       const isFinalizeOwned = await (
         deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
       )(tx, driveFileId);
@@ -295,6 +311,12 @@ export async function runManualSyncForShow(
 
   if (!fileMeta.parents.includes(watchedFolderId)) {
     return await withLock(driveFileId, async (tx) => {
+      // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
+      // ran under a separate lock that was released before the Drive/folder work; an Archive may have
+      // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
+      if (await readShowArchived_unlocked(tx, driveFileId)) {
+        return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+      }
       const isFinalizeOwned = await (
         deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
       )(tx, driveFileId);
