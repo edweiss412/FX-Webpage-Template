@@ -2246,7 +2246,8 @@ export async function processOneFile_unlocked(
     if (show?.showId) {
       // B3 §4.1: show-level PARSE_ERROR_LAST_GOOD producer, in the
       // locked hard_fail branch after Phase 1 has retained last-good.
-      await requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked")({
+      const upsertAdminAlert = requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked");
+      await upsertAdminAlert({
         showId: show.showId,
         code: "PARSE_ERROR_LAST_GOOD",
         context: {
