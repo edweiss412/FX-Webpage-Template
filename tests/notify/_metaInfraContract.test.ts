@@ -10,6 +10,7 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/appSettings/getAlertOnSyncProblems.ts" },
   { path: "lib/appSettings/getDailyReviewDigest.ts" },
   { path: "lib/notify/detect/stall.ts" },
+  { path: "lib/notify/detect/recoveryResolution.ts" },
   { path: "lib/adminAlerts/resolveAdminAlert.ts" },
 ];
 
