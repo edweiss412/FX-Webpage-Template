@@ -176,7 +176,70 @@ describe("runManualStageForFirstSeen", () => {
         driveFileId: "file-1",
         mode: "manual",
       }),
+      {}, // Task 4.3: third arg is the (empty here) Phase1Deps flag-thread
     );
+  });
+
+  test("Task 4.3: threads getAutoPublishCleanFirstSeen into runPhase1; OFF → parsed_pending_review (no auto-publish)", async () => {
+    const tx = new FakeManualStageTx();
+    const getAutoPublishCleanFirstSeen = async () => ({ kind: "value", autoPublish: false }) as const;
+    // runPhase1 spy returns what the REAL runPhase1 returns when the flag is OFF (proven in phase1.test.ts):
+    // a FIRST_SEEN_REVIEW stage. We assert the flag dep is threaded through as the 3rd arg.
+    const runPhase1 = vi.fn(async () => ({
+      outcome: "stage" as const,
+      triggeredReviewItems: [{ id: "item-1", invariant: "FIRST_SEEN_REVIEW" as const }],
+      stagedId: "staged-1",
+    }));
+    const result = await runManualStageForFirstSeen(tx as never, "file-1", {
+      fileMeta: {
+        driveFileId: "file-1",
+        name: "file-1.xlsx",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["folder-1"],
+      },
+      parseResult: {
+        show: {
+          title: "First Seen",
+          client_label: "Client",
+          client_contact: null,
+          template_version: "v4",
+          venue: null,
+          dates: { travelIn: null, set: "2026-05-08", showDays: [], travelOut: null },
+          schedule_phases: {},
+          event_details: {},
+          agenda_links: [],
+          coi_status: null,
+          po: null,
+          proposal: null,
+          invoice: null,
+          invoice_notes: null,
+        },
+        crewMembers: [],
+        hotelReservations: [],
+        rooms: [],
+        transportation: null,
+        contacts: [],
+        pullSheet: null,
+        diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+        openingReel: null,
+        raw_unrecognized: [],
+        warnings: [],
+        hardErrors: [],
+      },
+      binding: { bindingToken: "rev-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+      runPhase1,
+      getAutoPublishCleanFirstSeen,
+    });
+
+    expect(result).toEqual({ outcome: "parsed_pending_review", stagedId: "staged-1" });
+    expect(runPhase1).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ mode: "manual" }),
+      { getAutoPublishCleanFirstSeen },
+    );
+    // OFF must NOT auto-publish: no first-published alert.
+    expect(tx.alerts).toEqual([]);
   });
 
   test("auto-publishes first-seen clean retry, alerts with undo payload, invalidates, and deletes the live pending ingestion", async () => {
