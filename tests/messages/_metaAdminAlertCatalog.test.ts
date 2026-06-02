@@ -71,6 +71,7 @@ const ADMIN_ALERTS_CODES = [
   "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
   "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
   "DRIVE_FETCH_FAILED", //            B3 cron drive_error recovery
+  "PARSE_ERROR_LAST_GOOD", //         B3 cron parse_error recovery
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
   "SHOW_FIRST_PUBLISHED", //          M6.5 first-seen auto-publish confirmation
   "SHOW_UNPUBLISHED", //              M6.5 unpublish undo confirmation
@@ -160,6 +161,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   DRIVE_FETCH_FAILED: {
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"DRIVE_FETCH_FAILED"/,
+  },
+  PARSE_ERROR_LAST_GOOD: {
+    path: "lib/sync/runScheduledCronSync.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PARSE_ERROR_LAST_GOOD"/,
   },
   SHEET_UNAVAILABLE: {
     path: "lib/sync/runScheduledCronSync.ts",
@@ -297,7 +302,7 @@ describe("META admin_alerts catalog contract", () => {
   // M9 C0 round-5 H2: renderer interpolation plumbing is in place
   // (AlertBanner SELECTs admin_alerts.context, passes it to ErrorExplainer
   // as `params`, ErrorExplainer routes through messageFor which
-  // interpolates with hyphen↔underscore key normalization). The three
+  // interpolates with hyphen↔underscore key normalization). The codes
   // codes below carry §12.4-canonical placeholders AND have producers
   // that supply the matching context keys:
   //   - SHOW_FIRST_PUBLISHED: lib/sync/runScheduledCronSync.ts writes
@@ -309,6 +314,7 @@ describe("META admin_alerts catalog contract", () => {
   // the matching context key AND the renderer's messageFor interpolation
   // covers the surface.
   const INTERPOLATED_DOUG_FACING_CODES: ReadonlyArray<(typeof ADMIN_ALERTS_CODES)[number]> = [
+    "PARSE_ERROR_LAST_GOOD", //      lib/sync/runScheduledCronSync.ts supplies sheet_name
     "SHEET_UNAVAILABLE", //         lib/sync/runScheduledCronSync.ts + runManualSyncForShow.ts supply sheet_name
     "SHOW_FIRST_PUBLISHED", //      lib/sync/runScheduledCronSync.ts supplies sheet_name / crew_count / show_date
     "SHOW_UNPUBLISHED", //          lib/sync/unpublishShow.ts supplies sheet_name

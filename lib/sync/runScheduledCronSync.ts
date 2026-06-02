@@ -488,6 +488,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
     );
 
     return {
+      showId: show.id,
       driveFileId: show.drive_file_id,
       lastSeenModifiedTime: show.last_seen_modified_time,
       lastSyncStatus: show.last_sync_status,
@@ -2241,6 +2242,19 @@ export async function processOneFile_unlocked(
   if (phase1.outcome === "hard_fail") {
     const result = { outcome: "hard_fail" as const, code: phase1.code };
     await logSync(txDeps, driveFileId, result);
+    const show = await tx.readShowForPhase1(driveFileId);
+    if (show?.showId) {
+      // B3 §4.1: show-level PARSE_ERROR_LAST_GOOD producer, in the
+      // locked hard_fail branch after Phase 1 has retained last-good.
+      await requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked")({
+        showId: show.showId,
+        code: "PARSE_ERROR_LAST_GOOD",
+        context: {
+          drive_file_id: driveFileId,
+          sheet_name: show.priorParseResult.show.title,
+        },
+      });
+    }
     return result;
   }
   if (phase1.outcome === "stage") {
