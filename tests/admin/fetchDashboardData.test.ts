@@ -26,6 +26,12 @@ const state = vi.hoisted(() => ({
 function makeClient() {
   const seed = state.seed as Seed;
   return {
+    // §3.2 finalize-owned predicate. Default false (Held) — these tests assert
+    // isLive/counts, not the pill; a seeded `finalizeOwnedIds` set marks owners.
+    async rpc(_fn: string, args: { p_show_id: string }) {
+      const owned = (seed as { finalizeOwnedIds?: string[] }).finalizeOwnedIds ?? [];
+      return { data: owned.includes(args.p_show_id), error: null };
+    },
     from(table: string) {
       const ctx: { head: boolean; inCol: string | null; inArgs: unknown[] | null; rangeStart: number | null; rangeEnd: number | null } =
         { head: false, inCol: null, inArgs: null, rangeStart: null, rangeEnd: null };

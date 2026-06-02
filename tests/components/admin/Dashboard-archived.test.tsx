@@ -15,6 +15,8 @@ type Seed = {
   archivedShows?: ShowRow[];
   activeCount?: number;
   archivedCount?: number;
+  // show ids the finalize-owned RPC (readfinalizeowned_b2) returns true for.
+  finalizeOwnedIds?: string[];
 };
 
 const state = vi.hoisted(() => ({ seed: {} as Record<string, unknown> }));
@@ -22,6 +24,9 @@ const state = vi.hoisted(() => ({ seed: {} as Record<string, unknown> }));
 function makeClient() {
   const seed = state.seed as Seed;
   return {
+    async rpc(_fn: string, args: { p_show_id: string }) {
+      return { data: (seed.finalizeOwnedIds ?? []).includes(args.p_show_id), error: null };
+    },
     from(table: string) {
       const ctx = { head: false, eq: {} as Record<string, unknown>, inCol: null as string | null };
       const resolve = () => {
@@ -113,13 +118,17 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     expect(archived.textContent).toContain("0");
   });
 
-  it("Active segment: a Held row (finalizeOwned=false) shows 'Held — not published', NOT 'Publishing…'", async () => {
+  it("Active segment: a clean Held row (requires_resync=false, no checkpoint) shows 'Held — not published', NOT 'Publishing…'", async () => {
+    // REGRESSION: a clean Unarchive catch-up clears requires_resync, so the
+    // normal Held state has requires_resync=false. It must STILL be "Held"
+    // (it has no active wizard finalize checkpoint → not in finalizeOwnedIds).
     state.seed = {
       activeShows: [
-        { id: "1", slug: "held", title: "Held Show", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: true },
+        { id: "held", slug: "held", title: "Held Show", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
       ],
       activeCount: 1,
       archivedCount: 0,
+      finalizeOwnedIds: [], // no active checkpoint
     };
     await renderDashboard("active");
     const heldPill = screen.getByTestId("shows-held-pill-held");
@@ -127,13 +136,14 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     expect(screen.queryByTestId("shows-publishing-held")).not.toBeInTheDocument();
   });
 
-  it("Active segment: a finalize-owned row (requires_resync=false) still shows 'Publishing…'", async () => {
+  it("Active segment: a finalize-owned row (active checkpoint) shows 'Publishing…'", async () => {
     state.seed = {
       activeShows: [
-        { id: "1", slug: "pub", title: "Pub Show", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
+        { id: "pub", slug: "pub", title: "Pub Show", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
       ],
       activeCount: 1,
       archivedCount: 0,
+      finalizeOwnedIds: ["pub"], // active wizard finalize checkpoint
     };
     await renderDashboard("active");
     expect(screen.getByTestId("shows-publishing-pub")).toBeInTheDocument();

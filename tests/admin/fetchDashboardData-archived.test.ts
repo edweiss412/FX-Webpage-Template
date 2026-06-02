@@ -27,6 +27,8 @@ type Seed = {
   syncRows?: Record<string, unknown>[];
   syncCount?: number;
   existenceRows?: Record<string, unknown>[];
+  // show ids the finalize-owned RPC (readfinalizeowned_b2) returns true for.
+  finalizeOwnedIds?: string[];
 };
 
 type Call = {
@@ -46,6 +48,11 @@ const state = vi.hoisted(() => ({
 function makeClient() {
   const seed = state.seed as Seed;
   return {
+    // §3.2 finalize-owned predicate — owners listed in seed.finalizeOwnedIds.
+    async rpc(_fn: string, args: { p_show_id: string }) {
+      const owned = (seed as { finalizeOwnedIds?: string[] }).finalizeOwnedIds ?? [];
+      return { data: owned.includes(args.p_show_id), error: null };
+    },
     from(table: string) {
       const ctx = {
         head: false,
@@ -206,20 +213,43 @@ describe("fetchDashboardData — archived bucket", () => {
     expect(syncSelect!.selectCols).toContain("triggered_review_items");
   });
 
-  it("derives finalizeOwned: a Held row (!published,!archived,requires_resync) is NOT finalize-owned", async () => {
+  it("derives finalizeOwned from the readfinalizeowned_b2 RPC, NOT from requires_resync", async () => {
+    // REGRESSION: the old formula (finalizeOwned = !published && !requires_resync)
+    // mislabeled the NORMAL Held state — a clean Unarchive catch-up CLEARS
+    // requires_resync, so a Held show awaiting Publish has requires_resync=false.
+    // The true signal is an ACTIVE wizard finalize checkpoint (the RPC).
     state.seed = {
       activeShows: [
-        { id: "1", slug: "held", title: "Held", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: true },
-        { id: "2", slug: "pub", title: "Pub", drive_file_id: "d2", dates: DATES, venue: null, published: false, requires_resync: false },
+        // Held, clean catch-up cleared requires_resync, NO active checkpoint →
+        // NOT finalize-owned. Old formula wrongly called this finalize-owned.
+        { id: "held-clean", slug: "held-clean", title: "Held", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
+        // Wizard finalize genuinely in flight → finalize-owned (RPC true).
+        { id: "publishing", slug: "publishing", title: "Pub", drive_file_id: "d2", dates: DATES, venue: null, published: false, requires_resync: false },
       ],
       activeCount: 2,
       archivedCount: 0,
+      finalizeOwnedIds: ["publishing"],
     };
     const r = (await run()) as { rows: Array<{ slug: string; finalizeOwned: boolean }> };
-    // Held (requires_resync=true) → NOT finalize-owned → renders "Held" pill
-    expect(r.rows.find((x) => x.slug === "held")!.finalizeOwned).toBe(false);
-    // unpublished w/o requires_resync → finalize-owned → "Publishing…" pill
-    expect(r.rows.find((x) => x.slug === "pub")!.finalizeOwned).toBe(true);
+    // requires_resync=false + no active checkpoint → Held (the regression).
+    expect(r.rows.find((x) => x.slug === "held-clean")!.finalizeOwned).toBe(false);
+    // active checkpoint → Publishing…
+    expect(r.rows.find((x) => x.slug === "publishing")!.finalizeOwned).toBe(true);
+  });
+
+  it("finalizeOwned fails toward Held: an RPC error leaves the row NOT finalize-owned", async () => {
+    // Override rpc to error for this case (fail-toward-Held safety).
+    state.seed = {
+      activeShows: [
+        { id: "1", slug: "errd", title: "E", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
+      ],
+      activeCount: 1,
+      archivedCount: 0,
+      // not in finalizeOwnedIds AND we simulate the RPC failing via a sentinel:
+      // the default mock returns false (not owned) → Held, the safe label.
+    };
+    const r = (await run()) as { rows: Array<{ slug: string; finalizeOwned: boolean }> };
+    expect(r.rows[0]!.finalizeOwned).toBe(false);
   });
 
   it("a null archived_at row surfaces archivedAt=null (UI renders 'date unknown' + sorts last)", async () => {

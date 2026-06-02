@@ -120,8 +120,9 @@ export async function fetchDashboardData(
   //   Archived = archived=true, ordered archived_at DESC NULLS LAST, id
   //              (deterministic — most-recently-archived first; null times last,
   //              tie-broken by id so the order is stable across reads).
-  // `requires_resync` feeds the Held-vs-Publishing pill split (§3.2);
-  // `archived_at` feeds the ArchivedShowRow time line (§3.1).
+  // `archived_at` feeds the ArchivedShowRow time line (§3.1). (The
+  // Held-vs-Publishing pill split is sourced from the readfinalizeowned_b2 RPC
+  // below — NOT requires_resync, which a clean Unarchive catch-up clears.)
   // Ordering tuple for the selected segment: archived → archived_at DESC NULLS
   // LAST then id (deterministic, null times last); active → last_synced_at DESC.
   // Built as data so the query below stays ONE chained `.from().select()…limit()`
@@ -263,19 +264,47 @@ export async function fetchDashboardData(
     }
   }
 
+  // §3.2 — finalize-owned ("Publishing…") vs Held discriminator. The ONLY
+  // authoritative source is whether an ACTIVE wizard finalize checkpoint owns
+  // the show, computed by the SECURITY DEFINER predicate
+  // `public.readfinalizeowned_b2(p_show_id)` (the same fn the archive/publish/
+  // DEF-1 guards use; migration 20260601000000:13). `requires_resync` is NOT a
+  // valid proxy — the Unarchive catch-up clears it on a clean apply, so the
+  // normal Held state has requires_resync=false and would be mislabeled.
+  //
+  // Bounded by construction: queried ONLY for in-flight rows
+  // (`!published && !archived`) of the ACTIVE segment — finalize is rare and
+  // transient, so this set is tiny (usually 0). Archived-segment rows are never
+  // finalize-owned. On ANY infra hiccup we fail toward "Held" (omit the id from
+  // the owned set) — the safe, non-alarming label.
+  const finalizeOwnedIds = new Set<string>();
+  if (!isArchived) {
+    const inFlightIds = showsRows
+      .filter((s) => !Boolean(s.published))
+      .map((s) => s.id as string);
+    for (const showId of inFlightIds) {
+      try {
+        const q = await supabase.rpc("readfinalizeowned_b2", { p_show_id: showId });
+        // Fail toward "Held": a returned error or a non-true value leaves the id
+        // OUT of the owned set, so the pill is "Held — not published".
+        if (!q.error && q.data === true) finalizeOwnedIds.add(showId);
+      } catch {
+        // Thrown infra fault → also fail toward "Held"; do not abort the whole
+        // dashboard for a transient finalize-predicate read.
+      }
+    }
+  }
+
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {
     const dates = (s.dates as DatesJson | null) ?? null;
     const published = Boolean(s.published);
-    const requiresResync = Boolean(s.requires_resync);
     const todayIso = formatIsoForTimezone(now, resolveShowTimezone(s.venue as never));
     const isLive = published && isShowLiveOnDate(dates as never, todayIso);
     if (isLive) liveCount += 1;
-    // §3.2 — finalize-owned ("Publishing…") vs Held: a Held show carries
-    // requires_resync=true (set ONLY by unarchive_show); an unpublished row
-    // WITHOUT it is wizard-finalize-in-flight. Archived rows are never
-    // finalize-owned (the selected bucket's `archived` is `isArchived`).
-    const finalizeOwned = !isArchived && !published && !requiresResync;
+    // §3.2 — finalize-owned iff an active wizard finalize checkpoint owns the
+    // show (from the RPC set above). Archived rows are never finalize-owned.
+    const finalizeOwned = !isArchived && !published && finalizeOwnedIds.has(s.id as string);
     return {
       id: s.id as string,
       slug: s.slug as string,
