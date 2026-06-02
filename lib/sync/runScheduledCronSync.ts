@@ -982,7 +982,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    pull_sheet = $16::jsonb,
                    last_synced_at = now(),
                    last_sync_status = 'ok',
-                   last_sync_error = null
+                   last_sync_error = null,
+                   requires_resync = false
              where drive_file_id = $1
                and ${skipDiagramsStalePredicate}
              returning id
@@ -1007,7 +1008,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    pull_sheet = $17::jsonb,
                    last_synced_at = now(),
                    last_sync_status = 'ok',
-                   last_sync_error = null
+                   last_sync_error = null,
+                   requires_resync = false
              where drive_file_id = $1
                and ${stalePredicate}
              returning id
