@@ -76,3 +76,6 @@ tmp/
 .validation-local/
 
 .build-locks/
+
+# Codex companion per-run state (broker sockets, session/thread IDs, prompts) — never source
+.codex-companion*/
