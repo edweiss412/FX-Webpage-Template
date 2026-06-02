@@ -73,6 +73,7 @@ const ADMIN_ALERTS_CODES = [
   "DRIVE_FETCH_FAILED", //            B3 cron drive_error recovery
   "PARSE_ERROR_LAST_GOOD", //         B3 cron parse_error recovery
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
+  "SYNC_STALLED", //                  B3 global sync heartbeat detector
   "SHOW_FIRST_PUBLISHED", //          M6.5 first-seen auto-publish confirmation
   "SHOW_UNPUBLISHED", //              M6.5 unpublish undo confirmation
   "PENDING_SNAPSHOT_PROMOTE_STUCK", // M7 diagram GC promotion-stuck repair signal
@@ -169,6 +170,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   SHEET_UNAVAILABLE: {
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SHEET_UNAVAILABLE"/,
+  },
+  SYNC_STALLED: {
+    path: "lib/notify/detect/stall.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SYNC_STALLED"/,
   },
   SHOW_FIRST_PUBLISHED: {
     path: "lib/sync/runScheduledCronSync.ts",

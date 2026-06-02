@@ -9,6 +9,8 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/notify/recipients.ts" },
   { path: "lib/appSettings/getAlertOnSyncProblems.ts" },
   { path: "lib/appSettings/getDailyReviewDigest.ts" },
+  { path: "lib/notify/detect/stall.ts" },
+  { path: "lib/adminAlerts/resolveAdminAlert.ts" },
 ];
 
 // Inline recursive .ts walker (R9/R10 fix — no shared walkTs exists in the repo).
