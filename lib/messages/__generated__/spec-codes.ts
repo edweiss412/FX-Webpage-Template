@@ -698,6 +698,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → text Doug",
     "helpfulContext": null,
   },
+  "PUBLISH_BLOCKED_PENDING_REVIEW": {
+    "crewFacing": null,
+    "dougFacing": "This show has unsynced changes, a pending review, or a sync-suppression rule. Re-sync and clear it, then publish.",
+    "followUp": "Doug → re-sync + clear, then publish",
+    "helpfulContext": "We can't publish this show because it isn't in a clean, fully-reconciled state: there are unsynced changes, a pending review in the inbox, or an active sync-suppression rule on the sheet. Re-sync the show from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
+  },
   "PULL_SHEET_AMBIGUOUS_FORMAT": {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_'s PULL SHEET has columns we don't recognize. The whole block renders as raw text on crew pages. Tell the developer if you'd like us to handle that format.",
@@ -818,6 +824,24 @@ export const SPEC_CODES = {
     "followUp": "Doug → re-share sheet",
     "helpfulContext": "We expected to find this sheet in your watched folder but it's not there anymore. Either someone moved it to a different folder, the share was removed, or the file was deleted. Crew see the last good version we have on file. Re-share or move the sheet back into the folder and we'll pick it up on the next sync.",
   },
+  "SHOW_ARCHIVED_BY_ADMIN": {
+    "crewFacing": null,
+    "dougFacing": "Archived. Crew links are dead until you re-publish and issue a new link.",
+    "followUp": "Doug → re-publish + issue new link when ready",
+    "helpfulContext": "Archiving a show takes it off the air immediately: the existing crew share link stops resolving (we rotate the share token), and the show moves to the Archived bucket. Crew can no longer reach the page. When you're ready to bring it back, unarchive it, re-publish, and issue a fresh crew link — the old link will never work again.",
+  },
+  "SHOW_ARCHIVED_IMMUTABLE": {
+    "crewFacing": null,
+    "dougFacing": "This show is archived. Unarchive it before making changes.",
+    "followUp": "Doug → unarchive first",
+    "helpfulContext": "Archived shows are frozen — re-syncs, applies, discards, token rotation, and similar write actions are blocked so an archived show can't be changed underneath you. If you need to make a change, unarchive the show first; it returns in a held state where you can re-sync and review before publishing.",
+  },
+  "SHOW_AWAITING_PUBLISH_APPROVAL": {
+    "crewFacing": null,
+    "dougFacing": "A new show parsed cleanly and is waiting for your approval to publish.",
+    "followUp": "Doug → review + publish",
+    "helpfulContext": "Auto-publish for clean new shows is turned off, so this newly-seen sheet parsed cleanly but is waiting for you to approve it before it goes live. Review it in the inbox and publish when you're ready. Turn auto-publish back on in Settings if you'd rather clean new shows go live automatically.",
+  },
   "SHOW_BUSY_RETRY": {
     "crewFacing": null,
     "dougFacing": "That show is already syncing. Try again in a moment.",
@@ -829,6 +853,12 @@ export const SPEC_CODES = {
     "dougFacing": "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](share-token-url) within 24h.",
     "followUp": null,
     "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and stop the share-token URL from resolving.",
+  },
+  "SHOW_PUBLISHED_BY_ADMIN": {
+    "crewFacing": null,
+    "dougFacing": "Published. Issue a crew link to give your crew access.",
+    "followUp": "Doug → issue crew link",
+    "helpfulContext": "Publishing makes a held show live. The crew page will resolve once you issue a crew link — publishing alone doesn't hand anyone a URL. Use 'Issue crew link' to generate the share link to send your crew.",
   },
   "SHOW_REALTIME_BROADCAST_AUTH_FAILED": {
     "crewFacing": null,
@@ -859,6 +889,12 @@ export const SPEC_CODES = {
     "dougFacing": null,
     "followUp": "Eric → configure realtime JWT env",
     "helpfulContext": null,
+  },
+  "SHOW_UNARCHIVED": {
+    "crewFacing": null,
+    "dougFacing": "Unarchived. The show is held (not published) — publish it to go live again.",
+    "followUp": "Doug → publish to go live",
+    "helpfulContext": "Unarchiving brings a show back from the Archived bucket into a held (not-yet-published) state and runs a catch-up sync against the current sheet. It is not live yet — crew still can't reach it. Review anything the catch-up sync staged, then publish to make it live again and issue a new crew link.",
   },
   "SHOW_UNPUBLISHED": {
     "crewFacing": null,

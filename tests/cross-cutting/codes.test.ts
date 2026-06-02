@@ -19,6 +19,10 @@ const RETIRED_LITERAL_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   FIRST_SEEN_REVIEW: new Set([
     "components/admin/StagedReviewCard.tsx",
     "lib/parser/types.ts",
+    // M12.2 B2: FIRST_SEEN_REVIEW is reused as a TriggeredReviewItem sentinel invariant (NOT a §12.4
+    // message code) — emitted by phase1 when auto-publish is OFF, consumed by applyStaged's tail gate.
+    "lib/sync/phase1.ts",
+    "lib/sync/applyStaged.ts",
   ]),
 };
 

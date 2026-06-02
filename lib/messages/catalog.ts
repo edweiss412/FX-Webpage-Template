@@ -942,6 +942,73 @@ export const MESSAGE_CATALOG = {
     longExplanation: "This show is currently being published as part of a setup wizard's multi-batch finalize. Admin write actions on it are gated until the wizard's final-publish step commits, to prevent races. Wait for the wizard tab to finish, then retry.",
     helpHref: "/help/errors#FINALIZE_OWNED_SHOW",
   },
+  SHOW_ARCHIVED_BY_ADMIN: {
+    code: "SHOW_ARCHIVED_BY_ADMIN",
+    dougFacing: "Archived. Crew links are dead until you re-publish and issue a new link.",
+    crewFacing: null,
+    followUp: "Doug → re-publish + issue new link when ready",
+    helpfulContext:
+      "Archiving a show takes it off the air immediately: the existing crew share link stops resolving (we rotate the share token), and the show moves to the Archived bucket. Crew can no longer reach the page. When you're ready to bring it back, unarchive it, re-publish, and issue a fresh crew link — the old link will never work again.",
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  SHOW_UNARCHIVED: {
+    code: "SHOW_UNARCHIVED",
+    dougFacing: "Unarchived. The show is held (not published) — publish it to go live again.",
+    crewFacing: null,
+    followUp: "Doug → publish to go live",
+    helpfulContext:
+      "Unarchiving brings a show back from the Archived bucket into a held (not-yet-published) state and runs a catch-up sync against the current sheet. It is not live yet — crew still can't reach it. Review anything the catch-up sync staged, then publish to make it live again and issue a new crew link.",
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  SHOW_PUBLISHED_BY_ADMIN: {
+    code: "SHOW_PUBLISHED_BY_ADMIN",
+    dougFacing: "Published. Issue a crew link to give your crew access.",
+    crewFacing: null,
+    followUp: "Doug → issue crew link",
+    helpfulContext:
+      "Publishing makes a held show live. The crew page will resolve once you issue a crew link — publishing alone doesn't hand anyone a URL. Use 'Issue crew link' to generate the share link to send your crew.",
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  SHOW_ARCHIVED_IMMUTABLE: {
+    code: "SHOW_ARCHIVED_IMMUTABLE",
+    dougFacing: "This show is archived. Unarchive it before making changes.",
+    crewFacing: null,
+    followUp: "Doug → unarchive first",
+    helpfulContext:
+      "Archived shows are frozen — re-syncs, applies, discards, token rotation, and similar write actions are blocked so an archived show can't be changed underneath you. If you need to make a change, unarchive the show first; it returns in a held state where you can re-sync and review before publishing.",
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  PUBLISH_BLOCKED_PENDING_REVIEW: {
+    code: "PUBLISH_BLOCKED_PENDING_REVIEW",
+    dougFacing:
+      "This show has unsynced changes, a pending review, or a sync-suppression rule. Re-sync and clear it, then publish.",
+    crewFacing: null,
+    followUp: "Doug → re-sync + clear, then publish",
+    helpfulContext:
+      "We can't publish this show because it isn't in a clean, fully-reconciled state: there are unsynced changes, a pending review in the inbox, or an active sync-suppression rule on the sheet. Re-sync the show from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  SHOW_AWAITING_PUBLISH_APPROVAL: {
+    code: "SHOW_AWAITING_PUBLISH_APPROVAL",
+    dougFacing: "A new show parsed cleanly and is waiting for your approval to publish.",
+    crewFacing: null,
+    followUp: "Doug → review + publish",
+    helpfulContext:
+      "Auto-publish for clean new shows is turned off, so this newly-seen sheet parsed cleanly but is waiting for you to approve it before it goes live. Review it in the inbox and publish when you're ready. Turn auto-publish back on in Settings if you'd rather clean new shows go live automatically.",
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   WIZARD_FINALIZE_CHECKPOINT_MISSING: {
     code: "WIZARD_FINALIZE_CHECKPOINT_MISSING",
     dougFacing: "Setup isn't ready to publish yet. Click 'Promote next batch' until all sheets are processed, then publish.",
