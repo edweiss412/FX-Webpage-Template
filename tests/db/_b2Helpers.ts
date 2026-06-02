@@ -13,6 +13,14 @@ const ADMIN_CLAIMS = JSON.stringify({
   app_metadata: { role: "admin" },
 });
 
+// A signed-in NON-admin (crew) session - app_metadata.role is absent/non-admin, so is_admin() is false.
+// Used to prove the R4 admin-only gates (readfinalizeowned_b2) reject non-admin PostgREST callers.
+const NON_ADMIN_CLAIMS = JSON.stringify({
+  sub: "00000000-0000-0000-0000-000000000099",
+  email: "crew@example.com",
+  app_metadata: { role: "crew" },
+});
+
 // One shared client for seeds/reads/poll; the race helper opens its own short-lived connections.
 const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
 const newConn = (): Sql => postgres(DB_URL, { max: 1, prepare: false });
@@ -137,6 +145,12 @@ export const seedLiveShowWithToken = (opts: { withScratch?: boolean } = {}) =>
       : [],
   });
 export const seedArchivedShow = () => seedShow({ archived: true, published: false });
+/**
+ * A DRIFTED archived row: archived=true AND published=true (the two booleans are independent — no CHECK
+ * couples them). archive_show_core always clears published, but a legacy/drifted row may carry published=true;
+ * Unarchive must still land Held (published=false), not revive straight to Live. Subject of the R4 F1 regression.
+ */
+export const seedArchivedButPublishedShow = () => seedShow({ archived: true, published: true });
 export const seedLegacyArchivedShow = (
   opts: { archivedAtNull?: boolean; withScratchAndDeferral?: boolean } = {},
 ) =>
@@ -307,6 +321,23 @@ export async function archivedImmutabilityRace(
   otherFn: "rotate_show_share_token" | "reset_picker_epoch_atomic",
 ): Promise<{ concurrentThrew: boolean }> {
   return raceArchiveAgainst(showId, otherFn);
+}
+
+/** Read the finalize-owned predicate as an ADMIN (the dashboard path). Returns the boolean result. */
+export async function readFinalizeOwnedAsAdmin(showId: string): Promise<boolean> {
+  return asAdminTx(sql, async (tx) => {
+    const [row] = await tx.unsafe(`select public.readfinalizeowned_b2($1::uuid) as owned`, [showId]);
+    return (row as unknown as { owned: boolean }).owned;
+  });
+}
+
+/** Call the finalize-owned predicate as a signed-in NON-admin (crew). Rejects with the RPC's RAISE on the admin gate. */
+export async function callReadFinalizeOwnedAsNonAdmin(showId: string): Promise<void> {
+  await sql.begin(async (tx) => {
+    await tx`select set_config('role', 'authenticated', true)`;
+    await tx`select set_config('request.jwt.claims', ${NON_ADMIN_CLAIMS}, true)`;
+    await tx.unsafe(`select public.readfinalizeowned_b2($1::uuid)`, [showId]);
+  });
 }
 
 export async function closeB2Helpers(): Promise<void> {

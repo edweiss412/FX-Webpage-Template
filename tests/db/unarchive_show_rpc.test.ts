@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  seedArchivedShow, seedLegacyArchivedShow, seedHeldShow, seedLiveShowWithToken,
+  seedArchivedShow, seedArchivedButPublishedShow, seedLegacyArchivedShow, seedHeldShow, seedLiveShowWithToken,
   asAdminRpc, readShow, readShareToken, scratchCount,
 } from "@/tests/db/_b2Helpers";
 
@@ -12,6 +12,19 @@ describe("unarchive_show (revival-sanitization chokepoint)", () => {
     expect(s.archived).toBe(false);
     expect(s.archived_at).toBeNull();
     expect(s.published).toBe(false);     // Held
+    expect(s.requires_resync).toBe(true);
+  });
+
+  it("R4 F1: a DRIFTED archived+published=true row Unarchives to HELD (published forced false), not Live", async () => {
+    // archived/published are independent booleans; archive_show_core always clears published, but a
+    // legacy/drifted archived row may carry published=true. Unarchive must NOT revive it straight to Live
+    // (archived=false,published=true) — that bypasses Held, the catch-up sync, and the publish freshness
+    // gate, making crew reachable immediately on a stale snapshot. The fix forces published=false.
+    const { showId } = await seedArchivedButPublishedShow();
+    await asAdminRpc("unarchive_show", { p_show_id: showId });
+    const s = await readShow(showId);
+    expect(s.archived).toBe(false);
+    expect(s.published).toBe(false);     // Held — crew-unreachable until an explicit Publish
     expect(s.requires_resync).toBe(true);
   });
 
