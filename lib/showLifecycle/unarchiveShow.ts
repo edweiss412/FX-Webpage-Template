@@ -1,4 +1,4 @@
-import { defaultRpc, mapRpcResult, type LifecycleRpc, type LifecycleResult } from "@/lib/showLifecycle/_shared";
+import { callLifecycleRpc, defaultRpc, type LifecycleRpc, type LifecycleResult } from "@/lib/showLifecycle/_shared";
 import { runManualSyncForShow as defaultRunManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
 
 export type { LifecycleResult } from "@/lib/showLifecycle/_shared";
@@ -17,8 +17,7 @@ export async function unarchiveShow(
 ): Promise<LifecycleResult> {
   const rpc = deps?.rpc ?? defaultRpc();
   const catchUp = deps?.runManualSyncForShow ?? (defaultRunManualSyncForShow as CatchUpSync);
-  const { error } = await rpc("unarchive_show", { p_show_id: showId });
-  const result = mapRpcResult(error);
+  const result = await callLifecycleRpc(rpc, "unarchive_show", { p_show_id: showId });
   if (!result.ok) return result;
   await catchUp(driveFileId, "manual"); // best-effort catch-up; separate self-locked txn
   return result;

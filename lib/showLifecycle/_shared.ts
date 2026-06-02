@@ -38,3 +38,25 @@ export function mapRpcResult(error: { message?: string } | null): LifecycleResul
   const code = KNOWN.find((c) => msg.includes(c));
   return { ok: false, code: code ?? "infra_error" };
 }
+
+/**
+ * The single chokepoint every lifecycle caller uses to invoke its RPC. Maps BOTH the returned `{error}`
+ * (via mapRpcResult) AND a THROWN fault — client construction (defaultRpc's `await
+ * createSupabaseServerClient()`), network, or the `.rpc()` chain rejecting — to a typed
+ * `{ ok:false, code:"infra_error" }` (AGENTS.md invariant 9). Without the catch a thrown Supabase fault
+ * would reject the server action outright, bypassing the infra_error retry copy the lifecycle buttons
+ * render. Routing all callers through here is the structural defense (R7): the only way to invoke a
+ * lifecycle RPC is through this wrapper. Pinned by tests/showLifecycle/callers.test.ts.
+ */
+export async function callLifecycleRpc(
+  rpc: LifecycleRpc,
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<LifecycleResult> {
+  try {
+    const { error } = await rpc(fn, args);
+    return mapRpcResult(error);
+  } catch {
+    return { ok: false, code: "infra_error" };
+  }
+}

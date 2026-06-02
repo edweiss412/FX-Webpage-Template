@@ -1,4 +1,4 @@
-import { defaultRpc, mapRpcResult, type LifecycleRpc, type LifecycleResult } from "@/lib/showLifecycle/_shared";
+import { callLifecycleRpc, defaultRpc, type LifecycleRpc, type LifecycleResult } from "@/lib/showLifecycle/_shared";
 
 export type { LifecycleResult } from "@/lib/showLifecycle/_shared";
 
@@ -8,6 +8,5 @@ export async function archiveShow(
   deps?: { rpc?: LifecycleRpc },
 ): Promise<LifecycleResult> {
   const rpc = deps?.rpc ?? defaultRpc();
-  const { error } = await rpc("archive_show", { p_show_id: showId });
-  return mapRpcResult(error);
+  return callLifecycleRpc(rpc, "archive_show", { p_show_id: showId });
 }

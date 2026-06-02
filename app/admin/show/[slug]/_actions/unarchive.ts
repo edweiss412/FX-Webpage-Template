@@ -24,9 +24,11 @@ import { resolveShowById } from "./shared";
 
 export async function unarchiveShowAction(showId: string): Promise<void> {
   await requireAdmin();
-  const show = await resolveShowById(showId);
-  if (!show) return;
-  const result = await unarchiveShow(show.id, show.driveFileId);
+  const resolved = await resolveShowById(showId);
+  // Void action (UI contract): on not_found OR infra_error, no-op without mutating — the row stays put
+  // and the next render / refresh retries. The mutating RPC itself surfaces infra_error via its result.
+  if (resolved.kind !== "found") return;
+  const result = await unarchiveShow(resolved.show.id, resolved.show.driveFileId);
   if (result.ok) {
     revalidatePath(`/admin/show`);
     revalidatePath("/admin");

@@ -125,4 +125,27 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(archiveShow).not.toHaveBeenCalled();
     expect(from).not.toHaveBeenCalled();
   });
+
+  // R7 (invariant 9): a Supabase outage during resolution must surface as infra_error (retry copy), NOT
+  // be masked as show_not_found (a deleted/stale show). Distinct codes → distinct UI treatment.
+  it("archiveShowAction: a RETURNED Supabase error during resolve → infra_error, NOT show_not_found", async () => {
+    maybeSingleResult.value = { data: null, error: { message: "connection reset" } };
+    const res = await archiveShowAction("slug");
+    expect(archiveShow).not.toHaveBeenCalled(); // fail closed — no mutation
+    expect(res).toEqual({ ok: false, code: "infra_error" });
+  });
+
+  it("publishShowAction: a THROWN Supabase fault during resolve → infra_error, NOT show_not_found", async () => {
+    maybeSingle.mockRejectedValueOnce(new Error("query threw mid-await"));
+    const res = await publishShowAction("slug");
+    expect(publishShow).not.toHaveBeenCalled();
+    expect(res).toEqual({ ok: false, code: "infra_error" });
+  });
+
+  it("unarchiveShowAction (void): a resolve infra_error → no-op, does NOT invoke unarchiveShow", async () => {
+    maybeSingleResult.value = { data: null, error: { message: "outage" } };
+    const res = await unarchiveShowAction("show-x");
+    expect(unarchiveShow).not.toHaveBeenCalled();
+    expect(res).toBeUndefined();
+  });
 });

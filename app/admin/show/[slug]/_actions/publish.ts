@@ -18,9 +18,11 @@ import { resolveShowBySlug, SHOW_NOT_FOUND } from "./shared";
 
 export async function publishShowAction(slug: string): Promise<LifecycleResult> {
   await requireAdmin();
-  const show = await resolveShowBySlug(slug);
-  if (!show) return SHOW_NOT_FOUND;
-  const result = await publishShow(show.id);
+  const resolved = await resolveShowBySlug(slug);
+  // R7: a Supabase outage during resolution surfaces as infra_error (retry copy), NOT as a missing show.
+  if (resolved.kind === "infra_error") return { ok: false, code: "infra_error" };
+  if (resolved.kind === "not_found") return SHOW_NOT_FOUND;
+  const result = await publishShow(resolved.show.id);
   if (result.ok) {
     revalidatePath(`/admin/show/${slug}`);
     revalidatePath("/admin");

@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { archiveShow } from "@/lib/showLifecycle/archiveShow";
 import { publishShow } from "@/lib/showLifecycle/publishShow";
 import { unarchiveShow } from "@/lib/showLifecycle/unarchiveShow";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { LifecycleResult, LifecycleRpc } from "@/lib/showLifecycle/_shared";
 
 // R-impl-1 CRITICAL regression: the default RPC binding MUST be the session-bound server client (the
 // authenticated admin's JWT), NOT service_role — the lifecycle RPCs are granted only to `authenticated`
@@ -50,7 +52,7 @@ describe("lifecycle callers", () => {
     expect(await archiveShow("show-1", { rpc })).toEqual({ ok: false, code: "FINALIZE_OWNED_SHOW" });
   });
 
-  it("archiveShow surfaces an unmapped/thrown error as infra_error (not silent)", async () => {
+  it("archiveShow surfaces an unmapped RETURNED error as infra_error (not silent)", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "connection reset" } });
     expect(await archiveShow("show-1", { rpc })).toEqual({ ok: false, code: "infra_error" });
   });
@@ -76,6 +78,43 @@ describe("lifecycle callers", () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "ADMIN_LINK_SHOW_NOT_FOUND" } });
     const catchUp = vi.fn();
     expect(await unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp })).toEqual({ ok: false, code: "ADMIN_LINK_SHOW_NOT_FOUND" });
+    expect(catchUp).not.toHaveBeenCalled();
+  });
+});
+
+describe("lifecycle callers — THROWN Supabase faults map to infra_error (R7, invariant 9)", () => {
+  // R7: mapRpcResult only handled the returned {error}; a thrown construction/network/.rpc()-chain fault
+  // rejected the server action outright, bypassing the infra_error retry copy the lifecycle buttons render.
+  // The callLifecycleRpc chokepoint now catches thrown faults. (The "unmapped error" test above only
+  // exercises a RETURNED error — this block exercises actual throws, which the prior tests did not.)
+  const throwingCallers: Array<[string, (rpc: LifecycleRpc) => Promise<LifecycleResult>]> = [
+    ["archiveShow", (rpc) => archiveShow("show-1", { rpc })],
+    ["publishShow", (rpc) => publishShow("show-1", { rpc })],
+    ["unarchiveShow", (rpc) => unarchiveShow("show-1", "drive-1", { rpc })],
+  ];
+  it.each(throwingCallers)(
+    "%s: an rpc that THROWS resolves to { ok:false, code:'infra_error' } (no unhandled rejection)",
+    async (_name, call) => {
+      const rpc: LifecycleRpc = vi.fn(async () => {
+        throw new Error("network reset mid-rpc");
+      });
+      await expect(call(rpc)).resolves.toEqual({ ok: false, code: "infra_error" });
+    },
+  );
+
+  it("default path: a thrown createSupabaseServerClient construction fault → infra_error (not a rejection)", async () => {
+    vi.mocked(createSupabaseServerClient).mockRejectedValueOnce(new Error("client construction fault"));
+    await expect(archiveShow("show-1")).resolves.toEqual({ ok: false, code: "infra_error" });
+  });
+
+  it("unarchiveShow: a thrown rpc skips the catch-up sync entirely", async () => {
+    const rpc: LifecycleRpc = vi.fn(async () => {
+      throw new Error("network reset mid-rpc");
+    });
+    const catchUp = vi.fn();
+    await expect(
+      unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp }),
+    ).resolves.toEqual({ ok: false, code: "infra_error" });
     expect(catchUp).not.toHaveBeenCalled();
   });
 });
