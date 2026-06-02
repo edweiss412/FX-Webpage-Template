@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 // Each new notify Supabase/postgres boundary helper adds its row here IN THE SAME COMMIT.
-export const REGISTERED: { path: string }[] = [];
+export const REGISTERED: { path: string }[] = [
+  // lib/notify/recipients.ts — service-role read of admin_emails; returns
+  // { kind: "infra_error" } on returned/thrown DB fault (Task 2.5, invariant 9).
+  { path: "lib/notify/recipients.ts" },
+];
 
 // Inline recursive .ts walker (R9/R10 fix — no shared walkTs exists in the repo).
 function walkTs(dir: string): string[] {
