@@ -26,6 +26,7 @@ import {
   STAGED_PARSE_REVISION_RACE,
   type SyncPipelineTx,
   withPostgresSyncPipelineLock,
+  emitSuccessfulPhase2Tail,
 } from "@/lib/sync/runScheduledCronSync";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
@@ -279,6 +280,14 @@ export type ApplyStagedDeps = {
   ) => Promise<VerifyReelOnApplyResult>;
   withPipelineLock?: PipelineLock;
   runPhase2?: (tx: LockedShowTx<SyncPipelineTx>, args: Phase2Args) => Promise<Phase2Result>;
+  // Task 4.4: applying a FIRST_SEEN_REVIEW staged row (auto-publish was OFF) must reach first-published
+  // parity with the auto-publish-ON path — mint the 24h unpublish token + emit SHOW_FIRST_PUBLISHED via
+  // the shared emitSuccessfulPhase2Tail chokepoint. Injectable for testing; broad-typed tail deps so the
+  // SHOW_FIRST_PUBLISHED alert code is accepted (applyStaged's own upsertAdminAlert is a narrower union).
+  emitSuccessfulPhase2Tail?: typeof emitSuccessfulPhase2Tail;
+  firstPublishedTailDeps?: Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"];
+  createUnpublishToken?: () => string;
+  now?: () => Date;
   insertSyncAudit?: (
     tx: LockedShowTx<SyncPipelineTx>,
     row: {
@@ -1007,6 +1016,10 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   | "retryEmbeddedRevisionAvailability"
   | "verifyReelOnApply"
   | "runOnboardingScan"
+  | "emitSuccessfulPhase2Tail"
+  | "firstPublishedTailDeps"
+  | "createUnpublishToken"
+  | "now"
 > & {
   wizardDriveReverify?: WizardDriveReverify;
   liveDriveReverify?: LiveDriveReverify;
@@ -1043,6 +1056,10 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
     verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
     runOnboardingScan: deps.runOnboardingScan ?? runOnboardingScan,
+    emitSuccessfulPhase2Tail: deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail,
+    firstPublishedTailDeps: deps.firstPublishedTailDeps ?? { upsertAdminAlert: defaultUpsertAdminAlert },
+    createUnpublishToken: deps.createUnpublishToken ?? randomUUID,
+    now: deps.now ?? (() => new Date()),
     ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
     ...(deps.liveDriveReverify ? { liveDriveReverify: deps.liveDriveReverify } : {}),
     ...(deps.liveAssetReviewEffects ? { liveAssetReviewEffects: deps.liveAssetReviewEffects } : {}),
@@ -1371,6 +1388,30 @@ export async function applyStaged_unlocked(
   };
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
+
+  // Task 4.4: a FIRST_SEEN_REVIEW staged row is a first-seen sheet whose auto-publish was deferred for
+  // approval; applying it is the approval. Reach parity with the auto-publish-ON path by minting the 24h
+  // unpublish token + emitting SHOW_FIRST_PUBLISHED through the shared tail (the ONLY token-mint site —
+  // token-without-notice is impossible by construction). Gate on no pre-existing show (first publish).
+  const isFirstSeenReviewApply =
+    show === null &&
+    pending.triggeredReviewItems.some((item) => item.invariant === "FIRST_SEEN_REVIEW");
+  if (isFirstSeenReviewApply) {
+    const tail = deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail;
+    const issuedAt = (deps.now ?? (() => new Date()))();
+    await tail({
+      tx,
+      result: { outcome: "applied", showId: phase2.showId },
+      deps: deps.firstPublishedTailDeps ?? { upsertAdminAlert: defaultUpsertAdminAlert },
+      driveFileId: pending.driveFileId,
+      fileMeta: metadata,
+      parseResult: assetAdjusted.parseResult,
+      autoPublishFirstSeen: {
+        unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
+        unpublishTokenExpiresAt: new Date(issuedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+    });
+  }
   return applied;
 }
 

@@ -334,6 +334,79 @@ describe("applyStaged live-scope", () => {
     );
   });
 
+  test("Task 4.4: applying a FIRST_SEEN_REVIEW first-seen row routes through emitSuccessfulPhase2Tail with a 24h token", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const tail = vi.fn(async () => undefined);
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        // First-seen: baseModifiedTime must be null to match a null show watermark (else superseded).
+        pending({ triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }], baseModifiedTime: null }),
+      ),
+      readShowForApply: vi.fn(async () => null), // first-seen: no show row yet
+      liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new" })),
+      emitSuccessfulPhase2Tail: tail,
+      createUnpublishToken: () => "tok-1",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "fs-1", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied", showId: "show-new" });
+    expect(tail).toHaveBeenCalledTimes(1);
+    expect(tail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driveFileId: "drive-file-1",
+        result: expect.objectContaining({ outcome: "applied", showId: "show-new" }),
+        autoPublishFirstSeen: {
+          unpublishToken: "tok-1",
+          unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
+        },
+      }),
+    );
+  });
+
+  test("Task 4.4 negative-regression: a normal apply (no FIRST_SEEN_REVIEW) does NOT call emitSuccessfulPhase2Tail", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const tail = vi.fn(async () => undefined);
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending()), // no FIRST_SEEN_REVIEW sentinel
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: { snapshot_revision_id: "rev-prior" },
+      })),
+      liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+      emitSuccessfulPhase2Tail: tail,
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    expect(tail).not.toHaveBeenCalled();
+  });
+
   test("runs Phase 2 from stored parse_result, audits, and deletes only the live pending row", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps();
