@@ -8,6 +8,10 @@
  *   - <AdministratorsSection> (Task 6.2) — embedded admin allow-list (the old
  *     "Manage administrators" link is subsumed; the deep link
  *     /admin/settings/admins still renders the same section).
+ *   - <AutoPublishToggle> (B2 Task 8.1) — the "Auto-publish clean new shows"
+ *     Preferences toggle; reflects app_settings.auto_publish_clean_first_seen
+ *     (read fail-closed here) and flips it via the admin-gated setAutoPublish
+ *     server action.
  *   - <DevToolsRow> (Task 8.3) — gated on the build-time DEV_PANEL_PRESENT
  *     constant; renders null in normal builds (committed false), so it is the
  *     only "Preferences"-area content for B1 and is invisible by default.
@@ -24,7 +28,13 @@ import { fetchEmbeddedAdminEmails } from "@/lib/admin/embeddedAdminEmails";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import { DriveConnectionPanel } from "@/components/admin/settings/DriveConnectionPanel";
 import { AdministratorsSection } from "@/components/admin/settings/AdministratorsSection";
+import {
+  AutoPublishToggle,
+  type AutoPublishInitial,
+} from "@/components/admin/settings/AutoPublishToggle";
 import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
+import { getAutoPublishCleanFirstSeen } from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
+import { setAutoPublish } from "./_actions/setAutoPublish";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings · Admin · FXAV" };
@@ -32,6 +42,15 @@ export const metadata = { title: "Settings · Admin · FXAV" };
 export default async function AdminSettingsPage() {
   const identity = await requireAdminIdentity();
   const now = await nowDate();
+
+  // Fail-closed read of the auto-publish toggle (infra_error → degraded control;
+  // never a silent wrong/falsely-ON state — §4). Map the reader's
+  // {autoPublish} shape onto the component's {on} prop.
+  const autoPublishRead = await getAutoPublishCleanFirstSeen();
+  const autoPublishInitial: AutoPublishInitial =
+    autoPublishRead.kind === "value"
+      ? { kind: "value", on: autoPublishRead.autoPublish }
+      : { kind: "infra_error" };
 
   return (
     <main
@@ -50,6 +69,8 @@ export default async function AdminSettingsPage() {
         actorCanonicalEmail={canonicalize(identity.email) ?? ""}
         now={now}
       />
+
+      <AutoPublishToggle initial={autoPublishInitial} setAutoPublish={setAutoPublish} />
 
       <DevToolsRow />
     </main>
