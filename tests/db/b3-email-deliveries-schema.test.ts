@@ -28,7 +28,9 @@ describe("B3 email_deliveries ledger schema", () => {
       .filter(Boolean)
       .map((line) => {
         const [columnName, dataType, isNullable, columnDefault] = line.split("\t");
-        return { columnName, dataType, isNullable, columnDefault };
+        // A last-row empty `coalesce(column_default,'')` field is a trailing tab that
+        // runPsql's .trim() strips; normalize a missing default back to "".
+        return { columnName, dataType, isNullable, columnDefault: columnDefault ?? "" };
       });
 
     const byName = Object.fromEntries(rows.map((row) => [row.columnName, row]));
@@ -79,7 +81,7 @@ describe("B3 email_deliveries ledger schema", () => {
 
   test("email_deliveries has canonical recipient CHECK, closed-set checks, FK, and dedup index", () => {
     const constraints = runPsql(`
-      select conname || E'\t' || contype || E'\t' || pg_get_constraintdef(c.oid)
+      select conname || E'\t' || contype::text || E'\t' || pg_get_constraintdef(c.oid)
         from pg_constraint c
         join pg_class t on t.oid = c.conrelid
         join pg_namespace n on n.oid = t.relnamespace

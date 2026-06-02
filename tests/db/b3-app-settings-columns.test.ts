@@ -29,7 +29,10 @@ describe("B3 app_settings notification columns", () => {
       .filter(Boolean)
       .map((line) => {
         const [columnName, dataType, isNullable, columnDefault] = line.split("\t");
-        return { columnName, dataType, isNullable, columnDefault };
+        // The last row's empty `coalesce(column_default,'')` field is a trailing tab
+        // that runPsql's .trim() strips, so split() yields no 4th element — normalize
+        // a missing default back to "" (matches the coalesce intent).
+        return { columnName, dataType, isNullable, columnDefault: columnDefault ?? "" };
       });
 
     const byName = Object.fromEntries(rows.map((row) => [row.columnName, row]));
