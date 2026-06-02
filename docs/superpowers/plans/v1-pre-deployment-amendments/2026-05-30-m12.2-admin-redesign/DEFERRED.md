@@ -4,6 +4,20 @@ Per-plan deferrals: items that WILL be done with a concrete trigger (distinct fr
 
 ## Open
 
+### RECON-1 — Global `AlertBanner` never quieted to the prototype treatment (CLOSE-OUT BLOCKER)
+
+**Status:** Open. **Close-out blocker for M12.2** (owner-confirmed 2026-06-02). **Trigger:** dedicated Opus UI fidelity-cleanup task before the milestone is marked closed; Opus-owned + impeccable v3 critique+audit dual-gate (invariant 8).
+
+**Source:** M12.2 whole-milestone design-fidelity reconciliation (prototype vs shipped A+B1+B2), 2026-06-02. Full report + side-by-side captures: `.validation-local/reconciliation/RECONCILIATION-POST-IMPL.md` (gitignored; this entry is the durable record).
+**Description:** `components/admin/AlertBanner.tsx` still renders the M5-era "loud" block — full `ErrorExplainer` body + `HelpAffordance` ("What does this mean?" + "Learn more →") + raised-at meta row + "+N more ▸" queue chip + a full-size action button — at `bg-warning-bg` full `p-tile-pad`, mounted by `app/admin/layout.tsx` on **every** admin route (dashboard, per-show, settings). The prototype (`01-cards2.png`, `settings2.png`) shows a compact, calm single-row strip (icon + one-line title + one subtitle + a small right-aligned action). This is the single biggest fidelity miss. Root cause is *un-built scope*, not a regression: pre-impl `RECONCILIATION.md` §B (line ~62) observed "Prototype keeps a banner but quieter — presentation REAL-able" but the owner's resolved Milestone-A scope (§E D-5) never enumerated a global-banner reskin, so no task ever owned it. Exactly the class per-task review cannot catch (no gate owned an unscoped surface) — caught only by the whole-milestone fresh-eyes pass (`[[feedback_whole_milestone_closeout_gate]]`).
+**Resolution (when triggered):** brainstorming pass → decide which affordances survive the quieting (the §9.0.1 "What does this mean?" disclosure, the §5.6 "Learn more →" template link, raised-at, the `+N more` queue chip, the resolve/view action) vs. move to a detail view, then reskin to the compact strip. Token-only (no new hardcoded values); keep invariant-5 (no raw codes — copy still via catalog) and the fail-visible degraded path (B1 Task 1.3) intact. NOT a land-now mechanical fix: shared component + multiple affordances + rides every admin route → full impeccable dual-gate. NOT folded into B3 (B3 is email-delivery scope; only the cap-reached banner-currency-clear overlaps) — ship as a standalone task. Verify the per-show case too (`app/admin/show/[slug]/page.tsx` mounts the same banner via the layout).
+
+### RECON-2 — Nav trimmed to Dashboard/Settings (vs prototype's 4-item nav) — INTENTIONAL, do-not-relitigate
+
+**Status:** ✅ **Resolved as intentional** (owner-confirmed 2026-06-02). No work.
+**Source:** M12.2 design-fidelity reconciliation, 2026-06-02.
+**Description:** The prototype top bar showed Dashboard / **Active shows** / **Setup** / Settings; shipped `AdminNav` shows Dashboard / Settings only (+ ADMIN badge, bell, dark toggle, user menu, mobile bottom tabs). This is a deliberate fold: the Dashboard *is* the active-shows surface (active/archived shows table lives there), and "Setup" = the Settings → "Re-run setup" affordance. Recorded here so adversarial/close-out review does not re-flag it (`[[feedback_disagreement_loop_preempt]]`-style preempt). The reconciliation also **confirmed-as-accepted** two minor per-show presentation drifts (the prototype's 4-field CLIENT/DATES/CREW/STATUS summary card is folded into the header subtitle + Published pill; "Preview as crew" is per-crew-row rather than a header button) — owner accepted both as-is 2026-06-02; no work.
+
 ### B1-D1 — Per-show `<AdminPageHeader>` density at the 720px flex-row boundary
 
 **Status:** Open. **Trigger:** live measurement during the M12 UX-validation walk (or the next per-show eyeball) of `/admin/show/[slug]` with a long show title at viewports straddling 720px.
