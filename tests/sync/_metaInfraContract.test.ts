@@ -92,6 +92,12 @@ const infraRegistry = [
     contract: "app_settings watched-folder lookup faults become typed infra_error results",
   },
   {
+    helper: "writeSyncCronHeartbeat",
+    path: "lib/appSettings/writeSyncCronHeartbeat.ts",
+    contract:
+      "sync cron heartbeat writer destructures {data,error}, selects id, and maps returned/thrown/zero-row faults to typed infra_error",
+  },
+  {
     helper: "snapshotAssets",
     path: "lib/sync/snapshotAssets.ts",
     contract:
@@ -367,6 +373,11 @@ async function importWatchedFolderHelper() {
   return import("@/lib/appSettings/getWatchedFolderId");
 }
 
+async function importHeartbeatWriter() {
+  vi.resetModules();
+  return import("@/lib/appSettings/writeSyncCronHeartbeat");
+}
+
 async function importAutoPublishHelper() {
   vi.resetModules();
   return import("@/lib/appSettings/getAutoPublishCleanFirstSeen");
@@ -472,6 +483,22 @@ describe("sync Supabase infra-failure contract", () => {
         source: "thrown_error",
         operation: "readActiveWatchedFolderId",
       });
+    });
+  });
+
+  describe("writeSyncCronHeartbeat", () => {
+    test("service-role construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { writeSyncCronHeartbeat } = await importHeartbeatWriter();
+
+      await expect(writeSyncCronHeartbeat()).resolves.toEqual({ kind: "infra_error" });
+    });
+
+    test("Supabase .from() throw → typed infra_error", async () => {
+      infraMock.throwOnFrom = true;
+      const { writeSyncCronHeartbeat } = await importHeartbeatWriter();
+
+      await expect(writeSyncCronHeartbeat()).resolves.toEqual({ kind: "infra_error" });
     });
   });
 

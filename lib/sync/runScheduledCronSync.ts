@@ -9,6 +9,10 @@ import {
   getActiveWatchedFolderId,
   type ActiveWatchedFolderResult,
 } from "@/lib/appSettings/getWatchedFolderId";
+import {
+  writeSyncCronHeartbeat as defaultWriteSyncCronHeartbeat,
+  type HeartbeatWriteResult,
+} from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
@@ -270,6 +274,7 @@ export type RunScheduledCronSyncDeps = {
     fileMeta: DriveListedFile,
     deps?: Pick<ProcessOneFileDeps, "logSync">,
   ) => Promise<ProcessOneFileResult>;
+  writeSyncCronHeartbeat?: () => Promise<HeartbeatWriteResult>;
 };
 
 export type RunScheduledCronSyncResult = {
@@ -280,6 +285,7 @@ export type RunScheduledCronSyncResult = {
   summary?:
     | { outcome: "skipped"; skipReason: "no_folder_configured" }
     | { outcome: "parse_error"; code: typeof SYNC_INFRA_ERROR };
+  maintenanceFaults?: { syncCronHeartbeat?: "infra_error" };
 };
 
 type PostgresTransaction = {
@@ -2382,6 +2388,20 @@ export async function processOneFile_unlocked(
 export async function runScheduledCronSync(
   deps: RunScheduledCronSyncDeps = {},
 ): Promise<RunScheduledCronSyncResult> {
+  const finishCompletedRun = async (
+    result: RunScheduledCronSyncResult,
+  ): Promise<RunScheduledCronSyncResult> => {
+    const heartbeat = await (deps.writeSyncCronHeartbeat ?? defaultWriteSyncCronHeartbeat)();
+    if (heartbeat.kind !== "infra_error") return result;
+    return {
+      ...result,
+      maintenanceFaults: {
+        ...result.maintenanceFaults,
+        syncCronHeartbeat: "infra_error",
+      },
+    };
+  };
+
   const folderResult = deps.folderId
     ? { folderId: deps.folderId }
     : await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
@@ -2396,10 +2416,10 @@ export async function runScheduledCronSync(
           skip_reason: "no_folder_configured",
         },
       });
-      return {
+      return finishCompletedRun({
         processed: [],
         summary: { outcome: "skipped", skipReason: "no_folder_configured" },
-      };
+      });
     }
     await deps.logSync?.({
       driveFileId: null,
@@ -2468,5 +2488,5 @@ export async function runScheduledCronSync(
     }
   }
 
-  return { processed };
+  return finishCompletedRun({ processed });
 }
