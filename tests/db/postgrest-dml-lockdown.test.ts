@@ -231,6 +231,20 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     },
     rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
   },
+  {
+    table: "email_deliveries",
+    closed_at:
+      "supabase/migrations/20260602000004_b3_email_deliveries.sql:19",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      kind: "realtime_problem",
+      dedup_key: "postgrest-dml-lockdown-test",
+      recipient: "postgrest-dml-lockdown-test@example.invalid",
+      status: "failed",
+    },
+    rowFilter: "?dedup_key=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
 ] as const;
 
 // =============================================================================
@@ -360,7 +374,7 @@ async function signRoleJwt(role: "anon" | "authenticated"): Promise<string> {
     .sign(secretBytes);
 }
 
-type Verb = "POST" | "PATCH" | "DELETE";
+type Verb = "GET" | "POST" | "PATCH" | "DELETE";
 
 async function postgrestRequest(
   entry: RpcGatedTable,
@@ -493,6 +507,13 @@ describe("PostgREST DML lockdown — RPC-gated tables (Layers 2+3)", () => {
           const res = await postgrestRequest(entry, "DELETE", role);
           await expectLockdownFired(res, role, entry.table, "DELETE");
         });
+
+        if (!entry[role === "authenticated" ? "selectAuthenticated" : "selectAnon"]) {
+          test(`${layerTag}: GET /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501 when SELECT is revoked`, async () => {
+            const res = await postgrestRequest(entry, "GET", role);
+            await expectLockdownFired(res, role, entry.table, "GET");
+          });
+        }
       },
     );
   }

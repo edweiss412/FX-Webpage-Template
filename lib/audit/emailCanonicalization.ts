@@ -115,6 +115,7 @@ function columnFromConstraint(table: string, constraint: string): string | null 
   if (constraint === "report_rate_limits_admin_identity_email_canonical") return "identity";
   if (constraint === "sync_audit_applied_by_email_canonical") return "applied_by";
   if (constraint === "shows_pending_changes_applied_by_email_canonical") return "applied_by_email";
+  if (constraint === "email_deliveries_recipient_email_canonical") return "recipient";
   const prefix = `${table}_`;
   const suffixes = ["_canonical"];
   for (const suffix of suffixes) {
@@ -693,7 +694,7 @@ function auditRlsHelpers(): string[] {
 export function auditLiveEmailCanonicalization(): string[] {
   const sourcePaths = [
     ...walkSourceFiles(["lib/parser"]),
-    ...walkSourceFiles(["lib/sync", "lib/reports", "lib/auth", "lib/data", "lib/adminAlerts"]),
+    ...walkSourceFiles(["lib/sync", "lib/reports", "lib/auth", "lib/data", "lib/adminAlerts", "lib/notify"]),
     ...walkSourceFiles(["app/api/admin"]),
     // M12 Phase 0.C Task 0.C.9 — extend audit to validation tooling
     // (DEFERRED.md M12-PHASE0C-EMAIL-CANON-EXT). Validation tooling IS a

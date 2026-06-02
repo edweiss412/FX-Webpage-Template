@@ -164,6 +164,10 @@ export function extractSpecEmailBoundaryKeys(spec: string, planBoundaries: reado
       keys.add(key("DB write", "lib/admin/onboarding/finalize.ts"));
       continue;
     }
+    if (token === "email_deliveries.recipient") {
+      keys.add(key("DB write", "lib/notify/deliver.ts"));
+      continue;
+    }
     if (token === "deferred_ingestions.deferred_by_email") {
       keys.add(key("DB write", "lib/sync/discard.ts"));
       continue;

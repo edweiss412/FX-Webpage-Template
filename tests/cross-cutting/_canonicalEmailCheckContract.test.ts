@@ -35,6 +35,7 @@ const expectedBoundaryChecks: readonly ExpectedBoundaryCheck[] = [
   { table: "report_rate_limits", column: "identity", nullability: "admin-conditional", condition: "kind" },
   { table: "pending_syncs", column: "wizard_approved_by_email", nullability: "nullable" },
   { table: "shows_pending_changes", column: "applied_by_email", nullability: "not-null" },
+  { table: "email_deliveries", column: "recipient", nullability: "not-null" },
 ] as const;
 
 function stripSqlComments(sql: string): string {
@@ -86,6 +87,7 @@ function columnFromConstraint(table: string, constraint: string): string | null 
     ["report_rate_limits_admin_identity_email_canonical", "identity"],
     ["sync_audit_applied_by_email_canonical", "applied_by"],
     ["shows_pending_changes_applied_by_email_canonical", "applied_by_email"],
+    ["email_deliveries_recipient_email_canonical", "recipient"],
   ]);
   const override = overrides.get(constraint);
   if (override) return override;
