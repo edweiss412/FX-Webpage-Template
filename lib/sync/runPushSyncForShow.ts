@@ -12,6 +12,20 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import { writeSyncLog } from "@/lib/sync/syncLog";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
+import { ARCHIVED_SKIP_REASON } from "@/lib/sync/lifecycleGuards";
+
+async function readShowArchivedForPush(driveFileId: string): Promise<boolean> {
+  const supabase = createSupabaseServiceRoleClient();
+  const { data, error } = await supabase
+    .from("shows")
+    .select("archived")
+    .eq("drive_file_id", driveFileId)
+    .maybeSingle();
+  if (error) {
+    throw new SyncInfraError("readShowArchivedForPush", "returned_error", error);
+  }
+  return Boolean((data as { archived: boolean | null } | null)?.archived);
+}
 
 type PushDuplicatePreflightResult =
   | { outcome: "skip"; reason: "WEBHOOK_NOOP_ALREADY_SYNCED" }
@@ -29,6 +43,7 @@ export type RunPushSyncForShowDeps = {
   fileMeta?: DriveListedFile;
   getActiveWatchedFolderId?: typeof getActiveWatchedFolderId;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
+  isShowArchived?: (driveFileId: string) => Promise<boolean>;
   readPushDuplicatePreflight?: (
     driveFileId: string,
     fileMeta: DriveListedFile,
@@ -178,6 +193,10 @@ export async function runPushSyncForShow(
   deps: RunPushSyncForShowDeps = {},
 ): Promise<ProcessOneFileResult> {
   const logSync = deps.logSync ?? writeSyncLog;
+  // DEF-4: archived preflight BEFORE any Drive fetch — silent skip (no fetch, no sync_log).
+  if (await (deps.isShowArchived ?? readShowArchivedForPush)(driveFileId)) {
+    return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
+  }
   const fileMeta = deps.fileMeta ?? (await fetchScopedPushFileMeta(driveFileId, deps, logSync));
   if ("outcome" in fileMeta) return fileMeta;
   const preflight = await (deps.readPushDuplicatePreflight ?? readPushDuplicatePreflight)(

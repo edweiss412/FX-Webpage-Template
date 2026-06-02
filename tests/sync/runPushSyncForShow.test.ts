@@ -132,12 +132,14 @@ describe("runPushSyncForShow", () => {
       runPushSyncForShow("file-1", {
         fileMeta: meta,
         processOneFile,
+        isShowArchived: async () => false,
       }),
     ).resolves.toEqual({ outcome: "applied", showId: "show-1" });
     await expect(
       runPushSyncForShow("file-1", {
         fileMeta: meta,
         processOneFile,
+        isShowArchived: async () => false,
       }),
     ).resolves.toEqual({ outcome: "skipped", reason: "WEBHOOK_NOOP_ALREADY_SYNCED" });
 

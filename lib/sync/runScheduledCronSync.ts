@@ -10,6 +10,7 @@ import {
   type ActiveWatchedFolderResult,
 } from "@/lib/appSettings/getWatchedFolderId";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
@@ -1445,6 +1446,7 @@ async function listPostgresLiveShows(): Promise<CronLiveShowRow[]> {
       select id, drive_file_id, last_seen_modified_time, title
         from public.shows
        where drive_file_id is not null
+         and archived = false
     `)) as Array<{
       id: string;
       drive_file_id: string;
@@ -1782,8 +1784,16 @@ export async function runPhase2_unlocked(
 async function markMissingShow_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   show: CronLiveShowRow,
-): Promise<{ outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }> {
+): Promise<
+  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }
+  | { outcome: "skipped"; reason: typeof ARCHIVED_SKIP_REASON }
+> {
   await assertShowLockHeld(tx, show.driveFileId);
+  // DEF-4 (defense-in-depth; listPostgresLiveShows already excludes archived): never mark/log a
+  // missing-file error against an archived show. Silent skip, no mutation, no sync_log.
+  if (await readShowArchived_unlocked(tx, show.driveFileId)) {
+    return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
+  }
   const recoveryTx = tx as LockedShowTx<CronRecoveryTx>;
   const updated = await recoveryTx.markShowSheetUnavailable(show.driveFileId, SHEET_UNAVAILABLE);
   const showId = updated.showId ?? show.showId;
@@ -1894,6 +1904,12 @@ export async function processOneFile(
 ): Promise<ProcessOneFileResult> {
   const prepared = await prepareProcessOneFile(driveFileId, mode, fileMeta, deps);
   if (prepared.kind === "skip") {
+    // DEF-4: an archived show is a SILENT skip — return WITHOUT logSync. The normal skip path below
+    // writes a sync_log row (logSync's `"skipped" in result` guard checks for the {skipped:true}
+    // ConcurrentSyncSkipped shape, NOT outcome:"skipped", so it does NOT suppress {outcome:"skipped"}).
+    if (prepared.result.reason === ARCHIVED_SKIP_REASON) {
+      return prepared.result;
+    }
     await logSync(deps, driveFileId, prepared.result, prepared.payload);
     return prepared.result;
   }
@@ -2128,6 +2144,11 @@ export async function processOneFile_unlocked(
   prepared?: PreparedProcessOneFile,
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
+  // DEF-4: authoritative in-lock archived re-read (an Archive may have committed between prepare and
+  // lock acquisition). Silent abort — return WITHOUT logSync / any persisted mutation.
+  if (await readShowArchived_unlocked(tx, driveFileId)) {
+    return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
+  }
   const txDeps = txBoundProcessDeps(tx, deps);
   if (!prepared) {
     throw new SyncInfraError(

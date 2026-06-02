@@ -4,6 +4,10 @@
 
 export const SHOW_ARCHIVED_IMMUTABLE = "SHOW_ARCHIVED_IMMUTABLE" as const;
 
+// DEF-4: dedicated skip reason for archived cron/push shows. It is a SILENT skip — callers that see
+// this reason must NOT write a sync_log row (no fetch / no log / no watermark mutation).
+export const ARCHIVED_SKIP_REASON = "archived" as const;
+
 /** Re-read shows.archived for a drive_file_id (call AFTER the advisory lock is held). */
 export async function readShowArchived_unlocked(
   tx: { queryOne<T>(sql: string, params: unknown[]): Promise<T> },
