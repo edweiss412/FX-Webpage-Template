@@ -79,3 +79,34 @@ begin
 end $$;
 revoke all on function public.archive_show(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.archive_show(uuid) to authenticated;
+
+-- Task 1.3: unarchive_show — the revival-sanitization chokepoint (single locked RPC).
+create or replace function public.unarchive_show(p_show_id uuid)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_drive text; v_archived boolean;
+begin
+  if not public.is_admin() then
+    raise exception using errcode='42501', message='forbidden', hint='unarchive_show is admin-only';
+  end if;
+  select drive_file_id into v_drive from public.shows where id = p_show_id;
+  if v_drive is null then raise exception using errcode='P0002', message='ADMIN_LINK_SHOW_NOT_FOUND'; end if;
+  perform pg_advisory_xact_lock(hashtext('show:' || v_drive));
+  -- RE-READ archived AFTER the lock and EARLY-RETURN before any mutation when the row is not archived:
+  -- token rotation + scratch/suppressor cleanup run ONLY when THIS call performs the archived->held
+  -- transition. A stale double-Unarchive on an already-Held/Live row must not rotate the active token.
+  select archived into v_archived from public.shows where id = p_show_id;
+  if not v_archived then return; end if;            -- idempotent no-op
+  update public.shows
+     set archived = false, archived_at = null, requires_resync = true,
+         picker_epoch = picker_epoch + 1, picker_epoch_bumped_at = clock_timestamp()
+   where id = p_show_id;
+  update public.show_share_tokens
+     set share_token = encode(extensions.gen_random_bytes(32),'hex'), rotated_at = clock_timestamp()
+   where show_id = p_show_id;
+  delete from public.pending_syncs       where drive_file_id = v_drive and wizard_session_id is null;
+  delete from public.pending_ingestions  where drive_file_id = v_drive and wizard_session_id is null;
+  delete from public.deferred_ingestions where drive_file_id = v_drive and wizard_session_id is null;
+  -- NO publish_show_invalidation: Held is crew-unreachable, no active session to kick.
+end $$;
+revoke all on function public.unarchive_show(uuid) from public, anon, authenticated, service_role;
+grant execute on function public.unarchive_show(uuid) to authenticated;
