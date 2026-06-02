@@ -150,11 +150,16 @@ async function readPushDuplicatePreflight(
       (pendingSync as PushDuplicatePendingSyncRow | null)?.staged_modified_time,
     );
     if (isAtOrBefore(fileMeta.modifiedTime, effectiveWatermark)) {
+      // Local (non-literal, lowercase) binding so the internal-code-enum extractor does NOT pick this up
+      // as a `code: "..."` literal and falsely attribute it to pending_ingestions.last_error_code — this
+      // file imports STAGED_PARSE_SOURCE_GONE, which triggers that source scan, but WEBHOOK_NOOP_ALREADY_SYNCED
+      // is a sync_log skip reason, not a pending_ingestions code (see scripts/extract-internal-code-enums.ts).
+      const reason = "WEBHOOK_NOOP_ALREADY_SYNCED" as const;
       return {
         outcome: "skip",
-        reason: "WEBHOOK_NOOP_ALREADY_SYNCED",
+        reason,
         // Deferred: the runner writes this UNDER the per-show lock after re-reading archived (R9).
-        logEntry: { driveFileId, outcome: "skipped", code: "WEBHOOK_NOOP_ALREADY_SYNCED" },
+        logEntry: { driveFileId, outcome: "skipped", code: reason },
       };
     }
     return { outcome: "proceed" };
