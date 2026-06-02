@@ -22,7 +22,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with eleven ratified plan amendments (plus one PROPOSED — amendment 12, M12.2 Phase B2, pending owner sign-off) AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with twelve ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified spec amendments (in `docs/superpowers/specs/master-spec-patches/`):**
    - **§12.4 AGENDA_* crew-facing catalog rows** _(2026-05-12, ratified at SHA `ac905da` after R1–R4 cross-CLI review; integrated into spec body by Task 9.0.A1)_. Adds `AGENDA_GONE_FOR_CREW` (410/403) and `AGENDA_UNAUTHENTICATED` (401) crew-only display codes covering the `AgendaPdfViewer` proxy's error states. See `docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md`. M7-D2 (`components/agenda/AgendaPdfViewer.tsx` routing to these codes) is the consumer; Task 9.M7-D2's TDD checklist owns the exhaustive status→code coverage.
@@ -292,10 +292,10 @@
        allowlist RPCs); its only DB-adjacent change is the §12.4 `ADMIN_EMAIL_LIST_FAILED` `helpfulContext` edit
        (surface-neutral copy for the embedded admin-list, three-lockstep).
 
-   12. **Spec §5.2 / amendment 9 / §16 — M12.2 Phase B2 show lifecycle** _(PROPOSED 2026-06-01)_
+   12. **Spec §5.2 / amendment 9 / §16 — M12.2 Phase B2 show lifecycle** _(RATIFIED 2026-06-01)_
        _(third sub-phase of the owner's "Milestone B"; spec `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md`.
-       **Status: PROPOSED — cross-model adversarial review in progress; this entry becomes authoritative only on owner
-       sign-off (mirroring amendment 11's PROPOSED→RATIFIED flow).**)_. B2 makes amendment 9's clean-first-seen
+       **Status: RATIFIED — cross-model adversarial review APPROVED (Codex, 31 rounds, 2026-06-01) and the owner signed off
+       2026-06-01; this amendment is authoritative and supersedes master spec §5.2 / amendment 9 / §16 on the surfaces below.**)_. B2 makes amendment 9's clean-first-seen
        auto-publish **conditional on `app_settings.auto_publish_clean_first_seen` (default `true` = current behavior)**
        and, as the inverse, **re-enables emission of the `FIRST_SEEN_REVIEW` sentinel** (which amendment 9 retired)
        when the toggle is OFF — across BOTH first-seen auto-publish entry points (the cron/push `phase1` **post-`reviewItems`
