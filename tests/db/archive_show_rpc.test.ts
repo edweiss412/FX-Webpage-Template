@@ -21,10 +21,10 @@ describe("archive_show", () => {
   it("is idempotent: second (sequential) archive leaves share_token + picker_epoch UNCHANGED (early-return under lock; core did not re-run)", async () => {
     const { showId } = await seedLiveShowWithToken();
     await asAdminRpc("archive_show", { p_show_id: showId });
-    const afterFirst = { ...(await readShow(showId)), token: (await readShareToken(showId)).share_token };
+    const afterFirst = { epoch: (await readShow(showId)).picker_epoch, token: (await readShareToken(showId)).share_token };
     await asAdminRpc("archive_show", { p_show_id: showId });
-    const afterSecond = { ...(await readShow(showId)), token: (await readShareToken(showId)).share_token };
-    expect(afterSecond.picker_epoch).toBe(afterFirst.picker_epoch);
+    const afterSecond = { epoch: (await readShow(showId)).picker_epoch, token: (await readShareToken(showId)).share_token };
+    expect(afterSecond.epoch).toBe(afterFirst.epoch);
     expect(afterSecond.token).toBe(afterFirst.token);
   });
 
