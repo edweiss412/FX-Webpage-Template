@@ -51,7 +51,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · FXAV" };
 
 type AdminPageProps = {
-  searchParams: Promise<{ step?: string; show_finalize?: string }>;
+  searchParams: Promise<{ step?: string; show_finalize?: string; bucket?: string }>;
 };
 
 function CheckpointInfraErrorPlaceholder() {
@@ -86,14 +86,14 @@ function CheckpointInfraErrorPlaceholder() {
  * return sites (settled steady-state + the defensive final_cas_done branch)
  * route through this wrapper so the header is the one canonical heading.
  */
-function DashboardWithHeader() {
+function DashboardWithHeader({ bucket }: { bucket?: "active" | "archived" }) {
   return (
     <>
       <AdminPageHeader
         title="Dashboard"
         sub="Your live shows and anything that needs review."
       />
-      <Dashboard />
+      <Dashboard {...(bucket ? { bucket } : {})} />
     </>
   );
 }
@@ -104,6 +104,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const result = await purgeAndRotateIfStale();
   const settings = result.settings;
   const sp = await searchParams;
+  // §3.1 — the dashboard show-list segment is a URL search-param threaded into
+  // <Dashboard>. Only "archived" is meaningful; anything else (incl. absent)
+  // defaults to the Active segment.
+  const dashboardBucket: "active" | "archived" =
+    sp.bucket === "archived" ? "archived" : "active";
 
   // Precedence 1: wizard session minted — read the checkpoint to decide
   // which surface to render (finalize re-entry or wizard inline).
@@ -148,7 +153,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         // inconsistent snapshot. Render Dashboard explicitly per plan
         // §M10 Task 10.1 finding 2 dispatch logic rather than strand the
         // operator on a wizard surface.
-        return <DashboardWithHeader />;
+        return <DashboardWithHeader bucket={dashboardBucket} />;
       }
     }
     // No checkpoint yet → wizard pre-finalize (steps 1/2/3, possibly mid-Apply).
@@ -171,5 +176,5 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   }
 
   // Precedence 3: settled (post-onboarding steady state).
-  return <DashboardWithHeader />;
+  return <DashboardWithHeader bucket={dashboardBucket} />;
 }

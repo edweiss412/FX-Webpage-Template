@@ -72,17 +72,33 @@ describe("ShowsTable", () => {
     expect(screen.getByTestId("shows-sync-live").textContent).not.toMatch(/Live/);
   });
 
-  it("Publishing badge renders iff !published; mutually exclusive with Live", () => {
+  it("Publishing badge renders for a finalize-owned !published row; mutually exclusive with Live (§3.2)", () => {
     render(
       <ShowsTable
-        rows={[row({ slug: "pub", published: false, isLive: false })]}
+        rows={[row({ slug: "pub", published: false, isLive: false, finalizeOwned: true })]}
         now={now}
         activeCount={1}
         overflowCount={0}
       />,
     );
     expect(screen.getByTestId("shows-publishing-pub")).toBeInTheDocument();
+    expect(screen.queryByTestId("shows-held-pill-pub")).toBeNull();
     expect(screen.queryByTestId("shows-live-pill-pub")).toBeNull();
+  });
+
+  it("Held pill renders for a !published, !finalizeOwned row — distinct from Publishing… (§3.2)", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "held", published: false, isLive: false, finalizeOwned: false })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const held = screen.getByTestId("shows-held-pill-held");
+    expect(held.textContent).toMatch(/Held — not published/);
+    expect(screen.queryByTestId("shows-publishing-held")).toBeNull();
+    expect(screen.queryByTestId("shows-live-pill-held")).toBeNull();
   });
 
   it("liveCount parity: number of Live pills === rows.filter(isLive).length (anti-tautology, asserted vs data)", () => {

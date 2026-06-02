@@ -23,6 +23,8 @@ import { type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";
+import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
+import { DashboardBucketSegmentedControl } from "@/components/admin/DashboardBucketSegmentedControl";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import { formatIsoForTimezone } from "@/lib/time/rightNow";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
@@ -120,24 +122,36 @@ export async function fetchDashboardData(
   //              tie-broken by id so the order is stable across reads).
   // `requires_resync` feeds the Held-vs-Publishing pill split (§3.2);
   // `archived_at` feeds the ArchivedShowRow time line (§3.1).
+  // Ordering tuple for the selected segment: archived → archived_at DESC NULLS
+  // LAST then id (deterministic, null times last); active → last_synced_at DESC.
+  // Built as data so the query below stays ONE chained `.from().select()…limit()`
+  // statement (the bounded-read meta-test, tests/admin/_metaBoundedReads.test.ts,
+  // splits on `;` and requires the `.limit(` bound in the same statement).
+  const showOrder: ReadonlyArray<[string, { ascending: boolean; nullsFirst: boolean }]> =
+    isArchived
+      ? [
+          ["archived_at", { ascending: false, nullsFirst: false }],
+          ["id", { ascending: true, nullsFirst: false }],
+        ]
+      : [["last_synced_at", { ascending: false, nullsFirst: false }]];
+
   let showsRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    let q = supabase
-      .from("shows")
-      .select(
-        "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, published, requires_resync, archived_at",
+    const q = await showOrder
+      .reduce(
+        (acc, [col, opts]) => acc.order(col, opts),
+        supabase
+          .from("shows")
+          .select(
+            "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, published, requires_resync, archived_at",
+          )
+          .eq("archived", isArchived),
       )
-      .eq("archived", isArchived);
-    q = isArchived
-      ? q
-          .order("archived_at", { ascending: false, nullsFirst: false })
-          .order("id", { ascending: true })
-      : q.order("last_synced_at", { ascending: false, nullsFirst: false });
-    const res = await q.limit(ACTIVE_SHOWS_CAP);
-    if (res.error) {
-      return { kind: "infra_error", message: `shows query failed: ${res.error.message}` };
+      .limit(ACTIVE_SHOWS_CAP);
+    if (q.error) {
+      return { kind: "infra_error", message: `shows query failed: ${q.error.message}` };
     }
-    showsRows = (res.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    showsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -429,8 +443,23 @@ export async function fetchDashboardData(
   };
 }
 
-export async function Dashboard() {
-  const result = await fetchDashboardData();
+/**
+ * Phase-6 PLACEHOLDER unarchive action threaded to each ArchivedShowRow's
+ * UnarchiveShowButton. Phase 7 (Task 7.1/7.3) replaces this with the real
+ * admin-gated server action in `app/admin/show/[slug]/_actions/unarchive.ts`
+ * (requireAdmin → slug→show_id → the existing `lib/showLifecycle/unarchiveShow`
+ * caller → revalidate). Until then it intentionally no-ops: the Archived bucket
+ * UI ships in Phase 6, the live mutation wires in Phase 7. Do NOT invent the
+ * backend here — the showLifecycle caller already exists; Phase 7 connects it.
+ */
+async function unarchiveActionPlaceholder(_showId: string): Promise<void> {
+  "use server";
+  // Intentionally empty — Phase 7 supplies the requireAdmin + RPC wiring.
+}
+
+export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
+  const bucket: DashboardBucket = options.bucket === "archived" ? "archived" : "active";
+  const result = await fetchDashboardData({ bucket });
   const now = await nowDate();
 
   if ("kind" in result) {
@@ -509,16 +538,59 @@ export async function Dashboard() {
       >
         <section
           data-testid="dashboard-shows-col"
-          aria-label="Active shows"
+          aria-label={result.bucket === "archived" ? "Archived shows" : "Active shows"}
           className="flex min-w-0 flex-col gap-3 min-[1080px]:flex-1"
         >
-          <h3 className="text-lg font-semibold text-text-strong">Active shows</h3>
-          <ShowsTable
-            rows={result.rows}
-            now={now}
-            activeCount={result.activeCount}
-            overflowCount={result.overflowCount}
-          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold text-text-strong">
+              {result.bucket === "archived" ? "Archived shows" : "Active shows"}
+            </h3>
+            <DashboardBucketSegmentedControl
+              bucket={result.bucket}
+              activeCount={result.activeCount}
+              archivedCount={result.archivedCount}
+            />
+          </div>
+
+          {result.bucket === "archived" ? (
+            result.rows.length === 0 ? (
+              <p
+                data-testid="archived-empty"
+                className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
+              >
+                No archived shows.
+              </p>
+            ) : (
+              <>
+                <ul className="flex flex-col gap-2">
+                  {result.rows.map((row) => (
+                    <ArchivedShowRow
+                      key={row.id}
+                      row={row}
+                      now={now}
+                      unarchiveAction={unarchiveActionPlaceholder}
+                    />
+                  ))}
+                </ul>
+                {result.overflowCount > 0 ? (
+                  <p
+                    data-testid="archived-overflow"
+                    className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+                  >
+                    Showing the first {result.rows.length} of {result.archivedCount} archived
+                    shows. Contact the developer if you need the full list.
+                  </p>
+                ) : null}
+              </>
+            )
+          ) : (
+            <ShowsTable
+              rows={result.rows}
+              now={now}
+              activeCount={result.activeCount}
+              overflowCount={result.overflowCount}
+            />
+          )}
         </section>
         <section
           data-testid="dashboard-inbox-col"

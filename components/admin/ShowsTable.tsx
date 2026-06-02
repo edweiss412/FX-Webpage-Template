@@ -48,13 +48,28 @@ function StatePill({ row }: { row: ActiveShowRow }) {
     );
   }
   if (!row.published) {
+    // §3.2 pill split: a finalize-owned in-flight row → "Publishing…" (warn);
+    // a Held row (post-Unarchive, finalizeOwned=false) → "Held — not published"
+    // (neutral/idle — NOT a new hue, NOT warn). Color is never the sole carrier
+    // (DESIGN color-blind floor): each pill pairs its dot with a text label.
+    if (row.finalizeOwned) {
+      return (
+        <span
+          data-testid={`shows-publishing-${row.slug}`}
+          className="inline-flex items-center gap-1 rounded-pill border border-status-warn px-2 py-0.5 text-xs font-semibold text-status-warn-text"
+        >
+          <span aria-hidden="true" className="size-1.5 rounded-full bg-status-warn" />
+          Publishing…
+        </span>
+      );
+    }
     return (
       <span
-        data-testid={`shows-publishing-${row.slug}`}
-        className="inline-flex items-center gap-1 rounded-pill border border-status-warn px-2 py-0.5 text-xs font-semibold text-status-warn-text"
+        data-testid={`shows-held-pill-${row.slug}`}
+        className="inline-flex items-center gap-1 rounded-pill border border-status-idle px-2 py-0.5 text-xs font-semibold text-status-idle-text"
       >
-        <span aria-hidden="true" className="size-1.5 rounded-full bg-status-warn" />
-        Publishing…
+        <span aria-hidden="true" className="size-1.5 rounded-full bg-status-idle" />
+        Held — not published
       </span>
     );
   }
