@@ -43,28 +43,27 @@ export function DashboardBucketSegmentedControl({ bucket, activeCount, archivedC
   return (
     <div
       data-testid="dashboard-bucket-segmented"
-      role="tablist"
-      aria-label="Show bucket"
+      role="group"
+      aria-label="Show bucket filter"
       className="inline-flex items-stretch gap-1 rounded-md border border-border bg-surface-sunken p-1"
     >
+      {/* Navigation links, not ARIA tabs (no tabpanel) — selection is carried by aria-current="page". */}
       <Link
         href="?bucket=active"
         data-testid="dashboard-bucket-active"
-        role="tab"
         aria-current={bucket === "active" ? "page" : undefined}
-        aria-selected={bucket === "active"}
         className={segClass(bucket === "active")}
       >
         Active
       </Link>
 
       {archivedDisabled ? (
+        // Disabled segment shows a meaningful count, so its text must clear the AA floor (DESIGN hard
+        // floor / sunlit readability) — text-subtle (6.09:1 light / 6.94:1 dark), not text-faint (3.02:1).
         <span
           data-testid="dashboard-bucket-archived"
-          role="tab"
           aria-disabled="true"
-          aria-selected={false}
-          className={`${segClass(false)} cursor-not-allowed text-text-faint hover:text-text-faint`}
+          className={`${SEG_BASE} cursor-not-allowed text-text-subtle`}
         >
           Archived ({archivedCount})
         </span>
@@ -72,9 +71,7 @@ export function DashboardBucketSegmentedControl({ bucket, activeCount, archivedC
         <Link
           href="?bucket=archived"
           data-testid="dashboard-bucket-archived"
-          role="tab"
           aria-current={bucket === "archived" ? "page" : undefined}
-          aria-selected={bucket === "archived"}
           className={segClass(bucket === "archived")}
         >
           Archived ({archivedCount})
