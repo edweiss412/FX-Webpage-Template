@@ -75,4 +75,49 @@ describe("RLS runtime behavior", () => {
     expect(adminShows).toBe(`admin_shows=${otherSlug},${publishedSlug},${unpublishedSlug}`);
     expect(output).toContain("crew_app_settings=0");
   });
+
+  test("R5: a matching crew member CANNOT read an archived+published=true row or its child rows (archived ⇒ crew-unreachable)", () => {
+    // archived/published are independent booleans. A drifted/legacy archived row that is still
+    // published=true must NOT be crew-readable via direct PostgREST table access: the crew_read RLS
+    // policies gate on published=true AND archived=false. Admin still sees it (lifecycle management).
+    const suffix = randomUUID();
+    const crewEmail = `crew-arch-${suffix}@example.com`;
+    const archivedSlug = `rls-arch-pub-${suffix}`;
+
+    const output = runPsql(`
+      begin;
+
+      insert into public.shows (drive_file_id, slug, title, client_label, template_version, published, archived, archived_at)
+      values ('drive-${archivedSlug}', '${archivedSlug}', 'Archived but published (drift)', 'Client', 'v1', true, true, now());
+
+      insert into public.crew_members (show_id, name, email, role)
+      select id, 'Crew Member', ${sqlString(crewEmail)}, 'A1'
+        from public.shows where slug = '${archivedSlug}';
+
+      insert into public.hotel_reservations (show_id, ordinal)
+      select id, 1 from public.shows where slug = '${archivedSlug}';
+
+      set local role authenticated;
+      set local request.jwt.claims = '{"email":"${crewEmail.toUpperCase()}","app_metadata":{"role":"crew"}}';
+      select 'crew_arch_shows=' || count(*) from public.shows where slug = '${archivedSlug}';
+      select 'crew_arch_members=' || count(*)
+        from public.crew_members where show_id in (select id from public.shows where slug = '${archivedSlug}');
+      select 'crew_arch_hotels=' || count(*)
+        from public.hotel_reservations where show_id in (select id from public.shows where slug = '${archivedSlug}');
+
+      reset role;
+      set local role authenticated;
+      set local request.jwt.claims = '{"email":"admin-${suffix}@example.com","app_metadata":{"role":"admin"}}';
+      select 'admin_arch_shows=' || count(*) from public.shows where slug = '${archivedSlug}';
+
+      rollback;
+    `);
+
+    // Crew: archived row + ALL its child rows are invisible (RLS gates on archived=false).
+    expect(output).toContain("crew_arch_shows=0");
+    expect(output).toContain("crew_arch_members=0");
+    expect(output).toContain("crew_arch_hotels=0");
+    // Admin: still sees it (archive management is an admin surface).
+    expect(output).toContain("admin_arch_shows=1");
+  });
 });
