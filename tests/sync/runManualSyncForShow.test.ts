@@ -25,6 +25,7 @@ type FakeTx = SyncPipelineTx & {
       lastSeenModifiedTime: string | null;
       lastSyncStatus: string | null;
       lastSyncError: string | null;
+      title: string;
     }
   >;
   syncLog: Array<{
@@ -38,11 +39,11 @@ type FakeTx = SyncPipelineTx & {
   markShowSheetUnavailable(
     driveFileId: string,
     code: string,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
   markShowDriveError(
     driveFileId: string,
     code: string,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
   insertSyncLog(
     entry: {
       driveFileId: string | null;
@@ -84,6 +85,7 @@ function fakeTx(held = true): FakeTx {
           lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
           lastSyncStatus: "ok",
           lastSyncError: null,
+          title: "Manual Sync Fixture",
         },
       ],
     ]),
@@ -129,18 +131,18 @@ function fakeTx(held = true): FakeTx {
     async markShowSheetUnavailable(driveFileId: string, code: string) {
       this.operations.push(`markShowSheetUnavailable:${driveFileId}`);
       const show = this.shows.get(driveFileId);
-      if (!show) return { showId: null, lastSeenModifiedTime: null };
+      if (!show) return { showId: null, lastSeenModifiedTime: null, title: null };
       show.lastSyncStatus = "sheet_unavailable";
       show.lastSyncError = code;
-      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime };
+      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime, title: show.title };
     },
     async markShowDriveError(driveFileId: string, code: string) {
       this.operations.push(`markShowDriveError:${driveFileId}`);
       const show = this.shows.get(driveFileId);
-      if (!show) return { showId: null, lastSeenModifiedTime: null };
+      if (!show) return { showId: null, lastSeenModifiedTime: null, title: null };
       show.lastSyncStatus = "drive_error";
       show.lastSyncError = code;
-      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime };
+      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime, title: show.title };
     },
     async insertSyncLog(
       entry: {
@@ -322,6 +324,7 @@ describe("runManualSyncForShow", () => {
         context: {
           drive_file_id: "drive-file-1",
           previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+          sheet_name: "Manual Sync Fixture",
         },
       },
     ]);
@@ -388,6 +391,19 @@ describe("runManualSyncForShow", () => {
     expect(tx.operations).toEqual([
       "markShowDriveError:drive-file-1",
       "insertSyncLog:drive-file-1",
+      "upsertAdminAlert:DRIVE_FETCH_FAILED",
+    ]);
+    expect(tx.alerts).toEqual([
+      {
+        showId: "show-1",
+        code: "DRIVE_FETCH_FAILED",
+        context: {
+          drive_file_id: "drive-file-1",
+          failure_code: SYNC_INFRA_ERROR,
+          previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+          sheet_name: "Manual Sync Fixture",
+        },
+      },
     ]);
   });
 

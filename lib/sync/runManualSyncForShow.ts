@@ -78,7 +78,7 @@ type ManualRecoveryTx = SyncPipelineTx & {
   markShowDriveError(
     driveFileId: string,
     code: string,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
   insertSyncLog(entry: {
     driveFileId: string | null;
     outcome: string;
@@ -208,7 +208,34 @@ async function markManualDriveError_unlocked(
     },
     updated.showId,
   );
+  await recoveryTx.upsertAdminAlert({
+    showId: updated.showId,
+    code: "DRIVE_FETCH_FAILED",
+    context: {
+      drive_file_id: driveFileId,
+      failure_code: SYNC_INFRA_ERROR,
+      previous_last_seen_modified_time: updated.lastSeenModifiedTime ?? null,
+      sheet_name: updated.title,
+    },
+  });
   return { outcome: "parse_error", code: SYNC_INFRA_ERROR };
+}
+
+async function emitManualParseErrorAlert_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<void> {
+  const show = await tx.readShowForPhase1(driveFileId);
+  if (!show?.showId) return;
+  const recoveryTx = tx as LockedShowTx<ManualRecoveryTx>;
+  await recoveryTx.upsertAdminAlert({
+    showId: show.showId,
+    code: "PARSE_ERROR_LAST_GOOD",
+    context: {
+      drive_file_id: driveFileId,
+      sheet_name: show.priorParseResult.show.title,
+    },
+  });
 }
 
 export async function runManualSyncForShow_unlocked(
@@ -352,6 +379,9 @@ export async function runManualSyncForShow(
             "update public.shows set requires_resync = false where drive_file_id = $1 returning true as cleared",
             [driveFileId],
           );
+        }
+        if ("outcome" in result && result.outcome === "hard_fail") {
+          await emitManualParseErrorAlert_unlocked(tx, driveFileId);
         }
         return result;
       })) as ProcessOneFileResult | ConcurrentSyncSkipped,
