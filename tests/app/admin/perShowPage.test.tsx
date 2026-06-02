@@ -13,6 +13,9 @@ const state = vi.hoisted(() => ({
   pending: [] as Array<Record<string, unknown>>,
   token: null as string | null,
   selectColsByTable: {} as Record<string, string>,
+  // §3.2 finalize-owned predicate result (readfinalizeowned_b2). Default false
+  // → a !published row reads "Held"; set true to exercise the "Publishing…" pill.
+  finalizeOwned: false as boolean,
 }));
 
 // Async Server Component children can't be client-rendered by RTL — stub them.
@@ -65,6 +68,10 @@ vi.mock("@/lib/supabase/server", () => ({
       };
       return builder;
     },
+    rpc: async (fn: string) =>
+      fn === "readfinalizeowned_b2"
+        ? { data: state.finalizeOwned, error: null }
+        : { data: null, error: null },
   }),
 }));
 
@@ -105,6 +112,7 @@ beforeEach(() => {
   state.pending = [];
   state.token = "tok-123";
   state.selectColsByTable = {};
+  state.finalizeOwned = false;
 });
 afterEach(() => {
   cleanup();
@@ -166,10 +174,23 @@ describe("per-show page (§6)", () => {
     expect(pill).not.toMatch(/Published/);
   });
 
-  it("status pill: !published -> Publishing…", async () => {
+  // §3.2 precedence: finalize-owned !published → "Publishing…" (the warn pill).
+  it("status pill: !published + finalize-owned -> Publishing…", async () => {
     state.show = { ...baseShow, published: false, archived: false };
+    state.finalizeOwned = true;
     await renderPage();
     expect(screen.getByTestId("admin-show-status-pill").textContent).toMatch(/Publishing/);
+  });
+
+  // §3.2 precedence: !published + NOT finalize-owned → "Held — not published"
+  // (the neutral idle pill, distinct from the warn "Publishing…").
+  it("status pill: !published + NOT finalize-owned -> Held — not published", async () => {
+    state.show = { ...baseShow, published: false, archived: false };
+    state.finalizeOwned = false;
+    await renderPage();
+    const pill = screen.getByTestId("admin-show-status-pill").textContent ?? "";
+    expect(pill).toMatch(/Held/);
+    expect(pill).not.toMatch(/Publishing/);
   });
 
   it("crew-link surfaces present when published && !archived && token", async () => {

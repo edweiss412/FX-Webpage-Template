@@ -34,6 +34,8 @@ import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
+import { archiveShowAction } from "./_actions";
 
 export const dynamic = "force-dynamic";
 
@@ -222,6 +224,28 @@ export default async function AdminShowPage({
   // reads "Archived", never "Published".
   const archived = Boolean(show.archived);
   const published = show.published;
+
+  // §3.2 finalize-owned ("Publishing…") vs Held discriminator. Same
+  // authoritative source as the dashboard (components/admin/Dashboard.tsx:287):
+  // the SECURITY DEFINER predicate public.readfinalizeowned_b2(p_show_id)
+  // (migration 20260601000000:13, granted to authenticated in 20260601000002).
+  // Queried ONLY for the in-flight case (!published && !archived) — a published
+  // or archived row is never finalize-owned. Fail toward NOT-finalize-owned
+  // (i.e. "Held") on ANY RPC error: a returned error, a non-true value, or a
+  // thrown fault all leave finalizeOwned=false, the safe/non-alarming label.
+  let finalizeOwned = false;
+  if (!published && !archived) {
+    try {
+      const { data, error } = await supabase.rpc("readfinalizeowned_b2", {
+        p_show_id: show.id,
+      });
+      if (!error && data === true) finalizeOwned = true;
+    } catch {
+      // thrown infra fault → fail toward Held (finalizeOwned stays false)
+    }
+  }
+  // Held = not published, not archived, and NOT finalize-owned (Publishing…).
+  const isHeld = !published && !archived && !finalizeOwned;
   // SHOW eligibility (spec §6 R27/R29) — whether crew-link features apply at
   // all. Distinct from TOKEN presence: a transient loadShowShareToken failure
   // on an eligible show must NOT make the show read as unpublished/archived
@@ -237,11 +261,17 @@ export default async function AdminShowPage({
   // Host-stripped display of the real crew URL (never the prototype's fake host).
   const crewPathDisplay = hasCrewLinkUrl ? `/show/${slug}/${token}` : null;
 
+  // §3.2 precedence (extends the existing archived-FIRST order at the prior
+  // :241-243): archived → "Archived"; else finalize-owned !published →
+  // "Publishing…"; else !published → "Held" (neutral/idle, distinct from the
+  // warn "Publishing…" pill); else "Published".
   const statusPill = archived
     ? ({ status: "idle", label: "Archived" } as const)
-    : !published
+    : finalizeOwned && !published
       ? ({ status: "warn", label: "Publishing…" } as const)
-      : ({ status: "positive", label: "Published" } as const);
+      : !published
+        ? ({ status: "idle", label: "Held — not published" } as const)
+        : ({ status: "positive", label: "Published" } as const);
 
   const syncBucket = syncStatusBucket(show.last_sync_status);
   // Mirror ShowsTable's SyncCell (components/admin/ShowsTable.tsx:64-68) and the
@@ -306,6 +336,20 @@ export default async function AdminShowPage({
         slug={show.slug}
         highlightAlertId={sp.alert_id ?? null}
       />
+
+      {/* Lifecycle actions (spec §2.2–§2.4). The Archive control shows on Live
+          OR Held (NOT Publishing… / Archived — a finalize-owned row is mid-
+          publish; an archived row is already retired). Unarchive (Archived) +
+          Publish (Held) + the persistent disclosures land in Task 7.3. */}
+      <section
+        data-testid="per-show-lifecycle"
+        aria-label="Show lifecycle"
+        className="flex flex-col gap-3"
+      >
+        {(isShowEligibleForCrewLink || isHeld) && !archived && !finalizeOwned ? (
+          <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
+        ) : null}
+      </section>
 
       {/* Two-col split: Crew ⟷ Share & access. min-[720px]:items-stretch gives equal
           column height on desktop (Tailwind v4 default is NOT stretch, DESIGN
