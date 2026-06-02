@@ -363,15 +363,20 @@ describe("applyStaged live-scope", () => {
     );
 
     expect(result).toMatchObject({ outcome: "applied", showId: "show-new" });
+    // Adversarial R2: the SAME token must reach BOTH runPhase2 (→ applyShowSnapshot PERSISTS
+    // shows.unpublish_token — the only persistence path) AND the tail (the SHOW_FIRST_PUBLISHED notice).
+    // Passing it only to the tail emails a rollback link that unpublishShow can't honor (null token).
+    const tokenPayload = { unpublishToken: "tok-1", unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z" };
+    expect(syncDeps.runPhase2).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ autoPublishFirstSeen: tokenPayload }),
+    );
     expect(tail).toHaveBeenCalledTimes(1);
     expect(tail).toHaveBeenCalledWith(
       expect.objectContaining({
         driveFileId: "drive-file-1",
         result: expect.objectContaining({ outcome: "applied", showId: "show-new" }),
-        autoPublishFirstSeen: {
-          unpublishToken: "tok-1",
-          unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
-        },
+        autoPublishFirstSeen: tokenPayload,
       }),
     );
   });

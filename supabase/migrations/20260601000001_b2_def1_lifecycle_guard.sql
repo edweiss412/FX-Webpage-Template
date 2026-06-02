@@ -36,8 +36,16 @@ begin
   -- DEF-1 guard (post-lock re-read).
   select archived, published into v_archived, v_published from public.shows where id = p_show_id;
   if v_archived then raise exception using errcode = 'P0001', message = 'SHOW_ARCHIVED_IMMUTABLE'; end if;
-  if (not v_published) and public.readfinalizeowned_b2(p_show_id) then
-    raise exception using errcode = 'P0001', message = 'FINALIZE_OWNED_SHOW';
+  -- Net precondition (spec §2.6 / DEF-1): published && !archived && !finalize-owned. rotate/reset operate
+  -- on a LIVE crew link, so an unpublished show is refused regardless of WHY it's unpublished:
+  -- finalize-owned (mid-wizard "Publishing…") → FINALIZE_OWNED_SHOW; plain Held (post-unarchive, awaiting
+  -- Publish) → SHOW_NOT_PUBLISHED. The UI gates these buttons on published, so this is the defense-in-depth
+  -- guard for a stale tab / direct RPC call (surfaces as the rotate/reset generic "couldn't rotate" banner).
+  if not v_published then
+    if public.readfinalizeowned_b2(p_show_id) then
+      raise exception using errcode = 'P0001', message = 'FINALIZE_OWNED_SHOW';
+    end if;
+    raise exception using errcode = 'P0001', message = 'SHOW_NOT_PUBLISHED';
   end if;
 
   update public.show_share_tokens
@@ -93,8 +101,16 @@ begin
   -- DEF-1 guard (post-lock re-read).
   select archived, published into v_archived, v_published from public.shows where id = p_show_id;
   if v_archived then raise exception using errcode = 'P0001', message = 'SHOW_ARCHIVED_IMMUTABLE'; end if;
-  if (not v_published) and public.readfinalizeowned_b2(p_show_id) then
-    raise exception using errcode = 'P0001', message = 'FINALIZE_OWNED_SHOW';
+  -- Net precondition (spec §2.6 / DEF-1): published && !archived && !finalize-owned. rotate/reset operate
+  -- on a LIVE crew link, so an unpublished show is refused regardless of WHY it's unpublished:
+  -- finalize-owned (mid-wizard "Publishing…") → FINALIZE_OWNED_SHOW; plain Held (post-unarchive, awaiting
+  -- Publish) → SHOW_NOT_PUBLISHED. The UI gates these buttons on published, so this is the defense-in-depth
+  -- guard for a stale tab / direct RPC call (surfaces as the rotate/reset generic "couldn't rotate" banner).
+  if not v_published then
+    if public.readfinalizeowned_b2(p_show_id) then
+      raise exception using errcode = 'P0001', message = 'FINALIZE_OWNED_SHOW';
+    end if;
+    raise exception using errcode = 'P0001', message = 'SHOW_NOT_PUBLISHED';
   end if;
 
   update public.shows

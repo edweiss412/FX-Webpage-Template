@@ -1345,6 +1345,24 @@ export async function applyStaged_unlocked(
           tx as Parameters<typeof makeSnapshotAssetsForApply>[1],
         )
       : undefined;
+
+  // Task 4.4 / adversarial R2 fix: a FIRST_SEEN_REVIEW apply (first-seen, no pre-existing show) IS the
+  // approval-to-publish. Build the 24h unpublish token ONCE here and thread the SAME object into BOTH
+  // runPhase2 (so applyShowSnapshot PERSISTS shows.unpublish_token / _expires_at — the only persistence
+  // path) AND emitSuccessfulPhase2Tail below (so the SHOW_FIRST_PUBLISHED notice carries the matching
+  // token). Passing it only to the tail emails a rollback link that unpublishShow can't honor (null token).
+  const isFirstSeenReviewApply =
+    show === null &&
+    pending.triggeredReviewItems.some((item) => item.invariant === "FIRST_SEEN_REVIEW");
+  const autoPublishFirstSeen = isFirstSeenReviewApply
+    ? {
+        unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
+        unpublishTokenExpiresAt: new Date(
+          (deps.now ?? (() => new Date()))().getTime() + 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      }
+    : undefined;
+
   const phase2 = await deps.runPhase2(tx, {
     driveFileId: pending.driveFileId,
     mode: "manual",
@@ -1352,6 +1370,7 @@ export async function applyStaged_unlocked(
     parseResult: assetAdjusted.parseResult,
     skipDiagramsWrite: assetAdjusted.skipDiagramsWrite,
     ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
+    ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
     verifyReelOnApply: false,
     binding: {
       bindingToken: pending.stagedModifiedTime,
@@ -1389,16 +1408,11 @@ export async function applyStaged_unlocked(
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
 
-  // Task 4.4: a FIRST_SEEN_REVIEW staged row is a first-seen sheet whose auto-publish was deferred for
-  // approval; applying it is the approval. Reach parity with the auto-publish-ON path by minting the 24h
-  // unpublish token + emitting SHOW_FIRST_PUBLISHED through the shared tail (the ONLY token-mint site —
-  // token-without-notice is impossible by construction). Gate on no pre-existing show (first publish).
-  const isFirstSeenReviewApply =
-    show === null &&
-    pending.triggeredReviewItems.some((item) => item.invariant === "FIRST_SEEN_REVIEW");
-  if (isFirstSeenReviewApply) {
+  // Task 4.4: emit SHOW_FIRST_PUBLISHED + reach first-published parity through the shared tail, using the
+  // SAME autoPublishFirstSeen token that runPhase2 just PERSISTED to shows.unpublish_token above — so the
+  // emailed rollback link and the stored token match (no token-without-persistence).
+  if (autoPublishFirstSeen) {
     const tail = deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail;
-    const issuedAt = (deps.now ?? (() => new Date()))();
     await tail({
       tx,
       result: { outcome: "applied", showId: phase2.showId },
@@ -1406,10 +1420,7 @@ export async function applyStaged_unlocked(
       driveFileId: pending.driveFileId,
       fileMeta: metadata,
       parseResult: assetAdjusted.parseResult,
-      autoPublishFirstSeen: {
-        unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
-        unpublishTokenExpiresAt: new Date(issuedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-      },
+      autoPublishFirstSeen,
     });
   }
   return applied;

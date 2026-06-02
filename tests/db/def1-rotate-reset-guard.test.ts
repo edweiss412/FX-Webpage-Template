@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  seedArchivedShow, seedFinalizeOwnedShow, seedLiveShowWithToken, asAdminRpc, archivedImmutabilityRace, readShow,
+  seedArchivedShow, seedFinalizeOwnedShow, seedLiveShowWithToken, seedHeldShow, asAdminRpc, archivedImmutabilityRace, readShow,
 } from "@/tests/db/_b2Helpers";
 
 describe("DEF-1 — rotate/reset RPCs gate on published && !archived && !finalize-owned", () => {
@@ -13,6 +13,13 @@ describe("DEF-1 — rotate/reset RPCs gate on published && !archived && !finaliz
     it(`${fn} refuses a finalize-owned show → FINALIZE_OWNED_SHOW`, async () => {
       const { showId } = await seedFinalizeOwnedShow();
       await expect(asAdminRpc(fn, { p_show_id: showId })).rejects.toThrow(/FINALIZE_OWNED_SHOW/);
+    });
+
+    it(`${fn} refuses a Held (unpublished, non-archived, non-finalize-owned) show → SHOW_NOT_PUBLISHED (adversarial R2)`, async () => {
+      // Spec §2.6 precondition is published && !archived && !finalize-owned. A plain Held show (post-unarchive,
+      // awaiting Publish) must NOT have its share token rotated / picker epoch reset outside the publish gate.
+      const { showId } = await seedHeldShow({ requiresResync: false });
+      await expect(asAdminRpc(fn, { p_show_id: showId })).rejects.toThrow(/SHOW_NOT_PUBLISHED/);
     });
 
     it(`${fn} succeeds on a Live show (resolves without throwing)`, async () => {
