@@ -34,6 +34,7 @@ vi.mock("postgres", () => ({
       if (/from public\.deferred_ingestions/i.test(sql)) return [];
       if (/from public\.revision_race_cooldowns/i.test(sql)) return [];
       if (/delete from public\.revision_race_cooldowns/i.test(sql)) return [];
+      if (/update public\.admin_alerts/i.test(sql)) return [{ resolved: true }];
       if (/select id from public\.shows where drive_file_id/i.test(sql)) return [];
       if (/select public\.upsert_admin_alert/i.test(sql)) {
         // The `$3::jsonb` context param is passed as a RAW object now (postgres.js

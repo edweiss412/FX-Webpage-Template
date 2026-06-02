@@ -17,6 +17,7 @@ function fakeTx(opts: { archived: boolean }) {
       if (/pg_locks/i.test(sql)) return { held: true } as T;
       if (/select archived from public\.shows/i.test(sql)) return { archived: opts.archived } as T;
       if (/update public\.shows set requires_resync/i.test(sql)) return { cleared: true } as T;
+      if (/update public\.admin_alerts/i.test(sql)) return { resolved: true } as T;
       throw new Error(`unexpected SQL in fakeTx: ${sql}`);
     },
     async deleteLiveDeferral(driveFileId: string) {
