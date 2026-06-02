@@ -25,6 +25,7 @@ import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
 import { DashboardBucketSegmentedControl } from "@/components/admin/DashboardBucketSegmentedControl";
+import { unarchiveShowAction } from "@/app/admin/show/[slug]/_actions";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import { formatIsoForTimezone } from "@/lib/time/rightNow";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
@@ -472,20 +473,6 @@ export async function fetchDashboardData(
   };
 }
 
-/**
- * Phase-6 PLACEHOLDER unarchive action threaded to each ArchivedShowRow's
- * UnarchiveShowButton. Phase 7 (Task 7.1/7.3) replaces this with the real
- * admin-gated server action in `app/admin/show/[slug]/_actions/unarchive.ts`
- * (requireAdmin → slug→show_id → the existing `lib/showLifecycle/unarchiveShow`
- * caller → revalidate). Until then it intentionally no-ops: the Archived bucket
- * UI ships in Phase 6, the live mutation wires in Phase 7. Do NOT invent the
- * backend here — the showLifecycle caller already exists; Phase 7 connects it.
- */
-async function unarchiveActionPlaceholder(_showId: string): Promise<void> {
-  "use server";
-  // Intentionally empty — Phase 7 supplies the requireAdmin + RPC wiring.
-}
-
 export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
   const bucket: DashboardBucket = options.bucket === "archived" ? "archived" : "active";
   const result = await fetchDashboardData({ bucket });
@@ -597,7 +584,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
                       key={row.id}
                       row={row}
                       now={now}
-                      unarchiveAction={unarchiveActionPlaceholder}
+                      unarchiveAction={unarchiveShowAction}
                     />
                   ))}
                 </ul>
