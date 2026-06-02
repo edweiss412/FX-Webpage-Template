@@ -143,3 +143,23 @@ begin
 end $$;
 revoke all on function public.publish_show(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.publish_show(uuid) to authenticated;
+
+-- Task 1.5: idempotent legacy backfill (legacy cohort == archived=true AND archived_at IS NULL).
+-- Stamping archived_at makes re-apply a no-op; rows already stamped by archive_show are untouched.
+update public.show_share_tokens t
+   set share_token = encode(extensions.gen_random_bytes(32),'hex'), rotated_at = clock_timestamp()
+  from public.shows s
+ where s.id = t.show_id and s.archived = true and s.archived_at is null;
+update public.shows
+   set picker_epoch = picker_epoch + 1, picker_epoch_bumped_at = clock_timestamp(), archived_at = now()
+ where archived = true and archived_at is null;
+delete from public.pending_syncs       ps using public.shows s where s.drive_file_id = ps.drive_file_id and s.archived = true and ps.wizard_session_id is null;
+delete from public.pending_ingestions  pi using public.shows s where s.drive_file_id = pi.drive_file_id and s.archived = true and pi.wizard_session_id is null;
+delete from public.deferred_ingestions di using public.shows s where s.drive_file_id = di.drive_file_id and s.archived = true and di.wizard_session_id is null;
+
+-- Task 1.5: PostgREST DML lockdown — the publish gate + suppressor contract depend on these tables'
+-- integrity. Mutations flow ONLY through the SECURITY DEFINER RPCs / sync pipeline (which hold the
+-- per-show advisory lock). SELECT posture is unchanged (these tables retain SELECT).
+revoke insert, update, delete on table public.pending_syncs      from anon, authenticated;
+revoke insert, update, delete on table public.pending_ingestions from anon, authenticated;
+revoke insert, update, delete on table public.deferred_ingestions from anon, authenticated;
