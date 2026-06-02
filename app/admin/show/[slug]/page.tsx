@@ -35,7 +35,9 @@ import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
-import { archiveShowAction } from "./_actions";
+import { PublishShowButton } from "@/components/admin/PublishShowButton";
+import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
+import { archiveShowAction, publishShowAction, unarchiveShowAction } from "./_actions";
 
 export const dynamic = "force-dynamic";
 
@@ -337,16 +339,50 @@ export default async function AdminShowPage({
         highlightAlertId={sp.alert_id ?? null}
       />
 
-      {/* Lifecycle actions (spec §2.2–§2.4). The Archive control shows on Live
-          OR Held (NOT Publishing… / Archived — a finalize-owned row is mid-
-          publish; an archived row is already retired). Unarchive (Archived) +
-          Publish (Held) + the persistent disclosures land in Task 7.3. */}
+      {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
+          - Archived → persistent "links are dead" disclosure + one-tap Unarchive.
+          - Held → "not published" disclosure + one-tap Publish + Archive.
+          - Live → Archive only.
+          - Publishing… (finalize-owned) → nothing (mid-publish; immutable).
+          The Archive control shows on Live OR Held only. */}
       <section
         data-testid="per-show-lifecycle"
         aria-label="Show lifecycle"
         className="flex flex-col gap-3"
       >
-        {(isShowEligibleForCrewLink || isHeld) && !archived && !finalizeOwned ? (
+        {archived ? (
+          <>
+            <p
+              data-testid="archived-disclosure"
+              role="status"
+              className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+            >
+              This show is archived. Crew links are dead. Unarchive and re-publish
+              to bring it back.
+            </p>
+            <div className="flex">
+              <UnarchiveShowButton showId={show.id} unarchiveAction={unarchiveShowAction} />
+            </div>
+          </>
+        ) : isHeld ? (
+          <>
+            <p
+              data-testid="held-disclosure"
+              role="status"
+              className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+            >
+              Held — not published. Publish to make it live, then issue a crew
+              link.
+            </p>
+            <div className="flex flex-wrap items-start gap-3">
+              <PublishShowButton
+                publishAction={publishShowAction.bind(null, show.slug)}
+                slug={show.slug}
+              />
+              <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
+            </div>
+          </>
+        ) : isShowEligibleForCrewLink ? (
           <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
         ) : null}
       </section>
