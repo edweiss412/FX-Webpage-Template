@@ -133,6 +133,13 @@
 
   /* ── Spacing ── */
   --spacing-tap-min: 44px;
+  /* Fixed box for the two-tap Archive confirm (spec §3.3): the resting
+     "Archive show" button and the armed two-line "Confirm archive — …" label
+     share this min-height so tap-1 morphs the label with NO layout shift. Sized
+     to the wrapped (two-line, text-sm + py-2) confirm label at the narrowest
+     swept viewport (~58.6px measured); 60px clears it with margin and is
+     harmless at wide widths where the label fits one line. */
+  --spacing-confirm-box: 60px;
   --spacing-tile-pad: 20px;
   --spacing-tile-gap: 16px;
   --spacing-section-gap: 32px;

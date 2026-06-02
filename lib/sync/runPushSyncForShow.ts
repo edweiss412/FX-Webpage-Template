@@ -6,15 +6,51 @@ import {
   processOneFile,
   type ProcessOneFileDeps,
   type ProcessOneFileResult,
+  type SyncPipelineTx,
   SHEET_UNAVAILABLE,
   STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
+  withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
+import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { writeSyncLog } from "@/lib/sync/syncLog";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
+import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
+
+/** A sync_log entry shape (the parameter the logSync sink accepts). */
+type PushLogEntry = Parameters<NonNullable<ProcessOneFileDeps["logSync"]>>[0];
+
+/** Per-show pipeline lock binding (provides a LockedShowTx for the archived re-read). */
+type PushPipelineLock = (
+  driveFileId: string,
+  fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<ProcessOneFileResult>,
+) => Promise<ProcessOneFileResult>;
+
+async function readShowArchivedForPush(driveFileId: string): Promise<boolean> {
+  // Supabase call-boundary discipline (AGENTS.md invariant 9): map BOTH the returned `{ error }` AND
+  // synchronous throws (client construction, `.from()`, network) to SyncInfraError. Without the catch, a
+  // Supabase outage in this preflight would escape as a plain Error and the webhook catch path — which
+  // classifies ONLY SyncInfraError as infra — would log it as a per-file sync failure, hiding the outage.
+  // Mirrors the sibling readPushDuplicatePreflight (returned_error + thrown_error).
+  try {
+    const supabase = createSupabaseServiceRoleClient();
+    const { data, error } = await supabase
+      .from("shows")
+      .select("archived")
+      .eq("drive_file_id", driveFileId)
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readShowArchivedForPush", "returned_error", error);
+    }
+    return Boolean((data as { archived: boolean | null } | null)?.archived);
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readShowArchivedForPush", "thrown_error", cause);
+  }
+}
 
 type PushDuplicatePreflightResult =
-  | { outcome: "skip"; reason: "WEBHOOK_NOOP_ALREADY_SYNCED" }
+  | { outcome: "skip"; reason: "WEBHOOK_NOOP_ALREADY_SYNCED"; logEntry: PushLogEntry }
   | { outcome: "proceed" };
 
 type PushDuplicateShowRow = {
@@ -29,6 +65,7 @@ export type RunPushSyncForShowDeps = {
   fileMeta?: DriveListedFile;
   getActiveWatchedFolderId?: typeof getActiveWatchedFolderId;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
+  isShowArchived?: (driveFileId: string) => Promise<boolean>;
   readPushDuplicatePreflight?: (
     driveFileId: string,
     fileMeta: DriveListedFile,
@@ -40,6 +77,9 @@ export type RunPushSyncForShowDeps = {
     deps?: Pick<ProcessOneFileDeps, "logSync">,
   ) => Promise<ProcessOneFileResult>;
   logSync?: ProcessOneFileDeps["logSync"];
+  // R9 DEF-4 TOCTOU: per-show lock binding for the authoritative archived re-read before each
+  // logSync-producing branch. Defaults to withPostgresSyncPipelineLock (blocking).
+  withPipelineLock?: PushPipelineLock;
 };
 
 function driveErrorStatus(error: unknown): number | null {
@@ -110,7 +150,17 @@ async function readPushDuplicatePreflight(
       (pendingSync as PushDuplicatePendingSyncRow | null)?.staged_modified_time,
     );
     if (isAtOrBefore(fileMeta.modifiedTime, effectiveWatermark)) {
-      return { outcome: "skip", reason: "WEBHOOK_NOOP_ALREADY_SYNCED" };
+      // Local (non-literal, lowercase) binding so the internal-code-enum extractor does NOT pick this up
+      // as a `code: "..."` literal and falsely attribute it to pending_ingestions.last_error_code — this
+      // file imports STAGED_PARSE_SOURCE_GONE, which triggers that source scan, but WEBHOOK_NOOP_ALREADY_SYNCED
+      // is a sync_log skip reason, not a pending_ingestions code (see scripts/extract-internal-code-enums.ts).
+      const reason = "WEBHOOK_NOOP_ALREADY_SYNCED" as const;
+      return {
+        outcome: "skip",
+        reason,
+        // Deferred: the runner writes this UNDER the per-show lock after re-reading archived (R9).
+        logEntry: { driveFileId, outcome: "skipped", code: reason },
+      };
     }
     return { outcome: "proceed" };
   } catch (cause) {
@@ -119,24 +169,25 @@ async function readPushDuplicatePreflight(
   }
 }
 
+/** A deferred error outcome: its sync_log write is held back so the runner can gate it on an in-lock
+ *  archived re-read (R9 DEF-4 TOCTOU) — an archived show must get NO fetch-failure / out-of-scope log. */
+type PushFetchDeferred = { result: ProcessOneFileResult; logEntry: PushLogEntry };
+
 async function fetchScopedPushFileMeta(
   driveFileId: string,
   deps: RunPushSyncForShowDeps,
-  logSync: NonNullable<RunPushSyncForShowDeps["logSync"]>,
-): Promise<DriveListedFile | Extract<ProcessOneFileResult, { outcome: "source_gone" | "parse_error" }>> {
+): Promise<DriveListedFile | PushFetchDeferred> {
   const folderResult = await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
   if ("kind" in folderResult) {
-    const result = { outcome: "parse_error" as const, code: SYNC_INFRA_ERROR };
-    await logSync({
-      driveFileId,
-      outcome: result.outcome,
-      code: result.code,
-      payload: {
-        kind: "push_no_watched_folder_scope",
-        reason: folderResult.kind,
+    return {
+      result: { outcome: "parse_error", code: SYNC_INFRA_ERROR },
+      logEntry: {
+        driveFileId,
+        outcome: "parse_error",
+        code: SYNC_INFRA_ERROR,
+        payload: { kind: "push_no_watched_folder_scope", reason: folderResult.kind },
       },
-    });
-    return result;
+    };
   }
 
   let fileMeta: DriveListedFile;
@@ -146,31 +197,54 @@ async function fetchScopedPushFileMeta(
     const result = isDriveSourceGone(error)
       ? { outcome: "source_gone" as const, code: STAGED_PARSE_SOURCE_GONE }
       : { outcome: "parse_error" as const, code: SYNC_INFRA_ERROR };
-    await logSync({
-      driveFileId,
-      outcome: result.outcome === "source_gone" ? "error" : result.outcome,
-      code: result.code,
-    });
-    return result;
+    return {
+      result,
+      logEntry: {
+        driveFileId,
+        outcome: result.outcome === "source_gone" ? "error" : result.outcome,
+        code: result.code,
+      },
+    };
   }
 
   const watchedFolderId = folderResult.folderId;
   if (!fileMeta.parents.includes(watchedFolderId)) {
-    const result = { outcome: "source_gone" as const, code: SHEET_UNAVAILABLE };
-    await logSync({
-      driveFileId,
-      outcome: "error",
-      code: result.code,
-      payload: {
-        kind: "push_source_out_of_scope",
-        watchedFolderId,
-        parents: fileMeta.parents,
+    return {
+      result: { outcome: "source_gone", code: SHEET_UNAVAILABLE },
+      logEntry: {
+        driveFileId,
+        outcome: "error",
+        code: SHEET_UNAVAILABLE,
+        payload: { kind: "push_source_out_of_scope", watchedFolderId, parents: fileMeta.parents },
       },
-    });
-    return result;
+    };
   }
 
   return fileMeta;
+}
+
+/**
+ * Write a deferred push log UNDER the per-show advisory lock, but ONLY after re-reading `archived`. R9
+ * DEF-4 TOCTOU: `runPushSyncForShow`'s initial archived preflight runs unlocked, before the Drive fetch;
+ * an Archive may commit in the gap. archive_show takes the SAME advisory lock, so re-reading + logging
+ * while we hold it is authoritative — archive cannot interleave. If the show became archived, skip
+ * SILENTLY (return ARCHIVED_SKIP_REASON, write NO sync_log), honoring the "archived ⇒ silent/no-log"
+ * contract. Otherwise write the deferred log and return the original error/skip result.
+ */
+async function logUnlessArchived(
+  withLock: PushPipelineLock,
+  driveFileId: string,
+  logSync: NonNullable<RunPushSyncForShowDeps["logSync"]>,
+  logEntry: PushLogEntry,
+  result: ProcessOneFileResult,
+): Promise<ProcessOneFileResult> {
+  return withLock(driveFileId, async (tx) => {
+    if (await readShowArchived_unlocked(tx, driveFileId)) {
+      return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
+    }
+    await logSync(logEntry);
+    return result;
+  });
 }
 
 export async function runPushSyncForShow(
@@ -178,19 +252,35 @@ export async function runPushSyncForShow(
   deps: RunPushSyncForShowDeps = {},
 ): Promise<ProcessOneFileResult> {
   const logSync = deps.logSync ?? writeSyncLog;
-  const fileMeta = deps.fileMeta ?? (await fetchScopedPushFileMeta(driveFileId, deps, logSync));
-  if ("outcome" in fileMeta) return fileMeta;
+  const withLock: PushPipelineLock =
+    deps.withPipelineLock ??
+    (async (id, fn) => {
+      const r = await withPostgresSyncPipelineLock<ProcessOneFileResult>(id, fn, { tryOnly: false });
+      // tryOnly:false blocks until the lock is acquired, so ConcurrentSyncSkipped is unreachable here;
+      // narrow defensively to the silent archived-style skip so we never write a misleading log.
+      if ("skipped" in r) return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
+      return r;
+    });
+  // DEF-4: archived preflight BEFORE any Drive fetch — silent skip (no fetch, no sync_log).
+  if (await (deps.isShowArchived ?? readShowArchivedForPush)(driveFileId)) {
+    return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
+  }
+  const fetched = deps.fileMeta ?? (await fetchScopedPushFileMeta(driveFileId, deps));
+  if ("result" in fetched) {
+    // R9 DEF-4 TOCTOU: gate the fetch-failure / out-of-scope log on a locked archived re-read.
+    return await logUnlessArchived(withLock, driveFileId, logSync, fetched.logEntry, fetched.result);
+  }
+  const fileMeta = fetched;
   const preflight = await (deps.readPushDuplicatePreflight ?? readPushDuplicatePreflight)(
     driveFileId,
     fileMeta,
   );
   if (preflight.outcome === "skip") {
-    await logSync({
-      driveFileId,
+    // R9 DEF-4 TOCTOU: gate the duplicate-skip log on a locked archived re-read.
+    return await logUnlessArchived(withLock, driveFileId, logSync, preflight.logEntry, {
       outcome: "skipped",
-      code: preflight.reason,
+      reason: preflight.reason,
     });
-    return { outcome: "skipped", reason: preflight.reason };
   }
   const runOne = deps.processOneFile ?? processOneFile;
   return await runOne(driveFileId, "push", fileMeta, {

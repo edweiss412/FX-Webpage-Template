@@ -19,6 +19,7 @@ import {
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
 import type { SyncMode } from "@/lib/sync/perFileProcessor";
+import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 
 export const FINALIZE_OWNED_SHOW = "FINALIZE_OWNED_SHOW" as const;
 
@@ -27,7 +28,15 @@ export type FinalizeOwnedShowResult = {
   code: typeof FINALIZE_OWNED_SHOW;
 };
 
-export type ManualSyncResult = ProcessOneFileResult | FinalizeOwnedShowResult;
+export type ShowArchivedImmutableResult = {
+  outcome: "blocked";
+  code: typeof SHOW_ARCHIVED_IMMUTABLE;
+};
+
+export type ManualSyncResult =
+  | ProcessOneFileResult
+  | FinalizeOwnedShowResult
+  | ShowArchivedImmutableResult;
 type ManualLockResult = ManualSyncResult | { outcome: "proceed" };
 
 export type RunManualSyncForShowDeps = {
@@ -224,6 +233,10 @@ export async function runManualSyncForShow(
   const runOne = deps.processOneFile ?? defaultProcessOneFile;
 
   const preflight = await withLock(driveFileId, async (tx) => {
+    // DEF-3: refuse an archived show BEFORE any Drive fetch (no mutation, no fetch, no log).
+    if (await readShowArchived_unlocked(tx, driveFileId)) {
+      return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+    }
     const isFinalizeOwned = await (
       deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
     )(tx, driveFileId);
@@ -238,6 +251,12 @@ export async function runManualSyncForShow(
   const folderResult = await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
   if ("kind" in folderResult) {
     return await withLock(driveFileId, async (tx) => {
+      // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
+      // ran under a separate lock that was released before the Drive/folder work; an Archive may have
+      // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
+      if (await readShowArchived_unlocked(tx, driveFileId)) {
+        return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+      }
       const isFinalizeOwned = await (
         deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
       )(tx, driveFileId);
@@ -255,6 +274,10 @@ export async function runManualSyncForShow(
   } catch (error) {
     if (!isDriveSourceGone(error)) {
       return await withLock(driveFileId, async (tx) => {
+        // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock (preflight lock released).
+        if (await readShowArchived_unlocked(tx, driveFileId)) {
+          return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+        }
         const isFinalizeOwned = await (
           deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
         )(tx, driveFileId);
@@ -265,6 +288,12 @@ export async function runManualSyncForShow(
       });
     }
     return await withLock(driveFileId, async (tx) => {
+      // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
+      // ran under a separate lock that was released before the Drive/folder work; an Archive may have
+      // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
+      if (await readShowArchived_unlocked(tx, driveFileId)) {
+        return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+      }
       const isFinalizeOwned = await (
         deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
       )(tx, driveFileId);
@@ -282,6 +311,12 @@ export async function runManualSyncForShow(
 
   if (!fileMeta.parents.includes(watchedFolderId)) {
     return await withLock(driveFileId, async (tx) => {
+      // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
+      // ran under a separate lock that was released before the Drive/folder work; an Archive may have
+      // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
+      if (await readShowArchived_unlocked(tx, driveFileId)) {
+        return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
+      }
       const isFinalizeOwned = await (
         deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
       )(tx, driveFileId);
@@ -296,13 +331,29 @@ export async function runManualSyncForShow(
     ...(deps.processDeps ?? {}),
     withShowLock: async (id, fn) =>
       (await withLock(id, async (tx) => {
+        // DEF-3: authoritative in-lock archived re-read (an Archive may have landed since preflight).
+        if (await readShowArchived_unlocked(tx, driveFileId)) {
+          return { outcome: "blocked", code: SHOW_ARCHIVED_IMMUTABLE };
+        }
         const isFinalizeOwned = await (
           deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
         )(tx, driveFileId);
         if (isFinalizeOwned) {
           return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
         }
-        return await fn(tx);
+        // DEF-3 (R30): manual re-sync overrides auto-suppression — delete any live non-wizard deferral
+        // under the lock so processing is not short-circuited by recheckLiveDeferralAfterLock.
+        await tx.deleteLiveDeferral?.(driveFileId);
+        const result = await fn(tx);
+        // Clear the durable publish gate on a clean reconciliation (manual mode re-applies even an
+        // unchanged sheet, so "applied" is the clean signal for both changed and unchanged sheets).
+        if ("outcome" in result && result.outcome === "applied") {
+          await tx.queryOne(
+            "update public.shows set requires_resync = false where drive_file_id = $1 returning true as cleared",
+            [driveFileId],
+          );
+        }
+        return result;
       })) as ProcessOneFileResult | ConcurrentSyncSkipped,
   });
 }

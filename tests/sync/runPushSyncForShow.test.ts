@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
+import type { RunPushSyncForShowDeps } from "@/lib/sync/runPushSyncForShow";
 
 type Row = Record<string, unknown>;
 
@@ -104,6 +105,20 @@ async function importPushSync() {
   return import("@/lib/sync/runPushSyncForShow");
 }
 
+// A fake per-show pipeline lock: provides a tx whose queryOne answers the archived re-read
+// (readShowArchived_unlocked → "select archived from public.shows where drive_file_id = $1").
+function lockWithArchived(
+  archived: boolean,
+): NonNullable<RunPushSyncForShowDeps["withPipelineLock"]> {
+  return async (_id, fn) =>
+    fn({
+      async queryOne(sql: string) {
+        if (/select archived from public\.shows/i.test(sql)) return { archived } as never;
+        throw new Error(`unexpected SQL in lock tx: ${sql}`);
+      },
+    } as never);
+}
+
 describe("runPushSyncForShow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -132,12 +147,16 @@ describe("runPushSyncForShow", () => {
       runPushSyncForShow("file-1", {
         fileMeta: meta,
         processOneFile,
+        isShowArchived: async () => false,
+        withPipelineLock: lockWithArchived(false),
       }),
     ).resolves.toEqual({ outcome: "applied", showId: "show-1" });
     await expect(
       runPushSyncForShow("file-1", {
         fileMeta: meta,
         processOneFile,
+        isShowArchived: async () => false,
+        withPipelineLock: lockWithArchived(false),
       }),
     ).resolves.toEqual({ outcome: "skipped", reason: "WEBHOOK_NOOP_ALREADY_SYNCED" });
 
@@ -171,5 +190,30 @@ describe("runPushSyncForShow", () => {
         ],
       },
     ]);
+  });
+
+  test("R9 DEF-4 TOCTOU: an Archive landing after the preflight (locked re-read=true) skips silently — NO sync_log, NO apply", async () => {
+    // Preflight sees archived=false and proceeds; the duplicate-skip branch would log
+    // WEBHOOK_NOOP_ALREADY_SYNCED. But the authoritative re-read UNDER the per-show lock sees archived=true
+    // (an admin archived the show in the gap), so the push must return ARCHIVED_SKIP_REASON silently and
+    // write NO sync_log. Before the fix, the stale preflight let the duplicate-skip log through.
+    const fake = createFakeSupabase({
+      shows: [{ drive_file_id: "file-1", last_seen_modified_time: "2026-05-08T12:05:00.000Z" }],
+    });
+    supabaseMock.client = fake.client;
+    const meta = fileMeta(); // modifiedTime == watermark → duplicate-skip branch
+    const processOneFile = vi.fn();
+    const { runPushSyncForShow } = await importPushSync();
+
+    const res = await runPushSyncForShow("file-1", {
+      fileMeta: meta,
+      processOneFile,
+      isShowArchived: async () => false, // preflight: not archived
+      withPipelineLock: lockWithArchived(true), // but an Archive committed before the locked re-read
+    });
+
+    expect(res).toEqual({ outcome: "skipped", reason: "archived" }); // ARCHIVED_SKIP_REASON
+    expect(syncLogMock.writeSyncLog).not.toHaveBeenCalled(); // no misleading duplicate-skip log
+    expect(processOneFile).not.toHaveBeenCalled();
   });
 });

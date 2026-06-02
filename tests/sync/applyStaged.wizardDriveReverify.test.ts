@@ -117,6 +117,7 @@ function fakeTx(): LockedShowTx<FakeTx> {
     async queryOne<T>(sql: string, params: unknown[]) {
       queryOneCalls.push({ sql, params });
       if (/pg_locks/i.test(sql)) return { held: tx.held } as T;
+      if (/select archived from public\.shows/i.test(sql)) return { archived: false } as T; // DEF-2 guard probe
       throw new Error(`unexpected SQL in fakeTx: ${sql}`);
     },
     async readShowForPhase1() {

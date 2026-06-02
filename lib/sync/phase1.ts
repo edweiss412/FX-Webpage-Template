@@ -4,6 +4,14 @@ import { runInvariants } from "@/lib/parser/invariants";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { MI8_DEBOUNCE_MS } from "@/lib/sync/constants";
 import type { ResolvedSyncMode, SyncMode } from "@/lib/sync/perFileProcessor";
+import {
+  getAutoPublishCleanFirstSeen as defaultGetAutoPublishCleanFirstSeen,
+  type AutoPublishCleanFirstSeenResult,
+} from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
+
+export type Phase1Deps = {
+  getAutoPublishCleanFirstSeen?: () => Promise<AutoPublishCleanFirstSeenResult>;
+};
 
 export type Phase1Binding = {
   bindingToken: string;
@@ -239,7 +247,11 @@ function sentinelFor(args: Phase1Args, _show: Phase1ShowRow | null): TriggeredRe
   return null;
 }
 
-export async function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1Result> {
+export async function runPhase1(
+  tx: Phase1Tx,
+  args: Phase1Args,
+  deps: Phase1Deps = {},
+): Promise<Phase1Result> {
   if (args.mode === "onboarding_scan" && args.wizardSessionId) {
     await callTx("deleteWizardPendingSyncsExcept", () =>
       tx.deleteWizardPendingSyncsExcept(args.wizardSessionId as string),
@@ -286,7 +298,25 @@ export async function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1R
   const debounce = mi8DebounceReason(args, reviewItems);
   if (debounce) return debounce;
 
-  const triggeredReviewItems = sentinel ? [sentinel, ...reviewItems] : reviewItems;
+  let triggeredReviewItems = sentinel ? [sentinel, ...reviewItems] : reviewItems;
+
+  // Task 4.2: a CLEAN first-seen sheet (no show row, no review items, not an onboarding scan) is the
+  // only place the auto-publish toggle applies. OFF → stage the reused FIRST_SEEN_REVIEW sentinel for
+  // admin approval instead of auto-publishing. Fail-closed: a flag-read infra fault does NOT auto-publish
+  // (it propagates as a Phase1InfraError so the sync is retried). The flag is NOT consulted in
+  // sentinelFor — only here, in the clean post-reviewItems branch.
+  if (!show && args.mode !== "onboarding_scan" && triggeredReviewItems.length === 0) {
+    const flag = await (deps.getAutoPublishCleanFirstSeen ?? defaultGetAutoPublishCleanFirstSeen)();
+    if (flag.kind === "infra_error") {
+      throw new Phase1InfraError(
+        "getAutoPublishCleanFirstSeen",
+        new Error("auto-publish flag read failed; not auto-publishing this pass"),
+      );
+    }
+    if (!flag.autoPublish) {
+      triggeredReviewItems = [{ id: randomUUID(), invariant: "FIRST_SEEN_REVIEW" }];
+    }
+  }
 
   if (triggeredReviewItems.length > 0) {
     const existingPending = await callTx("readLivePendingSync", () =>

@@ -1,5 +1,6 @@
 import type { DriveListedFile } from "@/lib/drive/list";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { ARCHIVED_SKIP_REASON } from "@/lib/sync/lifecycleGuards";
 
 export type SyncMode = "cron" | "push" | "manual" | "onboarding_scan";
 export type ResolvedSyncMode = SyncMode | "recovery" | "asset_recovery";
@@ -12,7 +13,8 @@ export type PerFileProcessorResult =
         | "deferred_modtime"
         | "watermark"
         | "partial_failure_restage_required"
-        | "WEBHOOK_NOOP_ALREADY_SYNCED";
+        | "WEBHOOK_NOOP_ALREADY_SYNCED"
+        | typeof ARCHIVED_SKIP_REASON;
     }
   | {
       outcome: "proceed";
@@ -44,6 +46,7 @@ type ShowGateRow = {
   last_sync_status: string | null;
   last_seen_modified_time: string | null;
   diagrams: unknown;
+  archived: boolean | null;
 };
 
 type PendingSyncGateRow = {
@@ -125,7 +128,7 @@ async function readShowGateRow(
   try {
     const { data, error } = await supabase
       .from("shows")
-      .select("last_sync_status, last_seen_modified_time, diagrams")
+      .select("last_sync_status, last_seen_modified_time, diagrams, archived")
       .eq("drive_file_id", driveFileId)
       .maybeSingle();
     if (error) {
@@ -183,6 +186,11 @@ export async function perFileProcessor(
     readShowGateRow(supabase, driveFileId),
     readLivePendingSyncGateRow(supabase, driveFileId),
   ]);
+
+  // DEF-4: an archived show is immutable — silent-skip (the caller must NOT write a sync_log row).
+  if (show?.archived) {
+    return { outcome: "skip", reason: ARCHIVED_SKIP_REASON };
+  }
   const effectiveWatermark = maxTimestampMs(
     show?.last_seen_modified_time,
     pendingSync?.staged_modified_time,

@@ -4,6 +4,7 @@ import {
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
 import { type SyncPipelineTx, withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import {
   INVALID_REVIEWER_ACTION,
   PENDING_SYNC_NOT_FOUND,
@@ -70,7 +71,8 @@ export type DiscardStagedResult =
   | { outcome: "not_found"; code: typeof PENDING_SYNC_NOT_FOUND }
   | { outcome: "stale"; code: typeof STALE_DISCARD_REJECTED }
   | { outcome: "invalid_request"; code: typeof INVALID_REVIEWER_ACTION }
-  | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED };
+  | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED }
+  | { outcome: "blocked"; code: typeof SHOW_ARCHIVED_IMMUTABLE };
 
 export type DiscardStagedDeps = {
   readLivePendingSyncForDiscard?: (
@@ -230,7 +232,8 @@ async function defaultRestoreShowStatus(
     `
       update public.shows
          set last_sync_status = $2,
-             last_sync_error = $3
+             last_sync_error = $3,
+             requires_resync = false
        where drive_file_id = $1
       returning true as restored
     `,
@@ -390,6 +393,11 @@ export async function discardStaged_unlocked(
   injectedDeps: DiscardStagedDeps = {},
 ): Promise<DiscardStagedResult> {
   await assertShowLockHeld(tx, args.driveFileId);
+
+  // DEF-2: refuse mutation of an archived show (re-read under the held lock) before any consumption.
+  if (await readShowArchived_unlocked(tx, args.driveFileId)) {
+    return { outcome: "blocked", code: SHOW_ARCHIVED_IMMUTABLE };
+  }
 
   const deps = depsWithDefaults(injectedDeps);
   if (args.sourceScope === "wizard") {

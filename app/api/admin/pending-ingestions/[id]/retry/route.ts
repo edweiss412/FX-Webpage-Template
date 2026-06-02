@@ -25,6 +25,7 @@ import {
   type ManualSyncResult,
 } from "@/lib/sync/runManualSyncForShow";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 
 export type LivePendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -332,6 +333,10 @@ export async function handleLivePendingIngestionRetry(
       return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
     }
     if (await liveShowExists(tx, row.drive_file_id)) {
+      // DEF-5: refuse retry against an archived show (re-read under the held row lock) — no Drive fetch.
+      if (await readShowArchived_unlocked(tx, row.drive_file_id)) {
+        return errorResponse(409, "SHOW_ARCHIVED_IMMUTABLE");
+      }
       if (await deps.readFinalizeOwnershipGuardUnlocked(tx, row.drive_file_id)) {
         return errorResponse(409, "FINALIZE_OWNED_SHOW");
       }

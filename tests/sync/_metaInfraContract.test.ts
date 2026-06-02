@@ -59,6 +59,12 @@ const infraRegistry = [
     contract: "shared processOneFile infra faults propagate",
   },
   {
+    helper: "readShowArchivedForPush",
+    path: "lib/sync/runPushSyncForShow.ts",
+    contract:
+      "push DEF-4 archived preflight: returned AND thrown Supabase faults (construction/from) become SyncInfraError, never a per-file failure",
+  },
+  {
     helper: "handleDriveWebhook",
     path: "app/api/drive/webhook/route.ts",
     contract: "webhook transaction-port faults become DriveWebhookInfraError",
@@ -73,6 +79,12 @@ const infraRegistry = [
     helper: "writeSyncLog",
     path: "lib/sync/syncLog.ts",
     contract: "sync_log sink thrown SQL faults propagate to the route/orchestrator caller",
+  },
+  {
+    helper: "getAutoPublishCleanFirstSeen",
+    path: "lib/appSettings/getAutoPublishCleanFirstSeen.ts",
+    contract:
+      "auto-publish toggle read: returned error AND thrown construction/query faults → { kind:'infra_error' } (never throws to callers; R8 — both the sync pipeline AND the settings page depend on the typed degraded result)",
   },
   {
     helper: "getActiveWatchedFolderId",
@@ -355,6 +367,20 @@ async function importWatchedFolderHelper() {
   return import("@/lib/appSettings/getWatchedFolderId");
 }
 
+async function importAutoPublishHelper() {
+  vi.resetModules();
+  return import("@/lib/appSettings/getAutoPublishCleanFirstSeen");
+}
+
+async function importPushSync() {
+  vi.resetModules();
+  const mod = await import("@/lib/sync/runPushSyncForShow");
+  // Same module-registry instance (no reset in between) so the SyncInfraError class identity matches
+  // the one runPushSyncForShow throws.
+  const { SyncInfraError } = await import("@/lib/sync/perFileProcessor");
+  return { runPushSyncForShow: mod.runPushSyncForShow, SyncInfraError };
+}
+
 beforeEach(() => {
   infraMock.throwOnConstruct = false;
   infraMock.throwOnFrom = false;
@@ -388,6 +414,40 @@ describe("sync Supabase infra-failure contract", () => {
       await expect(perFileProcessor("file-1", "cron", fileMeta())).rejects.toBeInstanceOf(
         SyncInfraError,
       );
+    });
+  });
+
+  describe("readShowArchivedForPush (push DEF-4 archived preflight)", () => {
+    // R6 regression: runPushSyncForShow runs the archived preflight BEFORE any Drive fetch; a Supabase
+    // outage there must surface as SyncInfraError (→ SYNC_INFRA_ERROR at the webhook), NOT a per-file
+    // failure that hides the dependency outage. Pre-fix the helper only mapped the returned {error}.
+    test("service-role construction throw → SyncInfraError (not a per-file failure)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { runPushSyncForShow, SyncInfraError } = await importPushSync();
+      await expect(runPushSyncForShow("file-1")).rejects.toBeInstanceOf(SyncInfraError);
+    });
+
+    test("Supabase .from() throw → SyncInfraError (not a per-file failure)", async () => {
+      infraMock.throwOnFrom = true;
+      const { runPushSyncForShow, SyncInfraError } = await importPushSync();
+      await expect(runPushSyncForShow("file-1")).rejects.toBeInstanceOf(SyncInfraError);
+    });
+  });
+
+  describe("getAutoPublishCleanFirstSeen (auto-publish toggle read)", () => {
+    // R8: the helper must NEVER throw to its callers — the sync pipeline converts a returned infra_error
+    // to Phase1InfraError (retry) and the settings page renders the degraded toggle on infra_error. A
+    // thrown construction/query fault used to escape and 500 the settings page.
+    test("service-role construction throw → { kind:'infra_error' } (never throws)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { getAutoPublishCleanFirstSeen } = await importAutoPublishHelper();
+      await expect(getAutoPublishCleanFirstSeen()).resolves.toEqual({ kind: "infra_error" });
+    });
+
+    test("Supabase .from() throw → { kind:'infra_error' } (never throws)", async () => {
+      infraMock.throwOnFrom = true;
+      const { getAutoPublishCleanFirstSeen } = await importAutoPublishHelper();
+      await expect(getAutoPublishCleanFirstSeen()).resolves.toEqual({ kind: "infra_error" });
     });
   });
 

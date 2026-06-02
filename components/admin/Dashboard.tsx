@@ -23,6 +23,9 @@ import { type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";
+import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
+import { DashboardBucketSegmentedControl } from "@/components/admin/DashboardBucketSegmentedControl";
+import { unarchiveShowAction } from "@/app/admin/show/[slug]/_actions";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import { formatIsoForTimezone } from "@/lib/time/rightNow";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
@@ -39,9 +42,20 @@ export const ACTIVE_SHOWS_CAP = 500;
 // Page size for the per-show crew-count paginate-until-complete loop (R17).
 export const CREW_PAGE_SIZE = 1000;
 
+// M12.2 Phase B2 (§3.1) — the dashboard show list is a two-state segmented
+// bucket. The selected segment is a URL search-param threaded from the page;
+// the RSC re-fetches server-side so back/forward + refresh behave.
+export type DashboardBucket = "active" | "archived";
+
 export type DashboardData = {
   rows: ActiveShowRow[];
+  // Which segment `rows` belongs to (echoed back so the component can render
+  // the right list shape — read-only ArchivedShowRows vs ShowsTable).
+  bucket: DashboardBucket;
   activeCount: number;
+  // M12.2 Phase B2 (§3.1) — ALWAYS computed (the inactive segment's label needs
+  // its count even when its rows aren't fetched), via a count-only head query.
+  archivedCount: number;
   liveCount: number;
   needReviewCount: number;
   crewTotal: number;
@@ -84,9 +98,12 @@ function deriveEnd(dates: DatesJson | null): string | null {
 
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row for the
 // §B Supabase call-boundary contract (AGENTS.md §1.9).
-export async function fetchDashboardData(): Promise<
-  DashboardData | { kind: "infra_error"; message: string }
-> {
+export async function fetchDashboardData(
+  options: { bucket?: DashboardBucket } = {},
+): Promise<DashboardData | { kind: "infra_error"; message: string }> {
+  // §3.1 — default to the Active segment; the page threads the ?bucket param.
+  const bucket: DashboardBucket = options.bucket === "archived" ? "archived" : "active";
+  const isArchived = bucket === "archived";
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -99,16 +116,39 @@ export async function fetchDashboardData(): Promise<
 
   const now = await nowDate();
 
-  // ── Active shows (archived = false; both published + in-flight), bounded ──
+  // ── Show list for the SELECTED segment, bounded (§3.1) ──
+  //   Active   = archived=false (Live + Publishing… + Held), ordered by sync.
+  //   Archived = archived=true, ordered archived_at DESC NULLS LAST, id
+  //              (deterministic — most-recently-archived first; null times last,
+  //              tie-broken by id so the order is stable across reads).
+  // `archived_at` feeds the ArchivedShowRow time line (§3.1). (The
+  // Held-vs-Publishing pill split is sourced from the readfinalizeowned_b2 RPC
+  // below — NOT requires_resync, which a clean Unarchive catch-up clears.)
+  // Ordering tuple for the selected segment: archived → archived_at DESC NULLS
+  // LAST then id (deterministic, null times last); active → last_synced_at DESC.
+  // Built as data so the query below stays ONE chained `.from().select()…limit()`
+  // statement (the bounded-read meta-test, tests/admin/_metaBoundedReads.test.ts,
+  // splits on `;` and requires the `.limit(` bound in the same statement).
+  const showOrder: ReadonlyArray<[string, { ascending: boolean; nullsFirst: boolean }]> =
+    isArchived
+      ? [
+          ["archived_at", { ascending: false, nullsFirst: false }],
+          ["id", { ascending: true, nullsFirst: false }],
+        ]
+      : [["last_synced_at", { ascending: false, nullsFirst: false }]];
+
   let showsRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
-      .from("shows")
-      .select(
-        "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, published",
+    const q = await showOrder
+      .reduce(
+        (acc, [col, opts]) => acc.order(col, opts),
+        supabase
+          .from("shows")
+          .select(
+            "id, slug, title, drive_file_id, dates, venue, last_synced_at, last_sync_status, published, requires_resync, archived_at",
+          )
+          .eq("archived", isArchived),
       )
-      .eq("archived", false)
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
       .limit(ACTIVE_SHOWS_CAP);
     if (q.error) {
       return { kind: "infra_error", message: `shows query failed: ${q.error.message}` };
@@ -121,7 +161,10 @@ export async function fetchDashboardData(): Promise<
     };
   }
 
-  // Exact total — truthful even if the rendered list is capped (§3.3).
+  // Exact totals — truthful even if the rendered list is capped (§3.3). BOTH
+  // counts are ALWAYS computed regardless of `bucket`: the inactive segment's
+  // label ("Archived (N)" / "Active") needs its count even though its rows are
+  // not fetched (§3.1). Two count-only (head:true) queries.
   let activeCount: number;
   try {
     const q = await supabase
@@ -129,19 +172,41 @@ export async function fetchDashboardData(): Promise<
       .select("id", { count: "exact", head: true })
       .eq("archived", false);
     if (q.error) {
-      return { kind: "infra_error", message: `shows count query failed: ${q.error.message}` };
+      return { kind: "infra_error", message: `shows active count query failed: ${q.error.message}` };
     }
-    activeCount = q.count ?? showsRows.length;
+    // Fall back to the rendered length ONLY when this is the selected bucket
+    // (so a null count from a head-less mock still resolves); otherwise 0.
+    activeCount = q.count ?? (isArchived ? 0 : showsRows.length);
   } catch (err) {
     return {
       kind: "infra_error",
-      message: `shows count query threw: ${err instanceof Error ? err.message : String(err)}`,
+      message: `shows active count query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 
+  let archivedCount: number;
+  try {
+    const q = await supabase
+      .from("shows")
+      .select("id", { count: "exact", head: true })
+      .eq("archived", true);
+    if (q.error) {
+      return { kind: "infra_error", message: `shows archived count query failed: ${q.error.message}` };
+    }
+    archivedCount = q.count ?? (isArchived ? showsRows.length : 0);
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `shows archived count query threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // stats/overflow are scoped to the SELECTED bucket (that is what `showsRows`
+  // holds); the StatStrip's "Active shows" stat keeps reading `activeCount`.
+  const selectedCount = isArchived ? archivedCount : activeCount;
   const statsScope: "global" | "shown" =
-    activeCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
-  const overflowCount = Math.max(0, activeCount - showsRows.length);
+    selectedCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
+  const overflowCount = Math.max(0, selectedCount - showsRows.length);
 
   // ── isLive per row (single `now`; shared tz + span helpers), liveCount = Σ ──
   const activeShowIds = showsRows.map((s) => s.id as string);
@@ -200,6 +265,37 @@ export async function fetchDashboardData(): Promise<
     }
   }
 
+  // §3.2 — finalize-owned ("Publishing…") vs Held discriminator. The ONLY
+  // authoritative source is whether an ACTIVE wizard finalize checkpoint owns
+  // the show, computed by the SECURITY DEFINER predicate
+  // `public.readfinalizeowned_b2(p_show_id)` (the same fn the archive/publish/
+  // DEF-1 guards use; migration 20260601000000:13). `requires_resync` is NOT a
+  // valid proxy — the Unarchive catch-up clears it on a clean apply, so the
+  // normal Held state has requires_resync=false and would be mislabeled.
+  //
+  // Bounded by construction: queried ONLY for in-flight rows
+  // (`!published && !archived`) of the ACTIVE segment — finalize is rare and
+  // transient, so this set is tiny (usually 0). Archived-segment rows are never
+  // finalize-owned. On ANY infra hiccup we fail toward "Held" (omit the id from
+  // the owned set) — the safe, non-alarming label.
+  const finalizeOwnedIds = new Set<string>();
+  if (!isArchived) {
+    const inFlightIds = showsRows
+      .filter((s) => !Boolean(s.published))
+      .map((s) => s.id as string);
+    for (const showId of inFlightIds) {
+      try {
+        const q = await supabase.rpc("readfinalizeowned_b2", { p_show_id: showId });
+        // Fail toward "Held": a returned error or a non-true value leaves the id
+        // OUT of the owned set, so the pill is "Held — not published".
+        if (!q.error && q.data === true) finalizeOwnedIds.add(showId);
+      } catch {
+        // Thrown infra fault → also fail toward "Held"; do not abort the whole
+        // dashboard for a transient finalize-predicate read.
+      }
+    }
+  }
+
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {
     const dates = (s.dates as DatesJson | null) ?? null;
@@ -207,6 +303,9 @@ export async function fetchDashboardData(): Promise<
     const todayIso = formatIsoForTimezone(now, resolveShowTimezone(s.venue as never));
     const isLive = published && isShowLiveOnDate(dates as never, todayIso);
     if (isLive) liveCount += 1;
+    // §3.2 — finalize-owned iff an active wizard finalize checkpoint owns the
+    // show (from the RPC set above). Archived rows are never finalize-owned.
+    const finalizeOwned = !isArchived && !published && finalizeOwnedIds.has(s.id as string);
     return {
       id: s.id as string,
       slug: s.slug as string,
@@ -218,6 +317,8 @@ export async function fetchDashboardData(): Promise<
       lastSyncStatus: (s.last_sync_status as string | null) ?? null,
       published,
       isLive,
+      finalizeOwned,
+      archivedAt: (s.archived_at as string | null) ?? null,
     };
   });
 
@@ -262,7 +363,9 @@ export async function fetchDashboardData(): Promise<
   try {
     const q = await supabase
       .from("pending_syncs")
-      .select("staged_id, drive_file_id, staged_modified_time, parse_result")
+      .select(
+        "staged_id, drive_file_id, staged_modified_time, parse_result, triggered_review_items",
+      )
       .is("wizard_session_id", null)
       .order("staged_modified_time", { ascending: false })
       .limit(RENDER_CAP + 1);
@@ -358,7 +461,9 @@ export async function fetchDashboardData(): Promise<
 
   return {
     rows,
+    bucket,
     activeCount,
+    archivedCount,
     liveCount,
     needReviewCount: needsAttention.totalCount,
     crewTotal,
@@ -368,8 +473,9 @@ export async function fetchDashboardData(): Promise<
   };
 }
 
-export async function Dashboard() {
-  const result = await fetchDashboardData();
+export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
+  const bucket: DashboardBucket = options.bucket === "archived" ? "archived" : "active";
+  const result = await fetchDashboardData({ bucket });
   const now = await nowDate();
 
   if ("kind" in result) {
@@ -448,16 +554,59 @@ export async function Dashboard() {
       >
         <section
           data-testid="dashboard-shows-col"
-          aria-label="Active shows"
+          aria-label={result.bucket === "archived" ? "Archived shows" : "Active shows"}
           className="flex min-w-0 flex-col gap-3 min-[1080px]:flex-1"
         >
-          <h3 className="text-lg font-semibold text-text-strong">Active shows</h3>
-          <ShowsTable
-            rows={result.rows}
-            now={now}
-            activeCount={result.activeCount}
-            overflowCount={result.overflowCount}
-          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold text-text-strong">
+              {result.bucket === "archived" ? "Archived shows" : "Active shows"}
+            </h3>
+            <DashboardBucketSegmentedControl
+              bucket={result.bucket}
+              activeCount={result.activeCount}
+              archivedCount={result.archivedCount}
+            />
+          </div>
+
+          {result.bucket === "archived" ? (
+            result.rows.length === 0 ? (
+              <p
+                data-testid="archived-empty"
+                className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
+              >
+                No archived shows.
+              </p>
+            ) : (
+              <>
+                <ul className="flex flex-col gap-2">
+                  {result.rows.map((row) => (
+                    <ArchivedShowRow
+                      key={row.id}
+                      row={row}
+                      now={now}
+                      unarchiveAction={unarchiveShowAction}
+                    />
+                  ))}
+                </ul>
+                {result.overflowCount > 0 ? (
+                  <p
+                    data-testid="archived-overflow"
+                    className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+                  >
+                    Showing the first {result.rows.length} of {result.archivedCount} archived
+                    shows. Contact the developer if you need the full list.
+                  </p>
+                ) : null}
+              </>
+            )
+          ) : (
+            <ShowsTable
+              rows={result.rows}
+              now={now}
+              activeCount={result.activeCount}
+              overflowCount={result.overflowCount}
+            />
+          )}
         </section>
         <section
           data-testid="dashboard-inbox-col"

@@ -7,7 +7,12 @@ import {
   type SnapshotAssetsApplyTx,
 } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { assertShowLockHeld, type LockedShowTx } from "@/lib/sync/lockedShowTx";
-import { runPhase1, type Phase1PendingSyncRow, type Phase1Result } from "@/lib/sync/phase1";
+import {
+  runPhase1,
+  type Phase1Deps,
+  type Phase1PendingSyncRow,
+  type Phase1Result,
+} from "@/lib/sync/phase1";
 import { runPhase2, type Phase2Tx } from "@/lib/sync/phase2";
 import {
   emitSuccessfulPhase2Tail,
@@ -40,6 +45,7 @@ export type RunManualStageForFirstSeenDeps = {
   parseResult?: ParseResult;
   binding?: { bindingToken: string; modifiedTime: string };
   runPhase1?: typeof runPhase1;
+  getAutoPublishCleanFirstSeen?: Phase1Deps["getAutoPublishCleanFirstSeen"];
   runPhase2?: typeof runPhase2;
   createUnpublishToken?: () => string;
   now?: () => Date;
@@ -140,13 +146,23 @@ export async function runManualStageForFirstSeen(
   const fileMeta = deps.fileMeta;
   const binding = deps.binding;
   const parseResult = deps.parseResult;
-  const result = await (deps.runPhase1 ?? runPhase1)(tx as never, {
-    driveFileId,
-    mode: "manual",
-    fileMeta,
-    parseResult,
-    binding,
-  });
+  const result = await (deps.runPhase1 ?? runPhase1)(
+    tx as never,
+    {
+      driveFileId,
+      mode: "manual",
+      fileMeta,
+      parseResult,
+      binding,
+    },
+    // Task 4.3: thread the auto-publish flag into runPhase1 so the manual-retry first-seen path is
+    // gated by the same toggle — OFF makes runPhase1 return "stage" (FIRST_SEEN_REVIEW) instead of
+    // "auto_publish_ready", so this path stages for approval rather than auto-applying. When the dep
+    // is absent, runPhase1 falls back to its default (real) flag reader.
+    deps.getAutoPublishCleanFirstSeen
+      ? { getAutoPublishCleanFirstSeen: deps.getAutoPublishCleanFirstSeen }
+      : {},
+  );
   return (
     (await toResult(tx, driveFileId, { fileMeta, parseResult, binding }, deps, result)) ?? {
       outcome: "parsed",

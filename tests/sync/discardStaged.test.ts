@@ -28,6 +28,7 @@ function fakeTx(held = true): FakeTx {
     async queryOne<T>(sql: string, params: unknown[]) {
       this.queryOneCalls.push({ sql, params });
       if (/pg_locks/i.test(sql)) return { held: this.held } as T;
+      if (/select archived from public\.shows/i.test(sql)) return { archived: false } as T; // DEF-2 guard probe
       if (/insert into public\.deferred_ingestions/i.test(sql)) {
         return { upserted: true } as T;
       }

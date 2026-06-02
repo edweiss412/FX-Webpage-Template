@@ -187,6 +187,50 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter:
       "?email=eq.postgrest-dml-lockdown-test-no-such-row@example.invalid",
   },
+  {
+    // M12.2 B2: the publish gate + suppressor contract depend on these tables' integrity; DML flows
+    // ONLY through the SECURITY DEFINER RPCs / sync pipeline (advisory-locked). SELECT is retained.
+    table: "pending_syncs",
+    closed_at:
+      "supabase/migrations/20260601000000_b2_show_lifecycle.sql:163",
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: {
+      drive_file_id: "lockdown-test",
+      staged_modified_time: "2026-01-01T00:00:00Z",
+      parse_result: {},
+      source_kind: "cron",
+      warning_summary: "",
+    },
+    rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
+    table: "pending_ingestions",
+    closed_at:
+      "supabase/migrations/20260601000000_b2_show_lifecycle.sql:164",
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: {
+      drive_file_id: "lockdown-test",
+      drive_file_name: "lockdown-test.xlsx",
+      last_error_code: "PARSE_FAILED",
+      last_error_message: "lockdown-test",
+    },
+    rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
+    table: "deferred_ingestions",
+    closed_at:
+      "supabase/migrations/20260601000000_b2_show_lifecycle.sql:165",
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: {
+      drive_file_id: "lockdown-test",
+      deferred_kind: "permanent_ignore",
+      deferred_by_email: "postgrest-dml-lockdown-test@example.invalid",
+    },
+    rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
 ] as const;
 
 // =============================================================================

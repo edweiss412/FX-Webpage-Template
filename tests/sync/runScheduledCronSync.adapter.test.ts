@@ -30,6 +30,7 @@ vi.mock("postgres", () => ({
       calls.sql.push(sql);
       if (/pg_try_advisory_xact_lock/i.test(sql)) return [{ locked: true }];
       if (/from pg_locks/i.test(sql)) return [{ held: true }];
+      if (/select archived from public\.shows/i.test(sql)) return [{ archived: false }]; // DEF-4 in-lock probe
       if (/from public\.deferred_ingestions/i.test(sql)) return [];
       if (/from public\.revision_race_cooldowns/i.test(sql)) return [];
       if (/delete from public\.revision_race_cooldowns/i.test(sql)) return [];

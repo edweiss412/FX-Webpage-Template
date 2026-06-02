@@ -301,3 +301,10 @@ These were on the deferred-vs-backlog audit list (2026-05-19) but determined to 
 - **M4-D1** (parser canonical-key probe) — clear technical home ("M1 follow-up touch OR cross-cutting key-canonicalization task").
 - **M5-D7** (accent button atom) — concrete trigger (4th accent button variant materializes; YAGNI gate).
 - **M9-D-C6c-1** (pinch-zoom discoverability hint) — declined with concrete re-open trigger ("FXAV crew explicitly identifies pinch-discovery friction").
+
+## M12.2 B2 UI polish (impeccable v3 dual-gate deferrals, 2026-06-02)
+
+Speculative finish polish from the B2 UI external impeccable attestation (gate PASSED, zero HIGH/P0/P1; these are LOW/P3 with no user-facing harm, no concrete trigger). Dispositions also in the B2 handoff §12.
+- **BACKLOG-B2UI-1** — `DashboardBucketSegmentedControl`: disabled "Archived (0)" segment can read as clickable-but-dead on first encounter; consider `title="No archived shows"`.
+- **BACKLOG-B2UI-2** — `ArchiveShowButton`: two `min-w-[18rem]` arbitrary literals; tokenize (sibling of the shipped `--spacing-confirm-box`) or accept the one-off button-pair width.
+- **BACKLOG-B2UI-3** — `ArchiveShowButton`: armed confirm button's `hover:bg-warning-bg` equals its resting bg (no hover feedback); add a distinct `hover` token.

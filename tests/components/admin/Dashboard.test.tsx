@@ -11,6 +11,9 @@ const state = vi.hoisted(() => ({ throwOnConstruct: false }));
 
 function emptyClient() {
   return {
+    async rpc() {
+      return { data: false, error: null };
+    },
     from() {
       const builder: Record<string, unknown> = {};
       const pass = () => builder;

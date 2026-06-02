@@ -6,6 +6,7 @@ import {
   readLockedPendingIngestion,
 } from "../retry/route";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -108,6 +109,11 @@ export async function handleLivePendingIngestionDiscard(
     if (row.wizard_session_id !== null) return errorResponse(409, "LIVE_ROW_REQUIRED");
     if (row.drive_file_id !== driveFileId) {
       return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
+    }
+    // DEF-5: refuse discard when an associated show exists and is archived (re-read under the row lock).
+    // A first-seen pending_ingestion has no show row → readShowArchived returns false → proceeds.
+    if (await readShowArchived_unlocked(tx, row.drive_file_id)) {
+      return errorResponse(409, "SHOW_ARCHIVED_IMMUTABLE");
     }
     const deferralError = await upsertLiveDeferral(tx, row, kind, admin.email);
     if (deferralError) return deferralError;

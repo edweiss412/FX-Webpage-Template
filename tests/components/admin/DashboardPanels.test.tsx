@@ -69,6 +69,8 @@ describe("ActiveShowsPanel", () => {
         lastSyncStatus: "ok",
         published: true,
         isLive: false,
+        finalizeOwned: false,
+        archivedAt: null,
       },
     ];
     const { getByTestId } = render(<ActiveShowsPanel rows={rows} now={now} />);
@@ -91,6 +93,8 @@ describe("ActiveShowsPanel", () => {
         lastSyncStatus: null,
         published: false,
         isLive: false,
+        finalizeOwned: true,
+        archivedAt: null,
       },
     ];
     const { getByTestId } = render(<ActiveShowsPanel rows={rows} now={new Date()} />);

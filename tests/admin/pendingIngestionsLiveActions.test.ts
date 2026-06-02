@@ -22,6 +22,7 @@ class FakeLivePendingTx {
     last_seen_modified_time: string | null;
   } | null;
   showExists = false;
+  archived = false;
   watchedFolderId = "folder-1";
   slug = "show-slug";
   deferrals: Array<{ kind: string; driveFileId: string }> = [];
@@ -32,6 +33,7 @@ class FakeLivePendingTx {
     if (/pg_locks/i.test(normalized)) return { held: true } as T;
     if (normalized.startsWith("select id, drive_file_id")) return this.row as T;
     if (normalized.startsWith("select exists")) return { exists: this.showExists } as T;
+    if (normalized.startsWith("select archived from public.shows")) return { archived: this.archived } as T; // DEF-5 guard
     if (normalized.startsWith("select watched_folder_id")) {
       return { watched_folder_id: this.watchedFolderId } as T;
     }
@@ -206,6 +208,37 @@ describe("live pending-ingestions actions", () => {
     expect(response.status).toBe(409);
     expect(await json(response)).toEqual({ ok: false, code: "FINALIZE_OWNED_SHOW" });
     expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
+  });
+
+  test("DEF-5: retry refuses an archived show → 409 SHOW_ARCHIVED_IMMUTABLE, no Drive fetch / no sync", async () => {
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    tx.archived = true;
+    const routeDeps = deps(tx);
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "SHOW_ARCHIVED_IMMUTABLE" });
+    expect(routeDeps.fetchDriveFileMetadata).not.toHaveBeenCalled();
+    expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
+  });
+
+  test("DEF-5: discard refuses an archived show → 409 SHOW_ARCHIVED_IMMUTABLE, no deferral / no delete", async () => {
+    const tx = new FakeLivePendingTx();
+    tx.archived = true;
+    const routeDeps = deps(tx);
+
+    const response = await handleLivePendingIngestionDiscard(
+      req({ kind: "permanent_ignore" }),
+      context,
+      routeDeps,
+    );
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "SHOW_ARCHIVED_IMMUTABLE" });
+    expect(tx.deferrals).toHaveLength(0);
+    expect(tx.deleted).toBe(false);
   });
 
   test("retry first-seen branch maps prepare failures to DRIVE_FETCH_FAILED", async () => {

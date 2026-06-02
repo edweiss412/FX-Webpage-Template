@@ -232,10 +232,19 @@ const baseArgs = {
   binding: { bindingToken: "token-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
 };
 
-async function runWith(tx: FakePhase1Tx, next: ParseResult, overrides = {}) {
+type FlagResult = { kind: "value"; autoPublish: boolean } | { kind: "infra_error" };
+async function runWith(
+  tx: FakePhase1Tx,
+  next: ParseResult,
+  overrides = {},
+  deps: { getAutoPublishCleanFirstSeen?: () => Promise<FlagResult> } = {
+    // Default the auto-publish flag ON so existing first-seen tests stay hermetic (no real DB read).
+    getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: true }),
+  },
+) {
   vi.resetModules();
   const { runPhase1 } = await import("@/lib/sync/phase1");
-  return runPhase1(tx, { ...baseArgs, parseResult: next, ...overrides });
+  return runPhase1(tx, { ...baseArgs, parseResult: next, ...overrides }, deps);
 }
 
 describe("runPhase1 routing and writes", () => {
@@ -336,6 +345,45 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.pendingSyncs[0]?.triggeredReviewItems).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" })]),
     );
+  });
+
+  test("Task 4.2: auto-publish OFF stages a CLEAN first-seen as FIRST_SEEN_REVIEW (not auto_publish_ready)", async () => {
+    const tx = new FakePhase1Tx();
+    const result = await runWith(tx, parseResult(), {}, {
+      getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }),
+    });
+    expect(result.outcome).toBe("stage");
+    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual([
+      expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" }),
+    ]);
+  });
+
+  test("Task 4.2: auto-publish OFF + MI-tripped first-seen stages the MI sentinel ONLY, no FIRST_SEEN_REVIEW", async () => {
+    const tx = new FakePhase1Tx();
+    const result = await runWith(
+      tx,
+      parseResult({
+        warnings: [
+          { severity: "warn", code: "DIAGRAMS_EMBEDDED_NONE_FOUND", message: "No embedded diagrams were found." },
+        ],
+      }),
+      {},
+      { getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }) },
+    );
+    expect(result.outcome).toBe("stage");
+    expect(tx.pendingSyncs[0]?.triggeredReviewItems).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" })]),
+    );
+  });
+
+  test("Task 4.2: a flag-read infra_error does NOT auto-publish — it throws (sync is retried)", async () => {
+    const tx = new FakePhase1Tx();
+    await expect(
+      runWith(tx, parseResult(), {}, {
+        getAutoPublishCleanFirstSeen: async () => ({ kind: "infra_error" }),
+      }),
+    ).rejects.toThrow(/Phase1InfraError|getAutoPublishCleanFirstSeen|flag read failed/);
+    expect(tx.pendingSyncs).toEqual([]); // no stage, no auto-publish
   });
 
   test("warningSummary renders human messages, never raw parser codes (no-raw-error-codes invariant 5)", async () => {

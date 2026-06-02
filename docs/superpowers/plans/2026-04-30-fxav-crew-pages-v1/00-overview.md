@@ -22,7 +22,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with eleven ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with twelve ratified plan amendments AND two ratified spec amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified spec amendments (in `docs/superpowers/specs/master-spec-patches/`):**
    - **§12.4 AGENDA_* crew-facing catalog rows** _(2026-05-12, ratified at SHA `ac905da` after R1–R4 cross-CLI review; integrated into spec body by Task 9.0.A1)_. Adds `AGENDA_GONE_FOR_CREW` (410/403) and `AGENDA_UNAUTHENTICATED` (401) crew-only display codes covering the `AgendaPdfViewer` proxy's error states. See `docs/superpowers/specs/master-spec-patches/2026-05-12-catalog-agenda-codes.md`. M7-D2 (`components/agenda/AgendaPdfViewer.tsx` routing to these codes) is the consumer; Task 9.M7-D2's TDD checklist owns the exhaustive status→code coverage.
@@ -291,6 +291,21 @@
        → **B3** (email-delivery subsystem). B1 adds **no DB writes** (settings is read-only health + the existing
        allowlist RPCs); its only DB-adjacent change is the §12.4 `ADMIN_EMAIL_LIST_FAILED` `helpfulContext` edit
        (surface-neutral copy for the embedded admin-list, three-lockstep).
+
+   12. **Spec §5.2 / amendment 9 / §16 — M12.2 Phase B2 show lifecycle** _(RATIFIED 2026-06-01)_
+       _(third sub-phase of the owner's "Milestone B"; spec `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md`.
+       **Status: RATIFIED — cross-model adversarial review APPROVED (Codex, 31 rounds, 2026-06-01) and the owner signed off
+       2026-06-01; this amendment is authoritative and supersedes master spec §5.2 / amendment 9 / §16 on the surfaces below.**)_. B2 makes amendment 9's clean-first-seen
+       auto-publish **conditional on `app_settings.auto_publish_clean_first_seen` (default `true` = current behavior)**
+       and, as the inverse, **re-enables emission of the `FIRST_SEEN_REVIEW` sentinel** (which amendment 9 retired)
+       when the toggle is OFF — across BOTH first-seen auto-publish entry points (the cron/push `phase1` **post-`reviewItems`
+       clean outcome branch**, NOT `sentinelFor`, AND `runManualStageForFirstSeen` manual retry). B2 also adds the **archive/unarchive/publish lifecycle** (new `Held`
+       state), the **segmented Active/Archived dashboard bucket**, and **five archived-immutability guards** (spec §16
+       DEF-1/2/3 + DEF-4 cron/push/missing-file + DEF-5 pending-ingestion retry/discard routes). DB changes: three columns
+       (`app_settings.auto_publish_clean_first_seen`, `shows.archived_at`, `shows.requires_resync`), three lifecycle RPCs
+       (`archive_show`/`unarchive_show`/`publish_show`) + two lockless cores (`_archive_show_core`, `_publish_show_core`),
+       a legacy-archived-row token-rotation backfill, and 7 new §12.4 codes. When this
+       amendment is RATIFIED, update line 25's count and flip this entry's status (mirroring amendment 11).
 
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
 3. **Commit per task.** Commit messages take the form `feat(<area>): <one-line summary>` or `test(<area>): ...` — area names are `parser`, `db`, `sync`, `auth`, `crew-page`, `admin`, `report`, `onboarding`, `assets`, `infra`.

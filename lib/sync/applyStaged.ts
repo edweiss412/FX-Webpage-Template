@@ -5,6 +5,7 @@ import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { asParseResult, JsonbCoercionError } from "@/lib/db/coerceJsonbObject";
 import {
   assertShowLockHeld,
@@ -25,6 +26,7 @@ import {
   STAGED_PARSE_REVISION_RACE,
   type SyncPipelineTx,
   withPostgresSyncPipelineLock,
+  emitSuccessfulPhase2Tail,
 } from "@/lib/sync/runScheduledCronSync";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
@@ -223,7 +225,8 @@ export type ApplyStagedResult =
   | { outcome: "wizard_applied"; wizardSessionId: string; stagedId: string }
   | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED }
   | { outcome: "review_items_corrupt"; code: typeof STAGED_REVIEW_ITEMS_CORRUPT }
-  | { outcome: "parse_result_corrupt"; code: typeof STAGED_PARSE_RESULT_CORRUPT };
+  | { outcome: "parse_result_corrupt"; code: typeof STAGED_PARSE_RESULT_CORRUPT }
+  | { outcome: "blocked"; code: typeof SHOW_ARCHIVED_IMMUTABLE };
 
 export type ApplyStagedDeps = {
   readLivePendingSyncForApply?: (
@@ -277,6 +280,14 @@ export type ApplyStagedDeps = {
   ) => Promise<VerifyReelOnApplyResult>;
   withPipelineLock?: PipelineLock;
   runPhase2?: (tx: LockedShowTx<SyncPipelineTx>, args: Phase2Args) => Promise<Phase2Result>;
+  // Task 4.4: applying a FIRST_SEEN_REVIEW staged row (auto-publish was OFF) must reach first-published
+  // parity with the auto-publish-ON path — mint the 24h unpublish token + emit SHOW_FIRST_PUBLISHED via
+  // the shared emitSuccessfulPhase2Tail chokepoint. Injectable for testing; broad-typed tail deps so the
+  // SHOW_FIRST_PUBLISHED alert code is accepted (applyStaged's own upsertAdminAlert is a narrower union).
+  emitSuccessfulPhase2Tail?: typeof emitSuccessfulPhase2Tail;
+  firstPublishedTailDeps?: Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"];
+  createUnpublishToken?: () => string;
+  now?: () => Date;
   insertSyncAudit?: (
     tx: LockedShowTx<SyncPipelineTx>,
     row: {
@@ -1005,11 +1016,18 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   | "retryEmbeddedRevisionAvailability"
   | "verifyReelOnApply"
   | "runOnboardingScan"
+  | "emitSuccessfulPhase2Tail"
+  | "createUnpublishToken"
+  | "now"
 > & {
   wizardDriveReverify?: WizardDriveReverify;
   liveDriveReverify?: LiveDriveReverify;
   liveAssetReviewEffects?: LiveAssetReviewEffects;
   withPipelineLock?: PipelineLock;
+  // Optional (test-injectable). When absent, the FIRST_SEEN_REVIEW tail binds the tx-bound
+  // upsertAdminAlert (tx.upsertAdminAlert) so the SHOW_FIRST_PUBLISHED alert is written in the SAME
+  // transaction as the new show (the standalone service-role writer would FK-fail on the uncommitted show).
+  firstPublishedTailDeps?: Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"];
 };
 
 function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
@@ -1041,6 +1059,12 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
     verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
     runOnboardingScan: deps.runOnboardingScan ?? runOnboardingScan,
+    emitSuccessfulPhase2Tail: deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail,
+    createUnpublishToken: deps.createUnpublishToken ?? randomUUID,
+    now: deps.now ?? (() => new Date()),
+    // firstPublishedTailDeps is intentionally NOT defaulted here (no tx in scope) — the call site binds
+    // the tx-bound upsertAdminAlert when it is absent (adversarial R3 fix).
+    ...(deps.firstPublishedTailDeps ? { firstPublishedTailDeps: deps.firstPublishedTailDeps } : {}),
     ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
     ...(deps.liveDriveReverify ? { liveDriveReverify: deps.liveDriveReverify } : {}),
     ...(deps.liveAssetReviewEffects ? { liveAssetReviewEffects: deps.liveAssetReviewEffects } : {}),
@@ -1185,6 +1209,11 @@ export async function applyStaged_unlocked(
 ): Promise<ApplyStagedResult> {
   await assertShowLockHeld(tx, args.driveFileId);
 
+  // DEF-2: refuse mutation of an archived show (re-read under the held lock) before any consumption.
+  if (await readShowArchived_unlocked(tx, args.driveFileId)) {
+    return { outcome: "blocked", code: SHOW_ARCHIVED_IMMUTABLE };
+  }
+
   const deps = depsWithDefaults(injectedDeps);
   if (args.sourceScope === "wizard") {
     const pending = await deps.readWizardPendingSyncForApply(
@@ -1321,6 +1350,24 @@ export async function applyStaged_unlocked(
           tx as Parameters<typeof makeSnapshotAssetsForApply>[1],
         )
       : undefined;
+
+  // Task 4.4 / adversarial R2 fix: a FIRST_SEEN_REVIEW apply (first-seen, no pre-existing show) IS the
+  // approval-to-publish. Build the 24h unpublish token ONCE here and thread the SAME object into BOTH
+  // runPhase2 (so applyShowSnapshot PERSISTS shows.unpublish_token / _expires_at — the only persistence
+  // path) AND emitSuccessfulPhase2Tail below (so the SHOW_FIRST_PUBLISHED notice carries the matching
+  // token). Passing it only to the tail emails a rollback link that unpublishShow can't honor (null token).
+  const isFirstSeenReviewApply =
+    show === null &&
+    pending.triggeredReviewItems.some((item) => item.invariant === "FIRST_SEEN_REVIEW");
+  const autoPublishFirstSeen = isFirstSeenReviewApply
+    ? {
+        unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
+        unpublishTokenExpiresAt: new Date(
+          (deps.now ?? (() => new Date()))().getTime() + 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      }
+    : undefined;
+
   const phase2 = await deps.runPhase2(tx, {
     driveFileId: pending.driveFileId,
     mode: "manual",
@@ -1328,6 +1375,7 @@ export async function applyStaged_unlocked(
     parseResult: assetAdjusted.parseResult,
     skipDiagramsWrite: assetAdjusted.skipDiagramsWrite,
     ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
+    ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
     verifyReelOnApply: false,
     binding: {
       bindingToken: pending.stagedModifiedTime,
@@ -1364,6 +1412,35 @@ export async function applyStaged_unlocked(
   };
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
+
+  // Task 4.4: emit SHOW_FIRST_PUBLISHED + reach first-published parity through the shared tail, using the
+  // SAME autoPublishFirstSeen token that runPhase2 just PERSISTED to shows.unpublish_token above — so the
+  // emailed rollback link and the stored token match (no token-without-persistence).
+  if (autoPublishFirstSeen) {
+    const tail = deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail;
+    await tail({
+      tx,
+      result: { outcome: "applied", showId: phase2.showId },
+      // R3 fix: write SHOW_FIRST_PUBLISHED through THIS apply tx (via tx.queryOne → upsert_admin_alert
+      // RPC) so the alert lands in the SAME transaction as the just-created show. The standalone
+      // service-role writer runs on a separate connection and FK-fails on the uncommitted shows.id
+      // (admin_alerts.show_id → shows.id), rolling back the whole approval. Pass the context object RAW
+      // ($3::jsonb — postgres.js serializes it once; JSON.stringify would double-encode).
+      deps: deps.firstPublishedTailDeps ?? {
+        upsertAdminAlert: async (input) => {
+          const row = await tx.queryOne<{ id: string } | null>(
+            "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
+            [input.showId, input.code, input.context],
+          );
+          return row?.id ?? null;
+        },
+      },
+      driveFileId: pending.driveFileId,
+      fileMeta: metadata,
+      parseResult: assetAdjusted.parseResult,
+      autoPublishFirstSeen,
+    });
+  }
   return applied;
 }
 
