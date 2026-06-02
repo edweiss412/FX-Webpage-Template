@@ -1912,8 +1912,22 @@ export async function processOneFile(
     if (prepared.result.reason === ARCHIVED_SKIP_REASON) {
       return prepared.result;
     }
-    await logSync(deps, driveFileId, prepared.result, prepared.payload);
-    return prepared.result;
+    // R10 DEF-4 TOCTOU: prepareProcessOneFile read the gate (incl. archived) BEFORE the per-show lock.
+    // An Archive may have committed since. Re-read archived UNDER the lock before writing the non-archived
+    // skip log (watermark / deferred_modtime / deferred_permanent): archive_show takes the SAME advisory
+    // lock, so the re-read+log is authoritative. If the show became archived in the gap, skip SILENTLY —
+    // no sync_log. Shared by cron / push / manual (all route their apply through processOneFile). If the
+    // lock is contended (ConcurrentSyncSkipped), another sync is processing the file; return the skip
+    // without logging (it will log its own outcome).
+    const lock = deps.withShowLock ?? withPostgresSyncPipelineLock;
+    const logged = await lock(driveFileId, async (lockedTx) => {
+      if (await readShowArchived_unlocked(lockedTx, driveFileId)) {
+        return { outcome: "skipped" as const, reason: ARCHIVED_SKIP_REASON };
+      }
+      await logSync(deps, driveFileId, prepared.result, prepared.payload);
+      return prepared.result;
+    });
+    return "skipped" in logged ? prepared.result : logged;
   }
 
   const lock = deps.withShowLock ?? withPostgresSyncPipelineLock;
