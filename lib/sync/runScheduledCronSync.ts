@@ -187,7 +187,7 @@ type CronRecoveryTx = SyncPipelineTx & {
   markShowDriveError(
     driveFileId: string,
     code: string,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
   insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
@@ -707,20 +707,25 @@ class PostgresPipelineTx implements SyncPipelineTx {
   }
 
   async markShowDriveError(driveFileId: string, code: string) {
-    const row = await this.one<{ id: string; last_seen_modified_time: string | null }>(
+    const row = await this.one<{
+      id: string;
+      last_seen_modified_time: string | null;
+      title: string | null;
+    }>(
       `
         update public.shows
            set last_sync_status = 'drive_error',
                last_sync_error = $2,
                last_synced_at = now()
          where drive_file_id = $1
-         returning id, last_seen_modified_time
+         returning id, last_seen_modified_time, title
       `,
       [driveFileId, code],
     );
     return {
       showId: row?.id ?? null,
       lastSeenModifiedTime: row?.last_seen_modified_time ?? null,
+      title: row?.title ?? null,
     };
   }
 
@@ -1880,6 +1885,19 @@ async function handleFetchFailure_unlocked(
           // title in its RETURNING. The narrowing below picks up `title`
           // off the markShowSheetUnavailable branch's union member.
           sheet_name: "title" in updated ? updated.title : null,
+        },
+      });
+    } else {
+      // B3 §4.1: show-level DRIVE_FETCH_FAILED producer. Realtime email
+      // consumes admin_alerts, while `code` here is the raw drive failure.
+      await recoveryTx.upsertAdminAlert({
+        showId,
+        code: "DRIVE_FETCH_FAILED",
+        context: {
+          drive_file_id: driveFileId,
+          failure_code: code,
+          previous_last_seen_modified_time: previousLastSeenModifiedTime,
+          sheet_name: updated.title,
         },
       });
     }

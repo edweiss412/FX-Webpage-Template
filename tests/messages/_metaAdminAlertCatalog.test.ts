@@ -70,6 +70,7 @@ const ADMIN_ALERTS_CODES = [
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE", // M6 asset recovery alert
   "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
   "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
+  "DRIVE_FETCH_FAILED", //            B3 cron drive_error recovery
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
   "SHOW_FIRST_PUBLISHED", //          M6.5 first-seen auto-publish confirmation
   "SHOW_UNPUBLISHED", //              M6.5 unpublish undo confirmation
@@ -155,6 +156,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   ROLE_FLAGS_NOTICE: {
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(result\.roleFlagsNotice\)/,
+  },
+  DRIVE_FETCH_FAILED: {
+    path: "lib/sync/runScheduledCronSync.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"DRIVE_FETCH_FAILED"/,
   },
   SHEET_UNAVAILABLE: {
     path: "lib/sync/runScheduledCronSync.ts",
