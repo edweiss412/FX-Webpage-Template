@@ -1017,7 +1017,6 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   | "verifyReelOnApply"
   | "runOnboardingScan"
   | "emitSuccessfulPhase2Tail"
-  | "firstPublishedTailDeps"
   | "createUnpublishToken"
   | "now"
 > & {
@@ -1025,6 +1024,10 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   liveDriveReverify?: LiveDriveReverify;
   liveAssetReviewEffects?: LiveAssetReviewEffects;
   withPipelineLock?: PipelineLock;
+  // Optional (test-injectable). When absent, the FIRST_SEEN_REVIEW tail binds the tx-bound
+  // upsertAdminAlert (tx.upsertAdminAlert) so the SHOW_FIRST_PUBLISHED alert is written in the SAME
+  // transaction as the new show (the standalone service-role writer would FK-fail on the uncommitted show).
+  firstPublishedTailDeps?: Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"];
 };
 
 function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
@@ -1057,9 +1060,11 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
     verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
     runOnboardingScan: deps.runOnboardingScan ?? runOnboardingScan,
     emitSuccessfulPhase2Tail: deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail,
-    firstPublishedTailDeps: deps.firstPublishedTailDeps ?? { upsertAdminAlert: defaultUpsertAdminAlert },
     createUnpublishToken: deps.createUnpublishToken ?? randomUUID,
     now: deps.now ?? (() => new Date()),
+    // firstPublishedTailDeps is intentionally NOT defaulted here (no tx in scope) — the call site binds
+    // the tx-bound upsertAdminAlert when it is absent (adversarial R3 fix).
+    ...(deps.firstPublishedTailDeps ? { firstPublishedTailDeps: deps.firstPublishedTailDeps } : {}),
     ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
     ...(deps.liveDriveReverify ? { liveDriveReverify: deps.liveDriveReverify } : {}),
     ...(deps.liveAssetReviewEffects ? { liveAssetReviewEffects: deps.liveAssetReviewEffects } : {}),
@@ -1416,7 +1421,20 @@ export async function applyStaged_unlocked(
     await tail({
       tx,
       result: { outcome: "applied", showId: phase2.showId },
-      deps: deps.firstPublishedTailDeps ?? { upsertAdminAlert: defaultUpsertAdminAlert },
+      // R3 fix: write SHOW_FIRST_PUBLISHED through THIS apply tx (via tx.queryOne → upsert_admin_alert
+      // RPC) so the alert lands in the SAME transaction as the just-created show. The standalone
+      // service-role writer runs on a separate connection and FK-fails on the uncommitted shows.id
+      // (admin_alerts.show_id → shows.id), rolling back the whole approval. Pass the context object RAW
+      // ($3::jsonb — postgres.js serializes it once; JSON.stringify would double-encode).
+      deps: deps.firstPublishedTailDeps ?? {
+        upsertAdminAlert: async (input) => {
+          const row = await tx.queryOne<{ id: string } | null>(
+            "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
+            [input.showId, input.code, input.context],
+          );
+          return row?.id ?? null;
+        },
+      },
       driveFileId: pending.driveFileId,
       fileMeta: metadata,
       parseResult: assetAdjusted.parseResult,

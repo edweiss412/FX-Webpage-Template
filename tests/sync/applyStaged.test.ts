@@ -112,6 +112,7 @@ function fakeTx(held = true): FakeTx {
       this.queryOneCalls.push({ sql, params });
       if (/pg_locks/i.test(sql)) return { held: this.held } as T;
       if (/select archived from public\.shows/i.test(sql)) return { archived: false } as T; // DEF-2 guard probe
+      if (/upsert_admin_alert/i.test(sql)) return { id: "alert-row-1" } as T; // first-published tx-bound alert writer
       throw new Error(`unexpected SQL in fakeTx: ${sql}`);
     },
     async readShowForPhase1() {
@@ -379,6 +380,60 @@ describe("applyStaged live-scope", () => {
         autoPublishFirstSeen: tokenPayload,
       }),
     );
+  });
+
+  test("Task 4.4 R3 negative-regression: the DEFAULT first-published alert writer is TX-BOUND (tx.queryOne → upsert_admin_alert), never the standalone service-role client", async () => {
+    // R3 (adversarial, HIGH): the first-seen auto-publish tail wrote SHOW_FIRST_PUBLISHED through the
+    // standalone service-role client — a SEPARATE DB connection that cannot see the apply tx's
+    // just-created, uncommitted show, so admin_alerts.show_id → shows.id FK-fails and rolls back the
+    // whole approval (proven against the real DB in tests/db/b2-first-published-alert-tx-boundary.test.ts).
+    // This pins the FIX's wiring: with firstPublishedTailDeps NOT injected, applyStaged must default the
+    // tail's upsertAdminAlert to a writer that runs on THIS apply tx (tx.queryOne), so the alert lands in
+    // the same transaction as the show. Reverting the call site to defaultUpsertAdminAlert makes the
+    // tx.queryOne(upsert_admin_alert) call vanish and fails this test.
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    // The REAL emitSuccessfulPhase2Tail runs (NOT injected) — its only working dep is upsertAdminAlert
+    // (publishShowInvalidation/logSync are optional `?.`), so it reaches emitFirstPublishedNotice →
+    // args.deps.upsertAdminAlert, which here is applyStaged's DEFAULT tx-bound writer.
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }], baseModifiedTime: null }),
+      ),
+      readShowForApply: vi.fn(async () => null),
+      liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new" })),
+      createUnpublishToken: () => "tok-1",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      // emitSuccessfulPhase2Tail + firstPublishedTailDeps intentionally NOT injected → exercises BOTH the
+      // real tail→writer linkage AND applyStaged's default tx-bound writer (the actual production path).
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "fs-1", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    const alertCall = tx.queryOneCalls.find((c) => /upsert_admin_alert/i.test(c.sql));
+    expect(alertCall, "default first-published writer must route through tx.queryOne(upsert_admin_alert)").toBeDefined();
+    // Exact production statement (same as tests/db/b2-first-published-alert-tx-boundary.test.ts).
+    expect(alertCall!.sql).toBe("select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id");
+    expect(alertCall!.params[0]).toBe("show-new");
+    expect(alertCall!.params[1]).toBe("SHOW_FIRST_PUBLISHED");
+    // Context passed RAW as an object (NOT JSON.stringify'd): postgres.js serializes the $3::jsonb param
+    // once; pre-stringifying would double-encode to a jsonb string scalar. A string here = the bug.
+    const ctx = alertCall!.params[2];
+    expect(typeof ctx).toBe("object");
+    expect(ctx).toMatchObject({
+      drive_file_id: "drive-file-1",
+      unpublish_token: "tok-1", // the SAME token runPhase2 persisted to shows.unpublish_token
+    });
   });
 
   test("Task 4.4 negative-regression: a normal apply (no FIRST_SEEN_REVIEW) does NOT call emitSuccessfulPhase2Tail", async () => {
