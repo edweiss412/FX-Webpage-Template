@@ -26,6 +26,7 @@ import {
 } from "@/lib/sync/enrichWithDrivePins";
 import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
+import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
 import {
   assertShowLockHeld,
   CONCURRENT_SYNC_SKIPPED,
@@ -121,6 +122,33 @@ export type SyncPipelineTx = LockableSyncTx &
   Partial<SnapshotApplyTx> &
   Partial<RevisionRaceCooldownTx> &
   Partial<LiveDeferralTx>;
+
+export function syncProblemCodeForStatus(status: string | null | undefined): SyncProblemCode | null {
+  if (status === "drive_error") return "DRIVE_FETCH_FAILED";
+  if (status === "parse_error") return "PARSE_ERROR_LAST_GOOD";
+  if (status === "sheet_unavailable") return "SHEET_UNAVAILABLE";
+  return null;
+}
+
+export async function resolveStaleSyncProblemAlerts_unlocked(
+  tx: Pick<SyncPipelineTx, "queryOne">,
+  showId: string | null | undefined,
+  currentCode: SyncProblemCode | null,
+): Promise<void> {
+  if (!showId) return;
+  await tx.queryOne<{ resolved: true } | undefined>(
+    `
+      update public.admin_alerts a
+         set resolved_at = now()
+       where a.show_id = $1::uuid
+         and a.resolved_at is null
+         and a.code = any($2::text[])
+         and a.code <> coalesce($3::text, '')
+       returning true as resolved
+    `,
+    [showId, [...SYNC_PROBLEM_CODES], currentCode],
+  );
+}
 
 export type ProcessOneFileResult =
   | { outcome: "skipped"; reason: string }
@@ -1831,6 +1859,11 @@ async function markMissingShow_unlocked(
       sheet_name: show.title,
     },
   });
+  await resolveStaleSyncProblemAlerts_unlocked(
+    tx,
+    showId,
+    syncProblemCodeForStatus("sheet_unavailable"),
+  );
   return { outcome: "source_gone", code: SHEET_UNAVAILABLE };
 }
 
@@ -1902,6 +1935,11 @@ async function handleFetchFailure_unlocked(
         },
       });
     }
+    await resolveStaleSyncProblemAlerts_unlocked(
+      tx,
+      showId,
+      syncProblemCodeForStatus(code === STAGED_PARSE_SOURCE_GONE ? "sheet_unavailable" : "drive_error"),
+    );
     return result;
   }
 
@@ -2255,6 +2293,11 @@ export async function processOneFile_unlocked(
           sheet_name: show.priorParseResult.show.title,
         },
       });
+      await resolveStaleSyncProblemAlerts_unlocked(
+        tx,
+        show.showId,
+        syncProblemCodeForStatus("parse_error"),
+      );
     }
     return result;
   }
@@ -2332,6 +2375,7 @@ export async function processOneFile_unlocked(
     parseResult: pipeline.parseResult,
     autoPublishFirstSeen,
   });
+  await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
   return result;
 }
 

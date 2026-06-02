@@ -16,6 +16,8 @@ import {
   SHEET_UNAVAILABLE,
   STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
+  resolveStaleSyncProblemAlerts_unlocked,
+  syncProblemCodeForStatus,
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
 import type { SyncMode } from "@/lib/sync/perFileProcessor";
@@ -180,6 +182,11 @@ async function markManualSheetUnavailable_unlocked(
       sheet_name: updated.title,
     },
   });
+  await resolveStaleSyncProblemAlerts_unlocked(
+    tx,
+    showId,
+    syncProblemCodeForStatus("sheet_unavailable"),
+  );
 
   return { outcome: "source_gone", code };
 }
@@ -218,6 +225,11 @@ async function markManualDriveError_unlocked(
       sheet_name: updated.title,
     },
   });
+  await resolveStaleSyncProblemAlerts_unlocked(
+    tx,
+    updated.showId,
+    syncProblemCodeForStatus("drive_error"),
+  );
   return { outcome: "parse_error", code: SYNC_INFRA_ERROR };
 }
 
@@ -236,6 +248,11 @@ async function emitManualParseErrorAlert_unlocked(
       sheet_name: show.priorParseResult.show.title,
     },
   });
+  await resolveStaleSyncProblemAlerts_unlocked(
+    tx,
+    show.showId,
+    syncProblemCodeForStatus("parse_error"),
+  );
 }
 
 export async function runManualSyncForShow_unlocked(
@@ -379,6 +396,7 @@ export async function runManualSyncForShow(
             "update public.shows set requires_resync = false where drive_file_id = $1 returning true as cleared",
             [driveFileId],
           );
+          await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
         }
         if ("outcome" in result && result.outcome === "hard_fail") {
           await emitManualParseErrorAlert_unlocked(tx, driveFileId);
