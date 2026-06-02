@@ -15,16 +15,26 @@ import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import { ARCHIVED_SKIP_REASON } from "@/lib/sync/lifecycleGuards";
 
 async function readShowArchivedForPush(driveFileId: string): Promise<boolean> {
-  const supabase = createSupabaseServiceRoleClient();
-  const { data, error } = await supabase
-    .from("shows")
-    .select("archived")
-    .eq("drive_file_id", driveFileId)
-    .maybeSingle();
-  if (error) {
-    throw new SyncInfraError("readShowArchivedForPush", "returned_error", error);
+  // Supabase call-boundary discipline (AGENTS.md invariant 9): map BOTH the returned `{ error }` AND
+  // synchronous throws (client construction, `.from()`, network) to SyncInfraError. Without the catch, a
+  // Supabase outage in this preflight would escape as a plain Error and the webhook catch path — which
+  // classifies ONLY SyncInfraError as infra — would log it as a per-file sync failure, hiding the outage.
+  // Mirrors the sibling readPushDuplicatePreflight (returned_error + thrown_error).
+  try {
+    const supabase = createSupabaseServiceRoleClient();
+    const { data, error } = await supabase
+      .from("shows")
+      .select("archived")
+      .eq("drive_file_id", driveFileId)
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readShowArchivedForPush", "returned_error", error);
+    }
+    return Boolean((data as { archived: boolean | null } | null)?.archived);
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readShowArchivedForPush", "thrown_error", cause);
   }
-  return Boolean((data as { archived: boolean | null } | null)?.archived);
 }
 
 type PushDuplicatePreflightResult =

@@ -59,6 +59,12 @@ const infraRegistry = [
     contract: "shared processOneFile infra faults propagate",
   },
   {
+    helper: "readShowArchivedForPush",
+    path: "lib/sync/runPushSyncForShow.ts",
+    contract:
+      "push DEF-4 archived preflight: returned AND thrown Supabase faults (construction/from) become SyncInfraError, never a per-file failure",
+  },
+  {
     helper: "handleDriveWebhook",
     path: "app/api/drive/webhook/route.ts",
     contract: "webhook transaction-port faults become DriveWebhookInfraError",
@@ -355,6 +361,15 @@ async function importWatchedFolderHelper() {
   return import("@/lib/appSettings/getWatchedFolderId");
 }
 
+async function importPushSync() {
+  vi.resetModules();
+  const mod = await import("@/lib/sync/runPushSyncForShow");
+  // Same module-registry instance (no reset in between) so the SyncInfraError class identity matches
+  // the one runPushSyncForShow throws.
+  const { SyncInfraError } = await import("@/lib/sync/perFileProcessor");
+  return { runPushSyncForShow: mod.runPushSyncForShow, SyncInfraError };
+}
+
 beforeEach(() => {
   infraMock.throwOnConstruct = false;
   infraMock.throwOnFrom = false;
@@ -388,6 +403,23 @@ describe("sync Supabase infra-failure contract", () => {
       await expect(perFileProcessor("file-1", "cron", fileMeta())).rejects.toBeInstanceOf(
         SyncInfraError,
       );
+    });
+  });
+
+  describe("readShowArchivedForPush (push DEF-4 archived preflight)", () => {
+    // R6 regression: runPushSyncForShow runs the archived preflight BEFORE any Drive fetch; a Supabase
+    // outage there must surface as SyncInfraError (→ SYNC_INFRA_ERROR at the webhook), NOT a per-file
+    // failure that hides the dependency outage. Pre-fix the helper only mapped the returned {error}.
+    test("service-role construction throw → SyncInfraError (not a per-file failure)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { runPushSyncForShow, SyncInfraError } = await importPushSync();
+      await expect(runPushSyncForShow("file-1")).rejects.toBeInstanceOf(SyncInfraError);
+    });
+
+    test("Supabase .from() throw → SyncInfraError (not a per-file failure)", async () => {
+      infraMock.throwOnFrom = true;
+      const { runPushSyncForShow, SyncInfraError } = await importPushSync();
+      await expect(runPushSyncForShow("file-1")).rejects.toBeInstanceOf(SyncInfraError);
     });
   });
 
