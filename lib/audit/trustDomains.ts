@@ -93,6 +93,7 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/cron/diagram-gc/route.ts", chain: "cron" },
   { path: "app/api/cron/gc-watch/route.ts", chain: "cron" },
   { path: "app/api/cron/keepalive/route.ts", chain: "cron" },
+  { path: "app/api/cron/notify/route.ts", chain: "cron" },
   { path: "app/api/cron/refresh-watch/route.ts", chain: "cron" },
   { path: "app/api/cron/report-reaper/route.ts", chain: "cron" },
   { path: "app/api/cron/sync/route.ts", chain: "cron" },
