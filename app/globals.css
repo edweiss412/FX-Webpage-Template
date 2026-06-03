@@ -436,3 +436,36 @@ body {
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+
+/* M12.2 RECON-1 — admin AlertBanner disclosure (spec §6 + §3.3). */
+
+/* CLOSED-PANEL HIDE (F-P21 — NOT progressive enhancement; load-bearing).
+   The panel is a SECTION-level SIBLING of <details> (it follows <details> in
+   source order), not a child — it lives outside <details> so its col-span-full
+   grid span is honored (a grid item reaching the grid through a
+   display:contents <details> collapses to column 1 — the F18 defect). Because
+   the panel is no longer a descendant of <details>, the UA
+   `details:not([open]) > *` hide rule never applied to it; this general-sibling
+   rule hides it when the disclosure is closed. Pure CSS — no-JS reachable. */
+[data-testid="admin-alert-banner"] details:not([open]) ~ [data-testid="admin-alert-panel"] { display: none; }
+
+/* The rest below is progressive enhancement only; native <details> works without it. */
+/* Arrow swap ⌄/⌃ */
+[data-testid="admin-alert-banner"] summary .caret::after { content: " ⌄"; }
+[data-testid="admin-alert-banner"] details[open] summary .caret::after { content: " ⌃"; }
+/* Visible LABEL swap Details→Hide (CSS-driven off native details[open]; the
+   display:none span is also out of the a11y tree). */
+[data-testid="admin-alert-banner"] .caret .lbl-open { display: none; }
+[data-testid="admin-alert-banner"] details[open] .caret .lbl-closed { display: none; }
+[data-testid="admin-alert-banner"] details[open] .caret .lbl-open { display: inline; }
+
+/* Height-morph the panel open/close. interpolate-size lets height animate
+   to/from auto; falls back to instant where unsupported. Honors reduced
+   motion via --duration-fast (already 0ms under the reduced-motion block). */
+@supports (interpolate-size: allow-keywords) {
+  :root { interpolate-size: allow-keywords; }
+  [data-testid="admin-alert-panel"] {
+    overflow: hidden;
+    transition: height var(--duration-fast) ease-out, content-visibility var(--duration-fast) allow-discrete;
+  }
+}

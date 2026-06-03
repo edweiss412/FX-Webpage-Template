@@ -86,4 +86,24 @@ describe("AlertBanner detail-read fail-visible (Task 1.3)", () => {
     const degraded = getByTestId("admin-alert-banner-degraded");
     expect(degraded.textContent).toContain(getRequiredDougFacing("ADMIN_ALERT_COUNT_FAILED"));
   });
+
+  it("degraded variant renders the calm STRIP row (icon, no loud paragraph), still fail-visible", async () => {
+    // force detailFailed (detail SELECT returns an error)
+    mockState.detailReturnedError = true;
+    const { AlertBanner } = await import("@/components/admin/AlertBanner");
+    const ui = await AlertBanner();
+    const { container } = render(ui);
+    const el = container.querySelector("[data-testid=admin-alert-banner-degraded]")!;
+    expect(el).not.toBeNull();
+    // RECON-1 T4: the calm strip adds a leading icon and a flex row, and drops
+    // the old loud `<p class="text-base font-medium">` paragraph:
+    expect(el.querySelector("[data-testid=admin-alert-degraded-icon]")).not.toBeNull(); // new strip icon
+    expect(el.querySelector(".text-base.font-medium")).toBeNull(); // old loud paragraph gone
+    expect(el.className).toMatch(/\bflex\b/); // strip row layout
+    // preserved fail-visible contract (unchanged):
+    expect(el.querySelector("details")).toBeNull();
+    expect(el.querySelector("form")).toBeNull();
+    expect(el.textContent).toContain(getRequiredDougFacing("ADMIN_ALERT_COUNT_FAILED"));
+    expect(el.querySelector("a[href='/admin#alerts']")).not.toBeNull();
+  });
 });

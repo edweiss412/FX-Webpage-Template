@@ -29,13 +29,55 @@ import { cleanup, render } from "@testing-library/react";
 import { AlertBanner } from "@/components/admin/AlertBanner";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
-// Phase G.3 mounts <HelpAffordance> (a Client Component using usePathname)
-// inside AlertBanner. Mock as the non-admin "/" so existing assertions on
-// banner contents remain stable; Learn-more emission is gated out.
+// RECON-1 T3: <AlertBanner> now wraps its normal-state render in
+// <AlertBannerRouteBoundary> (a 'use client' island that reads BOTH
+// usePathname() AND useSearchParams()), and Phase G.3's <HelpAffordance>
+// (also a Client Component) uses usePathname(). vi.mock is HOISTED above
+// imports, so its factory must NOT close over plain module-scope `let`s
+// (they read as undefined at hoist time). Use the vi.hoisted pattern (the
+// repo convention, cf. tests/components/admin/AlertBannerRouteBoundary.test.tsx
+// + tests/components/admin/nav/transitionAudit.test.ts). Keep the default
+// route non-admin ("/") so the existing HelpAffordance Learn-more emission
+// stays gated out and pre-T3 assertions on banner contents remain stable.
+const navState = vi.hoisted(() => ({ pathname: "/", search: "" }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/",
+  usePathname: () => navState.pathname,
+  useSearchParams: () => new URLSearchParams(navState.search),
 }));
+
+// RECON-1 T3: the count badge (total) + "+N more" link both source from
+// fetchUnresolvedAlertCount(). Default delegates to a real count derived
+// from the seeded rows (length of unresolved non-info rows), matching the
+// pre-T3 behavior where the count came through the same Supabase mock; the
+// per-test override (count.set / count.infra) lets the bounded-count (250)
+// and infra-error (treated as 1) guard tests drive the count independently
+// of how many detail rows the .limit(1) probe sees.
+const countState = vi.hoisted(
+  () => ({ override: null as { kind: "ok"; count: number } | { kind: "infra_error" } | null }),
+);
+vi.mock("@/lib/admin/alertCount", async (importOriginal) => {
+  // Reuse the REAL info-severity exclusion list so the default count mirrors
+  // the production helper's `resolved_at IS NULL AND code NOT IN (info…)`
+  // semantics — keeps the pre-T3 queue-chip / resolved-exclusion tests
+  // load-bearing (they never set an override).
+  const { MESSAGE_CATALOG: CAT } = await import("@/lib/messages/catalog");
+  void importOriginal;
+  const infoCodes = new Set(
+    Object.values(CAT)
+      .filter((e) => (e as { severity?: string }).severity === "info")
+      .map((e) => (e as { code: string }).code),
+  );
+  return {
+    fetchUnresolvedAlertCount: async () => {
+      if (countState.override) return countState.override;
+      const count = mockState.rows.filter(
+        (r) => r.resolved_at === null && !infoCodes.has(r.code),
+      ).length;
+      return { kind: "ok" as const, count };
+    },
+  };
+});
 
 // In-memory rows the mock supabase client returns. Each test mutates this.
 // Mock shape mirrors the production SELECT exactly:
@@ -68,6 +110,10 @@ const mockState = vi.hoisted(() => ({
     shows: { slug: string } | null;
     resolved_at: string | null;
   }>,
+  // RECON-1 T3 §6 swap tests: when true, the DETAIL SELECT (the .limit(1)
+  // probe) returns a PostgREST `{ error }`, driving AlertBanner's
+  // detailFailed branch → the degraded variant (no <details>).
+  failDetailRead: false,
 }));
 
 vi.mock("@/lib/supabase/server", () => {
@@ -138,7 +184,10 @@ vi.mock("@/lib/supabase/server", () => {
             return builder;
           },
           order: () => builder,
-          limit: (n: number) => Promise.resolve({ data: apply().slice(0, n), error: null }),
+          limit: (n: number) =>
+            mockState.failDetailRead
+              ? Promise.resolve({ data: null, error: { message: "simulated detail read failure" } })
+              : Promise.resolve({ data: apply().slice(0, n), error: null }),
           // Awaiting the builder (no .order().limit()) returns the count
           // probe shape. Required for the M9 C4 queue-depth chip path.
           then: (onFulfilled: (value: { data: null; error: null; count: number }) => void) => {
@@ -174,6 +223,10 @@ function setRows(rows: AlertRow[]) {
 describe("AlertBanner", () => {
   beforeEach(() => {
     mockState.rows = [];
+    mockState.failDetailRead = false;
+    countState.override = null;
+    navState.pathname = "/";
+    navState.search = "";
   });
   afterEach(() => {
     cleanup();
@@ -472,9 +525,10 @@ describe("AlertBanner", () => {
     ]);
     const { getByTestId } = render(await AlertBanner());
     const chip = getByTestId("admin-alert-queue-chip");
-    // Anti-tautology: literal "+3 more ▸" — derived from fixture (4
-    // total, 1 shown, 3 queued).
-    expect(chip.textContent?.trim()).toBe("+3 more ▸");
+    // Anti-tautology: literal "+3 more →" — derived from fixture (4
+    // total, 1 shown, 3 queued). RECON-1 T3 swapped the chip glyph ▸→→
+    // and bounds the visible count via formatBoundedCount (3 < 100 → "3").
+    expect(chip.textContent?.trim()).toBe("+3 more →");
     // ARIA label for screen readers per brief §5.3.
     expect(chip.getAttribute("aria-label")).toBe("View 3 more unresolved alerts");
     // M9 final-review R15: chip href targets /admin (the
@@ -498,7 +552,7 @@ describe("AlertBanner", () => {
     // Brief §5.3 + AGENTS.md invariant: production filter is
     // `resolved_at IS NULL` on both chains. This test pins it: a
     // fixture with two unresolved rows + one resolved row must render
-    // the top unresolved row and a "+1 more ▸" chip (NOT "+2 more ▸").
+    // the top unresolved row and a "+1 more →" chip (NOT "+2 more →").
     setRows([
       {
         id: "unresolved-top",
@@ -530,7 +584,7 @@ describe("AlertBanner", () => {
     expect(banner.getAttribute("data-alert-id")).toBe("unresolved-top");
     // Queue chip = unresolved count - 1 = 1 (NOT 2; the resolved row is excluded).
     const chip = getByTestId("admin-alert-queue-chip");
-    expect(chip.textContent?.trim()).toBe("+1 more ▸");
+    expect(chip.textContent?.trim()).toBe("+1 more →");
   });
 
   test("M9 C4 / M5-D3: queue chip absent when only 1 unresolved alert", async () => {
@@ -562,5 +616,406 @@ describe("AlertBanner", () => {
     expect(btn.textContent?.trim()).toBe("Resolve");
     // The confirm-row is NOT in the DOM in idle state.
     expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
+  });
+
+  // ===========================================================================
+  // RECON-1 T3 — AlertBanner calm collapsible strip (spec §3.1/§3.3/§4/§5/§8).
+  //
+  // These pin the quieted normal-state render: native <details>/<summary>
+  // disclosure (no-JS reachable), the action as a section-grid SIBLING of
+  // <details> (never inside <summary>/<details> — no toggle conflict, §3.3),
+  // the full-width expanded panel, bounded-but-exact counts (F11/F14/F16),
+  // the resolve form-boundary integrity (F1), the §5 guards, and the §6
+  // server-swap structural property (only <details> in normal renders).
+  //
+  // Fixture helpers below. A "global" alert has show_id null (renders the
+  // Resolve form); a "per-show" alert has show_id set (renders View-show when
+  // the joined slug is present).
+  // ===========================================================================
+
+  // ---- 3a: DOM structure (action outside <summary>; full-width panel) ----
+
+  test("global action (form) is NOT a descendant of <summary> or <details> (no toggle conflict)", async () => {
+    setRows([
+      {
+        id: "global-1",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const section = container.querySelector("[data-testid=admin-alert-banner]")!;
+    expect(section.querySelector("summary form, summary a, details form")).toBeNull();
+    // the action lives in its own grid cell
+    expect(section.querySelector("[data-testid=admin-alert-action] form")).not.toBeNull();
+  });
+
+  test("per-show action (View show link) lives in the action cell, NOT inside <summary>/<details> (F34)", async () => {
+    setRows([
+      {
+        id: "pershow-1",
+        code: "AMBIGUOUS_EMAIL_BINDING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        shows: { slug: "test-show" },
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const section = container.querySelector("[data-testid=admin-alert-banner]")!;
+    expect(section.querySelector("[data-testid=admin-alert-show-link]")).not.toBeNull(); // View-show renders…
+    expect(
+      section.querySelector("[data-testid=admin-alert-action] [data-testid=admin-alert-show-link]"),
+    ).not.toBeNull(); // …in the action cell…
+    // …and NOT nested in the disclosure (would be hidden when collapsed / drift on expand):
+    expect(
+      section.querySelector(
+        "summary [data-testid=admin-alert-show-link], details [data-testid=admin-alert-show-link], summary a, details a[href*='/admin/show/']",
+      ),
+    ).toBeNull();
+  });
+
+  test("expanded panel and summary are both present in SSR DOM (no-JS reachable)", async () => {
+    setRows([
+      {
+        id: "global-2",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const section = container.querySelector("[data-testid=admin-alert-banner]")!;
+    expect(section.querySelector("summary")).not.toBeNull();
+    expect(section.querySelector("[data-testid=admin-alert-panel]")).not.toBeNull();
+  });
+
+  test("collapsed summary line is the catalog dougFacing TEXT, inline (no block child), emphasis stripped", async () => {
+    // TILE_SERVER_RENDER_FAILED's dougFacing begins "*<sheet-name>*: …" — the
+    // *emphasis* markers must be stripped for the inline one-liner.
+    setRows([
+      {
+        id: "emph-1",
+        code: "TILE_SERVER_RENDER_FAILED",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        // no context → <sheet-name> placeholder stays, but no `*` should remain
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const line = container.querySelector("[data-testid=admin-alert-banner] summary span.truncate")!;
+    // catalog-sourced text present (no raw code); emphasis markers removed
+    expect(line.textContent).not.toContain("*");
+    expect(line.querySelector("p, div, ul, section")).toBeNull(); // inline only — truncation-safe
+    // it is NOT the same node as the panel's <ErrorExplainer> block
+    expect(line.querySelector("[data-testid=admin-alert-panel]")).toBeNull();
+  });
+
+  test("collapsedText strip handles BOTH single-asterisk *emphasis* AND double-asterisk **bold** (review #3)", async () => {
+    // At least one catalog dougFacing uses **bold** (SHOW_FIRST_PUBLISHED's
+    // "**Made a mistake?**", catalog.ts:657 — info-severity, so banner-excluded,
+    // but admin_alerts.code is unconstrained so a future warning code could).
+    // The component's strip is `\*{1,2}(.+?)\*{1,2}` → it must collapse both
+    // forms with NO residual asterisks. Pin that exact regex contract here so a
+    // weakening back to the single-asterisk-only form regresses.
+    const strip = (s: string) => s.replace(/\*{1,2}(.+?)\*{1,2}/g, "$1");
+    expect(strip("*emphasis* and more")).toBe("emphasis and more");
+    expect(strip("**Made a mistake?** click here")).toBe("Made a mistake? click here");
+    expect(strip("a *one* and **two** mixed")).toBe("a one and two mixed");
+    expect(strip("**bold**")).not.toContain("*");
+  });
+
+  // ---- 3b: bounded counts + exact-count accessibility (§8 F11/F12/F14/F16) ----
+
+  test("badge: bounded visible text (aria-hidden) + exact count in sr-only markup", async () => {
+    setRows([
+      {
+        id: "badge-250",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    countState.override = { kind: "ok", count: 250 };
+    const { container } = render(await AlertBanner());
+    const badge = container.querySelector("[data-testid=admin-alert-badge]")!;
+    expect(badge.querySelector("[aria-hidden=true]")!.textContent).toBe("99+");
+    expect(badge.querySelector(".sr-only")!.textContent).toBe("250 unresolved alerts");
+  });
+
+  test("queue link bounds visible text but keeps exact aria-label", async () => {
+    setRows([
+      {
+        id: "chip-250",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    countState.override = { kind: "ok", count: 250 }; // moreCount = 249
+    const { container } = render(await AlertBanner());
+    const link = container.querySelector("[data-testid=admin-alert-queue-chip]")!;
+    expect(link.textContent).toContain("99+");
+    expect(link.getAttribute("aria-label")).toBe("View 249 more unresolved alerts");
+  });
+
+  test("no badge / no queue chip when only one unresolved (count === 1)", async () => {
+    setRows([
+      {
+        id: "single-1",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    countState.override = { kind: "ok", count: 1 };
+    const { container } = render(await AlertBanner());
+    expect(container.querySelector("[data-testid=admin-alert-banner] .sr-only")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-badge]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-queue-chip]")).toBeNull();
+  });
+
+  // ---- 3c: resolve form-boundary integrity (§8 F1, §11) ----
+
+  test("global resolve action is a <form> with hidden id wrapping ResolveAlertButton (form boundary intact)", async () => {
+    // Negative-regression: moving the button outside <form> breaks
+    // useFormStatus pending + the Server Action's `id` — keep the form as the
+    // action slot (spec §3.1 slot-integrity rule).
+    setRows([
+      {
+        id: "alert-1",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const form = container.querySelector("[data-testid=admin-alert-action] form")!;
+    expect(form).not.toBeNull();
+    const hidden = form.querySelector(
+      "input[name=id][data-testid=admin-alert-id-input]",
+    ) as HTMLInputElement;
+    expect(hidden.value).toBe("alert-1");
+    // ResolveAlertButton renders inside the same form
+    expect(form.querySelector("button")).not.toBeNull();
+  });
+
+  // ---- 3d: guard conditions (§5) ----
+
+  test("per-show alert with missing slug renders no 'View show' link but panel still present (§5)", async () => {
+    setRows([
+      {
+        id: "pershow-noslug",
+        code: "AMBIGUOUS_EMAIL_BINDING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        shows: null, // joined slug missing
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    expect(container.querySelector("[data-testid=admin-alert-show-link]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-panel]")).not.toBeNull(); // still expandable
+  });
+
+  test("HelpAffordance null (unknown code) → panel omits it, raised-at still renders (§5)", async () => {
+    // An uncataloged code → HelpAffordance returns null; the panel's raised-at
+    // row still renders and nothing crashes.
+    setRows([
+      {
+        id: "nohelp-1",
+        code: "SOME_UNCATALOGED_CODE_FOR_HELP",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const panel = container.querySelector("[data-testid=admin-alert-panel]")!;
+    expect(panel.querySelector("[data-testid=admin-alert-raised-at]")).not.toBeNull();
+    // no crash; HelpAffordance simply rendered nothing
+  });
+
+  test("count infra-error → treated as 1: calm banner still renders, no badge, no +N more (§5)", async () => {
+    setRows([
+      {
+        id: "infra-count",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    countState.override = { kind: "infra_error" };
+    const { container } = render(await AlertBanner());
+    // calm STRUCTURE present — proves infra-error still renders the new banner:
+    expect(container.querySelector("[data-testid=admin-alert-banner] summary")).not.toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-panel]")).not.toBeNull();
+    // …and the count-derived chrome is absent because the count is unavailable:
+    expect(container.querySelector("[data-testid=admin-alert-queue-chip]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-badge]")).toBeNull();
+  });
+
+  test("uncataloged alert.code does NOT crash and leaks no raw code (collapsedText guard)", async () => {
+    // admin_alerts.code is an unconstrained DB string. messageFor() would throw
+    // on an uncataloged code and take down the PERSISTENT admin layout. The
+    // banner must still render and must NOT render the raw code.
+    const UNKNOWN = "TOTALLY_NOT_A_CATALOG_CODE";
+    setRows([
+      {
+        id: "unknown-code",
+        code: UNKNOWN,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    await expect(
+      (async () => {
+        const ui = await AlertBanner();
+        const { container } = render(ui);
+        const summary = container.querySelector("[data-testid=admin-alert-banner] summary");
+        expect(summary).not.toBeNull(); // banner still renders
+        expect(summary!.textContent).not.toContain(UNKNOWN); // no raw code leak
+      })(),
+    ).resolves.toBeUndefined();
+  });
+
+  test("known code with null dougFacing does NOT fall back to crewFacing in the admin summary (surface boundary)", async () => {
+    // admin_alerts.code is unconstrained, so a drifted / manual / version-skewed
+    // row could put a known code that has dougFacing:null but a populated
+    // crewFacing (e.g. GOOGLE_NO_CREW_MATCH) at the top of the queue. The
+    // collapsed summary must NOT show crew-facing guidance to Doug on the
+    // PERSISTENT admin layout — it must mirror ErrorExplainer (surface="admin"
+    // → dougFacing only, null → render nothing; ErrorExplainer.tsx:86,91).
+    // Negative-regression: restoring the `?? topMessage?.crewFacing` fallback in
+    // collapsedText makes this assertion fail (the crew copy would appear).
+    const CODE = "GOOGLE_NO_CREW_MATCH" satisfies MessageCode;
+    expect(MESSAGE_CATALOG[CODE].dougFacing).toBeNull(); // precondition (pins the fixture)
+    const crewCopy = MESSAGE_CATALOG[CODE].crewFacing!;
+    expect(typeof crewCopy).toBe("string");
+    setRows([
+      {
+        id: "null-doug-code",
+        code: CODE,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const ui = await AlertBanner();
+    const { container } = render(ui);
+    const summary = container.querySelector("[data-testid=admin-alert-banner] summary");
+    expect(summary).not.toBeNull(); // banner still renders
+    // collapsed message line is EMPTY (no crew copy), matching the panel's
+    // <ErrorExplainer> which renders null for a null-dougFacing admin surface.
+    const message = container.querySelector("[data-testid=admin-alert-message]");
+    expect(message?.textContent ?? "").toBe("");
+    expect(summary!.textContent).not.toContain(crewCopy); // crew guidance absent
+  });
+
+  // ---- 3e: §6 server-swap transitions (component-level; covers F4) ----
+  // Each swap is an independent per-request server render with a different
+  // mock. The no-stale-state property is STRUCTURAL: degraded/null branches
+  // contain NO <details>, so a browser-owned open/height cannot survive a swap
+  // into them. (The same-alert F9 client re-render case is the T8 real-browser
+  // test.) Forcing a real degraded read-failure here is impractical; the mock
+  // surfaces it via a dedicated FAIL marker code that drives detailFailed.
+
+  test("§6 normal→null: 1 unresolved renders <details>; 0 unresolved renders nothing", async () => {
+    setRows([
+      {
+        id: "swap-1",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    let r = render(await AlertBanner());
+    // Pin the OUTER disclosure <details> via the caret testid (unique to the
+    // outer summary), NOT a nested ErrorExplainer/HelpAffordance "What does this
+    // mean?" <details> — those live inside the panel, which is now a SECTION
+    // sibling of <details> (F18 fix), so scoping by panel would no longer match.
+    expect(
+      r.container.querySelector(
+        "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])",
+      ),
+    ).not.toBeNull();
+    cleanup();
+    setRows([]); // 0 unresolved → AlertBanner returns null
+    r = render(await AlertBanner());
+    expect(r.container.querySelector("[data-testid=admin-alert-banner]")).toBeNull();
+  });
+
+  test("§6 null→normal: inserting an alert makes the banner appear", async () => {
+    setRows([]); // empty → null
+    let r = render(await AlertBanner());
+    expect(r.container.querySelector("[data-testid=admin-alert-banner]")).toBeNull();
+    cleanup();
+    setRows([
+      {
+        id: "swap-2",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    r = render(await AlertBanner());
+    expect(
+      r.container.querySelector(
+        "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])",
+      ),
+    ).not.toBeNull();
+  });
+
+  test("§6 normal/expanded→degraded: degraded render has NO <details> (stale open cannot survive)", async () => {
+    // Drive detailFailed via the dedicated detail-read error hook.
+    mockState.failDetailRead = true;
+    const { container } = render(await AlertBanner());
+    expect(container.querySelector("[data-testid=admin-alert-banner-degraded]")).not.toBeNull();
+    expect(container.querySelector("details")).toBeNull(); // no element to carry a stale open/height
+  });
+
+  test("§6 degraded→null: read recovers to empty → nothing renders", async () => {
+    setRows([]); // recovered, empty → null
+    const { container } = render(await AlertBanner());
+    expect(
+      container.querySelector(
+        "[data-testid=admin-alert-banner], [data-testid=admin-alert-banner-degraded]",
+      ),
+    ).toBeNull();
+  });
+
+  test("§6 degraded→normal (D→C recovery): read recovers WITH an alert → normal banner returns, collapsed, no degraded", async () => {
+    mockState.failDetailRead = true;
+    let r = render(await AlertBanner());
+    expect(r.container.querySelector("[data-testid=admin-alert-banner-degraded]")).not.toBeNull();
+    cleanup();
+    mockState.failDetailRead = false;
+    setRows([
+      {
+        id: "swap-recover",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    r = render(await AlertBanner());
+    expect(r.container.querySelector("[data-testid=admin-alert-banner-degraded]")).toBeNull(); // degraded gone
+    // Outer disclosure <details> (pinned via caret), not a nested help <details>.
+    const details = r.container.querySelector(
+      "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])",
+    );
+    expect(details).not.toBeNull(); // normal banner back…
+    expect(details!.hasAttribute("open")).toBe(false); // …collapsed, no stale open
   });
 });

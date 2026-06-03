@@ -42,10 +42,13 @@ import {
 
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
-// HelpAffordance (Client Component using usePathname) mounts inside AlertBanner.
+// HelpAffordance (Client Component using usePathname) mounts inside AlertBanner;
+// AlertBannerRouteBoundary (RECON-1) additionally reads useSearchParams for its
+// remount key, so the mock must provide it too.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(""),
 }));
 
 // ── AlertBanner render mock (Group C) ──────────────────────────────────
@@ -315,13 +318,19 @@ describe("Group C — AlertBanner renders harness admin_alerts code", () => {
       // The message element renders the TARGET code's catalog copy.
       expect(getByTestId("error-explainer-message").textContent).toBe(literal);
 
-      // Anti-tautology: clone the rendered tree, remove the message element,
-      // and assert the target's dougFacing copy does NOT appear anywhere else
-      // (e.g. via the queue chip or a sibling render). The assertion above
-      // therefore genuinely depends on the message element rendering it.
+      // Anti-tautology: clone the rendered tree, remove BOTH legitimate render
+      // sites of the target's dougFacing, and assert the copy does NOT appear
+      // anywhere else (e.g. via the queue chip or the OLDER SIBLING alert's
+      // render). RECON-1 (spec §3.3) renders the top alert's message twice — the
+      // full block in the panel's `error-explainer-message` AND the inline
+      // truncated `admin-alert-message` one-liner in the <summary> — so both must
+      // be removed before the "not elsewhere" check. The line-319 assertion above
+      // still genuinely depends on `error-explainer-message` rendering the literal.
       const clone = container.cloneNode(true) as HTMLElement;
       clone
-        .querySelectorAll('[data-testid="error-explainer-message"]')
+        .querySelectorAll(
+          '[data-testid="error-explainer-message"], [data-testid="admin-alert-message"]',
+        )
         .forEach((el) => el.remove());
       expect(clone.innerHTML).not.toContain(literal as string);
     });

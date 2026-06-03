@@ -22,8 +22,28 @@ import { admin } from "./helpers/supabaseAdmin";
 import { ADMIN_FIXTURE, NON_ADMIN_CREW_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+// RECON-1 T8: seedGlobalAlert seeds N unresolved rows (one GLOBAL top row +
+// fillers) so the queue chip / "N alerts" badge render; TOP_CODE is the code of
+// that top (most-recent) GLOBAL row the banner renders. seedGlobalAlert
+// internally calls the helper's OWN clearAlerts, so it coexists with this
+// file's local clearAlerts (NOT imported — name collision; see Step 0).
+import { seedGlobalAlert, TOP_CODE } from "./helpers/seedAlerts";
 
 const ALERT_CODE = "AMBIGUOUS_EMAIL_BINDING" as const;
+
+// RECON-1 T7/T8 <details> SCOPING HAZARD (spec §7.1 S1, load-bearing): the
+// expanded panel is a SECTION-level grid SIBLING of <details> (the F18 fix —
+// Chromium will not full-width-span a display:contents-nested grid item), and
+// ErrorExplainer + HelpAffordance each render their OWN nested <details> INSIDE
+// that panel. So `[data-testid=admin-alert-banner] details` matches THREE
+// <details> when expanded → Playwright strict-mode violation. EVERYWHERE we mean
+// the OUTER disclosure we scope to the one details that owns the caret (the caret
+// testid is unique to the outer summary; the panel is no longer a <details>
+// descendant, so `details:has([data-testid=admin-alert-panel])` would match
+// NOTHING). Mirrors admin-banner-layout.spec.ts.
+const OUTER_DETAILS =
+  "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])";
+const OUTER_SUMMARY = `${OUTER_DETAILS} > summary`;
 
 async function clearAlerts(): Promise<void> {
   // Wipe ALL admin_alerts rows — service role bypasses RLS. Use neq on a
@@ -187,5 +207,253 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
     // banner testid must not appear in the response body.
     const body = (await response?.text()) ?? "";
     expect(body).not.toContain("admin-alert-banner");
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// RECON-1 Task 8: no-JS reachability, identity/route/query remount, exact-count
+// a11y. These are TOP-LEVEL tests (outside the describe above), so each signs in
+// explicitly — the describe-level beforeEach (signOut + clearAlerts) does NOT
+// apply here. They sign OUT first (clean slate) then sign in as ADMIN_FIXTURE.
+// Surface: /admin (the persistent admin layout mounts AlertBanner on every admin
+// route), NOT /admin/dev. Runs in BOTH mobile-safari@390 and desktop-chromium
+// @1280 (admin-banner is in both testMatch regexes).
+// ───────────────────────────────────────────────────────────────────────────
+
+test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)", () => {
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await clearAlerts();
+  });
+  test.afterAll(async () => {
+    await clearAlerts();
+  });
+
+  // Step 1 — No-JS reachability (spec §11 F3). With JavaScript disabled the
+  // native <details> toggle (a browser default action) must still open the
+  // panel and surface the full message / help / raised-at / queue chip; the
+  // chip is a real <a href> that navigates on click without JS.
+  test("no-JS: native <summary> opens; full message/help/raised-at/+N more reachable; queue link navigates", async ({
+    browser,
+  }) => {
+    // Manual contexts do NOT inherit the project `use` config — pass baseURL so
+    // signInAs's relative POST and page.goto("/admin") resolve (F-P14). Fall
+    // back to the 127.0.0.1:3000 server URL (exactOptionalPropertyTypes forbids
+    // an `undefined` baseURL; mirrors admin-banner-layout.spec.ts).
+    const baseURL = test.info().project.use.baseURL ?? "http://127.0.0.1:3000";
+    const ctx = await browser.newContext({ baseURL, javaScriptEnabled: false });
+    const page = await ctx.newPage();
+    // signInAs POSTs via page.request (Playwright request context, independent
+    // of page JS) → works with javaScriptEnabled:false. (No signInAsViaApi.)
+    await signInAs(page, ADMIN_FIXTURE);
+    await seedGlobalAlert({ count: 110 });
+    await page.goto("/admin");
+
+    const panel = page.getByTestId("admin-alert-panel");
+    // Collapsed by default: the panel is in the DOM but hidden by the explicit
+    // pure-CSS sibling rule
+    //   [data-testid=admin-alert-banner] details:not([open]) ~ [data-testid=admin-alert-panel] { display:none }
+    // in globals.css (the panel is a SECTION sibling of <details>, NOT a child,
+    // so the UA `details:not([open]) > :not(summary)` rule does NOT apply here —
+    // spec §7.1 S1). Either way: native toggle drives visibility with NO JS.
+    await expect(panel).toBeHidden();
+
+    // Open the disclosure with NO JS — native <details> toggle is a browser
+    // default action, so a real click works even with javaScriptEnabled:false.
+    // Scope to the OUTER summary (the caret-owning one) — NOT the nested
+    // ErrorExplainer/HelpAffordance summaries (which only exist once open).
+    await page.locator(OUTER_SUMMARY).click();
+    await expect(panel).toBeVisible();
+
+    // Full context reachable without JS:
+    await expect(panel.getByText(/what does this mean/i)).toBeVisible(); // HelpAffordance disclosure
+    await expect(page.getByTestId("admin-alert-raised-at")).toBeVisible();
+    const chip = page.getByTestId("admin-alert-queue-chip");
+    await expect(chip).toBeVisible();
+
+    // Queue link navigates (full load, JS off) to /admin#alerts (reachability).
+    await chip.click();
+    await expect(page).toHaveURL(/\/admin#alerts$/);
+    await ctx.close();
+  });
+
+  // Step 2 — Route + query remount (spec §11 F17/F19). The banner lives in the
+  // PERSISTENT admin layout; AlertBannerRouteBoundary keys the subtree by
+  // pathname+search+alertId so client-side nav remounts a fresh COLLAPSED
+  // <details>. Without the boundary, native <details open> state would persist
+  // across client-side nav. The __noReload sentinel proves the nav was
+  // client-side (a full document load would clear window.__noReload AND collapse
+  // <details> natively — so the test would pass WITHOUT exercising the boundary).
+  //
+  // VERIFIED (plan watchpoint): the dashboard Active/Archived segmented control
+  // (DashboardBucketSegmentedControl.tsx:51,71) navigates via next/link
+  // (`<Link href="?bucket=...">`) — client-side, NOT a full-page form. The
+  // "Active" segment is ALWAYS a <Link> (only "Archived" is count-disabled),
+  // so the archived→active click is reliably a real client-side query nav.
+  test("same-alert CLIENT-SIDE nav (route + query) re-renders collapsed (F17/F19)", async ({
+    page,
+  }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    await seedGlobalAlert({ count: 1 });
+    await page.goto("/admin");
+    const details = page.locator(OUTER_DETAILS);
+    const summary = page.locator(OUTER_SUMMARY);
+
+    // (i) pathname change via the in-app nav LINK (client-side, persistent
+    // layout). Scope to the admin NAV chrome (NOT the Dashboard body, which has
+    // its own `admin-dashboard-settings-link` "Open settings" link). The two nav
+    // Settings links live in `admin-nav-topbar` (visible ≥720px) and
+    // `admin-bottom-tab-settings` (visible <720px); `getByRole` excludes
+    // display:none elements, so at each viewport exactly ONE of the .or()
+    // branches resolves → no strict-mode violation in either project.
+    // Both branches use getByRole (which EXCLUDES display:none elements — a bare
+    // getByTestId would still match the hidden bottom-tab at desktop width and
+    // re-trip strict mode); .or() then leaves exactly the one visible per
+    // viewport. The bottom-tab is scoped via its mobile nav container.
+    const settingsNavLink = page
+      .getByTestId("admin-nav-topbar")
+      .getByRole("link", { name: /settings/i })
+      .or(page.getByTestId("admin-bottom-tabs").getByRole("link", { name: /settings/i }));
+    await summary.click();
+    await expect(details).toHaveAttribute("open", "");
+    await page.evaluate(() => {
+      (window as Window & { __noReload?: boolean }).__noReload = true;
+    });
+    await settingsNavLink.click();
+    await expect(page).toHaveURL(/\/admin\/settings/);
+    // prove it was client-side (a full reload clears the sentinel) — otherwise a
+    // full load collapses <details> natively and the test would pass WITHOUT the
+    // boundary doing anything.
+    expect(
+      await page.evaluate(() => (window as Window & { __noReload?: boolean }).__noReload),
+    ).toBe(true);
+    await expect(page.locator(OUTER_DETAILS)).not.toHaveAttribute("open", /.*/);
+
+    // (ii) QUERY-ONLY change WITHOUT mutating any `shows` row (avoids the
+    // per-show advisory-lock invariant + shared-CI-seed contamination). Start on
+    // the archived bucket — the seed has active shows, so the "Active" segment is
+    // always a real next/link there — then click Active: same pathname /admin,
+    // query changes (?bucket=archived → ?bucket=active / cleared).
+    await page.goto("/admin?bucket=archived");
+    await summary.click();
+    await expect(details).toHaveAttribute("open", "");
+    await page.evaluate(() => {
+      (window as Window & { __noReload?: boolean }).__noReload = true;
+    });
+    await page
+      .getByTestId("dashboard-bucket-segmented")
+      .getByRole("link", { name: /active/i })
+      .click();
+    await expect(page).not.toHaveURL(/bucket=archived/); // query changed, same /admin pathname
+    expect(
+      await page.evaluate(() => (window as Window & { __noReload?: boolean }).__noReload),
+    ).toBe(true); // client-side, no full load
+    await expect(page.locator(OUTER_DETAILS)).not.toHaveAttribute("open", /.*/);
+  });
+
+  // Step 3 — Alert-identity remount (spec §11 F9), the load-bearing
+  // persistent-layout case. Resolve expanded alert A → alert B must render
+  // COLLAPSED in the SAME persistent-layout slot. The boundary key includes the
+  // alertId segment, so A→B forces a fresh collapsed <details>.
+  //
+  // Negative-regression: drop the `alertId` segment from the boundary key (in
+  // AlertBannerRouteBoundary's routeKey) → B reconciles into A's still-open
+  // <details> and renders EXPANDED → this test must fail.
+  test("F9: resolve expanded alert A → alert B renders COLLAPSED in the same slot", async ({
+    page,
+  }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    await clearAlerts();
+    // B must be a NON-INFO, dougFacing-capable global code (info-severity codes
+    // are excluded by AlertBanner/fetchUnresolvedAlertCount → banner would
+    // render null instead of B). Derive it from the catalog to avoid
+    // miscitation; ≠ TOP_CODE.
+    const SECOND_CODE = Object.values(MESSAGE_CATALOG).find(
+      (e) =>
+        (e as { severity?: string }).severity !== "info" &&
+        e.dougFacing != null &&
+        e.code !== TOP_CODE,
+    )!.code;
+    // Two distinct GLOBAL (resolvable) alerts; A is most recent so it is the top.
+    const { error } = await admin.from("admin_alerts").insert([
+      {
+        show_id: null,
+        code: TOP_CODE,
+        context: { "sheet-name": "Alert A Show" },
+        raised_at: new Date().toISOString(),
+      },
+      {
+        show_id: null,
+        code: SECOND_CODE,
+        context: {},
+        raised_at: new Date(Date.now() - 3_600_000).toISOString(),
+      },
+    ]);
+    if (error) throw new Error(`F9 seed failed: ${error.message}`);
+    await page.goto("/admin");
+
+    const section = page.getByTestId("admin-alert-banner");
+    const details = page.locator(OUTER_DETAILS);
+    const aId = await section.getAttribute("data-alert-id");
+    expect(aId).toBeTruthy();
+
+    // expand A, then resolve A through the real two-tap form
+    await page.locator(OUTER_SUMMARY).click();
+    await expect(details).toHaveAttribute("open", "");
+    await page.getByTestId("admin-alert-action").getByRole("button").click(); // idle → confirm
+    await page
+      .getByTestId("admin-alert-action")
+      .getByRole("button", { name: /confirm/i })
+      .click(); // confirm → resolve
+
+    // B is now the top alert in the same persistent-layout slot — it RENDERS
+    // (not null)…
+    await expect(section).toBeVisible();
+    await expect(section).not.toHaveAttribute("data-alert-id", aId!); // …identity changed (A→B)
+    await expect(page.locator(OUTER_DETAILS)).not.toHaveAttribute("open", /.*/); // …and B is COLLAPSED (F9)
+  });
+
+  // Step 4 — Exact-count accessibility via the a11y TREE (spec §11 F14/F16), NOT
+  // bare attributes. seedGlobalAlert({count:110}) ⇒ unresolvedCount 110,
+  // moreCount 109 (count - 1, the topmost is shown).
+  //
+  // Negative-regressions: (a) bound the sr-only / aria-label counts (e.g. emit
+  // "99+" there too), or (b) drop the badge's aria-hidden (the bounded "99+"
+  // leaks into the accessible name) → these assertions must fail.
+  test("F14/F16: exact counts are exposed to the accessibility tree (accessible name), visible text bounded", async ({
+    page,
+  }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    await seedGlobalAlert({ count: 110 }); // unresolvedCount 110, moreCount 109
+    await page.goto("/admin");
+
+    // The queue chip lives in the PANEL, which is `display:none` while collapsed
+    // (the §7.1 S1 sibling rule) → display:none removes it from the accessibility
+    // tree, so toHaveAccessibleName reads "" until the disclosure is open. Expand
+    // first so the chip is in the a11y tree, then assert its accessible name.
+    await page.locator(OUTER_SUMMARY).click();
+    await expect(page.getByTestId("admin-alert-panel")).toBeVisible();
+
+    // Link: the ACCESSIBLE NAME is the EXACT count (not a bounded "+99+ more").
+    // The aria-label carries the full 109; the visible text is the bounded
+    // "+99+ more". The accessible-name assertion is viewport-INDEPENDENT and must
+    // hold in both projects.
+    await expect(page.getByTestId("admin-alert-queue-chip")).toHaveAccessibleName(
+      "View 109 more unresolved alerts",
+    );
+
+    // Badge: exact total is real text in the a11y tree via the sr-only sibling…
+    await expect(page.getByText("110 unresolved alerts")).toBeAttached();
+    // …while the bounded visible badge is the bounded count ALONE ("99+"),
+    // aria-hidden (NOT in the accessible name). Scope to the BADGE (the icon is
+    // also aria-hidden → `summary [aria-hidden]` would multi-match).
+    //
+    // The visible badge is the terse numeral only (no "alerts" word) so it stays
+    // narrow enough to keep `shrink-0` and never needs truncation at any
+    // viewport, while the EXACT count is preserved in the sr-only span asserted
+    // above. Both assertions read DOM text content (viewport-independent).
+    await expect(
+      page.locator("[data-testid=admin-alert-badge] [aria-hidden=true]"),
+    ).toHaveText(/^99\+$/);
   });
 });
