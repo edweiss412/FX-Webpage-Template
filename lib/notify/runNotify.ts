@@ -3,7 +3,7 @@ import { getDailyReviewDigest } from "@/lib/appSettings/getDailyReviewDigest";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { configValid } from "@/lib/notify/config";
 import { DIGEST_RETRY_WINDOW_HOURS, DIGEST_TIMEZONE } from "@/lib/notify/constants";
-import { buildDigestModel, type DigestModel } from "@/lib/notify/digest";
+import { buildDigestModel } from "@/lib/notify/digest";
 import { listRealtimeCandidates } from "@/lib/notify/detect/candidates";
 import { reconcileEmailDeliveryState } from "@/lib/notify/detect/emailDeliveryFailed";
 import {
@@ -11,11 +11,8 @@ import {
   type SyncProblemAlertForRecovery,
 } from "@/lib/notify/detect/recoveryResolution";
 import { detectAndResolveStall, type MaintenanceResult } from "@/lib/notify/detect/stall";
-import { deliverRealtimeCandidates, type DeliveryResult } from "@/lib/notify/deliver";
+import { deliverDigest, deliverRealtimeCandidates, type DeliveryResult } from "@/lib/notify/deliver";
 import { activeRecipients } from "@/lib/notify/recipients";
-import { sendEmail } from "@/lib/notify/send";
-import { baseKey } from "@/lib/notify/idempotencyKey";
-import { renderDigest } from "@/lib/notify/templates/digest";
 
 type ToggleResult = { kind: "value"; enabled: boolean } | { kind: "infra_error" };
 type ConfigResult = { ok: true; origin: string } | { ok: false };
@@ -51,7 +48,7 @@ export type NotifyDeps = {
   listRealtimeCandidates?: () => Promise<RealtimeCandidatesResult>;
   deliverRealtimeCandidates?: typeof deliverRealtimeCandidates;
   buildDigestModel?: typeof buildDigestModel;
-  deliverDigest?: (model: DigestModel, origin: string) => Promise<DeliverySummary>;
+  deliverDigest?: typeof deliverDigest;
 };
 
 export type MaintenanceDeps = {
@@ -113,20 +110,6 @@ function localHour(now: Date): number {
     hourCycle: "h23",
   }).formatToParts(now).find((part) => part.type === "hour")?.value;
   return Number(hour ?? "0");
-}
-
-async function defaultDeliverDigest(model: DigestModel, origin: string): Promise<DeliverySummary> {
-  const rendered = renderDigest({ origin, shows: model.shows });
-  const result = await sendEmail({
-    ...rendered,
-    to: model.recipient,
-    idempotencyKey: baseKey("digest", `digest:${model.dateET}`, model.recipient),
-  });
-  if (result.ok === true) return { kind: "ok", sent: 1 };
-  if (result.ok === "retry_later" || result.kind === "idempotency_conflict") {
-    return { kind: "skipped", reason: "provider_retry_later" };
-  }
-  return { kind: "infra_error", source: "sendEmail" };
 }
 
 async function safeMaintenance(deps?: NotifyDeps): Promise<MaintenanceStepResult[]> {
@@ -257,9 +240,11 @@ export async function runDigestNotify(
         return { kind: "ok", maintenance, delivery: { kind: "infra_error", source: "buildDigestModel" } };
       }
       if (model.kind === "no_send") continue;
-      const delivered = await (deps.deliverDigest ?? defaultDeliverDigest)(model.model, config.origin);
-      if (delivered.kind === "infra_error") return { kind: "ok", maintenance, delivery: delivered };
-      if (delivered.kind === "ok") sent += delivered.sent;
+      const delivered = await (deps.deliverDigest ?? deliverDigest)({ model: model.model, origin: config.origin });
+      if (delivered.kind === "infra_error") {
+        return { kind: "ok", maintenance, delivery: { kind: "infra_error", source: "deliverDigest" } };
+      }
+      sent += delivered.sent;
     }
     return { kind: "ok", maintenance, delivery: { kind: "ok", sent } };
   } catch {

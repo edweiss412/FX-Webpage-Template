@@ -1,14 +1,18 @@
 import { describe, expect, test, vi } from "vitest";
 import { auditEmailCanonicalizationSources } from "@/lib/audit/emailCanonicalization";
 import { SEND_RETRY_CAP } from "@/lib/notify/constants";
-import { deliverRealtimeCandidates, type DeliverySql } from "@/lib/notify/deliver";
+import { deliverDigest, deliverRealtimeCandidates, type DeliverySql } from "@/lib/notify/deliver";
 import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
+import type { DigestModel } from "@/lib/notify/digest";
 import type { SendArgs, SendResult } from "@/lib/notify/send";
 
 type FakeSqlOptions = {
   current?: boolean;
   active?: boolean;
   existingLedger?: { status: "sent" | "failed"; attempt_count: number } | null;
+  existingLedgerKind?: "realtime_problem" | "digest";
+  existingLedgerDedupKey?: string;
+  existingLedgerRecipient?: string;
 };
 
 function showCandidate(overrides: Partial<Extract<RealtimeCandidate, { kind: "show" }>> = {}): RealtimeCandidate {
@@ -40,15 +44,23 @@ function ingestionCandidate(overrides: Partial<Extract<RealtimeCandidate, { kind
 
 function fakeSql(options: FakeSqlOptions = {}) {
   const calls: Array<{ text: string; values: unknown[] }> = [];
+  const existingLedgerKind = options.existingLedgerKind ?? "realtime_problem";
+  const existingLedgerDedupKey = options.existingLedgerDedupKey ?? showCandidate().dedupKey;
+  const existingLedgerRecipient = options.existingLedgerRecipient ?? "doug@fxav.net";
   const state = {
     current: options.current ?? true,
     active: options.active ?? true,
     ledger: new Map<string, { status: "sent" | "failed"; attempt_count: number }>(
-      options.existingLedger ? [["doug@fxav.net", options.existingLedger]] : [],
+      options.existingLedger
+        ? [[`${existingLedgerKind}:${existingLedgerDedupKey}:${existingLedgerRecipient}`, options.existingLedger]]
+        : [],
     ),
-    sentRows: [] as Array<{ values: unknown[] }>,
-    failedRows: [] as Array<{ values: unknown[] }>,
+    sentRows: [] as Array<{ text: string; values: unknown[] }>,
+    failedRows: [] as Array<{ text: string; values: unknown[] }>,
   };
+
+  const ledgerKey = (kind: unknown, dedupKey: unknown, recipient: unknown) =>
+    `${String(kind)}:${String(dedupKey)}:${String(recipient)}`;
 
   const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = String.raw(strings, ...values.map((_value, index) => `$${index + 1}`));
@@ -58,21 +70,26 @@ function fakeSql(options: FakeSqlOptions = {}) {
       return Promise.resolve(state.current ? [{ current: true }] : []);
     }
     if (/from\s+public\.email_deliveries/i.test(text) && /select\s+status,\s*attempt_count/i.test(text)) {
-      return Promise.resolve(state.ledger.get(String(values[2])) ? [state.ledger.get(String(values[2]))] : []);
+      const key =
+        values.length >= 3
+          ? ledgerKey(values[0], values[1], values[2])
+          : ledgerKey("realtime_problem", values[0], values[1]);
+      const row = state.ledger.get(key);
+      return Promise.resolve(row ? [row] : []);
     }
     if (/from\s+public\.admin_emails/i.test(text)) {
       return Promise.resolve(state.active ? [{ active: true }] : []);
     }
     if (/insert\s+into\s+public\.email_deliveries/i.test(text) && /status\s*=\s*'sent'/i.test(text)) {
-      state.sentRows.push({ values });
-      state.ledger.set(String(values[3]), { status: "sent", attempt_count: 0 });
+      state.sentRows.push({ text, values });
+      state.ledger.set(ledgerKey(values[0], values[1], values[3]), { status: "sent", attempt_count: 0 });
       return Promise.resolve([{ id: "sent" }]);
     }
     if (/insert\s+into\s+public\.email_deliveries/i.test(text) && /status\s*=\s*'failed'/i.test(text)) {
-      state.failedRows.push({ values });
-      const recipient = String(values[3]);
-      const prior = state.ledger.get(recipient);
-      state.ledger.set(recipient, {
+      state.failedRows.push({ text, values });
+      const key = ledgerKey(values[0], values[1], values[3]);
+      const prior = state.ledger.get(key);
+      state.ledger.set(key, {
         status: "failed",
         attempt_count: (prior?.attempt_count ?? 0) + 1,
       });
@@ -95,6 +112,16 @@ function sender(results: SendResult[]) {
 }
 
 const ORIGIN = "https://crew.fxav.app";
+
+function digestModel(overrides: Partial<DigestModel> = {}): DigestModel {
+  return {
+    recipient: " Doug@FXAV.NET ",
+    dateET: "2026-06-02",
+    shows: [{ showTitle: "Show One", slug: "show-one", items: ["Changes staged for review"] }],
+    sourceTotals: { ingestions: 1, syncs: 1, shows: 1 },
+    ...overrides,
+  };
+}
 
 describe("deliverRealtimeCandidates", () => {
   test("canonicalizes recipient, sends once, upserts sent, then skips the sent ledger row on the next tick", async () => {
@@ -226,7 +253,7 @@ describe("deliverRealtimeCandidates", () => {
     );
 
     expect(state.failedRows).toHaveLength(2);
-    expect(state.ledger.get("doug@fxav.net")?.attempt_count).toBe(2);
+    expect(state.ledger.get(`realtime_problem:${showCandidate().dedupKey}:doug@fxav.net`)?.attempt_count).toBe(2);
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-1",
       code: "EMAIL_DELIVERY_FAILED",
@@ -281,6 +308,148 @@ describe("deliverRealtimeCandidates", () => {
     expect(currentQueries[1]?.text).toMatch(/from\s+public\.pending_ingestions/i);
     expect(currentQueries[1]?.text).toMatch(/wizard_session_id\s+is\s+null/i);
     expect(currentQueries.map((c) => c.text).join("\n")).not.toMatch(/Date\.parse/i);
+  });
+});
+
+describe("deliverDigest", () => {
+  test("records a sent digest ledger row with canonical recipient and digest dedup key", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail, sends } = sender([{ ok: true, messageId: "digest-msg-1" }]);
+
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { sql, sendEmail, now: () => new Date("2026-06-02T13:00:00.000Z") },
+    );
+
+    expect(result).toEqual({ kind: "ok", sent: 1, failed: 0, skipped: 0, retryLater: 0 });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sends[0]?.to).toBe("doug@fxav.net");
+    expect(sends[0]?.idempotencyKey).toEqual(expect.stringMatching(/^fxav:digest:/));
+    expect(state.sentRows).toHaveLength(1);
+    expect(state.sentRows[0]?.values).toEqual(
+      expect.arrayContaining([
+        "digest",
+        "digest:2026-06-02",
+        null,
+        "doug@fxav.net",
+        "digest-msg-1",
+      ]),
+    );
+    expect(String(state.sentRows[0]?.values.find((value) => String(value).includes("source_totals")))).toContain(
+      '"date_et":"2026-06-02"',
+    );
+  });
+
+  test("reissues changed-payload idempotency conflicts with a distinct key and records sent after a 200", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail, sends } = sender([
+      { ok: false, kind: "idempotency_conflict" },
+      { ok: true, messageId: "digest-reissued" },
+    ]);
+
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { sql, sendEmail, reissueKey: () => "digest-fresh-nonce" },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", sent: 1 });
+    expect(sends.map((send) => send.idempotencyKey)).toEqual([
+      expect.stringMatching(/^fxav:digest:/),
+      "digest-fresh-nonce",
+    ]);
+    expect(sends[0]?.idempotencyKey).not.toBe(sends[1]?.idempotencyKey);
+    expect(state.sentRows).toHaveLength(1);
+    expect(state.failedRows).toHaveLength(0);
+  });
+
+  test("retry_later on the reissue writes no ledger row and raises no delivery-failed alert", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender([
+      { ok: false, kind: "idempotency_conflict" },
+      { ok: "retry_later" },
+    ]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
+    expect(state.sentRows).toHaveLength(0);
+    expect(state.failedRows).toHaveLength(0);
+    expect(upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
+  test("retry_later on the base key writes no ledger row and raises no delivery-failed alert", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender([{ ok: "retry_later" }]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
+    expect(state.sentRows).toHaveLength(0);
+    expect(state.failedRows).toHaveLength(0);
+    expect(upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
+  test("infra_error records a failed digest row and raises NULL-scope EMAIL_DELIVERY_FAILED", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender([{ ok: false, kind: "infra_error", message: "provider down" }]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", failed: 1 });
+    expect(state.failedRows).toHaveLength(1);
+    expect(state.failedRows[0]?.values).toEqual(
+      expect.arrayContaining(["digest", "digest:2026-06-02", null, "doug@fxav.net", "provider down"]),
+    );
+    expect(upsertAdminAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "EMAIL_DELIVERY_FAILED",
+      context: {
+        date_et: "2026-06-02",
+        source_totals: { ingestions: 1, syncs: 1, shows: 1 },
+      },
+    });
+  });
+
+  test("existing sent digest row skips without a second provider send", async () => {
+    const { sql, state } = fakeSql({
+      existingLedger: { status: "sent", attempt_count: 0 },
+      existingLedgerKind: "digest",
+      existingLedgerDedupKey: "digest:2026-06-02",
+    });
+    const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-1" }]);
+
+    const result = await deliverDigest({ model: digestModel(), origin: ORIGIN }, { sql, sendEmail });
+
+    expect(result).toMatchObject({ kind: "ok", skipped: 1 });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(state.sentRows).toHaveLength(0);
+  });
+
+  test("failed digest row at the retry cap skips without a provider send", async () => {
+    const { sql, state } = fakeSql({
+      existingLedger: { status: "failed", attempt_count: SEND_RETRY_CAP },
+      existingLedgerKind: "digest",
+      existingLedgerDedupKey: "digest:2026-06-02",
+    });
+    const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-1" }]);
+
+    const result = await deliverDigest({ model: digestModel(), origin: ORIGIN }, { sql, sendEmail });
+
+    expect(result).toMatchObject({ kind: "ok", skipped: 1 });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(state.sentRows).toHaveLength(0);
   });
 });
 

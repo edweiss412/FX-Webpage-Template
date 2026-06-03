@@ -5,6 +5,7 @@ import {
   runRealtimeNotify,
   type NotifyDeps,
 } from "@/lib/notify/runNotify";
+import type { DigestModel } from "@/lib/notify/digest";
 
 function baseDeps(events: string[] = []): NotifyDeps {
   return {
@@ -42,8 +43,17 @@ function baseDeps(events: string[] = []): NotifyDeps {
     },
     deliverDigest: async () => {
       events.push("deliver-digest");
-      return { kind: "ok", sent: 1 };
+      return { kind: "ok", sent: 1, failed: 0, skipped: 0, retryLater: 0 };
     },
+  };
+}
+
+function digestModel(recipient: string): DigestModel {
+  return {
+    recipient,
+    dateET: "2026-06-02",
+    shows: [{ showTitle: "Show One", slug: "show-one", items: ["Changes staged for review"] }],
+    sourceTotals: { ingestions: 0, syncs: 1, shows: 1 },
   };
 }
 
@@ -191,6 +201,59 @@ describe("runDigestNotify", () => {
 
     expect(result.kind).toBe("ok");
     expect(events).toEqual(["maintenance", "config", "digest-toggle", "recipients", "build-digest"]);
+  });
+
+  test("delivers non-empty digest models through the ledger delivery contract and sums sent counts", async () => {
+    const events: string[] = [];
+    const delivered: Array<{ recipient: string; origin: string }> = [];
+
+    const result = await runDigestNotify({
+      now: new Date("2026-06-02T12:00:00.000Z"),
+      deps: {
+        ...baseDeps(events),
+        activeRecipients: async () => ({ kind: "ok", recipients: ["doug@fxav.net", "ops@fxav.net"] }),
+        buildDigestModel: async (recipient) => {
+          events.push(`build-digest:${recipient}`);
+          return { kind: "ok", model: digestModel(recipient) };
+        },
+        deliverDigest: async (input) => {
+          events.push(`deliver-digest:${input.model.recipient}`);
+          delivered.push({ recipient: input.model.recipient, origin: input.origin });
+          return { kind: "ok", sent: 1, failed: 0, skipped: 0, retryLater: 0 };
+        },
+      },
+    });
+
+    expect(result).toMatchObject({ kind: "ok", delivery: { kind: "ok", sent: 2 } });
+    expect(delivered).toEqual([
+      { recipient: "doug@fxav.net", origin: "https://crew.fxav.app" },
+      { recipient: "ops@fxav.net", origin: "https://crew.fxav.app" },
+    ]);
+    expect(events).toEqual([
+      "maintenance",
+      "config",
+      "digest-toggle",
+      "build-digest:doug@fxav.net",
+      "deliver-digest:doug@fxav.net",
+      "build-digest:ops@fxav.net",
+      "deliver-digest:ops@fxav.net",
+    ]);
+  });
+
+  test("digest ledger delivery infra errors are reported from deliverDigest", async () => {
+    const result = await runDigestNotify({
+      now: new Date("2026-06-02T12:00:00.000Z"),
+      deps: {
+        ...baseDeps(),
+        buildDigestModel: async (recipient) => ({ kind: "ok", model: digestModel(recipient) }),
+        deliverDigest: async () => ({ kind: "infra_error" }),
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      delivery: { kind: "infra_error", source: "deliverDigest" },
+    });
   });
 
   test("recipient and digest builder infra errors are recorded, not treated as zero recipients/items", async () => {

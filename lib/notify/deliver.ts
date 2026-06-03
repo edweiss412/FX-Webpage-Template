@@ -3,8 +3,10 @@ import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { SEND_RETRY_CAP } from "@/lib/notify/constants";
 import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
+import type { DigestModel } from "@/lib/notify/digest";
 import { baseKey, reissueKey } from "@/lib/notify/idempotencyKey";
 import { sendEmail, type SendArgs, type SendResult } from "@/lib/notify/send";
+import { renderDigest } from "@/lib/notify/templates/digest";
 import { renderRealtimeProblem } from "@/lib/notify/templates/realtimeProblem";
 
 export type DeliverySql = {
@@ -26,6 +28,8 @@ type DeliveryInput = {
 };
 
 type LedgerRow = { status: "sent" | "failed"; attempt_count: number };
+type DeliveryKind = "realtime_problem" | "digest";
+type DeliveryCounts = { sent: number; failed: number; skipped: number; retryLater: number };
 
 type DeliveryDeps = {
   sql?: DeliverySql;
@@ -34,8 +38,6 @@ type DeliveryDeps = {
   now?: () => Date;
   reissueKey?: (kind: string, dedupKey: string, recipient: string) => string;
 };
-
-const DELIVERY_KIND = "realtime_problem";
 
 function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -124,13 +126,14 @@ async function isCandidateCurrent(candidate: RealtimeCandidate, sql: DeliverySql
 
 async function existingLedger(
   sql: DeliverySql,
+  kind: DeliveryKind,
   dedupKey: string,
   recipient: string,
 ): Promise<LedgerRow | null> {
   const rows = await sql<LedgerRow>`
     select status, attempt_count
       from public.email_deliveries
-     where kind = ${DELIVERY_KIND}
+     where kind = ${kind}
        and dedup_key = ${dedupKey}
        and recipient = ${recipient}
      limit 1
@@ -151,20 +154,26 @@ async function isRecipientActive(sql: DeliverySql, recipient: string): Promise<b
 
 async function upsertSent(
   sql: DeliverySql,
-  candidate: RealtimeCandidate,
+  input: {
+    kind: DeliveryKind;
+    dedupKey: string;
+    showId: string | null;
+    triggeredCodes: string[];
+    context: Record<string, unknown>;
+  },
   recipient: string,
   messageId: string,
   now: Date,
 ): Promise<void> {
-  const context = JSON.stringify(contextFor(candidate));
+  const context = JSON.stringify(input.context);
   await sql`
     insert into public.email_deliveries (
       kind, channel, dedup_key, show_id, recipient, triggered_codes, context,
       status, provider_message_id, error, attempt_count, sent_at
     )
     values (
-      ${DELIVERY_KIND}, 'email', ${candidate.dedupKey}, ${showIdFor(candidate)}::uuid,
-      ${recipient}, array[${triggeredCode(candidate)}]::text[], ${context}::jsonb,
+      ${input.kind}, 'email', ${input.dedupKey}, ${input.showId}::uuid,
+      ${recipient}, ${input.triggeredCodes}::text[], ${context}::jsonb,
       'sent', ${messageId}, null, 0, ${now.toISOString()}::timestamptz
     )
     on conflict (kind, dedup_key, recipient) do update
@@ -178,19 +187,25 @@ async function upsertSent(
 
 async function upsertFailed(
   sql: DeliverySql,
-  candidate: RealtimeCandidate,
+  input: {
+    kind: DeliveryKind;
+    dedupKey: string;
+    showId: string | null;
+    triggeredCodes: string[];
+    context: Record<string, unknown>;
+  },
   recipient: string,
   error: string,
 ): Promise<void> {
-  const context = JSON.stringify(contextFor(candidate));
+  const context = JSON.stringify(input.context);
   await sql`
     insert into public.email_deliveries (
       kind, channel, dedup_key, show_id, recipient, triggered_codes, context,
       status, provider_message_id, error, attempt_count
     )
     values (
-      ${DELIVERY_KIND}, 'email', ${candidate.dedupKey}, ${showIdFor(candidate)}::uuid,
-      ${recipient}, array[${triggeredCode(candidate)}]::text[], ${context}::jsonb,
+      ${input.kind}, 'email', ${input.dedupKey}, ${input.showId}::uuid,
+      ${recipient}, ${input.triggeredCodes}::text[], ${context}::jsonb,
       'failed', null, ${error}, 1
     )
     on conflict (kind, dedup_key, recipient) do update
@@ -222,6 +237,72 @@ function rendered(candidate: RealtimeCandidate, origin: string) {
   });
 }
 
+async function deliverOneRecipient(input: {
+  sql: DeliverySql;
+  send: (args: SendArgs) => Promise<SendResult>;
+  alert: typeof upsertAdminAlert;
+  clock: () => Date;
+  makeReissueKey: (kind: string, dedupKey: string, recipient: string) => string;
+  kind: DeliveryKind;
+  dedupKey: string;
+  showId: string | null;
+  triggeredCodes: string[];
+  context: Record<string, unknown>;
+  email: Pick<SendArgs, "subject" | "html" | "text">;
+  rawRecipient: string;
+  counts: DeliveryCounts;
+}): Promise<void> {
+  const recipient = canonicalize(input.rawRecipient);
+  if (!recipient) {
+    input.counts.skipped += 1;
+    return;
+  }
+
+  const ledger = await existingLedger(input.sql, input.kind, input.dedupKey, recipient);
+  if (ledger?.status === "sent" || (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)) {
+    input.counts.skipped += 1;
+    return;
+  }
+
+  const active = await isRecipientActive(input.sql, recipient);
+  if (!active) {
+    input.counts.skipped += 1;
+    return;
+  }
+
+  const first = await input.send({
+    ...input.email,
+    to: recipient,
+    idempotencyKey: baseKey(input.kind, input.dedupKey, recipient),
+  });
+  const outcome =
+    first.ok === false && first.kind === "idempotency_conflict"
+      ? await input.send({
+          ...input.email,
+          to: recipient,
+          idempotencyKey: input.makeReissueKey(input.kind, input.dedupKey, recipient),
+        })
+      : first;
+
+  if (outcome.ok === true) {
+    await upsertSent(input.sql, input, recipient, outcome.messageId, input.clock());
+    input.counts.sent += 1;
+    return;
+  }
+  if (outcome.ok === "retry_later" || outcome.kind === "idempotency_conflict") {
+    input.counts.retryLater += 1;
+    return;
+  }
+
+  await upsertFailed(input.sql, input, recipient, outcome.message);
+  await input.alert({
+    showId: input.showId,
+    code: "EMAIL_DELIVERY_FAILED",
+    context: input.context,
+  });
+  input.counts.failed += 1;
+}
+
 export async function deliverRealtimeCandidates(
   input: DeliveryInput,
   deps: DeliveryDeps = {},
@@ -249,58 +330,72 @@ export async function deliverRealtimeCandidates(
           continue;
         }
 
-        const recipient = canonicalize(rawRecipient);
-        if (!recipient) {
-          counts.skipped += 1;
-          continue;
-        }
-
-        const ledger = await existingLedger(sql, candidate.dedupKey, recipient);
-        if (ledger?.status === "sent" || (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)) {
-          counts.skipped += 1;
-          continue;
-        }
-
-        const active = await isRecipientActive(sql, recipient);
-        if (!active) {
-          counts.skipped += 1;
-          continue;
-        }
-
-        const email = rendered(candidate, input.origin);
-        const first = await send({
-          ...email,
-          to: recipient,
-          idempotencyKey: baseKey(DELIVERY_KIND, candidate.dedupKey, recipient),
-        });
-        const outcome =
-          first.ok === false && first.kind === "idempotency_conflict"
-            ? await send({
-                ...email,
-                to: recipient,
-                idempotencyKey: makeReissueKey(DELIVERY_KIND, candidate.dedupKey, recipient),
-              })
-            : first;
-
-        if (outcome.ok === true) {
-          await upsertSent(sql, candidate, recipient, outcome.messageId, clock());
-          counts.sent += 1;
-          continue;
-        }
-        if (outcome.ok === "retry_later" || outcome.kind === "idempotency_conflict") {
-          counts.retryLater += 1;
-          continue;
-        }
-
-        await upsertFailed(sql, candidate, recipient, outcome.message);
-        await alert({
+        await deliverOneRecipient({
+          sql,
+          send,
+          alert,
+          clock,
+          makeReissueKey,
+          kind: "realtime_problem",
+          dedupKey: candidate.dedupKey,
           showId: showIdFor(candidate),
-          code: "EMAIL_DELIVERY_FAILED",
+          triggeredCodes: [triggeredCode(candidate)],
           context: contextFor(candidate),
+          email: rendered(candidate, input.origin),
+          rawRecipient,
+          counts,
         });
-        counts.failed += 1;
       }
     }
+
+    return { kind: "ok", ...counts };
+  } catch {
+    return { kind: "infra_error" };
+  } finally {
+    if (ownsConnection) {
+      await sql.end?.({ timeout: 5 });
+    }
+  }
+}
+
+export async function deliverDigest(
+  input: { model: DigestModel; origin: string },
+  deps: DeliveryDeps = {},
+): Promise<DeliveryResult> {
+  const sql =
+    deps.sql ??
+    (postgres(databaseUrl(), {
+      max: 1,
+      idle_timeout: 1,
+      prepare: false,
+    }) as DeliverySql);
+  const ownsConnection = !deps.sql;
+  const send = deps.sendEmail ?? sendEmail;
+  const alert = deps.upsertAdminAlert ?? upsertAdminAlert;
+  const clock = deps.now ?? (() => new Date());
+  const makeReissueKey = deps.reissueKey ?? reissueKey;
+  const counts = { sent: 0, failed: 0, skipped: 0, retryLater: 0 };
+  const dedupKey = `digest:${input.model.dateET}`;
+
+  try {
+    await deliverOneRecipient({
+      sql,
+      send,
+      alert,
+      clock,
+      makeReissueKey,
+      kind: "digest",
+      dedupKey,
+      showId: null,
+      triggeredCodes: [],
+      context: {
+        date_et: input.model.dateET,
+        source_totals: input.model.sourceTotals,
+      },
+      email: renderDigest({ origin: input.origin, shows: input.model.shows }),
+      rawRecipient: input.model.recipient,
+      counts,
+    });
 
     return { kind: "ok", ...counts };
   } catch {

@@ -4,6 +4,7 @@ import {
   reconcileEmailDeliveryState,
   type EmailDeliveryFailedSql,
 } from "@/lib/notify/detect/emailDeliveryFailed";
+import { deliverDigest, type DeliverySql } from "@/lib/notify/deliver";
 
 type ScopeRow = { show_id: string | null };
 
@@ -276,6 +277,120 @@ describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
         await sql`delete from public.email_deliveries where recipient = ${recipient}`;
         await sql`delete from public.admin_emails where email = ${recipient}`;
         await sql`delete from public.shows where drive_file_id = ${driveFileId}`;
+        await sql.end({ timeout: 5 });
+      }
+    },
+  );
+
+  test.skipIf(!DB_URL)(
+    "opens and resolves this test's NULL-scope digest delivery-failed alert as the digest row changes from failed to sent",
+    async () => {
+      const sql = postgres(DB_URL!, { max: 1, prepare: false });
+      const suffix = `digest-delivery-failed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const recipient = `notify-${suffix}@example.com`;
+      const driveFileId = `pending-${suffix}`;
+      const todayET = "2026-06-02";
+      const model = {
+        recipient,
+        dateET: todayET,
+        shows: [{ showTitle: "Digest Pending Sheet", slug: null, items: ["Sheet needs review"] }],
+        sourceTotals: { ingestions: 1, syncs: 0, shows: 1 },
+      };
+      let openedByTest = false;
+
+      try {
+        const preexisting = await sql<{ id: string }[]>`
+          select id
+            from public.admin_alerts
+           where show_id is null
+             and code = 'EMAIL_DELIVERY_FAILED'
+             and resolved_at is null
+        `;
+        if (preexisting.length > 0) return;
+
+        await sql`insert into public.admin_emails (email) values (${recipient}) on conflict do nothing`;
+        await sql`
+          insert into public.pending_ingestions (
+            drive_file_id, drive_file_name, first_seen_at, last_error_code, last_error_message, wizard_session_id
+          )
+          values (${driveFileId}, 'Digest Pending Sheet', now() - interval '2 hours', 'SHEET_PROCESS_FAILED', 'failed', null)
+        `;
+
+        await expect(
+          deliverDigest(
+            { model, origin: "https://crew.fxav.app" },
+            {
+              sql: sql as unknown as DeliverySql,
+              sendEmail: async () => ({ ok: false, kind: "infra_error", message: "provider down" }),
+              upsertAdminAlert: async () => null,
+            },
+          ),
+        ).resolves.toMatchObject({ kind: "ok", failed: 1 });
+
+        let rows = await sql<{ status: string }[]>`
+          select status
+            from public.email_deliveries
+           where kind = 'digest'
+             and dedup_key = ${`digest:${todayET}`}
+             and recipient = ${recipient}
+             and show_id is null
+        `;
+        expect(rows).toEqual([{ status: "failed" }]);
+
+        await expect(
+          reconcileEmailDeliveryState(
+            { alertOnSyncProblems: false, dailyReviewDigest: true, configValid: true, todayET },
+            { sql: sql as unknown as EmailDeliveryFailedSql },
+          ),
+        ).resolves.toMatchObject({ kind: "ok" });
+        rows = await sql<{ status: string }[]>`
+          select 'open' as status
+            from public.admin_alerts
+           where show_id is null
+             and code = 'EMAIL_DELIVERY_FAILED'
+             and resolved_at is null
+        `;
+        expect(rows.length).toBe(1);
+        openedByTest = true;
+
+        await expect(
+          deliverDigest(
+            { model, origin: "https://crew.fxav.app" },
+            {
+              sql: sql as unknown as DeliverySql,
+              sendEmail: async () => ({ ok: true, messageId: `msg-${suffix}` }),
+              upsertAdminAlert: async () => null,
+            },
+          ),
+        ).resolves.toMatchObject({ kind: "ok", sent: 1 });
+
+        await expect(
+          reconcileEmailDeliveryState(
+            { alertOnSyncProblems: false, dailyReviewDigest: true, configValid: true, todayET },
+            { sql: sql as unknown as EmailDeliveryFailedSql },
+          ),
+        ).resolves.toMatchObject({ kind: "ok" });
+        rows = await sql<{ status: string }[]>`
+          select 'open' as status
+            from public.admin_alerts
+           where show_id is null
+             and code = 'EMAIL_DELIVERY_FAILED'
+             and resolved_at is null
+        `;
+        expect(rows.length).toBe(0);
+      } finally {
+        if (openedByTest) {
+          await sql`
+            update public.admin_alerts
+               set resolved_at = coalesce(resolved_at, now())
+             where show_id is null
+               and code = 'EMAIL_DELIVERY_FAILED'
+               and resolved_at is null
+          `;
+        }
+        await sql`delete from public.email_deliveries where recipient = ${recipient}`;
+        await sql`delete from public.admin_emails where email = ${recipient}`;
+        await sql`delete from public.pending_ingestions where drive_file_id = ${driveFileId}`;
         await sql.end({ timeout: 5 });
       }
     },
