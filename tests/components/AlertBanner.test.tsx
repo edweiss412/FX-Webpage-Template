@@ -887,6 +887,39 @@ describe("AlertBanner", () => {
     ).resolves.toBeUndefined();
   });
 
+  test("known code with null dougFacing does NOT fall back to crewFacing in the admin summary (surface boundary)", async () => {
+    // admin_alerts.code is unconstrained, so a drifted / manual / version-skewed
+    // row could put a known code that has dougFacing:null but a populated
+    // crewFacing (e.g. GOOGLE_NO_CREW_MATCH) at the top of the queue. The
+    // collapsed summary must NOT show crew-facing guidance to Doug on the
+    // PERSISTENT admin layout — it must mirror ErrorExplainer (surface="admin"
+    // → dougFacing only, null → render nothing; ErrorExplainer.tsx:86,91).
+    // Negative-regression: restoring the `?? topMessage?.crewFacing` fallback in
+    // collapsedText makes this assertion fail (the crew copy would appear).
+    const CODE = "GOOGLE_NO_CREW_MATCH" satisfies MessageCode;
+    expect(MESSAGE_CATALOG[CODE].dougFacing).toBeNull(); // precondition (pins the fixture)
+    const crewCopy = MESSAGE_CATALOG[CODE].crewFacing!;
+    expect(typeof crewCopy).toBe("string");
+    setRows([
+      {
+        id: "null-doug-code",
+        code: CODE,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const ui = await AlertBanner();
+    const { container } = render(ui);
+    const summary = container.querySelector("[data-testid=admin-alert-banner] summary");
+    expect(summary).not.toBeNull(); // banner still renders
+    // collapsed message line is EMPTY (no crew copy), matching the panel's
+    // <ErrorExplainer> which renders null for a null-dougFacing admin surface.
+    const message = container.querySelector("[data-testid=admin-alert-message]");
+    expect(message?.textContent ?? "").toBe("");
+    expect(summary!.textContent).not.toContain(crewCopy); // crew guidance absent
+  });
+
   // ---- 3e: §6 server-swap transitions (component-level; covers F4) ----
   // Each swap is an independent per-request server render with a different
   // mock. The no-stale-state property is STRUCTURAL: degraded/null branches

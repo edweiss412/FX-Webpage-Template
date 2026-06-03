@@ -216,16 +216,26 @@ export async function AlertBanner() {
   const topMessage = isMessageCode(alert.code)
     ? messageFor(alert.code, (alert.context ?? undefined) as never)
     : null;
+  // Admin-surface copy selection: dougFacing ONLY — NEVER fall back to
+  // crewFacing. This mirrors the canonical renderer ErrorExplainer
+  // (surface="admin" → entry.dougFacing, and null → render nothing;
+  // ErrorExplainer.tsx:86,91). `admin_alerts.code` is unconstrained, so a
+  // drifted/manual/version-skewed row could put a known code with null
+  // dougFacing but populated crewFacing (e.g. GOOGLE_NO_CREW_MATCH,
+  // ADMIN_SESSION_LOOKUP_FAILED) at the top of the queue. Falling back to
+  // crewFacing would render wrong-audience (crew) guidance to Doug on the
+  // PERSISTENT admin layout — a catalog surface-boundary violation. When
+  // dougFacing is null the summary line is empty (the panel's <ErrorExplainer>
+  // likewise renders null), so the banner degrades to icon + count + caret +
+  // resolve — admin-safe, never crew copy.
+  //
   // Strip the catalog's Markdown emphasis markers for the inline one-liner (the
   // panel's <ErrorExplainer> renders them styled; a raw string would show literal
   // "*"). `\*{1,2}` handles BOTH single-asterisk *emphasis* AND double-asterisk
   // **bold** (e.g. SHOW_PUBLISHED_SUCCESS's "**Made a mistake?**", catalog.ts:657);
   // the inner non-greedy capture keeps the wrapped text. Underscore `_…_` emphasis
   // is intentionally left as-is (rare, low visual noise, and not a stray glyph).
-  const collapsedText = (topMessage?.dougFacing ?? topMessage?.crewFacing ?? "").replace(
-    /\*{1,2}(.+?)\*{1,2}/g,
-    "$1",
-  );
+  const collapsedText = (topMessage?.dougFacing ?? "").replace(/\*{1,2}(.+?)\*{1,2}/g, "$1");
 
   // RECON-1 T3 (review cleanup #2): the JSONB-context → MessageParams cast is
   // identical for ErrorExplainer + HelpAffordance — extract once so the two
