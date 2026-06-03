@@ -444,18 +444,16 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
 
     // Badge: exact total is real text in the a11y tree via the sr-only sibling…
     await expect(page.getByText("110 unresolved alerts")).toBeAttached();
-    // …while the bounded visible "99+ alerts" is aria-hidden (NOT in the
-    // accessible name). Scope to the BADGE (the icon is also aria-hidden →
-    // `summary [aria-hidden]` would multi-match).
+    // …while the bounded visible badge is the bounded count ALONE ("99+"),
+    // aria-hidden (NOT in the accessible name). Scope to the BADGE (the icon is
+    // also aria-hidden → `summary [aria-hidden]` would multi-match).
     //
-    // S2 note: at the mobile-safari default 390px viewport the VISIBLE badge text
-    // `min-w-0 truncate`s when col-1 is tight, but truncation is CSS-only — the
-    // element's text CONTENT (what toHaveText reads) is the full "99+ alerts"
-    // regardless of visual clipping, and the EXACT count is preserved in the
-    // sr-only span asserted above. So no viewport override is needed: both
-    // assertions read DOM text content, which is viewport-independent.
+    // The visible badge is the terse numeral only (no "alerts" word) so it stays
+    // narrow enough to keep `shrink-0` and never needs truncation at any
+    // viewport, while the EXACT count is preserved in the sr-only span asserted
+    // above. Both assertions read DOM text content (viewport-independent).
     await expect(
       page.locator("[data-testid=admin-alert-badge] [aria-hidden=true]"),
-    ).toHaveText(/99\+ alerts/);
+    ).toHaveText(/^99\+$/);
   });
 });

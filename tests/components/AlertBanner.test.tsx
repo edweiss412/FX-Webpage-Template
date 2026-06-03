@@ -743,7 +743,7 @@ describe("AlertBanner", () => {
     countState.override = { kind: "ok", count: 250 };
     const { container } = render(await AlertBanner());
     const badge = container.querySelector("[data-testid=admin-alert-badge]")!;
-    expect(badge.querySelector("[aria-hidden=true]")!.textContent).toBe("99+ alerts");
+    expect(badge.querySelector("[aria-hidden=true]")!.textContent).toBe("99+");
     expect(badge.querySelector(".sr-only")!.textContent).toBe("250 unresolved alerts");
   });
 

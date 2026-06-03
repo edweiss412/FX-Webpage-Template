@@ -285,15 +285,16 @@ export async function AlertBanner() {
               {collapsedText}
             </span>
             {total > 1 && (
-              // F10/F13 non-overlap (T7): in confirm/pending the action grows to
-              // its fit-content(55%) cap, shrinking col-1 to ~130px at 390px — too
-              // narrow for icon + a fixed-width badge + caret, so a `shrink-0` badge
-              // overflowed into the action column. `min-w-0 truncate` lets the
-              // VISIBLE "99+ alerts" text ellipsize when col-1 is tight (it shows in
-              // full at every wider viewport); the EXACT count stays in the sr-only
-              // span for assistive tech (§8 F14/F16), so truncation is visual only.
-              <span data-testid="admin-alert-badge" className="min-w-0 truncate">
-                <span aria-hidden="true">{formatBoundedCount(total)} alerts</span>
+              // The VISIBLE badge is the bounded count ALONE ("99+") — no "alerts"
+              // word. A bare numeral is ~22px, so at 390px confirm/pending (col-1
+              // ~130px: icon 20 + badge ~22 + caret "Details" ~45 + gaps) it fits
+              // WITHOUT overlapping the action column, letting the badge keep the
+              // spec §7 literal `shrink-0` (F10 non-overlap holds at every width).
+              // It also matches the queue chip's terse "+N more" voice and never
+              // needs truncation. The EXACT count + context stays in the sr-only
+              // span for assistive tech (§8 F14/F16).
+              <span data-testid="admin-alert-badge" className="shrink-0">
+                <span aria-hidden="true">{formatBoundedCount(total)}</span>
                 <span className="sr-only">{total} unresolved alerts</span>
               </span>
             )}
