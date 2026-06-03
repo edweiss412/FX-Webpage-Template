@@ -16,6 +16,7 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/notify/deliver.ts" },
   { path: "lib/notify/detect/emailDeliveryFailed.ts" },
   { path: "lib/notify/digest.ts" },
+  { path: "lib/notify/runNotify.ts" },
 ];
 
 // Inline recursive .ts walker (R9/R10 fix — no shared walkTs exists in the repo).
@@ -230,6 +231,44 @@ describe("notify + app-settings infra-contract (structural)", () => {
 
     await expect(buildDigestModel("doug@fxav.net", "2026-06-02", { sql: sql as never })).resolves.toEqual({
       kind: "infra_error",
+    });
+  });
+
+  test("runMaintenance returns infra_error for returned DB errors from heartbeat reads", async () => {
+    const { runMaintenance } = await import("@/lib/notify/runNotify");
+
+    await expect(
+      runMaintenance({
+        readHeartbeat: async () => ({ kind: "infra_error" }),
+        resolveRecoveredSyncProblems: async () => ({ kind: "ok" }),
+        getAlertOnSyncProblems: async () => ({ kind: "value", enabled: true }),
+        getDailyReviewDigest: async () => ({ kind: "value", enabled: true }),
+        reconcileEmailDeliveryState: async () => ({ kind: "ok", opened: 0, resolved: 0 }),
+      }),
+    ).resolves.toEqual([
+      { step: "stall", result: { kind: "infra_error" } },
+      { step: "recovery", result: { kind: "ok" } },
+      { step: "emailDelivery", result: { kind: "ok", opened: 0, resolved: 0 } },
+    ]);
+  });
+
+  test("runRealtimeNotify returns infra_error for thrown delivery-prerequisite faults", async () => {
+    const { runRealtimeNotify } = await import("@/lib/notify/runNotify");
+
+    await expect(
+      runRealtimeNotify({
+        deps: {
+          runMaintenance: async () => [],
+          configValid: () => ({ ok: true, origin: "https://crew.fxav.app" }),
+          getAlertOnSyncProblems: async () => ({ kind: "value", enabled: true }),
+          activeRecipients: async () => {
+            throw new Error("admin_emails query fault");
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      kind: "ok",
+      delivery: { kind: "infra_error" },
     });
   });
 });
