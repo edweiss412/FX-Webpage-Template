@@ -54,6 +54,14 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin/settings",
 }));
+// Phase 6: the two notify-toggle getters (deterministic so the rows render a
+// known state). Distinct values prove each row binds its own read.
+vi.mock("@/lib/appSettings/getAlertOnSyncProblems", () => ({
+  getAlertOnSyncProblems: async () => ({ kind: "value" as const, enabled: true }),
+}));
+vi.mock("@/lib/appSettings/getDailyReviewDigest", () => ({
+  getDailyReviewDigest: async () => ({ kind: "value" as const, enabled: false }),
+}));
 
 async function renderSettings() {
   const mod = await import("@/app/admin/settings/page");
@@ -97,5 +105,27 @@ describe("Settings header (Task 4.2)", () => {
     expect(screen.getByTestId("admin-settings-drive-connection-section")).toBeInTheDocument();
     expect(screen.getByTestId("drive-connection-rerun-setup-button")).toBeInTheDocument();
     expect(screen.getByTestId("admin-active-list")).toBeInTheDocument();
+  });
+
+  it("renders both notify-preference rows, bound to their own reads, above auto-publish (Task 6.3)", async () => {
+    await renderSettings();
+    const sync = screen.getByTestId("alert-on-sync-problems-setting-row");
+    const digest = screen.getByTestId("daily-review-digest-setting-row");
+    expect(sync.textContent).toMatch(/Alert me about sync problems/);
+    expect(digest.textContent).toMatch(/Daily review digest/);
+    // Each row binds its own read: sync=on (true), digest=off (false).
+    expect(screen.getByTestId("alert-on-sync-problems-toggle").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("daily-review-digest-toggle").getAttribute("aria-checked")).toBe("false");
+    // DOM order: both notify rows precede the auto-publish row.
+    const page = screen.getByTestId("admin-settings-page");
+    const rows = Array.from(page.querySelectorAll<HTMLElement>("[data-testid$='-setting-row']")).map(
+      (el) => el.getAttribute("data-testid"),
+    );
+    expect(rows.indexOf("alert-on-sync-problems-setting-row")).toBeLessThan(
+      rows.indexOf("auto-publish-setting-row"),
+    );
+    expect(rows.indexOf("daily-review-digest-setting-row")).toBeLessThan(
+      rows.indexOf("auto-publish-setting-row"),
+    );
   });
 });
