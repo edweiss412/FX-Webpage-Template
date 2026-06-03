@@ -148,14 +148,19 @@ export async function AlertBanner() {
         data-testid="admin-alert-banner-degraded"
         role="status"
         aria-live="polite"
-        className="mb-section-gap rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+        className="mb-section-gap flex min-w-0 items-center gap-3 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
       >
-        <p className="text-base font-medium">{msg}</p>
+        <TriangleAlert
+          aria-hidden
+          data-testid="admin-alert-degraded-icon"
+          className="size-5 shrink-0"
+        />
+        <span className="min-w-0 flex-1">{msg}</span>
         <Link
           href="/admin#alerts"
-          className="mt-2 inline-flex min-h-tap-min items-center text-sm underline underline-offset-2"
+          className="inline-flex min-h-tap-min shrink-0 items-center text-sm underline underline-offset-2"
         >
-          View alerts
+          View alerts →
         </Link>
       </section>
     );
