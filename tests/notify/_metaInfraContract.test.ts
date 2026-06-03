@@ -14,6 +14,7 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/notify/detect/candidates.ts" },
   { path: "lib/adminAlerts/resolveAdminAlert.ts" },
   { path: "lib/notify/deliver.ts" },
+  { path: "lib/notify/detect/emailDeliveryFailed.ts" },
 ];
 
 // Inline recursive .ts walker (R9/R10 fix — no shared walkTs exists in the repo).
@@ -162,6 +163,49 @@ describe("notify + app-settings infra-contract (structural)", () => {
         {
           sql: sql as never,
           sendEmail: async () => ({ ok: false, kind: "infra_error", message: "provider down" }),
+          upsertAdminAlert: async () => {
+            throw new Error("admin alert upsert failed: returned error");
+          },
+        },
+      ),
+    ).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("reconcileEmailDeliveryState returns infra_error for thrown query faults", async () => {
+    const { reconcileEmailDeliveryState } = await import("@/lib/notify/detect/emailDeliveryFailed");
+    const sql = vi.fn(() => Promise.reject(new Error("db down")));
+
+    await expect(
+      reconcileEmailDeliveryState(
+        {
+          alertOnSyncProblems: true,
+          dailyReviewDigest: true,
+          configValid: true,
+          todayET: "2026-06-02",
+        },
+        { sql: sql as never },
+      ),
+    ).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("reconcileEmailDeliveryState returns infra_error when alert wrappers surface returned DB errors", async () => {
+    const { reconcileEmailDeliveryState } = await import("@/lib/notify/detect/emailDeliveryFailed");
+    const sql = vi.fn((strings: TemplateStringsArray) => {
+      const text = strings.join("$");
+      if (text.includes("failed_scopes")) return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+
+    await expect(
+      reconcileEmailDeliveryState(
+        {
+          alertOnSyncProblems: true,
+          dailyReviewDigest: false,
+          configValid: false,
+          todayET: "2026-06-02",
+        },
+        {
+          sql: sql as never,
           upsertAdminAlert: async () => {
             throw new Error("admin alert upsert failed: returned error");
           },

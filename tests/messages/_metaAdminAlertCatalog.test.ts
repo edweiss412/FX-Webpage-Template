@@ -75,6 +75,7 @@ const ADMIN_ALERTS_CODES = [
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
   "SYNC_STALLED", //                  B3 global sync heartbeat detector
   "EMAIL_DELIVERY_FAILED", //         B3 delivery loop provider-failure producer
+  "EMAIL_NOT_CONFIGURED", //          B3 email config reconciliation producer
   "SHOW_FIRST_PUBLISHED", //          M6.5 first-seen auto-publish confirmation
   "SHOW_UNPUBLISHED", //              M6.5 unpublish undo confirmation
   "PENDING_SNAPSHOT_PROMOTE_STUCK", // M7 diagram GC promotion-stuck repair signal
@@ -179,6 +180,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   EMAIL_DELIVERY_FAILED: {
     path: "lib/notify/deliver.ts",
     pattern: /code:\s*"EMAIL_DELIVERY_FAILED"/,
+  },
+  EMAIL_NOT_CONFIGURED: {
+    path: "lib/notify/detect/emailDeliveryFailed.ts",
+    pattern: /code:\s*"EMAIL_NOT_CONFIGURED"/,
   },
   SHOW_FIRST_PUBLISHED: {
     path: "lib/sync/runScheduledCronSync.ts",
