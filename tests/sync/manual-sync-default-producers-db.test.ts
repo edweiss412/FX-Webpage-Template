@@ -42,7 +42,7 @@ async function cleanup(sql: postgres.Sql, driveFileId: string, showId?: string):
   if (showId) {
     await sql`delete from public.admin_alerts where show_id = ${showId}::uuid`;
   }
-  await sql`delete from public.sync_logs where drive_file_id = ${driveFileId}`;
+  await sql`delete from public.sync_log where drive_file_id = ${driveFileId}`;
   await sql`delete from public.shows where drive_file_id = ${driveFileId}`;
 }
 
