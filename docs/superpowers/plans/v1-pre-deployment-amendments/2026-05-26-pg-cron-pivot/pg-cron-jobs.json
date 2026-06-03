@@ -3,6 +3,8 @@
   "jobs": [
     { "jobname": "fxav_cron_sync",           "schedule": "*/5 * * * *",  "route": "/api/cron/sync" },
     { "jobname": "fxav_cron_keepalive",      "schedule": "0 12 * * *",   "route": "/api/cron/keepalive" },
+    { "jobname": "fxav_cron_notify_realtime", "schedule": "*/5 * * * *", "route": "/api/cron/notify?job=realtime" },
+    { "jobname": "fxav_cron_notify_digest",  "schedule": "0 * * * *",    "route": "/api/cron/notify?job=digest" },
     { "jobname": "fxav_cron_refresh_watch",  "schedule": "0 * * * *",    "route": "/api/cron/refresh-watch" },
     { "jobname": "fxav_cron_gc_watch",       "schedule": "15 * * * *",   "route": "/api/cron/gc-watch" },
     { "jobname": "fxav_cron_asset_recovery", "schedule": "*/15 * * * *", "route": "/api/cron/asset-recovery" },

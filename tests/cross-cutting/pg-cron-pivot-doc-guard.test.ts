@@ -46,6 +46,8 @@ const SELF_ABSOLUTE = resolve(REPO_ROOT, SELF_RELATIVE);
 const WALKED_FILES = [
   "docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot-design.md",
   "docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md",
+  "docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-02-m12.2-phase-b3-email-delivery-design.md",
+  "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md",
 ];
 
 const WALKED_DIRS = [
