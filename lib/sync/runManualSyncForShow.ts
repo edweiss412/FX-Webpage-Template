@@ -275,6 +275,7 @@ export async function runManualSyncForShow(
   const withLock =
     deps.withPipelineLock ?? ((id, fn) => withPostgresSyncPipelineLock(id, fn, { tryOnly: false }));
   const runOne = deps.processOneFile ?? defaultProcessOneFile;
+  const usesInjectedProcessOneFile = Boolean(deps.processOneFile);
 
   const preflight = await withLock(driveFileId, async (tx) => {
     // DEF-3: refuse an archived show BEFORE any Drive fetch (no mutation, no fetch, no log).
@@ -398,7 +399,7 @@ export async function runManualSyncForShow(
           );
           await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
         }
-        if ("outcome" in result && result.outcome === "hard_fail") {
+        if (usesInjectedProcessOneFile && "outcome" in result && result.outcome === "hard_fail") {
           await emitManualParseErrorAlert_unlocked(tx, driveFileId);
         }
         return result;
