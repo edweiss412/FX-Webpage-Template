@@ -30,13 +30,19 @@ export const INTERNAL_CODE_ENUMS = {
     source: "shows.last_sync_status"
   },
   DRIVE_FETCH_FAILED: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   DRIVE_METADATA_MISSING: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   DUPLICATE_REVIEWER_CHOICE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
+  EMAIL_DELIVERY_FAILED: {
+    source: "admin_alerts.code"
+  },
+  EMAIL_NOT_CONFIGURED: {
+    source: "admin_alerts.code"
   },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
@@ -103,6 +109,9 @@ export const INTERNAL_CODE_ENUMS = {
   },
   parse_error: {
     source: "shows.last_sync_status"
+  },
+  PARSE_ERROR_LAST_GOOD: {
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   PENDING_INGESTION_NOT_FOUND: {
     source: "pending_ingestions.last_error_code"
@@ -202,6 +211,9 @@ export const INTERNAL_CODE_ENUMS = {
   },
   SYNC_INFRA_ERROR: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
+  SYNC_STALLED: {
+    source: "admin_alerts.code"
   },
   SYNC_STEP_TIMEOUT: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
