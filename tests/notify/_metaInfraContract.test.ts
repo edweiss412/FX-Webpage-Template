@@ -15,6 +15,7 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/adminAlerts/resolveAdminAlert.ts" },
   { path: "lib/notify/deliver.ts" },
   { path: "lib/notify/detect/emailDeliveryFailed.ts" },
+  { path: "lib/notify/digest.ts" },
 ];
 
 // Inline recursive .ts walker (R9/R10 fix — no shared walkTs exists in the repo).
@@ -212,5 +213,23 @@ describe("notify + app-settings infra-contract (structural)", () => {
         },
       ),
     ).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("buildDigestModel returns infra_error for thrown query faults", async () => {
+    const { buildDigestModel } = await import("@/lib/notify/digest");
+    const sql = vi.fn(() => Promise.reject(new Error("db down")));
+
+    await expect(buildDigestModel("doug@fxav.net", "2026-06-02", { sql: sql as never })).resolves.toEqual({
+      kind: "infra_error",
+    });
+  });
+
+  test("buildDigestModel returns infra_error for returned postgres-style query faults", async () => {
+    const { buildDigestModel } = await import("@/lib/notify/digest");
+    const sql = vi.fn(() => Promise.reject({ message: "returned error" }));
+
+    await expect(buildDigestModel("doug@fxav.net", "2026-06-02", { sql: sql as never })).resolves.toEqual({
+      kind: "infra_error",
+    });
   });
 });
