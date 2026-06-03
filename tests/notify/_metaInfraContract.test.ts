@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 // Each new notify Supabase/postgres boundary helper adds its row here IN THE SAME COMMIT.
 export const REGISTERED: { path: string }[] = [
@@ -13,6 +13,7 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/notify/detect/recoveryResolution.ts" },
   { path: "lib/notify/detect/candidates.ts" },
   { path: "lib/adminAlerts/resolveAdminAlert.ts" },
+  { path: "lib/notify/deliver.ts" },
 ];
 
 // Inline recursive .ts walker (R9/R10 fix — no shared walkTs exists in the repo).
@@ -102,5 +103,70 @@ describe("notify + app-settings infra-contract (structural)", () => {
       kind: "infra_error",
     });
     await expect(getDailyReviewDigest(client as never)).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("deliverRealtimeCandidates returns infra_error for thrown query faults", async () => {
+    const { deliverRealtimeCandidates } = await import("@/lib/notify/deliver");
+    const sql = vi.fn(() => Promise.reject(new Error("db down")));
+
+    await expect(
+      deliverRealtimeCandidates(
+        {
+          candidates: [
+            {
+              kind: "show",
+              dedupKey: "show-1:SHEET_UNAVAILABLE:1780000000123000",
+              alertId: "00000000-0000-0000-0000-000000000001",
+              showId: "00000000-0000-0000-0000-000000000002",
+              code: "SHEET_UNAVAILABLE",
+              raisedAt: new Date("2026-06-02T12:00:00.123Z"),
+              slug: "show-one",
+              showTitle: "Show One",
+              contextSheetName: null,
+            },
+          ],
+          recipients: ["doug@fxav.net"],
+          origin: "https://crew.fxav.app",
+        },
+        { sql: sql as never },
+      ),
+    ).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("deliverRealtimeCandidates returns infra_error when the alert wrapper surfaces a returned DB error", async () => {
+    const { deliverRealtimeCandidates } = await import("@/lib/notify/deliver");
+    const sql = vi.fn((strings: TemplateStringsArray) => {
+      const text = strings.join("$");
+      if (text.includes("select 1")) return Promise.resolve([{ ok: true }]);
+      if (text.includes("select status, attempt_count")) return Promise.resolve([]);
+      if (text.includes("insert into public.email_deliveries")) return Promise.resolve([{ id: "failed" }]);
+      return Promise.resolve([]);
+    });
+
+    await expect(
+      deliverRealtimeCandidates(
+        {
+          candidates: [
+            {
+              kind: "ingestion",
+              dedupKey: "ingestion:drive-1:1780000000123000",
+              driveFileId: "drive-1",
+              driveFileName: "Pending Sheet",
+              firstSeenAt: new Date("2026-06-02T12:00:00.123Z"),
+              lastErrorCode: "SHEET_PROCESS_FAILED",
+            },
+          ],
+          recipients: ["doug@fxav.net"],
+          origin: "https://crew.fxav.app",
+        },
+        {
+          sql: sql as never,
+          sendEmail: async () => ({ ok: false, kind: "infra_error", message: "provider down" }),
+          upsertAdminAlert: async () => {
+            throw new Error("admin alert upsert failed: returned error");
+          },
+        },
+      ),
+    ).resolves.toEqual({ kind: "infra_error" });
   });
 });

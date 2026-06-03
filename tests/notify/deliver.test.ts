@@ -1,0 +1,306 @@
+import { describe, expect, test, vi } from "vitest";
+import { auditEmailCanonicalizationSources } from "@/lib/audit/emailCanonicalization";
+import { SEND_RETRY_CAP } from "@/lib/notify/constants";
+import { deliverRealtimeCandidates, type DeliverySql } from "@/lib/notify/deliver";
+import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
+import type { SendArgs, SendResult } from "@/lib/notify/send";
+
+type FakeSqlOptions = {
+  current?: boolean;
+  active?: boolean;
+  existingLedger?: { status: "sent" | "failed"; attempt_count: number } | null;
+};
+
+function showCandidate(overrides: Partial<Extract<RealtimeCandidate, { kind: "show" }>> = {}): RealtimeCandidate {
+  return {
+    kind: "show",
+    dedupKey: "show-1:SHEET_UNAVAILABLE:1780000000123000",
+    alertId: "alert-1",
+    showId: "show-1",
+    code: "SHEET_UNAVAILABLE",
+    raisedAt: new Date("2026-06-02T12:00:00.123Z"),
+    slug: "show-one",
+    showTitle: "Show One",
+    contextSheetName: "Sheet One",
+    ...overrides,
+  };
+}
+
+function ingestionCandidate(overrides: Partial<Extract<RealtimeCandidate, { kind: "ingestion" }>> = {}): RealtimeCandidate {
+  return {
+    kind: "ingestion",
+    dedupKey: "ingestion:drive-1:1780000000123000",
+    driveFileId: "drive-1",
+    driveFileName: "Pending Sheet",
+    firstSeenAt: new Date("2026-06-02T12:00:00.123Z"),
+    lastErrorCode: "SHEET_PROCESS_FAILED",
+    ...overrides,
+  };
+}
+
+function fakeSql(options: FakeSqlOptions = {}) {
+  const calls: Array<{ text: string; values: unknown[] }> = [];
+  const state = {
+    current: options.current ?? true,
+    active: options.active ?? true,
+    ledger: new Map<string, { status: "sent" | "failed"; attempt_count: number }>(
+      options.existingLedger ? [["doug@fxav.net", options.existingLedger]] : [],
+    ),
+    sentRows: [] as Array<{ values: unknown[] }>,
+    failedRows: [] as Array<{ values: unknown[] }>,
+  };
+
+  const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = String.raw(strings, ...values.map((_value, index) => `$${index + 1}`));
+    calls.push({ text, values });
+
+    if (/select\s+1\s+from\s+public\.admin_alerts/i.test(text) || /select\s+1\s+from\s+public\.pending_ingestions/i.test(text)) {
+      return Promise.resolve(state.current ? [{ current: true }] : []);
+    }
+    if (/from\s+public\.email_deliveries/i.test(text) && /select\s+status,\s*attempt_count/i.test(text)) {
+      return Promise.resolve(state.ledger.get(String(values[2])) ? [state.ledger.get(String(values[2]))] : []);
+    }
+    if (/from\s+public\.admin_emails/i.test(text)) {
+      return Promise.resolve(state.active ? [{ active: true }] : []);
+    }
+    if (/insert\s+into\s+public\.email_deliveries/i.test(text) && /status\s*=\s*'sent'/i.test(text)) {
+      state.sentRows.push({ values });
+      state.ledger.set(String(values[3]), { status: "sent", attempt_count: 0 });
+      return Promise.resolve([{ id: "sent" }]);
+    }
+    if (/insert\s+into\s+public\.email_deliveries/i.test(text) && /status\s*=\s*'failed'/i.test(text)) {
+      state.failedRows.push({ values });
+      const recipient = String(values[3]);
+      const prior = state.ledger.get(recipient);
+      state.ledger.set(recipient, {
+        status: "failed",
+        attempt_count: (prior?.attempt_count ?? 0) + 1,
+      });
+      return Promise.resolve([{ id: "failed" }]);
+    }
+    return Promise.resolve([]);
+  }) as unknown as DeliverySql;
+
+  return { sql, calls, state };
+}
+
+function sender(results: SendResult[]) {
+  const sends: SendArgs[] = [];
+  const sendEmail = vi.fn(async (args: SendArgs): Promise<SendResult> => {
+    sends.push(args);
+    const fallback: SendResult = { ok: true, messageId: `msg-${sends.length}` };
+    return results.shift() ?? fallback;
+  });
+  return { sendEmail, sends };
+}
+
+const ORIGIN = "https://crew.fxav.app";
+
+describe("deliverRealtimeCandidates", () => {
+  test("canonicalizes recipient, sends once, upserts sent, then skips the sent ledger row on the next tick", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail, sends } = sender([{ ok: true, messageId: "msg-1" }]);
+
+    const result1 = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: [" Doug@FXAV.NET "], origin: ORIGIN },
+      { sql, sendEmail, now: () => new Date("2026-06-02T14:00:00.000Z") },
+    );
+    const result2 = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: [" Doug@FXAV.NET "], origin: ORIGIN },
+      { sql, sendEmail },
+    );
+
+    expect(result1).toMatchObject({ kind: "ok", sent: 1 });
+    expect(result2).toMatchObject({ kind: "ok", skipped: 1 });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sends[0]?.to).toBe("doug@fxav.net");
+    expect(state.sentRows[0]?.values).toContain("doug@fxav.net");
+  });
+
+  test.each([
+    ["alert resolved", showCandidate(), { current: false }],
+    ["show archived or unpublished", showCandidate(), { current: false }],
+    ["pending row deleted", ingestionCandidate(), { current: false }],
+    ["pending row becomes wizard-scoped", ingestionCandidate(), { current: false }],
+  ])("stale candidate race skips with no send and no ledger write: %s", async (_name, candidate, options) => {
+    const { sql, state } = fakeSql(options);
+    const { sendEmail } = sender([{ ok: true, messageId: "msg-1" }]);
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [candidate], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", skipped: 1 });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(state.sentRows).toHaveLength(0);
+    expect(state.failedRows).toHaveLength(0);
+  });
+
+  test("two recipients receive distinct base idempotency keys and two sent rows", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail, sends } = sender([
+      { ok: true, messageId: "msg-1" },
+      { ok: true, messageId: "msg-2" },
+    ]);
+
+    await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["a@example.com", "b@example.com"], origin: ORIGIN },
+      { sql, sendEmail },
+    );
+
+    expect(state.sentRows).toHaveLength(2);
+    expect(new Set(sends.map((s) => s.idempotencyKey)).size).toBe(2);
+  });
+
+  test("retry_later on the base key writes no ledger row and raises no delivery-failed alert", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender([{ ok: "retry_later" }]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
+    expect(state.sentRows).toHaveLength(0);
+    expect(state.failedRows).toHaveLength(0);
+    expect(upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
+  test("invalid idempotency on the base key reissues with a fresh nonce and records sent only after a 200", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail, sends } = sender([
+      { ok: false, kind: "idempotency_conflict" },
+      { ok: true, messageId: "msg-reissued" },
+    ]);
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail, reissueKey: () => "fresh-nonce-1" },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", sent: 1 });
+    expect(sends.map((s) => s.idempotencyKey)).toEqual([
+      expect.stringMatching(/^fxav:realtime_problem:/),
+      "fresh-nonce-1",
+    ]);
+    expect(state.sentRows).toHaveLength(1);
+    expect(state.failedRows).toHaveLength(0);
+  });
+
+  test("reissue retry_later writes no failed row and raises no delivery-failed alert", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender([
+      { ok: false, kind: "idempotency_conflict" },
+      { ok: "retry_later" },
+    ]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
+    expect(state.failedRows).toHaveLength(0);
+    expect(upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
+  test("infra_error records conditional failure, increments attempts, and raises EMAIL_DELIVERY_FAILED", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender([
+      { ok: false, kind: "infra_error", message: "provider down" },
+      { ok: false, kind: "infra_error", message: "provider down again" },
+    ]);
+    const upsertAdminAlert = vi.fn();
+
+    await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+    await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+
+    expect(state.failedRows).toHaveLength(2);
+    expect(state.ledger.get("doug@fxav.net")?.attempt_count).toBe(2);
+    expect(upsertAdminAlert).toHaveBeenCalledWith({
+      showId: "show-1",
+      code: "EMAIL_DELIVERY_FAILED",
+      context: expect.objectContaining({ dedup_key: "show-1:SHEET_UNAVAILABLE:1780000000123000" }),
+    });
+  });
+
+  test("failed rows are retried only while attempt_count is below the cap", async () => {
+    const { sql, state } = fakeSql({ existingLedger: { status: "failed", attempt_count: SEND_RETRY_CAP } });
+    const { sendEmail } = sender([{ ok: true, messageId: "msg-1" }]);
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", skipped: 1 });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(state.sentRows).toHaveLength(0);
+  });
+
+  test("revoked recipient re-check skips without sending", async () => {
+    const { sql, state } = fakeSql({ active: false });
+    const { sendEmail } = sender([{ ok: true, messageId: "msg-1" }]);
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", skipped: 1 });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(state.sentRows).toHaveLength(0);
+  });
+
+  test("show and pending currentness checks use SQL-computed microsecond epochs and wizard exclusion", async () => {
+    const { sql, calls } = fakeSql();
+    const { sendEmail } = sender([
+      { ok: "retry_later" },
+      { ok: "retry_later" },
+    ]);
+
+    await deliverRealtimeCandidates(
+      { candidates: [showCandidate(), ingestionCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail },
+    );
+
+    const currentQueries = calls.filter((c) => /floor\(extract\(epoch\s+from/i.test(c.text));
+    expect(currentQueries[0]?.text).toMatch(/a\.resolved_at\s+is\s+null/i);
+    expect(currentQueries[0]?.text).toMatch(/s\.published\s+is\s+true/i);
+    expect(currentQueries[0]?.text).toMatch(/s\.archived\s+is\s+false/i);
+    expect(currentQueries[1]?.text).toMatch(/from\s+public\.pending_ingestions/i);
+    expect(currentQueries[1]?.text).toMatch(/wizard_session_id\s+is\s+null/i);
+    expect(currentQueries.map((c) => c.text).join("\n")).not.toMatch(/Date\.parse/i);
+  });
+});
+
+describe("email_deliveries recipient canonicalization audit coverage", () => {
+  test("a raw recipient write in lib/notify/deliver.ts fails the live audit layer", () => {
+    const findings = auditEmailCanonicalizationSources([
+      {
+        path: "lib/notify/deliver.ts",
+        source: [
+          "export async function bad(db: { from(table: string): { insert(row: unknown): Promise<void> } }, rawRecipient: string) {",
+          '  await db.from("email_deliveries").insert({',
+          '    kind: "realtime_problem",',
+          '    dedup_key: "k",',
+          '    recipient: rawRecipient,',
+          "  });",
+          "}",
+        ].join("\n"),
+      },
+    ]);
+
+    expect(findings.join("\n")).toMatch(/raw_email_db_write:email_deliveries\.recipient/);
+  });
+});

@@ -72,6 +72,7 @@ function defaultSchemaCheckSources(): AuditSource[] {
   return [
     "supabase/migrations/20260501000000_initial_public_schema.sql",
     "supabase/migrations/20260520000911_add_email_canonical_checks.sql",
+    "supabase/migrations/20260602000004_b3_email_deliveries.sql",
   ].map((path) => ({ path, source: readFileSync(path, "utf8") }));
 }
 

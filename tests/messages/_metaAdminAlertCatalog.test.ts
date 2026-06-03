@@ -74,6 +74,7 @@ const ADMIN_ALERTS_CODES = [
   "PARSE_ERROR_LAST_GOOD", //         B3 cron parse_error recovery
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
   "SYNC_STALLED", //                  B3 global sync heartbeat detector
+  "EMAIL_DELIVERY_FAILED", //         B3 delivery loop provider-failure producer
   "SHOW_FIRST_PUBLISHED", //          M6.5 first-seen auto-publish confirmation
   "SHOW_UNPUBLISHED", //              M6.5 unpublish undo confirmation
   "PENDING_SNAPSHOT_PROMOTE_STUCK", // M7 diagram GC promotion-stuck repair signal
@@ -174,6 +175,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   SYNC_STALLED: {
     path: "lib/notify/detect/stall.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SYNC_STALLED"/,
+  },
+  EMAIL_DELIVERY_FAILED: {
+    path: "lib/notify/deliver.ts",
+    pattern: /code:\s*"EMAIL_DELIVERY_FAILED"/,
   },
   SHOW_FIRST_PUBLISHED: {
     path: "lib/sync/runScheduledCronSync.ts",
