@@ -242,6 +242,18 @@ export const SPEC_CODES = {
     "followUp": "Doug → refresh admin",
     "helpfulContext": "Your Apply submission carried two decisions for the same item id. The form should normally prevent this; you've reached this code via a stale or duplicated form state. Refresh the admin page and re-submit your decisions cleanly.",
   },
+  "EMAIL_DELIVERY_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't send a notification email. We'll keep retrying; if it keeps failing, check the email settings.",
+    "followUp": "Doug → check email settings if this persists",
+    "helpfulContext": "An outbound notification email failed to send through the email provider. The system retries automatically a few times. If it keeps failing, the provider key or the verified sending domain may need attention.",
+  },
+  "EMAIL_NOT_CONFIGURED": {
+    "crewFacing": null,
+    "dougFacing": "Email notifications aren't set up yet, so alerts won't be emailed. Check that the email provider key, the sending address, and the site address are all configured.",
+    "followUp": "Doug → check email provider key, sending address, and site address",
+    "helpfulContext": "Outbound email isn't fully configured, so sync-problem alerts and the daily digest won't be emailed. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts still work; set whichever is missing to enable email.",
+  },
   "EMBEDDED_ASSET_DRIFTED": {
     "crewFacing": null,
     "dougFacing": "An embedded diagram changed after staging. Crew see a placeholder for that image until a new sheet edit re-stages it.",
@@ -1069,6 +1081,12 @@ export const SPEC_CODES = {
     "dougFacing": "A sync infrastructure step failed. The rest of the folder continued.",
     "followUp": "Eric → inspect sync_log payload",
     "helpfulContext": "A database or Supabase boundary returned an infrastructure error. The structured log payload keeps the original operation and error class for debugging.",
+  },
+  "SYNC_STALLED": {
+    "crewFacing": null,
+    "dougFacing": "Automatic syncing hasn't run in over an hour, so new sheet changes won't appear until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
+    "followUp": "Doug → check Drive connection / re-run setup",
+    "helpfulContext": "The scheduled job that reads your show sheets from Google Drive hasn't completed a run in over an hour. New edits won't reach crew pages until it resumes. Usually transient; if it persists, the Drive connection may have lapsed or the scheduler may be down.",
   },
   "SYNC_STATUS_UNKNOWN": {
     "crewFacing": null,

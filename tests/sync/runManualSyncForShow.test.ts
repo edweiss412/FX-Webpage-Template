@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
+import type { ParseResult } from "@/lib/parser/types";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import {
@@ -11,6 +12,7 @@ import {
   SHEET_UNAVAILABLE,
   STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
+  type ProcessOneFileDeps,
 } from "@/lib/sync/runScheduledCronSync";
 
 type FakeTx = SyncPipelineTx & {
@@ -25,6 +27,7 @@ type FakeTx = SyncPipelineTx & {
       lastSeenModifiedTime: string | null;
       lastSyncStatus: string | null;
       lastSyncError: string | null;
+      title: string;
     }
   >;
   syncLog: Array<{
@@ -38,11 +41,11 @@ type FakeTx = SyncPipelineTx & {
   markShowSheetUnavailable(
     driveFileId: string,
     code: string,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
   markShowDriveError(
     driveFileId: string,
     code: string,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
   insertSyncLog(
     entry: {
       driveFileId: string | null;
@@ -70,6 +73,11 @@ function fileMeta(driveFileId = "drive-file-1"): DriveListedFile {
   };
 }
 
+const parseResult = {
+  show: { title: "Manual Sync Fixture" },
+  warnings: [],
+} as unknown as ParseResult;
+
 function fakeTx(held = true): FakeTx {
   return {
     held,
@@ -84,6 +92,7 @@ function fakeTx(held = true): FakeTx {
           lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
           lastSyncStatus: "ok",
           lastSyncError: null,
+          title: "Manual Sync Fixture",
         },
       ],
     ]),
@@ -100,8 +109,17 @@ function fakeTx(held = true): FakeTx {
       if (/pg_locks/i.test(sql)) return { held: this.held } as T;
       return { held: this.held } as T;
     },
-    async readShowForPhase1() {
-      throw new Error("not reached by these tests");
+    async readShowForPhase1(driveFileId: string) {
+      const show = this.shows.get(driveFileId);
+      if (!show) return null;
+      return {
+        showId: show.showId,
+        driveFileId: show.driveFileId,
+        lastSeenModifiedTime: show.lastSeenModifiedTime,
+        lastSyncStatus: show.lastSyncStatus,
+        lastSyncError: show.lastSyncError,
+        priorParseResult: parseResult,
+      };
     },
     async readLivePendingSync() {
       return null;
@@ -129,18 +147,18 @@ function fakeTx(held = true): FakeTx {
     async markShowSheetUnavailable(driveFileId: string, code: string) {
       this.operations.push(`markShowSheetUnavailable:${driveFileId}`);
       const show = this.shows.get(driveFileId);
-      if (!show) return { showId: null, lastSeenModifiedTime: null };
+      if (!show) return { showId: null, lastSeenModifiedTime: null, title: null };
       show.lastSyncStatus = "sheet_unavailable";
       show.lastSyncError = code;
-      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime };
+      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime, title: show.title };
     },
     async markShowDriveError(driveFileId: string, code: string) {
       this.operations.push(`markShowDriveError:${driveFileId}`);
       const show = this.shows.get(driveFileId);
-      if (!show) return { showId: null, lastSeenModifiedTime: null };
+      if (!show) return { showId: null, lastSeenModifiedTime: null, title: null };
       show.lastSyncStatus = "drive_error";
       show.lastSyncError = code;
-      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime };
+      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime, title: show.title };
     },
     async insertSyncLog(
       entry: {
@@ -276,6 +294,82 @@ describe("runManualSyncForShow", () => {
     expect(processOneFile).toHaveBeenCalledOnce();
   });
 
+  test("default manual hard_fail emits PARSE_ERROR_LAST_GOOD exactly once", async () => {
+    const tx = fakeTx(true) as LockedShowTx<FakeTx>;
+    const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
+    const processDeps = {
+      perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "manual" as const })),
+      captureBinding: vi.fn(async () => ({
+        bindingToken: "binding-1",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+      })),
+      fetchMarkdownAtRevision: vi.fn(async () => "# v4\nShow"),
+      parseSheet: vi.fn(() => parseResult),
+      enrichWithDrivePins: vi.fn(async () => parseResult),
+      runPhase1: vi.fn(async () => ({
+        outcome: "hard_fail" as const,
+        code: "MI-4_NO_CREW",
+        failedCodes: ["MI-4_NO_CREW"],
+        message: "Crew missing",
+      })),
+    } as unknown as ProcessOneFileDeps;
+
+    const result = await runManualSyncForShow("drive-file-1", "manual", {
+      checkFinalizeOwnership: async () => false,
+      getActiveWatchedFolderId: vi.fn(async () => ({ folderId: "folder-1" })),
+      fetchDriveFileMetadata: vi.fn(async () => fileMeta("drive-file-1")),
+      withPipelineLock,
+      processDeps,
+    });
+
+    expect(result).toEqual({ outcome: "hard_fail", code: "MI-4_NO_CREW" });
+    expect(tx.alerts.filter((alert) => alert.code === "PARSE_ERROR_LAST_GOOD")).toHaveLength(1);
+    expect(tx.alerts).toContainEqual({
+      showId: "show-1",
+      code: "PARSE_ERROR_LAST_GOOD",
+      context: {
+        drive_file_id: "drive-file-1",
+        sheet_name: "Manual Sync Fixture",
+      },
+    });
+  });
+
+  test("default manual drive_error emits DRIVE_FETCH_FAILED exactly once", async () => {
+    const tx = fakeTx(true) as LockedShowTx<FakeTx>;
+    const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
+    const processDeps = {
+      perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "manual" as const })),
+      captureBinding: vi.fn(async () => ({
+        bindingToken: "binding-1",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+      })),
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw new Error("Drive revision markdown export failed with HTTP 500");
+      }),
+    } as unknown as ProcessOneFileDeps;
+
+    const result = await runManualSyncForShow("drive-file-1", "manual", {
+      checkFinalizeOwnership: async () => false,
+      getActiveWatchedFolderId: vi.fn(async () => ({ folderId: "folder-1" })),
+      fetchDriveFileMetadata: vi.fn(async () => fileMeta("drive-file-1")),
+      withPipelineLock,
+      processDeps,
+    });
+
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    expect(tx.alerts.filter((alert) => alert.code === "DRIVE_FETCH_FAILED")).toHaveLength(1);
+    expect(tx.alerts).toContainEqual({
+      showId: "show-1",
+      code: "DRIVE_FETCH_FAILED",
+      context: {
+        drive_file_id: "drive-file-1",
+        failure_code: "SYNC_FILE_FAILED",
+        previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+        sheet_name: "Manual Sync Fixture",
+      },
+    });
+  });
+
   test("manual re-sync marks the show sheet_unavailable and skips processing when Drive parents exclude the watched folder", async () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
@@ -322,6 +416,7 @@ describe("runManualSyncForShow", () => {
         context: {
           drive_file_id: "drive-file-1",
           previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+          sheet_name: "Manual Sync Fixture",
         },
       },
     ]);
@@ -388,6 +483,19 @@ describe("runManualSyncForShow", () => {
     expect(tx.operations).toEqual([
       "markShowDriveError:drive-file-1",
       "insertSyncLog:drive-file-1",
+      "upsertAdminAlert:DRIVE_FETCH_FAILED",
+    ]);
+    expect(tx.alerts).toEqual([
+      {
+        showId: "show-1",
+        code: "DRIVE_FETCH_FAILED",
+        context: {
+          drive_file_id: "drive-file-1",
+          failure_code: SYNC_INFRA_ERROR,
+          previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+          sheet_name: "Manual Sync Fixture",
+        },
+      },
     ]);
   });
 

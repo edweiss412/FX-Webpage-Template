@@ -16,6 +16,7 @@ import {
 import { runPhase2, type Phase2Tx } from "@/lib/sync/phase2";
 import {
   emitSuccessfulPhase2Tail,
+  resolveStaleSyncProblemAlerts_unlocked,
   type ProcessOneFileDeps,
   type ProcessOneFileResult,
 } from "@/lib/sync/runScheduledCronSync";
@@ -124,6 +125,7 @@ async function toResult(
       parseResult: args.parseResult,
       autoPublishFirstSeen,
     });
+    await resolveStaleSyncProblemAlerts_unlocked(tx, applied.showId, null);
     return { outcome: "applied", showId: phase2.showId };
   }
   if (result.outcome === "defer") {

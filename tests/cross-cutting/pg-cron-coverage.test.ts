@@ -31,7 +31,7 @@
 
 import { describe, expect, test, beforeAll } from "vitest";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Canonical job table — read from the sibling JSON in the M12.1 plan dir so the
@@ -50,6 +50,24 @@ const CANONICAL_JOBS = (
   ) as { jobs: Array<{ jobname: string; schedule: string; route: string }> }
 ).jobs;
 
+const SCHEDULE_MIGRATION_PATHS = [
+  "supabase/migrations/20260527000003_schedule_cron_jobs.sql",
+  "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql",
+];
+
+const REQUIRED_NOTIFY_JOBS = [
+  {
+    jobname: "fxav_cron_notify_realtime",
+    schedule: "*/5 * * * *",
+    route: "/api/cron/notify?job=realtime",
+  },
+  {
+    jobname: "fxav_cron_notify_digest",
+    schedule: "0 * * * *",
+    route: "/api/cron/notify?job=digest",
+  },
+];
+
 // Non-fxav cron snapshot (R25 F49 amended): expected set of jobname values
 // in cron.job that are NEITHER fxav_cron_* NOR the cleanup-bootstrap-nonces
 // orphan T3 cleans up. Empty at M12.1 commit boundary (the orphan was the only
@@ -59,6 +77,7 @@ const EXPECTED_NON_FXAV_NON_ORPHAN_CRONS: readonly string[] = [];
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const coverageTarget = process.env.PG_CRON_COVERAGE_TARGET ?? "local";
 
 function psql(query: string): string {
   return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt", "-c", query], {
@@ -66,9 +85,23 @@ function psql(query: string): string {
   }).trim();
 }
 
+const livePsqlReachable = ((): boolean => {
+  try {
+    execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", "select 1"], {
+      cwd: process.cwd(),
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 3000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+const liveDbTest = coverageTarget === "validation" || livePsqlReachable ? test : test.skip;
+
 beforeAll(() => {
-  const mode = process.env.PG_CRON_COVERAGE_TARGET ?? "local";
-  if (mode === "validation") {
+  if (coverageTarget === "validation") {
     const url = process.env.TEST_DATABASE_URL ?? "";
     const projectRef = process.env.VALIDATION_SUPABASE_PROJECT_REF ?? "";
     if (!url || /localhost|127\.0\.0\.1|:54322/.test(url)) {
@@ -87,11 +120,68 @@ beforeAll(() => {
       );
     }
   }
+  if (!livePsqlReachable && coverageTarget !== "validation") {
+    console.warn(
+      "[pg-cron-coverage] Skipping live-DB assertions — psql unreachable at " +
+        databaseUrl +
+        ". Static migration/canonical-job assertions still run.",
+    );
+  }
 });
 
 describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
+  test("canonical pg-cron job table includes the B3 notify jobs", () => {
+    expect(CANONICAL_JOBS).toEqual(
+      expect.arrayContaining(REQUIRED_NOTIFY_JOBS.map((job) => expect.objectContaining(job))),
+    );
+  });
+
+  test("schedule migrations use GET, bearer auth, and 300000ms timeout for every canonical job", () => {
+    for (const path of SCHEDULE_MIGRATION_PATHS) {
+      expect(existsSync(path), `${path} should exist`).toBe(true);
+    }
+
+    const scheduledSql = SCHEDULE_MIGRATION_PATHS.map((path) =>
+      existsSync(path) ? readFileSync(path, "utf8") : "",
+    ).join("\n");
+
+    expect(scheduledSql).toContain("net.http_get(");
+    expect(scheduledSql).not.toContain("net.http_post(");
+
+    for (const job of CANONICAL_JOBS) {
+      expect(scheduledSql, `${job.jobname} should be scheduled`).toContain(job.jobname);
+      expect(scheduledSql, `${job.jobname} should use ${job.schedule}`).toContain(job.schedule);
+      expect(scheduledSql, `${job.jobname} should target ${job.route}`).toContain(job.route);
+    }
+
+    for (const job of REQUIRED_NOTIFY_JOBS) {
+      expect(scheduledSql, `${job.jobname} should be scheduled`).toContain(job.jobname);
+      expect(scheduledSql, `${job.jobname} should use ${job.schedule}`).toContain(job.schedule);
+      expect(scheduledSql, `${job.jobname} should target ${job.route}`).toContain(job.route);
+
+      const blockStart = scheduledSql.indexOf(`cron.schedule('${job.jobname}'`);
+      const commandBlock = scheduledSql.slice(blockStart, blockStart + 800);
+      expect(commandBlock, `${job.jobname} should use net.http_get`).toContain("net.http_get(");
+      expect(commandBlock, `${job.jobname} should not use net.http_post`).not.toContain("net.http_post(");
+      expect(commandBlock, `${job.jobname} should pass headers to pg_net`).toContain(
+        "headers := jsonb_build_object(",
+      );
+      expect(commandBlock, `${job.jobname} should send Authorization`).toContain("'Authorization'");
+      expect(commandBlock, `${job.jobname} should send a bearer token`).toContain("'Bearer '");
+      expect(commandBlock, `${job.jobname} should read the Vault secret at execution time`).toContain(
+        "vault.decrypted_secrets",
+      );
+      expect(commandBlock, `${job.jobname} should use a 300000ms timeout`).toContain(
+        "timeout_milliseconds := 300000",
+      );
+    }
+
+    const timeoutOccurrences = scheduledSql.match(/timeout_milliseconds\s*:=\s*300000/g) ?? [];
+    expect(timeoutOccurrences).toHaveLength(CANONICAL_JOBS.length);
+  });
+
   // Layer 0a — pg_net extension installed (T2.1)
-  test("pg_net extension is installed", () => {
+  liveDbTest("pg_net extension is installed", () => {
     const installed = psql(
       "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_net')",
     );
@@ -99,14 +189,14 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
   });
 
   // Layer 0b — fxav_cron_secret entry exists in vault.secrets (T2.2)
-  test("vault.secrets has fxav_cron_secret entry", () => {
+  liveDbTest("vault.secrets has fxav_cron_secret entry", () => {
     const present = psql(
       "SELECT EXISTS(SELECT 1 FROM vault.secrets WHERE name = 'fxav_cron_secret')",
     );
     expect(present).toBe("t");
   });
 
-  test("cron.job has exactly 7 fxav_cron_* rows matching the canonical pg-cron-jobs.json", () => {
+  liveDbTest("cron.job has fxav_cron_* rows matching the canonical pg-cron-jobs.json", () => {
     // R4 F10: escape '\' so underscore is literal (not single-char wildcard).
     // JSON aggregation: command column contains literal newlines that would
     // break naive split('\n') parsing.
@@ -164,6 +254,10 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
         row.command,
         `${row.jobname} command should source secret from vault.decrypted_secrets`,
       ).toContain("vault.decrypted_secrets");
+      expect(
+        row.command,
+        `${row.jobname} command should use a 300000ms pg_net timeout`,
+      ).toContain("timeout_milliseconds := 300000");
       expect(row.command, `${row.jobname} command should reference the canonical route`).toContain(
         canonical.route,
       );
@@ -173,7 +267,7 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
   // R25 F49 amended: snapshot-equality on the non-fxav cron set (excluding the
   // orphan T3 cleans up). Proves T3's cron.unschedule LIKE clause didn't reach
   // outside fxav_cron_* scope.
-  test("non-fxav cron set matches snapshot (excludes cleanup-bootstrap-nonces orphan)", () => {
+  liveDbTest("non-fxav cron set matches snapshot (excludes cleanup-bootstrap-nonces orphan)", () => {
     const raw = psql(
       String.raw`SELECT coalesce(array_to_string(array_agg(jobname ORDER BY jobname), E'\n'), '') FROM cron.job WHERE jobname NOT LIKE 'fxav\_cron\_%' ESCAPE '\' AND jobname != 'cleanup-bootstrap-nonces'`,
     );
@@ -182,7 +276,7 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
   });
 
   // Orphan-absent (R25 F49 + R26 F51): cleanup-bootstrap-nonces unscheduled by T3.
-  test("cleanup-bootstrap-nonces orphan cron has been unscheduled", () => {
+  liveDbTest("cleanup-bootstrap-nonces orphan cron has been unscheduled", () => {
     const count = psql(
       "SELECT count(*) FROM cron.job WHERE jobname = 'cleanup-bootstrap-nonces'",
     );

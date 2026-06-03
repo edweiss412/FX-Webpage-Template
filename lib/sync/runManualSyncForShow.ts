@@ -16,6 +16,8 @@ import {
   SHEET_UNAVAILABLE,
   STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
+  resolveStaleSyncProblemAlerts_unlocked,
+  syncProblemCodeForStatus,
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
 import type { SyncMode } from "@/lib/sync/perFileProcessor";
@@ -78,7 +80,7 @@ type ManualRecoveryTx = SyncPipelineTx & {
   markShowDriveError(
     driveFileId: string,
     code: string,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
   insertSyncLog(entry: {
     driveFileId: string | null;
     outcome: string;
@@ -180,6 +182,11 @@ async function markManualSheetUnavailable_unlocked(
       sheet_name: updated.title,
     },
   });
+  await resolveStaleSyncProblemAlerts_unlocked(
+    tx,
+    showId,
+    syncProblemCodeForStatus("sheet_unavailable"),
+  );
 
   return { outcome: "source_gone", code };
 }
@@ -208,7 +215,44 @@ async function markManualDriveError_unlocked(
     },
     updated.showId,
   );
+  await recoveryTx.upsertAdminAlert({
+    showId: updated.showId,
+    code: "DRIVE_FETCH_FAILED",
+    context: {
+      drive_file_id: driveFileId,
+      failure_code: SYNC_INFRA_ERROR,
+      previous_last_seen_modified_time: updated.lastSeenModifiedTime ?? null,
+      sheet_name: updated.title,
+    },
+  });
+  await resolveStaleSyncProblemAlerts_unlocked(
+    tx,
+    updated.showId,
+    syncProblemCodeForStatus("drive_error"),
+  );
   return { outcome: "parse_error", code: SYNC_INFRA_ERROR };
+}
+
+async function emitManualParseErrorAlert_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<void> {
+  const show = await tx.readShowForPhase1(driveFileId);
+  if (!show?.showId) return;
+  const recoveryTx = tx as LockedShowTx<ManualRecoveryTx>;
+  await recoveryTx.upsertAdminAlert({
+    showId: show.showId,
+    code: "PARSE_ERROR_LAST_GOOD",
+    context: {
+      drive_file_id: driveFileId,
+      sheet_name: show.priorParseResult.show.title,
+    },
+  });
+  await resolveStaleSyncProblemAlerts_unlocked(
+    tx,
+    show.showId,
+    syncProblemCodeForStatus("parse_error"),
+  );
 }
 
 export async function runManualSyncForShow_unlocked(
@@ -231,6 +275,7 @@ export async function runManualSyncForShow(
   const withLock =
     deps.withPipelineLock ?? ((id, fn) => withPostgresSyncPipelineLock(id, fn, { tryOnly: false }));
   const runOne = deps.processOneFile ?? defaultProcessOneFile;
+  const usesInjectedProcessOneFile = Boolean(deps.processOneFile);
 
   const preflight = await withLock(driveFileId, async (tx) => {
     // DEF-3: refuse an archived show BEFORE any Drive fetch (no mutation, no fetch, no log).
@@ -352,6 +397,10 @@ export async function runManualSyncForShow(
             "update public.shows set requires_resync = false where drive_file_id = $1 returning true as cleared",
             [driveFileId],
           );
+          await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
+        }
+        if (usesInjectedProcessOneFile && "outcome" in result && result.outcome === "hard_fail") {
+          await emitManualParseErrorAlert_unlocked(tx, driveFileId);
         }
         return result;
       })) as ProcessOneFileResult | ConcurrentSyncSkipped,

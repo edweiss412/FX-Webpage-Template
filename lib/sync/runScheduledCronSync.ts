@@ -9,6 +9,10 @@ import {
   getActiveWatchedFolderId,
   type ActiveWatchedFolderResult,
 } from "@/lib/appSettings/getWatchedFolderId";
+import {
+  writeSyncCronHeartbeat as defaultWriteSyncCronHeartbeat,
+  type HeartbeatWriteResult,
+} from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
@@ -26,6 +30,7 @@ import {
 } from "@/lib/sync/enrichWithDrivePins";
 import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
+import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
 import {
   assertShowLockHeld,
   CONCURRENT_SYNC_SKIPPED,
@@ -122,6 +127,33 @@ export type SyncPipelineTx = LockableSyncTx &
   Partial<RevisionRaceCooldownTx> &
   Partial<LiveDeferralTx>;
 
+export function syncProblemCodeForStatus(status: string | null | undefined): SyncProblemCode | null {
+  if (status === "drive_error") return "DRIVE_FETCH_FAILED";
+  if (status === "parse_error") return "PARSE_ERROR_LAST_GOOD";
+  if (status === "sheet_unavailable") return "SHEET_UNAVAILABLE";
+  return null;
+}
+
+export async function resolveStaleSyncProblemAlerts_unlocked(
+  tx: Pick<SyncPipelineTx, "queryOne">,
+  showId: string | null | undefined,
+  currentCode: SyncProblemCode | null,
+): Promise<void> {
+  if (!showId) return;
+  await tx.queryOne<{ resolved: true } | undefined>(
+    `
+      update public.admin_alerts a
+         set resolved_at = now()
+       where a.show_id = $1::uuid
+         and a.resolved_at is null
+         and a.code = any($2::text[])
+         and a.code <> coalesce($3::text, '')
+       returning true as resolved
+    `,
+    [showId, [...SYNC_PROBLEM_CODES], currentCode],
+  );
+}
+
 export type ProcessOneFileResult =
   | { outcome: "skipped"; reason: string }
   | { outcome: "asset_recovery" }
@@ -187,7 +219,7 @@ type CronRecoveryTx = SyncPipelineTx & {
   markShowDriveError(
     driveFileId: string,
     code: string,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
   insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
@@ -242,6 +274,7 @@ export type RunScheduledCronSyncDeps = {
     fileMeta: DriveListedFile,
     deps?: Pick<ProcessOneFileDeps, "logSync">,
   ) => Promise<ProcessOneFileResult>;
+  writeSyncCronHeartbeat?: () => Promise<HeartbeatWriteResult>;
 };
 
 export type RunScheduledCronSyncResult = {
@@ -252,6 +285,7 @@ export type RunScheduledCronSyncResult = {
   summary?:
     | { outcome: "skipped"; skipReason: "no_folder_configured" }
     | { outcome: "parse_error"; code: typeof SYNC_INFRA_ERROR };
+  maintenanceFaults?: { syncCronHeartbeat?: "infra_error" };
 };
 
 type PostgresTransaction = {
@@ -488,6 +522,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
     );
 
     return {
+      showId: show.id,
       driveFileId: show.drive_file_id,
       lastSeenModifiedTime: show.last_seen_modified_time,
       lastSyncStatus: show.last_sync_status,
@@ -707,20 +742,25 @@ class PostgresPipelineTx implements SyncPipelineTx {
   }
 
   async markShowDriveError(driveFileId: string, code: string) {
-    const row = await this.one<{ id: string; last_seen_modified_time: string | null }>(
+    const row = await this.one<{
+      id: string;
+      last_seen_modified_time: string | null;
+      title: string | null;
+    }>(
       `
         update public.shows
            set last_sync_status = 'drive_error',
                last_sync_error = $2,
                last_synced_at = now()
          where drive_file_id = $1
-         returning id, last_seen_modified_time
+         returning id, last_seen_modified_time, title
       `,
       [driveFileId, code],
     );
     return {
       showId: row?.id ?? null,
       lastSeenModifiedTime: row?.last_seen_modified_time ?? null,
+      title: row?.title ?? null,
     };
   }
 
@@ -1825,6 +1865,11 @@ async function markMissingShow_unlocked(
       sheet_name: show.title,
     },
   });
+  await resolveStaleSyncProblemAlerts_unlocked(
+    tx,
+    showId,
+    syncProblemCodeForStatus("sheet_unavailable"),
+  );
   return { outcome: "source_gone", code: SHEET_UNAVAILABLE };
 }
 
@@ -1882,7 +1927,25 @@ async function handleFetchFailure_unlocked(
           sheet_name: "title" in updated ? updated.title : null,
         },
       });
+    } else {
+      // B3 §4.1: show-level DRIVE_FETCH_FAILED producer. Realtime email
+      // consumes admin_alerts, while `code` here is the raw drive failure.
+      await recoveryTx.upsertAdminAlert({
+        showId,
+        code: "DRIVE_FETCH_FAILED",
+        context: {
+          drive_file_id: driveFileId,
+          failure_code: code,
+          previous_last_seen_modified_time: previousLastSeenModifiedTime,
+          sheet_name: updated.title,
+        },
+      });
     }
+    await resolveStaleSyncProblemAlerts_unlocked(
+      tx,
+      showId,
+      syncProblemCodeForStatus(code === STAGED_PARSE_SOURCE_GONE ? "sheet_unavailable" : "drive_error"),
+    );
     return result;
   }
 
@@ -2223,6 +2286,25 @@ export async function processOneFile_unlocked(
   if (phase1.outcome === "hard_fail") {
     const result = { outcome: "hard_fail" as const, code: phase1.code };
     await logSync(txDeps, driveFileId, result);
+    const show = await tx.readShowForPhase1(driveFileId);
+    if (show?.showId) {
+      // B3 §4.1: show-level PARSE_ERROR_LAST_GOOD producer, in the
+      // locked hard_fail branch after Phase 1 has retained last-good.
+      const upsertAdminAlert = requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked");
+      await upsertAdminAlert({
+        showId: show.showId,
+        code: "PARSE_ERROR_LAST_GOOD",
+        context: {
+          drive_file_id: driveFileId,
+          sheet_name: show.priorParseResult.show.title,
+        },
+      });
+      await resolveStaleSyncProblemAlerts_unlocked(
+        tx,
+        show.showId,
+        syncProblemCodeForStatus("parse_error"),
+      );
+    }
     return result;
   }
   if (phase1.outcome === "stage") {
@@ -2299,12 +2381,27 @@ export async function processOneFile_unlocked(
     parseResult: pipeline.parseResult,
     autoPublishFirstSeen,
   });
+  await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
   return result;
 }
 
 export async function runScheduledCronSync(
   deps: RunScheduledCronSyncDeps = {},
 ): Promise<RunScheduledCronSyncResult> {
+  const finishCompletedRun = async (
+    result: RunScheduledCronSyncResult,
+  ): Promise<RunScheduledCronSyncResult> => {
+    const heartbeat = await (deps.writeSyncCronHeartbeat ?? defaultWriteSyncCronHeartbeat)();
+    if (heartbeat.kind !== "infra_error") return result;
+    return {
+      ...result,
+      maintenanceFaults: {
+        ...result.maintenanceFaults,
+        syncCronHeartbeat: "infra_error",
+      },
+    };
+  };
+
   const folderResult = deps.folderId
     ? { folderId: deps.folderId }
     : await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
@@ -2319,10 +2416,10 @@ export async function runScheduledCronSync(
           skip_reason: "no_folder_configured",
         },
       });
-      return {
+      return finishCompletedRun({
         processed: [],
         summary: { outcome: "skipped", skipReason: "no_folder_configured" },
-      };
+      });
     }
     await deps.logSync?.({
       driveFileId: null,
@@ -2391,5 +2488,5 @@ export async function runScheduledCronSync(
     }
   }
 
-  return { processed };
+  return finishCompletedRun({ processed });
 }

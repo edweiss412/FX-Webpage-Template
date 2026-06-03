@@ -32,9 +32,25 @@ import {
   AutoPublishToggle,
   type AutoPublishInitial,
 } from "@/components/admin/settings/AutoPublishToggle";
+import {
+  NotifyToggle,
+  type NotifyToggleInitial,
+} from "@/components/admin/settings/NotifyToggle";
 import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
 import { getAutoPublishCleanFirstSeen } from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
+import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
+import { getDailyReviewDigest } from "@/lib/appSettings/getDailyReviewDigest";
 import { setAutoPublish } from "./_actions/setAutoPublish";
+import { setAlertOnSyncProblems } from "./_actions/setAlertOnSyncProblems";
+import { setDailyReviewDigest } from "./_actions/setDailyReviewDigest";
+
+/** Map a fail-closed toggle read ({kind:'value',enabled} | infra_error) onto the
+ * NotifyToggle's {kind:'value',on} | infra_error prop shape (degraded → OFF). */
+function toNotifyInitial(
+  read: { kind: "value"; enabled: boolean } | { kind: "infra_error" },
+): NotifyToggleInitial {
+  return read.kind === "value" ? { kind: "value", on: read.enabled } : { kind: "infra_error" };
+}
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings · Admin · FXAV" };
@@ -52,6 +68,11 @@ export default async function AdminSettingsPage() {
       ? { kind: "value", on: autoPublishRead.autoPublish }
       : { kind: "infra_error" };
 
+  // Fail-closed reads of the two notification toggles (infra_error → degraded
+  // control; never a silent wrong/falsely-ON state — §7.2).
+  const alertOnSyncProblemsInitial = toNotifyInitial(await getAlertOnSyncProblems());
+  const dailyReviewDigestInitial = toNotifyInitial(await getDailyReviewDigest());
+
   return (
     <main
       data-testid="admin-settings-page"
@@ -68,6 +89,24 @@ export default async function AdminSettingsPage() {
         result={await fetchEmbeddedAdminEmails()}
         actorCanonicalEmail={canonicalize(identity.email) ?? ""}
         now={now}
+      />
+
+      <NotifyToggle
+        testId="alert-on-sync-problems"
+        title="Alert me about sync problems"
+        ariaLabel="Alert me about sync problems"
+        description="Email me when a sheet stops syncing or fails to parse for more than an hour."
+        initial={alertOnSyncProblemsInitial}
+        action={setAlertOnSyncProblems}
+      />
+
+      <NotifyToggle
+        testId="daily-review-digest"
+        title="Daily review digest"
+        ariaLabel="Daily review digest"
+        description="A once-a-day email summarizing sheets that need your review, grouped by show. Nothing waiting means no email."
+        initial={dailyReviewDigestInitial}
+        action={setDailyReviewDigest}
       />
 
       <AutoPublishToggle initial={autoPublishInitial} setAutoPublish={setAutoPublish} />

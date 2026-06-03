@@ -19,6 +19,7 @@ export type Phase1Binding = {
 };
 
 export type Phase1ShowRow = {
+  showId?: string | null;
   driveFileId: string;
   lastSeenModifiedTime: string | null;
   lastSyncStatus: string | null;

@@ -1261,6 +1261,48 @@ export const MESSAGE_CATALOG = {
     longExplanation: "The crew page hasn't synced from Drive in over six hours, well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
     helpHref: "/help/errors#SYNC_DELAYED_SEVERE",
   },
+  SYNC_STALLED: {
+    code: "SYNC_STALLED",
+    severity: "warning",
+    dougFacing:
+      "Automatic syncing hasn't run in over an hour, so new sheet changes won't appear until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
+    crewFacing: null,
+    followUp: "Doug → check Drive connection / re-run setup",
+    helpfulContext:
+      "The scheduled job that reads your show sheets from Google Drive hasn't completed a run in over an hour. New edits won't reach crew pages until it resumes. Usually transient; if it persists, the Drive connection may have lapsed or the scheduler may be down.",
+    title: "Syncing has stalled",
+    longExplanation:
+      "The background sync that pulls show sheets from Google Drive hasn't completed in over an hour. Crew pages keep showing the last good data until it resumes; if this persists, re-check the Drive connection or re-run setup.",
+    helpHref: "/help/errors#SYNC_STALLED",
+  },
+  EMAIL_DELIVERY_FAILED: {
+    code: "EMAIL_DELIVERY_FAILED",
+    severity: "warning",
+    dougFacing:
+      "We couldn't send a notification email. We'll keep retrying; if it keeps failing, check the email settings.",
+    crewFacing: null,
+    followUp: "Doug → check email settings if this persists",
+    helpfulContext:
+      "An outbound notification email failed to send through the email provider. The system retries automatically a few times. If it keeps failing, the provider key or the verified sending domain may need attention.",
+    title: "Couldn't send a notification email",
+    longExplanation:
+      "A notification email couldn't be delivered through the email provider. We retry automatically; a persistent failure usually means the provider API key or sending domain needs attention in settings.",
+    helpHref: "/help/errors#EMAIL_DELIVERY_FAILED",
+  },
+  EMAIL_NOT_CONFIGURED: {
+    code: "EMAIL_NOT_CONFIGURED",
+    severity: "warning",
+    dougFacing:
+      "Email notifications aren't set up yet, so alerts won't be emailed. Check that the email provider key, the sending address, and the site address are all configured.",
+    crewFacing: null,
+    followUp: "Doug → check email provider key, sending address, and site address",
+    helpfulContext:
+      "Outbound email isn't fully configured, so sync-problem alerts and the daily digest won't be emailed. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts still work; set whichever is missing to enable email.",
+    title: "Email notifications not set up",
+    longExplanation:
+      "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. You'll still see alerts in the dashboard, but they won't be emailed until all three are set.",
+    helpHref: "/help/errors#EMAIL_NOT_CONFIGURED",
+  },
   TILE_SERVER_RENDER_FAILED: {
     code: "TILE_SERVER_RENDER_FAILED",
     dougFacing: "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening.",
