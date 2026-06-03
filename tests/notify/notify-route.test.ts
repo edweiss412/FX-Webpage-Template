@@ -75,4 +75,46 @@ describe("notify cron route", () => {
     expect(runRealtimeNotifyMock).not.toHaveBeenCalled();
     expect(runDigestNotifyMock).not.toHaveBeenCalled();
   });
+
+  test("returns 500 (with the recorded result body) when delivery is an infra_error", async () => {
+    const result = {
+      kind: "ok" as const,
+      maintenance: [],
+      delivery: { kind: "infra_error" as const, source: "activeRecipients" },
+    };
+    runRealtimeNotifyMock.mockResolvedValue(result);
+
+    const response = await GET(request("realtime"));
+
+    expect(response.status).toBe(500);
+    // The body still carries the recorded outcomes (recorded-not-swallowed).
+    expect(await response.json()).toEqual(result);
+  });
+
+  test("returns 500 when a maintenance step reports infra_error even if delivery is ok", async () => {
+    const result = {
+      kind: "ok" as const,
+      maintenance: [{ step: "stall" as const, result: { kind: "infra_error" as const } }],
+      delivery: { kind: "ok" as const, sent: 0 },
+    };
+    runDigestNotifyMock.mockResolvedValue(result);
+
+    const response = await GET(request("digest"));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual(result);
+  });
+
+  test("a deliberate skip (e.g. config invalid / outside window) stays 200, not a fault", async () => {
+    const result = {
+      kind: "ok" as const,
+      maintenance: [{ step: "stall" as const, result: { kind: "ok" as const } }],
+      delivery: { kind: "skipped" as const, reason: "config_invalid" },
+    };
+    runRealtimeNotifyMock.mockResolvedValue(result);
+
+    const response = await GET(request("realtime"));
+
+    expect(response.status).toBe(200);
+  });
 });
