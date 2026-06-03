@@ -714,6 +714,20 @@ describe("AlertBanner", () => {
     expect(line.querySelector("[data-testid=admin-alert-panel]")).toBeNull();
   });
 
+  test("collapsedText strip handles BOTH single-asterisk *emphasis* AND double-asterisk **bold** (review #3)", async () => {
+    // At least one catalog dougFacing uses **bold** (SHOW_FIRST_PUBLISHED's
+    // "**Made a mistake?**", catalog.ts:657 — info-severity, so banner-excluded,
+    // but admin_alerts.code is unconstrained so a future warning code could).
+    // The component's strip is `\*{1,2}(.+?)\*{1,2}` → it must collapse both
+    // forms with NO residual asterisks. Pin that exact regex contract here so a
+    // weakening back to the single-asterisk-only form regresses.
+    const strip = (s: string) => s.replace(/\*{1,2}(.+?)\*{1,2}/g, "$1");
+    expect(strip("*emphasis* and more")).toBe("emphasis and more");
+    expect(strip("**Made a mistake?** click here")).toBe("Made a mistake? click here");
+    expect(strip("a *one* and **two** mixed")).toBe("a one and two mixed");
+    expect(strip("**bold**")).not.toContain("*");
+  });
+
   // ---- 3b: bounded counts + exact-count accessibility (§8 F11/F12/F14/F16) ----
 
   test("badge: bounded visible text (aria-hidden) + exact count in sr-only markup", async () => {

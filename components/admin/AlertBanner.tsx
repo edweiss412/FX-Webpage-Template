@@ -24,17 +24,20 @@
  * If no unresolved alerts exist, the banner returns null (no chrome).
  */
 import Link from "next/link";
+import { TriangleAlert } from "lucide-react";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
-import { getRequiredDougFacing } from "@/lib/messages/lookup";
+import { getRequiredDougFacing, messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { nowDate } from "@/lib/time/now";
+import { formatBoundedCount } from "@/lib/format/count";
 
+import { AlertBannerRouteBoundary } from "./AlertBannerRouteBoundary";
 import { ResolveAlertButton } from "./ResolveAlertButton";
 
 type AlertRow = {
@@ -173,6 +176,10 @@ export async function AlertBanner() {
   // fail-visible bell.
   const countResult = await fetchUnresolvedAlertCount();
   const moreCount = countResult.kind === "ok" && countResult.count > 1 ? countResult.count - 1 : 0;
+  // RECON-1 T3 (spec §3.1/§5): total unresolved drives the "N alerts" badge.
+  // An infra-error count is treated as 1 (badge hidden, "+N more" hidden) —
+  // mirrors the moreCount collapse-to-0 above; the top alert still renders.
+  const total = countResult.kind === "ok" ? countResult.count : 1;
 
   // M11 Phase C (C.2 extension): request-scoped wall-clock instant for
   // the relative-time suffix. Hoisted here (after early returns) so the
@@ -186,108 +193,161 @@ export async function AlertBanner() {
     console.error("[AlertBanner] per-show alert missing show slug:", alert.id);
   }
 
+  // RECON-1 T3 (spec §3.3): the collapsed summary line renders the catalog
+  // dougFacing STRING inline (NOT <ErrorExplainer>, which is a block + <p>
+  // and would be invalid block-in-inline inside the truncate span and defeat
+  // truncation). The panel below renders the full <ErrorExplainer>.
+  //
+  // GUARD (spec §5): alert.code is an UNCONSTRAINED DB string (admin_alerts.code
+  // is not a MessageCode enum). messageFor() dereferences the catalog entry, so
+  // an uncataloged code would throw and take down the PERSISTENT admin layout.
+  // Mirror ErrorExplainer/HelpAffordance's unknown-code resilience: a
+  // user-defined type guard NARROWS string → MessageCode (a bare `in` /
+  // hasOwnProperty check does not narrow on its own, and messageFor expects
+  // MessageCode), falling back to null/"" so the panel's <ErrorExplainer>
+  // (which also returns null for unknown codes) stays consistent.
+  const isMessageCode = (c: string): c is MessageCode =>
+    Object.prototype.hasOwnProperty.call(MESSAGE_CATALOG, c);
+  const topMessage = isMessageCode(alert.code)
+    ? messageFor(alert.code, (alert.context ?? undefined) as never)
+    : null;
+  // Strip the catalog's Markdown emphasis markers for the inline one-liner (the
+  // panel's <ErrorExplainer> renders them styled; a raw string would show literal
+  // "*"). `\*{1,2}` handles BOTH single-asterisk *emphasis* AND double-asterisk
+  // **bold** (e.g. SHOW_PUBLISHED_SUCCESS's "**Made a mistake?**", catalog.ts:657);
+  // the inner non-greedy capture keeps the wrapped text. Underscore `_…_` emphasis
+  // is intentionally left as-is (rare, low visual noise, and not a stray glyph).
+  const collapsedText = (topMessage?.dougFacing ?? topMessage?.crewFacing ?? "").replace(
+    /\*{1,2}(.+?)\*{1,2}/g,
+    "$1",
+  );
+
+  // RECON-1 T3 (review cleanup #2): the JSONB-context → MessageParams cast is
+  // identical for ErrorExplainer + HelpAffordance — extract once so the two
+  // cannot drift. messageFor only consumes primitive values; runtime
+  // interpolation String()-coerces what it understands and leaves non-primitive
+  // values unsubstituted (the placeholder remains, which the
+  // _metaAdminAlertCatalog regression test flags if anyone adds an unsupported key).
+  const contextParams = alert.context
+    ? ({
+        params: alert.context as unknown as Record<
+          string,
+          string | number | boolean | null | undefined
+        >,
+      } as const)
+    : {};
+
   return (
-    <section
-      data-testid="admin-alert-banner"
-      data-alert-id={alert.id}
-      // role="status" + aria-live="polite" — SSR-rendered banner; not a
-      // time-critical interruption that warrants role="alert". If future
-      // versions inject the banner client-side via a real-time event,
-      // reconsider role="alert". aria-atomic="true" (M9 C8 / M5-D6 #3):
-      // when the banner re-announces on alert-row update, the screen
-      // reader reads the whole region (header + body + helpful-context)
-      // as one unit rather than diffing word-by-word.
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      className="mb-section-gap rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
-    >
-      <ErrorExplainer
-        code={alert.code}
-        surface="admin"
-        {...(alert.context
-          ? {
-              // Type-narrow: messageFor only consumes primitive values; cast
-              // the JSONB row through to MessageParams. Runtime interpolation
-              // String()-coerces values it understands and leaves non-primitive
-              // values unsubstituted (the placeholder remains, which the
-              // _metaAdminAlertCatalog regression test will flag the next time
-              // anyone adds an unsupported key).
-              params: alert.context as unknown as Record<
-                string,
-                string | number | boolean | null | undefined
-              >,
-            }
-          : {})}
-      />
-      {/*
-        Phase G.3: HelpAffordance hosts the §9.0.1 "What does this mean?"
-        disclosure (was ErrorExplainer's helpfulContext prop pre-G.3) AND
-        the §5.6 template-family `Learn more →` link. Sibling of
-        ErrorExplainer so the message text + help affordances cohabit one
-        admin_alert row.
-      */}
-      <HelpAffordance
-        code={alert.code}
-        {...(alert.context
-          ? {
-              params: alert.context as unknown as Record<
-                string,
-                string | number | boolean | null | undefined
-              >,
-            }
-          : {})}
-      />
-
-      {/*
-        M9 C4 / M5-D3 §5.2 + §5.3: raised_at relative time on the left
-        + queue-depth `+N more ▸` chip on the right. The chip renders
-        only when there are alerts queued behind the topmost shown.
-      */}
-      <div
-        data-testid="admin-alert-meta-row"
-        className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle"
+    <AlertBannerRouteBoundary alertId={alert.id}>
+      <section
+        data-alert-id={alert.id}
+        data-testid="admin-alert-banner"
+        // role="status" + aria-live="polite" — SSR-rendered banner; not a
+        // time-critical interruption that warrants role="alert". If future
+        // versions inject the banner client-side via a real-time event,
+        // reconsider role="alert". aria-atomic="true" (M9 C8 / M5-D6 #3):
+        // when the banner re-announces on alert-row update, the screen
+        // reader reads the whole region as one unit rather than diffing
+        // word-by-word.
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="grid grid-cols-[minmax(0,1fr)_fit-content(55%)] items-start gap-x-3 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text mb-section-gap"
       >
-        <p data-testid="admin-alert-raised-at" className="tabular-nums">
-          Raised{" "}
-          <time dateTime={alert.raised_at} title={absoluteRaisedAt(alert.raised_at)}>
-            {raisedAtSuffix(alert.raised_at, now)}
-          </time>
-        </p>
-        {moreCount > 0 && (
-          <Link
-            data-testid="admin-alert-queue-chip"
-            href="/admin#alerts"
-            aria-label={`View ${moreCount} more unresolved alerts`}
-            className="inline-flex min-h-tap-min items-center px-3 py-2 text-xs text-text-subtle underline-offset-2 hover:text-accent-on-bg hover:underline"
-          >
-            +{moreCount} more ▸
-          </Link>
-        )}
-      </div>
+        <details className="contents">
+          {/* min-h-tap-min: the summary shares the action button's 44px tap-target
+              height so the collapsed row has a STABLE shared height — required for the
+              §7 0.5px vertical-center invariant (T7). items-center centers the icon/
+              message/badge/caret within that 44px; the action cell (self-start, also
+              ≥44px) starts at the same row-1 top, so all centers align (F-P32). */}
+          <summary className="col-start-1 row-start-1 min-h-tap-min min-w-0 flex items-center gap-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+            <TriangleAlert aria-hidden data-testid="admin-alert-icon" className="size-5 shrink-0" />
+            {/* Collapsed line renders the catalog dougFacing STRING inline (NOT
+                <ErrorExplainer>, which is a block + <p> and would be invalid
+                block-in-inline inside this truncate span, defeating truncation).
+                Still catalog-sourced (no raw codes). `collapsedText` derived above. */}
+            <span data-testid="admin-alert-message" className="flex-1 min-w-0 truncate">
+              {collapsedText}
+            </span>
+            {total > 1 && (
+              <span data-testid="admin-alert-badge" className="shrink-0">
+                <span aria-hidden="true">{formatBoundedCount(total)} alerts</span>
+                <span className="sr-only">{total} unresolved alerts</span>
+              </span>
+            )}
+            <span
+              data-testid="admin-alert-caret"
+              className="caret shrink-0 text-xs text-text-subtle"
+            >
+              {/* Visible LABEL swaps Details→Hide via CSS on details[open] (T5); the
+                  arrow ⌄/⌃ is the .caret::after pseudo. Both spans are in the DOM; the
+                  hidden one is display:none → removed from the accessibility tree, so
+                  the summary's accessible name reads the correct one in each state. */}
+              <span className="lbl-closed">Details</span>
+              <span className="lbl-open">Hide</span>
+            </span>
+          </summary>
 
-      {isPerShowAlert ? (
-        showSlug ? (
-          <a
-            href={`/admin/show/${encodeURIComponent(showSlug)}?alert_id=${encodeURIComponent(alert.id)}`}
-            data-testid="admin-alert-show-link"
-            className="mt-4 inline-flex min-h-tap-min min-w-tap-min items-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
+          <div
+            data-testid="admin-alert-panel"
+            className="col-start-1 col-span-2 row-start-2 min-w-0 mt-3 border-t border-border pt-3"
           >
-            View show
-          </a>
-        ) : null
-      ) : (
-        // M9 C4 / M5-D3 §5.4: two-tap inline confirm. ResolveAlertButton
-        // is a small client island that handles idle → confirm →
-        // resolving state transitions; the parent form still owns the
-        // hidden id input + Server Action so the existing resolve
-        // posture (bound to resolveAdminAlertFormAction) is preserved.
-        <form action={resolveAdminAlertFormAction} className="mt-4">
-          <input type="hidden" name="id" value={alert.id} data-testid="admin-alert-id-input" />
-          <ResolveAlertButton />
-        </form>
-      )}
-    </section>
+            {/* full (un-truncated) message — ErrorExplainer again, no truncation wrapper */}
+            <ErrorExplainer code={alert.code} surface="admin" {...contextParams} />
+            {/*
+              Phase G.3: HelpAffordance hosts the §9.0.1 "What does this mean?"
+              disclosure AND the §5.6 template-family `Learn more →` link.
+            */}
+            <HelpAffordance code={alert.code} {...contextParams} />
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle">
+              <p data-testid="admin-alert-raised-at" className="tabular-nums">
+                Raised{" "}
+                <time dateTime={alert.raised_at} title={absoluteRaisedAt(alert.raised_at)}>
+                  {raisedAtSuffix(alert.raised_at, now)}
+                </time>
+              </p>
+              {moreCount > 0 && (
+                <Link
+                  data-testid="admin-alert-queue-chip"
+                  href="/admin#alerts"
+                  aria-label={`View ${moreCount} more unresolved alerts`}
+                  className="inline-flex min-h-tap-min items-center px-3 py-2 underline-offset-2 hover:text-accent-on-bg hover:underline"
+                >
+                  +{formatBoundedCount(moreCount)} more →
+                </Link>
+              )}
+            </div>
+          </div>
+        </details>
+
+        <div
+          data-testid="admin-alert-action"
+          className="col-start-2 row-start-1 self-start min-w-0 flex flex-wrap justify-end gap-2"
+        >
+          {isPerShowAlert ? (
+            showSlug ? (
+              <a
+                href={`/admin/show/${encodeURIComponent(showSlug)}?alert_id=${encodeURIComponent(alert.id)}`}
+                data-testid="admin-alert-show-link"
+                className="inline-flex min-h-tap-min min-w-tap-min items-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
+              >
+                View show
+              </a>
+            ) : null
+          ) : (
+            // M9 C4 / M5-D3 §5.4: two-tap inline confirm. ResolveAlertButton
+            // is a small client island; the parent form owns the hidden id
+            // input + Server Action so the resolve posture is preserved. The
+            // form is the action slot — slot-integrity rule (spec §3.1/§3.2):
+            // nothing may split the button from its form or drop the id.
+            <form action={resolveAdminAlertFormAction}>
+              <input type="hidden" name="id" value={alert.id} data-testid="admin-alert-id-input" />
+              <ResolveAlertButton />
+            </form>
+          )}
+        </div>
+      </section>
+    </AlertBannerRouteBoundary>
   );
 }
 
