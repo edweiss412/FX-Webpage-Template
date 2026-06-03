@@ -108,6 +108,85 @@ describe("notify + app-settings infra-contract (structural)", () => {
     await expect(getDailyReviewDigest(client as never)).resolves.toEqual({ kind: "infra_error" });
   });
 
+  test("activeRecipients returns infra_error for returned DB errors and thrown query faults", async () => {
+    const { activeRecipients } = await import("@/lib/notify/recipients");
+    const returnedErrorClient = {
+      from: () => ({
+        select: () => ({
+          is: async () => ({ data: null, error: { message: "boom" } }),
+        }),
+      }),
+    };
+    const thrownClient = {
+      from: () => {
+        throw new Error("query fault");
+      },
+    };
+
+    await expect(activeRecipients(returnedErrorClient as never)).resolves.toEqual({ kind: "infra_error" });
+    await expect(activeRecipients(thrownClient as never)).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("listRealtimeCandidates returns infra_error for postgres query faults", async () => {
+    const { listRealtimeCandidates } = await import("@/lib/notify/detect/candidates");
+    const rejectedSql = vi.fn(() => Promise.reject(new Error("db down")));
+    const thrownSql = vi.fn(() => {
+      throw new Error("query construction fault");
+    });
+
+    await expect(listRealtimeCandidates(rejectedSql as never)).resolves.toEqual({ kind: "infra_error" });
+    await expect(listRealtimeCandidates(thrownSql as never)).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("resolveRecoveredSyncProblemAlert returns infra_error for postgres query faults", async () => {
+    const { resolveRecoveredSyncProblemAlert } = await import("@/lib/notify/detect/recoveryResolution");
+    const alert = {
+      alertId: "alert-1",
+      showId: "show-1",
+      code: "DRIVE_FETCH_FAILED" as const,
+    };
+    const rejectedSql = vi.fn(() => Promise.reject(new Error("db down")));
+    const thrownSql = vi.fn(() => {
+      throw new Error("query construction fault");
+    });
+
+    await expect(resolveRecoveredSyncProblemAlert(alert, rejectedSql as never)).resolves.toEqual({
+      kind: "infra_error",
+    });
+    await expect(resolveRecoveredSyncProblemAlert(alert, thrownSql as never)).resolves.toEqual({
+      kind: "infra_error",
+    });
+  });
+
+  test("resolveAdminAlert throws for returned DB errors and thrown query faults", async () => {
+    const { resolveAdminAlert } = await import("@/lib/adminAlerts/resolveAdminAlert");
+    const returnedErrorClient = {
+      from: () => ({
+        update: () => ({
+          eq: () => ({
+            is: () => ({
+              is: () => ({
+                select: async () => ({ error: { message: "boom" } }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    };
+    const thrownClient = {
+      from: () => {
+        throw new Error("query fault");
+      },
+    };
+
+    await expect(
+      resolveAdminAlert({ showId: null, code: "SYNC_STALLED" }, returnedErrorClient as never),
+    ).rejects.toThrow(/admin alert resolve failed/);
+    await expect(
+      resolveAdminAlert({ showId: null, code: "SYNC_STALLED" }, thrownClient as never),
+    ).rejects.toThrow(/query fault/);
+  });
+
   test("deliverRealtimeCandidates returns infra_error for thrown query faults", async () => {
     const { deliverRealtimeCandidates } = await import("@/lib/notify/deliver");
     const sql = vi.fn(() => Promise.reject(new Error("db down")));
