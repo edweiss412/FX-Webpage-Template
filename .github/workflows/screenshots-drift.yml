@@ -47,10 +47,27 @@ jobs:
           # already-applied later migrations) in a fresh session that inherits the
           # default.
           GUC_URL="https://fxav-screenshots-ci.invalid"
-          HELD="supabase/migrations/20260527000003_schedule_cron_jobs.sql"
-          STASH="$(mktemp -d)/$(basename "$HELD")"
-          mv "$HELD" "$STASH"
-          restore() { [ -f "$STASH" ] && mv -f "$STASH" "$HELD" || true; }
+          # Both cron-schedule migrations refuse to apply unless app.fxav_vercel_url
+          # is set (a ratified prod-safety guard): M12.1 T3's
+          # 20260527000003_schedule_cron_jobs.sql AND M12.2 B3's
+          # 20260602000005_b3_schedule_notify_cron.sql. Hold BOTH aside during the
+          # initial `supabase start` (the GUC isn't set yet), then restore + apply
+          # them after the GUC is in place. Missing either from this list makes
+          # `supabase start` fail when the unguarded migration raises.
+          STASH_DIR="$(mktemp -d)"
+          HELD_MIGRATIONS=(
+            "supabase/migrations/20260527000003_schedule_cron_jobs.sql"
+            "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql"
+          )
+          restore() {
+            for h in "${HELD_MIGRATIONS[@]}"; do
+              s="$STASH_DIR/$(basename "$h")"
+              [ -f "$s" ] && mv -f "$s" "$h" || true
+            done
+          }
+          for h in "${HELD_MIGRATIONS[@]}"; do
+            mv "$h" "$STASH_DIR/$(basename "$h")"
+          done
           trap restore EXIT
           supabase start
           DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -1)"
