@@ -223,22 +223,23 @@ describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
           values (${driveFileId}, ${`show-${suffix}`}, 'Delivery Failed Show', 'Client', 'v4', true, false)
           returning id
         `;
-        const [alert] = await sql<{ id: string; raised_at: Date }[]>`
+        // Compute the μs-epoch IN SQL from the STORED raised_at (the same way the
+        // candidate query + reconciliation do). Round-tripping raised_at through a JS
+        // Date (ms precision) would truncate the sub-ms digits and produce a dedup_key
+        // epoch that no longer matches the reconciliation's μs-precise recompute.
+        const [alert] = await sql<{ id: string; us: string }[]>`
           insert into public.admin_alerts (show_id, code, context, raised_at)
           values (${show!.id}::uuid, 'SHEET_UNAVAILABLE', '{}'::jsonb, now() - interval '2 hours')
-          returning id, raised_at
+          returning id, (floor(extract(epoch from raised_at) * 1e6)::bigint)::text as us
         `;
         await sql`insert into public.admin_emails (email) values (${recipient}) on conflict do nothing`;
-        const [epoch] = await sql<{ us: string }[]>`
-          select (floor(extract(epoch from ${alert!.raised_at}::timestamptz) * 1e6)::bigint)::text as us
-        `;
         await sql`
           insert into public.email_deliveries (
             kind, channel, dedup_key, show_id, recipient, triggered_codes, context, status, error, attempt_count
           )
           values (
             'realtime_problem', 'email',
-            ${`${show!.id}:SHEET_UNAVAILABLE:${epoch!.us}`}, ${show!.id}::uuid,
+            ${`${show!.id}:SHEET_UNAVAILABLE:${alert!.us}`}, ${show!.id}::uuid,
             ${recipient}, array['SHEET_UNAVAILABLE']::text[], '{}'::jsonb, 'failed', 'provider', 1
           )
         `;
