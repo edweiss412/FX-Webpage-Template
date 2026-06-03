@@ -146,6 +146,7 @@ describe("listRealtimeCandidates real DB filters", () => {
       const archivedDrive = `archived-${suffix}`;
       const unpublishedDrive = `unpublished-${suffix}`;
       const pendingDrive = `pending-${suffix}`;
+      let globalAlertId: string | undefined;
 
       try {
         const [show] = await sql<{ id: string }[]>`
@@ -163,15 +164,32 @@ describe("listRealtimeCandidates real DB filters", () => {
           values (${unpublishedDrive}, ${`unpublished-${suffix}`}, 'Unpublished Show', 'Client', 'v4', false, false)
           returning id
         `;
+        // Show-scoped alerts cascade-delete with their shows; the global (null-show)
+        // SYNC_STALLED alert does not, so insert it separately and capture its id for cleanup.
         await sql`
           insert into public.admin_alerts (show_id, code, context, raised_at)
           values
             (${show!.id}::uuid, 'SHEET_UNAVAILABLE', '{"sheet_name":"Candidate Show"}'::jsonb, now() - interval '2 hours'),
             (${show!.id}::uuid, 'DRIVE_FETCH_FAILED', '{}'::jsonb, now() - interval '2 hours'),
             (${archived!.id}::uuid, 'SHEET_UNAVAILABLE', '{}'::jsonb, now() - interval '2 hours'),
-            (${unpublished!.id}::uuid, 'SHEET_UNAVAILABLE', '{}'::jsonb, now() - interval '2 hours'),
-            (null, 'SYNC_STALLED', '{}'::jsonb, now() - interval '2 hours')
+            (${unpublished!.id}::uuid, 'SHEET_UNAVAILABLE', '{}'::jsonb, now() - interval '2 hours')
         `;
+        // One-unresolved-per-(scope,code) is enforced by admin_alerts_one_unresolved_idx,
+        // so only insert a global SYNC_STALLED if none is already open; own (and later
+        // clean up) ONLY the row we created. Either way a global candidate will exist.
+        const existingGlobal = await sql<{ id: string }[]>`
+          select id from public.admin_alerts
+           where show_id is null and code = 'SYNC_STALLED' and resolved_at is null
+           limit 1
+        `;
+        if (existingGlobal.length === 0) {
+          const [globalAlert] = await sql<{ id: string }[]>`
+            insert into public.admin_alerts (show_id, code, context, raised_at)
+            values (null, 'SYNC_STALLED', '{}'::jsonb, now() - interval '2 hours')
+            returning id
+          `;
+          globalAlertId = globalAlert?.id;
+        }
         await sql`
           update public.admin_alerts
              set resolved_at = now()
@@ -191,18 +209,27 @@ describe("listRealtimeCandidates real DB filters", () => {
         const result = await listRealtimeCandidates(sql as unknown as CandidateSql);
         expect(result.kind).toBe("ok");
         if (result.kind !== "ok") return;
-        expect(result.candidates.map((candidate) => candidate.kind).sort()).toEqual([
-          "global",
-          "ingestion",
-          "show",
-        ]);
-        expect(result.candidates.some((candidate) => candidate.dedupKey.includes(pendingDrive))).toBe(
-          true,
-        );
-        expect(result.candidates.some((candidate) => candidate.dedupKey.includes("DRIVE_FETCH_FAILED"))).toBe(
-          false,
-        );
+        // Scope every assertion to THIS test's fixtures — the shared local DB holds
+        // unrelated candidates, so an exact-equality on the whole set is not isolation-safe.
+        const keys = result.candidates.map((c) => c.dedupKey);
+        // published+unarchived show: unresolved SHEET_UNAVAILABLE is a candidate;
+        // its RESOLVED DRIVE_FETCH_FAILED is excluded (resolved_at IS NULL filter).
+        expect(keys.some((k) => k.startsWith(`${show!.id}:SHEET_UNAVAILABLE:`))).toBe(true);
+        expect(keys.some((k) => k.startsWith(`${show!.id}:DRIVE_FETCH_FAILED:`))).toBe(false);
+        // archived + unpublished shows are excluded entirely (AC-B3.7a).
+        expect(keys.some((k) => k.startsWith(`${archived!.id}:`))).toBe(false);
+        expect(keys.some((k) => k.startsWith(`${unpublished!.id}:`))).toBe(false);
+        // >1h, non-wizard pending is a candidate; the <1h "new" and wizard-scoped rows are not.
+        expect(keys.some((k) => k.startsWith(`ingestion:${pendingDrive}:`))).toBe(true);
+        expect(keys.some((k) => k.startsWith(`ingestion:new-${pendingDrive}:`))).toBe(false);
+        expect(keys.some((k) => k.startsWith(`ingestion:wizard-${pendingDrive}:`))).toBe(false);
+        // the global SYNC_STALLED this test inserted surfaces as a global candidate
+        // (presence, not exact-count — other unrelated globals may exist in the shared DB).
+        expect(keys.some((k) => k.startsWith("global:SYNC_STALLED:"))).toBe(true);
       } finally {
+        if (globalAlertId) {
+          await sql`delete from public.admin_alerts where id = ${globalAlertId}::uuid`;
+        }
         await sql`delete from public.pending_ingestions where drive_file_id like ${`%${suffix}%`}`;
         await sql`delete from public.shows where drive_file_id like ${`%${suffix}%`}`;
         await sql.end({ timeout: 5 });
