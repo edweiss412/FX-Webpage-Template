@@ -13,12 +13,14 @@
  * each render their OWN nested <details>/<summary> inside admin-alert-panel, so
  * `[data-testid=admin-alert-banner] details` (and `... summary`) match THREE
  * elements when expanded → Playwright strict-mode violation. EVERYWHERE we mean
- * the OUTER disclosure we scope to the one details that contains the panel:
- *   details:has([data-testid=admin-alert-panel])         (the outer <details>)
- *   details:has([data-testid=admin-alert-panel]) > summary  (its <summary>)
- * The nested ErrorExplainer/HelpAffordance details live INSIDE the panel, so
- * the :has() predicate excludes them. (Mirrors the T3 jsdom details:has(...)
- * scoping — be consistent.)
+ * the OUTER disclosure we scope to the one details that owns the caret (the
+ * caret testid is unique to the outer summary):
+ *   details:has([data-testid=admin-alert-caret])         (the outer <details>)
+ *   details:has([data-testid=admin-alert-caret]) > summary  (its <summary>)
+ * The nested ErrorExplainer/HelpAffordance details live INSIDE the panel — which
+ * is a SECTION sibling of <details> (F18 fix), not a child — so the :has()
+ * predicate (and the sibling/child structure) excludes them. (Mirrors the T3
+ * jsdom details:has([data-testid=admin-alert-caret]) scoping — be consistent.)
  *
  * Requires the e2e env (dev server on :3000 + a running Supabase). Auth:
  * ADMIN_FIXTURE via signInAs. Alerts are seeded via the service-role `admin`
@@ -33,7 +35,7 @@ const TOL = 0.5;
 const WIDTHS = [390, 600, 719, 720, 860, 1024, 1280];
 
 // Outer-disclosure selectors (see <details> SCOPING HAZARD above).
-const OUTER_DETAILS = "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-panel])";
+const OUTER_DETAILS = "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])";
 const OUTER_SUMMARY = `${OUTER_DETAILS} > summary`;
 
 type Rect = {
@@ -112,24 +114,53 @@ test.describe("AlertBanner layout dimensions (real browser, §7)", () => {
             }
           }
 
-          // (F13) computed column 2 ≤ ~55% of section content width
-          const cols = await section.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-          const [c1 = NaN, c2 = NaN] = cols.split(" ").map((v) => parseFloat(v));
-          expect(c2).toBeLessThanOrEqual((c1 + c2) * 0.55 + 2);
+          // (F13) computed column 2 ≤ 55% of section CONTENT width. The grid track
+          // is `fit-content(55%)`, whose 55% is taken against the grid container's
+          // content box (the section width minus its left/right padding) — NOT
+          // against `c1 + c2`, which omits the `gap-x-3` (12px) column gap and would
+          // demand a stricter ~53% ceiling the CSS contract never promised. Measure
+          // the real content width so the assertion matches `fit-content(55%)`.
+          const grid = await section.evaluate((el) => {
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            const contentW =
+              r.width - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+            const [, c2raw] = cs.gridTemplateColumns.split(" ");
+            return { contentW, c2: parseFloat(c2raw ?? "") || NaN };
+          });
+          expect(grid.c2).toBeLessThanOrEqual(grid.contentW * 0.55 + 1);
 
-          // (a)/(c) idle + pending = exactly one line; icon/badge/caret/action share the
-          // row's vertical CENTER within 0.5px (spec §7). confirm MAY wrap to a second
-          // line within col 2 (documented exception), so it is excluded from centering.
+          // (a)/(c) idle + pending: the SUMMARY is exactly one line, and the
+          // icon/badge/caret share the action's FIRST-ROW vertical center within
+          // 0.5px (spec §7 / plan F-P32: "the action cell — self-start, ≥44px —
+          // starts at the same row-1 top, so all centers align"). The reference is
+          // the action's FIRST interactive row, NOT its whole bounding box: at 390px
+          // `pending` (and `confirm`) the action's two buttons ("Resolving…" +
+          // "Cancel" / "Confirm resolve" + "Cancel") exceed the fit-content(55%)
+          // column and wrap to a second line via the action's `flex-wrap`, so the
+          // box grows tall while its first row stays pinned to the summary row. The
+          // spec invariant is first-row alignment, not a single-line action box —
+          // measure the first action control's center. `confirm` is still excluded
+          // (its summary-line vs first-row relationship is the same, but it is the
+          // documented "MAY wrap" state and not asserted for centering).
           if (state !== "confirm") {
             const summaryBox = (await page.locator(OUTER_SUMMARY).boundingBox())!;
-            expect(summaryBox.height).toBeLessThan(56); // one-line row
+            expect(summaryBox.height).toBeLessThan(56); // summary is one line
             const cY = (b: { y: number; height: number }) => b.y + b.height / 2;
-            const actCy = cY(actBox); // actBox from the non-overlap check above
+            // First-row center of the action cell: the first interactive control
+            // (button or link). It shares the summary's 44px row-1 (self-start).
+            const firstAction = page
+              .getByTestId("admin-alert-action")
+              .getByRole("button")
+              .or(page.getByTestId("admin-alert-action").getByRole("link"))
+              .first();
+            const actFirstBox = (await firstAction.boundingBox())!;
+            const actCy = cY(actFirstBox);
             for (const id of ["admin-alert-icon", "admin-alert-message", "admin-alert-badge", "admin-alert-caret"]) {
               const loc = page.getByTestId(id);
               if (await loc.count()) {
                 const b = await loc.boundingBox();
-                if (b) expect(Math.abs(cY(b) - actCy), `${id} centerY vs action`).toBeLessThanOrEqual(0.5);
+                if (b) expect(Math.abs(cY(b) - actCy), `${id} centerY vs action first row`).toBeLessThanOrEqual(0.5);
               }
             }
           }
@@ -154,11 +185,20 @@ test("@390px expanded panel spans full banner width; action does NOT move on exp
   // (spec §7) action stays pinned to the collapsed row when the panel opens (self-start)
   const actAfter = await rect(page, "admin-alert-action");
   expect(Math.abs(actAfter.top - actBefore.top)).toBeLessThanOrEqual(0.5);
-  // (F18) panel spans full banner content width, not the ≤45% column
-  const sec = await rect(page, "admin-alert-banner");
+  // (F18) panel spans the full banner CONTENT width, not the ≤45% column.
+  // Compare against the section's measured content box (border-box width minus
+  // BOTH the left/right padding AND the left/right border) — `sec.width - 2*padX`
+  // alone over-counts by the 2px border (border-strong is 1px each side), which
+  // would demand the panel be ~2px wider than the content box can ever be.
   const panel = await rect(page, "admin-alert-panel");
-  const padX = 20; // p-tile-pad
-  expect(panel.width).toBeGreaterThan(sec.width - 2 * padX - TOL);
+  const contentW = await page.getByTestId("admin-alert-banner").evaluate((el) => {
+    const cs = getComputedStyle(el);
+    const px = (v: string) => parseFloat(v) || 0;
+    return (
+      el.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight)
+    );
+  });
+  expect(panel.width).toBeGreaterThanOrEqual(contentW - TOL);
 });
 
 test("C↔E toggle is reversible; default collapsed; label swaps Details↔Hide (F17 affordance)", async ({ page }) => {

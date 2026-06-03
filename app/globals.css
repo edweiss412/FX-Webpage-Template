@@ -440,11 +440,14 @@ body {
 /* M12.2 RECON-1 — admin AlertBanner disclosure (spec §6 + §3.3). */
 
 /* CLOSED-PANEL HIDE (F-P21 — NOT progressive enhancement; load-bearing).
-   With <details class="contents"> (display:contents), Chromium does NOT
-   reliably apply the UA `details:not([open]) > :not(summary){display:none}`
-   rule, so the collapsed panel can stay laid out. Hide it EXPLICITLY. This
-   supersedes the spec §3.3 assumption that the UA rule suffices. */
-[data-testid="admin-alert-banner"] details:not([open]) > [data-testid="admin-alert-panel"] { display: none; }
+   The panel is a SECTION-level SIBLING of <details> (it follows <details> in
+   source order), not a child — it lives outside <details> so its col-span-full
+   grid span is honored (a grid item reaching the grid through a
+   display:contents <details> collapses to column 1 — the F18 defect). Because
+   the panel is no longer a descendant of <details>, the UA
+   `details:not([open]) > *` hide rule never applied to it; this general-sibling
+   rule hides it when the disclosure is closed. Pure CSS — no-JS reachable. */
+[data-testid="admin-alert-banner"] details:not([open]) ~ [data-testid="admin-alert-panel"] { display: none; }
 
 /* The rest below is progressive enhancement only; native <details> works without it. */
 /* Arrow swap ⌄/⌃ */

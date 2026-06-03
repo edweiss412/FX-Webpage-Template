@@ -259,6 +259,16 @@ export async function AlertBanner() {
         aria-atomic="true"
         className="grid grid-cols-[minmax(0,1fr)_fit-content(55%)] items-start gap-x-3 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text mb-section-gap"
       >
+        {/* <details className="contents"> flattens the <summary> into the SECTION
+            grid as the col-1/row-1 cell. The expanded PANEL is intentionally NOT a
+            child of <details>: a grid item arriving through a display:contents box
+            does not honor grid-column:1/-1 spanning in Chromium (the panel collapsed
+            to column 1 — measured 214.7px instead of the full ~318px content width
+            at 390px; F18 defect caught by the T7 real-browser audit). Instead the
+            panel is a SECTION-level grid sibling (below) that spans col-span-full
+            row-2 correctly, and its open/closed visibility is driven by the pure-CSS
+            `details:not([open]) ~ panel` sibling rule in globals.css (no-JS
+            reachable, no JS toggle). */}
         <details className="contents">
           {/* min-h-tap-min: the summary shares the action button's 44px tap-target
               height so the collapsed row has a STABLE shared height — required for the
@@ -275,7 +285,14 @@ export async function AlertBanner() {
               {collapsedText}
             </span>
             {total > 1 && (
-              <span data-testid="admin-alert-badge" className="shrink-0">
+              // F10/F13 non-overlap (T7): in confirm/pending the action grows to
+              // its fit-content(55%) cap, shrinking col-1 to ~130px at 390px — too
+              // narrow for icon + a fixed-width badge + caret, so a `shrink-0` badge
+              // overflowed into the action column. `min-w-0 truncate` lets the
+              // VISIBLE "99+ alerts" text ellipsize when col-1 is tight (it shows in
+              // full at every wider viewport); the EXACT count stays in the sr-only
+              // span for assistive tech (§8 F14/F16), so truncation is visual only.
+              <span data-testid="admin-alert-badge" className="min-w-0 truncate">
                 <span aria-hidden="true">{formatBoundedCount(total)} alerts</span>
                 <span className="sr-only">{total} unresolved alerts</span>
               </span>
@@ -292,11 +309,22 @@ export async function AlertBanner() {
               <span className="lbl-open">Hide</span>
             </span>
           </summary>
+        </details>
 
-          <div
-            data-testid="admin-alert-panel"
-            className="col-start-1 col-span-2 row-start-2 min-w-0 mt-3 border-t border-border pt-3"
-          >
+        {/* PANEL — a SECTION-level grid sibling of <details> (NOT a child), placed
+            col-span-full / row-2 so it spans the full banner content width. It must
+            live OUTSIDE <details> because a grid item that reaches the grid through
+            a display:contents box does not honor col-span-full in Chromium (it
+            collapses to column 1 — the F18 defect). Open/closed visibility is driven
+            by the pure-CSS `details:not([open]) ~ [data-testid="admin-alert-panel"]
+            { display:none }` sibling rule in globals.css — no-JS reachable, and the
+            general-sibling combinator matches because this panel follows <details>
+            in source order. (The resolve <form> stays in the separate action cell,
+            so the §3.3 / T4 contract — no form inside <details> — is unaffected.) */}
+        <div
+          data-testid="admin-alert-panel"
+          className="col-span-full row-start-2 min-w-0 mt-3 border-t border-border pt-3"
+        >
             {/* full (un-truncated) message — ErrorExplainer again, no truncation wrapper */}
             <ErrorExplainer code={alert.code} surface="admin" {...contextParams} />
             {/*
@@ -322,8 +350,7 @@ export async function AlertBanner() {
                 </Link>
               )}
             </div>
-          </div>
-        </details>
+        </div>
 
         <div
           data-testid="admin-alert-action"

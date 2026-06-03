@@ -906,13 +906,13 @@ describe("AlertBanner", () => {
       },
     ]);
     let r = render(await AlertBanner());
-    // Pin the OUTER disclosure <details> (the one owning the panel), NOT a
-    // nested ErrorExplainer/HelpAffordance "What does this mean?" <details>
-    // that the loud banner also renders — otherwise this would false-pass in
-    // RED against the current banner.
+    // Pin the OUTER disclosure <details> via the caret testid (unique to the
+    // outer summary), NOT a nested ErrorExplainer/HelpAffordance "What does this
+    // mean?" <details> — those live inside the panel, which is now a SECTION
+    // sibling of <details> (F18 fix), so scoping by panel would no longer match.
     expect(
       r.container.querySelector(
-        "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-panel])",
+        "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])",
       ),
     ).not.toBeNull();
     cleanup();
@@ -938,7 +938,7 @@ describe("AlertBanner", () => {
     r = render(await AlertBanner());
     expect(
       r.container.querySelector(
-        "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-panel])",
+        "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])",
       ),
     ).not.toBeNull();
   });
@@ -978,9 +978,9 @@ describe("AlertBanner", () => {
     ]);
     r = render(await AlertBanner());
     expect(r.container.querySelector("[data-testid=admin-alert-banner-degraded]")).toBeNull(); // degraded gone
-    // Outer disclosure <details> (panel-owning), not a nested help <details>.
+    // Outer disclosure <details> (pinned via caret), not a nested help <details>.
     const details = r.container.querySelector(
-      "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-panel])",
+      "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])",
     );
     expect(details).not.toBeNull(); // normal banner back…
     expect(details!.hasAttribute("open")).toBe(false); // …collapsed, no stale open
