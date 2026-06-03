@@ -13,6 +13,7 @@ type FakeSqlOptions = {
   existingLedgerKind?: "realtime_problem" | "digest";
   existingLedgerDedupKey?: string;
   existingLedgerRecipient?: string;
+  failedUpsertRows?: Array<{ id: string }>;
 };
 
 function showCandidate(overrides: Partial<Extract<RealtimeCandidate, { kind: "show" }>> = {}): RealtimeCandidate {
@@ -87,13 +88,15 @@ function fakeSql(options: FakeSqlOptions = {}) {
     }
     if (/insert\s+into\s+public\.email_deliveries/i.test(text) && /status\s*=\s*'failed'/i.test(text)) {
       state.failedRows.push({ text, values });
+      const rows = options.failedUpsertRows ?? [{ id: "failed" }];
+      if (rows.length === 0) return Promise.resolve([]);
       const key = ledgerKey(values[0], values[1], values[3]);
       const prior = state.ledger.get(key);
       state.ledger.set(key, {
         status: "failed",
         attempt_count: (prior?.attempt_count ?? 0) + 1,
       });
-      return Promise.resolve([{ id: "failed" }]);
+      return Promise.resolve(rows);
     }
     return Promise.resolve([]);
   }) as unknown as DeliverySql;
@@ -254,6 +257,41 @@ describe("deliverRealtimeCandidates", () => {
 
     expect(state.failedRows).toHaveLength(2);
     expect(state.ledger.get(`realtime_problem:${showCandidate().dedupKey}:doug@fxav.net`)?.attempt_count).toBe(2);
+    expect(upsertAdminAlert).toHaveBeenCalledWith({
+      showId: "show-1",
+      code: "EMAIL_DELIVERY_FAILED",
+      context: expect.objectContaining({ dedup_key: "show-1:SHEET_UNAVAILABLE:1780000000123000" }),
+    });
+  });
+
+  test("infra_error that loses a sent-ledger race skips without raising EMAIL_DELIVERY_FAILED", async () => {
+    const { sql, state } = fakeSql({ failedUpsertRows: [] });
+    const { sendEmail } = sender([{ ok: false, kind: "infra_error", message: "provider down" }]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+
+    expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 1, retryLater: 0 });
+    expect(state.failedRows).toHaveLength(1);
+    expect(state.ledger.has(`realtime_problem:${showCandidate().dedupKey}:doug@fxav.net`)).toBe(false);
+    expect(upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
+  test("infra_error raises EMAIL_DELIVERY_FAILED when the failed-ledger write lands", async () => {
+    const { sql, state } = fakeSql({ failedUpsertRows: [{ id: "failed-1" }] });
+    const { sendEmail } = sender([{ ok: false, kind: "infra_error", message: "provider down" }]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert },
+    );
+
+    expect(result).toEqual({ kind: "ok", sent: 0, failed: 1, skipped: 0, retryLater: 0 });
+    expect(state.failedRows).toHaveLength(1);
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-1",
       code: "EMAIL_DELIVERY_FAILED",

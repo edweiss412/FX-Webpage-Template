@@ -196,9 +196,9 @@ async function upsertFailed(
   },
   recipient: string,
   error: string,
-): Promise<void> {
+): Promise<boolean> {
   const context = JSON.stringify(input.context);
-  await sql`
+  const rows = await sql`
     insert into public.email_deliveries (
       kind, channel, dedup_key, show_id, recipient, triggered_codes, context,
       status, provider_message_id, error, attempt_count
@@ -215,6 +215,7 @@ async function upsertFailed(
       where public.email_deliveries.status <> 'sent'
     returning id
   `;
+  return rows.length > 0;
 }
 
 function rendered(candidate: RealtimeCandidate, origin: string) {
@@ -294,7 +295,11 @@ async function deliverOneRecipient(input: {
     return;
   }
 
-  await upsertFailed(input.sql, input, recipient, outcome.message);
+  const failedLedgerWritten = await upsertFailed(input.sql, input, recipient, outcome.message);
+  if (!failedLedgerWritten) {
+    input.counts.skipped += 1;
+    return;
+  }
   await input.alert({
     showId: input.showId,
     code: "EMAIL_DELIVERY_FAILED",
