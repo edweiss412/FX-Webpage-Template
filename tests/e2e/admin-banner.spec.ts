@@ -215,9 +215,11 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
 // a11y. These are TOP-LEVEL tests (outside the describe above), so each signs in
 // explicitly — the describe-level beforeEach (signOut + clearAlerts) does NOT
 // apply here. They sign OUT first (clean slate) then sign in as ADMIN_FIXTURE.
-// Surface: /admin (the persistent admin layout mounts AlertBanner on every admin
-// route), NOT /admin/dev. Runs in BOTH mobile-safari@390 and desktop-chromium
-// @1280 (admin-banner is in both testMatch regexes).
+// Surface: /admin. M12.3 items 1+2: the banner is now DASHBOARD-ONLY (mounted
+// under the Dashboard header in app/admin/page.tsx, removed from the layout) —
+// PRESENT on /admin, ABSENT on /admin/settings + per-show. Runs in BOTH
+// mobile-safari@390 and desktop-chromium@1280 (admin-banner is in both
+// testMatch regexes).
 // ───────────────────────────────────────────────────────────────────────────
 
 test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)", () => {
@@ -277,63 +279,61 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
     await ctx.close();
   });
 
-  // Step 2 — Route + query remount (spec §11 F17/F19). The banner lives in the
-  // PERSISTENT admin layout; AlertBannerRouteBoundary keys the subtree by
-  // pathname+search+alertId so client-side nav remounts a fresh COLLAPSED
-  // <details>. Without the boundary, native <details open> state would persist
-  // across client-side nav. The __noReload sentinel proves the nav was
-  // client-side (a full document load would clear window.__noReload AND collapse
-  // <details> natively — so the test would pass WITHOUT exercising the boundary).
+  // Step 2 — Dashboard-only presence + query remount (M12.3 items 1+2; spec
+  // §11 F17/F19). The banner is now mounted ONLY on the dashboard (under the
+  // Dashboard header), NOT in the persistent admin layout. Two properties:
+  //   (i) navigating AWAY to /admin/settings → the banner is GONE (count 0);
+  //       returning to /admin → it is PRESENT and COLLAPSED.
+  //   (ii) a QUERY-ONLY change WITHIN /admin still remounts a fresh COLLAPSED
+  //        <details> via AlertBannerRouteBoundary (keyed by pathname+search+
+  //        alertId). The __noReload sentinel proves the query nav was
+  //        client-side (a full load would collapse <details> natively and pass
+  //        WITHOUT the boundary doing anything).
   //
   // VERIFIED (plan watchpoint): the dashboard Active/Archived segmented control
   // (DashboardBucketSegmentedControl.tsx:51,71) navigates via next/link
   // (`<Link href="?bucket=...">`) — client-side, NOT a full-page form. The
   // "Active" segment is ALWAYS a <Link> (only "Archived" is count-disabled),
   // so the archived→active click is reliably a real client-side query nav.
-  test("same-alert CLIENT-SIDE nav (route + query) re-renders collapsed (F17/F19)", async ({
+  test("dashboard-only: banner gone on settings, present+collapsed back on /admin; query nav re-renders collapsed (M12.3, F17/F19)", async ({
     page,
   }) => {
     await signInAs(page, ADMIN_FIXTURE);
     await seedGlobalAlert({ count: 1 });
     await page.goto("/admin");
+    const banner = page.locator("[data-testid=admin-alert-banner]");
     const details = page.locator(OUTER_DETAILS);
     const summary = page.locator(OUTER_SUMMARY);
 
-    // (i) pathname change via the in-app nav LINK (client-side, persistent
-    // layout). Scope to the admin NAV chrome (NOT the Dashboard body, which has
-    // its own `admin-dashboard-settings-link` "Open settings" link). The two nav
-    // Settings links live in `admin-nav-topbar` (visible ≥720px) and
-    // `admin-bottom-tab-settings` (visible <720px); `getByRole` excludes
-    // display:none elements, so at each viewport exactly ONE of the .or()
-    // branches resolves → no strict-mode violation in either project.
-    // Both branches use getByRole (which EXCLUDES display:none elements — a bare
-    // getByTestId would still match the hidden bottom-tab at desktop width and
-    // re-trip strict mode); .or() then leaves exactly the one visible per
-    // viewport. The bottom-tab is scoped via its mobile nav container.
+    // (i) navigate AWAY to settings via the in-app nav LINK (client-side). Scope
+    // to the admin NAV chrome (NOT the Dashboard body, which has its own
+    // `admin-dashboard-settings-link` "Open settings" link). The two nav
+    // Settings links live in `admin-nav-topbar` (visible ≥720px) and the bottom
+    // tab (visible <720px); `getByRole` excludes display:none elements, so at
+    // each viewport exactly ONE of the .or() branches resolves → no strict-mode
+    // violation in either project.
     const settingsNavLink = page
       .getByTestId("admin-nav-topbar")
       .getByRole("link", { name: /settings/i })
       .or(page.getByTestId("admin-bottom-tabs").getByRole("link", { name: /settings/i }));
+    await expect(banner).toBeVisible(); // present on the dashboard
     await summary.click();
     await expect(details).toHaveAttribute("open", "");
-    await page.evaluate(() => {
-      (window as Window & { __noReload?: boolean }).__noReload = true;
-    });
     await settingsNavLink.click();
     await expect(page).toHaveURL(/\/admin\/settings/);
-    // prove it was client-side (a full reload clears the sentinel) — otherwise a
-    // full load collapses <details> natively and the test would pass WITHOUT the
-    // boundary doing anything.
-    expect(
-      await page.evaluate(() => (window as Window & { __noReload?: boolean }).__noReload),
-    ).toBe(true);
+    // M12.3 item 1: the global banner does NOT ride to settings.
+    await expect(banner).toHaveCount(0);
+
+    // returning to /admin → banner present and COLLAPSED again.
+    await page.goto("/admin");
+    await expect(banner).toBeVisible();
     await expect(page.locator(OUTER_DETAILS)).not.toHaveAttribute("open", /.*/);
 
-    // (ii) QUERY-ONLY change WITHOUT mutating any `shows` row (avoids the
-    // per-show advisory-lock invariant + shared-CI-seed contamination). Start on
-    // the archived bucket — the seed has active shows, so the "Active" segment is
-    // always a real next/link there — then click Active: same pathname /admin,
-    // query changes (?bucket=archived → ?bucket=active / cleared).
+    // (ii) QUERY-ONLY change WITHIN /admin WITHOUT mutating any `shows` row
+    // (avoids the per-show advisory-lock invariant + shared-CI-seed
+    // contamination). Start on the archived bucket — the seed has active shows,
+    // so the "Active" segment is always a real next/link there — then click
+    // Active: same pathname /admin, query changes (?bucket=archived → cleared).
     await page.goto("/admin?bucket=archived");
     await summary.click();
     await expect(details).toHaveAttribute("open", "");

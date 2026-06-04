@@ -2,13 +2,9 @@
  * app/admin/layout.tsx (M5 §B Task 5.9 — Doug's portion)
  *
  * Wraps every route under /admin/* (currently /admin/dev; future:
- * /admin/alerts, /admin/reports, etc.). Two responsibilities:
+ * /admin/alerts, /admin/reports, etc.). Responsibility:
  *
- *   1. Mounts <AlertBanner /> at the top of the admin section so any
- *      unresolved row in `public.admin_alerts` is surfaced to Doug
- *      immediately, before the per-page chrome.
- *
- *   2. Calls requireAdmin() at the layout level. Next 16 App Router runs
+ *   1. Calls requireAdmin() at the layout level. Next 16 App Router runs
  *      layouts before child pages, so the build-time + auth gates apply
  *      to every admin route — defense-in-depth on top of the per-page
  *      requireAdmin() call already inside /admin/dev/page.tsx (which
@@ -24,7 +20,6 @@
  */
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
-import { AlertBanner } from "@/components/admin/AlertBanner";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
@@ -105,18 +100,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     >
       <AdminNav email={adminEmail} alertCount={alertCount} />
 
-      {/* AlertBanner is async — it self-fetches admin_alerts and renders
-          null when the queue is empty, so this slot is invisible in
-          clean state. The wrapping `<div id="alerts">` is the scroll
-          target for the AlertBanner queue-chip's `/admin#alerts`
-          fragment (R16 final-review fix; the chip used to point at a
-          section on the admin LANDING which would scroll the banner
-          itself off-screen — the anchor is now on the banner's own
-          wrapper so the fragment lands precisely where Doug expects). */}
-      <div id="alerts">
-        <AlertBanner />
-      </div>
-
+      {/* M12.3 items 1+2: the global AlertBanner is no longer mounted in the
+          layout (it used to ride EVERY admin route, double-rendering on
+          per-show which has its own "Alerts for this show" section). It now
+          mounts ONLY on the dashboard, under the "Dashboard" header — see
+          <DashboardWithHeader> in app/admin/page.tsx, which keeps the
+          `<div id="alerts">` queue-chip scroll target for `/admin#alerts`. */}
       {children}
     </div>
   );

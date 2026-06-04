@@ -39,6 +39,7 @@ import { FinalizeInProgress } from "@/components/admin/FinalizeInProgress";
 import { ReadyToPublish } from "@/components/admin/ReadyToPublish";
 import { StaleReadyToPublish } from "@/components/admin/StaleReadyToPublish";
 import { Dashboard } from "@/components/admin/Dashboard";
+import { AlertBanner } from "@/components/admin/AlertBanner";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import {
   readFinalizeCheckpoint,
@@ -85,6 +86,15 @@ function CheckpointInfraErrorPlaceholder() {
  * renders its own <h2>Dashboard</h2> + sub line. Both Dashboard-dispatch
  * return sites (settled steady-state + the defensive final_cas_done branch)
  * route through this wrapper so the header is the one canonical heading.
+ *
+ * M12.3 items 1+2: the global AlertBanner is now DASHBOARD-ONLY (removed from
+ * app/admin/layout.tsx). It mounts here, BETWEEN the page header and the
+ * dashboard stat cards (calm strip under the "Dashboard" title, matching the
+ * prototype). Putting it in this wrapper means BOTH Dashboard return sites
+ * (settled steady-state + the defensive final_cas_done branch) get it. The
+ * `<div id="alerts">` wrapper preserves the queue-chip `/admin#alerts` scroll
+ * target. AlertBanner is async and self-fetches admin_alerts, rendering null
+ * when the queue is empty — the slot is invisible in clean state.
  */
 function DashboardWithHeader({ bucket }: { bucket?: "active" | "archived" }) {
   return (
@@ -93,6 +103,9 @@ function DashboardWithHeader({ bucket }: { bucket?: "active" | "archived" }) {
         title="Dashboard"
         sub="Your live shows and anything that needs review."
       />
+      <div id="alerts">
+        <AlertBanner />
+      </div>
       <Dashboard {...(bucket ? { bucket } : {})} />
     </>
   );

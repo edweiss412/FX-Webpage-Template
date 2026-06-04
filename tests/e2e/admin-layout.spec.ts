@@ -2,8 +2,9 @@
  * tests/e2e/admin-layout.spec.ts (M5 §B Task 5.9 — Doug's portion)
  *
  * Pins the public contract of `app/admin/layout.tsx`:
- *   - Wraps every /admin/* route with the admin chrome (header,
- *     AlertBanner mount point, then the child page).
+ *   - Wraps every /admin/* route with the admin chrome (nav, then the
+ *     child page). M12.3 item 1: the global AlertBanner is no longer
+ *     mounted in the layout — it is dashboard-only (app/admin/page.tsx).
  *   - Calls requireAdmin() at the layout level so EVERY admin route gets
  *     the build-time + auth gate, not just /admin/dev.
  *
@@ -19,7 +20,7 @@ test.describe("admin layout (mobile-safari, /admin/dev)", () => {
     await signOut(page);
   });
 
-  test("admin can reach /admin/dev: layout chrome (header + banner slot) wraps the dev panel", async ({
+  test("admin can reach /admin/dev: layout chrome (nav) wraps the dev panel", async ({
     page,
   }) => {
     await signInAs(page, ADMIN_FIXTURE);
