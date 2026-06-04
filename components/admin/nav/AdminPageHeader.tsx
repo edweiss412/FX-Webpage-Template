@@ -7,7 +7,7 @@ export function AdminPageHeader({
   return (
     <header data-testid="admin-page-header" className="mb-section-gap flex flex-col gap-2">
       {!crumb && !backHref && (
-        <p data-testid="admin-page-header-eyebrow" className="text-xs font-medium uppercase text-text-subtle" style={{ letterSpacing: "var(--tracking-eyebrow)" }}>Admin</p>
+        <p data-testid="admin-page-header-eyebrow" className="text-xs font-medium uppercase text-text-faint" style={{ letterSpacing: "var(--tracking-eyebrow)" }}>Admin</p>
       )}
       {(crumb || backHref) && (
         <div className="flex items-center gap-3 text-sm text-text-subtle">
