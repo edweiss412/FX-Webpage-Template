@@ -338,17 +338,15 @@ describe("per-show header — M12.3 #16/#18/#15a", () => {
     expect(screen.queryByText("rpas")).toBeNull();
   });
 
-  // #16 — subtitle = client · dates (Northwind Bank · <range>). Expected value
-  // derived from the fixture via the same formatter the page uses (anti-tautology
-  // + TZ-robust: formatDateRange uses local date getters on UTC-parsed ISO).
-  it("renders the client · dates subtitle (#16)", async () => {
-    const { formatDateRange } = await import("@/components/admin/ActiveShowsPanel");
-    const days = baseShow.dates.showDays;
-    const expectedRange = formatDateRange(days[0]!, days[days.length - 1]!);
+  // #16 — subtitle = client · dates (Northwind Bank · <range>). Non-tautological:
+  // assert the LITERAL calendar range from the fixture showDays
+  // (["2026-06-14","2026-06-15"]), NOT a value re-derived from formatDateRange.
+  // The buggy local-getter formatter rendered "6/13/26 → 6/14/26" in US zones
+  // (M12.3 adversarial R3); the UTC-getter fix renders the true calendar dates.
+  it("renders the client · dates subtitle with timezone-correct calendar dates (#16)", async () => {
     await renderPage();
     const sub = screen.getByTestId("admin-show-subtitle");
-    expect(sub.textContent).toBe(`${baseShow.client_label} · ${expectedRange}`);
-    // structural guarantees: client · range with the → separator
+    expect(sub.textContent).toBe(`${baseShow.client_label} · 6/14/26 → 6/15/26`);
     expect(sub.textContent).toMatch(/·/);
     expect(sub.textContent).toMatch(/→/);
   });
