@@ -10,8 +10,10 @@
  * when published && !archived && token; preview-as links + the preview route
  * gate on published && !archived; an archived show's ParsePanel is read-only.
  *
- * AlertBanner is mounted by app/admin/layout.tsx. requireAdmin() runs here as
- * defense-in-depth. Every Supabase await wraps in try/catch (AGENTS.md §1.9).
+ * The GLOBAL AlertBanner is dashboard-only (M12.3) — it is NOT mounted here;
+ * per-show alerts surface via this page's own "Alerts for this show" section.
+ * requireAdmin() runs here as defense-in-depth. Every Supabase await wraps in
+ * try/catch (AGENTS.md §1.9).
  */
 import Link from "next/link";
 import { notFound } from "next/navigation";
