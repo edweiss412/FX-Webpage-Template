@@ -37,15 +37,32 @@ jobs:
       - name: Start Supabase (supply cron-schedule GUC; local-only placeholder)
         run: |
           set -euo pipefail
-          # Mirror screenshots-drift.yml: migration 20260527000003 refuses to
+          # Mirror screenshots-drift.yml: the cron-schedule migrations refuse to
           # apply without the app.fxav_vercel_url GUC (ratified prod-safety
-          # contract). Hold it aside, boot the DB, set the GUC as a per-database
+          # contract). Hold them aside, boot the DB, set the GUC as a per-database
           # default via supabase_admin, restore, then migration up --include-all.
           GUC_URL="https://fxav-screenshots-ci.invalid"
-          HELD="supabase/migrations/20260527000003_schedule_cron_jobs.sql"
-          STASH="$(mktemp -d)/$(basename "$HELD")"
-          mv "$HELD" "$STASH"
-          restore() { [ -f "$STASH" ] && mv -f "$STASH" "$HELD" || true; }
+          # Both cron-schedule migrations refuse to apply unless app.fxav_vercel_url
+          # is set: M12.1 T3's 20260527000003_schedule_cron_jobs.sql AND M12.2 B3's
+          # 20260602000005_b3_schedule_notify_cron.sql (the latter also requires
+          # pg_net + the cron_secret vault entry). Hold BOTH aside during the initial
+          # `supabase start` (GUC not yet set), then restore + apply after the GUC is
+          # in place. Missing either makes `supabase start` fail when the unguarded
+          # migration raises. Kept in sync with screenshots-drift.yml.
+          STASH_DIR="$(mktemp -d)"
+          HELD_MIGRATIONS=(
+            "supabase/migrations/20260527000003_schedule_cron_jobs.sql"
+            "supabase/migrations/20260602000005_b3_schedule_notify_cron.sql"
+          )
+          restore() {
+            for h in "${HELD_MIGRATIONS[@]}"; do
+              s="$STASH_DIR/$(basename "$h")"
+              [ -f "$s" ] && mv -f "$s" "$h" || true
+            done
+          }
+          for h in "${HELD_MIGRATIONS[@]}"; do
+            mv "$h" "$STASH_DIR/$(basename "$h")"
+          done
           trap restore EXIT
           supabase start
           DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -1)"
