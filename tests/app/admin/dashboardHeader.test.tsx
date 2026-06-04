@@ -24,6 +24,13 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/admin/Dashboard", () => ({
   Dashboard: () => null,
 }));
+// M12.3: AlertBanner is now mounted in DashboardWithHeader (app/admin/page.tsx),
+// not the layout. It's an async server component that self-fetches via cookies/
+// Supabase, which throws outside a request scope — stub it for this page-header
+// unit test (the banner has its own suite, tests/components/AlertBanner.test.tsx).
+vi.mock("@/components/admin/AlertBanner", () => ({
+  AlertBanner: () => null,
+}));
 
 async function renderAdminPage() {
   const mod = await import("@/app/admin/page");
