@@ -24,7 +24,7 @@
 // Tokens only (no inline hex/px — token discipline §10). The middot " · " is
 // U+00B7, the intended separator (NOT an em dash).
 
-import { FolderOpen, ExternalLink } from "lucide-react";
+import { FolderOpen, ExternalLink, RotateCcw } from "lucide-react";
 import type { DriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
@@ -91,15 +91,17 @@ export function DriveConnectionPanel({
     <section
       data-testid="admin-settings-drive-connection-section"
       aria-labelledby="admin-settings-drive-connection-heading"
-      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+      className="flex flex-col gap-3"
     >
-      <h3
+      {/* M12.3 item 12b: section title sits OUTSIDE/above the card. */}
+      <h2
         id="admin-settings-drive-connection-heading"
         className="text-lg font-semibold text-text-strong"
       >
         Drive connection
-      </h3>
+      </h2>
 
+      <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
       {/* Info ⟷ pill row — wraps on narrow widths. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -127,39 +129,45 @@ export function DriveConnectionPanel({
 
       <hr className="border-border" />
 
-      <p className="max-w-prose text-sm text-text-subtle">
-        Need to switch folders? Re-run setup. Your current shows keep syncing the
-        whole time.
-      </p>
-
-      {/* Helper ⟷ buttons row — wraps on narrow widths. */}
+      {/* M12.3 item 8: helper text LEFT, both buttons grouped RIGHT in one row
+          (wraps on narrow widths). "Re-run setup" is a NEUTRAL/outline button,
+          not orange/accent. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {folderUrl && (
-          <a
-            data-testid="drive-connection-open-folder"
-            href={folderUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-bg px-4 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        <p className="max-w-prose text-sm text-text-subtle">
+          Need to switch folders? Re-run setup. Your current shows keep syncing
+          the whole time.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {folderUrl && (
+            <a
+              data-testid="drive-connection-open-folder"
+              href={folderUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            >
+              <FolderOpen aria-hidden="true" className="size-4 shrink-0" />
+              Open folder
+              <ExternalLink aria-hidden="true" className="size-4 shrink-0" />
+            </a>
+          )}
+          <form
+            data-testid="drive-connection-rerun-setup-form"
+            data-action="rerunSetupServerAction"
+            action={rerunSetupServerAction}
+            className="flex"
           >
-            Open folder
-            <ExternalLink aria-hidden="true" className="size-4 shrink-0" />
-          </a>
-        )}
-        <form
-          data-testid="drive-connection-rerun-setup-form"
-          data-action="rerunSetupServerAction"
-          action={rerunSetupServerAction}
-          className="flex"
-        >
-          <button
-            type="submit"
-            data-testid="drive-connection-rerun-setup-button"
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            Re-run setup
-          </button>
-        </form>
+            <button
+              type="submit"
+              data-testid="drive-connection-rerun-setup-button"
+              className="inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            >
+              <RotateCcw aria-hidden="true" className="size-4 shrink-0" />
+              Re-run setup
+            </button>
+          </form>
+        </div>
+      </div>
       </div>
     </section>
   );

@@ -23,9 +23,9 @@ import type { EmbeddedAdminEmailsResult } from "@/lib/admin/embeddedAdminEmails"
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
 
-import { AddAdminForm } from "@/app/admin/settings/admins/AddAdminForm";
 import { ReAddRowButton } from "@/app/admin/settings/admins/ReAddRowButton";
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
+import { AddAdminDisclosure } from "@/components/admin/settings/AddAdminDisclosure";
 
 export function AdministratorsSection({
   result,
@@ -36,29 +36,37 @@ export function AdministratorsSection({
   actorCanonicalEmail: string;
   now: Date;
 }) {
+  // M12.3 item 12b: the "Administrators (N)" title sits OUTSIDE/above the card,
+  // in the heading row alongside the "Add admin" trigger; the card holds only
+  // the list (+ disclosed add form).
   if (result.kind === "infra_error") {
     // Resolve to copy in a local (not inline in JSX) so the no-raw-codes
     // scanner does not flag the code string inside a JSX expression.
     const listFailedMessage = getRequiredDougFacing("ADMIN_EMAIL_LIST_FAILED");
     return (
       <section
-        data-testid="admin-allowlist-error"
-        role="alert"
-        aria-labelledby="admin-allowlist-error-heading"
-        className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+        data-testid="admin-settings-admins-section"
+        aria-labelledby="admin-settings-admins-heading"
+        className="flex flex-col gap-3"
       >
-        <h3
-          id="admin-allowlist-error-heading"
+        <h2
+          id="admin-settings-admins-heading"
           className="text-lg font-semibold text-text-strong"
         >
           Administrators
-        </h3>
-        <p className="max-w-prose text-sm text-text-strong">
-          {listFailedMessage}
-        </p>
-        <p className="max-w-prose text-sm text-text-subtle">
-          Refresh the page to try again.
-        </p>
+        </h2>
+        <div
+          data-testid="admin-allowlist-error"
+          role="alert"
+          className="flex flex-col gap-2 rounded-md border border-border bg-surface p-4"
+        >
+          <p className="max-w-prose text-sm text-text-strong">
+            {listFailedMessage}
+          </p>
+          <p className="max-w-prose text-sm text-text-subtle">
+            Refresh the page to try again.
+          </p>
+        </div>
       </section>
     );
   }
@@ -70,37 +78,27 @@ export function AdministratorsSection({
   // The Server Action is the authority; this just reduces UI noise.
   const isOnlyActiveAdmin = active.length === 1;
 
-  return (
-    <section
-      data-testid="admin-settings-admins-section"
-      aria-labelledby="admin-settings-admins-heading"
-      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+  const heading = (
+    <h2
+      id="admin-settings-admins-heading"
+      className="text-lg font-semibold text-text-strong"
     >
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h3
-          id="admin-settings-admins-heading"
-          className="text-lg font-semibold text-text-strong"
-        >
-          Administrators ({active.length})
-        </h3>
-        <a
-          href="#admin-settings-add-admin"
-          className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          Add admin
-        </a>
-      </header>
+      Administrators ({active.length})
+    </h2>
+  );
 
+  const list = (
+    <>
       <div data-testid="admin-active-list">
         {active.length === 0 ? (
           <p
             data-testid="admin-allowlist-empty-active"
-            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+            className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
           >
             No active administrators.
           </p>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="divide-y divide-border">
             {active.map((row) => (
               <AdminRow
                 key={row.email}
@@ -114,25 +112,28 @@ export function AdministratorsSection({
         )}
       </div>
 
-      <div id="admin-settings-add-admin" className="flex flex-col gap-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-text-subtle">
-          Add admin
-        </p>
-        <AddAdminForm />
-      </div>
-
       {revoked.length > 0 && (
         <details data-testid="admin-revoked-list" className="rounded-md border border-border bg-surface-sunken">
-          <summary className="cursor-pointer p-tile-pad text-xs font-semibold uppercase tracking-wide text-text-subtle">
+          <summary className="cursor-pointer p-3 text-xs font-semibold uppercase tracking-wide text-text-subtle">
             Revoked ({revoked.length})
           </summary>
-          <ul className="flex flex-col gap-2 px-tile-pad pb-tile-pad">
+          <ul className="flex flex-col gap-2 px-3 pb-3">
             {revoked.map((row) => (
               <RevokedRow key={row.email} row={row} now={now} />
             ))}
           </ul>
         </details>
       )}
+    </>
+  );
+
+  return (
+    <section
+      data-testid="admin-settings-admins-section"
+      aria-labelledby="admin-settings-admins-heading"
+      className="flex flex-col gap-3"
+    >
+      <AddAdminDisclosure heading={heading} list={list} />
     </section>
   );
 }
@@ -157,7 +158,7 @@ function AdminRow({
     <li
       data-testid="admin-allowlist-row"
       data-row-email={row.email}
-      className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
+      className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">

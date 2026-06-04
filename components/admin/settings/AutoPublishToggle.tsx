@@ -28,6 +28,7 @@
  *
  * No toast (none exists in the app) — the state change is the confirmation.
  */
+import type { ComponentType } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
@@ -42,9 +43,11 @@ export type AutoPublishToggleProps = {
   initial: AutoPublishInitial;
   /** Admin-gated server action: flips `app_settings.auto_publish_clean_first_seen`. */
   setAutoPublish: (next: boolean) => Promise<SetAutoPublishResult>;
+  /** Leading lucide icon for the grouped-card row (M12.3 item 7). */
+  icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
 };
 
-export function AutoPublishToggle({ initial, setAutoPublish }: AutoPublishToggleProps) {
+export function AutoPublishToggle({ initial, setAutoPublish, icon: Icon }: AutoPublishToggleProps) {
   const router = useRouter();
   const degraded = initial.kind === "infra_error";
   // Degraded reports OFF (never a silent falsely-ON state). A healthy read uses
@@ -52,36 +55,42 @@ export function AutoPublishToggle({ initial, setAutoPublish }: AutoPublishToggle
   const on = initial.kind === "value" ? initial.on : false;
 
   return (
-    <section
+    <div
       data-testid="auto-publish-setting-row"
-      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between"
+      className="flex items-start justify-between gap-3 p-4"
     >
-      <div className="min-w-0 min-[720px]:flex-1">
-        <h3 className="text-lg font-semibold text-text-strong">
-          Auto-publish clean new shows
-        </h3>
-        <p className="mt-1 max-w-prose text-sm text-text-subtle">
-          Publish brand-new sheets automatically when they parse with no
-          warnings. You can still undo within 24 hours.
-        </p>
-        {!on && !degraded ? (
-          <p
-            data-testid="auto-publish-off-explainer"
-            className="mt-2 max-w-prose text-sm text-text-subtle"
-          >
-            Off: new shows wait for your approval before going live. You&rsquo;ll
-            review each one in the inbox and publish when you&rsquo;re ready.
-          </p>
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        {Icon ? (
+          <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-text-subtle" />
         ) : null}
-        {degraded ? (
-          <p
-            data-testid="auto-publish-degraded"
-            role="status"
-            className="mt-2 w-full max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-          >
-            We couldn&rsquo;t read this setting just now. Refresh to try again.
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-text-strong">
+            Auto-publish clean new shows
+          </h3>
+          <p className="mt-1 max-w-prose text-sm text-text-subtle">
+            Publish brand-new sheets automatically when they parse with no
+            warnings. You can still undo within 24 hours.
           </p>
-        ) : null}
+          {!on && !degraded ? (
+            <p
+              data-testid="auto-publish-off-explainer"
+              className="mt-2 max-w-prose text-sm text-text-subtle"
+            >
+              Off: new shows wait for your approval before going live.
+              You&rsquo;ll review each one in the inbox and publish when
+              you&rsquo;re ready.
+            </p>
+          ) : null}
+          {degraded ? (
+            <p
+              data-testid="auto-publish-degraded"
+              role="status"
+              className="mt-2 w-full max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+            >
+              We couldn&rsquo;t read this setting just now. Refresh to try again.
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <form
@@ -89,11 +98,11 @@ export function AutoPublishToggle({ initial, setAutoPublish }: AutoPublishToggle
           const result = await setAutoPublish(!on);
           if (result.ok) router.refresh();
         }}
-        className="shrink-0 self-start min-[720px]:self-center"
+        className="shrink-0 self-center"
       >
         <SwitchButton on={on} disabled={degraded} />
       </form>
-    </section>
+    </div>
   );
 }
 
