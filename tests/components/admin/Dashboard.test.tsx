@@ -72,6 +72,13 @@ describe("Dashboard composition", () => {
     expect(split.className).toMatch(/items-stretch/);
   });
 
+  it("dashboard main is full-width on desktop — no max-w-* cap (M12.3 item 4)", async () => {
+    await renderDashboard();
+    const main = screen.getByTestId("admin-dashboard");
+    expect(main.className).toMatch(/\bw-full\b/);
+    expect(main.className).not.toMatch(/\bmax-w-/);
+  });
+
   it("infra_error path renders the existing error main", async () => {
     state.throwOnConstruct = true;
     await renderDashboard();

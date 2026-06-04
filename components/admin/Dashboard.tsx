@@ -506,7 +506,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
   return (
     <main
       data-testid="admin-dashboard"
-      className="mx-auto flex max-w-5xl flex-col gap-section-gap"
+      className="flex w-full flex-col gap-section-gap"
     >
       {/* Title + sub + eyebrow now live in the shared <AdminPageHeader>
           rendered above <Dashboard/> in app/admin/page.tsx (Task 4.1 single
@@ -536,8 +536,9 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
           flex child is a non-auto cross-size that SUPPRESSES align-items:stretch
           (the real-browser layout test caught this). Stacks on mobile. */}
       {/* Two-col split gated at min-[1080px], NOT min-[720px]. This <main> is
-          max-w-5xl (1024px) and the admin layout wrapper is max-w-6xl
-          (app/admin/layout.tsx), so usable content tops out ~1024px at desktop.
+          now full-width (M12.3 item 4); the admin layout wrapper caps content at
+          max-w-6xl (1152px, app/admin/layout.tsx), so usable content tops out
+          ~1152px at desktop.
           The shows col must host ShowsTable's fixed tracks (8+5+12+1.25rem +
           gaps ≈ 484px) AND a usable minmax(0,1fr) title track after the 320px
           inbox col is subtracted; the constant overhead is ~862px, so the title

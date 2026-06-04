@@ -7,7 +7,7 @@
 // overflowCount>0. Preserves ActiveShowsPanel empty-state + null-title (V3).
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
 
@@ -141,5 +141,89 @@ describe("ShowsTable", () => {
     render(<ShowsTable rows={[row({ slug: "m" })]} now={now} activeCount={1} overflowCount={0} />);
     const mobile = screen.getByTestId("shows-meta-mobile-m");
     expect(mobile.textContent).toMatch(/crew/);
+  });
+
+  // ── M12.3 item 10: clean table structure (header + light row dividers) ──
+  it("renders a header row (SHOW/DATES/CREW/SYNC STATUS) sharing the row grid", () => {
+    render(<ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={1} overflowCount={0} />);
+    const header = screen.getByTestId("shows-table-header");
+    const text = (header.textContent ?? "").toLowerCase();
+    expect(text).toContain("show");
+    expect(text).toContain("dates");
+    expect(text).toContain("crew");
+    expect(text).toContain("sync status");
+  });
+
+  it("rows are separated by light dividers, not per-row boxed cards (divide-y, no per-row border)", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "a" }), row({ slug: "b" })]}
+        now={now}
+        activeCount={2}
+        overflowCount={0}
+      />,
+    );
+    // The row links no longer carry their own border/shadow card styling.
+    const link = screen.getByTestId("shows-table-row-a");
+    expect(link.className).not.toMatch(/\bborder-border\b/);
+    expect(link.className).not.toMatch(/shadow-tile/);
+    // The list uses divide-y for inter-row dividers.
+    const list = link.closest("ul");
+    expect(list?.className ?? "").toMatch(/divide-y/);
+  });
+
+  // ── M12.3 item 10: working Find filter (was absent — no-op before) ──
+  it("renders an accessible Find search input (type=search, aria-label) when rows exist", () => {
+    render(<ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={1} overflowCount={0} />);
+    const input = screen.getByTestId("shows-find-input") as HTMLInputElement;
+    expect(input.type).toBe("search");
+    expect(input).toHaveAccessibleName(/find/i);
+  });
+
+  it("Find input filters visible rows by title (case-insensitive substring)", () => {
+    const rows = [
+      row({ slug: "atlas", title: "Atlas Q3 Leadership Summit" }),
+      row({ slug: "northwind", title: "Northwind Annual Gala" }),
+      row({ slug: "cobalt", title: "Cobalt Product Launch" }),
+    ];
+    render(<ShowsTable rows={rows} now={now} activeCount={3} overflowCount={0} />);
+    // All three visible initially.
+    expect(screen.getByTestId("shows-table-row-atlas")).toBeInTheDocument();
+    expect(screen.getByTestId("shows-table-row-northwind")).toBeInTheDocument();
+    expect(screen.getByTestId("shows-table-row-cobalt")).toBeInTheDocument();
+
+    // Case-insensitive substring on the title → only Northwind matches "annual".
+    fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "ANNUAL" } });
+    expect(screen.getByTestId("shows-table-row-northwind")).toBeInTheDocument();
+    expect(screen.queryByTestId("shows-table-row-atlas")).toBeNull();
+    expect(screen.queryByTestId("shows-table-row-cobalt")).toBeNull();
+  });
+
+  it("Find filter falls back to slug when title is null", () => {
+    const rows = [
+      row({ slug: "no-title", title: null }),
+      row({ slug: "named", title: "Named Show" }),
+    ];
+    render(<ShowsTable rows={rows} now={now} activeCount={2} overflowCount={0} />);
+    fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "no-tit" } });
+    expect(screen.getByTestId("shows-table-row-no-title")).toBeInTheDocument();
+    expect(screen.queryByTestId("shows-table-row-named")).toBeNull();
+  });
+
+  it("Find with no matches shows a no-match notice; clearing restores all rows", () => {
+    const rows = [row({ slug: "a", title: "Alpha" }), row({ slug: "b", title: "Beta" })];
+    render(<ShowsTable rows={rows} now={now} activeCount={2} overflowCount={0} />);
+    fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "zzz" } });
+    expect(screen.getByTestId("shows-find-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("shows-table-row-a")).toBeNull();
+    // Clearing restores.
+    fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "" } });
+    expect(screen.getByTestId("shows-table-row-a")).toBeInTheDocument();
+    expect(screen.getByTestId("shows-table-row-b")).toBeInTheDocument();
+  });
+
+  it("no Find control when there are no shows (empty state owns the surface)", () => {
+    render(<ShowsTable rows={[]} now={now} activeCount={0} overflowCount={0} />);
+    expect(screen.queryByTestId("shows-find-input")).toBeNull();
   });
 });
