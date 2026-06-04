@@ -28,7 +28,7 @@
  *
  * No toast (none exists in the app) — the state change is the confirmation.
  */
-import type { ComponentType } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
@@ -43,11 +43,11 @@ export type AutoPublishToggleProps = {
   initial: AutoPublishInitial;
   /** Admin-gated server action: flips `app_settings.auto_publish_clean_first_seen`. */
   setAutoPublish: (next: boolean) => Promise<SetAutoPublishResult>;
-  /** Leading lucide icon for the grouped-card row (M12.3 item 7). */
-  icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
+  /** Leading icon element for the grouped-card row (M12.3 item 7). */
+  icon?: ReactNode;
 };
 
-export function AutoPublishToggle({ initial, setAutoPublish, icon: Icon }: AutoPublishToggleProps) {
+export function AutoPublishToggle({ initial, setAutoPublish, icon }: AutoPublishToggleProps) {
   const router = useRouter();
   const degraded = initial.kind === "infra_error";
   // Degraded reports OFF (never a silent falsely-ON state). A healthy read uses
@@ -60,8 +60,10 @@ export function AutoPublishToggle({ initial, setAutoPublish, icon: Icon }: AutoP
       className="flex items-start justify-between gap-3 p-4"
     >
       <div className="flex min-w-0 flex-1 items-start gap-3">
-        {Icon ? (
-          <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-text-subtle" />
+        {icon ? (
+          <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
+            {icon}
+          </span>
         ) : null}
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-text-strong">

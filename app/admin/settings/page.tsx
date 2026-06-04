@@ -124,7 +124,7 @@ export default async function AdminSettingsPage() {
             description="Email me when a sheet stops syncing or fails to parse for more than an hour."
             initial={alertOnSyncProblemsInitial}
             action={setAlertOnSyncProblems}
-            icon={Bell}
+            icon={<Bell aria-hidden />}
           />
 
           <NotifyToggle
@@ -134,16 +134,16 @@ export default async function AdminSettingsPage() {
             description="A once-a-day email summarizing sheets that need your review, grouped by show. Nothing waiting means no email."
             initial={dailyReviewDigestInitial}
             action={setDailyReviewDigest}
-            icon={Bell}
+            icon={<Bell aria-hidden />}
           />
 
           <AutoPublishToggle
             initial={autoPublishInitial}
             setAutoPublish={setAutoPublish}
-            icon={Sparkles}
+            icon={<Sparkles aria-hidden />}
           />
 
-          <DevToolsRow icon={ShieldCheck} />
+          <DevToolsRow icon={<ShieldCheck aria-hidden />} />
         </div>
       </section>
     </main>

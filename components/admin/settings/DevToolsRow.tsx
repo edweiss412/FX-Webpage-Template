@@ -9,15 +9,15 @@
  * flips true (the M3 build-vs-runtime class). In normal builds the constant is
  * false and this component renders nothing, so the page is visually unchanged.
  */
-import type { ComponentType } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { DEV_PANEL_PRESENT } from "@/lib/admin/__generated__/devPanelPresent";
 
 export function DevToolsRow({
-  icon: Icon,
+  icon,
 }: {
-  /** Leading lucide icon for the grouped-card row (M12.3 item 7). */
-  icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
+  /** Leading icon element for the grouped-card row (M12.3 item 7). */
+  icon?: ReactNode;
 } = {}) {
   if (!DEV_PANEL_PRESENT) return null;
   return (
@@ -26,8 +26,10 @@ export function DevToolsRow({
       className="flex flex-wrap items-center justify-between gap-3 p-4"
     >
       <div className="flex min-w-0 items-start gap-3">
-        {Icon ? (
-          <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-text-subtle" />
+        {icon ? (
+          <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
+            {icon}
+          </span>
         ) : null}
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-text-strong">

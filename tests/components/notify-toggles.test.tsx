@@ -83,11 +83,13 @@ describe("NotifyToggle — reflects app_settings (Task 6.2)", () => {
   });
 
   it("renders a leading icon when an icon prop is provided (M12.3 item 7)", () => {
-    const Icon = (props: { className?: string }) => (
-      <svg data-testid="notify-row-icon" className={props.className} />
-    );
     const { getByTestId } = render(
-      <NotifyToggle {...SYNC} initial={{ kind: "value", on: true }} action={noop} icon={Icon} />,
+      <NotifyToggle
+        {...SYNC}
+        initial={{ kind: "value", on: true }}
+        action={noop}
+        icon={<svg data-testid="notify-row-icon" />}
+      />,
     );
     const row = getByTestId("alert-on-sync-problems-setting-row");
     expect(within(row).queryByTestId("notify-row-icon")).not.toBeNull();

@@ -24,7 +24,7 @@
  *
  * No toast (none exists in the app) — the state change is the confirmation.
  */
-import type { ComponentType } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
@@ -45,8 +45,8 @@ export type NotifyToggleProps = {
   initial: NotifyToggleInitial;
   /** Admin-gated server action that flips the underlying app_settings boolean. */
   action: (next: boolean) => Promise<NotifyToggleResult>;
-  /** Leading lucide icon for the grouped-card row (M12.3 item 7). */
-  icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
+  /** Leading icon element for the grouped-card row (M12.3 item 7). */
+  icon?: ReactNode;
 };
 
 export function NotifyToggle({
@@ -56,7 +56,7 @@ export function NotifyToggle({
   ariaLabel,
   initial,
   action,
-  icon: Icon,
+  icon,
 }: NotifyToggleProps) {
   const router = useRouter();
   const degraded = initial.kind === "infra_error";
@@ -70,8 +70,10 @@ export function NotifyToggle({
       className="flex items-start justify-between gap-3 p-4"
     >
       <div className="flex min-w-0 flex-1 items-start gap-3">
-        {Icon ? (
-          <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-text-subtle" />
+        {icon ? (
+          <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
+            {icon}
+          </span>
         ) : null}
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-text-strong">{title}</h3>
