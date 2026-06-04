@@ -16,7 +16,19 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-export function ShareLinkCopyButton({ url }: { url: string }) {
+export function ShareLinkCopyButton({
+  url,
+  compact = false,
+}: {
+  url: string;
+  /**
+   * #16 compact crew-chip variant: a small icon-only copy button that fits the
+   * pill chip in the per-show header. Default (false) keeps the labelled
+   * "Copy"/"Copied" button used by CurrentShareLinkPanel. Behavior (clipboard
+   * write + sr-only announce) is identical across both variants.
+   */
+  compact?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -47,9 +59,46 @@ export function ShareLinkCopyButton({ url }: { url: string }) {
         onClick={() => void onClick()}
         data-testid="admin-current-share-link-copy-button"
         aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        className={
+          compact
+            ? "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        }
       >
-        {copied ? "Copied" : "Copy"}
+        {compact ? (
+          copied ? (
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              className="size-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          ) : (
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              className="size-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )
+        ) : copied ? (
+          "Copied"
+        ) : (
+          "Copy"
+        )}
       </button>
       <span
         role="status"

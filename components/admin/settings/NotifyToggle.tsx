@@ -24,6 +24,7 @@
  *
  * No toast (none exists in the app) — the state change is the confirmation.
  */
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
@@ -44,6 +45,8 @@ export type NotifyToggleProps = {
   initial: NotifyToggleInitial;
   /** Admin-gated server action that flips the underlying app_settings boolean. */
   action: (next: boolean) => Promise<NotifyToggleResult>;
+  /** Leading icon element for the grouped-card row (M12.3 item 7). */
+  icon?: ReactNode;
 };
 
 export function NotifyToggle({
@@ -53,6 +56,7 @@ export function NotifyToggle({
   ariaLabel,
   initial,
   action,
+  icon,
 }: NotifyToggleProps) {
   const router = useRouter();
   const degraded = initial.kind === "infra_error";
@@ -61,22 +65,29 @@ export function NotifyToggle({
   const on = initial.kind === "value" ? initial.on : false;
 
   return (
-    <section
+    <div
       data-testid={`${testId}-setting-row`}
-      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between"
+      className="flex items-start justify-between gap-3 p-4"
     >
-      <div className="min-w-0 min-[720px]:flex-1">
-        <h3 className="text-lg font-semibold text-text-strong">{title}</h3>
-        <p className="mt-1 max-w-prose text-sm text-text-subtle">{description}</p>
-        {degraded ? (
-          <p
-            data-testid={`${testId}-degraded`}
-            role="status"
-            className="mt-2 w-full max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-          >
-            We couldn&rsquo;t read this setting just now. Refresh to try again.
-          </p>
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        {icon ? (
+          <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
+            {icon}
+          </span>
         ) : null}
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-text-strong">{title}</h3>
+          <p className="mt-1 max-w-prose text-sm text-text-subtle">{description}</p>
+          {degraded ? (
+            <p
+              data-testid={`${testId}-degraded`}
+              role="status"
+              className="mt-2 w-full max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+            >
+              We couldn&rsquo;t read this setting just now. Refresh to try again.
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <form
@@ -84,11 +95,11 @@ export function NotifyToggle({
           const result = await action(!on);
           if (result.ok) router.refresh();
         }}
-        className="shrink-0 self-start min-[720px]:self-center"
+        className="shrink-0 self-center"
       >
         <SwitchButton on={on} disabled={degraded} ariaLabel={ariaLabel} testId={testId} />
       </form>
-    </section>
+    </div>
   );
 }
 

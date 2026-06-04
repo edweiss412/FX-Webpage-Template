@@ -10,8 +10,10 @@
  * when published && !archived && token; preview-as links + the preview route
  * gate on published && !archived; an archived show's ParsePanel is read-only.
  *
- * AlertBanner is mounted by app/admin/layout.tsx. requireAdmin() runs here as
- * defense-in-depth. Every Supabase await wraps in try/catch (AGENTS.md §1.9).
+ * The GLOBAL AlertBanner is dashboard-only (M12.3) — it is NOT mounted here;
+ * per-show alerts surface via this page's own "Alerts for this show" section.
+ * requireAdmin() runs here as defense-in-depth. Every Supabase await wraps in
+ * try/catch (AGENTS.md §1.9).
  */
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -23,7 +25,7 @@ import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
-import { formatRelative } from "@/components/admin/ActiveShowsPanel";
+import { formatRelative, formatDateRange } from "@/components/admin/ActiveShowsPanel";
 import { syncStatusBucket } from "@/lib/admin/syncStatus";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
@@ -41,10 +43,19 @@ import { archiveShowAction, publishShowAction, unarchiveShowAction } from "./_ac
 
 export const dynamic = "force-dynamic";
 
+type ShowDatesJson = {
+  travelIn?: string | null;
+  set?: string | null;
+  showDays?: unknown;
+  travelOut?: string | null;
+};
+
 type ShowLookupRow = {
   id: string;
   slug: string;
   title: string;
+  client_label: string | null;
+  dates: ShowDatesJson | null;
   drive_file_id: string;
   published: boolean;
   archived: boolean;
@@ -98,6 +109,35 @@ function initialsFor(name: string): string {
     .join("");
 }
 
+// Earliest/latest dates for the per-show subtitle range (#16). Mirrors the
+// dashboard's deriveStart/deriveEnd intent (components/admin/Dashboard.tsx:74-97)
+// — travelIn → set → first showDay for the start; last showDay → travelOut for
+// the end — so the per-show header reads the same range the dashboard row does.
+function deriveShowStart(dates: ShowDatesJson | null): string | null {
+  if (!dates) return null;
+  const candidates: string[] = [];
+  if (typeof dates.travelIn === "string") candidates.push(dates.travelIn);
+  if (typeof dates.set === "string") candidates.push(dates.set);
+  if (Array.isArray(dates.showDays) && dates.showDays.length > 0) {
+    const first = dates.showDays[0];
+    if (typeof first === "string") candidates.push(first);
+  }
+  if (candidates.length === 0) return null;
+  return candidates.sort()[0] ?? null;
+}
+
+function deriveShowEnd(dates: ShowDatesJson | null): string | null {
+  if (!dates) return null;
+  const candidates: string[] = [];
+  if (Array.isArray(dates.showDays) && dates.showDays.length > 0) {
+    const last = dates.showDays[dates.showDays.length - 1];
+    if (typeof last === "string") candidates.push(last);
+  }
+  if (typeof dates.travelOut === "string") candidates.push(dates.travelOut);
+  if (candidates.length === 0) return null;
+  return candidates.sort().reverse()[0] ?? null;
+}
+
 export default async function AdminShowPage({
   params,
   searchParams,
@@ -125,7 +165,7 @@ export default async function AdminShowPage({
     const { data, error: showError } = await supabase
       .from("shows")
       .select(
-        "id, slug, title, drive_file_id, published, archived, last_synced_at, last_sync_status",
+        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status",
       )
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
@@ -263,6 +303,20 @@ export default async function AdminShowPage({
   // Host-stripped display of the real crew URL (never the prototype's fake host).
   const crewPathDisplay = hasCrewLinkUrl ? `/show/${slug}/${token}` : null;
 
+  // #16 subtitle = client · dates (e.g. "Northwind Bank · 6/14/26 → 6/15/26").
+  // Replaces the removed "Slug:" line (#18). Guard: render client alone when
+  // dates are absent; render nothing when neither client nor a date range
+  // exists (a partially-parsed show must not render an empty subtitle node).
+  const clientLabel = typeof show.client_label === "string" ? show.client_label.trim() : "";
+  const dateRangeLabel = formatDateRange(
+    deriveShowStart(show.dates),
+    deriveShowEnd(show.dates),
+  );
+  const subtitleParts: string[] = [];
+  if (clientLabel) subtitleParts.push(clientLabel);
+  if (dateRangeLabel) subtitleParts.push(dateRangeLabel);
+  const subtitle = subtitleParts.length > 0 ? subtitleParts.join(" · ") : null;
+
   // §3.2 precedence (extends the existing archived-FIRST order at the prior
   // :241-243): archived → "Archived"; else finalize-owned !published →
   // "Publishing…"; else !published → "Held" (neutral/idle, distinct from the
@@ -302,17 +356,32 @@ export default async function AdminShowPage({
       <StatusIndicator status={statusPill.status} label={statusPill.label} />
     </span>
   );
+  // #16 compact crew-link chip (design crewchip.png): a single pill showing the
+  // host-stripped path (truncated) + a copy affordance — NOT the full URL splayed
+  // inline (the old wide-input/full-URL chrome). The full URL stays reachable via
+  // the copy action (clipboard payload) AND the title attribute for hover.
   const chip =
     hasCrewLinkUrl && crewUrl && crewPathDisplay ? (
       <div
         data-testid="admin-show-share-chip"
-        className="flex items-center gap-2 text-sm text-text-subtle"
+        title={crewUrl}
+        className="inline-flex max-w-[16rem] items-center gap-1.5 rounded-pill border border-border bg-surface px-2.5 py-1 text-xs text-text-subtle"
       >
-        <span>Crew link:</span>
-        <code className="min-w-0 break-all rounded-sm bg-surface-sunken px-2 py-0.5 text-xs text-text-strong">
-          {crewPathDisplay}
-        </code>
-        <ShareLinkCopyButton url={crewUrl} />
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="size-3.5 shrink-0 text-text-subtle"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+        <code className="min-w-0 truncate font-mono text-text-strong">{crewPathDisplay}</code>
+        <ShareLinkCopyButton url={crewUrl} compact />
       </div>
     ) : null;
 
@@ -329,9 +398,13 @@ export default async function AdminShowPage({
           </>
         }
       />
-      <p className="text-sm text-text-subtle">
-        Slug: <code className="rounded-sm bg-surface-sunken px-1">{show.slug}</code>
-      </p>
+      {/* #16 subtitle = client · dates. #18 removed the prior "Slug:" line — the
+          slug stays in the URL/routing but is meaningless chrome for Doug. */}
+      {subtitle ? (
+        <p data-testid="admin-show-subtitle" className="text-sm text-text-subtle">
+          {subtitle}
+        </p>
+      ) : null}
 
       <PerShowAlertSection
         showId={show.id}
@@ -532,20 +605,25 @@ export default async function AdminShowPage({
         </section>
       </div>
 
-      {/* Parse warnings — read-only for an archived show (R32 / §16 DEF-2). */}
-      <section
-        data-testid="admin-show-parse-warnings-section"
-        aria-labelledby="admin-show-parse-warnings-heading"
-        className="flex flex-col gap-3"
-      >
-        <h2
-          id="admin-show-parse-warnings-heading"
-          className="text-lg font-semibold text-text-strong"
+      {/* Parse warnings — read-only for an archived show (R32 / §16 DEF-2).
+          #15a: hide the section entirely when there are zero staged changes
+          (no heading, no "No staged changes" empty card) — it's noise on the
+          common no-pending-review case. Renders only when rows exist. */}
+      {rows.length > 0 ? (
+        <section
+          data-testid="admin-show-parse-warnings-section"
+          aria-labelledby="admin-show-parse-warnings-heading"
+          className="flex flex-col gap-3"
         >
-          Parse warnings
-        </h2>
-        <ParsePanel rows={rows} showId={show.id} readOnly={archived} />
-      </section>
+          <h2
+            id="admin-show-parse-warnings-heading"
+            className="text-lg font-semibold text-text-strong"
+          >
+            Parse warnings
+          </h2>
+          <ParsePanel rows={rows} showId={show.id} readOnly={archived} />
+        </section>
+      ) : null}
 
       {/* Quiet sync footer (replaces the standalone Sync health section). */}
       <footer

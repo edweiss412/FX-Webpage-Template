@@ -5,17 +5,26 @@
  * project (port 3000), which has ADMIN_DEV_PANEL_ENABLED=true so the
  * /admin/dev route renders for admins.
  *
+ * M12.3 items 1+2: the global AlertBanner is DASHBOARD-ONLY — it mounts under
+ * the Dashboard header in app/admin/page.tsx and is NO LONGER a persistent
+ * admin-layout slot. So the banner render/resolve/cancel/clean-state tests
+ * target /admin (the dashboard), NOT /admin/dev. The dedicated dashboard-only
+ * contract test asserts the banner is present on /admin and absent on
+ * /admin/dev, /admin/settings, and per-show routes.
+ *
  * Spec §4.6 (admin_alerts) + §12.4 (catalog) + invariant 5 (no raw codes
  * in user-visible UI).
  *
  * Test surfaces:
- *   1. Clean state — no banner.
- *   2. Insert one row — banner renders the catalog dougFacing copy
+ *   1. Clean state — no banner on /admin.
+ *   2. Insert one row — banner renders the catalog dougFacing copy on /admin
  *      (anti-tautology: assert against the literal string from the catalog
  *      file, not messageFor()).
- *   3. Click Resolve — banner disappears; row is `resolved_at IS NOT NULL`.
- *   4. Non-admin user → /admin/dev returns 403 (the layout's requireAdmin
- *      gate fires before the banner mounts).
+ *   3. Click Resolve on /admin — banner disappears; row is `resolved_at IS NOT NULL`.
+ *   4. Non-admin user → /admin/dev returns 403 (requireAdmin gate; not a
+ *      banner test).
+ *   5. Dashboard-only contract — banner present on /admin, absent on
+ *      /admin/dev, /admin/settings, and a per-show route.
  */
 import { test, expect } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
@@ -81,20 +90,22 @@ async function rowResolvedAt(id: string): Promise<string | null> {
   return (data?.resolved_at as string | null) ?? null;
 }
 
-test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
+test.describe("admin AlertBanner (mobile-safari, /admin)", () => {
   test.beforeEach(async ({ page }) => {
     await signOut(page);
     await clearAlerts();
   });
 
-  test("clean state: no banner mounts when admin_alerts has no unresolved rows", async ({
+  test("clean state: no banner on the dashboard when admin_alerts has no unresolved rows", async ({
     page,
   }) => {
     await signInAs(page, ADMIN_FIXTURE);
-    const response = await page.goto("/admin/dev");
+    // M12.3 items 1+2: the AlertBanner is no longer a persistent-layout slot —
+    // it mounts ONLY on the dashboard page (app/admin/page.tsx). A clean DB ⇒
+    // the dashboard renders (empty-state tolerant of zero shows) but the banner
+    // self-fetches 0 rows and renders null.
+    const response = await page.goto("/admin");
     expect(response?.status()).toBe(200);
-    // The admin layout renders for admins; the banner slot is empty when
-    // no unresolved rows exist.
     await expect(page.locator("[data-testid=admin-nav-brand]")).toBeVisible();
     await expect(page.locator("[data-testid=admin-alert-banner]")).toHaveCount(0);
   });
@@ -105,7 +116,7 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
     await signInAs(page, ADMIN_FIXTURE);
     const id = await insertAlert(ALERT_CODE);
 
-    await page.goto("/admin/dev");
+    await page.goto("/admin");
 
     const banner = page.locator("[data-testid=admin-alert-banner]");
     await expect(banner).toBeVisible();
@@ -124,13 +135,19 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
     await signInAs(page, ADMIN_FIXTURE);
     const id = await insertAlert(ALERT_CODE);
 
-    await page.goto("/admin/dev");
+    await page.goto("/admin");
     await expect(page.locator("[data-testid=admin-alert-banner]")).toBeVisible();
 
     // M9 C4 / M5-D3 (R2 fix): Resolve is now a two-tap confirm flow per
     // shape brief §5.4. First tap moves idle → confirm; the form
     // submits only on the second tap (Confirm resolve). This test pins
     // both transitions plus the eventual server-side resolve.
+    //
+    // M12.3: the Resolve button lives in the always-visible action cell of the
+    // collapsed strip (NOT behind the <details> disclosure), so the two-tap flow
+    // works without expanding the panel first. ALERT_CODE is GLOBAL (show_id
+    // null) so the action cell shows Resolve, not a View-show link
+    // (AlertBanner.tsx:197 `isPerShowAlert = alert.show_id !== null`).
 
     // First tap: idle → confirm. The Confirm + Cancel sibling pair
     // appears; the original Resolve button unmounts.
@@ -175,7 +192,7 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
     await signInAs(page, ADMIN_FIXTURE);
     const id = await insertAlert(ALERT_CODE);
 
-    await page.goto("/admin/dev");
+    await page.goto("/admin");
     await expect(page.locator("[data-testid=admin-alert-banner]")).toBeVisible();
 
     // First tap → confirm.
@@ -192,11 +209,15 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
     expect(resolvedAt).toBeNull();
   });
 
-  test("non-admin user: /admin/dev → 403 from the layout's requireAdmin gate (banner never mounts)", async ({
+  test("non-admin user: /admin/dev → 403 from the layout's requireAdmin gate", async ({
     page,
   }) => {
-    // Even with an unresolved alert in the table, the non-admin must not
-    // see the banner — the layout's requireAdmin call rejects first.
+    // This test is about requireAdmin, NOT the banner — it stays on /admin/dev
+    // (a valid admin-gated route). M12.3: the global banner no longer mounts on
+    // /admin/dev anyway (dashboard-only), so the body-absence assertion below is
+    // a requireAdmin gate check, not a banner-slot claim. Even with an
+    // unresolved alert in the table, the non-admin gets a 403 before any admin
+    // chrome renders.
     await insertAlert(ALERT_CODE);
 
     await signInAs(page, NON_ADMIN_CREW_FIXTURE);
@@ -215,9 +236,11 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
 // a11y. These are TOP-LEVEL tests (outside the describe above), so each signs in
 // explicitly — the describe-level beforeEach (signOut + clearAlerts) does NOT
 // apply here. They sign OUT first (clean slate) then sign in as ADMIN_FIXTURE.
-// Surface: /admin (the persistent admin layout mounts AlertBanner on every admin
-// route), NOT /admin/dev. Runs in BOTH mobile-safari@390 and desktop-chromium
-// @1280 (admin-banner is in both testMatch regexes).
+// Surface: /admin. M12.3 items 1+2: the banner is now DASHBOARD-ONLY (mounted
+// under the Dashboard header in app/admin/page.tsx, removed from the layout) —
+// PRESENT on /admin, ABSENT on /admin/settings + per-show. Runs in BOTH
+// mobile-safari@390 and desktop-chromium@1280 (admin-banner is in both
+// testMatch regexes).
 // ───────────────────────────────────────────────────────────────────────────
 
 test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)", () => {
@@ -277,63 +300,61 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
     await ctx.close();
   });
 
-  // Step 2 — Route + query remount (spec §11 F17/F19). The banner lives in the
-  // PERSISTENT admin layout; AlertBannerRouteBoundary keys the subtree by
-  // pathname+search+alertId so client-side nav remounts a fresh COLLAPSED
-  // <details>. Without the boundary, native <details open> state would persist
-  // across client-side nav. The __noReload sentinel proves the nav was
-  // client-side (a full document load would clear window.__noReload AND collapse
-  // <details> natively — so the test would pass WITHOUT exercising the boundary).
+  // Step 2 — Dashboard-only presence + query remount (M12.3 items 1+2; spec
+  // §11 F17/F19). The banner is now mounted ONLY on the dashboard (under the
+  // Dashboard header), NOT in the persistent admin layout. Two properties:
+  //   (i) navigating AWAY to /admin/settings → the banner is GONE (count 0);
+  //       returning to /admin → it is PRESENT and COLLAPSED.
+  //   (ii) a QUERY-ONLY change WITHIN /admin still remounts a fresh COLLAPSED
+  //        <details> via AlertBannerRouteBoundary (keyed by pathname+search+
+  //        alertId). The __noReload sentinel proves the query nav was
+  //        client-side (a full load would collapse <details> natively and pass
+  //        WITHOUT the boundary doing anything).
   //
   // VERIFIED (plan watchpoint): the dashboard Active/Archived segmented control
   // (DashboardBucketSegmentedControl.tsx:51,71) navigates via next/link
   // (`<Link href="?bucket=...">`) — client-side, NOT a full-page form. The
   // "Active" segment is ALWAYS a <Link> (only "Archived" is count-disabled),
   // so the archived→active click is reliably a real client-side query nav.
-  test("same-alert CLIENT-SIDE nav (route + query) re-renders collapsed (F17/F19)", async ({
+  test("dashboard-only: banner gone on settings, present+collapsed back on /admin; query nav re-renders collapsed (M12.3, F17/F19)", async ({
     page,
   }) => {
     await signInAs(page, ADMIN_FIXTURE);
     await seedGlobalAlert({ count: 1 });
     await page.goto("/admin");
+    const banner = page.locator("[data-testid=admin-alert-banner]");
     const details = page.locator(OUTER_DETAILS);
     const summary = page.locator(OUTER_SUMMARY);
 
-    // (i) pathname change via the in-app nav LINK (client-side, persistent
-    // layout). Scope to the admin NAV chrome (NOT the Dashboard body, which has
-    // its own `admin-dashboard-settings-link` "Open settings" link). The two nav
-    // Settings links live in `admin-nav-topbar` (visible ≥720px) and
-    // `admin-bottom-tab-settings` (visible <720px); `getByRole` excludes
-    // display:none elements, so at each viewport exactly ONE of the .or()
-    // branches resolves → no strict-mode violation in either project.
-    // Both branches use getByRole (which EXCLUDES display:none elements — a bare
-    // getByTestId would still match the hidden bottom-tab at desktop width and
-    // re-trip strict mode); .or() then leaves exactly the one visible per
-    // viewport. The bottom-tab is scoped via its mobile nav container.
+    // (i) navigate AWAY to settings via the in-app nav LINK (client-side). Scope
+    // to the admin NAV chrome (NOT the Dashboard body, which has its own
+    // `admin-dashboard-settings-link` "Open settings" link). The two nav
+    // Settings links live in `admin-nav-topbar` (visible ≥720px) and the bottom
+    // tab (visible <720px); `getByRole` excludes display:none elements, so at
+    // each viewport exactly ONE of the .or() branches resolves → no strict-mode
+    // violation in either project.
     const settingsNavLink = page
       .getByTestId("admin-nav-topbar")
       .getByRole("link", { name: /settings/i })
       .or(page.getByTestId("admin-bottom-tabs").getByRole("link", { name: /settings/i }));
+    await expect(banner).toBeVisible(); // present on the dashboard
     await summary.click();
     await expect(details).toHaveAttribute("open", "");
-    await page.evaluate(() => {
-      (window as Window & { __noReload?: boolean }).__noReload = true;
-    });
     await settingsNavLink.click();
     await expect(page).toHaveURL(/\/admin\/settings/);
-    // prove it was client-side (a full reload clears the sentinel) — otherwise a
-    // full load collapses <details> natively and the test would pass WITHOUT the
-    // boundary doing anything.
-    expect(
-      await page.evaluate(() => (window as Window & { __noReload?: boolean }).__noReload),
-    ).toBe(true);
+    // M12.3 item 1: the global banner does NOT ride to settings.
+    await expect(banner).toHaveCount(0);
+
+    // returning to /admin → banner present and COLLAPSED again.
+    await page.goto("/admin");
+    await expect(banner).toBeVisible();
     await expect(page.locator(OUTER_DETAILS)).not.toHaveAttribute("open", /.*/);
 
-    // (ii) QUERY-ONLY change WITHOUT mutating any `shows` row (avoids the
-    // per-show advisory-lock invariant + shared-CI-seed contamination). Start on
-    // the archived bucket — the seed has active shows, so the "Active" segment is
-    // always a real next/link there — then click Active: same pathname /admin,
-    // query changes (?bucket=archived → ?bucket=active / cleared).
+    // (ii) QUERY-ONLY change WITHIN /admin WITHOUT mutating any `shows` row
+    // (avoids the per-show advisory-lock invariant + shared-CI-seed
+    // contamination). Start on the archived bucket — the seed has active shows,
+    // so the "Active" segment is always a real next/link there — then click
+    // Active: same pathname /admin, query changes (?bucket=archived → cleared).
     await page.goto("/admin?bucket=archived");
     await summary.click();
     await expect(details).toHaveAttribute("open", "");
@@ -349,6 +370,53 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
       await page.evaluate(() => (window as Window & { __noReload?: boolean }).__noReload),
     ).toBe(true); // client-side, no full load
     await expect(page.locator(OUTER_DETAILS)).not.toHaveAttribute("open", /.*/);
+  });
+
+  // Step 2b — Dashboard-only contract, explicit negative assertions (M12.3
+  // adversarial R2). The global banner is mounted ONLY on the dashboard page
+  // (app/admin/page.tsx:107). With a single seeded GLOBAL alert present, the
+  // banner MUST be:
+  //   • PRESENT on /admin (the dashboard)
+  //   • ABSENT (count 0) on /admin/dev, /admin/settings, and a per-show route
+  //     /admin/show/<slug>.
+  // The per-show route keeps its OWN "Alerts for this show" surface, which is
+  // NOT [data-testid=admin-alert-banner] — so this assertion does not collide
+  // with that section. A real seeded slug is read from the DB at runtime
+  // (mirrors lib/parser/slug-derived seed slugs, e.g. "slug-xxxxxxxx").
+  test("dashboard-only contract: global banner present on /admin, absent on /admin/dev, /admin/settings, /admin/show/[slug] (M12.3 R2)", async ({
+    page,
+  }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    await seedGlobalAlert({ count: 1 }); // one unresolved GLOBAL (show_id null) alert
+
+    // A real seeded show slug for the per-show route. Service-role read bypasses
+    // RLS; the seed always has shows (deriveSlug in supabase/seed.ts).
+    const { data: show, error: showErr } = await admin
+      .from("shows")
+      .select("slug")
+      .limit(1)
+      .single();
+    if (showErr) throw new Error(`slug fetch failed: ${showErr.message}`);
+    const slug = show!.slug as string;
+
+    const banner = page.locator("[data-testid=admin-alert-banner]");
+
+    // PRESENT on the dashboard.
+    await page.goto("/admin");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveCount(1);
+
+    // ABSENT everywhere else the banner used to ride via the old layout slot.
+    for (const route of ["/admin/dev", "/admin/settings", `/admin/show/${slug}`]) {
+      const response = await page.goto(route);
+      // Each route is admin-gated and must render for ADMIN_FIXTURE (200), so a
+      // count-0 result means "banner genuinely absent", not "route 403'd".
+      expect(response?.status(), `${route} should render for admin`).toBe(200);
+      await expect(
+        banner,
+        `global banner must NOT mount on ${route} (dashboard-only)`,
+      ).toHaveCount(0);
+    }
   });
 
   // Step 3 — Alert-identity remount (spec §11 F9), the load-bearing

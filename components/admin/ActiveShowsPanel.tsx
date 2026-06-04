@@ -58,7 +58,12 @@ export function formatDateRange(start: string | null, end: string | null): strin
   const toShort = (iso: string) => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
-    return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+    // Show dates are date-only ISO ('YYYY-MM-DD'), which `new Date` parses as UTC
+    // midnight. Use UTC getters so the displayed calendar date matches the sheet
+    // value regardless of server/runtime timezone — local getters render one day
+    // earlier in US zones (e.g. 2026-06-14 → "6/13" in America/Chicago). M12.3
+    // adversarial R3.
+    return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${String(d.getUTCFullYear()).slice(-2)}`;
   };
   if (start && end) return `${toShort(start)} → ${toShort(end)}`;
   return toShort((start ?? end)!);

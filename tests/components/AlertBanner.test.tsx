@@ -28,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { AlertBanner } from "@/components/admin/AlertBanner";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { firstSentence, stripEmphasis } from "@/lib/messages/collapsedSummary";
 
 // RECON-1 T3: <AlertBanner> now wraps its normal-state render in
 // <AlertBannerRouteBoundary> (a 'use client' island that reads BOTH
@@ -692,13 +693,16 @@ describe("AlertBanner", () => {
     expect(section.querySelector("[data-testid=admin-alert-panel]")).not.toBeNull();
   });
 
-  test("collapsed summary line is the catalog dougFacing TEXT, inline (no block child), emphasis stripped", async () => {
-    // TILE_SERVER_RENDER_FAILED's dougFacing begins "*<sheet-name>*: …" — the
-    // *emphasis* markers must be stripped for the inline one-liner.
+  test("collapsed summary line is the FIRST SENTENCE of catalog dougFacing, inline (no block child), emphasis stripped (M12.3 item 3)", async () => {
+    // M12.3 item 3: the collapsed one-liner is now the first complete sentence
+    // of dougFacing (emphasis stripped) — no mid-word truncation. Anti-tautology:
+    // derive the expectation from the catalog via the SAME helpers the component
+    // uses (firstSentence ∘ stripEmphasis), never hardcoded.
+    const CODE = "TILE_SERVER_RENDER_FAILED" satisfies MessageCode;
     setRows([
       {
         id: "emph-1",
-        code: "TILE_SERVER_RENDER_FAILED",
+        code: CODE,
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -706,26 +710,66 @@ describe("AlertBanner", () => {
       },
     ]);
     const { container } = render(await AlertBanner());
-    const line = container.querySelector("[data-testid=admin-alert-banner] summary span.truncate")!;
-    // catalog-sourced text present (no raw code); emphasis markers removed
+    const line = container.querySelector(
+      "[data-testid=admin-alert-banner] summary span.truncate",
+    )!;
+    const expected = stripEmphasis(firstSentence(MESSAGE_CATALOG[CODE].dougFacing!));
+    expect(line.textContent).toBe(expected);
+    // emphasis markers removed (no literal "*" leaks)
     expect(line.textContent).not.toContain("*");
     expect(line.querySelector("p, div, ul, section")).toBeNull(); // inline only — truncation-safe
     // it is NOT the same node as the panel's <ErrorExplainer> block
     expect(line.querySelector("[data-testid=admin-alert-panel]")).toBeNull();
   });
 
-  test("collapsedText strip handles BOTH single-asterisk *emphasis* AND double-asterisk **bold** (review #3)", async () => {
+  test("collapsed line is the first sentence only — a multi-sentence dougFacing does not bleed sentence 2 into the one-liner (M12.3 item 3)", async () => {
+    // Find a banner-eligible (non-info) catalog code whose dougFacing has a real
+    // sentence boundary, so firstSentence actually truncates. Derive everything
+    // from the catalog (anti-tautology, parameterization-safe).
+    const entry = Object.values(MESSAGE_CATALOG).find((e) => {
+      const d = (e as { dougFacing: string | null }).dougFacing;
+      const sev = (e as { severity?: string }).severity;
+      return (
+        typeof d === "string" &&
+        sev !== "info" &&
+        stripEmphasis(firstSentence(d)) !== stripEmphasis(d)
+      );
+    }) as { code: string; dougFacing: string } | undefined;
+    expect(entry).toBeDefined(); // precondition: such a code exists in the catalog
+    const code = entry!.code;
+    const full = stripEmphasis(entry!.dougFacing);
+    const firstOnly = stripEmphasis(firstSentence(entry!.dougFacing));
+    expect(firstOnly.length).toBeLessThan(full.length); // pins that truncation happens
+    setRows([
+      {
+        id: "multi-sentence",
+        code,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const line = container.querySelector(
+      "[data-testid=admin-alert-banner] summary [data-testid=admin-alert-message]",
+    )!;
+    expect(line.textContent).toBe(firstOnly);
+    // the full message (panel) still renders the WHOLE dougFacing (unchanged)
+    const panelMsg = container.querySelector(
+      "[data-testid=admin-alert-panel] [data-testid=error-explainer-message]",
+    );
+    expect(panelMsg?.textContent).toBe(entry!.dougFacing);
+  });
+
+  test("collapsedSummary helpers strip BOTH single-asterisk *emphasis* AND double-asterisk **bold** (review #3)", async () => {
     // At least one catalog dougFacing uses **bold** (SHOW_FIRST_PUBLISHED's
-    // "**Made a mistake?**", catalog.ts:657 — info-severity, so banner-excluded,
-    // but admin_alerts.code is unconstrained so a future warning code could).
-    // The component's strip is `\*{1,2}(.+?)\*{1,2}` → it must collapse both
-    // forms with NO residual asterisks. Pin that exact regex contract here so a
-    // weakening back to the single-asterisk-only form regresses.
-    const strip = (s: string) => s.replace(/\*{1,2}(.+?)\*{1,2}/g, "$1");
-    expect(strip("*emphasis* and more")).toBe("emphasis and more");
-    expect(strip("**Made a mistake?** click here")).toBe("Made a mistake? click here");
-    expect(strip("a *one* and **two** mixed")).toBe("a one and two mixed");
-    expect(strip("**bold**")).not.toContain("*");
+    // "**Made a mistake?**", catalog.ts:657). The collapsed line now flows
+    // through stripEmphasis; pin that it collapses both forms with NO residual
+    // asterisks so a weakening back to the single-asterisk-only form regresses.
+    expect(stripEmphasis("*emphasis* and more")).toBe("emphasis and more");
+    expect(stripEmphasis("**Made a mistake?** click here")).toBe("Made a mistake? click here");
+    expect(stripEmphasis("a *one* and **two** mixed")).toBe("a one and two mixed");
+    expect(stripEmphasis("**bold**")).not.toContain("*");
   });
 
   // ---- 3b: bounded counts + exact-count accessibility (§8 F11/F12/F14/F16) ----

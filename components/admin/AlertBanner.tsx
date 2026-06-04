@@ -36,6 +36,7 @@ import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalo
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { nowDate } from "@/lib/time/now";
 import { formatBoundedCount } from "@/lib/format/count";
+import { firstSentence, stripEmphasis } from "@/lib/messages/collapsedSummary";
 
 import { AlertBannerRouteBoundary } from "./AlertBannerRouteBoundary";
 import { ResolveAlertButton } from "./ResolveAlertButton";
@@ -229,13 +230,16 @@ export async function AlertBanner() {
   // likewise renders null), so the banner degrades to icon + count + caret +
   // resolve — admin-safe, never crew copy.
   //
-  // Strip the catalog's Markdown emphasis markers for the inline one-liner (the
-  // panel's <ErrorExplainer> renders them styled; a raw string would show literal
-  // "*"). `\*{1,2}` handles BOTH single-asterisk *emphasis* AND double-asterisk
-  // **bold** (e.g. SHOW_PUBLISHED_SUCCESS's "**Made a mistake?**", catalog.ts:657);
-  // the inner non-greedy capture keeps the wrapped text. Underscore `_…_` emphasis
-  // is intentionally left as-is (rare, low visual noise, and not a stray glyph).
-  const collapsedText = (topMessage?.dougFacing ?? "").replace(/\*{1,2}(.+?)\*{1,2}/g, "$1");
+  // Collapsed one-liner = the FIRST COMPLETE SENTENCE of dougFacing, with the
+  // catalog's Markdown emphasis markers stripped (the panel's <ErrorExplainer>
+  // renders them styled; a raw string would show literal "*"/"_"). Taking the
+  // first sentence (M12.3 item 3) avoids mid-word truncation: the `truncate`
+  // span below remains a CSS safety net for pathologically long single
+  // sentences, while the full message stays in the expanded <ErrorExplainer>
+  // panel unchanged. `firstSentence` does not split decimals/version numbers
+  // (the boundary requires whitespace/EOS after `.!?`); `stripEmphasis` removes
+  // **bold**, *em*, and word-boundary _em_ while keeping the wrapped text.
+  const collapsedText = stripEmphasis(firstSentence(topMessage?.dougFacing ?? ""));
 
   // RECON-1 T3 (review cleanup #2): the JSONB-context → MessageParams cast is
   // identical for ErrorExplainer + HelpAffordance — extract once so the two

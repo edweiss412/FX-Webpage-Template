@@ -9,31 +9,44 @@
  * flips true (the M3 build-vs-runtime class). In normal builds the constant is
  * false and this component renders nothing, so the page is visually unchanged.
  */
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { DEV_PANEL_PRESENT } from "@/lib/admin/__generated__/devPanelPresent";
 
-export function DevToolsRow() {
+export function DevToolsRow({
+  icon,
+}: {
+  /** Leading icon element for the grouped-card row (M12.3 item 7). */
+  icon?: ReactNode;
+} = {}) {
   if (!DEV_PANEL_PRESENT) return null;
   return (
-    <section
+    <div
       data-testid="admin-dev-tools-row"
-      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
+      className="flex flex-wrap items-center justify-between gap-3 p-4"
     >
-      <div className="min-w-0">
-        <h3 className="text-lg font-semibold text-text-strong">
-          Developer tools
-        </h3>
-        <p className="max-w-prose text-sm text-text-subtle">
-          Fixture tester and parse diagnostics. Hidden from normal use.
-        </p>
+      <div className="flex min-w-0 items-start gap-3">
+        {icon ? (
+          <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
+            {icon}
+          </span>
+        ) : null}
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-text-strong">
+            Developer tools
+          </h3>
+          <p className="max-w-prose text-sm text-text-subtle">
+            Fixture tester and parse diagnostics. Hidden from normal use.
+          </p>
+        </div>
       </div>
       <Link
         href="/admin/dev"
         data-testid="admin-dev-tools-open"
-        className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-base font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
       >
         Open
       </Link>
-    </section>
+    </div>
   );
 }

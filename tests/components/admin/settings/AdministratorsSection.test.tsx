@@ -13,7 +13,7 @@
 import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { AdministratorsSection } from "@/components/admin/settings/AdministratorsSection";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
@@ -60,7 +60,7 @@ function ok(rows: AdminEmailRow[]): EmbeddedAdminEmailsResult {
 afterEach(() => cleanup());
 
 describe("AdministratorsSection (Task 6.2)", () => {
-  it("renders active list + add form + revoked disclosure", () => {
+  it("renders active list + revoked disclosure; add form hidden until 'Add admin' pressed (M12.3 item 12d)", () => {
     const rows = [
       row({ email: "alice@example.com" }),
       row({ email: "bob@example.com" }),
@@ -73,6 +73,10 @@ describe("AdministratorsSection (Task 6.2)", () => {
     const active = screen.getByTestId("admin-active-list");
     // 2 active rows seeded → 2 rows rendered in the active region.
     expect(within(active).getAllByTestId("admin-allowlist-row")).toHaveLength(2);
+
+    // Disclosure: the add form is ABSENT initially, present after the trigger.
+    expect(screen.queryByTestId("mock-add-admin-form")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("admin-add-admin-trigger"));
     expect(screen.getByTestId("mock-add-admin-form")).toBeInTheDocument();
 
     const revoked = screen.getByTestId("admin-revoked-list");

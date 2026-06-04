@@ -13,7 +13,7 @@
  *   - no em dashes / no raw codes in the rendered copy.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, within } from "@testing-library/react";
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
@@ -80,6 +80,19 @@ describe("NotifyToggle — reflects app_settings (Task 6.2)", () => {
     );
     const onclick = getByTestId("daily-review-digest-toggle").getAttribute("onclick") ?? "";
     expect(onclick).not.toMatch(/disabled\s*=\s*true/i);
+  });
+
+  it("renders a leading icon when an icon prop is provided (M12.3 item 7)", () => {
+    const { getByTestId } = render(
+      <NotifyToggle
+        {...SYNC}
+        initial={{ kind: "value", on: true }}
+        action={noop}
+        icon={<svg data-testid="notify-row-icon" />}
+      />,
+    );
+    const row = getByTestId("alert-on-sync-problems-setting-row");
+    expect(within(row).queryByTestId("notify-row-icon")).not.toBeNull();
   });
 
   it("renders both rows' copy without em dashes or raw codes", () => {

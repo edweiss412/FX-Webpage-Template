@@ -39,10 +39,9 @@ vi.mock("@/lib/auth/requireAdmin", async () => {
   };
 });
 
-// AlertBanner is async + self-fetches; stub it so the layout renders.
-vi.mock("@/components/admin/AlertBanner", () => ({
-  AlertBanner: () => null,
-}));
+// M12.3 item 1: the layout no longer renders <AlertBanner /> (it is now
+// dashboard-only, mounted under the Dashboard header in app/admin/page.tsx).
+// No AlertBanner mock is needed here.
 
 // On the success path the layout now renders <AdminNav>, a client island
 // that calls usePathname. Stub it so the success-path render doesn't throw

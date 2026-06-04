@@ -37,12 +37,12 @@ function StatCell({
   return (
     <div
       data-testid={testid}
-      className="flex h-full flex-col gap-1 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
+      className="flex h-full flex-col gap-0.5 rounded-md border border-border bg-surface p-4 shadow-tile"
     >
       <div className="flex items-center gap-2">
         <span
           data-testid={valueTestid}
-          className={`text-3xl font-bold tabular-nums ${valueClassName}`}
+          className={`text-2xl font-bold tabular-nums ${valueClassName}`}
         >
           {finite(value)}
         </span>

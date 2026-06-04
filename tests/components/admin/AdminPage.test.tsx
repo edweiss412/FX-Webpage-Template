@@ -111,6 +111,12 @@ vi.mock("@/components/admin/StaleReadyToPublish", () => ({
 vi.mock("@/components/admin/Dashboard", () => ({
   Dashboard: () => <div data-testid="admin-dashboard-placeholder" />,
 }));
+// M12.3: AlertBanner moved into DashboardWithHeader (app/admin/page.tsx). It's an
+// async server component (self-fetches via cookies/Supabase) and throws outside a
+// request scope — stub it here; the banner is covered by tests/components/AlertBanner.test.tsx.
+vi.mock("@/components/admin/AlertBanner", () => ({
+  AlertBanner: () => <div data-testid="admin-alert-banner-stub" />,
+}));
 
 import AdminPage from "@/app/admin/page";
 

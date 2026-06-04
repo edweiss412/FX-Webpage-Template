@@ -16,6 +16,12 @@
  *     constant; renders null in normal builds (committed false), so it is the
  *     only "Preferences"-area content for B1 and is invisible by default.
  *
+ * M12.3 (items 6/7/8/12/14): the page is LEFT-ALIGNED (no mx-auto); each section
+ * title ("Drive connection", "Administrators", "Preferences") sits OUTSIDE/above
+ * its card; the four Preferences rows (two notify toggles, auto-publish, gated
+ * dev-tools) are grouped into ONE bordered divide-y card, each with a leading
+ * lucide icon; "Add admin" is a heading-row trigger that discloses the add form.
+ *
  * The layout gates admin access; we still re-call requireAdminIdentity here
  * defensively (matching app/admin/dev/page.tsx) and to source the actor's
  * canonical email for the embedded self-revoke policy.
@@ -37,6 +43,7 @@ import {
   type NotifyToggleInitial,
 } from "@/components/admin/settings/NotifyToggle";
 import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
+import { Bell, Sparkles, ShieldCheck } from "lucide-react";
 import { getAutoPublishCleanFirstSeen } from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
 import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
 import { getDailyReviewDigest } from "@/lib/appSettings/getDailyReviewDigest";
@@ -76,7 +83,7 @@ export default async function AdminSettingsPage() {
   return (
     <main
       data-testid="admin-settings-page"
-      className="mx-auto flex max-w-[740px] flex-col gap-section-gap"
+      className="flex max-w-[740px] flex-col gap-section-gap"
     >
       <AdminPageHeader
         title="Settings"
@@ -91,27 +98,54 @@ export default async function AdminSettingsPage() {
         now={now}
       />
 
-      <NotifyToggle
-        testId="alert-on-sync-problems"
-        title="Alert me about sync problems"
-        ariaLabel="Alert me about sync problems"
-        description="Email me when a sheet stops syncing or fails to parse for more than an hour."
-        initial={alertOnSyncProblemsInitial}
-        action={setAlertOnSyncProblems}
-      />
+      {/* M12.3 items 6/7/12b: "Preferences" heading OUTSIDE the card; the three
+          toggle rows + the (gated) Developer-tools row live in ONE bordered
+          card with internal dividers; each row carries a leading lucide icon. */}
+      <section
+        data-testid="admin-settings-preferences-section"
+        aria-labelledby="admin-settings-preferences-heading"
+        className="flex flex-col gap-3"
+      >
+        <h2
+          id="admin-settings-preferences-heading"
+          className="text-lg font-semibold text-text-strong"
+        >
+          Preferences
+        </h2>
 
-      <NotifyToggle
-        testId="daily-review-digest"
-        title="Daily review digest"
-        ariaLabel="Daily review digest"
-        description="A once-a-day email summarizing sheets that need your review, grouped by show. Nothing waiting means no email."
-        initial={dailyReviewDigestInitial}
-        action={setDailyReviewDigest}
-      />
+        <div
+          data-testid="admin-settings-preferences-card"
+          className="divide-y divide-border rounded-md border border-border bg-surface"
+        >
+          <NotifyToggle
+            testId="alert-on-sync-problems"
+            title="Alert me about sync problems"
+            ariaLabel="Alert me about sync problems"
+            description="Email me when a sheet stops syncing or fails to parse for more than an hour."
+            initial={alertOnSyncProblemsInitial}
+            action={setAlertOnSyncProblems}
+            icon={<Bell aria-hidden />}
+          />
 
-      <AutoPublishToggle initial={autoPublishInitial} setAutoPublish={setAutoPublish} />
+          <NotifyToggle
+            testId="daily-review-digest"
+            title="Daily review digest"
+            ariaLabel="Daily review digest"
+            description="A once-a-day email summarizing sheets that need your review, grouped by show. Nothing waiting means no email."
+            initial={dailyReviewDigestInitial}
+            action={setDailyReviewDigest}
+            icon={<Bell aria-hidden />}
+          />
 
-      <DevToolsRow />
+          <AutoPublishToggle
+            initial={autoPublishInitial}
+            setAutoPublish={setAutoPublish}
+            icon={<Sparkles aria-hidden />}
+          />
+
+          <DevToolsRow icon={<ShieldCheck aria-hidden />} />
+        </div>
+      </section>
     </main>
   );
 }

@@ -6,6 +6,9 @@ export function AdminPageHeader({
 }: { title: string; sub?: string; crumb?: string; backHref?: string; rightSlot?: ReactNode }) {
   return (
     <header data-testid="admin-page-header" className="mb-section-gap flex flex-col gap-2">
+      {!crumb && !backHref && (
+        <p data-testid="admin-page-header-eyebrow" className="text-xs font-medium uppercase text-text-faint" style={{ letterSpacing: "var(--tracking-eyebrow)" }}>Admin</p>
+      )}
       {(crumb || backHref) && (
         <div className="flex items-center gap-3 text-sm text-text-subtle">
           {backHref && (
