@@ -150,7 +150,19 @@ export function ShowsTable({ rows, now, activeCount, overflowCount }: ShowsTable
           data-testid="shows-find-empty"
           className="rounded-md border border-border bg-surface-sunken p-4 text-sm text-text-subtle"
         >
-          No shows match “{query.trim()}”.
+          {overflowCount > 0 ? (
+            // The active list is CAPPED (ACTIVE_SHOWS_CAP) — `overflowCount` more
+            // rows are not loaded client-side, so Find only searched the shown
+            // rows. A bare "No shows match" would falsely imply the full set was
+            // searched (adversarial R1, M12.3). Scope the copy honestly so a
+            // no-match never reads as "this show does not exist".
+            <>
+              No matches for “{query.trim()}” among the {rows.length} shown shows —{" "}
+              {overflowCount} more aren’t loaded here.
+            </>
+          ) : (
+            <>No shows match “{query.trim()}”.</>
+          )}
         </div>
       ) : (
         // Clean table: ONE bordered/rounded container; header + rows separated

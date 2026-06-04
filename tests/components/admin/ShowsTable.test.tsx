@@ -214,12 +214,33 @@ describe("ShowsTable", () => {
     const rows = [row({ slug: "a", title: "Alpha" }), row({ slug: "b", title: "Beta" })];
     render(<ShowsTable rows={rows} now={now} activeCount={2} overflowCount={0} />);
     fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "zzz" } });
-    expect(screen.getByTestId("shows-find-empty")).toBeInTheDocument();
+    const empty = screen.getByTestId("shows-find-empty");
+    expect(empty).toBeInTheDocument();
+    // Full set is loaded (overflowCount===0) → the unscoped "No shows match" copy
+    // is honest: the whole active set really was searched.
+    expect(empty.textContent).toMatch(/no shows match/i);
     expect(screen.queryByTestId("shows-table-row-a")).toBeNull();
     // Clearing restores.
     fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "" } });
     expect(screen.getByTestId("shows-table-row-a")).toBeInTheDocument();
     expect(screen.getByTestId("shows-table-row-b")).toBeInTheDocument();
+  });
+
+  it("Find no-match on a CAPPED list scopes the copy to the shown rows (never implies the show does not exist)", () => {
+    // rows are capped below activeCount → overflowCount>0. Find only searches the
+    // client-loaded rows, so a no-match must NOT read as "this show does not
+    // exist" — the copy must disclose it only covered the shown rows and that
+    // more aren't loaded (adversarial R1, M12.3 — the row-dropping failure Find
+    // had to avoid).
+    const rows = [row({ slug: "a", title: "Alpha" }), row({ slug: "b", title: "Beta" })];
+    render(<ShowsTable rows={rows} now={now} activeCount={600} overflowCount={598} />);
+    fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "zzz" } });
+    const empty = screen.getByTestId("shows-find-empty");
+    expect(empty).toBeInTheDocument();
+    expect(empty.textContent).toMatch(/shown shows/i);
+    expect(empty.textContent).toMatch(/aren.t loaded/i);
+    // must NOT use the unscoped phrasing that implies the full set was searched
+    expect(empty.textContent).not.toMatch(/^\s*No shows match/i);
   });
 
   it("no Find control when there are no shows (empty state owns the surface)", () => {
