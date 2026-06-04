@@ -79,6 +79,8 @@ const baseShow = {
   id: "s1",
   slug: "rpas",
   title: "RPAS Central",
+  client_label: "Northwind Bank",
+  dates: { travelIn: "2026-06-14", set: null, showDays: ["2026-06-14", "2026-06-15"], travelOut: "2026-06-15" },
   drive_file_id: "d1",
   published: true,
   archived: false,
@@ -120,12 +122,14 @@ afterEach(() => {
 });
 
 describe("per-show page (§6)", () => {
-  it("select adds last_synced_at, last_sync_status, archived (V2)", async () => {
+  it("select adds last_synced_at, last_sync_status, archived (V2) + client_label, dates (M12.3 #16 subtitle)", async () => {
     await renderPage();
     const cols = state.selectColsByTable.shows ?? "";
     expect(cols).toMatch(/archived/);
     expect(cols).toMatch(/last_synced_at/);
     expect(cols).toMatch(/last_sync_status/);
+    expect(cols).toMatch(/client_label/);
+    expect(cols).toMatch(/dates/);
   });
 
   // Task 4.3 (B1): the back affordance moved into AdminPageHeader. There is
@@ -322,5 +326,80 @@ describe("per-show page (§6)", () => {
     const footer = screen.getByTestId("admin-show-sync-footer");
     expect(footer.textContent).toMatch(/Last synced/);
     expect(footer.textContent).not.toMatch(/Synced\b.*Last synced/); // no "Synced · Last synced" doubling
+  });
+});
+
+describe("per-show header — M12.3 #16/#18/#15a", () => {
+  // #18 — the standalone "Slug: <slug>" line is removed from the header chrome.
+  it("does NOT render a 'Slug:' line in the header (#18)", async () => {
+    await renderPage();
+    expect(screen.queryByText(/Slug:/)).toBeNull();
+    // and the slug value is not rendered as header chrome text
+    expect(screen.queryByText("rpas")).toBeNull();
+  });
+
+  // #16 — subtitle = client · dates (Northwind Bank · <range>). Expected value
+  // derived from the fixture via the same formatter the page uses (anti-tautology
+  // + TZ-robust: formatDateRange uses local date getters on UTC-parsed ISO).
+  it("renders the client · dates subtitle (#16)", async () => {
+    const { formatDateRange } = await import("@/components/admin/ActiveShowsPanel");
+    const days = baseShow.dates.showDays;
+    const expectedRange = formatDateRange(days[0]!, days[days.length - 1]!);
+    await renderPage();
+    const sub = screen.getByTestId("admin-show-subtitle");
+    expect(sub.textContent).toBe(`${baseShow.client_label} · ${expectedRange}`);
+    // structural guarantees: client · range with the → separator
+    expect(sub.textContent).toMatch(/·/);
+    expect(sub.textContent).toMatch(/→/);
+  });
+
+  it("subtitle shows client alone when dates are absent (#16 guard)", async () => {
+    state.show = { ...baseShow, dates: null };
+    await renderPage();
+    const sub = screen.getByTestId("admin-show-subtitle");
+    expect(sub.textContent).toContain("Northwind Bank");
+    expect(sub.textContent).not.toMatch(/→/);
+  });
+
+  it("no subtitle node when neither client nor dates present (#16 guard)", async () => {
+    state.show = { ...baseShow, client_label: "", dates: null };
+    await renderPage();
+    expect(screen.queryByTestId("admin-show-subtitle")).toBeNull();
+  });
+
+  // #16 — compact crew chip: a short/host-stripped display + Copy, NOT the full
+  // URL splayed inline. The full URL stays available via copy + title attr.
+  it("crew chip is compact: short path + copy, NOT the full URL inline (#16)", async () => {
+    await renderPage();
+    const chip = screen.getByTestId("admin-show-share-chip");
+    // copy affordance present (load-bearing — full URL goes to clipboard)
+    expect(chip.querySelector("[data-testid='admin-current-share-link-copy-button']")).not.toBeNull();
+    // the host-stripped compact path IS shown as the chip text…
+    expect(chip.textContent).toMatch(/\/show\/rpas\/tok-123/);
+    // …but the chip text is NOT the full absolute URL (no scheme://host inline)
+    expect(chip.textContent).not.toMatch(/https?:\/\//);
+    // the full URL is preserved verbatim in a title attribute (origin + path) for
+    // hover/recovery — and it ends with the real crew path
+    const title = chip.getAttribute("title") ?? "";
+    expect(title).toMatch(/^https?:\/\//);
+    expect(title).toMatch(/\/show\/rpas\/tok-123$/);
+    // no <input> rendering the whole URL across the header
+    expect(chip.querySelector("input")).toBeNull();
+  });
+
+  // #15a — Parse warnings section is hidden entirely when there are no staged
+  // changes; present (with the apply control) when there are.
+  it("hides the Parse warnings section when there are zero staged changes (#15a)", async () => {
+    state.pending = [];
+    await renderPage();
+    expect(screen.queryByTestId("admin-show-parse-warnings-section")).toBeNull();
+    expect(screen.queryByText(/Parse warnings/)).toBeNull();
+  });
+
+  it("shows the Parse warnings section when staged changes exist (#15a)", async () => {
+    state.pending = [pendingRow];
+    await renderPage();
+    expect(screen.getByTestId("admin-show-parse-warnings-section")).toBeInTheDocument();
+    expect(screen.getByText(/Parse warnings/)).toBeInTheDocument();
   });
 });
