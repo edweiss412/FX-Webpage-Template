@@ -26,6 +26,18 @@ it("no sub/crumb/backHref/rightSlot → title only, no crash (guard: all optiona
   expect(screen.queryByTestId("admin-page-header-back")).toBeNull();
   expect(screen.queryByTestId("admin-page-header-crumb")).toBeNull();
 });
+it("eyebrow renders 'Admin' when no crumb or backHref (dashboard/settings pages)", () => {
+  render(<AdminPageHeader title="Dashboard" sub="x" />);
+  const eyebrow = screen.getByTestId("admin-page-header-eyebrow");
+  expect(eyebrow).toBeInTheDocument();
+  expect(eyebrow).toHaveTextContent("Admin");
+  expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+});
+it("eyebrow absent when crumb/backHref present (per-show pages)", () => {
+  render(<AdminPageHeader title="Show" crumb="Admin › Active shows" backHref="/admin" />);
+  expect(screen.queryByTestId("admin-page-header-eyebrow")).toBeNull();
+  expect(screen.getByTestId("admin-page-header-crumb")).toBeInTheDocument();
+});
 it("architectural guard: header is prop-driven — NO global HEADERS / route-to-header map exists in components/admin/nav/", () => {
   // an unknown route cannot crash a global header lookup because there is none.
   // imports are at top of file
