@@ -19,6 +19,7 @@
  * Tokens only.
  */
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { AlertCountResult } from "@/lib/admin/alertCount";
@@ -49,6 +50,14 @@ export function AdminNav({
           data-testid="admin-nav-brand"
           className="flex items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
+          <Image
+            src="/brand/fxav-icon.png"
+            alt=""
+            aria-hidden
+            width={28}
+            height={28}
+            className="size-7 shrink-0"
+          />
           <span className="text-lg font-semibold tracking-tight text-text-strong">
             FXAV
           </span>

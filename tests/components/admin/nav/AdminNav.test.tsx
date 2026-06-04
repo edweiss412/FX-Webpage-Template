@@ -18,6 +18,14 @@ describe("AdminNav", () => {
     expect(screen.getByTestId("admin-user-avatar")).toBeInTheDocument();
   });
 
+  it("brand link contains the FXAV icon image", () => {
+    render(<AdminNav email="doug@example.com" alertCount={{ kind: "ok", count: 0 }} />);
+    const brand = screen.getByTestId("admin-nav-brand");
+    const img = brand.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img).toHaveAttribute("src", expect.stringContaining("fxav-icon"));
+  });
+
   it("renders the fixed mobile bottom tab bar with both short labels", () => {
     render(<AdminNav email="d@e.com" alertCount={{ kind: "ok", count: 0 }} />);
     const tabbar = screen.getByTestId("admin-bottom-tabs");
