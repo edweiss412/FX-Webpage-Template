@@ -222,6 +222,8 @@ export function ResetPickerEpochButton({
     </div>
   );
 
+  // Compact confirm: label is its OWN top row; warning + Confirm/Cancel render
+  // FULL-WIDTH below it (adversarial M12.7 — not cramped beside the label).
   return compact && rowLabel ? (
     <div
       data-testid="admin-reset-picker-epoch-confirm-row"
@@ -229,11 +231,9 @@ export function ResetPickerEpochButton({
       aria-label="Confirm resetting picker selections for this show"
       className="flex flex-col gap-2 py-3"
     >
-      <div className="flex items-start justify-between gap-3">
-        {labelHeader}
-        {confirmCancelButtons}
-      </div>
+      {labelHeader}
       {warningP}
+      {confirmCancelButtons}
     </div>
   ) : (
     <div

@@ -92,6 +92,29 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
     );
   });
 
+  // M12.7 (adversarial) — tapping into confirm must render Confirm/Cancel
+  // FULL-WIDTH below the label row, NOT cramped in a justify-between right cell
+  // beside the label/description.
+  test("compact confirm: Confirm/Cancel render full-width below the label, not beside it", () => {
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        compact
+        rowLabel="Rotate share link"
+        rowDescription="Mint a new link; the old one stops working immediately."
+      />,
+    );
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    const confirmRow = screen.getByTestId("admin-rotate-share-token-confirm-row");
+    const confirmBtn = screen.getByTestId("admin-rotate-share-token-confirm-button");
+    expect(confirmRow.contains(confirmBtn)).toBe(true);
+    expect(confirmRow.textContent).toMatch(/rotate share link/i); // label still shown
+    // The cramped layout wrapped label+buttons in a justify-between row; the fix
+    // removes that, so the Confirm control has no justify-between ancestor.
+    expect(confirmBtn.closest('[class*="justify-between"]')).toBeNull();
+  });
+
   test("idle → confirm: tap reveals confirm + cancel + URL-will-change warning", () => {
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());

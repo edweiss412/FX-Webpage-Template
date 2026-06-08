@@ -329,8 +329,9 @@ export function RotateShareTokenButton({
     </div>
   );
 
-  // Compact confirm: label row (label left, Confirm/Cancel right) + the warning
-  // FULL-WIDTH below — never cramped in a right cell.
+  // Compact confirm: the label is its OWN top row; the warning AND the
+  // Confirm/Cancel controls both render FULL-WIDTH below it — never cramped in a
+  // right cell beside the label (adversarial M12.7).
   return compact && rowLabel ? (
     <div
       data-testid="admin-rotate-share-token-confirm-row"
@@ -338,11 +339,9 @@ export function RotateShareTokenButton({
       aria-label="Confirm rotating the share-token for this show"
       className="flex flex-col gap-2 py-3"
     >
-      <div className="flex items-start justify-between gap-3">
-        {labelHeader}
-        {confirmCancelButtons}
-      </div>
+      {labelHeader}
       {warningP}
+      {confirmCancelButtons}
     </div>
   ) : (
     <div
