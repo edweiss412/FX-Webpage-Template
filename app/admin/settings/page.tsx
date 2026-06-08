@@ -116,7 +116,7 @@ export default async function AdminSettingsPage() {
           </h2>
           <HoverHelp label="Help: Preferences" testId="prefs-help">
             <p>
-              Account-wide settings — email alerts, auto-publishing clean shows,
+              Account-wide settings: email alerts, auto-publishing clean shows,
               and developer tools.
             </p>
           </HoverHelp>

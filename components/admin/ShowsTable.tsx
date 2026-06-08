@@ -140,7 +140,7 @@ export function ShowsTable({
           </span>
           <HoverHelp label="Help: Active shows" testId="shows-help">
             <p>
-              Shows that are live or still in flight — everything not archived. The count is the
+              Shows that are live or still in flight: everything not archived. The count is the
               total on your account, even if the list below is capped.
             </p>
           </HoverHelp>

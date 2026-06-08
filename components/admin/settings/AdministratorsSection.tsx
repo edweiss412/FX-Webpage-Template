@@ -87,8 +87,8 @@ export function AdministratorsSection({
       </h2>
       <HoverHelp label="Help: Administrators" testId="admins-help">
         <p>
-          People who can sign in and manage shows here. Add or revoke access —
-          you can&rsquo;t revoke your own.
+          People who can sign in and manage shows here. Add or revoke access. You
+          can&rsquo;t revoke your own.
         </p>
       </HoverHelp>
     </div>

@@ -30,6 +30,9 @@ describe("HoverHelp", () => {
     expect(describedBy).toBeTruthy();
     expect(body.id).toBe(describedBy);
     expect(body).toHaveTextContent("Body copy here.");
+    // 44px tap-target floor (DESIGN.md): the compact "?" keeps a 20px visual but
+    // a transparent before:-inset-3 overlay extends the hit area to 44px.
+    expect(trigger.className).toContain("before:-inset-3");
   });
 
   it("toggles aria-expanded on click (tap/keyboard reachable) and Escape closes", () => {
@@ -44,6 +47,23 @@ describe("HoverHelp", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  // Android-Chrome regression: a synthetic-mouse tap fires mouseenter THEN
+  // click. If a JS onMouseEnter opened and onClick then toggled, the first tap
+  // would net to CLOSED (double-tap-to-open bug). Desktop hover is now pure CSS,
+  // so mouseenter changes NO state and the first click reliably opens.
+  it("mouseEnter then click ends OPEN (no synthetic-tap net-closed regression)", () => {
+    render(
+      <HoverHelp label="Help" testId="t">
+        body
+      </HoverHelp>,
+    );
+    const trigger = screen.getByTestId("t-trigger");
+    const wrapper = trigger.parentElement!; // the group wrapper span
+    fireEvent.mouseEnter(wrapper);
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
   });
 
   it("custom trigger (e.g. a badge) is wrapped in a button that is aria-describedby-associated", () => {
@@ -62,5 +82,8 @@ describe("HoverHelp", () => {
     expect(screen.getByTestId("badge")).toBeInTheDocument();
     expect(trigger.getAttribute("aria-describedby")).toBe(body.id);
     expect(body).toHaveTextContent("Reason-specific recovery copy.");
+    // 44px tap-target floor for the custom (badge) trigger button.
+    expect(trigger.className).toContain("min-h-tap-min");
+    expect(trigger.className).toContain("min-w-tap-min");
   });
 });

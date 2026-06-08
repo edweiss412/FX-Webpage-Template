@@ -59,9 +59,13 @@ export function HoverHelp({
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // onClick toggles (keyboard Enter/Space + touch tap); hover handled on the
-  // wrapper. NOT onFocus — on iOS a tap fires focus THEN click, and a
-  // focus-open + click-toggle would net to closed.
+  // onClick is the SOLE JS toggle (keyboard Enter/Space + touch tap). Desktop
+  // hover is pure CSS (group-hover below) — NOT JS handlers: a JS onMouseEnter
+  // would fire on a synthetic-mouse tap BEFORE onClick and the open+toggle would
+  // net to CLOSED on Android Chrome (needs a double-tap). Tailwind v4 gates
+  // hover:/group-hover: behind @media (hover:hover), so touch never triggers the
+  // CSS hover path, leaving onClick as the only tap interaction → first tap opens.
+  // NOT onFocus either — on iOS a tap fires focus THEN click, same net-closed trap.
   const triggerProps = {
     type: "button" as const,
     "data-testid": `${testId}-trigger`,
@@ -72,22 +76,21 @@ export function HoverHelp({
   };
 
   return (
-    <span
-      className="relative inline-flex"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <span className="group relative inline-flex">
+      {/* Tap-target floor (DESIGN.md 44px): custom trigger gets min-h/w-tap-min;
+          the compact "?" keeps its 20px visual but a transparent `before:-inset-3`
+          overlay extends the hit area to 44px without changing layout. */}
       {trigger ? (
         <button
           {...triggerProps}
-          className="inline-flex cursor-help items-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+          className="inline-flex min-h-tap-min min-w-tap-min cursor-help items-center justify-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
         >
           {trigger}
         </button>
       ) : (
         <button
           {...triggerProps}
-          className="grid size-5 shrink-0 cursor-help place-items-center rounded-full border border-border bg-transparent text-xs font-bold text-text-faint transition-colors duration-fast hover:border-border-strong hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+          className="relative grid size-5 shrink-0 cursor-help place-items-center rounded-full border border-border bg-transparent text-xs font-bold text-text-faint transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:border-border-strong hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
         >
           <span aria-hidden="true">?</span>
         </button>
@@ -98,7 +101,7 @@ export function HoverHelp({
         id={bodyId}
         role="tooltip"
         data-testid={`${testId}-body`}
-        className={`pointer-events-none absolute top-[calc(100%+6px)] z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
+        className={`pointer-events-none absolute top-[calc(100%+6px)] z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast group-hover:visible group-hover:opacity-100 ${
           open ? "visible opacity-100" : "invisible opacity-0"
         } ${align === "right" ? "right-0" : "left-0"}`}
       >

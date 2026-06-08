@@ -649,7 +649,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
             </span>
             <HoverHelp label="Help: Needs attention" testId="needs-attention-help">
               <p>
-                Sheets and changes waiting on you — new shows to review, staged edits to approve, or
+                Sheets and changes waiting on you: new shows to review, staged edits to approve, or
                 sheets that couldn&apos;t be processed.
               </p>
             </HoverHelp>
