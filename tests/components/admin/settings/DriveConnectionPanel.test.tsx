@@ -72,9 +72,15 @@ describe("DriveConnectionPanel", () => {
     const badge = screen.getByTestId("drive-connection-health-badge");
     expect(badge).toHaveAttribute("data-health", "warn");
     expect(badge.textContent).toMatch(/needs attention/i);
-    expect(
-      screen.getByTestId("drive-connection-health-help-body").textContent ?? "",
-    ).toMatch(/re-run setup/i);
+    const helpBody = screen.getByTestId("drive-connection-health-help-body");
+    expect(helpBody.textContent ?? "").toMatch(/re-run setup/i);
+    // M12.5 a11y regression (impeccable audit + adversarial review): the badge
+    // hover trigger MUST be programmatically associated with the explainer body
+    // so screen readers announce the reason-specific recovery copy — not just the
+    // badge's aria-label. A dropped aria-describedby fails here.
+    const trigger = screen.getByTestId("drive-connection-health-help-trigger");
+    expect(trigger.getAttribute("aria-describedby")).toBe(helpBody.id);
+    expect(helpBody.id).toBeTruthy();
   });
 
   it("warn/not_configured → 'Connection not set up', no 'Connected' prefix, no last-read clause", () => {
