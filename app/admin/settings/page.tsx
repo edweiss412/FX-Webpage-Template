@@ -43,6 +43,7 @@ import {
   type NotifyToggleInitial,
 } from "@/components/admin/settings/NotifyToggle";
 import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import { Bell, Sparkles, ShieldCheck } from "lucide-react";
 import { getAutoPublishCleanFirstSeen } from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
 import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
@@ -83,7 +84,7 @@ export default async function AdminSettingsPage() {
   return (
     <main
       data-testid="admin-settings-page"
-      className="flex w-full flex-col gap-section-gap"
+      className="flex w-full max-w-3xl flex-col gap-section-gap"
     >
       <AdminPageHeader
         title="Settings"
@@ -106,12 +107,20 @@ export default async function AdminSettingsPage() {
         aria-labelledby="admin-settings-preferences-heading"
         className="flex flex-col gap-3"
       >
-        <h2
-          id="admin-settings-preferences-heading"
-          className="text-lg font-semibold text-text-strong"
-        >
-          Preferences
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2
+            id="admin-settings-preferences-heading"
+            className="text-lg font-semibold text-text-strong"
+          >
+            Preferences
+          </h2>
+          <HoverHelp label="Help: Preferences" testId="prefs-help">
+            <p>
+              Account-wide settings: email alerts, auto-publishing clean shows,
+              and developer tools.
+            </p>
+          </HoverHelp>
+        </div>
 
         <div
           data-testid="admin-settings-preferences-card"

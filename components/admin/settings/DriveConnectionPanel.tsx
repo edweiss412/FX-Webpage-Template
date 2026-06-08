@@ -29,7 +29,7 @@ import type { DriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
-import { HelpTooltip } from "@/components/admin/HelpTooltip";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import { rerunSetupServerAction } from "@/lib/onboarding/serverActions";
 
 function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
@@ -80,7 +80,7 @@ function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
 // Plain copy (not an error code) — same register as the helper text below.
 function deriveHealthExplainer(health: DriveConnectionHealth): string {
   if ("kind" in health) {
-    return "We couldn't read your connection status just now. Refresh in a moment — if it keeps happening, contact the developer.";
+    return "We couldn't read your connection status just now. Refresh in a moment; if it keeps happening, contact the developer.";
   }
   // Positive never shows the tooltip; return empty so the union narrows to warn.
   if (health.health === "positive") return "";
@@ -89,14 +89,14 @@ function deriveHealthExplainer(health: DriveConnectionHealth): string {
       return "You haven't pointed FXAV at a Drive folder yet. Run setup to choose the folder it should watch.";
     case "watch_inactive":
     case "watch_expired":
-      return "FXAV's link to your Drive folder lapsed, so new edits may not sync. Re-run setup to reconnect — your existing shows keep all their data.";
+      return "FXAV's link to your Drive folder lapsed, so new edits may not sync. Re-run setup to reconnect; your existing shows keep all their data.";
     case "sync_unknown":
       // B1-D2 contract: sync_unknown is a developer-attention / data-integrity
       // state (enum drift / corrupt row), NOT routine staleness. Mirror the
       // SYNC_STATUS_UNKNOWN catalog posture ("the developer should take a
       // look") — do NOT imply it clears on its own, which would soften the
       // intended escalation.
-      return "FXAV doesn't recognize this show's sync state — that's usually a data issue, not something that clears on its own. Send it to the developer to look into.";
+      return "FXAV doesn't recognize this show's sync state. That's usually a data issue, not something that clears on its own. Send it to the developer to look into.";
     default:
       return "One or more sheets haven't synced recently. Open the folder to confirm FXAV still has access, then re-run setup if anything changed.";
   }
@@ -123,12 +123,20 @@ export function DriveConnectionPanel({
       className="flex flex-col gap-3"
     >
       {/* M12.3 item 12b: section title sits OUTSIDE/above the card. */}
-      <h2
-        id="admin-settings-drive-connection-heading"
-        className="text-lg font-semibold text-text-strong"
-      >
-        Drive connection
-      </h2>
+      <div className="flex items-center gap-2">
+        <h2
+          id="admin-settings-drive-connection-heading"
+          className="text-lg font-semibold text-text-strong"
+        >
+          Drive connection
+        </h2>
+        <HoverHelp label="Help: Drive connection" testId="drive-help">
+          <p>
+            How FXAV connects to your Google Drive folder of show sheets, and
+            whether syncing is healthy.
+          </p>
+        </HoverHelp>
+      </div>
 
       <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
       {/* Info ⟷ pill row — wraps on narrow widths. */}
@@ -163,22 +171,25 @@ export function DriveConnectionPanel({
             Healthy
           </span>
         ) : (
-          <div className="flex shrink-0 items-center gap-2">
-            <span
-              data-testid="drive-connection-health-badge"
-              data-health="warn"
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-warn)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-warn-text"
-            >
-              <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
-              Needs attention
-            </span>
-            <HelpTooltip
-              label="What this status means"
-              testId="drive-connection-health-help"
-            >
-              <p>{healthExplainer}</p>
-            </HelpTooltip>
-          </div>
+          // M12.5 item: the explainer is now a HOVER tooltip ON the badge
+          // itself (the badge is the trigger) — no separate "?" affordance.
+          <HoverHelp
+            label="What this status means"
+            testId="drive-connection-health-help"
+            align="right"
+            trigger={
+              <span
+                data-testid="drive-connection-health-badge"
+                data-health="warn"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-warn)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-warn-text"
+              >
+                <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+                Needs attention
+              </span>
+            }
+          >
+            <p>{healthExplainer}</p>
+          </HoverHelp>
         )}
       </div>
 

@@ -79,6 +79,12 @@ describe("Dashboard composition", () => {
     expect(main.className).not.toMatch(/\bmax-w-/);
   });
 
+  it("needs-attention header renders the count chip and a help trigger (M12.5)", async () => {
+    await renderDashboard();
+    expect(screen.getByTestId("needs-attention-count-chip")).toBeInTheDocument();
+    expect(screen.getByTestId("needs-attention-help-trigger")).toBeInTheDocument();
+  });
+
   it("infra_error path renders the existing error main", async () => {
     state.throwOnConstruct = true;
     await renderDashboard();

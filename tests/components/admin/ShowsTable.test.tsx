@@ -268,8 +268,21 @@ describe("ShowsTable", () => {
     expect(cluster).not.toBeNull();
     expect(cluster).toContainElement(find);
     // The header row contains the heading too (single source: title lives here).
-    const headerRow = heading.parentElement;
+    // The heading now sits in a left cluster (title + count chip + help) inside
+    // the header row, so walk up to the header row (the cluster's parent).
+    const headerRow = heading.parentElement?.parentElement;
+    expect(headerRow).toContainElement(heading);
     expect(headerRow).toContainElement(control);
     expect(headerRow).toContainElement(find);
+  });
+
+  // ── M12.5 item: count chip + HoverHelp next to the Active-shows title ──
+  it("header renders the count chip with activeCount and a help trigger", () => {
+    render(
+      <ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={42} overflowCount={0} />,
+    );
+    const chip = screen.getByTestId("shows-count-chip");
+    expect(chip.textContent).toBe("42");
+    expect(screen.getByTestId("shows-help-trigger")).toBeInTheDocument();
   });
 });

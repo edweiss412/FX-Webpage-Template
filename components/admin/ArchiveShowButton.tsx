@@ -49,9 +49,18 @@ const KNOWN_REFUSAL_CODES = new Set(["FINALIZE_OWNED_SHOW", "SHOW_ARCHIVED_IMMUT
 export type ArchiveShowButtonProps = {
   /** Pre-bound (to this show's slug) Archive server action. */
   archiveAction: () => Promise<LifecycleResult>;
+  /**
+   * M12.5 — compact rendering for the per-show FOOTER (Live case), where the
+   * control is grouped with Re-sync and a tighter footprint reads better than
+   * the wide zero-shift box. Compact drops the min-w-[18rem]/min-h-confirm-box
+   * coupling: the resting button is natural-width and the armed confirm wraps
+   * within max-w-[22rem]. The non-compact default keeps the zero-shift box used
+   * in the Held lifecycle section (pinned by admin-lifecycle-layout.spec).
+   */
+  compact?: boolean;
 };
 
-export function ArchiveShowButton({ archiveAction }: ArchiveShowButtonProps) {
+export function ArchiveShowButton({ archiveAction, compact = false }: ArchiveShowButtonProps) {
   const router = useRouter();
   const [armed, setArmed] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -108,7 +117,11 @@ export function ArchiveShowButton({ archiveAction }: ArchiveShowButtonProps) {
           type="button"
           data-testid="archive-show-button"
           onClick={onArmClick}
-          className="inline-flex min-h-confirm-box min-w-[18rem] items-center justify-center rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:border-status-warn hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className={
+            compact
+              ? "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-3 py-1.5 text-sm font-medium text-text-strong transition-colors duration-fast hover:border-status-warn hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              : "inline-flex min-h-confirm-box min-w-[18rem] items-center justify-center rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:border-status-warn hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          }
         >
           Archive show
         </button>
@@ -121,7 +134,7 @@ export function ArchiveShowButton({ archiveAction }: ArchiveShowButtonProps) {
           }}
           className="flex flex-col items-start gap-2"
         >
-          <ConfirmButton onConfirmClick={clearAutoRevert} />
+          <ConfirmButton onConfirmClick={clearAutoRevert} compact={compact} />
         </form>
       )}
 
@@ -166,7 +179,7 @@ export function ArchiveShowButton({ archiveAction }: ArchiveShowButtonProps) {
  * (React 19 requirement). The label is the spec §2.2 links-dead confirm copy.
  * Fixed min-h/min-w matches the resting button so the morph is zero-shift.
  */
-function ConfirmButton({ onConfirmClick }: { onConfirmClick: () => void }) {
+function ConfirmButton({ onConfirmClick, compact = false }: { onConfirmClick: () => void; compact?: boolean }) {
   const { pending } = useFormStatus();
   return (
     <button
@@ -175,7 +188,11 @@ function ConfirmButton({ onConfirmClick }: { onConfirmClick: () => void }) {
       onClick={onConfirmClick}
       disabled={pending}
       aria-busy={pending}
-      className="inline-flex min-h-confirm-box min-w-[18rem] max-w-full items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-4 py-2 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+      className={
+        compact
+          ? "inline-flex min-h-tap-min min-w-tap-min max-w-[22rem] items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-3 py-1.5 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          : "inline-flex min-h-confirm-box min-w-[18rem] max-w-full items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-4 py-2 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+      }
     >
       {pending
         ? "Archiving…"

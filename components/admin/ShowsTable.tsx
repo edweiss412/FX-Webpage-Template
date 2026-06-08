@@ -25,6 +25,7 @@ import {
   type ActiveShowRow,
 } from "@/components/admin/ActiveShowsPanel";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket } from "@/lib/admin/syncStatus";
 
 type ShowsTableProps = {
@@ -129,7 +130,21 @@ export function ShowsTable({
     <div data-testid="shows-table" className="flex flex-col gap-3">
       {/* One header row: section title (left), Find + bucket toggle (right). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold text-text-strong">{title}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-text-strong">{title}</h3>
+          <span
+            data-testid="shows-count-chip"
+            className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+          >
+            {activeCount}
+          </span>
+          <HoverHelp label="Help: Active shows" testId="shows-help">
+            <p>
+              Shows that are live or still in flight: everything not archived. The count is the
+              total on your account, even if the list below is capped.
+            </p>
+          </HoverHelp>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           {showFind ? (
             <label className="relative block w-40 sm:w-52">

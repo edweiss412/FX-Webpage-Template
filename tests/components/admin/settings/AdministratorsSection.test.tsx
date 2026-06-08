@@ -83,7 +83,7 @@ describe("AdministratorsSection (Task 6.2)", () => {
     expect(within(revoked).getAllByTestId("admin-allowlist-revoked-row")).toHaveLength(1);
   });
 
-  it("self-with-peer → Revoke ENABLED on own row", () => {
+  it("self-with-peer → NO Revoke control on own row (can never revoke yourself); peer row keeps Revoke", () => {
     const rows = [row({ email: "alice@example.com" }), row({ email: "bob@example.com" })];
     render(
       <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
@@ -91,19 +91,26 @@ describe("AdministratorsSection (Task 6.2)", () => {
     const selfRow = screen
       .getAllByTestId("admin-allowlist-row")
       .find((el) => el.getAttribute("data-row-email") === "alice@example.com")!;
-    const revoke = within(selfRow).getByTestId("mock-revoke-button");
-    expect(revoke).not.toBeDisabled();
-    // "You" badge surfaces on the actor's own row.
+    // M12.5: the Revoke control is OMITTED entirely on the actor's own row.
+    expect(within(selfRow).queryByTestId("mock-revoke-button")).toBeNull();
+    // "You" badge still surfaces on the actor's own row.
     expect(within(selfRow).getByTestId("admin-allowlist-you-badge")).toBeInTheDocument();
+
+    // A peer (non-actor) row keeps its Revoke (enabled).
+    const peerRow = screen
+      .getAllByTestId("admin-allowlist-row")
+      .find((el) => el.getAttribute("data-row-email") === "bob@example.com")!;
+    const peerBtn = within(peerRow).getByTestId("mock-revoke-button");
+    expect(peerBtn).not.toBeDisabled();
   });
 
-  it("sole-self → Revoke DISABLED + lockout hint", () => {
+  it("sole-self → NO Revoke control (can't remove the only admin / yourself)", () => {
     const rows = [row({ email: "alice@example.com" })];
     render(
       <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
     );
     const selfRow = screen.getByTestId("admin-allowlist-row");
-    expect(within(selfRow).getByTestId("mock-revoke-button")).toBeDisabled();
+    expect(within(selfRow).queryByTestId("mock-revoke-button")).toBeNull();
   });
 
   it("infra_error result → in-section cataloged error (ADMIN_EMAIL_LIST_FAILED), NOT a thrown boundary", () => {

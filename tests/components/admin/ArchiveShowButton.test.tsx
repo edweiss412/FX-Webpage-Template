@@ -96,4 +96,19 @@ describe("ArchiveShowButton — two-tap, isPending-safe (Task 7.2)", () => {
     fireEvent.click(getByTestId("archive-show-button"));
     expect((getByTestId("archive-show-confirm-button") as HTMLButtonElement).type).toBe("submit");
   });
+
+  // M12.5 — the compact footer variant must still honor the 44px tap-target
+  // floor (DESIGN.md) on BOTH the resting and armed confirm buttons; the
+  // adversarial review flagged the first compact pass for dropping it.
+  it("compact variant keeps the 44px tap-target floor on resting + confirm buttons", () => {
+    const action = vi.fn(async () => ({ ok: true }) as const);
+    const { getByTestId } = render(<ArchiveShowButton archiveAction={action} compact />);
+    const resting = getByTestId("archive-show-button");
+    expect(resting.className).toContain("min-h-tap-min");
+    expect(resting.className).toContain("min-w-tap-min");
+    fireEvent.click(resting);
+    const confirm = getByTestId("archive-show-confirm-button");
+    expect(confirm.className).toContain("min-h-tap-min");
+    expect(confirm.className).toContain("min-w-tap-min");
+  });
 });

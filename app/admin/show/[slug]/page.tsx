@@ -391,6 +391,16 @@ export default async function AdminShowPage({
         crumb="Admin › Active shows"
         backHref="/admin"
         title={show.title}
+        /* #16 subtitle = client · dates, rendered INSIDE the header (directly
+           under the title, above the header divider) via subSlot. #18 removed
+           the prior "Slug:" line — slug stays in routing but is noise for Doug. */
+        subSlot={
+          subtitle ? (
+            <p data-testid="admin-show-subtitle" className="text-sm text-text-subtle">
+              {subtitle}
+            </p>
+          ) : undefined
+        }
         rightSlot={
           <>
             {pill}
@@ -398,13 +408,6 @@ export default async function AdminShowPage({
           </>
         }
       />
-      {/* #16 subtitle = client · dates. #18 removed the prior "Slug:" line — the
-          slug stays in the URL/routing but is meaningless chrome for Doug. */}
-      {subtitle ? (
-        <p data-testid="admin-show-subtitle" className="text-sm text-text-subtle">
-          {subtitle}
-        </p>
-      ) : null}
 
       <PerShowAlertSection
         showId={show.id}
@@ -414,51 +417,52 @@ export default async function AdminShowPage({
 
       {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
           - Archived → persistent "links are dead" disclosure + one-tap Unarchive.
-          - Held → "not published" disclosure + one-tap Publish + Archive.
-          - Live → Archive only.
+          - Held → "not published" disclosure + one-tap Publish + Archive (grouped).
+          - Live → NO lifecycle section; the Archive control is grouped into the
+            page footer alongside Re-sync (M12.5 — was an orphaned standalone row).
           - Publishing… (finalize-owned) → nothing (mid-publish; immutable).
-          The Archive control shows on Live OR Held only. */}
-      <section
-        data-testid="per-show-lifecycle"
-        aria-label="Show lifecycle"
-        className="flex flex-col gap-3"
-      >
-        {archived ? (
-          <>
-            <p
-              data-testid="archived-disclosure"
-              role="status"
-              className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-            >
-              This show is archived. Crew links are dead. Unarchive and re-publish
-              to bring it back.
-            </p>
-            <div className="flex">
-              <UnarchiveShowButton showId={show.id} unarchiveAction={unarchiveShowAction} />
-            </div>
-          </>
-        ) : isHeld ? (
-          <>
-            <p
-              data-testid="held-disclosure"
-              role="status"
-              className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-            >
-              Held — not published. Publish to make it live, then issue a crew
-              link.
-            </p>
-            <div className="flex flex-wrap items-start gap-3">
-              <PublishShowButton
-                publishAction={publishShowAction.bind(null, show.slug)}
-                slug={show.slug}
-              />
-              <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
-            </div>
-          </>
-        ) : isShowEligibleForCrewLink ? (
-          <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
-        ) : null}
-      </section>
+          The section renders ONLY when it has content (archived OR held). */}
+      {archived || isHeld ? (
+        <section
+          data-testid="per-show-lifecycle"
+          aria-label="Show lifecycle"
+          className="flex flex-col gap-3"
+        >
+          {archived ? (
+            <>
+              <p
+                data-testid="archived-disclosure"
+                role="status"
+                className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+              >
+                This show is archived. Crew links are dead. Unarchive and re-publish
+                to bring it back.
+              </p>
+              <div className="flex">
+                <UnarchiveShowButton showId={show.id} unarchiveAction={unarchiveShowAction} />
+              </div>
+            </>
+          ) : (
+            <>
+              <p
+                data-testid="held-disclosure"
+                role="status"
+                className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+              >
+                Held — not published. Publish to make it live, then issue a crew
+                link.
+              </p>
+              <div className="flex flex-wrap items-start gap-3">
+                <PublishShowButton
+                  publishAction={publishShowAction.bind(null, show.slug)}
+                  slug={show.slug}
+                />
+                <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
+              </div>
+            </>
+          )}
+        </section>
+      ) : null}
 
       {/* Two-col split: Crew ⟷ Share & access. min-[720px]:items-stretch gives equal
           column height on desktop (Tailwind v4 default is NOT stretch, DESIGN
@@ -560,7 +564,7 @@ export default async function AdminShowPage({
         <section
           data-testid="per-show-share-col"
           aria-label="Share & access"
-          className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0"
+          className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
         >
           <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
           <p className="text-sm text-text-subtle">
@@ -574,7 +578,28 @@ export default async function AdminShowPage({
             // the token exists and its own "unavailable — refresh / rotate"
             // recovery state when token is null — so a transient read failure on
             // a published show is NOT mislabeled "unpublished/archived" (R1).
-            <CurrentShareLinkPanel showId={show.id} slug={show.slug} token={token} />
+            //
+            // M12.5: Rotate + Reset are folded INTO the share-link card as a
+            // divider-separated actions block (was a separate block below the
+            // card). Gated on published && !archived (R29 — finalize-owned write
+            // hazard); server-side RPC guard is §16 DEF-1. isCrewLinkActive =
+            // show eligibility (NOT token presence, spec §6 R27) so a rotate
+            // success URL shows even if the initial token read failed (R1).
+            <CurrentShareLinkPanel
+              showId={show.id}
+              slug={show.slug}
+              token={token}
+              actions={
+                <div className="flex flex-col gap-4 border-t border-border pt-3">
+                  <RotateShareTokenButton
+                    showId={show.id}
+                    slug={show.slug}
+                    isCrewLinkActive={isShowEligibleForCrewLink}
+                  />
+                  <ResetPickerEpochButton showId={show.id} />
+                </div>
+              }
+            />
           ) : (
             <p
               data-testid="admin-share-link-inactive"
@@ -585,23 +610,6 @@ export default async function AdminShowPage({
               show is published.
             </p>
           )}
-          {/* Rotate + Reset gated on published && !archived (R29 — finalize-owned
-              write hazard; publishing rows are finalize-owned, archived are
-              retired). The server-side RPC guard is §16 DEF-1. */}
-          {isShowEligibleForCrewLink ? (
-            <div className="flex flex-col items-end gap-4 border-t border-border pt-4">
-              <ResetPickerEpochButton showId={show.id} />
-              {/* isCrewLinkActive = show eligibility (published && !archived),
-                  NOT token presence (spec §6 R27). A successful rotate returns a
-                  fresh token, so the success URL must show even if the initial
-                  token read failed — Codex R1. */}
-              <RotateShareTokenButton
-                showId={show.id}
-                slug={show.slug}
-                isCrewLinkActive={isShowEligibleForCrewLink}
-              />
-            </div>
-          ) : null}
         </section>
       </div>
 
@@ -631,18 +639,27 @@ export default async function AdminShowPage({
         className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"
       >
         <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
-        {archived ? (
-          // Archived shows are the read-only surface; Re-sync mutates shows /
-          // pending_syncs via /api/admin/sync, whose only server gate is
-          // finalize-ownership (NOT archived — lib/sync/runManualSyncForShow.ts).
-          // Suppress the CTA so this page never invites mutating a retired show.
-          // The server-side archived refusal is deferred (DEFERRED.md DEF-3).
-          <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
-            Re-sync is paused while this show is archived.
-          </span>
-        ) : (
-          <ReSyncButton slug={show.slug} />
-        )}
+        {/* Page-level "manage this show" actions, grouped right (M12.5 — the
+            Live-case Archive control moved here from a standalone mid-page row).
+            Archive shows ONLY for a Live show (published && !archived); Held
+            keeps Archive grouped with Publish above, Archived shows Unarchive. */}
+        <div className="flex flex-wrap items-center gap-3">
+          {isShowEligibleForCrewLink ? (
+            <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
+          ) : null}
+          {archived ? (
+            // Archived shows are the read-only surface; Re-sync mutates shows /
+            // pending_syncs via /api/admin/sync, whose only server gate is
+            // finalize-ownership (NOT archived — lib/sync/runManualSyncForShow.ts).
+            // Suppress the CTA so this page never invites mutating a retired show.
+            // The server-side archived refusal is deferred (DEFERRED.md DEF-3).
+            <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
+              Re-sync is paused while this show is archived.
+            </span>
+          ) : (
+            <ReSyncButton slug={show.slug} />
+          )}
+        </div>
       </footer>
     </main>
   );
