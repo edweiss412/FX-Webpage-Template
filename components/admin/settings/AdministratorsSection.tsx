@@ -11,9 +11,10 @@
 //     ADMIN_EMAIL_LIST_FAILED copy (invariant 5, via getRequiredDougFacing) in
 //     a role="alert" region with a retry-by-refresh hint — it does NOT throw.
 //     The throw path (route/session faults) is owned by admins/error.tsx.
-//   - Self-revoke policy: Revoke renders on the actor's own row, disabled ONLY
-//     when isOnlyActiveAdmin && isActor. The Server Action remains the
-//     authority; the disabled button is a UX preview.
+//   - Self-revoke policy: Revoke renders on the actor's own row but is ALWAYS
+//     disabled (an admin can never revoke their own access, regardless of how
+//     many other admins exist). The Server Action remains the authority; the
+//     disabled button is a UX preview.
 //   - No email-delivery copy anywhere — that affordance arrives in Phase B3.
 //
 // Tokens only (no inline hex/px). The middot " · " is U+00B7 (NOT an em dash).
@@ -23,6 +24,7 @@ import type { EmbeddedAdminEmailsResult } from "@/lib/admin/embeddedAdminEmails"
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
 
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import { ReAddRowButton } from "@/app/admin/settings/admins/ReAddRowButton";
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
 import { AddAdminDisclosure } from "@/components/admin/settings/AddAdminDisclosure";
@@ -74,17 +76,22 @@ export function AdministratorsSection({
   const rows = result.rows;
   const active = rows.filter((r) => r.revoked_at === null);
   const revoked = rows.filter((r) => r.revoked_at !== null);
-  // Last-admin-self predicate for the disabled-on-client revoke button.
-  // The Server Action is the authority; this just reduces UI noise.
-  const isOnlyActiveAdmin = active.length === 1;
 
   const heading = (
-    <h2
-      id="admin-settings-admins-heading"
-      className="text-lg font-semibold text-text-strong"
-    >
-      Administrators ({active.length})
-    </h2>
+    <div className="flex items-center gap-2">
+      <h2
+        id="admin-settings-admins-heading"
+        className="text-lg font-semibold text-text-strong"
+      >
+        Administrators ({active.length})
+      </h2>
+      <HoverHelp label="Help: Administrators" testId="admins-help">
+        <p>
+          People who can sign in and manage shows here. Add or revoke access —
+          you can&rsquo;t revoke your own.
+        </p>
+      </HoverHelp>
+    </div>
   );
 
   const list = (
@@ -104,7 +111,6 @@ export function AdministratorsSection({
                 key={row.email}
                 row={row}
                 isActor={row.email === actorCanonicalEmail}
-                isOnlyActiveAdmin={isOnlyActiveAdmin}
                 now={now}
               />
             ))}
@@ -141,18 +147,17 @@ export function AdministratorsSection({
 function AdminRow({
   row,
   isActor,
-  isOnlyActiveAdmin,
   now,
 }: {
   row: AdminEmailRow;
   isActor: boolean;
-  isOnlyActiveAdmin: boolean;
   now: Date;
 }) {
   const isSeed = row.added_by === null;
-  // Self-revoke + last-admin: client disables the button as a UX preview; the
-  // Server Action remains the authority and refuses with LAST_ADMIN_LOCKOUT_REFUSED.
-  const disableSelfLastRevoke = isActor && isOnlyActiveAdmin;
+  // Self-revoke policy: an admin can NEVER revoke their OWN access (regardless
+  // of how many other admins exist). The client disables the button as a UX
+  // preview; the Server Action remains the authority.
+  const disableSelfRevoke = isActor;
   const hasNote = Boolean(row.note && row.note.trim().length > 0);
   return (
     <li
@@ -181,7 +186,7 @@ function AdminRow({
           </p>
         )}
       </div>
-      <RevokeRowButton email={row.email} disabled={disableSelfLastRevoke} />
+      <RevokeRowButton email={row.email} disabled={disableSelfRevoke} />
     </li>
   );
 }

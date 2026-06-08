@@ -22,10 +22,10 @@
  * last-admin-lockout refusal contract and revalidates on success.
  *
  * `disabled` prop: when the parent server-render determined this row
- * is the only active admin AND the actor is the admin, the Revoke
- * button is rendered disabled with a tooltip. The Server Action is
- * still authoritative — a forged submit goes through the lockout
- * predicate and surfaces LAST_ADMIN_LOCKOUT_REFUSED inline.
+ * is the actor's OWN row, the Revoke button is rendered disabled with
+ * a hint (an admin can never revoke their own access). The Server
+ * Action is still authoritative — a forged submit goes through the
+ * lockout predicate and surfaces LAST_ADMIN_LOCKOUT_REFUSED inline.
  */
 import { useEffect, useRef, useState } from "react";
 import { useActionState } from "react";
@@ -214,7 +214,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             data-testid="admin-allowlist-self-last-hint"
             className="max-w-xs text-right text-xs text-text-subtle"
           >
-            Can&rsquo;t revoke yourself, add another admin first.
+            You can&rsquo;t revoke your own admin access.
           </p>
         )}
         {lockoutMessage && (

@@ -83,7 +83,7 @@ describe("AdministratorsSection (Task 6.2)", () => {
     expect(within(revoked).getAllByTestId("admin-allowlist-revoked-row")).toHaveLength(1);
   });
 
-  it("self-with-peer → Revoke ENABLED on own row", () => {
+  it("self-with-peer → Revoke DISABLED on own row (can never revoke yourself); peer row ENABLED", () => {
     const rows = [row({ email: "alice@example.com" }), row({ email: "bob@example.com" })];
     render(
       <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
@@ -91,13 +91,19 @@ describe("AdministratorsSection (Task 6.2)", () => {
     const selfRow = screen
       .getAllByTestId("admin-allowlist-row")
       .find((el) => el.getAttribute("data-row-email") === "alice@example.com")!;
-    const revoke = within(selfRow).getByTestId("mock-revoke-button");
-    expect(revoke).not.toBeDisabled();
+    // M12.5: an admin can NEVER revoke their own access, even with peers present.
+    expect(within(selfRow).getByTestId("mock-revoke-button")).toBeDisabled();
     // "You" badge surfaces on the actor's own row.
     expect(within(selfRow).getByTestId("admin-allowlist-you-badge")).toBeInTheDocument();
+
+    // A peer (non-actor) row keeps its Revoke ENABLED.
+    const peerRow = screen
+      .getAllByTestId("admin-allowlist-row")
+      .find((el) => el.getAttribute("data-row-email") === "bob@example.com")!;
+    expect(within(peerRow).getByTestId("mock-revoke-button")).not.toBeDisabled();
   });
 
-  it("sole-self → Revoke DISABLED + lockout hint", () => {
+  it("sole-self → Revoke DISABLED", () => {
     const rows = [row({ email: "alice@example.com" })];
     render(
       <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,

@@ -93,14 +93,14 @@ describe("Settings header (Task 4.2)", () => {
     expect(calls.requireAdminIdentity).toBe(1);
   });
 
-  // M12.4 item S4 — the settings page is now FULL-WIDTH (left-aligned), matching
-  // the design bundle; the old max-w-[740px] cap was removed. Pin w-full + the
-  // absence of the cap so a re-introduced cap regresses here.
-  it("is full-width (w-full), left-aligned — no max-w-[740px] cap", async () => {
+  // M12.5 — the settings page is constrained to max-w-3xl (left-aligned, no
+  // mx-auto), matching the design bundle. Pin w-full + the max-w-3xl cap so a
+  // dropped/changed constraint regresses here.
+  it("is constrained to max-w-3xl, left-aligned (still w-full)", async () => {
     await renderSettings();
     const cls = screen.getByTestId("admin-settings-page").className;
     expect(cls).toMatch(/\bw-full\b/);
-    expect(cls).not.toMatch(/max-w-\[740px\]/);
+    expect(cls).toMatch(/\bmax-w-3xl\b/);
   });
 
   it("mounts the Drive connection panel + embedded Administrators section", async () => {
