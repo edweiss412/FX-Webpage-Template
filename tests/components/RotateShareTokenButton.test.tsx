@@ -66,6 +66,26 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
     expect(idleBtn().textContent).toContain("Rotate share-token");
   });
 
+  // M12.6 — compact share-card variant: the visible text is just "Rotate", so
+  // the button MUST carry a descriptive accessible name + the row description via
+  // aria-describedby (adversarial review: a bare "Rotate" name is ambiguous for a
+  // destructive action out of visual row context). The aria-label CONTAINS the
+  // visible word "Rotate" (WCAG 2.5.3 Label-in-Name).
+  test("compact: descriptive accessible name + aria-describedby to the row description", () => {
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        compact
+        describedById="row-desc"
+      />,
+    );
+    const btn = screen.getByRole("button", { name: /rotate share link/i });
+    expect(btn).toBe(idleBtn());
+    expect(btn.textContent).toContain("Rotate"); // visible word retained
+    expect(btn.getAttribute("aria-describedby")).toBe("row-desc");
+  });
+
   test("idle → confirm: tap reveals confirm + cancel + URL-will-change warning", () => {
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());

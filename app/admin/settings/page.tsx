@@ -84,13 +84,20 @@ export default async function AdminSettingsPage() {
   return (
     <main
       data-testid="admin-settings-page"
-      className="flex w-full max-w-3xl flex-col gap-section-gap"
+      className="flex w-full flex-col gap-section-gap"
     >
+      {/* M12.6: the page header (and its full-bleed divider) spans the FULL
+          content width; only the settings cards below are constrained to a
+          readable column (max-w-3xl, left-aligned) — matching the design. */}
       <AdminPageHeader
         title="Settings"
         sub="Manage your Drive connection, who can administer, and how the app behaves."
       />
 
+      <div
+        data-testid="admin-settings-content"
+        className="flex w-full max-w-3xl flex-col gap-section-gap"
+      >
       <DriveConnectionPanel health={await fetchDriveConnectionHealth()} now={now} />
 
       <AdministratorsSection
@@ -155,6 +162,7 @@ export default async function AdminSettingsPage() {
           <DevToolsRow icon={<ShieldCheck aria-hidden />} />
         </div>
       </section>
+      </div>
     </main>
   );
 }

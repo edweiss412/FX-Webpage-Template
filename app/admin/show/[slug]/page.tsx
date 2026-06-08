@@ -590,13 +590,44 @@ export default async function AdminShowPage({
               slug={show.slug}
               token={token}
               actions={
-                <div className="flex flex-col gap-4 border-t border-border pt-3">
-                  <RotateShareTokenButton
-                    showId={show.id}
-                    slug={show.slug}
-                    isCrewLinkActive={isShowEligibleForCrewLink}
-                  />
-                  <ResetPickerEpochButton showId={show.id} />
+                // M12.6: align with the design — each management action is a row
+                // with a label + one-line description (left) and a compact button
+                // (right), divider-separated, inside the share-link card.
+                <div className="flex flex-col divide-y divide-border border-t border-border">
+                  <div className="flex items-start justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-text-strong">Rotate share link</p>
+                      <p
+                        id="admin-share-rotate-desc"
+                        className="text-xs text-text-subtle"
+                      >
+                        Mint a new link; the old one stops working immediately.
+                      </p>
+                    </div>
+                    <RotateShareTokenButton
+                      showId={show.id}
+                      slug={show.slug}
+                      isCrewLinkActive={isShowEligibleForCrewLink}
+                      compact
+                      describedById="admin-share-rotate-desc"
+                    />
+                  </div>
+                  <div className="flex items-start justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-text-strong">Reset name picker</p>
+                      <p
+                        id="admin-share-reset-desc"
+                        className="text-xs text-text-subtle"
+                      >
+                        Everyone re-picks who they are on their next visit.
+                      </p>
+                    </div>
+                    <ResetPickerEpochButton
+                      showId={show.id}
+                      compact
+                      describedById="admin-share-reset-desc"
+                    />
+                  </div>
                 </div>
               }
             />

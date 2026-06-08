@@ -93,14 +93,17 @@ describe("Settings header (Task 4.2)", () => {
     expect(calls.requireAdminIdentity).toBe(1);
   });
 
-  // M12.5 — the settings page is constrained to max-w-3xl (left-aligned, no
-  // mx-auto), matching the design bundle. Pin w-full + the max-w-3xl cap so a
-  // dropped/changed constraint regresses here.
-  it("is constrained to max-w-3xl, left-aligned (still w-full)", async () => {
+  // M12.6 — the page <main> (and the header + its full-bleed divider) span the
+  // FULL width; only the settings CONTENT column is constrained to max-w-3xl
+  // (left-aligned), matching the design. Pin both so a regression (cap back on
+  // main → divider no longer full-width; or cap dropped → cards full-bleed) fails.
+  it("header is full-width; only the content column is capped at max-w-3xl", async () => {
     await renderSettings();
-    const cls = screen.getByTestId("admin-settings-page").className;
-    expect(cls).toMatch(/\bw-full\b/);
-    expect(cls).toMatch(/\bmax-w-3xl\b/);
+    const mainCls = screen.getByTestId("admin-settings-page").className;
+    expect(mainCls).toMatch(/\bw-full\b/);
+    expect(mainCls).not.toMatch(/\bmax-w-3xl\b/); // header/divider must be full-width
+    const contentCls = screen.getByTestId("admin-settings-content").className;
+    expect(contentCls).toMatch(/\bmax-w-3xl\b/);
   });
 
   it("mounts the Drive connection panel + embedded Administrators section", async () => {
