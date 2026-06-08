@@ -28,13 +28,7 @@ import { NAV, isNavItemActive, shouldRenderOverflow } from "./navConfig";
 import { NotifBell } from "./NotifBell";
 import { UserMenu } from "./UserMenu";
 
-export function AdminNav({
-  email,
-  alertCount,
-}: {
-  email: string;
-  alertCount: AlertCountResult;
-}) {
+export function AdminNav({ email, alertCount }: { email: string; alertCount: AlertCountResult }) {
   const pathname = usePathname();
   const overflow = shouldRenderOverflow(NAV.length);
 
@@ -60,9 +54,7 @@ export function AdminNav({
             height={28}
             className="size-7 shrink-0"
           />
-          <span className="text-lg font-semibold tracking-tight text-text-strong">
-            FXAV
-          </span>
+          <span className="text-lg font-semibold tracking-tight text-text-strong">FXAV</span>
           <span className="rounded-pill border border-border bg-surface-raised px-2 text-xs font-semibold text-text-subtle">
             Admin
           </span>

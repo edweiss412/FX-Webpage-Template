@@ -7,7 +7,9 @@ import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 
 afterEach(() => cleanup());
 it("renders title + sub", () => {
-  render(<AdminPageHeader title="Dashboard" sub="Your live shows and anything that needs review." />);
+  render(
+    <AdminPageHeader title="Dashboard" sub="Your live shows and anything that needs review." />,
+  );
   expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   expect(screen.getByText(/live shows/)).toBeInTheDocument();
 });
@@ -42,9 +44,11 @@ it("M12.8: title letter-spacing matches the design's -0.02em (NOT Tailwind track
   const h1 = screen.getByTestId("admin-page-header-title");
   // The design bundle's `.page-title` is letter-spacing:-.02em. Tailwind's
   // `tracking-tight` token is -0.025em — close but NOT the design value, so the
-  // arbitrary `tracking-[-0.02em]` is the contract. (jsdom doesn't compute
+  // named `tracking-page-title` token (= -0.02em, declared in app/globals.css
+  // @theme) is the contract. Inline `tracking-[…]` is banned by
+  // tests/styles/eyebrow-tracking.test.ts. (jsdom doesn't compute
   // letter-spacing, so we pin the class that guarantees it.)
-  expect(h1.className).toContain("tracking-[-0.02em]");
+  expect(h1.className).toContain("tracking-page-title");
   expect(h1.className).not.toContain("tracking-tight");
 });
 it("architectural guard: header is prop-driven — NO global HEADERS / route-to-header map exists in components/admin/nav/", () => {
