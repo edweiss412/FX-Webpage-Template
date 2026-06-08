@@ -192,3 +192,51 @@ describe("addAdminAction — R14 re-add confirmation binding", () => {
     expect(dataLayerCalled).toBe(true);
   });
 });
+
+describe("revokeAdminAction — M12.5 self-revoke is enforced server-side", () => {
+  // The UI omits the Revoke control on the actor's own row, but the Server
+  // Action is POST-reachable. The policy ("an admin can never revoke their own
+  // access") MUST be enforced here against the AUTHENTICATED actor — a UI-only
+  // guard is a misleading trust boundary (adversarial R5).
+  test("self-targeted revoke is refused and does NOT reach the data layer", async () => {
+    let dataLayerCalled = false;
+    mockState.requireAdminIdentityImpl = async () => ({ email: "self@example.com" });
+    mockState.revokeAdminEmailImpl = async () => {
+      dataLayerCalled = true;
+      return { kind: "ok", row: null };
+    };
+    const fd = new FormData();
+    fd.set("email", "self@example.com");
+    const out = await revokeAdminAction(null, fd);
+    expect(out.kind).toBe("last_admin_lockout"); // refused
+    expect(dataLayerCalled).toBe(false); // never reached revokeAdminEmail
+  });
+
+  test("self-revoke is refused even via case/space-drifted self email (canonicalized comparison)", async () => {
+    let dataLayerCalled = false;
+    mockState.requireAdminIdentityImpl = async () => ({ email: "self@example.com" });
+    mockState.revokeAdminEmailImpl = async () => {
+      dataLayerCalled = true;
+      return { kind: "ok", row: null };
+    };
+    const fd = new FormData();
+    fd.set("email", "  SELF@Example.com  "); // same identity, drifted casing/space
+    const out = await revokeAdminAction(null, fd);
+    expect(out.kind).toBe("last_admin_lockout");
+    expect(dataLayerCalled).toBe(false);
+  });
+
+  test("revoking a PEER (different admin) still flows through to the data layer", async () => {
+    let dataLayerCalled = false;
+    mockState.requireAdminIdentityImpl = async () => ({ email: "self@example.com" });
+    mockState.revokeAdminEmailImpl = async () => {
+      dataLayerCalled = true;
+      return { kind: "ok", row: null };
+    };
+    const fd = new FormData();
+    fd.set("email", "peer@example.com");
+    const out = await revokeAdminAction(null, fd);
+    expect(out.kind).toBe("ok");
+    expect(dataLayerCalled).toBe(true); // peer revoke is allowed (by-design)
+  });
+});

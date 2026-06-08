@@ -148,11 +148,33 @@ export async function revokeAdminAction(
   formData: FormData,
 ): Promise<AdminEmailActionResult> {
   // Defense-in-depth admin gate. AdminInfraError propagates per
-  // invariant 9 (see addAdminAction docstring).
-  await requireAdminIdentity();
+  // invariant 9 (see addAdminAction docstring). Capture the identity so the
+  // self-revoke guard below compares against the AUTHENTICATED actor, never a
+  // client-supplied field.
+  const identity = await requireAdminIdentity();
 
   const rawEmail = formData.get("email");
   if (typeof rawEmail !== "string") return { kind: "invalid_email" };
+
+  // M12.5 — an admin can NEVER revoke their OWN access. The UI omits the Revoke
+  // control on the actor's own row, but the Server Action is still POST-reachable
+  // (a forged submit could target the actor's email), so the policy is ENFORCED
+  // here at the mutation boundary against the authenticated actor's canonical
+  // email — not just hidden in the UI (adversarial R5: a UI-only guard is a
+  // misleading trust boundary). Reuses the existing last_admin_lockout refusal
+  // kind (the closest "can't revoke this row" outcome; self-revoke is precisely
+  // the lockout vector). DB/RPC-level hardening (so a direct PostgREST rpc() call
+  // — an admin self-harming via a hand-forged request — is also refused) is
+  // tracked in DEFERRED.md.
+  const actorCanonical = canonicalize(identity.email);
+  const targetCanonical = canonicalize(rawEmail);
+  if (
+    actorCanonical !== null &&
+    targetCanonical !== null &&
+    actorCanonical === targetCanonical
+  ) {
+    return { kind: "last_admin_lockout", email: targetCanonical };
+  }
 
   // Task 6.4: wrap ONLY the data call; gate stays outside (see
   // addAdminAction). AdminEmailsInfraError → inline retryable state.
