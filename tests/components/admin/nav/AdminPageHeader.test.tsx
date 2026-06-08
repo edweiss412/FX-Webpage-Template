@@ -26,11 +26,10 @@ it("no sub/crumb/backHref/rightSlot → title only, no crash (guard: all optiona
   expect(screen.queryByTestId("admin-page-header-back")).toBeNull();
   expect(screen.queryByTestId("admin-page-header-crumb")).toBeNull();
 });
-it("eyebrow renders 'Admin' when no crumb or backHref (dashboard/settings pages)", () => {
+it("M12.8: NO 'Admin' eyebrow on dashboard/settings pages (it duplicated the top-nav 'Admin' label)", () => {
   render(<AdminPageHeader title="Dashboard" sub="x" />);
-  const eyebrow = screen.getByTestId("admin-page-header-eyebrow");
-  expect(eyebrow).toBeInTheDocument();
-  expect(eyebrow).toHaveTextContent("Admin");
+  expect(screen.queryByTestId("admin-page-header-eyebrow")).toBeNull();
+  expect(screen.queryByText("Admin")).toBeNull(); // no eyebrow text above the title
   expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
 });
 it("eyebrow absent when crumb/backHref present (per-show pages)", () => {

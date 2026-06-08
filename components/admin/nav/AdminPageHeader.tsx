@@ -6,10 +6,9 @@ export function AdminPageHeader({
   title, sub, subSlot, crumb, backHref, rightSlot,
 }: { title: string; sub?: string; subSlot?: ReactNode; crumb?: string; backHref?: string; rightSlot?: ReactNode }) {
   return (
-    <header data-testid="admin-page-header" className="mb-6 flex flex-col gap-1.5 border-b border-border pb-4">
-      {!crumb && !backHref && (
-        <p data-testid="admin-page-header-eyebrow" className="text-xs font-medium uppercase text-text-faint" style={{ letterSpacing: "var(--tracking-eyebrow)" }}>Admin</p>
-      )}
+    <header data-testid="admin-page-header" className="mb-6 flex flex-col gap-1 border-b border-border pb-3">
+      {/* M12.8: the "ADMIN" eyebrow was removed — it duplicated the "Admin" label
+          already shown in the top nav (components/admin/nav/AdminNav). */}
       {(crumb || backHref) && (
         // M12.6: crumb stays LEFT; "Back to dashboard" moves to the RIGHT of the
         // same row (with a ← arrow), matching the design.
