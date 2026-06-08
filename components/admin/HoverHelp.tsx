@@ -8,26 +8,36 @@
  * (e.g. the Drive-health badge) — that discloses one short paragraph of
  * plain-language context in a small popover.
  *
- * Reachability (PRODUCT.md "no hover-only affordances" — Doug uses /admin on a
- * phone mid-show):
- *   - DESKTOP: opens on hover (mouseenter), closes on mouseleave.
- *   - TOUCH:   opens/closes on tap (the trigger is a real <button> with onClick,
- *              NOT focus-dependent — iOS Safari doesn't reliably hold :focus on
- *              tap, which is why the bare CSS group-hover version was unreachable).
- *   - KEYBOARD: Tab to the trigger, Enter/Space toggles (native <button>), Escape
- *              closes. aria-expanded conveys state.
- *   - SCREEN READERS: the trigger has `aria-describedby` pointing at the popover
- *              body's id, so the explainer is announced (the body stays in the DOM,
- *              visually hidden when closed, so the description always resolves).
+ * Accessibility contract (WCAG 1.4.13 "Content on Hover or Focus" + PRODUCT.md
+ * "no hover-only affordances"; converged after three adversarial-review rounds):
+ *   - REACHABLE on every input. The trigger is a real <button>:
+ *       · TOUCH  — onClick toggles. Hover is pointer-type-gated to mouse only
+ *         (`e.pointerType === "mouse"`), so a synthetic-mouse tap never fires the
+ *         open-then-toggle race that net-closed on Android Chrome.
+ *       · KEYBOARD — Tab to the trigger, Enter/Space toggles (native button),
+ *         Escape closes. aria-expanded conveys state.
+ *       · MOUSE — pointerenter opens, pointerleave schedules a short close.
+ *   - DISMISSIBLE — Escape closes the popover whenever it is open (hover OR
+ *     click), without moving the pointer (1.4.13 Dismissible).
+ *   - HOVERABLE — the popover is `pointer-events-auto` while open and shares the
+ *     open/close timer, so the pointer can move from the trigger onto the body
+ *     without it disappearing (1.4.13 Hoverable). A small close delay bridges the
+ *     6px trigger→body gap.
+ *   - SCREEN READERS — the body has a useId() id; every trigger sets
+ *     `aria-describedby` to it; the body stays in the DOM (visually hidden when
+ *     closed) so the description always resolves.
+ *   - 44px TAP TARGET — the "?" keeps a 20px visual with a transparent
+ *     `before:-inset-3` overlay (44px hit area); custom triggers get
+ *     min-h/w-tap-min.
  *
  * Distinct from <HelpTooltip> (native <details>, the larger in-flow section
  * disclosures). This is the compact hover/tap hint next to section titles, stat
- * counts, and the Drive-health badge.
- *
- * Pass align="right" when the trigger sits near a container's right edge so the
- * popover doesn't overflow (e.g., the Drive-health badge).
+ * counts, and the Drive-health badge. Pass align="right" near a right edge.
  */
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import type { ReactNode } from "react";
+
+const CLOSE_DELAY_MS = 120;
 
 export function HoverHelp({
   label,
@@ -49,36 +59,67 @@ export function HoverHelp({
 }) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const clearCloseTimer = () => {
+    if (closeTimer.current !== null) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const openNow = () => {
+    clearCloseTimer();
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
+  };
+  useEffect(() => clearCloseTimer, []);
+
+  // Escape dismisses whenever open (hover OR click) — 1.4.13 Dismissible.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        clearCloseTimer();
+        setOpen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // onClick is the SOLE JS toggle (keyboard Enter/Space + touch tap). Desktop
-  // hover is pure CSS (group-hover below) — NOT JS handlers: a JS onMouseEnter
-  // would fire on a synthetic-mouse tap BEFORE onClick and the open+toggle would
-  // net to CLOSED on Android Chrome (needs a double-tap). Tailwind v4 gates
-  // hover:/group-hover: behind @media (hover:hover), so touch never triggers the
-  // CSS hover path, leaving onClick as the only tap interaction → first tap opens.
-  // NOT onFocus either — on iOS a tap fires focus THEN click, same net-closed trap.
+  // Hover is MOUSE-ONLY: a synthetic-mouse tap on a touch device fires pointer
+  // events with pointerType="touch"/"pen" — ignore those so the click toggle is
+  // the sole touch interaction (no open-then-toggle net-closed race).
+  const onMouseEnter = (e: ReactPointerEvent) => {
+    if (e.pointerType === "mouse") openNow();
+  };
+  const onMouseLeave = (e: ReactPointerEvent) => {
+    if (e.pointerType === "mouse") scheduleClose();
+  };
+
   const triggerProps = {
     type: "button" as const,
     "data-testid": `${testId}-trigger`,
     "aria-label": label,
     "aria-expanded": open,
     "aria-describedby": bodyId,
-    onClick: () => setOpen((o) => !o),
+    onClick: () => {
+      clearCloseTimer();
+      setOpen((o) => !o);
+    },
   };
 
   return (
-    <span className="group relative inline-flex">
+    <span
+      className="relative inline-flex"
+      onPointerEnter={onMouseEnter}
+      onPointerLeave={onMouseLeave}
+    >
       {/* Tap-target floor (DESIGN.md 44px): custom trigger gets min-h/w-tap-min;
-          the compact "?" keeps its 20px visual but a transparent `before:-inset-3`
+          the compact "?" keeps a 20px visual but a transparent before:-inset-3
           overlay extends the hit area to 44px without changing layout. */}
       {trigger ? (
         <button
@@ -96,13 +137,16 @@ export function HoverHelp({
         </button>
       )}
       {/* Body stays in the DOM (so aria-describedby always resolves); visually
-          hidden until open. pointer-events-none — informational only. */}
+          hidden until open. Hoverable while open (pointer-events-auto + shares the
+          open/close timer) so the pointer can move onto it — 1.4.13 Hoverable. */}
       <span
         id={bodyId}
         role="tooltip"
         data-testid={`${testId}-body`}
-        className={`pointer-events-none absolute top-[calc(100%+6px)] z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast group-hover:visible group-hover:opacity-100 ${
-          open ? "visible opacity-100" : "invisible opacity-0"
+        onPointerEnter={openNow}
+        onPointerLeave={scheduleClose}
+        className={`absolute top-[calc(100%+6px)] z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
+          open ? "visible opacity-100" : "pointer-events-none invisible opacity-0"
         } ${align === "right" ? "right-0" : "left-0"}`}
       >
         {children}

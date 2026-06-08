@@ -7,8 +7,8 @@
 //     a screen reader announces the explainer (the body stays in the DOM);
 //   - Escape closes; aria-expanded reflects state.
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 
 afterEach(cleanup);
@@ -49,21 +49,63 @@ describe("HoverHelp", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
-  // Android-Chrome regression: a synthetic-mouse tap fires mouseenter THEN
-  // click. If a JS onMouseEnter opened and onClick then toggled, the first tap
-  // would net to CLOSED (double-tap-to-open bug). Desktop hover is now pure CSS,
-  // so mouseenter changes NO state and the first click reliably opens.
-  it("mouseEnter then click ends OPEN (no synthetic-tap net-closed regression)", () => {
+  // Android-Chrome regression: a tap fires pointerenter(touch) THEN click. Hover
+  // is pointer-type-gated to mouse, so the touch pointerenter is IGNORED and the
+  // first click reliably opens (no open-then-toggle net-closed double-tap bug).
+  it("touch tap opens — synthetic-mouse pointerenter (pointerType≠mouse) is ignored", () => {
     render(
       <HoverHelp label="Help" testId="t">
         body
       </HoverHelp>,
     );
     const trigger = screen.getByTestId("t-trigger");
-    const wrapper = trigger.parentElement!; // the group wrapper span
-    fireEvent.mouseEnter(wrapper);
+    const wrapper = trigger.parentElement!;
+    fireEvent.pointerEnter(wrapper, { pointerType: "touch" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false"); // touch hover ignored
     fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true"); // first tap opens
+  });
+
+  // WCAG 1.4.13 Dismissible: when shown via MOUSE hover, Escape must close it
+  // without moving the pointer (the bug R3 caught — CSS-only hover ignored Escape).
+  it("mouse hover opens; Escape dismisses without moving the pointer (1.4.13 Dismissible)", () => {
+    render(
+      <HoverHelp label="Help" testId="t">
+        body
+      </HoverHelp>,
+    );
+    const trigger = screen.getByTestId("t-trigger");
+    const wrapper = trigger.parentElement!;
+    fireEvent.pointerEnter(wrapper, { pointerType: "mouse" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  // WCAG 1.4.13 Hoverable: the pointer can move from the trigger onto the popover
+  // body without it disappearing (the body shares the open/close timer).
+  it("popover is hoverable — moving onto the body keeps it open, leaving closes it (1.4.13 Hoverable)", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <HoverHelp label="Help" testId="t">
+          body
+        </HoverHelp>,
+      );
+      const trigger = screen.getByTestId("t-trigger");
+      const wrapper = trigger.parentElement!;
+      const body = screen.getByTestId("t-body");
+      fireEvent.pointerEnter(wrapper, { pointerType: "mouse" }); // open
+      fireEvent.pointerLeave(wrapper, { pointerType: "mouse" }); // schedule close
+      fireEvent.pointerEnter(body); // moved onto the body → cancels the close
+      act(() => vi.advanceTimersByTime(400));
+      expect(trigger).toHaveAttribute("aria-expanded", "true"); // still open
+      fireEvent.pointerLeave(body); // leaving the body schedules close
+      act(() => vi.advanceTimersByTime(400));
+      expect(trigger).toHaveAttribute("aria-expanded", "false"); // now closed
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("custom trigger (e.g. a badge) is wrapped in a button that is aria-describedby-associated", () => {
