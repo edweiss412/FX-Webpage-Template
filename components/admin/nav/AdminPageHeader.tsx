@@ -6,7 +6,7 @@ export function AdminPageHeader({
   title, sub, subSlot, crumb, backHref, rightSlot,
 }: { title: string; sub?: string; subSlot?: ReactNode; crumb?: string; backHref?: string; rightSlot?: ReactNode }) {
   return (
-    <header data-testid="admin-page-header" className="mb-6 flex flex-col gap-1 border-b border-border pb-3">
+    <header data-testid="admin-page-header" className="mb-6 flex flex-col gap-1.5 border-b border-border pb-4">
       {/* M12.8: the "ADMIN" eyebrow was removed — it duplicated the "Admin" label
           already shown in the top nav (components/admin/nav/AdminNav). */}
       {(crumb || backHref) && (
@@ -23,7 +23,7 @@ export function AdminPageHeader({
         </div>
       )}
       <div className="flex flex-col gap-2 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
-        <h1 className="text-2xl font-semibold text-text-strong" data-testid="admin-page-header-title">{title}</h1>
+        <h1 className="text-2xl font-semibold leading-[1.1] tracking-tight text-text-strong" data-testid="admin-page-header-title">{title}</h1>
         {rightSlot && <div data-testid="admin-page-header-right" className="flex flex-wrap items-center gap-2">{rightSlot}</div>}
       </div>
       {sub && <p className="max-w-prose text-base text-text-subtle">{sub}</p>}

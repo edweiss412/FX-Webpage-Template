@@ -43,7 +43,9 @@ export function AdminNav({
       <nav
         data-testid="admin-nav-topbar"
         aria-label="Admin"
-        className="mb-section-gap flex items-center gap-3 border-b border-border pb-3"
+        /* M12.8: tighter top-nav → page-header gap to MATCH the design bundle's
+           .pagehead 16px top padding (was mb-section-gap 32px). */
+        className="mb-4 flex items-center gap-3 border-b border-border pb-3"
       >
         <Link
           href="/admin"
