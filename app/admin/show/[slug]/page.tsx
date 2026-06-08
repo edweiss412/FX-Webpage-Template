@@ -564,7 +564,7 @@ export default async function AdminShowPage({
         <section
           data-testid="per-show-share-col"
           aria-label="Share & access"
-          className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-[420px]"
+          className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-[480px]"
         >
           <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
           <p className="text-sm text-text-subtle">
@@ -645,7 +645,7 @@ export default async function AdminShowPage({
             keeps Archive grouped with Publish above, Archived shows Unarchive. */}
         <div className="flex flex-wrap items-center gap-3">
           {isShowEligibleForCrewLink ? (
-            <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
+            <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
           ) : null}
           {archived ? (
             // Archived shows are the read-only surface; Re-sync mutates shows /

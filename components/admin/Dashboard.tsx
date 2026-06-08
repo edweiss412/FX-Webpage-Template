@@ -637,7 +637,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
         <section
           data-testid="dashboard-inbox-col"
           aria-label="Needs attention"
-          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0 min-[1280px]:w-[420px]"
+          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0 min-[1280px]:w-[480px]"
         >
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>

@@ -154,10 +154,10 @@ function AdminRow({
   now: Date;
 }) {
   const isSeed = row.added_by === null;
-  // Self-revoke policy: an admin can NEVER revoke their OWN access (regardless
-  // of how many other admins exist). The client disables the button as a UX
-  // preview; the Server Action remains the authority.
-  const disableSelfRevoke = isActor;
+  // Self-revoke policy: an admin can NEVER revoke their OWN access. The Revoke
+  // control is OMITTED entirely on the actor's own row (M12.5 — was a disabled
+  // button). The Server Action remains the authority for non-actor rows; this
+  // also preserves the "never zero admins" invariant (you can't remove yourself).
   const hasNote = Boolean(row.note && row.note.trim().length > 0);
   return (
     <li
@@ -186,7 +186,7 @@ function AdminRow({
           </p>
         )}
       </div>
-      <RevokeRowButton email={row.email} disabled={disableSelfRevoke} />
+      {isActor ? null : <RevokeRowButton email={row.email} disabled={false} />}
     </li>
   );
 }
