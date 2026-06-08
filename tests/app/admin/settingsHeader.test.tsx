@@ -3,7 +3,8 @@
 // eyebrow + <h2>Settings</h2> + sub block is replaced by the shared
 // <AdminPageHeader title="Settings" sub="Manage your Drive connection, who can
 // administer, and how the app behaves." />. The page owns its actor identity
-// via requireAdminIdentity (used in Phase 6). Container caps at max-w-[740px].
+// via requireAdminIdentity (used in Phase 6). Container is full-width (w-full,
+// left-aligned) as of M12.4 item S4 (the old max-w-[740px] cap was removed).
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -92,9 +93,14 @@ describe("Settings header (Task 4.2)", () => {
     expect(calls.requireAdminIdentity).toBe(1);
   });
 
-  it("caps the container at max-w-[740px]", async () => {
+  // M12.4 item S4 — the settings page is now FULL-WIDTH (left-aligned), matching
+  // the design bundle; the old max-w-[740px] cap was removed. Pin w-full + the
+  // absence of the cap so a re-introduced cap regresses here.
+  it("is full-width (w-full), left-aligned — no max-w-[740px] cap", async () => {
     await renderSettings();
-    expect(screen.getByTestId("admin-settings-page").className).toMatch(/max-w-\[740px\]/);
+    const cls = screen.getByTestId("admin-settings-page").className;
+    expect(cls).toMatch(/\bw-full\b/);
+    expect(cls).not.toMatch(/max-w-\[740px\]/);
   });
 
   it("mounts the Drive connection panel + embedded Administrators section", async () => {

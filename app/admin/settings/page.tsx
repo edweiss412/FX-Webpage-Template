@@ -83,7 +83,7 @@ export default async function AdminSettingsPage() {
   return (
     <main
       data-testid="admin-settings-page"
-      className="flex max-w-[740px] flex-col gap-section-gap"
+      className="flex w-full flex-col gap-section-gap"
     >
       <AdminPageHeader
         title="Settings"
