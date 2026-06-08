@@ -327,11 +327,11 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
     const summary = page.locator(OUTER_SUMMARY);
 
     // (i) navigate AWAY to settings via the in-app nav LINK (client-side). Scope
-    // to the admin NAV chrome (NOT the Dashboard body, which has its own
-    // `admin-dashboard-settings-link` "Open settings" link). The two nav
-    // Settings links live in `admin-nav-topbar` (visible ≥720px) and the bottom
-    // tab (visible <720px); `getByRole` excludes display:none elements, so at
-    // each viewport exactly ONE of the .or() branches resolves → no strict-mode
+    // to the admin NAV chrome. (The Dashboard body's own "Open settings" link was
+    // removed in M12.6 — the nav Settings tab is now the only Settings link.) The
+    // two nav Settings links live in `admin-nav-topbar` (visible ≥720px) and the
+    // bottom tab (visible <720px); `getByRole` excludes display:none elements, so
+    // at each viewport exactly ONE of the .or() branches resolves → no strict-mode
     // violation in either project.
     const settingsNavLink = page
       .getByTestId("admin-nav-topbar")
