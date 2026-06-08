@@ -91,7 +91,12 @@ function deriveHealthExplainer(health: DriveConnectionHealth): string {
     case "watch_expired":
       return "FXAV's link to your Drive folder lapsed, so new edits may not sync. Re-run setup to reconnect — your existing shows keep all their data.";
     case "sync_unknown":
-      return "A sheet reported a sync state we don't recognize. This usually clears on the next sync; contact the developer if it sticks.";
+      // B1-D2 contract: sync_unknown is a developer-attention / data-integrity
+      // state (enum drift / corrupt row), NOT routine staleness. Mirror the
+      // SYNC_STATUS_UNKNOWN catalog posture ("the developer should take a
+      // look") — do NOT imply it clears on its own, which would soften the
+      // intended escalation.
+      return "FXAV doesn't recognize this show's sync state — that's usually a data issue, not something that clears on its own. Send it to the developer to look into.";
     default:
       return "One or more sheets haven't synced recently. Open the folder to confirm FXAV still has access, then re-run setup if anything changed.";
   }

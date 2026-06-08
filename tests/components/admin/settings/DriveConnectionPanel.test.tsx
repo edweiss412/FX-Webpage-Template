@@ -150,6 +150,13 @@ describe("DriveConnectionPanel", () => {
     expect(statusLine()).not.toContain("need attention");
     expect(statusLine().startsWith("Connected")).toBe(false);
     expect(screen.getByTestId("drive-connection-health-badge")).toHaveAttribute("data-health", "warn");
+    // M12.4 S2 (B1-D2): the explainer tooltip for sync_unknown must keep the
+    // developer-escalation posture — it must tell the admin to send it to the
+    // developer and must NOT soften the state into "clears on the next sync"
+    // wait-and-see (which would contradict the data-integrity contract).
+    const help = screen.getByTestId("drive-connection-health-help-body");
+    expect(help.textContent ?? "").toMatch(/developer/i);
+    expect(help.textContent ?? "").not.toMatch(/clears? on (the )?next sync|wait/i);
   });
 
   it("infra_error → 'Couldn't read sync status' via ADMIN_DRIVE_HEALTH_UNAVAILABLE (cataloged, not a literal); Warn pill", () => {
