@@ -27,6 +27,7 @@ import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
 import { DashboardBucketSegmentedControl } from "@/components/admin/DashboardBucketSegmentedControl";
 import { unarchiveShowAction } from "@/app/admin/show/[slug]/_actions";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import { formatIsoForTimezone } from "@/lib/time/rightNow";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
 import { isShowLiveOnDate } from "@/lib/time/showSpan";
@@ -564,7 +565,21 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
           {result.bucket === "archived" ? (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-text-strong">Archived shows</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-semibold text-text-strong">Archived shows</h3>
+                  <span
+                    data-testid="shows-count-chip"
+                    className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+                  >
+                    {result.archivedCount}
+                  </span>
+                  <HoverHelp label="Help: Archived shows" testId="archived-help">
+                    <p>
+                      Shows you&apos;ve archived. Their crew links stay off until you unarchive and
+                      republish.
+                    </p>
+                  </HoverHelp>
+                </div>
                 <DashboardBucketSegmentedControl
                   bucket={result.bucket}
                   activeCount={result.activeCount}
@@ -622,9 +637,23 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
         <section
           data-testid="dashboard-inbox-col"
           aria-label="Needs attention"
-          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0 min-[1280px]:w-[360px]"
+          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0 min-[1280px]:w-[420px]"
         >
-          <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
+            <span
+              data-testid="needs-attention-count-chip"
+              className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+            >
+              {result.needsAttention.totalCount}
+            </span>
+            <HoverHelp label="Help: Needs attention" testId="needs-attention-help">
+              <p>
+                Sheets and changes waiting on you — new shows to review, staged edits to approve, or
+                sheets that couldn&apos;t be processed.
+              </p>
+            </HoverHelp>
+          </div>
           <NeedsAttentionInbox
             items={result.needsAttention.items}
             totalCount={result.needsAttention.totalCount}
