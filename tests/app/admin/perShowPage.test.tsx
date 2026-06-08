@@ -25,8 +25,15 @@ vi.mock("@/components/admin/PerShowAlertSection", () => ({
 vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
   const React = await import("react");
   return {
-    CurrentShareLinkPanel: () =>
-      React.createElement("div", { "data-testid": "admin-current-share-link-panel" }),
+    // M12.5: Rotate/Reset are folded INTO this panel via the `actions` prop, so
+    // the stub MUST render props.actions — otherwise the rotate/reset visibility
+    // assertions below would stop exercising the real composition (adversarial R4).
+    CurrentShareLinkPanel: (props: { actions?: React.ReactNode }) =>
+      React.createElement(
+        "div",
+        { "data-testid": "admin-current-share-link-panel" },
+        props.actions,
+      ),
     resolveOrigin: () => "https://crew.example.com",
   };
 });
