@@ -96,7 +96,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       // band — a global-`sm:`-shorthand-resets-pb collapse the jsdom Phase-3
       // tests could not catch (Tailwind v4, no global `md`; DESIGN §7). The
       // bottom tab bar is ~58px tall; pb-20 (80px) clears it with margin.
-      className="mx-auto max-w-6xl px-page-pad-mobile pt-page-pad-mobile pb-20 sm:px-page-pad-desktop sm:pt-page-pad-desktop min-[720px]:pb-page-pad-desktop"
+      className="mx-auto max-w-[1600px] px-page-pad-mobile pt-page-pad-mobile pb-20 sm:px-page-pad-desktop sm:pt-page-pad-desktop min-[720px]:pb-page-pad-desktop"
     >
       <AdminNav email={adminEmail} alertCount={alertCount} />
 

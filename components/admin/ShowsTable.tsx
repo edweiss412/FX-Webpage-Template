@@ -16,7 +16,7 @@
 // sub-line under the title; the Live/Publishing pill stays with the title.
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight, Search } from "lucide-react";
 import {
@@ -32,6 +32,11 @@ type ShowsTableProps = {
   now: Date;
   activeCount: number;
   overflowCount: number;
+  // M12.4 item D4 — the shows column header is owned here so the Find input
+  // (client state) shares ONE row with the section title and the bucket toggle.
+  // ShowsTable is the ACTIVE-bucket renderer, so the title defaults accordingly.
+  title?: string;
+  bucketControl?: ReactNode;
 };
 
 // Shared column tracks (header + every row) so the columns line up (spec §9).
@@ -96,7 +101,14 @@ function rowTitle(row: ActiveShowRow): string {
   return row.title ?? row.slug;
 }
 
-export function ShowsTable({ rows, now, activeCount, overflowCount }: ShowsTableProps) {
+export function ShowsTable({
+  rows,
+  now,
+  activeCount,
+  overflowCount,
+  title = "Active shows",
+  bucketControl,
+}: ShowsTableProps) {
   const [query, setQuery] = useState("");
 
   const trimmed = query.trim().toLowerCase();
@@ -115,27 +127,32 @@ export function ShowsTable({ rows, now, activeCount, overflowCount }: ShowsTable
 
   return (
     <div data-testid="shows-table" className="flex flex-col gap-3">
-      {showFind ? (
-        <div className="flex justify-end">
-          <label className="relative block w-full max-w-xs">
-            <span className="sr-only">Find a show by name</span>
-            <Search
-              aria-hidden="true"
-              size={16}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint"
-            />
-            <input
-              data-testid="shows-find-input"
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find"
-              aria-label="Find a show by name"
-              className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-2 text-sm text-text-strong placeholder:text-text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
-            />
-          </label>
+      {/* One header row: section title (left), Find + bucket toggle (right). */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold text-text-strong">{title}</h3>
+        <div className="flex flex-wrap items-center gap-3">
+          {showFind ? (
+            <label className="relative block w-40 sm:w-52">
+              <span className="sr-only">Find a show by name</span>
+              <Search
+                aria-hidden="true"
+                size={16}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint"
+              />
+              <input
+                data-testid="shows-find-input"
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find"
+                aria-label="Find a show by name"
+                className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-2 text-sm text-text-strong placeholder:text-text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+              />
+            </label>
+          ) : null}
+          {bucketControl}
         </div>
-      ) : null}
+      </div>
 
       {rows.length === 0 ? (
         <div

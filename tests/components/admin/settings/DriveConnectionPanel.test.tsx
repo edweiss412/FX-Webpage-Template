@@ -45,8 +45,12 @@ describe("DriveConnectionPanel", () => {
     };
     render(<DriveConnectionPanel health={health} now={NOW} />);
     expect(statusLine()).toBe(`Connected · 4 shows syncing · last read ${REL_2HR}`);
-    expect(screen.getByText("Healthy")).toBeInTheDocument();
-    expect(screen.getByTestId("status-dot-positive")).toBeInTheDocument();
+    // M12.4 item S1 — healthy → a green "Healthy" pill badge (data-health).
+    const badge = screen.getByTestId("drive-connection-health-badge");
+    expect(badge).toHaveAttribute("data-health", "positive");
+    expect(badge.textContent).toMatch(/healthy/i);
+    // M12.4 item S2 — the explainer tooltip rides ONLY non-healthy badges.
+    expect(screen.queryByTestId("drive-connection-health-help")).toBeNull();
   });
 
   it("warn/watch_inactive → 'Connection needs attention · last read {rel}', NEVER starts with 'Connected'; Warn pill", () => {
@@ -63,8 +67,16 @@ describe("DriveConnectionPanel", () => {
     render(<DriveConnectionPanel health={health} now={NOW} />);
     expect(statusLine()).toBe(`Connection needs attention · last read ${REL_2HR}`);
     expect(statusLine().startsWith("Connected")).toBe(false);
-    expect(screen.getByText("Warn")).toBeInTheDocument();
-    expect(screen.getByTestId("status-dot-warn")).toBeInTheDocument();
+    // M12.4 item S1/S2 — non-healthy → a warn "Needs attention" pill + the
+    // explainer tooltip (with reason-specific body copy).
+    const badge = screen.getByTestId("drive-connection-health-badge");
+    expect(badge).toHaveAttribute("data-health", "warn");
+    expect(badge.textContent).toMatch(/needs attention/i);
+    const help = screen.getByTestId("drive-connection-health-help");
+    expect(help).toBeInTheDocument();
+    expect(within(help).getByTestId("drive-connection-health-help-body").textContent ?? "").toMatch(
+      /re-run setup/i,
+    );
   });
 
   it("warn/not_configured → 'Connection not set up', no 'Connected' prefix, no last-read clause", () => {
@@ -137,7 +149,14 @@ describe("DriveConnectionPanel", () => {
     expect(statusLine()).not.toContain("Syncing, but");
     expect(statusLine()).not.toContain("need attention");
     expect(statusLine().startsWith("Connected")).toBe(false);
-    expect(screen.getByTestId("status-dot-warn")).toBeInTheDocument();
+    expect(screen.getByTestId("drive-connection-health-badge")).toHaveAttribute("data-health", "warn");
+    // M12.4 S2 (B1-D2): the explainer tooltip for sync_unknown must keep the
+    // developer-escalation posture — it must tell the admin to send it to the
+    // developer and must NOT soften the state into "clears on the next sync"
+    // wait-and-see (which would contradict the data-integrity contract).
+    const help = screen.getByTestId("drive-connection-health-help-body");
+    expect(help.textContent ?? "").toMatch(/developer/i);
+    expect(help.textContent ?? "").not.toMatch(/clears? on (the )?next sync|wait/i);
   });
 
   it("infra_error → 'Couldn't read sync status' via ADMIN_DRIVE_HEALTH_UNAVAILABLE (cataloged, not a literal); Warn pill", () => {
@@ -146,8 +165,11 @@ describe("DriveConnectionPanel", () => {
     const expected = getRequiredDougFacing("ADMIN_DRIVE_HEALTH_UNAVAILABLE");
     expect(statusLine()).toBe(expected);
     expect(statusLine().startsWith("Connected")).toBe(false);
-    expect(screen.getByText("Warn")).toBeInTheDocument();
-    expect(screen.getByTestId("status-dot-warn")).toBeInTheDocument();
+    const badge = screen.getByTestId("drive-connection-health-badge");
+    expect(badge).toHaveAttribute("data-health", "warn");
+    expect(badge.textContent).toMatch(/needs attention/i);
+    // infra_error also gets the explainer tooltip (its own "couldn't read" copy).
+    expect(screen.getByTestId("drive-connection-health-help")).toBeInTheDocument();
   });
 
   it("0 shows → 'No shows syncing yet'; positive + lastReadAt null → 'Not synced yet'", () => {

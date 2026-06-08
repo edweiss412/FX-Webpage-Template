@@ -49,6 +49,10 @@ export type BuildNeedsAttentionInput = {
   totalCounts: { ingestions: number; syncs: number };
 };
 
+// `activityAt` = the ISO activity time the card was sorted by (pending_ingestion
+// → last_attempt_at; sync variants → staged_modified_time). Null when the source
+// row carried no time. Rendered as a relative "1h ago" timestamp in the inbox
+// card (NeedsAttentionInbox); never the sole carrier of meaning.
 export type NeedsAttentionItem =
   | {
       variant: "pending_ingestion";
@@ -57,6 +61,7 @@ export type NeedsAttentionItem =
       driveFileId: string;
       driveFileName: string | null;
       copy: string;
+      activityAt: string | null;
     }
   | {
       variant: "first_seen";
@@ -64,6 +69,7 @@ export type NeedsAttentionItem =
       stagedId: string; // routes to /admin/show/staged/{stagedId} (onboarding review)
       driveFileId: string;
       candidateTitle: string | null;
+      activityAt: string | null;
     }
   | {
       variant: "existing_staged";
@@ -72,6 +78,7 @@ export type NeedsAttentionItem =
       driveFileId: string;
       slug: string; // routes to /admin/show/{slug} (per-show review, archived-safe)
       title: string | null;
+      activityAt: string | null;
     };
 
 export type NeedsAttention = {
@@ -155,6 +162,8 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
   const sliced = merged.slice(0, RENDER_CAP);
 
   const items: NeedsAttentionItem[] = sliced.map((entry) => {
+    // sortKey is the ISO activity time (or "" when the source row had none).
+    const activityAt = entry.sortKey.length > 0 ? entry.sortKey : null;
     if (entry.kind === "ingestion") {
       return {
         variant: "pending_ingestion",
@@ -163,6 +172,7 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
         driveFileId: entry.driveFileId,
         driveFileName: entry.driveFileName,
         copy: resolveIngestionCopy({ code: entry.code, driveFileName: entry.driveFileName }),
+        activityAt,
       };
     }
     const existing = input.existence[entry.driveFileId];
@@ -174,6 +184,7 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
         driveFileId: entry.driveFileId,
         slug: existing.slug,
         title: existing.title,
+        activityAt,
       };
     }
     return {
@@ -182,6 +193,7 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
       stagedId: entry.id,
       driveFileId: entry.driveFileId,
       candidateTitle: entry.candidateTitle,
+      activityAt,
     };
   });
 

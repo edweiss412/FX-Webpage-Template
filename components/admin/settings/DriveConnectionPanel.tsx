@@ -24,12 +24,12 @@
 // Tokens only (no inline hex/px — token discipline §10). The middot " · " is
 // U+00B7, the intended separator (NOT an em dash).
 
-import { FolderOpen, ExternalLink, RotateCcw } from "lucide-react";
+import { FolderOpen, ExternalLink, RotateCcw, Check, TriangleAlert } from "lucide-react";
 import type { DriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
-import { StatusIndicator } from "@/components/admin/StatusIndicator";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { rerunSetupServerAction } from "@/lib/onboarding/serverActions";
 
 function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
@@ -74,6 +74,34 @@ function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
   }
 }
 
+// M12.4 item S2 — plain-language explainer shown in a HelpTooltip next to the
+// badge whenever the connection is NOT healthy. Tells Doug what the state means
+// and what to do, in lay terms (the badge is the glance; this is the detail).
+// Plain copy (not an error code) — same register as the helper text below.
+function deriveHealthExplainer(health: DriveConnectionHealth): string {
+  if ("kind" in health) {
+    return "We couldn't read your connection status just now. Refresh in a moment — if it keeps happening, contact the developer.";
+  }
+  // Positive never shows the tooltip; return empty so the union narrows to warn.
+  if (health.health === "positive") return "";
+  switch (health.reason) {
+    case "not_configured":
+      return "You haven't pointed FXAV at a Drive folder yet. Run setup to choose the folder it should watch.";
+    case "watch_inactive":
+    case "watch_expired":
+      return "FXAV's link to your Drive folder lapsed, so new edits may not sync. Re-run setup to reconnect — your existing shows keep all their data.";
+    case "sync_unknown":
+      // B1-D2 contract: sync_unknown is a developer-attention / data-integrity
+      // state (enum drift / corrupt row), NOT routine staleness. Mirror the
+      // SYNC_STATUS_UNKNOWN catalog posture ("the developer should take a
+      // look") — do NOT imply it clears on its own, which would soften the
+      // intended escalation.
+      return "FXAV doesn't recognize this show's sync state — that's usually a data issue, not something that clears on its own. Send it to the developer to look into.";
+    default:
+      return "One or more sheets haven't synced recently. Open the folder to confirm FXAV still has access, then re-run setup if anything changed.";
+  }
+}
+
 export function DriveConnectionPanel({
   health,
   now,
@@ -86,6 +114,7 @@ export function DriveConnectionPanel({
   const folderId = "kind" in health ? null : health.folderId;
   const folderUrl = driveFolderUrl(folderId);
   const statusLine = deriveStatusLine(health, now);
+  const healthExplainer = deriveHealthExplainer(health);
 
   return (
     <section
@@ -121,10 +150,36 @@ export function DriveConnectionPanel({
             </span>
           </div>
         </div>
-        <StatusIndicator
-          status={isPositive ? "positive" : "warn"}
-          label={isPositive ? "Healthy" : "Warn"}
-        />
+        {/* M12.4 item S1 — health pill badge (tinted, glyph + label) instead of
+            the bare dot. M12.4 item S2 — a "?" explainer tooltip rides ALONGSIDE
+            every non-healthy badge. */}
+        {isPositive ? (
+          <span
+            data-testid="drive-connection-health-badge"
+            data-health="positive"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-positive)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-positive)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-positive-text"
+          >
+            <Check aria-hidden="true" className="size-3.5 shrink-0" />
+            Healthy
+          </span>
+        ) : (
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              data-testid="drive-connection-health-badge"
+              data-health="warn"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-warn)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-warn-text"
+            >
+              <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+              Needs attention
+            </span>
+            <HelpTooltip
+              label="What this status means"
+              testId="drive-connection-health-help"
+            >
+              <p>{healthExplainer}</p>
+            </HelpTooltip>
+          </div>
+        )}
       </div>
 
       <hr className="border-border" />

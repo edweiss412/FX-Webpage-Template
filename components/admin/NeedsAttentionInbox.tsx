@@ -10,6 +10,7 @@
 import Link from "next/link";
 import type { NeedsAttentionItem } from "@/lib/admin/needsAttention";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
+import { formatRelative } from "@/components/admin/ActiveShowsPanel";
 import { PendingPanelRetryButton } from "@/components/admin/PendingPanelRetryButton";
 import { PendingPanelDiscardButtons } from "@/components/admin/PendingPanelDiscardButtons";
 
@@ -18,19 +19,51 @@ type NeedsAttentionInboxProps = {
   totalCount: number;
   renderedCount: number;
   overflowCount: number;
+  // Deterministic "now" for the per-card relative timestamp (mirrors ShowsTable).
+  now: Date;
 };
 
 const reviewLinkClass =
   "inline-flex min-h-tap-min items-center rounded-md border border-border px-3 text-sm font-semibold text-accent-on-bg underline-offset-2 hover:border-border-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
 
-function ItemCard({ item }: { item: NeedsAttentionItem }) {
+// Top row of every card: the status eyebrow on the left, a relative activity
+// timestamp ("1h ago") pinned right. The <time> is OMITTED entirely when the
+// item has no activity time (never renders the bare "never" placeholder).
+function CardHeader({
+  item,
+  now,
+  status,
+  label,
+}: {
+  item: NeedsAttentionItem;
+  now: Date;
+  status: "warn" | "review";
+  label: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <StatusIndicator status={status} label={label} />
+      {item.activityAt ? (
+        <time
+          data-testid={`needs-attention-time-${item.key}`}
+          dateTime={item.activityAt}
+          className="shrink-0 whitespace-nowrap text-xs tabular-nums text-text-faint"
+        >
+          {formatRelative(item.activityAt, now)}
+        </time>
+      ) : null}
+    </div>
+  );
+}
+
+function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
   if (item.variant === "pending_ingestion") {
     return (
       <li
         data-testid={`needs-attention-item-pending-${item.id}`}
         className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
       >
-        <StatusIndicator status="warn" label="Couldn't process a sheet" />
+        <CardHeader item={item} now={now} status="warn" label="Couldn't process a sheet" />
         <p className="text-sm font-semibold text-text-strong">
           {item.driveFileName ?? item.driveFileId}
         </p>
@@ -49,7 +82,7 @@ function ItemCard({ item }: { item: NeedsAttentionItem }) {
         data-testid={`needs-attention-item-first-seen-${item.stagedId}`}
         className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
       >
-        <StatusIndicator status="review" label="New sheet to review" />
+        <CardHeader item={item} now={now} status="review" label="New sheet to review" />
         <p className="text-sm font-semibold text-text-strong">
           {item.candidateTitle ?? item.driveFileId}
         </p>
@@ -70,7 +103,7 @@ function ItemCard({ item }: { item: NeedsAttentionItem }) {
       data-testid={`needs-attention-item-existing-${item.stagedId}`}
       className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
     >
-      <StatusIndicator status="review" label="Changes to review" />
+      <CardHeader item={item} now={now} status="review" label="Changes to review" />
       <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
       <Link
         data-testid={`needs-attention-link-${item.slug}`}
@@ -86,6 +119,7 @@ function ItemCard({ item }: { item: NeedsAttentionItem }) {
 export function NeedsAttentionInbox({
   items,
   overflowCount,
+  now,
 }: NeedsAttentionInboxProps) {
   if (items.length === 0) {
     return (
@@ -103,7 +137,7 @@ export function NeedsAttentionInbox({
     <div data-testid="needs-attention-inbox" className="flex h-full flex-col gap-2">
       <ul className="flex flex-col gap-2">
         {items.map((item) => (
-          <ItemCard key={item.key} item={item} />
+          <ItemCard key={item.key} item={item} now={now} />
         ))}
       </ul>
       {overflowCount > 0 ? (

@@ -5,7 +5,7 @@ export function AdminPageHeader({
   title, sub, crumb, backHref, rightSlot,
 }: { title: string; sub?: string; crumb?: string; backHref?: string; rightSlot?: ReactNode }) {
   return (
-    <header data-testid="admin-page-header" className="mb-section-gap flex flex-col gap-2">
+    <header data-testid="admin-page-header" className="mb-section-gap flex flex-col gap-2 border-b border-border pb-6">
       {!crumb && !backHref && (
         <p data-testid="admin-page-header-eyebrow" className="text-xs font-medium uppercase text-text-faint" style={{ letterSpacing: "var(--tracking-eyebrow)" }}>Admin</p>
       )}
