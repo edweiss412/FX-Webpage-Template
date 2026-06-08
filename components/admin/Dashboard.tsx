@@ -536,19 +536,18 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
           flex child is a non-auto cross-size that SUPPRESSES align-items:stretch
           (the real-browser layout test caught this). Stacks on mobile. */}
       {/* Two-col split gated at min-[1080px], NOT min-[720px]. This <main> is
-          now full-width (M12.3 item 4); the admin layout wrapper caps content at
-          max-w-6xl (1152px, app/admin/layout.tsx), so usable content tops out
-          ~1152px at desktop.
+          now full-width; the admin layout wrapper caps content at max-w-[1600px]
+          (M12.4 item D2 — was max-w-6xl/1152px), so usable content now fills the
+          desktop viewport up to 1600px before centering.
           The shows col must host ShowsTable's fixed tracks (8+5+12+1.25rem +
-          gaps ≈ 484px) AND a usable minmax(0,1fr) title track after the 320px
-          inbox col is subtracted; the constant overhead is ~862px, so the title
-          track = contentWidth − 862. Below ~1046px viewport that goes negative
-          (title starves to 0px — the bug this gate caught). Below 1080px the
-          split stacks (single-column, full-width table → title has ample room);
-          at/above 1080px it goes side-by-side with a title track kept
-          comfortably above the 120px floor. Verified in the band-sweep layout
-          test (do not lower without re-running it — a lower breakpoint
-          re-collapses the title). */}
+          gaps ≈ 484px) AND a usable minmax(0,1fr) title track after the inbox col
+          is subtracted. The inbox is 320px (w-80) through the TIGHT split band
+          (1080–1279px) and only widens to 360px at ≥1280px where the uncapped
+          layout has slack — so the worst-case overhead at the 1080px activation
+          width is unchanged (~862px), keeping the title track comfortably above
+          the 120px floor. The band-sweep layout test (TITLE_BANDS up to 1280px)
+          pins this; do NOT widen the inbox at the 1080–1152 bands or lower the
+          split breakpoint without re-running it — either re-collapses the title. */}
       <div
         data-testid="dashboard-split"
         className="flex flex-col gap-tile-gap min-[1080px]:flex-row min-[1080px]:items-stretch"
@@ -558,61 +557,72 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
           aria-label={result.bucket === "archived" ? "Archived shows" : "Active shows"}
           className="flex min-w-0 flex-col gap-3 min-[1080px]:flex-1"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-text-strong">
-              {result.bucket === "archived" ? "Archived shows" : "Active shows"}
-            </h3>
-            <DashboardBucketSegmentedControl
-              bucket={result.bucket}
-              activeCount={result.activeCount}
-              archivedCount={result.archivedCount}
-            />
-          </div>
-
+          {/* M12.4 item D4: for the ACTIVE bucket the "Active shows" title, the
+              Find input, AND the segmented control share ONE header row, owned by
+              <ShowsTable> (the Find client-state lives there). The ARCHIVED bucket
+              has no Find, so it keeps its own title+control header row here. */}
           {result.bucket === "archived" ? (
-            result.rows.length === 0 ? (
-              <p
-                data-testid="archived-empty"
-                className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
-              >
-                No archived shows.
-              </p>
-            ) : (
-              <>
-                <ul className="flex flex-col gap-2">
-                  {result.rows.map((row) => (
-                    <ArchivedShowRow
-                      key={row.id}
-                      row={row}
-                      now={now}
-                      unarchiveAction={unarchiveShowAction}
-                    />
-                  ))}
-                </ul>
-                {result.overflowCount > 0 ? (
-                  <p
-                    data-testid="archived-overflow"
-                    className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-                  >
-                    Showing the first {result.rows.length} of {result.archivedCount} archived
-                    shows. Contact the developer if you need the full list.
-                  </p>
-                ) : null}
-              </>
-            )
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-text-strong">Archived shows</h3>
+                <DashboardBucketSegmentedControl
+                  bucket={result.bucket}
+                  activeCount={result.activeCount}
+                  archivedCount={result.archivedCount}
+                />
+              </div>
+              {result.rows.length === 0 ? (
+                <p
+                  data-testid="archived-empty"
+                  className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
+                >
+                  No archived shows.
+                </p>
+              ) : (
+                <>
+                  <ul className="flex flex-col gap-2">
+                    {result.rows.map((row) => (
+                      <ArchivedShowRow
+                        key={row.id}
+                        row={row}
+                        now={now}
+                        unarchiveAction={unarchiveShowAction}
+                      />
+                    ))}
+                  </ul>
+                  {result.overflowCount > 0 ? (
+                    <p
+                      data-testid="archived-overflow"
+                      className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+                    >
+                      Showing the first {result.rows.length} of {result.archivedCount} archived
+                      shows. Contact the developer if you need the full list.
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </>
           ) : (
             <ShowsTable
               rows={result.rows}
               now={now}
               activeCount={result.activeCount}
               overflowCount={result.overflowCount}
+              title="Active shows"
+              bucketControl={
+                <DashboardBucketSegmentedControl
+                  bucket={result.bucket}
+                  activeCount={result.activeCount}
+                  archivedCount={result.archivedCount}
+                />
+              }
             />
           )}
         </section>
         <section
           data-testid="dashboard-inbox-col"
           aria-label="Needs attention"
-          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0"
+          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0 min-[1280px]:w-[360px]"
         >
           <h3 className="text-lg font-semibold text-text-strong">Needs attention</h3>
           <NeedsAttentionInbox
@@ -620,6 +630,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
             totalCount={result.needsAttention.totalCount}
             renderedCount={result.needsAttention.renderedCount}
             overflowCount={result.needsAttention.overflowCount}
+            now={now}
           />
         </section>
       </div>

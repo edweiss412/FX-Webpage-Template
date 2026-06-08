@@ -247,4 +247,29 @@ describe("ShowsTable", () => {
     render(<ShowsTable rows={[]} now={now} activeCount={0} overflowCount={0} />);
     expect(screen.queryByTestId("shows-find-input")).toBeNull();
   });
+
+  // ── M12.4 item D4: title + Find + bucket toggle share ONE header row ──
+  it("header row carries the title and hosts BOTH the Find input and the bucketControl together", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "a" })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+        title="Active shows"
+        bucketControl={<button data-testid="fake-bucket-control">toggle</button>}
+      />,
+    );
+    const heading = screen.getByRole("heading", { name: "Active shows" });
+    const find = screen.getByTestId("shows-find-input");
+    const control = screen.getByTestId("fake-bucket-control");
+    // Find + control are siblings in the same right-hand cluster of the header.
+    const cluster = control.parentElement;
+    expect(cluster).not.toBeNull();
+    expect(cluster).toContainElement(find);
+    // The header row contains the heading too (single source: title lives here).
+    const headerRow = heading.parentElement;
+    expect(headerRow).toContainElement(control);
+    expect(headerRow).toContainElement(find);
+  });
 });

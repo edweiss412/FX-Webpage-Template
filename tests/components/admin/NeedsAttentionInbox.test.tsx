@@ -22,10 +22,13 @@ vi.mock("next/navigation", () => ({
 afterEach(cleanup);
 
 const GENERIC = MESSAGE_CATALOG.SHEET_PROCESS_FAILED.dougFacing!;
+// Deterministic clock for the per-card relative timestamp (M12.4 item D3).
+const NOW = new Date("2026-06-01T12:00:00.000Z");
+const ONE_HR_AGO = new Date("2026-06-01T11:00:00.000Z").toISOString();
 
 describe("NeedsAttentionInbox", () => {
   it("empty items -> 'Nothing waiting on you' empty state", () => {
-    render(<NeedsAttentionInbox items={[]} totalCount={0} renderedCount={0} overflowCount={0} />);
+    render(<NeedsAttentionInbox items={[]} totalCount={0} renderedCount={0} overflowCount={0} now={NOW} />);
     expect(screen.getByTestId("admin-needs-attention-empty").textContent ?? "").toMatch(
       /nothing waiting on you/i,
     );
@@ -33,11 +36,11 @@ describe("NeedsAttentionInbox", () => {
 
   it("renders a tone pill + action per item variant", () => {
     const items: NeedsAttentionItem[] = [
-      { variant: "pending_ingestion", key: "ingestion:i1", id: "i1", driveFileId: "d1", driveFileName: "Bad Sheet", copy: GENERIC },
-      { variant: "first_seen", key: "sync:s1", stagedId: "s1", driveFileId: "d2", candidateTitle: "New Show" },
-      { variant: "existing_staged", key: "sync:s2", stagedId: "s2", driveFileId: "d3", slug: "known-show", title: "Known Show" },
+      { variant: "pending_ingestion", key: "ingestion:i1", id: "i1", driveFileId: "d1", driveFileName: "Bad Sheet", copy: GENERIC, activityAt: ONE_HR_AGO },
+      { variant: "first_seen", key: "sync:s1", stagedId: "s1", driveFileId: "d2", candidateTitle: "New Show", activityAt: ONE_HR_AGO },
+      { variant: "existing_staged", key: "sync:s2", stagedId: "s2", driveFileId: "d3", slug: "known-show", title: "Known Show", activityAt: ONE_HR_AGO },
     ];
-    render(<NeedsAttentionInbox items={items} totalCount={3} renderedCount={3} overflowCount={0} />);
+    render(<NeedsAttentionInbox items={items} totalCount={3} renderedCount={3} overflowCount={0} now={NOW} />);
     // pending_ingestion → retry/discard action buttons (existing PendingPanel)
     expect(screen.getByTestId("admin-pending-retry-i1")).toBeInTheDocument();
     // first_seen → onboarding staged review link
@@ -48,11 +51,30 @@ describe("NeedsAttentionInbox", () => {
     expect(es.getAttribute("href")).toBe("/admin/show/known-show");
   });
 
+  // M12.4 item D3 — each card shows a relative activity timestamp top-right when
+  // the item carries one; the bare "never" placeholder is never rendered for a
+  // null activityAt (the <time> is omitted entirely). Failure mode this catches:
+  // a missing/garbled timestamp, or "never" leaking onto timeless items.
+  it("renders a relative timestamp from activityAt; omits it when null", () => {
+    const items: NeedsAttentionItem[] = [
+      { variant: "existing_staged", key: "sync:withTime", stagedId: "s1", driveFileId: "d1", slug: "with-time", title: "With Time", activityAt: ONE_HR_AGO },
+      { variant: "existing_staged", key: "sync:noTime", stagedId: "s2", driveFileId: "d2", slug: "no-time", title: "No Time", activityAt: null },
+    ];
+    render(<NeedsAttentionInbox items={items} totalCount={2} renderedCount={2} overflowCount={0} now={NOW} />);
+    const withTime = screen.getByTestId("needs-attention-time-sync:withTime");
+    expect(withTime.textContent).toBe("1h ago");
+    expect(withTime).toHaveAttribute("dateTime", ONE_HR_AGO);
+    // The timeless card renders NO <time> element and never the "never" string.
+    expect(screen.queryByTestId("needs-attention-time-sync:noTime")).toBeNull();
+    const noTimeCard = screen.getByTestId("needs-attention-item-existing-s2");
+    expect(noTimeCard.textContent ?? "").not.toMatch(/never/i);
+  });
+
   it("existing_staged routes to /admin/show/{slug} (incl archived/unpublished existing shows)", () => {
     const items: NeedsAttentionItem[] = [
-      { variant: "existing_staged", key: "sync:s9", stagedId: "s9", driveFileId: "d9", slug: "archived-one", title: null },
+      { variant: "existing_staged", key: "sync:s9", stagedId: "s9", driveFileId: "d9", slug: "archived-one", title: null, activityAt: ONE_HR_AGO },
     ];
-    render(<NeedsAttentionInbox items={items} totalCount={1} renderedCount={1} overflowCount={0} />);
+    render(<NeedsAttentionInbox items={items} totalCount={1} renderedCount={1} overflowCount={0} now={NOW} />);
     expect(screen.getByTestId("needs-attention-link-archived-one").getAttribute("href")).toBe(
       "/admin/show/archived-one",
     );
@@ -60,15 +82,15 @@ describe("NeedsAttentionInbox", () => {
 
   it("'+N more' affordance uses the REAL overflowCount, not items.length", () => {
     const items: NeedsAttentionItem[] = [
-      { variant: "existing_staged", key: "sync:s1", stagedId: "s1", driveFileId: "d1", slug: "a", title: "A" },
+      { variant: "existing_staged", key: "sync:s1", stagedId: "s1", driveFileId: "d1", slug: "a", title: "A", activityAt: ONE_HR_AGO },
     ];
-    render(<NeedsAttentionInbox items={items} totalCount={25} renderedCount={1} overflowCount={24} />);
+    render(<NeedsAttentionInbox items={items} totalCount={25} renderedCount={1} overflowCount={24} now={NOW} />);
     const more = screen.getByTestId("needs-attention-more");
     expect(more.textContent).toMatch(/24/);
   });
 
   it("no '+N more' when overflowCount=0", () => {
-    render(<NeedsAttentionInbox items={[]} totalCount={0} renderedCount={0} overflowCount={0} />);
+    render(<NeedsAttentionInbox items={[]} totalCount={0} renderedCount={0} overflowCount={0} now={NOW} />);
     expect(screen.queryByTestId("needs-attention-more")).toBeNull();
   });
 
@@ -81,7 +103,7 @@ describe("NeedsAttentionInbox", () => {
       existence: {},
       totalCounts: { ingestions: 1, syncs: 0 },
     });
-    const { container } = render(<NeedsAttentionInbox {...na} />);
+    const { container } = render(<NeedsAttentionInbox {...na} now={NOW} />);
     expect(container.textContent).toContain(GENERIC);
     expect(container.textContent).not.toMatch(/MI-2_EMPTY_TITLE/);
     expect(container.textContent).not.toMatch(/<[a-z-]+>/i);
@@ -97,7 +119,7 @@ describe("NeedsAttentionInbox", () => {
       existence: {},
       totalCounts: { ingestions: 1, syncs: 0 },
     });
-    const { container } = render(<NeedsAttentionInbox {...na} />);
+    const { container } = render(<NeedsAttentionInbox {...na} now={NOW} />);
     expect(container.textContent).toContain(GENERIC);
     expect(container.textContent).not.toContain(raw);
   });
