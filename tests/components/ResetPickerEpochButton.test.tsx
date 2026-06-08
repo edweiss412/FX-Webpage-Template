@@ -62,11 +62,20 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
   // descriptive accessible name + aria-describedby (adversarial review). aria-label
   // contains the visible "Reset" (WCAG 2.5.3 Label-in-Name).
   test("compact: descriptive accessible name + aria-describedby to the row description", () => {
-    render(<ResetPickerEpochButton showId={SHOW_ID} compact describedById="row-desc" />);
+    render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
     const btn = screen.getByRole("button", { name: /reset name picker/i });
     expect(btn).toBe(idleBtn());
     expect(btn.textContent).toContain("Reset");
-    expect(btn.getAttribute("aria-describedby")).toBe("row-desc");
+    const descId = btn.getAttribute("aria-describedby");
+    expect(descId).toBeTruthy();
+    expect(document.getElementById(descId!)?.textContent ?? "").toMatch(/re-picks/i);
   });
 
   test("idle → confirm: tap reveals confirm + cancel + count-free preview copy", () => {

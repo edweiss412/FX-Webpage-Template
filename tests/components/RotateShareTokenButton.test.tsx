@@ -77,13 +77,19 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
         showId={SHOW_ID}
         slug={SLUG}
         compact
-        describedById="row-desc"
+        rowLabel="Rotate share link"
+        rowDescription="Mint a new link; the old one stops working immediately."
       />,
     );
     const btn = screen.getByRole("button", { name: /rotate share link/i });
     expect(btn).toBe(idleBtn());
     expect(btn.textContent).toContain("Rotate"); // visible word retained
-    expect(btn.getAttribute("aria-describedby")).toBe("row-desc");
+    // aria-describedby resolves to the (component-owned) row description.
+    const descId = btn.getAttribute("aria-describedby");
+    expect(descId).toBeTruthy();
+    expect(document.getElementById(descId!)?.textContent ?? "").toMatch(
+      /old one stops working/i,
+    );
   });
 
   test("idle → confirm: tap reveals confirm + cancel + URL-will-change warning", () => {
