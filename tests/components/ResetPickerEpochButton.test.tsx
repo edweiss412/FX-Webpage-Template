@@ -58,6 +58,17 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     expect(idleBtn().textContent).toContain("Reset picker selections");
   });
 
+  // M12.6 — compact share-card variant: visible text "Reset" → needs a
+  // descriptive accessible name + aria-describedby (adversarial review). aria-label
+  // contains the visible "Reset" (WCAG 2.5.3 Label-in-Name).
+  test("compact: descriptive accessible name + aria-describedby to the row description", () => {
+    render(<ResetPickerEpochButton showId={SHOW_ID} compact describedById="row-desc" />);
+    const btn = screen.getByRole("button", { name: /reset name picker/i });
+    expect(btn).toBe(idleBtn());
+    expect(btn.textContent).toContain("Reset");
+    expect(btn.getAttribute("aria-describedby")).toBe("row-desc");
+  });
+
   test("idle → confirm: tap reveals confirm + cancel + count-free preview copy", () => {
     render(<ResetPickerEpochButton showId={SHOW_ID} />);
     fireEvent.click(idleBtn());

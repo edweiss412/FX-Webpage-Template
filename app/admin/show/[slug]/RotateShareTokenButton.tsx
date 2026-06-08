@@ -37,6 +37,7 @@ export function RotateShareTokenButton({
   slug,
   isCrewLinkActive = true,
   compact = false,
+  describedById,
 }: {
   showId: string;
   slug: string;
@@ -47,6 +48,13 @@ export function RotateShareTokenButton({
    * confirm step). Non-compact keeps the standalone warning-styled button.
    */
   compact?: boolean;
+  /**
+   * M12.6 — id of the share-card row's description element. When compact, the
+   * button carries a descriptive aria-label ("Rotate share link", containing the
+   * visible "Rotate" for WCAG 2.5.3) + aria-describedby={describedById} so the
+   * destructive consequence is announced even out of visual row context.
+   */
+  describedById?: string;
   /**
    * M12.2 Phase A (§6 / R27) — published && !archived && token. When false,
    * the rotate-success state shows a NON-LINK "crew link inactive" message
@@ -161,6 +169,8 @@ export function RotateShareTokenButton({
           type="button"
           onClick={onRotateClick}
           data-testid="admin-rotate-share-token-button"
+          aria-label={compact ? "Rotate share link" : undefined}
+          aria-describedby={compact ? describedById : undefined}
           className={
             compact
               ? "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"

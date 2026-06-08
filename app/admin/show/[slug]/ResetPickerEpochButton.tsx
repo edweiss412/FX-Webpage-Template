@@ -33,10 +33,17 @@ type Result =
 export function ResetPickerEpochButton({
   showId,
   compact = false,
+  describedById,
 }: {
   showId: string;
   /** M12.6 — compact "Reset" button for the share-card's labeled action row. */
   compact?: boolean;
+  /**
+   * M12.6 — id of the share-card row's description element. When compact, the
+   * button carries a descriptive aria-label ("Reset name picker", containing the
+   * visible "Reset" for WCAG 2.5.3) + aria-describedby={describedById}.
+   */
+  describedById?: string;
 }) {
   const [ui, setUi] = useState<UiState>("idle");
   const [result, setResult] = useState<Result>(null);
@@ -102,6 +109,8 @@ export function ResetPickerEpochButton({
           type="button"
           onClick={onResetClick}
           data-testid="admin-reset-picker-epoch-button"
+          aria-label={compact ? "Reset name picker" : undefined}
+          aria-describedby={compact ? describedById : undefined}
           className={
             compact
               ? "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
