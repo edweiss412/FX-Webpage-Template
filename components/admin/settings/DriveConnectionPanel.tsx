@@ -80,7 +80,7 @@ function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
 // Plain copy (not an error code) — same register as the helper text below.
 function deriveHealthExplainer(health: DriveConnectionHealth): string {
   if ("kind" in health) {
-    return "We couldn't read your connection status just now. Refresh in a moment — if it keeps happening, contact the developer.";
+    return "We couldn't read your connection status just now. Refresh in a moment; if it keeps happening, contact the developer.";
   }
   // Positive never shows the tooltip; return empty so the union narrows to warn.
   if (health.health === "positive") return "";
@@ -89,14 +89,14 @@ function deriveHealthExplainer(health: DriveConnectionHealth): string {
       return "You haven't pointed FXAV at a Drive folder yet. Run setup to choose the folder it should watch.";
     case "watch_inactive":
     case "watch_expired":
-      return "FXAV's link to your Drive folder lapsed, so new edits may not sync. Re-run setup to reconnect — your existing shows keep all their data.";
+      return "FXAV's link to your Drive folder lapsed, so new edits may not sync. Re-run setup to reconnect; your existing shows keep all their data.";
     case "sync_unknown":
       // B1-D2 contract: sync_unknown is a developer-attention / data-integrity
       // state (enum drift / corrupt row), NOT routine staleness. Mirror the
       // SYNC_STATUS_UNKNOWN catalog posture ("the developer should take a
       // look") — do NOT imply it clears on its own, which would soften the
       // intended escalation.
-      return "FXAV doesn't recognize this show's sync state — that's usually a data issue, not something that clears on its own. Send it to the developer to look into.";
+      return "FXAV doesn't recognize this show's sync state. That's usually a data issue, not something that clears on its own. Send it to the developer to look into.";
     default:
       return "One or more sheets haven't synced recently. Open the folder to confirm FXAV still has access, then re-run setup if anything changed.";
   }
