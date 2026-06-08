@@ -195,6 +195,39 @@ describe("<CurrentShareLinkPanel>", () => {
     );
   });
 
+  // M12.5 — Rotate/Reset are folded INTO this card via the `actions` slot. The
+  // slot MUST render inside the panel card both when a token exists AND when it's
+  // unavailable (rotate must stay reachable after a failed token read, §6 R1).
+  test("renders the actions slot INSIDE the card when a token exists", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
+    vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
+    const { getByTestId } = render(
+      await CurrentShareLinkPanel({
+        showId: SHOW_ID,
+        slug: SLUG,
+        token: TOKEN,
+        actions: <button data-testid="fold-action">Rotate</button>,
+      }),
+    );
+    const card = getByTestId("admin-current-share-link-panel");
+    const action = getByTestId("fold-action");
+    expect(card.contains(action)).toBe(true);
+  });
+
+  test("renders the actions slot INSIDE the card even when the token is unavailable", async () => {
+    const { getByTestId } = render(
+      await CurrentShareLinkPanel({
+        showId: SHOW_ID,
+        slug: SLUG,
+        token: null,
+        actions: <button data-testid="fold-action">Rotate</button>,
+      }),
+    );
+    const card = getByTestId("admin-current-share-link-panel");
+    expect(getByTestId("admin-current-share-link-unavailable")).toBeTruthy();
+    expect(card.contains(getByTestId("fold-action"))).toBe(true);
+  });
+
   test("URL display has the share-link section heading + crew-facing copy", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
     vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);

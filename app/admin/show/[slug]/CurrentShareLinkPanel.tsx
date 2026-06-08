@@ -25,6 +25,7 @@
  * Rotate's own success banner is the authoritative "what to copy now" — this
  * panel is the persistent reminder that shows the same thing on next visit.
  */
+import type { ReactNode } from "react";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
@@ -37,9 +38,17 @@ export async function CurrentShareLinkPanel({
   showId,
   slug,
   token: tokenProp,
+  actions,
 }: {
   showId: string;
   slug: string;
+  /**
+   * M12.5 — optional management actions (Rotate share link, Reset name picker)
+   * rendered INSIDE this card as a divider-separated block, both when a token
+   * exists and when it's unavailable (rotate must stay reachable after a failed
+   * token read — spec §6 R1/R27). Omit for standalone read-only use.
+   */
+  actions?: ReactNode;
   /**
    * M12.2 Phase A (Codex R2) — single render-scoped token snapshot. When the
    * caller has ALREADY read the share token (the per-show page reads it once
@@ -78,6 +87,7 @@ export async function CurrentShareLinkPanel({
           The share-link is unavailable right now. Refresh the page; if the
           problem repeats, rotate to mint a new link.
         </p>
+        {actions}
       </div>
     );
   }
@@ -104,6 +114,7 @@ export async function CurrentShareLinkPanel({
         </code>
         <ShareLinkCopyButton url={url} />
       </div>
+      {actions}
     </div>
   );
 }

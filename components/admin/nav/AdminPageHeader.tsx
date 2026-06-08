@@ -2,8 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 export function AdminPageHeader({
-  title, sub, crumb, backHref, rightSlot,
-}: { title: string; sub?: string; crumb?: string; backHref?: string; rightSlot?: ReactNode }) {
+  title, sub, subSlot, crumb, backHref, rightSlot,
+}: { title: string; sub?: string; subSlot?: ReactNode; crumb?: string; backHref?: string; rightSlot?: ReactNode }) {
   return (
     <header data-testid="admin-page-header" className="mb-section-gap flex flex-col gap-2 border-b border-border pb-6">
       {!crumb && !backHref && (
@@ -24,6 +24,10 @@ export function AdminPageHeader({
         {rightSlot && <div data-testid="admin-page-header-right" className="flex flex-wrap items-center gap-2">{rightSlot}</div>}
       </div>
       {sub && <p className="max-w-prose text-base text-text-subtle">{sub}</p>}
+      {/* subSlot renders inside the header — i.e. directly under the title, ABOVE
+          the bottom divider — for callers that need a custom subtitle element
+          (e.g. the per-show client·dates line keeps its own testid + sizing). */}
+      {subSlot}
     </header>
   );
 }
