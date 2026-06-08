@@ -19,7 +19,7 @@
 
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 import { resolveOrigin } from "./resolveOrigin";
@@ -37,7 +37,8 @@ export function RotateShareTokenButton({
   slug,
   isCrewLinkActive = true,
   compact = false,
-  describedById,
+  rowLabel,
+  rowDescription,
 }: {
   showId: string;
   slug: string;
@@ -49,12 +50,16 @@ export function RotateShareTokenButton({
    */
   compact?: boolean;
   /**
-   * M12.6 — id of the share-card row's description element. When compact, the
-   * button carries a descriptive aria-label ("Rotate share link", containing the
-   * visible "Rotate" for WCAG 2.5.3) + aria-describedby={describedById} so the
-   * destructive consequence is announced even out of visual row context.
+   * M12.7 — when compact, the component OWNS the share-card action ROW: it renders
+   * the label + one-line description on the left and the small button on the
+   * right, and (crucially) renders its two-tap confirm + rotate-success states
+   * FULL-WIDTH below that label row instead of cramped in a right cell. The idle
+   * button gets a descriptive aria-label ("Rotate share link", containing the
+   * visible "Rotate" for WCAG 2.5.3) + aria-describedby to the (internal) row
+   * description so the destructive consequence is announced out of visual context.
    */
-  describedById?: string;
+  rowLabel?: string;
+  rowDescription?: string;
   /**
    * M12.2 Phase A (§6 / R27) — published && !archived && token. When false,
    * the rotate-success state shows a NON-LINK "crew link inactive" message
@@ -71,6 +76,7 @@ export function RotateShareTokenButton({
   const [isPending, startTransition] = useTransition();
   const autoRevertRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const descId = useId(); // compact row-description id (aria-describedby target)
 
   const clearAutoRevert = () => {
     if (autoRevertRef.current !== null) {
@@ -162,29 +168,47 @@ export function RotateShareTokenButton({
       : null;
   const isResolving = ui === "resolving" || isPending;
 
-  if (ui === "idle") {
-    return (
-      <div className="flex flex-col items-end gap-2">
-        <button
-          type="button"
-          onClick={onRotateClick}
-          data-testid="admin-rotate-share-token-button"
-          aria-label={compact ? "Rotate share link" : undefined}
-          aria-describedby={compact ? describedById : undefined}
-          className={
-            compact
-              ? "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-              : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-2 rounded-sm border border-warning-text/60 bg-surface px-4 py-2 font-medium text-warning-text transition-colors duration-fast hover:bg-warning-bg/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-          }
-        >
-          {compact ? (
-            <RotateCcw aria-hidden="true" size={14} />
-          ) : (
-            <AlertTriangle aria-hidden="true" size={16} />
-          )}
-          {compact ? "Rotate" : "Rotate share-token"}
-        </button>
-        {newUrl && (
+  // M12.7 — share-card labeled row owned by this component when compact, so the
+  // confirm/success states can render FULL-WIDTH below the label (not in a
+  // cramped right cell). The description carries the id the idle button points to
+  // via aria-describedby (announces the destructive consequence out of context).
+  const labelHeader =
+    compact && rowLabel ? (
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-text-strong">{rowLabel}</p>
+        {rowDescription ? (
+          <p id={descId} className="text-xs text-text-subtle">
+            {rowDescription}
+          </p>
+        ) : null}
+      </div>
+    ) : null;
+
+  const idleButton = (
+    <button
+      type="button"
+      onClick={onRotateClick}
+      data-testid="admin-rotate-share-token-button"
+      aria-label={compact ? "Rotate share link" : undefined}
+      aria-describedby={compact && rowDescription ? descId : undefined}
+      className={
+        compact
+          ? "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-2 rounded-sm border border-warning-text/60 bg-surface px-4 py-2 font-medium text-warning-text transition-colors duration-fast hover:bg-warning-bg/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+      }
+    >
+      {compact ? (
+        <RotateCcw aria-hidden="true" size={14} />
+      ) : (
+        <AlertTriangle aria-hidden="true" size={16} />
+      )}
+      {compact ? "Rotate" : "Rotate share-token"}
+    </button>
+  );
+
+  const banners = (
+    <>
+      {newUrl && (
           <div
             data-testid="admin-rotate-share-token-ok"
             role="status"
@@ -251,52 +275,83 @@ export function RotateShareTokenButton({
             {refusedMessage}
           </p>
         )}
+    </>
+  );
+
+  if (ui === "idle") {
+    // Compact: the label row owns the layout; banners render FULL-WIDTH below it.
+    return compact && rowLabel ? (
+      <div className="flex flex-col gap-2 py-3">
+        <div className="flex items-start justify-between gap-3">
+          {labelHeader}
+          {idleButton}
+        </div>
+        {banners}
+      </div>
+    ) : (
+      <div className="flex flex-col items-end gap-2">
+        {idleButton}
+        {banners}
       </div>
     );
   }
 
-  // M11.5-IMP-5 item 4 (Block-2.2 2026-05-27): aria-describedby links the
-  // destructive Confirm button to the warning paragraph's id. group-label
-  // already suffices for WCAG 2.1; the describedby provides the tighter
-  // SR experience DEFERRED.md item 4 requested. Layout pattern (outer
-  // flex-col + nested flex-wrap button row) is the canonical shape that
-  // ResetPickerEpochButton was unified onto in this same commit (item 5).
-  return (
+  // M11.5-IMP-5 item 4: aria-describedby links the destructive Confirm button to
+  // the warning paragraph's id (tighter SR experience).
+  const warningP = (
+    <p id="admin-rotate-share-token-warning" className="text-sm text-text-subtle">
+      The existing show URL will stop working. Crew need the new URL to reach the
+      page.
+    </p>
+  );
+  const confirmCancelButtons = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <button
+        type="button"
+        onClick={onConfirmClick}
+        disabled={isResolving}
+        aria-busy={isResolving}
+        aria-describedby="admin-rotate-share-token-warning"
+        data-testid="admin-rotate-share-token-confirm-button"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isResolving ? "Rotating…" : "Confirm rotate"}
+      </button>
+      <button
+        type="button"
+        onClick={onCancelClick}
+        disabled={isResolving}
+        data-testid="admin-rotate-share-token-cancel-button"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+
+  // Compact confirm: the label is its OWN top row; the warning AND the
+  // Confirm/Cancel controls both render FULL-WIDTH below it — never cramped in a
+  // right cell beside the label (adversarial M12.7).
+  return compact && rowLabel ? (
+    <div
+      data-testid="admin-rotate-share-token-confirm-row"
+      role="group"
+      aria-label="Confirm rotating the share-token for this show"
+      className="flex flex-col gap-2 py-3"
+    >
+      {labelHeader}
+      {warningP}
+      {confirmCancelButtons}
+    </div>
+  ) : (
     <div
       data-testid="admin-rotate-share-token-confirm-row"
       role="group"
       aria-label="Confirm rotating the share-token for this show"
       className="flex flex-col items-end gap-2"
     >
-      <p
-        id="admin-rotate-share-token-warning"
-        className="text-sm text-text-subtle"
-      >
-        The existing show URL will stop working. Crew need the new URL to
-        reach the page.
-      </p>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={onConfirmClick}
-          disabled={isResolving}
-          aria-busy={isResolving}
-          aria-describedby="admin-rotate-share-token-warning"
-          data-testid="admin-rotate-share-token-confirm-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isResolving ? "Rotating…" : "Confirm rotate"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancelClick}
-          disabled={isResolving}
-          data-testid="admin-rotate-share-token-cancel-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Cancel
-        </button>
-      </div>
+      {warningP}
+      {confirmCancelButtons}
     </div>
   );
 }

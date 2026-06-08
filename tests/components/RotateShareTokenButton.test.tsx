@@ -77,13 +77,42 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
         showId={SHOW_ID}
         slug={SLUG}
         compact
-        describedById="row-desc"
+        rowLabel="Rotate share link"
+        rowDescription="Mint a new link; the old one stops working immediately."
       />,
     );
     const btn = screen.getByRole("button", { name: /rotate share link/i });
     expect(btn).toBe(idleBtn());
     expect(btn.textContent).toContain("Rotate"); // visible word retained
-    expect(btn.getAttribute("aria-describedby")).toBe("row-desc");
+    // aria-describedby resolves to the (component-owned) row description.
+    const descId = btn.getAttribute("aria-describedby");
+    expect(descId).toBeTruthy();
+    expect(document.getElementById(descId!)?.textContent ?? "").toMatch(
+      /old one stops working/i,
+    );
+  });
+
+  // M12.7 (adversarial) — tapping into confirm must render Confirm/Cancel
+  // FULL-WIDTH below the label row, NOT cramped in a justify-between right cell
+  // beside the label/description.
+  test("compact confirm: Confirm/Cancel render full-width below the label, not beside it", () => {
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        compact
+        rowLabel="Rotate share link"
+        rowDescription="Mint a new link; the old one stops working immediately."
+      />,
+    );
+    fireEvent.click(screen.getByTestId("admin-rotate-share-token-button"));
+    const confirmRow = screen.getByTestId("admin-rotate-share-token-confirm-row");
+    const confirmBtn = screen.getByTestId("admin-rotate-share-token-confirm-button");
+    expect(confirmRow.contains(confirmBtn)).toBe(true);
+    expect(confirmRow.textContent).toMatch(/rotate share link/i); // label still shown
+    // The cramped layout wrapped label+buttons in a justify-between row; the fix
+    // removes that, so the Confirm control has no justify-between ancestor.
+    expect(confirmBtn.closest('[class*="justify-between"]')).toBeNull();
   });
 
   test("idle → confirm: tap reveals confirm + cancel + URL-will-change warning", () => {

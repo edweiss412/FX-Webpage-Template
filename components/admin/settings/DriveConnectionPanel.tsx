@@ -195,15 +195,17 @@ export function DriveConnectionPanel({
 
       <hr className="border-border" />
 
-      {/* M12.3 item 8: helper text LEFT, both buttons grouped RIGHT in one row
-          (wraps on narrow widths). "Re-run setup" is a NEUTRAL/outline button,
+      {/* M12.3 item 8 / M12.7: helper text LEFT, both buttons grouped RIGHT on
+          ONE row at ≥720px (the description WRAPS to multiple lines if needed
+          rather than the buttons dropping to a new row — matching the design).
+          Stacks vertically on mobile. "Re-run setup" is a NEUTRAL/outline button,
           not orange/accent. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-prose text-sm text-text-subtle">
+      <div className="flex flex-col gap-3 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
+        <p className="min-w-0 text-sm text-text-subtle">
           Need to switch folders? Re-run setup. Your current shows keep syncing
           the whole time.
         </p>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-[720px]:shrink-0">
           {folderUrl && (
             <a
               data-testid="drive-connection-open-folder"
