@@ -37,6 +37,16 @@ it("eyebrow absent when crumb/backHref present (per-show pages)", () => {
   expect(screen.queryByTestId("admin-page-header-eyebrow")).toBeNull();
   expect(screen.getByTestId("admin-page-header-crumb")).toBeInTheDocument();
 });
+it("M12.8: title letter-spacing matches the design's -0.02em (NOT Tailwind tracking-tight's -0.025em)", () => {
+  render(<AdminPageHeader title="Dashboard" />);
+  const h1 = screen.getByTestId("admin-page-header-title");
+  // The design bundle's `.page-title` is letter-spacing:-.02em. Tailwind's
+  // `tracking-tight` token is -0.025em — close but NOT the design value, so the
+  // arbitrary `tracking-[-0.02em]` is the contract. (jsdom doesn't compute
+  // letter-spacing, so we pin the class that guarantees it.)
+  expect(h1.className).toContain("tracking-[-0.02em]");
+  expect(h1.className).not.toContain("tracking-tight");
+});
 it("architectural guard: header is prop-driven — NO global HEADERS / route-to-header map exists in components/admin/nav/", () => {
   // an unknown route cannot crash a global header lookup because there is none.
   // imports are at top of file

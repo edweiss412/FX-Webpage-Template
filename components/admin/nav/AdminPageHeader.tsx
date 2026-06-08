@@ -23,7 +23,9 @@ export function AdminPageHeader({
         </div>
       )}
       <div className="flex flex-col gap-2 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
-        <h1 className="text-2xl font-semibold leading-[1.1] tracking-tight text-text-strong" data-testid="admin-page-header-title">{title}</h1>
+        {/* M12.8: tracking-[-0.02em] matches the design bundle's `.page-title`
+            letter-spacing exactly (Tailwind's `tracking-tight` is -0.025em). */}
+        <h1 className="text-2xl font-semibold leading-[1.1] tracking-[-0.02em] text-text-strong" data-testid="admin-page-header-title">{title}</h1>
         {rightSlot && <div data-testid="admin-page-header-right" className="flex flex-wrap items-center gap-2">{rightSlot}</div>}
       </div>
       {sub && <p className="max-w-prose text-base text-text-subtle">{sub}</p>}
