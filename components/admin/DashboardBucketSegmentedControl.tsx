@@ -29,8 +29,11 @@ type Props = {
   archivedCount: number;
 };
 
+// Compact (M12.6): tighter horizontal padding + a smaller container inset than
+// the original px-4/p-1. The 44px min-height (min-h-tap-min) is the DESIGN tap
+// target floor and stays — only the visual bulk (width + inset) shrinks.
 const SEG_BASE =
-  "inline-flex h-full min-h-tap-min items-center justify-center rounded-sm px-4 py-1.5 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+  "inline-flex h-full min-h-tap-min items-center justify-center rounded-sm px-3 py-1 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
 
 function segClass(selected: boolean): string {
   return selected
@@ -45,7 +48,7 @@ export function DashboardBucketSegmentedControl({ bucket, activeCount, archivedC
       data-testid="dashboard-bucket-segmented"
       role="group"
       aria-label="Show bucket filter"
-      className="inline-flex items-stretch gap-1 rounded-md border border-border bg-surface-sunken p-1"
+      className="inline-flex items-stretch gap-0.5 rounded-md border border-border bg-surface-sunken p-0.5"
     >
       {/* Navigation links, not ARIA tabs (no tabpanel) — selection is carried by aria-current="page". */}
       <Link

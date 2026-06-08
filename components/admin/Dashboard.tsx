@@ -16,7 +16,6 @@
  * The redesigned composition (StatStrip + ShowsTable ⟷ NeedsAttentionInbox +
  * footer) lands in Task 7; this file ships the data layer + interim render.
  */
-import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
 import { type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
@@ -509,20 +508,11 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
       data-testid="admin-dashboard"
       className="flex w-full flex-col gap-section-gap"
     >
-      {/* Title + sub + eyebrow now live in the shared <AdminPageHeader>
-          rendered above <Dashboard/> in app/admin/page.tsx (Task 4.1 single
-          title source). The settings link stays here as a dashboard-local
-          affordance. */}
-      <p className="text-sm text-text-subtle">
-        <Link
-          href="/admin/settings"
-          data-testid="admin-dashboard-settings-link"
-          className="text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          Open settings
-        </Link>
-      </p>
-
+      {/* Title + sub + eyebrow live in the shared <AdminPageHeader> rendered
+          above <Dashboard/> in app/admin/page.tsx (Task 4.1 single title source).
+          The dashboard-local "Open settings" link was removed (M12.6) — the
+          top-nav "Settings" tab is the canonical affordance; a second link above
+          the stat strip was redundant chrome. */}
       <StatStrip
         activeCount={result.activeCount}
         liveCount={result.liveCount}

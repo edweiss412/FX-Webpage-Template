@@ -17,7 +17,7 @@
  *     to admin_alerts via the action body, not to the UI).
  */
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
@@ -36,9 +36,17 @@ export function RotateShareTokenButton({
   showId,
   slug,
   isCrewLinkActive = true,
+  compact = false,
 }: {
   showId: string;
   slug: string;
+  /**
+   * M12.6 — compact rendering for the share-link card's labeled action ROW
+   * (label/description on the left, this button on the right). The idle button
+   * becomes a small neutral "Rotate" (the destructive warning lives in the
+   * confirm step). Non-compact keeps the standalone warning-styled button.
+   */
+  compact?: boolean;
   /**
    * M12.2 Phase A (§6 / R27) — published && !archived && token. When false,
    * the rotate-success state shows a NON-LINK "crew link inactive" message
@@ -153,10 +161,18 @@ export function RotateShareTokenButton({
           type="button"
           onClick={onRotateClick}
           data-testid="admin-rotate-share-token-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-2 rounded-sm border border-warning-text/60 bg-surface px-4 py-2 font-medium text-warning-text transition-colors duration-fast hover:bg-warning-bg/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          className={
+            compact
+              ? "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-2 rounded-sm border border-warning-text/60 bg-surface px-4 py-2 font-medium text-warning-text transition-colors duration-fast hover:bg-warning-bg/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          }
         >
-          <AlertTriangle aria-hidden="true" size={16} />
-          Rotate share-token
+          {compact ? (
+            <RotateCcw aria-hidden="true" size={14} />
+          ) : (
+            <AlertTriangle aria-hidden="true" size={16} />
+          )}
+          {compact ? "Rotate" : "Rotate share-token"}
         </button>
         {newUrl && (
           <div

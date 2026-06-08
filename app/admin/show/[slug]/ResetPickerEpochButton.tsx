@@ -17,6 +17,7 @@
  * count from the server-side state.
  */
 
+import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
@@ -29,7 +30,14 @@ type Result =
   | { ok: false; code: string }
   | null;
 
-export function ResetPickerEpochButton({ showId }: { showId: string }) {
+export function ResetPickerEpochButton({
+  showId,
+  compact = false,
+}: {
+  showId: string;
+  /** M12.6 — compact "Reset" button for the share-card's labeled action row. */
+  compact?: boolean;
+}) {
   const [ui, setUi] = useState<UiState>("idle");
   const [result, setResult] = useState<Result>(null);
   const [isPending, startTransition] = useTransition();
@@ -94,9 +102,20 @@ export function ResetPickerEpochButton({ showId }: { showId: string }) {
           type="button"
           onClick={onResetClick}
           data-testid="admin-reset-picker-epoch-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          className={
+            compact
+              ? "inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          }
         >
-          Reset picker selections
+          {compact ? (
+            <>
+              <RefreshCw aria-hidden="true" size={14} />
+              Reset
+            </>
+          ) : (
+            "Reset picker selections"
+          )}
         </button>
         {okMessage && (
           <p
