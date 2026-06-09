@@ -279,6 +279,24 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     },
     rowFilter: "?summary=eq.postgrest-dml-lockdown-test-no-such-row",
   },
+  {
+    // Internal allowlist for the no-global-cursor DDL event trigger (20260501004000).
+    // NOT RPC-gated — it has no RPC entry point and no app PostgREST access at all:
+    // the reject_global_watermark_columns() event trigger reads it in-DB (bypasses RLS)
+    // and the X.4 audit reads migration SQL text. Locked down to service_role only;
+    // no PostgREST SELECT either (selectAnon/Authenticated both false). Registered here
+    // because Layer 4 requires every table-level REVOKE to carry a registry row.
+    table: "_allowed_watermark_columns",
+    closed_at:
+      "supabase/migrations/20260609000000_lockdown_allowed_watermark_columns.sql:15",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      table_name: "postgrest-dml-lockdown-test",
+      column_name: "lockdown_test",
+    },
+    rowFilter: "?table_name=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
 ] as const;
 
 // =============================================================================
