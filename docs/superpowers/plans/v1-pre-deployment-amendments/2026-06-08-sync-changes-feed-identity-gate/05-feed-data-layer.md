@@ -14,7 +14,7 @@ Builds `lib/sync/feed/readShowChangeFeed.ts`: the **server-only (service-role)**
 **Shaping rules (spec §6.1/§6.2):**
 - `show_change_log` row → `FeedEntry`: `id`, `occurredAt=occurred_at`, `status` (the column value), `summary` (the column value), `entityRef=entity_ref`. `action`:
   - `status='applied'` AND crew-domain `change_kind` ∈ `{'crew_added','crew_removed','crew_renamed'}` → `action='undo'` (canonical taxonomy: rename rows carry `change_kind='crew_renamed'`, NOT MI-12/13/14 — `00-overview.md` resolutions #3 + #13).
-  - `status='applied'` AND any other `change_kind` (`field_changed`, `section_shrunk`, `asset_drift`, `MI-11`, etc.) → `action='none'` (notification-only, finding F6 — `before_image` is null, no undo).
+  - `status='applied'` AND any other `change_kind` (`crew_email_changed` — a gate-resolved MI-11 email change, `field_changed`, `section_shrunk`, `asset_drift`, etc.) → `action='none'` (notification-only, finding F6 — `before_image` is null, no undo). NOTE: `change_kind` is NEVER an `MI-*` value (`00-overview.md` resolution #13) — `show_change_log` rows always carry structural kinds.
   - `status` ∈ `{rejected, undone}` → `action='none'`.
 - Open `sync_holds` row (`kind='mi11_pending'`) → pending `FeedEntry`: `status='pending'`, `action='approve_reject'`, derive old→proposed summary from the hold's `held_value` (old) and `proposed_value` disposition (`email_change` | `rename` | `removal`), `entityRef=entity_key`. Holds whose `kind='undo_override'` are NOT pending entries (their effect already shows as an `undone`/`rejected` `show_change_log` row) — exclude them.
 - **Crew-domain decision** lives in one exported helper `isCrewDomainChangeKind(kind: string): boolean` so the undo-gating set is single-sourced and testable.
@@ -34,9 +34,10 @@ describe("isCrewDomainChangeKind", () => {
     "crew-domain kind %s is undo-eligible",
     (kind) => expect(isCrewDomainChangeKind(kind)).toBe(true),
   );
-  // Canonical taxonomy: rename rows are 'crew_renamed', NOT MI-12/13/14
-  // (00-overview resolutions #3 + #13). MI codes are non-crew/notification.
-  test.each(["MI-12", "MI-13", "MI-14", "MI-7", "MI-8", "field_changed", "section_shrunk", "asset_drift", "MI-11"])(
+  // Canonical taxonomy (00-overview resolutions #3 + #13): change_kind is
+  // ALWAYS structural, NEVER an MI-* value. Renames are 'crew_renamed'; a
+  // gate-resolved MI-11 email change logs as 'crew_email_changed' (NOT undoable).
+  test.each(["crew_email_changed", "field_changed", "section_shrunk", "asset_drift"])(
     "non-crew kind %s is notification-only",
     (kind) => expect(isCrewDomainChangeKind(kind)).toBe(false),
   );
@@ -102,7 +103,7 @@ describe("readShowChangeFeed", () => {
         insert into public.show_change_log
           (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
         select id, ${q(prefix + "-a")}, now() - interval '1 min',
-          'auto_apply', 'MI-7', 'Hotels', 'Section shrunk: Hotels', '{}'::jsonb, 'applied' from s
+          'auto_apply', 'section_shrunk', 'Hotels', 'Section shrunk: Hotels', '{}'::jsonb, 'applied' from s
         returning id
       ),
       hold as (

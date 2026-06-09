@@ -59,7 +59,7 @@ describe("before_image is pre-apply (F2)", () => {
 - [ ] **RED.** Add `tests/db/undo-change-direction-a.test.ts`. Seed `[Alice(alice@old), Bob(bob@x)]`; auto-apply a removal of Alice (produces a `crew_removed` change-log row with `before_image`). Call `undo_change(p_change_log_id := <that row id>)` via the **authed-admin** client (`asAdminRpc` = cookie-bound `authenticated` server client after `requireAdmin`, per resolution #11 — NOT a service-role rpc). Also assert a **non-admin** authenticated caller raises `errcode 42501` (forbidden — mirrors `archive_show` / Phase 3; no catalog code) and mutates nothing. Assert:
   1. `crew_members` again contains Alice with email `alice@old` (re-inserted from `before_image`), AND Bob is **untouched** (same id/email) — sibling-safety, derive both from the fixture.
   2. A `sync_holds` row exists: `domain='crew_identity'`, `kind='undo_override'`, `entity_key='Alice'`, `held_value->>'email'='alice@old'`, `proposed_value IS NULL`.
-  3. A new `show_change_log` row: `source='undo'`, `status='undone'`, `undo_of=<orig row id>`.
+  3. A new `show_change_log` row: `source='undo'`, `status='undone'`, `undo_of=<orig row id>`, and `created_by` equals the **admin JWT email** (from the test's `ADMIN_CLAIMS`), NOT `'system'` (PF7 — the default is only for auto_apply rows). Failure mode caught: an admin undo logs as `'system'`, losing the audit trail of who undid the change.
   For a **rename** variant (Alice→Alicia, `change_kind='crew_renamed'` — the undoable crew set is `{crew_added, crew_removed, crew_renamed}`, NOT MI-12/13/14), assert `entity_key` records BOTH the retained name (`Alice`) and the suppressed added name (`Alicia`) so the apply skips re-adding Alicia (spec §6.3.1 / open-question on entity_key encoding — use `held_value.suppressed_added_name='Alicia'`).
 
 - [ ] **GREEN.** Write `supabase/migrations/20260608000003_undo_change_rpc.sql` (allocated name per `00-overview.md` resolution #1). Mirror `rotate_show_share_token` shape (`security definer`, `set search_path = public, pg_temp`, `is_admin()` gate, resolve `drive_file_id` from `shows`, then `perform pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`). Inside the lock:
@@ -146,8 +146,11 @@ begin
   on conflict (show_id, domain, entity_key) do update
     set held_value = excluded.held_value, kind = 'undo_override', proposed_value = null;
 
-  insert into public.show_change_log (show_id, drive_file_id, source, change_kind, entity_ref, summary, before_image, after_image, status, undo_of)
-  values (v_log.show_id, v_drive, 'undo', v_log.change_kind, v_name, v_log.summary, null, v_before, 'undone', v_log.id);
+  -- created_by MUST be stamped explicitly (PF7): the column defaults to
+  -- 'system' for auto_apply rows, but an admin-initiated undo row must carry
+  -- the admin email, not 'system'.
+  insert into public.show_change_log (show_id, drive_file_id, source, change_kind, entity_ref, summary, before_image, after_image, status, undo_of, created_by)
+  values (v_log.show_id, v_drive, 'undo', v_log.change_kind, v_name, v_log.summary, null, v_before, 'undone', v_log.id, public.current_admin_email());
 
   return jsonb_build_object('ok', true, 'entity', v_name);
 end;
@@ -201,7 +204,7 @@ it("undone add is not re-created while sheet still lists them; removing from she
 });
 ```
 
-- [ ] **GREEN.** Add the `_undo_tombstone(v_log, v_drive)` helper invoked when `before_image IS NULL`: DELETE the added crew row by `entity_ref`; revoke its claim (reuse the Phase-2 revoke path / null `claimed_via_oauth_at`); upsert the held-absent `sync_holds` row with `held_value=jsonb_build_object('absent',true,'name',v_log.entity_ref,'email',<added email>)`; write the `source='undo'`/`status='undone'`/`undo_of` log row. The added email comes from `v_log.after_image->>'email'` (the applied add). Phase-2 release eval already deletes a tombstone when the sheet no longer lists that name — verify that path covers the absent case; if not, extend Phase-2 release eval (cite the Phase-2 file:line in the commit).
+- [ ] **GREEN.** Add the `_undo_tombstone(v_log, v_drive)` helper invoked when `before_image IS NULL`: DELETE the added crew row by `entity_ref`; revoke its claim (reuse the Phase-2 revoke path / null `claimed_via_oauth_at`); upsert the held-absent `sync_holds` row with `held_value=jsonb_build_object('absent',true,'name',v_log.entity_ref,'email',<added email>)`; write the `source='undo'`/`status='undone'`/`undo_of` log row **with `created_by=public.current_admin_email()`** (PF7 — same explicit stamp as Direction A; the `'system'` default is auto_apply-only). The added email comes from `v_log.after_image->>'email'` (the applied add). Phase-2 release eval already deletes a tombstone when the sheet no longer lists that name — verify that path covers the absent case; if not, extend Phase-2 release eval (cite the Phase-2 file:line in the commit).
 - [ ] **VERIFY.** `pnpm vitest run tests/db/undo-change-tombstone.test.ts`
 - [ ] **COMMIT.** `feat(db): undo_change Direction B — crew_added tombstone + suppress re-add (F11)`
 

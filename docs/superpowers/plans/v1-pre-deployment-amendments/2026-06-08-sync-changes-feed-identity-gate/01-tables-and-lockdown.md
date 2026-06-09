@@ -711,6 +711,116 @@ describe("feed tables are admin-only / server-only (F9)", () => {
 
 ---
 
+## Task 1.4b — `change_kind` taxonomy structural guard (PF8 — never an invariant code)
+
+**Why (00-overview resolution #13 / PF8):** `show_change_log.change_kind` is a STRUCTURAL kind, never an invariant code (`MI-*`). The DB CHECK is intentionally open-ended (`length > 0`, Task 1.2) so it can't enforce this — so a static meta-test pins the taxonomy across BOTH the migrations and the TS writers, blocking a future writer from drifting an `MI-12`-style literal into the column.
+
+**Allowed structural set (the only legal `change_kind` values):** `crew_added`, `crew_removed`, `crew_renamed`, `crew_email_changed`, `field_changed`, `section_shrunk`, `asset_drift`.
+
+**Files:**
+- Create `tests/db/show-change-log-change-kind-taxonomy.test.ts`
+
+**Steps:**
+
+- [ ] **1. Write failing test** — `tests/db/show-change-log-change-kind-taxonomy.test.ts`. Statically scans the Phase-1 migrations (`supabase/migrations/20260608000000_*.sql` .. `20260608000003_*.sql`) AND every `lib/sync/**` TS file that inserts `show_change_log`, extracts each `change_kind` literal assignment, and asserts each captured value is in the allowed set and matches neither `/^MI-/` nor any non-structural token. Anti-tautology: also assert the scan actually FOUND at least one literal (a zero-match scan must not vacuously pass), and seed one fixture line containing `change_kind: "MI-12"` inside the test's own deliberately-bad sample string to prove the matcher + `/^MI-/` rejection fire.
+
+```ts
+/**
+ * tests/db/show-change-log-change-kind-taxonomy.test.ts (Phase 1 Task 1.4b — 00-overview #13 / PF8)
+ *
+ * show_change_log.change_kind is STRUCTURAL, never an invariant code. The DB CHECK is
+ * open-ended (length>0), so this meta-test is the structural guard: scan the Phase-1
+ * migrations + every lib/sync writer for change_kind literals and assert each ∈ the
+ * allowed set and never matches /^MI-/. RED on a seeded MI-* literal → GREEN on real writers.
+ */
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ALLOWED = new Set([
+  "crew_added",
+  "crew_removed",
+  "crew_renamed",
+  "crew_email_changed",
+  "field_changed",
+  "section_shrunk",
+  "asset_drift",
+]);
+
+// Captures change_kind assignments in both SQL (= 'x' / values ... 'x') and TS
+// (change_kind: "x" / change_kind = 'x'). Quote char is normalized away.
+const CHANGE_KIND_RE = /change_kind['"\s:=]+['"]([^'"]+)['"]/g;
+
+function extract(source: string): string[] {
+  return [...source.matchAll(CHANGE_KIND_RE)].map((m) => m[1]);
+}
+
+function collectFiles(): string[] {
+  const out: string[] = [];
+  // Phase-1 migrations 20260608000000..000003.
+  const migDir = "supabase/migrations";
+  for (const f of readdirSync(migDir)) {
+    if (/^2026060800000[0-3]_.*\.sql$/.test(f)) out.push(join(migDir, f));
+  }
+  // Every lib/sync TS file that inserts show_change_log.
+  const syncDir = "lib/sync";
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(e.name)) {
+        const src = readFileSync(p, "utf8");
+        if (src.includes("show_change_log")) out.push(p);
+      }
+    }
+  };
+  walk(syncDir);
+  return out;
+}
+
+describe("show_change_log change_kind taxonomy (PF8 — structural, never MI-*)", () => {
+  it("the matcher rejects an MI-* literal (anti-tautology)", () => {
+    const bad = extract(`change_kind: "MI-12"`);
+    expect(bad).toEqual(["MI-12"]);
+    expect(bad.every((v) => ALLOWED.has(v) && !/^MI-/.test(v))).toBe(false);
+  });
+
+  it("every change_kind literal in Phase-1 migrations + lib/sync writers is in the allowed structural set", () => {
+    const files = collectFiles();
+    const found: { file: string; value: string }[] = [];
+    for (const file of files) {
+      for (const value of extract(readFileSync(file, "utf8"))) {
+        found.push({ file, value });
+      }
+    }
+    // Anti-tautology: the scan must have found at least one real literal once writers exist.
+    // (In Phase 1, lib/sync writers don't exist yet — the migrations contain no change_kind
+    //  literal either, so this assertion is GATED on writers existing. Until Phase 2 lands a
+    //  writer, assert only the migration scan ran; flip the floor to >=1 once a writer ships.)
+    const violations = found.filter(
+      ({ value }) => /^MI-/.test(value) || !ALLOWED.has(value),
+    );
+    expect(
+      violations,
+      `change_kind literals outside the structural set {${[...ALLOWED].join(", ")}} or matching /^MI-/:\n` +
+        violations.map((v) => `  - ${v.file}: ${v.value}`).join("\n"),
+    ).toEqual([]);
+  });
+});
+```
+
+> Floor note: in Phase 1 no `lib/sync/**` writer inserts `show_change_log` yet, so the live scan finds zero literals and the violation assertion passes vacuously — the anti-tautology coverage is carried by the seeded-`MI-12` matcher test. Phase 2 (the first auto-apply writer) MUST flip the gated comment to `expect(found.length).toBeGreaterThanOrEqual(1)` so the scan can't silently match nothing once a writer exists. Add that flip as an explicit Phase-2 task step (cross-referenced in `02-*.md`).
+
+- [ ] **2. Run it — fails** — `pnpm vitest run tests/db/show-change-log-change-kind-taxonomy.test.ts`. Before the anti-tautology matcher line is correct, the seeded-`MI-12` case fails (or, if you author the real-writer assertion first with a deliberately-seeded `change_kind: "MI-12"` line temporarily added to one migration, the violation assertion reds listing that file). Expected RED: `change_kind literals ... matching /^MI-/: - supabase/migrations/...: MI-12`.
+
+- [ ] **3. Minimal impl** — remove the deliberately-seeded `MI-12` literal (the real migrations carry no `change_kind` literal in Phase 1; Phase-2 writers will use only allowed-set values). No production code beyond the test itself.
+
+- [ ] **4. Run it — passes** — `pnpm vitest run tests/db/show-change-log-change-kind-taxonomy.test.ts`. Expected: matcher-rejection case green; live scan finds no violation.
+
+- [ ] **5. Commit** — `test(db): pin show_change_log change_kind to the structural taxonomy (PF8, never MI-*)`.
+
+---
+
 ## Task 1.5 — Regenerate schema manifest + apply both migrations to the validation project
 
 **Files:**
