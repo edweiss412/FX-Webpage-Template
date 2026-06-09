@@ -74,15 +74,38 @@ declare
   v_before jsonb;
   v_name   text;
 begin
+  -- LOCK ORDER (PF11 / 00-overview resolution #15 — CRITICAL): NO `for update`
+  -- and no row read planned for mutation may run BEFORE pg_advisory_xact_lock.
+  -- The sync path takes the advisory lock FIRST, then touches rows; inverting
+  -- that order here (FOR UPDATE on show_change_log/sync_holds/crew_members
+  -- before the advisory lock) deadlocks under burst (M5 R20 class).
+
+  -- (1) is_admin gate.
   if not public.is_admin() then
     raise exception 'forbidden' using errcode = '42501';  -- matches archive_show / Phase 3 (no catalog code; the action maps 42501 → generic not-authorized)
   end if;
+
+  -- (2) NON-locking read (no FOR UPDATE) to learn show_id / drive_file_id and
+  -- plan the undo. This read is advisory only; all revalidation re-reads under
+  -- the lock in step (4).
   select * into v_log from public.show_change_log where id = p_change_log_id;
   if not found then return jsonb_build_object('ok', false, 'code', 'UNDO_NOT_FOUND'); end if;
   select drive_file_id into v_drive from public.shows where id = v_log.show_id;
+
+  -- (3) Acquire the per-show advisory lock BEFORE any FOR UPDATE / mutation.
   perform pg_advisory_xact_lock(hashtext('show:' || v_drive));
 
-  -- Supersession guard (Task 4.4): a newer change to the same entity disables undo.
+  -- (4a) Re-select the change-log row FOR UPDATE UNDER the lock — it may have
+  -- changed (e.g. already undone) between the non-locking read and the lock.
+  select * into v_log from public.show_change_log
+   where id = p_change_log_id for update;
+  if not found then return jsonb_build_object('ok', false, 'code', 'UNDO_NOT_FOUND'); end if;
+  if v_log.status = 'undone' then
+    return jsonb_build_object('ok', false, 'code', 'UNDO_SUPERSEDED');  -- already undone under a racing lock holder
+  end if;
+
+  -- (4b) Supersession guard (Task 4.4) — revalidated UNDER the advisory lock:
+  -- a newer non-undo change to the same entity disables undo.
   if exists (
     select 1 from public.show_change_log n
      where n.show_id = v_log.show_id and n.entity_ref = v_log.entity_ref
@@ -171,7 +194,7 @@ grant execute on function public.undo_change(uuid) to authenticated;
   `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260608000003_undo_change_rpc.sql`
   then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema'"`
   (use `--linked` surgical apply per the validation-project migration mechanism; `supabase db push` is blocked by Phase-0 history divergence.)
-- [ ] **VERIFY.** `pnpm vitest run tests/db/undo-change-direction-a.test.ts tests/db/undo-change-no-phantom-columns.test.ts`
+- [ ] **VERIFY.** `pnpm vitest run tests/db/undo-change-direction-a.test.ts tests/db/undo-change-no-phantom-columns.test.ts tests/db/undo-change-lock-order.test.ts`
 - [ ] **COMMIT.** `feat(db): undo_change Direction A — restore removed/renamed crew from before_image`
 
 ---
@@ -204,7 +227,7 @@ it("undone add is not re-created while sheet still lists them; removing from she
 });
 ```
 
-- [ ] **GREEN.** Add the `_undo_tombstone(v_log, v_drive)` helper invoked when `before_image IS NULL`: DELETE the added crew row by `entity_ref`; revoke its claim (reuse the Phase-2 revoke path / null `claimed_via_oauth_at`); upsert the held-absent `sync_holds` row with `held_value=jsonb_build_object('absent',true,'name',v_log.entity_ref,'email',<added email>)`; write the `source='undo'`/`status='undone'`/`undo_of` log row **with `created_by=public.current_admin_email()`** (PF7 — same explicit stamp as Direction A; the `'system'` default is auto_apply-only). The added email comes from `v_log.after_image->>'email'` (the applied add). Phase-2 release eval already deletes a tombstone when the sheet no longer lists that name — verify that path covers the absent case; if not, extend Phase-2 release eval (cite the Phase-2 file:line in the commit).
+- [ ] **GREEN.** Add the `_undo_tombstone(v_log, v_drive)` helper invoked when `before_image IS NULL`. **Lock-order (PF11):** `_undo_tombstone` is called from `undo_change` AFTER the advisory lock is already held — it MUST NOT re-acquire `pg_advisory_xact_lock` (that would be a nested second holder → deadlock; violates the single-holder rule). It runs entirely inside the caller's lock; any `for update` it takes is therefore already post-lock. It does: DELETE the added crew row by `entity_ref`; revoke its claim (reuse the Phase-2 revoke path / null `claimed_via_oauth_at`); upsert the held-absent `sync_holds` row with `held_value=jsonb_build_object('absent',true,'name',v_log.entity_ref,'email',<added email>)`; write the `source='undo'`/`status='undone'`/`undo_of` log row **with `created_by=public.current_admin_email()`** (PF7 — same explicit stamp as Direction A; the `'system'` default is auto_apply-only). The added email comes from `v_log.after_image->>'email'` (the applied add). Phase-2 release eval already deletes a tombstone when the sheet no longer lists that name — verify that path covers the absent case; if not, extend Phase-2 release eval (cite the Phase-2 file:line in the commit).
 - [ ] **VERIFY.** `pnpm vitest run tests/db/undo-change-tombstone.test.ts`
 - [ ] **COMMIT.** `feat(db): undo_change Direction B — crew_added tombstone + suppress re-add (F11)`
 
@@ -252,6 +275,7 @@ it("undone add is not re-created while sheet still lists them; removing from she
 - [ ] Numeric/citation sweep: every `file:line` cited in this phase grepped against live code; the real `crew_members` columns (id, show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info, last_changed_at, claimed_via_oauth_at — **no `restrictions`**) + `is_admin()`/`current_admin_email()` confirmed against the live schema (not invented); phantom-column guard test present.
 - [ ] Anti-tautology audit: every assertion reads `crew_members` / `sync_holds` rows + claim state directly and derives expected values from fixture constants (`ALICE`/`BOB`/`CAROL`), never the container that rendered them; no test that only proves "the RPC was called."
 - [ ] Single-holder check: `undo_change` acquires the show lock at exactly one layer; no nested lock; `cleanup_superseded_before_images` takes NO lock (runs inside the caller's lock).
+- [ ] **Lock-order check (PF11 / resolution #15 — CRITICAL):** in `undo_change` (and `_undo_tombstone`) NO `for update` and no read-planned-for-mutation precedes `pg_advisory_xact_lock`. Order is: is_admin → non-locking plan read → advisory lock → re-select FOR UPDATE + supersession revalidation + mutations. A regression test (`tests/db/undo-change-lock-order.test.ts`) statically asserts the migration's first `for update` token appears AFTER the `pg_advisory_xact_lock` token, and that no `for update` precedes it — guards the M5 R20 lock-inversion deadlock class. Concurrent cron-sync + undo on the same show serialize without deadlock (real-PG two-connection test in `undo-change-direction-a.test.ts`).
 - [ ] Direction completeness: held-present (A) and held-absent/tombstone (B) both covered; release for both directions tested; both guards tested.
 - [ ] Identity (resolution #11): `undo_change` is SECURITY DEFINER, `grant execute to authenticated` + `revoke from anon`, **NOT granted to service_role**; body gates on `is_admin()` → **raises `errcode 42501`** when false (mirrors `archive_show` / Phase 3; no catalog code); `created_by=current_admin_email()`; tests call via the authed-admin client (not service-role) and assert non-admin denial (42501). Phase 1 already REVOKEd table DML.
 - [ ] §12.4 codes are added in Phase 1; Phase 4 only VERIFIES `UNDO_SUPERSEDED`/`UNDO_EMAIL_CLAIMED`/`UNDO_NOT_FOUND` exist (no §12.4/catalog/gen edits here); x1 green.
@@ -261,4 +285,4 @@ it("undone add is not re-created while sheet still lists them; removing from she
 
 ## Task 4.8 — Phase 4 adversarial review (cross-model)
 
-Invoke the `adversarial-review` skill to send Phase 4 (this file + its diff) to the opposing CLI (Codex) for cross-model critique. REVIEWER ONLY — the reviewer does not fix; findings return to the implementer session. Iterate until convergence; escalate only genuine ambiguity. Focus surfaces: F2 pre-apply capture, F11 tombstone non-recreation + release, supersession + email-claim guards, single-layer lock topology for `undo_change`, the real-column restore SQL (no phantom `restrictions`; full-field ON CONFLICT restore), and the admin-user identity (authed-admin client, `is_admin()` gate, not service-role) per resolution #11. Do not proceed to Phase 5 handoff without an APPROVE.
+Invoke the `adversarial-review` skill to send Phase 4 (this file + its diff) to the opposing CLI (Codex) for cross-model critique. REVIEWER ONLY — the reviewer does not fix; findings return to the implementer session. Iterate until convergence; escalate only genuine ambiguity. Focus surfaces: F2 pre-apply capture, F11 tombstone non-recreation + release, supersession + email-claim guards, single-layer lock topology for `undo_change`, the **lock order (PF11 / resolution #15): no FOR UPDATE before `pg_advisory_xact_lock`; supersession revalidated under the lock; `_undo_tombstone` never re-takes the lock**, the real-column restore SQL (no phantom `restrictions`; full-field ON CONFLICT restore; type-correct per-column expressions), and the admin-user identity (authed-admin client, `is_admin()` gate, not service-role) per resolution #11. Do not proceed to Phase 5 handoff without an APPROVE.
