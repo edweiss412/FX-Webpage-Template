@@ -109,3 +109,57 @@ it("disambiguates Approve/Reject accessible names with the disposition name (WCA
   expect(screen.getByRole("button", { name: /approve change for alice/i })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /reject change for alice/i })).toBeInTheDocument();
 });
+
+// P6-F2 — the error panel must reflect the LATEST submitted action's typed
+// result, not a fixed approve-over-reject precedence. A stale Approve failure
+// kept while a newer Reject failed would point the operator at the wrong recovery.
+it("shows the LATEST submitted result: Approve fails then Reject fails → Reject copy (P6-F2)", async () => {
+  const approveAction = vi.fn().mockResolvedValue({ ok: false, code: "IDENTITY_WOULD_COLLIDE" });
+  const rejectAction = vi.fn().mockResolvedValue({ ok: false, code: "MI11_TARGET_MOVED" });
+  render(
+    <Mi11GateActions
+      holdId="h1"
+      disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
+      baseModifiedTime="2026-06-09T10:00:00Z"
+      approveAction={approveAction}
+      rejectAction={rejectAction}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /approve change for alice/i }));
+  });
+  // first failure shows the Approve copy
+  expect(await screen.findByText(/clashing with another crew member/i)).toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /reject change for alice/i }));
+  });
+  // after the LATER Reject failure, the panel shows the REJECT code's copy…
+  expect(await screen.findByText(/the sheet changed since this was queued/i)).toBeInTheDocument();
+  // …and NOT the stale Approve copy.
+  expect(screen.queryByText(/clashing with another crew member/i)).toBeNull();
+});
+
+it("shows the LATEST submitted result: Reject fails then Approve fails → Approve copy (P6-F2 reverse)", async () => {
+  const approveAction = vi.fn().mockResolvedValue({ ok: false, code: "IDENTITY_WOULD_COLLIDE" });
+  const rejectAction = vi.fn().mockResolvedValue({ ok: false, code: "MI11_TARGET_MOVED" });
+  render(
+    <Mi11GateActions
+      holdId="h1"
+      disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
+      baseModifiedTime="2026-06-09T10:00:00Z"
+      approveAction={approveAction}
+      rejectAction={rejectAction}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /reject change for alice/i }));
+  });
+  expect(await screen.findByText(/the sheet changed since this was queued/i)).toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /approve change for alice/i }));
+  });
+  // after the LATER Approve failure, the panel shows the APPROVE code's copy…
+  expect(await screen.findByText(/clashing with another crew member/i)).toBeInTheDocument();
+  // …and NOT the stale Reject copy.
+  expect(screen.queryByText(/the sheet changed since this was queued/i)).toBeNull();
+});

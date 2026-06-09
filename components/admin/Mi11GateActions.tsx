@@ -24,7 +24,7 @@
 // synchronous onClick self-disable (would cancel the React 19 dispatch).
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import type { Disposition } from "@/lib/sync/holds/types";
 
@@ -88,27 +88,47 @@ export function Mi11GateActions({
   const [approveResult, approveDispatch, approvePending] = useActionState(approveAction, null);
   const [rejectResult, rejectDispatch, rejectPending] = useActionState(rejectAction, null);
 
+  // P6-F2: track which gate action was submitted LAST so the error panel reflects
+  // the latest submitted action's typed result — not a fixed approve-over-reject
+  // precedence (which would keep a stale Approve failure visible after a newer
+  // Reject failed, pointing the operator at the wrong recovery path).
+  const [lastSubmitted, setLastSubmitted] = useState<"approve" | "reject" | null>(null);
+  const submitApprove = (formData: FormData) => {
+    setLastSubmitted("approve");
+    approveDispatch(formData);
+  };
+  const submitReject = (formData: FormData) => {
+    setLastSubmitted("reject");
+    rejectDispatch(formData);
+  };
+
   const name = dispositionName(disposition);
   const forWhom = name ? ` for ${name}` : "";
   // PF40: the token the admin SAW, emitted verbatim. A null base → "" (the server
   // action normalizes "" → null before delegating).
   const token = baseModifiedTime ?? "";
 
-  // The most recent failing result drives the post-submit conflict copy (PF17).
+  // The LATEST submitted action's failing result drives the post-submit conflict
+  // copy (PF17 + P6-F2). Prefer the last-submitted action's result; fall back to
+  // whichever has a failure (covers the first submit before lastSubmitted settles).
+  const approveFailing = approveResult && approveResult.ok === false ? approveResult : null;
+  const rejectFailing = rejectResult && rejectResult.ok === false ? rejectResult : null;
   const failing =
-    (approveResult && approveResult.ok === false && approveResult) ||
-    (rejectResult && rejectResult.ok === false && rejectResult) ||
-    null;
+    lastSubmitted === "reject"
+      ? (rejectFailing ?? approveFailing)
+      : lastSubmitted === "approve"
+        ? (approveFailing ?? rejectFailing)
+        : (approveFailing ?? rejectFailing);
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <form action={approveDispatch}>
+        <form action={submitApprove}>
           <input type="hidden" name="holdId" value={holdId} />
           <input type="hidden" name="expectedBaseModifiedTime" value={token} />
           <GateButton variant="approve" pending={approvePending} accessibleName={`Approve change${forWhom}`} />
         </form>
-        <form action={rejectDispatch}>
+        <form action={submitReject}>
           <input type="hidden" name="holdId" value={holdId} />
           <input type="hidden" name="expectedBaseModifiedTime" value={token} />
           <GateButton variant="reject" pending={rejectPending} accessibleName={`Reject change${forWhom}`} />
