@@ -45,7 +45,7 @@ const EMPTY_SHOW: ParseResult["show"] = {
   title: "T",
   client_label: "c",
   client_contact: null,
-  template_version: "v",
+  template_version: "v1",
   venue: null,
   dates: { travelIn: "2026-05-07", set: "2026-05-08", showDays: ["2026-05-09"], travelOut: "2026-05-10" },
   schedule_phases: {},

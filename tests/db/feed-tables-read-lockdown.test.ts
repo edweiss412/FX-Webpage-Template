@@ -42,7 +42,7 @@ beforeAll(async () => {
     values (${`drv-${randomUUID()}`}, ${`sh-${randomUUID().slice(0, 8)}`}, 'T', 'c', 'v')
     returning id
   `;
-  showId = show.id as string;
+  showId = show!.id as string;
   const [hold] = await priv`
     insert into public.sync_holds
       (show_id, drive_file_id, domain, entity_key, held_value,
@@ -53,7 +53,7 @@ beforeAll(async () => {
             now(), 'mi11_pending', 'system')
     returning id
   `;
-  holdId = hold.id as string;
+  holdId = hold!.id as string;
   const [log] = await priv`
     insert into public.show_change_log
       (show_id, drive_file_id, source, change_kind, summary, before_image, after_image, status)
@@ -61,7 +61,7 @@ beforeAll(async () => {
             ${priv.json({ email: SECRET_EMAIL, phone: "555" })}, ${priv.json({})}, 'applied')
     returning id
   `;
-  logId = log.id as string;
+  logId = log!.id as string;
 });
 
 afterAll(async () => {

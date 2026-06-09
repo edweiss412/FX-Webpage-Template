@@ -72,7 +72,7 @@ function splitTopLevelCommas(body: string): string[] {
 // quoted string literal (e.g. a bind param, function call, or column ref).
 function literalOf(cell: string): string | null {
   const m = cell.match(/^['"]([^'"]*)['"]$/);
-  return m ? m[1] : null;
+  return m ? (m[1] ?? null) : null;
 }
 
 // Starting at `start` (index of an opening "(" in source), return the balanced
@@ -100,7 +100,7 @@ function readBalancedTuple(source: string, start: number): { body: string; end: 
 function extractPositional(source: string): string[] {
   const out: string[] = [];
   for (const head of source.matchAll(POSITIONAL_HEAD_RE)) {
-    const cols = splitTopLevelCommas(head[1]).map((c) =>
+    const cols = splitTopLevelCommas(head[1] ?? "").map((c) =>
       c.replace(/^["']|["']$/g, "").toLowerCase(),
     );
     const ordinal = cols.indexOf("change_kind");
@@ -110,17 +110,17 @@ function extractPositional(source: string): string[] {
     let cursor = head.index + head[0].length;
     while (cursor < source.length) {
       // Skip whitespace.
-      while (cursor < source.length && /\s/.test(source[cursor])) cursor++;
+      while (cursor < source.length && /\s/.test(source[cursor]!)) cursor++;
       if (source[cursor] !== "(") break;
       const tuple = readBalancedTuple(source, cursor);
       if (!tuple) break;
       const cells = splitTopLevelCommas(tuple.body);
       if (ordinal < cells.length) {
-        const lit = literalOf(cells[ordinal]);
+        const lit = literalOf(cells[ordinal]!);
         if (lit !== null) out.push(lit);
       }
       cursor = tuple.end;
-      while (cursor < source.length && /\s/.test(source[cursor])) cursor++;
+      while (cursor < source.length && /\s/.test(source[cursor]!)) cursor++;
       if (source[cursor] === ",") cursor++;
       else break;
     }
@@ -129,7 +129,10 @@ function extractPositional(source: string): string[] {
 }
 
 function extract(source: string): string[] {
-  return [...[...source.matchAll(CHANGE_KIND_RE)].map((m) => m[1]), ...extractPositional(source)];
+  return [
+    ...[...source.matchAll(CHANGE_KIND_RE)].map((m) => m[1] ?? ""),
+    ...extractPositional(source),
+  ];
 }
 
 function collectFiles(): string[] {

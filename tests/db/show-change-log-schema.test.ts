@@ -6,7 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-import postgres, { type Sql } from "postgres";
+import postgres, { type Sql, type TransactionSql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
 const DB_URL =
@@ -37,7 +37,7 @@ async function seedShow(tx: Sql): Promise<string> {
     insert into public.shows (drive_file_id, slug, title, client_label, template_version)
     values (${`drv-${randomUUID()}`}, ${slug}, 'T', 'c', 'v') returning id
   `;
-  return row.id as string;
+  return row!.id as string;
 }
 async function insertLog(
   tx: Sql,
@@ -53,7 +53,7 @@ async function insertLog(
             ${tx.json({ email: "a@new" })}, ${o.status}, ${o.undo_of ?? null})
     returning id
   `;
-  return row.id as string;
+  return row!.id as string;
 }
 
 // Assert an insert rejects with a constraint pattern WITHOUT aborting the enclosing
@@ -66,7 +66,9 @@ async function expectRejectInSavepoint(
   const SP_ROLLBACK = Symbol("sp-rollback");
   let caught: unknown;
   try {
-    await tx.savepoint(async (sp) => {
+    // `savepoint` lives on TransactionSql; `tx` is the in-transaction handle (cast to Sql
+    // by the inRollback wrapper), so reach it through a TransactionSql view.
+    await (tx as unknown as TransactionSql).savepoint(async (sp) => {
       try {
         await run(sp as unknown as Sql);
       } catch (err) {
@@ -114,18 +116,18 @@ describe("public.show_change_log DDL", () => {
         and column_name = 'created_by'
     `;
     expect(cols).toHaveLength(1);
-    expect(cols[0].data_type).toBe("text");
-    expect(cols[0].is_nullable).toBe("NO");
-    expect(cols[0].column_default).toMatch(/'system'::text/);
+    expect(cols[0]!.data_type).toBe("text");
+    expect(cols[0]!.is_nullable).toBe("NO");
+    expect(cols[0]!.column_default).toMatch(/'system'::text/);
   });
 
   it("the feed index (show_id, occurred_at desc) exists", async () => {
-    const [{ count }] = await sql<{ count: number }[]>`
+    const [row] = await sql<{ count: number }[]>`
       select count(*)::int as count from pg_indexes
       where schemaname = 'public' and tablename = 'show_change_log'
         and indexname = 'show_change_log_feed_idx'
     `;
-    expect(count).toBe(1);
+    expect(row!.count).toBe(1);
   });
 
   it("accepts contract source/status/change_kind and an undo_of self-reference", async () => {

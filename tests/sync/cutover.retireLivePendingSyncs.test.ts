@@ -72,11 +72,11 @@ describe("cutover — retire live pending_syncs (Task 2.10b)", () => {
         ] as never,
         notableItems: [],
       });
-      const [{ count }] = await tx<{ count: number }[]>`
+      const [row] = await tx<{ count: number }[]>`
         select count(*)::int as count from public.pending_syncs
         where drive_file_id = ${driveFileId} and wizard_session_id is null
       `;
-      expect(count).toBe(0);
+      expect(row!.count).toBe(0);
     });
   });
 
@@ -111,11 +111,11 @@ describe("cutover — retire live pending_syncs (Task 2.10b)", () => {
       const { driveFileId } = await seedShow(tx);
       await seedLivePendingSync(tx, driveFileId, true); // wizard row
       await tx.unsafe(CUTOVER_SQL);
-      const [{ count }] = await tx<{ count: number }[]>`
+      const [row] = await tx<{ count: number }[]>`
         select count(*)::int as count from public.pending_syncs
         where drive_file_id = ${driveFileId} and wizard_session_id is not null
       `;
-      expect(count).toBe(1);
+      expect(row!.count).toBe(1);
     });
   });
 
@@ -126,11 +126,11 @@ describe("cutover — retire live pending_syncs (Task 2.10b)", () => {
       await tx.unsafe(CUTOVER_SQL); // clears the cohort
       // Second run finds zero live rows → no-op.
       await tx.unsafe(CUTOVER_SQL);
-      const [{ count }] = await tx<{ count: number }[]>`
+      const [row] = await tx<{ count: number }[]>`
         select count(*)::int as count from public.pending_syncs where wizard_session_id is null
           and drive_file_id = ${driveFileId}
       `;
-      expect(count).toBe(0);
+      expect(row!.count).toBe(0);
     });
   });
 
@@ -184,11 +184,11 @@ describe("cutover — retire live pending_syncs (Task 2.10b)", () => {
       expect(bCompleted).toBe(true);
 
       // After the cutover commit, no live pending_sync survives for that show.
-      const [{ count }] = await sql<{ count: number }[]>`
+      const [countRow] = await sql<{ count: number }[]>`
         select count(*)::int as count from public.pending_syncs
         where drive_file_id = ${driveFileId} and wizard_session_id is null
       `;
-      expect(count).toBe(0);
+      expect(countRow!.count).toBe(0);
 
       // Cleanup (committed rows).
       await sql`delete from public.pending_syncs where drive_file_id = ${driveFileId}`;

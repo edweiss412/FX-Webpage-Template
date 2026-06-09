@@ -6,7 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-import postgres, { type Sql } from "postgres";
+import postgres, { type Sql, type TransactionSql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
 const DB_URL =
@@ -47,7 +47,9 @@ async function expectRejectInSavepoint(
   const SP_ROLLBACK = Symbol("sp-rollback");
   let caught: unknown;
   try {
-    await tx.savepoint(async (sp) => {
+    // `savepoint` lives on TransactionSql; `tx` is the in-transaction handle (cast to Sql
+    // by the inRollback wrapper), so reach it through a TransactionSql view.
+    await (tx as unknown as TransactionSql).savepoint(async (sp) => {
       try {
         await run(sp as unknown as Sql);
       } catch (err) {
@@ -69,7 +71,7 @@ async function seedShow(tx: Sql): Promise<string> {
     values (${`drv-${randomUUID()}`}, ${slug}, 'T', 'c', 'v')
     returning id
   `;
-  return row.id as string;
+  return row!.id as string;
 }
 
 describe("public.sync_holds DDL", () => {
@@ -105,9 +107,9 @@ describe("public.sync_holds DDL", () => {
         and column_name = 'reservation_collisions'
     `;
     expect(cols).toHaveLength(1);
-    expect(cols[0].data_type).toBe("jsonb");
-    expect(cols[0].is_nullable).toBe("NO");
-    expect(cols[0].column_default).toMatch(/'\[\]'::jsonb/);
+    expect(cols[0]!.data_type).toBe("jsonb");
+    expect(cols[0]!.is_nullable).toBe("NO");
+    expect(cols[0]!.column_default).toMatch(/'\[\]'::jsonb/);
   });
 
   it("a hold inserted without reservation_collisions reads back [] (not NULL)", async () => {
@@ -123,17 +125,17 @@ describe("public.sync_holds DDL", () => {
                 now(), 'mi11_pending', 'system')
         returning reservation_collisions
       `;
-      expect(row.reservation_collisions).toEqual([]);
+      expect(row!.reservation_collisions).toEqual([]);
     });
   });
 
   it("the show index exists", async () => {
-    const [{ count }] = await sql<{ count: number }[]>`
+    const [row] = await sql<{ count: number }[]>`
       select count(*)::int as count from pg_indexes
       where schemaname = 'public' and tablename = 'sync_holds'
         and indexname = 'sync_holds_show_idx'
     `;
-    expect(count).toBe(1);
+    expect(row!.count).toBe(1);
   });
 
   it("accepts a valid mi11_pending hold and rejects a bad domain / bad kind", async () => {

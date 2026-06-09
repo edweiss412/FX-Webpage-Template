@@ -273,7 +273,10 @@ const baseArgs = {
 async function runWith(tx: FakePhase2Tx, overrides = {}) {
   vi.resetModules();
   const { runPhase2 } = await import("@/lib/sync/phase2");
-  return runPhase2(tx, { ...baseArgs, ...overrides });
+  // FakePhase2Tx structurally implements the Phase2Tx surface the destructive-snapshot tests
+  // exercise; cast bridges the fake's narrower applyShowSnapshot return shape to the widened
+  // Phase2Tx (previousCrewMembers: PreviousCrewMember[]) without altering test behavior.
+  return runPhase2(tx as never, { ...baseArgs, ...overrides });
 }
 
 describe("runPhase2 destructive snapshot", () => {

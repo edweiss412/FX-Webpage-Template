@@ -45,7 +45,7 @@ async function seedShow(tx: Sql): Promise<{ showId: string; driveFileId: string 
     values (${driveFileId}, ${slug}, 'T', 'c', 'v')
     returning id
   `;
-  return { showId: row.id as string, driveFileId };
+  return { showId: row!.id as string, driveFileId };
 }
 
 // The tx port writeMi11Holds expects: a thin unsafe(sql, params) wrapper over the locked txn.
@@ -122,9 +122,9 @@ describe("writeMi11Holds (Task 2.2)", () => {
                held_value->>'phone' as held_phone
         from public.sync_holds where show_id = ${showId} and entity_key = 'Alice'
       `;
-      expect(row.held_email).toBe("a@old");
-      expect(row.held_name).toBe("Alice");
-      expect(row.held_phone).toBe("555-0000");
+      expect(row!.held_email).toBe("a@old");
+      expect(row!.held_name).toBe("Alice");
+      expect(row!.held_phone).toBe("555-0000");
     });
   });
 
@@ -148,9 +148,9 @@ describe("writeMi11Holds (Task 2.2)", () => {
         from public.sync_holds where show_id = ${showId} and entity_key = 'Alice'
       `;
       // disposition reads back as a STRING scalar (proves $::jsonb got a raw object, not a stringified scalar)
-      expect(row.disposition).toBe("email_change");
-      expect(row.proposed).toEqual({ disposition: "email_change", name: "Alice", email: "a@new" });
-      expect(new Date(row.base as unknown as string).toISOString()).toBe(baseModifiedTime);
+      expect(row!.disposition).toBe("email_change");
+      expect(row!.proposed).toEqual({ disposition: "email_change", name: "Alice", email: "a@new" });
+      expect(new Date(row!.base as unknown as string).toISOString()).toBe(baseModifiedTime);
     });
   });
 
@@ -183,8 +183,8 @@ describe("writeMi11Holds (Task 2.2)", () => {
         from public.sync_holds where show_id = ${showId} and entity_key = 'Alice'
       `;
       expect(rows).toHaveLength(1);
-      expect(rows[0].email).toBe("a@newer");
-      expect(new Date(rows[0].base as unknown as string).toISOString()).toBe(secondModifiedTime);
+      expect(rows[0]!.email).toBe("a@newer");
+      expect(new Date(rows[0]!.base as unknown as string).toISOString()).toBe(secondModifiedTime);
     });
   });
 
@@ -205,7 +205,7 @@ describe("writeMi11Holds (Task 2.2)", () => {
         select proposed_value as proposed from public.sync_holds
         where show_id = ${showId} and entity_key = 'Alice'
       `;
-      expect(row.proposed).toEqual({ disposition: "email_change", name: "Alice", email: null });
+      expect(row!.proposed).toEqual({ disposition: "email_change", name: "Alice", email: null });
     });
   });
 
@@ -244,15 +244,15 @@ describe("writeMi11Holds (Task 2.2)", () => {
         select kind, proposed_value as proposed, held_value->'baseline' as baseline
         from public.sync_holds where show_id = ${showId} and entity_key = 'Alice'
       `;
-      expect(row.kind).toBe("undo_override");
-      expect(row.proposed).toBeNull();
-      expect(row.baseline).toEqual({ email: "a@old" });
+      expect(row!.kind).toBe("undo_override");
+      expect(row!.proposed).toBeNull();
+      expect(row!.baseline).toEqual({ email: "a@old" });
 
       // Exactly one row for Alice (the INSERT was a no-op on conflict).
-      const [{ count }] = await tx<{ count: number }[]>`
+      const [countRow] = await tx<{ count: number }[]>`
         select count(*)::int as count from public.sync_holds where show_id = ${showId} and entity_key = 'Alice'
       `;
-      expect(count).toBe(1);
+      expect(countRow!.count).toBe(1);
     });
   });
 });
