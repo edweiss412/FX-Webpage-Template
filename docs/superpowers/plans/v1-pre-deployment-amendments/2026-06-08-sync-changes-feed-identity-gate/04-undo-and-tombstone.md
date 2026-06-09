@@ -60,8 +60,9 @@ describe("before_image is pre-apply (F2)", () => {
 
 **Failure mode caught:** undo of an auto-applied removal/rename does nothing, or re-inserts a stale/wrong row, or clobbers sibling crew members the undo never touched; or fails to write the held-present `undo_override` so the very next sync re-removes/re-renames the restored entity.
 
-- [ ] **RED.** Add `tests/db/undo-change-direction-a.test.ts`. Seed `[Alice(alice@old), Bob(bob@x)]`; auto-apply a removal of Alice (produces a `crew_removed` change-log row with `before_image`). Call `undo_change(p_change_log_id := <that row id>)` via the **authed-admin** client (`asAdminRpc` = cookie-bound `authenticated` server client after `requireAdmin`, per resolution #11 — NOT a service-role rpc). Also assert a **non-admin** authenticated caller raises `errcode 42501` (forbidden — mirrors `archive_show` / Phase 3; no catalog code) and mutates nothing. Assert:
-  1. `crew_members` again contains Alice with email `alice@old` (re-inserted from `before_image`), AND Bob is **untouched** (same id/email) — sibling-safety, derive both from the fixture.
+- [ ] **RED.** Add `tests/db/undo-change-direction-a.test.ts`. Seed `[Alice(alice@old), Bob(bob@x)]` where **Alice is CLAIMED** — seed her with a non-null `claimed_via_oauth_at` (e.g. a fixed fixture timestamp `ALICE_CLAIMED_AT`). **Before the auto-apply, read Alice's live `crew_members` row and capture her `id` (`ALICE_ID`) and `claimed_via_oauth_at` (`ALICE_CLAIMED_AT`) from the DB** — derive expected values from the seeded row, never hardcode (anti-tautology: the post-undo assertion compares against the PRE-apply row's captured values). Auto-apply a removal of Alice (produces a `crew_removed` change-log row with `before_image` carrying her `id` + claim per Phase 2). Call `undo_change(p_change_log_id := <that row id>)` via the **authed-admin** client (`asAdminRpc` = cookie-bound `authenticated` server client after `requireAdmin`, per resolution #11 — NOT a service-role rpc). Also assert a **non-admin** authenticated caller raises `errcode 42501` (forbidden — mirrors `archive_show` / Phase 3; no catalog code) and mutates nothing. Assert:
+  1. `crew_members` again contains Alice with email `alice@old` (re-inserted from `before_image`), AND **the restored row's `id` EQUALS the captured `ALICE_ID`** (same uuid, NOT a fresh `gen_random_uuid()`) **AND its `claimed_via_oauth_at` EQUALS the captured `ALICE_CLAIMED_AT`** (claim preserved, NOT NULL) — identity continuity (PF38 / resolution #24); AND Bob is **untouched** (same id/email) — sibling-safety, derive all from the fixture. **Concrete failure mode caught:** undo restores a NEW id / NULL claim → the claimed viewer's picker cookie (keyed on `crew_members.id` at `resolveShowPageAccess.ts:127`) no longer matches and their OAuth claim is lost, silently logging them out.
+  1b. **UNCLAIMED control:** in a second case, seed Alice with `claimed_via_oauth_at = NULL` (never claimed), capture her `id`, remove + undo, and assert the restored row has the **same `id`** AND `claimed_via_oauth_at IS NULL` (no SPURIOUS claim materialized by the restore — the NULL-safe `->>` cast must produce a NULL timestamptz, not an error or a fabricated timestamp).
   2. A `sync_holds` row exists: `domain='crew_identity'`, `kind='undo_override'`, `entity_key='Alice'`, `held_value->>'email'='alice@old'`, `proposed_value IS NULL`, and `held_value->'baseline' = {"kind":"removal"}` (PF13 — the undone-change signature). Derive the baseline shape from the fixture.
   3. A new `show_change_log` row: `source='undo'`, `status='undone'`, `undo_of=<orig row id>`, and `created_by` equals the **admin JWT email** (from the test's `ADMIN_CLAIMS`), NOT `'system'` (PF7 — the default is only for auto_apply rows). Failure mode caught: an admin undo logs as `'system'`, losing the audit trail of who undid the change.
   For a **rename** variant (Alice→Alicia, `change_kind='crew_renamed'` — the undoable crew set is `{crew_added, crew_removed, crew_renamed}`, NOT MI-12/13/14), assert `entity_key='Alice'` (the retained old name) and `held_value->'baseline' = {"kind":"rename","suppressed_added":{"name":"Alicia","email":<Alicia's email>}}` — recording BOTH the suppressed added name AND email so the apply skips re-adding the replacement even if it is re-named again (PF13; replaces the prior `held_value.suppressed_added_name` scalar).
@@ -216,34 +217,66 @@ begin
   -- Re-insert prior crew row from before_image using the REAL crew_members
   -- columns (id, show_id, name, email, phone, role, role_flags,
   -- date_restriction, stage_restriction, flight_info, last_changed_at,
-  -- claimed_via_oauth_at). There is NO `restrictions` column. On conflict
-  -- (rename: a row may already exist under the old name) restore ALL of
-  -- before_image's identity+non-identity fields, not just email.
+  -- claimed_via_oauth_at). There is NO `restrictions` column. The INSERT
+  -- restores BOTH identity columns — `id` and `claimed_via_oauth_at` — from
+  -- before_image (PF38 / 00-overview resolution #24): the picker cookie
+  -- re-validates the viewer session against `crew_members.id`
+  -- (`resolveShowPageAccess.ts:127` `.eq("id", crewMemberId)`, `:188`
+  -- `entry.id !== viewer.crewMemberId`) and claim validity gates on
+  -- `claimed_via_oauth_at` (`resolvePickerSelection.ts:110`,
+  -- `resolveShowPageAccess.ts:197-203`). Restoring only the non-identity
+  -- fields would recreate the member under a FRESH `gen_random_uuid()` and a
+  -- NULL claim — a DIFFERENT, UNCLAIMED identity — silently logging the
+  -- claimed viewer out. Phase 2 captures `id` (uuid string) and
+  -- `claimed_via_oauth_at` (timestamptz string | null) into before_image.
+  -- On conflict (rename: a row may already exist under the old name) restore
+  -- ALL of before_image's identity+non-identity fields, not just email.
   -- TYPE-CORRECT restore per live column type (PF6):
+  --   uuid:   id  → (v_before->>'id')::uuid
   --   text:   name, email, phone, role, flight_info  → v_before->>'col'
   --   text[]: role_flags  → array(jsonb_array_elements_text(...))::text[]
   --   jsonb:  date_restriction, stage_restriction  → v_before->'col'
   --           (-> keeps jsonb; ->> would coerce to text and break the jsonb column)
+  --   timestamptz: claimed_via_oauth_at  → (v_before->>'claimed_via_oauth_at')::timestamptz
+  --           (NULL-safe: ->>'claimed_via_oauth_at' is NULL for a never-claimed
+  --            member → casts to a NULL timestamptz, the correct restore — no
+  --            spurious claim). last_changed_at is NOT an identity field and is
+  --            deliberately NOT restored from before_image: it stays
+  --            clock_timestamp() (the row was just re-inserted now).
+  -- This single INSERT block serves BOTH Direction-A paths — crew_removed AND
+  -- crew_renamed (they differ only in baseline computation above, then both
+  -- fall through here) — so restoring id + claim here covers rename undo too.
   insert into public.crew_members (
-    show_id, name, email, phone, role, role_flags,
-    date_restriction, stage_restriction, flight_info, last_changed_at
+    id, show_id, name, email, phone, role, role_flags,
+    date_restriction, stage_restriction, flight_info, last_changed_at,
+    claimed_via_oauth_at
   )
   values (
+    (v_before->>'id')::uuid,
     v_log.show_id, v_name, v_before->>'email', v_before->>'phone',
     v_before->>'role',
     coalesce(array(select jsonb_array_elements_text(v_before->'role_flags')), '{}')::text[],
     v_before->'date_restriction', v_before->'stage_restriction',
-    v_before->>'flight_info', clock_timestamp()
+    v_before->>'flight_info', clock_timestamp(),
+    (v_before->>'claimed_via_oauth_at')::timestamptz
   )
+  -- ON CONFLICT is the DEFENSIVE path and CANNOT restore the original id (the
+  -- PK is immutable on update). It does NOT need to: the UNDO_SUPERSEDED and
+  -- UNDO_EMAIL_CLAIMED guards above already prove the (show_id, name) +
+  -- (show_id, email) slots are free, so the clean-INSERT path — which restores
+  -- the ORIGINAL id — is the reachable one. The conflict branch is a no-op
+  -- safety net that still restores `claimed_via_oauth_at` (so even a defensive
+  -- update returns the claim), but never `id` (PF38 / resolution #24).
   on conflict (show_id, name) do update set
-    email             = excluded.email,
-    phone             = excluded.phone,
-    role              = excluded.role,
-    role_flags        = excluded.role_flags,
-    date_restriction  = excluded.date_restriction,
-    stage_restriction = excluded.stage_restriction,
-    flight_info       = excluded.flight_info,
-    last_changed_at   = excluded.last_changed_at;
+    email               = excluded.email,
+    phone               = excluded.phone,
+    role                = excluded.role,
+    role_flags          = excluded.role_flags,
+    date_restriction    = excluded.date_restriction,
+    stage_restriction   = excluded.stage_restriction,
+    flight_info         = excluded.flight_info,
+    last_changed_at     = excluded.last_changed_at,
+    claimed_via_oauth_at = excluded.claimed_via_oauth_at;
 
   -- held_value carries before_image PLUS the baseline (PF13); Phase 2's release
   -- eval reads held_value.baseline.
@@ -270,14 +303,17 @@ revoke all on function public.undo_change(uuid) from public, anon;
 grant execute on function public.undo_change(uuid) to authenticated;
 ```
 
-(Each restore expression must match the **live column type**, not just the column name (PF6): `role_flags` is `text[]` → rebuild from the jsonb array via `coalesce(array(select jsonb_array_elements_text(v_before->'role_flags')), '{}')::text[]`; `date_restriction` / `stage_restriction` are `jsonb` → carry with `->` (NOT `->>`, which coerces to text and breaks the jsonb column); `name/email/phone/role/flight_info` are `text` → `->>'`. Verify every column + type against the live schema before writing the migration — the real set is **id, show_id, name, email, phone, role, role_flags (text[]), date_restriction (jsonb), stage_restriction (jsonb), flight_info, last_changed_at, claimed_via_oauth_at** (NO `restrictions`); `tests/db/crew_members_claimed_via_oauth_at.test.ts` confirms the claim column. Use the project's `current_admin_email()`/`is_admin()` helpers as they appear in existing migrations.)
+(Each restore expression must match the **live column type**, not just the column name (PF6): `id` is `uuid` → `(v_before->>'id')::uuid` (restoring the ORIGINAL id is load-bearing — PF38 / resolution #24 — so the picker cookie keyed on `crew_members.id` still matches the restored row); `role_flags` is `text[]` → rebuild from the jsonb array via `coalesce(array(select jsonb_array_elements_text(v_before->'role_flags')), '{}')::text[]`; `date_restriction` / `stage_restriction` are `jsonb` → carry with `->` (NOT `->>`, which coerces to text and breaks the jsonb column); `claimed_via_oauth_at` is `timestamptz` → `(v_before->>'claimed_via_oauth_at')::timestamptz` (NULL-safe — `->>` is NULL for a never-claimed member → casts to NULL timestamptz, the correct no-claim restore); `name/email/phone/role/flight_info` are `text` → `->>'`. `last_changed_at` is NOT restored from before_image — it stays `clock_timestamp()` (not an identity field). Verify every column + type against the live schema before writing the migration — the real set is **id (uuid), show_id, name, email, phone, role, role_flags (text[]), date_restriction (jsonb), stage_restriction (jsonb), flight_info, last_changed_at, claimed_via_oauth_at (timestamptz)** (NO `restrictions`); `tests/db/crew_members_claimed_via_oauth_at.test.ts` confirms the claim column. Use the project's `current_admin_email()`/`is_admin()` helpers as they appear in existing migrations.)
 - [ ] **RED (phantom-column + type-correctness guard).** Add `tests/db/undo-change-no-phantom-columns.test.ts`: read `supabase/migrations/20260608000003_undo_change_rpc.sql`.
   - **Phantom-column:** extract every column name referenced against `public.crew_members` (the `insert into public.crew_members (...)` list + each `set <col> =` in the `do update`), and assert the set ⊆ the REAL column set `{id, show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info, last_changed_at, claimed_via_oauth_at}`. Failure mode: a nonexistent column (e.g. `restrictions`) fails the RPC at runtime with `column "restrictions" does not exist` — caught statically before the real-PG test runs. Derive the allowed set from a single constant.
   - **Type-correctness (PF6):** assert each restore EXPRESSION matches the column's live type, not just that the name exists:
+    - `id` (uuid) — must be restored via `(v_before->>'id')::uuid` (assert the INSERT `values` matches `/\(\s*v_before->>'id'\s*\)::uuid/` and that `id` IS in the INSERT column list; PF38 — restoring the original id is load-bearing).
+    - `claimed_via_oauth_at` (timestamptz) — must be restored via `(v_before->>'claimed_via_oauth_at')::timestamptz` (assert the SQL matches `/\(\s*v_before->>'claimed_via_oauth_at'\s*\)::timestamptz/` and that `claimed_via_oauth_at` IS in the INSERT column list AND in the `do update set`; PF38).
     - `role_flags` (text[]) — the migration must reconstruct it via `jsonb_array_elements_text` + `::text[]` (assert the SQL matches `/role_flags[\s\S]*?jsonb_array_elements_text[\s\S]*?::text\[\]/` and does NOT restore role_flags with a bare `->>` or raw `->` jsonb subscript).
     - `date_restriction` / `stage_restriction` (jsonb) — must be carried with `v_before->'col'` (the `->` operator); assert the migration does NOT use `v_before->>'date_restriction'` / `->>'stage_restriction'` (the `->>` text-coercion would break the jsonb column).
     - `name/email/phone/role/flight_info` (text) — restored with `->>'`.
-  Failure mode: a type-mismatched restore (`->>'date_restriction'` into a jsonb column, or `v_before->'role_flags'` raw jsonb into a text[] column) fails the INSERT at runtime — this static guard catches it before the real-PG test runs. Derive the per-column expected-operator map from a single constant.
+    - `last_changed_at` — assert it is NOT restored from before_image (it stays `clock_timestamp()` — not an identity field; assert the `values` list for `last_changed_at`'s slot is `clock_timestamp()` and the SQL does NOT contain `v_before->>'last_changed_at'`).
+  Failure mode: a type-mismatched restore (`->>'date_restriction'` into a jsonb column, or `v_before->'role_flags'` raw jsonb into a text[] column, or omitting `id` / `claimed_via_oauth_at` so the row recreates as a fresh-uuid unclaimed identity) fails the INSERT at runtime or silently logs the viewer out — this static guard catches it before the real-PG test runs. Derive the per-column expected-operator map from a single constant.
 - [ ] **RED (next-sync baseline behavior — PF13).** Add to `tests/db/undo-change-direction-a.test.ts` three next-sync cases that prove Phase 2 releases against the **sheet signature** (`held_value.baseline`), not against `held_value`:
   - **(a) undo-removal holds across an unchanged sheet.** Seed `[Alice(alice@old), Bob]`; auto-apply removal of Alice (sheet `[Bob]`); `undo_change` (baseline `{kind:'removal'}`). Next sync with the sheet **STILL omitting Alice** (`[Bob]`) → Alice **STAYS** (no re-removal), hold persists. Failure mode caught: a release keyed off `held_value` (which still matches the restored row) would re-remove Alice on the very next sync.
   - **(b) undo-rename suppresses a DIFFERENT-named replacement.** Seed `[Alice(alice@old)]`; auto-apply rename Alice→Alicia(alicia@new) (`crew_renamed`); `undo_change` (baseline `{kind:'rename',suppressed_added:{name:'Alicia',email:'alicia@new'}}`). Next sync where the sheet now lists the replacement under **yet another name** (`Alyx(alicia@new)`, same email) → restored `Alice` **STAYS** AND the replacement is **NOT re-added** (matched by baseline email, not just name). Failure mode caught: suppression keyed on name alone lets a re-named replacement slip through.
@@ -390,6 +426,7 @@ it("undone add is not re-created while sheet still lists them; removing from she
 - [ ] Single-holder check: `undo_change` acquires the show lock at exactly one layer; no nested lock; `cleanup_superseded_before_images` takes NO lock (runs inside the caller's lock).
 - [ ] **Lock-order check (PF11 / resolution #15 — CRITICAL):** in `undo_change` (and `_undo_tombstone`) NO `for update` and no read-planned-for-mutation precedes `pg_advisory_xact_lock`. Order is: is_admin → non-locking plan read → advisory lock → re-select FOR UPDATE + supersession revalidation + mutations. A regression test (`tests/db/undo-change-lock-order.test.ts`) statically asserts the migration's first `for update` token appears AFTER the `pg_advisory_xact_lock` token, and that no `for update` precedes it — guards the M5 R20 lock-inversion deadlock class. Concurrent cron-sync + undo on the same show serialize without deadlock (real-PG two-connection test in `undo-change-direction-a.test.ts`).
 - [ ] Direction completeness: held-present (A) and held-absent/tombstone (B) both covered; release for both directions tested; both guards tested.
+- [ ] **Identity-continuity restore (PF38 / resolution #24):** the Direction-A INSERT restores BOTH `id` (`(v_before->>'id')::uuid`) AND `claimed_via_oauth_at` (`(v_before->>'claimed_via_oauth_at')::timestamptz`, NULL-safe) from before_image, in both the INSERT column list/values AND (for claim) the ON CONFLICT `do update set`; `id` is NOT updated on conflict (immutable PK — the clean-INSERT path is the reachable one, ON CONFLICT is defensive). `last_changed_at` stays `clock_timestamp()` (not restored). The single INSERT block serves crew_removed AND crew_renamed, so rename undo restores id + claim too. Tests assert a CLAIMED member's restored row has the SAME id + SAME claim timestamp as the pre-apply row (`undo-change-direction-a.test.ts`, derived from the captured live row), and an UNCLAIMED control restores with NULL claim (no spurious claim). Failure mode: a fresh-uuid/NULL-claim restore breaks the picker cookie (keyed on `crew_members.id`, `resolveShowPageAccess.ts:127`) and loses the OAuth claim → silent logout.
 - [ ] **Rename entity_ref + name-collision guard (PF28 / resolution #19):** a `crew_renamed` log row's `entity_ref` = the PRIOR/old name = `before_image.name` = the ON CONFLICT key; the suppressed new name is in `held_value.baseline.suppressed_added`. A pre-restore NAME guard (symmetric to the email guard) rejects with `UNDO_SUPERSEDED` when a DIFFERENT live crew row already holds the restore-target name, so `ON CONFLICT (show_id, name)` never clobbers a newer row. The rename-supersession test proves a stale rename Undo (older row flipped to `superseded` by cleanup sharing entity_ref) returns `UNDO_SUPERSEDED` with the current live row untouched.
 - [ ] **Email-collision guard matches the unique index (PF27):** the pre-restore guard rejects when ANY OTHER live crew row (different name, same show) holds the non-null prior email — REGARDLESS of `claimed_via_oauth_at` — so the predicate matches `crew_members_show_email_unique (show_id, email)` and the restore INSERT never throws a raw unique-violation. Both the claimed AND the unclaimed-duplicate tests assert a typed `UNDO_EMAIL_CLAIMED` with zero mutation. `UNDO_EMAIL_CLAIMED` catalog copy (Phase 1) reads generally, not claim-specific.
 - [ ] **change_kind security boundary + direction selection (PF22 / resolution #18):** undo_change enforces the undoable set ITSELF (`change_kind in ('crew_added','crew_removed','crew_renamed')` else `UNDO_NOT_FOUND`), never trusting the feed's action gating, since an admin can pass an arbitrary `p_change_log_id`. Direction is selected by **change_kind** (`crew_added`→tombstone; `crew_removed`/`crew_renamed`→restore), NOT by `before_image IS NULL`. Tests prove an applied `crew_email_changed` / `section_shrunk` / `field_changed` row returns `UNDO_NOT_FOUND` with zero mutation.
@@ -404,4 +441,4 @@ it("undone add is not re-created while sheet still lists them; removing from she
 
 ## Task 4.8 — Phase 4 adversarial review (cross-model)
 
-Invoke the `adversarial-review` skill to send Phase 4 (this file + its diff) to the opposing CLI (Codex) for cross-model critique. REVIEWER ONLY — the reviewer does not fix; findings return to the implementer session. Iterate until convergence; escalate only genuine ambiguity. Focus surfaces: F2 pre-apply capture, F11 tombstone non-recreation + release, **change_kind security boundary (PF22 / resolution #18): RPC self-enforces the undoable set with an arbitrary p_change_log_id (no feed trust); direction selected by change_kind not before_image-null; a crew_email_changed / section_shrunk / field_changed row returns UNDO_NOT_FOUND with zero mutation**, **email-collision guard matches the unique index (PF27): rejects ANY duplicate (show_id, email) claimed or not, typed UNDO_EMAIL_CLAIMED never a raw unique-violation**, **rename entity_ref=prior name + pre-restore name guard (PF28 / resolution #19): a stale rename Undo can't clobber a re-added same-name live row via ON CONFLICT; rejects UNDO_SUPERSEDED**, **stale-undo no-corruption (PF19 / resolution #18): cleanup flips superseded rows to status='superseded' in the same pass it nulls before_image; the status<>'applied' guard precedes the before_image-null tombstone branch so a stale crew_removed row rejects instead of deleting current crew**, **undo idempotency (PF16 / resolution #18): orig row flips to status='undone' under the lock both directions; supersession keys off orig.status<>'applied'; a 2nd undo is a no-op UNDO_SUPERSEDED**, **the `held_value.baseline` release-against-sheet contract (PF13 / resolution #16): release keyed off the undone-change signature not `held_value`; rename suppression by name+email; the three next-sync behaviors**, supersession + email-claim guards, single-layer lock topology for `undo_change`, the **lock order (PF11 / resolution #15): no FOR UPDATE before `pg_advisory_xact_lock`; supersession revalidated under the lock; `_undo_tombstone` never re-takes the lock**, the real-column restore SQL (no phantom `restrictions`; full-field ON CONFLICT restore; type-correct per-column expressions), and the admin-user identity (authed-admin client, `is_admin()` gate, not service-role) per resolution #11. Do not proceed to Phase 5 handoff without an APPROVE.
+Invoke the `adversarial-review` skill to send Phase 4 (this file + its diff) to the opposing CLI (Codex) for cross-model critique. REVIEWER ONLY — the reviewer does not fix; findings return to the implementer session. Iterate until convergence; escalate only genuine ambiguity. Focus surfaces: F2 pre-apply capture, F11 tombstone non-recreation + release, **change_kind security boundary (PF22 / resolution #18): RPC self-enforces the undoable set with an arbitrary p_change_log_id (no feed trust); direction selected by change_kind not before_image-null; a crew_email_changed / section_shrunk / field_changed row returns UNDO_NOT_FOUND with zero mutation**, **email-collision guard matches the unique index (PF27): rejects ANY duplicate (show_id, email) claimed or not, typed UNDO_EMAIL_CLAIMED never a raw unique-violation**, **rename entity_ref=prior name + pre-restore name guard (PF28 / resolution #19): a stale rename Undo can't clobber a re-added same-name live row via ON CONFLICT; rejects UNDO_SUPERSEDED**, **stale-undo no-corruption (PF19 / resolution #18): cleanup flips superseded rows to status='superseded' in the same pass it nulls before_image; the status<>'applied' guard precedes the before_image-null tombstone branch so a stale crew_removed row rejects instead of deleting current crew**, **undo idempotency (PF16 / resolution #18): orig row flips to status='undone' under the lock both directions; supersession keys off orig.status<>'applied'; a 2nd undo is a no-op UNDO_SUPERSEDED**, **the `held_value.baseline` release-against-sheet contract (PF13 / resolution #16): release keyed off the undone-change signature not `held_value`; rename suppression by name+email; the three next-sync behaviors**, supersession + email-claim guards, single-layer lock topology for `undo_change`, the **lock order (PF11 / resolution #15): no FOR UPDATE before `pg_advisory_xact_lock`; supersession revalidated under the lock; `_undo_tombstone` never re-takes the lock**, **identity-continuity restore (PF38 / resolution #24): Direction-A INSERT restores the ORIGINAL `id` + `claimed_via_oauth_at` from before_image (clean-INSERT path restores id; ON CONFLICT defensively restores claim but never id); a CLAIMED member's restored row keeps the same id + claim timestamp so the picker cookie still matches and the OAuth claim survives; the same block covers rename undo**, the real-column restore SQL (no phantom `restrictions`; full-field ON CONFLICT restore; type-correct per-column expressions including id::uuid + claimed_via_oauth_at::timestamptz), and the admin-user identity (authed-admin client, `is_admin()` gate, not service-role) per resolution #11. Do not proceed to Phase 5 handoff without an APPROVE.
