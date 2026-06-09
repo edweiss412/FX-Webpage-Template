@@ -43,7 +43,15 @@ describe("NeedsAttentionInbox — no legacy existing_staged route post-cutover (
     // The source itself produces zero existing_staged items.
     expect(feed.items.some((i) => i.variant === "existing_staged")).toBe(false);
 
-    render(<NeedsAttentionInbox items={feed.items} overflowCount={feed.overflowCount} now={now} />);
+    render(
+      <NeedsAttentionInbox
+        items={feed.items}
+        totalCount={feed.totalCount}
+        renderedCount={feed.renderedCount}
+        overflowCount={feed.overflowCount}
+        now={now}
+      />,
+    );
 
     // No existing_staged card rendered…
     expect(screen.queryByTestId(/needs-attention-item-existing-/)).toBeNull();
