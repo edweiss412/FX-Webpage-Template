@@ -157,7 +157,7 @@ export function UndoChangeButton({
 
 ### T6.4 — Approve / Reject gate buttons (conflict surfaces post-submit from the action result)
 
-- [ ] **Test** `tests/components/admin/Mi11GateActions.test.tsx`. Failure modes: *(a) the component reads a non-canonical `detail`/`groupState`/`conflictCode` prop that the Phase-5 `FeedEntry` doesn't produce (forces a 2nd query — PF14/PF17); (b) the IDENTITY_WOULD_COLLIDE conflict is pre-rendered as a static field instead of surfacing from the Approve action's typed result after submit; (c) the Approve form isn't bound to `gate.holdId`.*
+- [ ] **Test** `tests/components/admin/Mi11GateActions.test.tsx`. Failure modes: *(a) the component reads a non-canonical `detail`/`groupState`/`conflictCode` prop that the Phase-5 `FeedEntry` doesn't produce (forces a 2nd query — PF14/PF17); (b) the IDENTITY_WOULD_COLLIDE conflict is pre-rendered as a static field instead of surfacing from the Approve action's typed result after submit; (c) the Approve form isn't bound to `gate.holdId`; (d) **PF40: the Approve/Reject forms drop the feed-rendered `baseModifiedTime` staleness token (or the component re-derives it instead of carrying the client-submitted value the admin SAW) → the Phase 2 retarget guard is vacuous and a stale tab resolves a disposition that was re-evaluated since render.*
 
 ```tsx
 import { render, screen } from "@testing-library/react";
@@ -171,6 +171,7 @@ it("renders Approve + Reject for a pending hold from gate (no detail/groupState 
     <Mi11GateActions
       holdId="h1"
       disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
+      baseModifiedTime="2026-06-09T10:00:00Z"
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -182,6 +183,48 @@ it("renders Approve + Reject for a pending hold from gate (no detail/groupState 
   expect(screen.getByRole("button", { name: /reject/i })).toBeInTheDocument();
   // the Approve form carries the holdId so the bound action targets the hold.
   expect(screen.getByDisplayValue("h1")).toBeInTheDocument();
+});
+
+it("carries the feed-rendered baseModifiedTime staleness token into BOTH the Approve and Reject submissions (PF40)", () => {
+  render(
+    <Mi11GateActions
+      holdId="h1"
+      disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
+      // PF40: the value the feed RENDERED (entry.gate.baseModifiedTime, the
+      // hold's base_modified_time AS the admin SAW it) — submitted verbatim.
+      baseModifiedTime="2026-06-09T10:00:00Z"
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  // Both forms carry a hidden expectedBaseModifiedTime input set to the
+  // feed-rendered value — never a fresh re-read (a re-read makes the
+  // Phase 2 MI11_TARGET_MOVED retarget guard vacuous).
+  const tokenInputs = screen.getAllByDisplayValue("2026-06-09T10:00:00Z");
+  expect(tokenInputs).toHaveLength(2); // one per form (Approve + Reject)
+  for (const el of tokenInputs) {
+    expect(el).toHaveAttribute("name", "expectedBaseModifiedTime");
+  }
+});
+
+it("renders an empty expectedBaseModifiedTime when baseModifiedTime is null (round-trips as '')", () => {
+  render(
+    <Mi11GateActions
+      holdId="h1"
+      disposition={{ disposition: "removal", name: "Alice" }}
+      // PF40: a null base_modified_time round-trips as '' through the hidden
+      // input; the server action normalizes '' back to null.
+      baseModifiedTime={null}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const tokenInputs = screen.getAllByDisplayValue("");
+  // the two expectedBaseModifiedTime inputs are present and empty (not absent)
+  const tokens = tokenInputs.filter(
+    (el) => el.getAttribute("name") === "expectedBaseModifiedTime",
+  );
+  expect(tokens).toHaveLength(2);
 });
 
 it("surfaces an IDENTITY_WOULD_COLLIDE conflict POST-SUBMIT from the action result, via lib/messages (no raw code)", async () => {
@@ -206,7 +249,7 @@ it("surfaces an IDENTITY_WOULD_COLLIDE conflict POST-SUBMIT from the action resu
 });
 ```
 
-- [ ] **Impl** `components/admin/Mi11GateActions.tsx` (`"use client"`). **Props (PF17 — canonical fields only): `holdId: string`, `disposition: Disposition`, `approveAction`, `rejectAction` (server actions returning a typed `{ok:true,...} | {ok:false,code}` result). NO `detail`, `groupState`, or `conflictCode` props** — those are not on the canonical `FeedEntry` and would require a second query (PF14). Two `<form>`s (Approve, Reject), each with a `useFormStatus` `SubmitButton` (44px tap, `min-h-tap-min`). The Approve button label is always `"Approve"`; **the swap/collision/IDENTITY_WOULD_COLLIDE vs approved-group outcome is determined by the action's typed RESULT after submit** — capture it via `useActionState` (or a small wrapper that stores the returned result) and, on `{ok:false, code}`, render `<ErrorExplainer code={code} surface="admin" data-testid="mi11-gate-result" />` (no raw code, invariant 5); on `{ok:true}` the page revalidates and the entry flips status. Accessible names disambiguate the otherwise-identical buttons via `aria-label` using `disposition.name` (e.g. "Approve change for Alice" — WCAG 2.5.3, M12.6 precedent). This component never pre-renders a conflict or a group state — it reacts to the result.
+- [ ] **Impl** `components/admin/Mi11GateActions.tsx` (`"use client"`). **Props (PF17 — canonical fields only): `holdId: string`, `disposition: Disposition`, `baseModifiedTime: string | null` (PF40 — the hold's `base_modified_time` AS RENDERED by the feed; Phase 5 populates `entry.gate.baseModifiedTime`), `approveAction`, `rejectAction` (server actions returning a typed `{ok:true,...} | {ok:false,code}` result). NO `detail`, `groupState`, or `conflictCode` props** — those are not on the canonical `FeedEntry` and would require a second query (PF14). Two `<form>`s (Approve, Reject), each carrying TWO hidden inputs — `<input type="hidden" name="holdId" value={holdId} />` and **`<input type="hidden" name="expectedBaseModifiedTime" value={baseModifiedTime ?? ""} />` (PF40)** — plus a `useFormStatus` `SubmitButton` (44px tap, `min-h-tap-min`). **PF40: `expectedBaseModifiedTime` is the CLIENT-SUBMITTED feed-rendered value the admin SAW — emitted verbatim from the `baseModifiedTime` prop, NEVER re-read server-side (a fresh read makes the Phase 2 `MI11_TARGET_MOVED` retarget guard vacuous). A null base round-trips as `""` (the `?? ""`); the server action normalizes it back to `null`.** The Approve button label is always `"Approve"`; **the swap/collision/IDENTITY_WOULD_COLLIDE vs approved-group outcome is determined by the action's typed RESULT after submit** — capture it via `useActionState` (or a small wrapper that stores the returned result) and, on `{ok:false, code}`, render `<ErrorExplainer code={code} surface="admin" data-testid="mi11-gate-result" />` (no raw code, invariant 5; this includes the `MI11_TARGET_MOVED` retarget-rejection code — the hold moved since the admin rendered the feed, zero mutation); on `{ok:true}` the page revalidates and the entry flips status. Accessible names disambiguate the otherwise-identical buttons via `aria-label` using `disposition.name` (e.g. "Approve change for Alice" — WCAG 2.5.3, M12.6 precedent). This component never pre-renders a conflict or a group state — it reacts to the result.
 - [ ] Commit `feat(admin): MI-11 gate Approve/Reject (conflict surfaces post-submit)`.
 
 ### T6.5 — `ChangeFeedEntry` (row shell, mode dispatch)
@@ -272,9 +315,13 @@ it("pending MI-11 row renders old→new from entry.summary and mounts Approve/Re
         // PF17: the old→new text IS the summary (Phase 5 server-renders it via
         // lib/messages). There is no entry.detail/groupState/conflictCode.
         summary: "Email change for Alice: a@old → a@new",
-        // PF14: the canonical FeedEntry carries gate {holdId, disposition} —
-        // Phase 5 populates it; the page does NO second query.
-        gate: { holdId: "h1", disposition: { disposition: "email_change", name: "Alice", email: "a@new" } },
+        // PF14/PF40: the canonical FeedEntry carries gate {holdId, disposition,
+        // baseModifiedTime} — Phase 5 populates it; the page does NO second query.
+        gate: {
+          holdId: "h1",
+          disposition: { disposition: "email_change", name: "Alice", email: "a@new" },
+          baseModifiedTime: "2026-06-09T10:00:00Z",
+        },
       }}
       now={now} undoAction={noop} approveAction={approve} rejectAction={noop}
     />,
@@ -288,6 +335,14 @@ it("pending MI-11 row renders old→new from entry.summary and mounts Approve/Re
   // the Approve form carries the holdId from entry.gate (hidden input), so the
   // bound action targets the right hold with no extra lookup.
   expect(within(row).getByDisplayValue("h1")).toBeInTheDocument();
+  // PF40: the feed-rendered baseModifiedTime is threaded VERBATIM into the gate
+  // forms as the expectedBaseModifiedTime staleness token (one per form) — the
+  // value the admin SAW, never a server re-read.
+  const tokenInputs = within(row).getAllByDisplayValue("2026-06-09T10:00:00Z");
+  expect(tokenInputs).toHaveLength(2);
+  for (const el of tokenInputs) {
+    expect(el).toHaveAttribute("name", "expectedBaseModifiedTime");
+  }
 });
 
 it("undo row wires the Undo button to entry.changeLogId", () => {
@@ -305,7 +360,7 @@ it("undo row wires the Undo button to entry.changeLogId", () => {
 });
 ```
 
-- [ ] **Impl** `components/admin/ChangeFeedEntry.tsx` (`"use client"` — hosts the action forms). Renders an `<li data-testid={`change-feed-entry-${entry.id}`}>` with: summary `<p data-testid="change-feed-summary">{entry.summary}</p>` (the old→new text for a pending row IS the server-rendered summary — PF17), `<ChangeFeedTime>`, `<ChangeFeedBadge>`, and a mode switch on `entry.action`: `undo` → `<UndoChangeButton changeLogId={entry.changeLogId!} undoAction={undoAction} />`; `approve_reject` → `<Mi11GateActions holdId={entry.gate!.holdId} disposition={entry.gate!.disposition} approveAction={approveAction} rejectAction={rejectAction} />`; `none` → no button. **PF17/PF14: ChangeFeedEntry consumes ONLY the canonical `FeedEntry` fields — `summary`, `gate = {holdId, disposition}` (approve_reject), `changeLogId` (undo). It reads NO `detail`, `groupState`, or `conflictCode` (those are not on `FeedEntry`); the swap/collision outcome surfaces post-submit from the Approve action's typed result inside `Mi11GateActions`, not as a pre-computed entry field — so the page performs NO second query.** Guard: if `action === "approve_reject"` but `entry.gate` is undefined (or `undo` but `changeLogId` undefined), render the row notification-only (defensive — never a dangling Approve with no hold / Undo with no target).
+- [ ] **Impl** `components/admin/ChangeFeedEntry.tsx` (`"use client"` — hosts the action forms). Renders an `<li data-testid={`change-feed-entry-${entry.id}`}>` with: summary `<p data-testid="change-feed-summary">{entry.summary}</p>` (the old→new text for a pending row IS the server-rendered summary — PF17), `<ChangeFeedTime>`, `<ChangeFeedBadge>`, and a mode switch on `entry.action`: `undo` → `<UndoChangeButton changeLogId={entry.changeLogId!} undoAction={undoAction} />`; `approve_reject` → `<Mi11GateActions holdId={entry.gate!.holdId} disposition={entry.gate!.disposition} baseModifiedTime={entry.gate!.baseModifiedTime} approveAction={approveAction} rejectAction={rejectAction} />`; `none` → no button. **PF17/PF14/PF40: ChangeFeedEntry consumes ONLY the canonical `FeedEntry` fields — `summary`, `gate = {holdId, disposition, baseModifiedTime}` (approve_reject), `changeLogId` (undo). It reads NO `detail`, `groupState`, or `conflictCode` (those are not on `FeedEntry`); the swap/collision outcome surfaces post-submit from the Approve action's typed result inside `Mi11GateActions`, not as a pre-computed entry field — so the page performs NO second query. The feed-rendered `entry.gate.baseModifiedTime` is threaded VERBATIM into `Mi11GateActions` (the staleness token the admin SAW) — never re-read.** Guard: if `action === "approve_reject"` but `entry.gate` is undefined (or `undo` but `changeLogId` undefined), render the row notification-only (defensive — never a dangling Approve with no hold / Undo with no target).
 - [ ] Commit `feat(admin): change-feed entry row + action mode dispatch`.
 
 ### T6.6 — `ChangesFeed` list + cap/truncation disclosure
@@ -353,25 +408,50 @@ it("shows a calm empty state when there are no entries", () => {
 
 ### T6.7 — Server actions + page wiring (mount feed, remove legacy whole-parse review)
 
-- [ ] **Test** `tests/admin/showPageFeed.test.tsx` (RSC/integration with the Phase 3/4 helpers mocked). Failure modes: *(a) the feed isn't mounted on the page; (b) the Approve server action calls `supabase.rpc()` inline instead of DELEGATING to the guarded helper (PF15 lock-guard bypass); (c) the legacy `ParsePanel`/`StagedReviewCard` whole-parse review path is still mounted.*
+- [ ] **Test** `tests/admin/showPageFeed.test.tsx` (RSC/integration with the Phase 3/4 helpers mocked). Failure modes: *(a) the feed isn't mounted on the page; (b) the Approve server action calls `supabase.rpc()` inline instead of DELEGATING to the guarded helper (PF15 lock-guard bypass); (c) the legacy `ParsePanel`/`StagedReviewCard` whole-parse review path is still mounted; (d) **PF40: the action drops the client-submitted `expectedBaseModifiedTime` form field (or re-reads the hold's base time server-side) instead of forwarding the feed-rendered token to the helper as the 2nd arg → the retarget guard is vacuous and a stale tab resolves a disposition the admin never saw.*
 
 ```tsx
 // Mocks: readShowChangeFeed → fixture entries; the Phase 3/4 action helpers.
 import * as gate from "@/lib/sync/holds/mi11GateActions";
 
-it("mi11ApproveAction submits ONLY holdId and DELEGATES to approveMi11Hold(holdId)", async () => {
+it("mi11ApproveAction submits holdId + the feed-rendered token and DELEGATES to approveMi11Hold(holdId, expectedBaseModifiedTime) (PF40)", async () => {
   const spy = vi.spyOn(gate, "approveMi11Hold").mockResolvedValue({ ok: true });
   const fd = new FormData();
   fd.set("holdId", "h1");
+  // PF40: the CLIENT-SUBMITTED value the feed RENDERED — forwarded verbatim,
+  // NEVER a fresh server re-read (a re-read makes the retarget guard vacuous).
+  fd.set("expectedBaseModifiedTime", "2026-06-09T10:00:00Z");
   await mi11ApproveAction(fd); // requireAdmin mocked to pass
-  // PF23: the action passes ONLY the holdId. The helper resolves the show's
-  // drive_file_id FROM the hold server-side and does the Drive re-check
-  // internally (a holdId from another show would otherwise re-check the wrong
-  // file). The page/client never binds showId/driveFileId.
+  // PF23: the action passes ONLY the holdId (no showId/driveFileId). The helper
+  // resolves the show's drive_file_id FROM the hold server-side and does the
+  // Drive re-check internally (a holdId from another show would otherwise
+  // re-check the wrong file). The page/client never binds showId/driveFileId.
   // PF15: the helper owns the Drive-modifiedTime read (F13) + the lock-taking
   // RPC; the action performs NO supabase.rpc() and NO withShowAdvisoryLock wrap.
-  expect(spy).toHaveBeenCalledWith("h1");
+  // PF40: the action forwards the feed-rendered staleness token as the 2nd arg.
+  expect(spy).toHaveBeenCalledWith("h1", "2026-06-09T10:00:00Z");
   expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ driveFileId: expect.anything() }));
+});
+
+it("mi11RejectAction forwards holdId + expectedBaseModifiedTime to rejectMi11Hold (PF40)", async () => {
+  const spy = vi.spyOn(gate, "rejectMi11Hold").mockResolvedValue({ ok: true });
+  const fd = new FormData();
+  fd.set("holdId", "h1");
+  fd.set("expectedBaseModifiedTime", "2026-06-09T10:00:00Z");
+  await mi11RejectAction(fd);
+  expect(spy).toHaveBeenCalledWith("h1", "2026-06-09T10:00:00Z");
+});
+
+it("normalizes an empty expectedBaseModifiedTime ('') back to null before delegating (PF40)", async () => {
+  // A null base_modified_time round-trips through the hidden input as ''. The
+  // action MUST normalize '' → null so the helper's expectedBaseModifiedTime
+  // param is null (not the empty string), matching the hold's actual base.
+  const spy = vi.spyOn(gate, "approveMi11Hold").mockResolvedValue({ ok: true });
+  const fd = new FormData();
+  fd.set("holdId", "h1");
+  fd.set("expectedBaseModifiedTime", "");
+  await mi11ApproveAction(fd);
+  expect(spy).toHaveBeenCalledWith("h1", null);
 });
 
 it("a delegated failure result maps to a lib/messages code, never a raw code in the DOM", async () => {
@@ -385,9 +465,9 @@ it("a delegated failure result maps to a lib/messages code, never a raw code in 
 
 > The F13 (Drive-modifiedTime-first) and F15 (Drive-read-failure non-mutating) contracts — and the **driveFileId-resolved-from-hold** security property (PF23) — are tested at the **helper** layer in Phase 3, not duplicated here. The server action only proves it passes the bare `holdId` and delegates.
 
-- [ ] **Impl** `app/admin/show/[slug]/_actions.ts` — add `undoChangeAction`, `mi11ApproveAction`, `mi11RejectAction` (`"use server"`). **PF15: these server actions are THIN — `await requireAdmin()`, read the single id from `FormData`, then DELEGATE to the already-advisory-lock-guarded Phase 3/4 action helpers; they NEVER call `supabase.rpc()` inline and NEVER wrap the call in `withShowAdvisoryLock` (the lock-taking SECURITY DEFINER RPC self-locks — wrapping it would nest two holders on the same hashkey and deadlock, violating invariant 2 / `tests/auth/advisoryLockRpcDeadlock.test.ts`).** **PF23: the approve/reject actions submit and forward ONLY `holdId`; the undo action forwards ONLY `changeLogId`. The page/client NEVER binds `showId`/`driveFileId` into these actions — Phase 3 resolves the show's `drive_file_id` from the HOLD server-side (a `holdId` from another show would otherwise drive the Drive re-check against the wrong file). Forwarding a client-supplied file id is the vulnerability this forbids.** Delegation targets:
-  - `mi11ApproveAction(formData)` → reads `holdId` → `approveMi11Hold(holdId)` (`lib/sync/holds/mi11GateActions.ts`)
-  - `mi11RejectAction(formData)` → reads `holdId` → `rejectMi11Hold(holdId)` (`lib/sync/holds/mi11GateActions.ts`)
+- [ ] **Impl** `app/admin/show/[slug]/_actions.ts` — add `undoChangeAction`, `mi11ApproveAction`, `mi11RejectAction` (`"use server"`). **PF15: these server actions are THIN — `await requireAdmin()`, read the field(s) from `FormData`, then DELEGATE to the already-advisory-lock-guarded Phase 3/4 action helpers; they NEVER call `supabase.rpc()` inline and NEVER wrap the call in `withShowAdvisoryLock` (the lock-taking SECURITY DEFINER RPC self-locks — wrapping it would nest two holders on the same hashkey and deadlock, violating invariant 2 / `tests/auth/advisoryLockRpcDeadlock.test.ts`).** **PF23: the approve/reject actions submit and forward ONLY `holdId` (plus the PF40 staleness token below); the undo action forwards ONLY `changeLogId`. The page/client NEVER binds `showId`/`driveFileId` into these actions — Phase 3 resolves the show's `drive_file_id` from the HOLD server-side (a `holdId` from another show would otherwise drive the Drive re-check against the wrong file). Forwarding a client-supplied file id is the vulnerability this forbids.** **PF40: the approve/reject actions ALSO read the CLIENT-SUBMITTED `expectedBaseModifiedTime` form field (the value the feed RENDERED, mirroring how they read `holdId`) and forward it to the helper as the 2nd arg — NEVER a fresh server re-read of the hold's base time (a re-read makes the Phase 2 `MI11_TARGET_MOVED` retarget guard vacuous; the RPC must compare against what the admin SAW). A null base round-trips through the hidden input as `""`, so the action normalizes `"" → null` before delegating (e.g. `const raw = formData.get("expectedBaseModifiedTime"); const expectedBaseModifiedTime = raw === "" || raw == null ? null : String(raw);`).** Delegation targets:
+  - `mi11ApproveAction(formData)` → reads `holdId` + `expectedBaseModifiedTime` (normalized `""→null`) → `approveMi11Hold(holdId, expectedBaseModifiedTime)` (`lib/sync/holds/mi11GateActions.ts`)
+  - `mi11RejectAction(formData)` → reads `holdId` + `expectedBaseModifiedTime` (normalized `""→null`) → `rejectMi11Hold(holdId, expectedBaseModifiedTime)` (`lib/sync/holds/mi11GateActions.ts`)
   - `undoChangeAction(formData)` → reads `changeLogId` → the Phase 4 undo action helper (`lib/sync/holds/undoChange.ts` per Phase 4)
 
   Those helpers own the cookie-bound authenticated client (`createSupabaseServerClient()` — admin session, NOT service-role; 00-overview #11: the RPCs are `SECURITY DEFINER`, gate on `is_admin()`, `GRANT EXECUTE … TO authenticated`) and the `{ data, error }` destructuring (invariant 9). **Approve orchestration (F13/F15) lives entirely in the Phase 3 helper:** from the `holdId` it loads the hold, resolves the hold's `drive_file_id`, reads that file's current Drive `modifiedTime` FIRST; on returned-error OR thrown → a typed `lib/messages` result, no RPC call, hold stays pending; else passes the observed time into the lock-taking RPC. The server action `revalidatePath('/admin/show/[slug]', 'page')` on the helper's success result and maps every `{ok:false, code}` to a `lib/messages` code (no raw codes — invariant 5). The service-role client is used **only** for the feed READ (`readShowChangeFeed`, Phase 5).
@@ -483,19 +563,19 @@ test.describe("changes feed layout", () => {
 ### T6.12 — Phase 6 adversarial review (cross-model — Codex reviews the UI)
 
 - [ ] After phase self-review, invoke `adversarial-review` (Codex reviews the Opus UI phase, per the cross-harness pairing in `00-overview.md`). **Reviewer is REVIEWER ONLY** — inline that framing in the brief (`feedback_adversarial_review_runbook`). Iterate until convergence/APPROVE; escalate only genuine ambiguity. Do not proceed to whole-plan handoff without this step.
-- [ ] **EXPLICITLY DO NOT RELITIGATE** (preempt the disagreement loop): (a) non-crew rows are notification-only with `action='none'` — ratified §6.2/§7 finding F6, NOT a missing feature; (b) the whole-parse `StagedReviewCard` review path removal is ratified §8 (no invariant stages a whole parse anymore); (c) Approve reading Drive `modifiedTime` in the server action before the RPC is the F13 design, not a layering smell; (d) the feed receiving pre-ordered/pre-capped entries from Phase 5 is the data-layer contract, not a UI omission.
+- [ ] **EXPLICITLY DO NOT RELITIGATE** (preempt the disagreement loop): (a) non-crew rows are notification-only with `action='none'` — ratified §6.2/§7 finding F6, NOT a missing feature; (b) the whole-parse `StagedReviewCard` review path removal is ratified §8 (no invariant stages a whole parse anymore); (c) Approve reading Drive `modifiedTime` in the Phase 3 HELPER (not the server action) before the RPC is the F13 design, not a layering smell; (d) the feed receiving pre-ordered/pre-capped entries from Phase 5 is the data-layer contract, not a UI omission; (e) **PF40: the Approve/Reject forms submit the FEED-RENDERED `expectedBaseModifiedTime` (what the admin SAW) and the server action forwards it VERBATIM to the helper — the action deliberately does NOT re-read the hold's base time server-side, because a fresh read makes the Phase 2 `MI11_TARGET_MOVED` retarget guard vacuous. This is the contract, not a missing server-side validation (the RPC re-validates against the submitted token; the empty-string→null normalization is the only transform the action applies).**
 
 ---
 
 ## Resolved decisions (settled in-plan — do not relitigate)
 
 - **First-seen review surface stays.** `ParsePanel` + `StagedReviewCard` are NOT deleted — confirmed by importer grep they back the wizard `wizard_failed_reapply` route (`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx`) and the live `first_seen` route (`app/admin/show/staged/[stagedId]/page.tsx`). Phase 6 removes ONLY the per-show LIVE whole-parse review **mount** in `app/admin/show/[slug]/page.tsx` (the `admin-show-parse-warnings-section` + its `pending_syncs` query + `rows` derivation — exact lines in T6.7). First-seen approval is unchanged: governed by `auto_publish_clean_first_seen` + its dedicated `/admin/show/staged/[stagedId]` route. No first-seen surface is deleted.
-- **Pending-disposition copy keys (added in Phase 1, used by Phase 5).** **PF20: `FeedEntry.gate` is ONLY `{holdId, disposition}` — there is no `gate.detail` field.** Phase 5 (the feed data layer, NOT Phase 6) renders the old→new copy into `entry.summary` via `lib/messages`, keyed on the open `sync_holds` `proposed_value.disposition`:
+- **Pending-disposition copy keys (added in Phase 1, used by Phase 5).** **PF20/PF40: `FeedEntry.gate` is `{holdId, disposition, baseModifiedTime: string | null}` — there is no `gate.detail` field.** The `baseModifiedTime` is the hold's `base_modified_time` AS RENDERED by Phase 5 (the PF40 staleness token threaded into the Approve/Reject submissions). Phase 5 (the feed data layer, NOT Phase 6) renders the old→new copy into `entry.summary` via `lib/messages`, keyed on the open `sync_holds` `proposed_value.disposition`:
   - `email_change` → `mi11_pending_email_change`
   - `rename` → `mi11_pending_rename`
   - `removal` → `mi11_pending_removal`
   - rename folded into an open email hold (§4.2c) → `mi11_pending_rename_folded`
-  These are catalog keys (no raw codes in the DOM, invariant 5). **Phase 6 passes ONLY `entry.summary`, `entry.gate.holdId`, `entry.gate.disposition`, and `entry.changeLogId` — it renders no disposition string itself and performs no second query.**
+  These are catalog keys (no raw codes in the DOM, invariant 5). **Phase 6 passes ONLY `entry.summary`, `entry.gate.holdId`, `entry.gate.disposition`, `entry.gate.baseModifiedTime`, and `entry.changeLogId` — it renders no disposition string itself and performs no second query. The `baseModifiedTime` it forwards is the feed-rendered value (what the admin SAW), submitted verbatim — never a server re-read (PF40).**
 - **Feed cap = 50** (00-overview resolution #8). Wired into the T6.6 truncation copy.
 
 ## Notes / shared-component impact
