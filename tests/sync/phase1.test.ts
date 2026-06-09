@@ -322,7 +322,7 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.pendingIngestions).toEqual([]);
   });
 
-  test("first-seen live sheets with sync-layer review items stage without FIRST_SEEN_REVIEW", async () => {
+  test("first-seen live sheets with asset review items auto-publish (Phase 2: asset items are notifications, never staged)", async () => {
     const tx = new FakePhase1Tx();
 
     const result = await runWith(
@@ -338,13 +338,13 @@ describe("runPhase1 routing and writes", () => {
       }),
     );
 
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual([
-      expect.objectContaining({ invariant: "DIAGRAMS_EMBEDDED_NONE_FOUND" }),
-    ]);
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" })]),
-    );
+    // Phase 2 Task 2.1 (PF34): asset/sync-layer items auto-apply (notification-only feed rows),
+    // never route to a live pending_sync stage. A first-seen sheet with only such items still
+    // reaches auto_publish_ready (the clean-first-seen FIRST_SEEN_REVIEW injection only fires when
+    // there are zero review items, which is intact, but asset items are no longer staged either).
+    expect(result.outcome).toBe("auto_publish_ready");
+    expect(tx.operations).not.toContain("upsertLivePendingSync");
+    expect(tx.pendingSyncs).toEqual([]);
   });
 
   test("Task 4.2: auto-publish OFF stages a CLEAN first-seen as FIRST_SEEN_REVIEW (not auto_publish_ready)", async () => {
@@ -358,7 +358,7 @@ describe("runPhase1 routing and writes", () => {
     ]);
   });
 
-  test("Task 4.2: auto-publish OFF + MI-tripped first-seen stages the MI sentinel ONLY, no FIRST_SEEN_REVIEW", async () => {
+  test("Task 4.2 + Phase 2: auto-publish OFF + asset-item first-seen auto-publishes (asset items are not 'clean' but no longer staged)", async () => {
     const tx = new FakePhase1Tx();
     const result = await runWith(
       tx,
@@ -370,10 +370,11 @@ describe("runPhase1 routing and writes", () => {
       {},
       { getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }) },
     );
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" })]),
-    );
+    // Phase 2 (PF34): the asset item auto-applies (no stage). Because reviewItems is non-empty,
+    // the clean-first-seen FIRST_SEEN_REVIEW injection does NOT fire, so this falls through to
+    // auto_publish_ready. The auto-publish OFF flag only gates a CLEAN first-seen (zero review items).
+    expect(result.outcome).toBe("auto_publish_ready");
+    expect(tx.operations).not.toContain("upsertLivePendingSync");
   });
 
   test("Task 4.2: a flag-read infra_error does NOT auto-publish — it throws (sync is retried)", async () => {
@@ -388,15 +389,11 @@ describe("runPhase1 routing and writes", () => {
 
   test("warningSummary renders human messages, never raw parser codes (no-raw-error-codes invariant 5)", async () => {
     const tx = new FakePhase1Tx();
-    tx.shows.set("file-1", {
-      driveFileId: "file-1",
-      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
-      lastSyncStatus: "ok",
-      lastSyncError: null,
-      priorParseResult: parseResult(),
-    });
+    // Phase 2: existing-show routine MI changes no longer stage. The warningSummary is carried on a
+    // staged pending_sync, which now only happens on the sentinel / clean-first-seen-OFF path. Use a
+    // first-seen sheet with auto-publish OFF (these warnings are not review items, so the sheet is
+    // 'clean' for review purposes → FIRST_SEEN_REVIEW stages and carries the summary).
     const withWarnings = parseResult({
-      show: { ...parseResult().show, po: null },
       warnings: [
         {
           severity: "info",
@@ -419,7 +416,9 @@ describe("runPhase1 routing and writes", () => {
       ],
     });
 
-    const result = await runWith(tx, withWarnings);
+    const result = await runWith(tx, withWarnings, {}, {
+      getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }),
+    });
     expect(result.outcome).toBe("stage");
 
     const summary = tx.pendingSyncs[0]?.warningSummary ?? "";
@@ -511,7 +510,7 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.operations).toEqual(["readShow:file-1"]);
   });
 
-  test("cron MI-8 financial collapse stages after Drive modifiedTime is stable", async () => {
+  test("cron MI-8 financial collapse auto-applies after Drive modifiedTime is stable (Phase 2: MI-8 is notification-only)", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-08T12:05:00.000Z"));
     const tx = new FakePhase1Tx();
@@ -529,10 +528,9 @@ describe("runPhase1 routing and writes", () => {
       { fileMeta: fileMeta(), mode: "cron" },
     );
 
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-      expect.arrayContaining([expect.objectContaining({ invariant: "MI-8" })]),
-    );
+    // The debounce still DEFERS while young; once stable, MI-8 is a field_changed notification → pass.
+    expect(result.outcome).toBe("pass");
+    expect(tx.operations).not.toContain("upsertLivePendingSync");
   });
 
   test("cron MI-8b COI delta defers while Drive modifiedTime is unstable", async () => {
@@ -558,7 +556,7 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.operations).toEqual(["readShow:file-1"]);
   });
 
-  test("cron MI-8b COI delta stages after Drive modifiedTime is stable", async () => {
+  test("cron MI-8b COI delta auto-applies after Drive modifiedTime is stable (Phase 2: notification-only)", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-08T12:05:00.000Z"));
     const tx = new FakePhase1Tx();
@@ -576,10 +574,8 @@ describe("runPhase1 routing and writes", () => {
       { fileMeta: fileMeta(), mode: "cron" },
     );
 
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-      expect.arrayContaining([expect.objectContaining({ invariant: "MI-8b" })]),
-    );
+    expect(result.outcome).toBe("pass");
+    expect(tx.operations).not.toContain("upsertLivePendingSync");
   });
 
   test.each(["manual", "onboarding_scan"] as const)(
@@ -602,18 +598,23 @@ describe("runPhase1 routing and writes", () => {
         { fileMeta: fileMeta(), mode },
       );
 
-      expect(result.outcome).toBe("stage");
-      expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            invariant: mode === "onboarding_scan" ? "ONBOARDING_SCAN_REVIEW" : "MI-8",
-          }),
-        ]),
-      );
+      if (mode === "onboarding_scan") {
+        // The onboarding sentinel still stages regardless of the MI-8 change.
+        expect(result.outcome).toBe("stage");
+        expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ invariant: "ONBOARDING_SCAN_REVIEW" }),
+          ]),
+        );
+      } else {
+        // Phase 2: manual still bypasses the debounce (no defer), but MI-8 now auto-applies → pass.
+        expect(result.outcome).toBe("pass");
+        expect(tx.operations).not.toContain("upsertLivePendingSync");
+      }
     },
   );
 
-  test("cron MI-8c structural pull-sheet collapse stages immediately despite young Drive modifiedTime", async () => {
+  test("cron MI-8c structural pull-sheet collapse auto-applies immediately despite young Drive modifiedTime (Phase 2: notification-only, no MI-8 debounce)", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-08T12:03:00.000Z"));
     const tx = new FakePhase1Tx();
@@ -630,10 +631,9 @@ describe("runPhase1 routing and writes", () => {
       mode: "cron",
     });
 
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-      expect.arrayContaining([expect.objectContaining({ invariant: "MI-8c" })]),
-    );
+    // MI-8c is not an MI-8/8b debounce member, so it never defers; it auto-applies → pass.
+    expect(result.outcome).toBe("pass");
+    expect(tx.operations).not.toContain("upsertLivePendingSync");
   });
 
   test.each([
@@ -685,29 +685,39 @@ describe("runPhase1 routing and writes", () => {
       parseResult({ crewMembers: [crew("Alice", { email: null })] }),
       parseResult({ crewMembers: [crew("Alicia", { email: null })] }),
     ],
-  ])("existing-show %s routes to pending_syncs stage", async (expectedInvariant, prior, next) => {
-    const tx = new FakePhase1Tx();
-    tx.shows.set("file-1", {
-      driveFileId: "file-1",
-      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
-      lastSyncStatus: "ok",
-      lastSyncError: null,
-      priorParseResult: prior,
-    });
+  ])(
+    "existing-show %s: MI-11 routes to auto_apply_with_holds, every other invariant auto-applies (Phase 2 decision rule)",
+    async (expectedInvariant, prior, next) => {
+      const tx = new FakePhase1Tx();
+      tx.shows.set("file-1", {
+        driveFileId: "file-1",
+        lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+        lastSyncStatus: "ok",
+        lastSyncError: null,
+        priorParseResult: prior,
+      });
 
-    const result = await runWith(tx, next);
+      const result = await runWith(tx, next);
 
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-      expect.arrayContaining([expect.objectContaining({ invariant: expectedInvariant })]),
-    );
-    if (expectedInvariant === "MI-9") {
-      expect(tx.pendingSyncs[0]?.triggeredReviewItems).not.toEqual(
-        expect.arrayContaining([expect.objectContaining({ invariant: "MI-10" })]),
-      );
-    }
-    expect(tx.shows.get("file-1")?.lastSyncStatus).toBe("pending_review");
-  });
+      // The whole-parse live staging path is retired for existing shows: nothing routes to it.
+      expect(tx.operations).not.toContain("upsertLivePendingSync");
+      expect(tx.pendingSyncs).toEqual([]);
+
+      if (expectedInvariant === "MI-11") {
+        // MI-11 is the ONLY gated invariant → auto_apply_with_holds carrying the MI-11 items.
+        expect(result.outcome).toBe("auto_apply_with_holds");
+        if (result.outcome !== "auto_apply_with_holds") throw new Error("unreachable");
+        expect(result.mi11Items).toEqual(
+          expect.arrayContaining([expect.objectContaining({ invariant: "MI-11" })]),
+        );
+      } else {
+        // Every other invariant (MI-6..MI-14 except MI-11) is a notification → auto-applies → pass.
+        expect(result.outcome).toBe("pass");
+      }
+      // The legacy pending_review status flip no longer happens (no live stage for existing shows).
+      expect(tx.shows.get("file-1")?.lastSyncStatus).toBe("ok");
+    },
+  );
 
   test.each([
     [
@@ -759,40 +769,25 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.pendingIngestions).toEqual([]);
   });
 
-  test("restaging an unchanged pending review preserves staged_id and original status baseline", async () => {
+  test("Phase 2: an existing MI-7 section shrink auto-applies and never (re)writes a live pending_sync", async () => {
     const prior = parseResult({ hotelReservations: [hotel(1), hotel(2), hotel(3), hotel(4)] });
     const next = parseResult({ hotelReservations: [hotel(1)] });
     const tx = new FakePhase1Tx();
     tx.shows.set("file-1", {
       driveFileId: "file-1",
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
-      lastSyncStatus: "pending_review",
+      lastSyncStatus: "ok",
       lastSyncError: null,
       priorParseResult: prior,
-    });
-    tx.pendingSyncs.push({
-      driveFileId: "file-1",
-      wizardSessionId: null,
-      baseModifiedTime: "2026-05-08T11:00:00.000Z",
-      stagedModifiedTime: "2026-05-08T12:00:00.000Z",
-      parseResult: prior,
-      triggeredReviewItems: [{ id: "old", invariant: "MI-7", section: "hotel_reservations", prior_count: 4, new_count: 1 }],
-      priorLastSyncStatus: "ok",
-      priorLastSyncError: "prior error",
-      stagedId: "stable-staged-id",
-      sourceKind: "cron",
-      warningSummary: "old",
     });
 
     const result = await runWith(tx, next);
 
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]).toMatchObject({
-      stagedId: "stable-staged-id",
-      stagedModifiedTime: "2026-05-08T12:00:00.000Z",
-      priorLastSyncStatus: "ok",
-      priorLastSyncError: "prior error",
-    });
+    // MI-7 is a section_shrunk notification → auto-applies. The whole-parse live staging path is
+    // retired (PF31): the decision rule never calls upsertLivePendingSync for an existing show.
+    expect(result.outcome).toBe("pass");
+    expect(tx.operations).not.toContain("upsertLivePendingSync");
+    expect(tx.pendingSyncs).toEqual([]);
   });
 
   test("onboarding scan purges pending rows from prior wizard sessions only", async () => {

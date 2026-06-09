@@ -205,50 +205,30 @@ async function runWithWarning(
   return { result, tx };
 }
 
-describe("Phase 1 sync-layer warning bridge", () => {
-  test("stages DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE with spreadsheet metadata", async () => {
+describe("Phase 1 sync-layer warning bridge (Phase 2: asset items auto-apply, never staged — PF34)", () => {
+  // Phase 2 Task 2.1: the sync-layer asset-review items (DIAGRAMS_*/REEL_DRIFT) are notifications.
+  // The decision rule auto-applies them (existing show → `pass`) and never routes them to a live
+  // pending_sync stage. Their metadata still flows to the Phase-2/Phase-5 feed-row derivation; the
+  // per-item shape is covered there. Here we pin that NONE of them stages.
+  test("DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE auto-applies (no stage)", async () => {
     const { result, tx } = await runWithWarning("DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE", {});
-
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
-          spreadsheet_id: "sheet-1",
-        }),
-      ]),
-    );
+    expect(result.outcome).toBe("pass");
+    expect(tx.pendingSyncs).toEqual([]);
   });
 
-  test("stages DIAGRAMS_EMBEDDED_NONE_FOUND with spreadsheet metadata", async () => {
+  test("DIAGRAMS_EMBEDDED_NONE_FOUND auto-applies (no stage)", async () => {
     const { result, tx } = await runWithWarning("DIAGRAMS_EMBEDDED_NONE_FOUND", {});
-
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          invariant: "DIAGRAMS_EMBEDDED_NONE_FOUND",
-          spreadsheet_id: "sheet-1",
-        }),
-      ]),
-    );
+    expect(result.outcome).toBe("pass");
+    expect(tx.pendingSyncs).toEqual([]);
   });
 
-  test("stages DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING with drift count metadata", async () => {
+  test("DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING auto-applies (no stage)", async () => {
     const { result, tx } = await runWithWarning("DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING", {});
-
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          invariant: "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING",
-          drift_count: 1,
-        }),
-      ]),
-    );
+    expect(result.outcome).toBe("pass");
+    expect(tx.pendingSyncs).toEqual([]);
   });
 
-  test("stages REEL_DRIFT_PENDING with reel file metadata", async () => {
+  test("REEL_DRIFT_PENDING auto-applies (no stage)", async () => {
     const { result, tx } = await runWithWarning("REEL_DRIFT_PENDING", {
       openingReel: {
         driveFileId: "reel-1",
@@ -257,15 +237,7 @@ describe("Phase 1 sync-layer warning bridge", () => {
         mimeType: "video/mp4",
       },
     });
-
-    expect(result.outcome).toBe("stage");
-    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          invariant: "REEL_DRIFT_PENDING",
-          reel_drive_file_id: "reel-1",
-        }),
-      ]),
-    );
+    expect(result.outcome).toBe("pass");
+    expect(tx.pendingSyncs).toEqual([]);
   });
 });

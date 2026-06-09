@@ -95,6 +95,10 @@ export type Phase1Result =
       outcome: "auto_publish_ready";
     }
   | {
+      outcome: "auto_apply_with_holds";
+      mi11Items: Extract<TriggeredReviewItem, { invariant: "MI-11" }>[];
+    }
+  | {
       outcome: "defer";
       reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable";
     };
@@ -295,18 +299,40 @@ export async function runPhase1(
         )
       : [];
   const syncLayerItems = syncLayerReviewItems(args, args.parseResult, show);
+  // `reviewItems` is STILL fully computed (lead-toggle safety net + asset-drift sync-layer items):
+  // it feeds the MI-8 debounce early-return below AND the Phase-2/Phase-5 feed-row derivation.
+  // Phase 2 only changes WHICH items route to `upsertLivePendingSync`, not which items exist.
   const reviewItems = [...invariantItems, ...syncLayerItems];
   const debounce = mi8DebounceReason(args, reviewItems);
   if (debounce) return debounce;
 
-  let triggeredReviewItems = sentinel ? [sentinel, ...reviewItems] : reviewItems;
+  // Phase 2 Task 2.1 decision rule: partition MI-11 (existing-crew email change) from the rest.
+  // MI-11 is the ONLY gated invariant — it routes to per-crew `sync_holds` (Phase 2 apply path).
+  // Every other invariant (MI-6..MI-14 except MI-11) AND asset drift are NOTIFICATIONS: they
+  // auto-apply and become Phase-2/Phase-5 feed rows, never a whole-parse `pending_sync` stage.
+  const mi11Items = reviewItems.filter(
+    (item): item is Extract<TriggeredReviewItem, { invariant: "MI-11" }> =>
+      item.invariant === "MI-11",
+  );
+
+  // The staging branch (`upsertLivePendingSync`) is now reserved for SENTINELS + hard-fail ONLY:
+  // the onboarding_scan sentinel + the clean-first-seen FIRST_SEEN_REVIEW injection. Asset drift
+  // and non-MI-11 invariants are DROPPED from the set routed to `upsertLivePendingSync` (PF34).
+  let triggeredReviewItems: TriggeredReviewItem[] = sentinel ? [sentinel] : [];
 
   // Task 4.2: a CLEAN first-seen sheet (no show row, no review items, not an onboarding scan) is the
   // only place the auto-publish toggle applies. OFF → stage the reused FIRST_SEEN_REVIEW sentinel for
   // admin approval instead of auto-publishing. Fail-closed: a flag-read infra fault does NOT auto-publish
   // (it propagates as a Phase1InfraError so the sync is retried). The flag is NOT consulted in
-  // sentinelFor — only here, in the clean post-reviewItems branch.
-  if (!show && args.mode !== "onboarding_scan" && triggeredReviewItems.length === 0) {
+  // sentinelFor — only here, in the clean post-reviewItems branch. MI-11 cannot fire first-seen
+  // (no prior snapshot — lib/parser/invariants.ts:566), so this branch and the MI-11 branch never
+  // conflict. `reviewItems.length === 0` keeps the pre-existing "only auto-publish a CLEAN sheet" gate.
+  if (
+    !show &&
+    args.mode !== "onboarding_scan" &&
+    triggeredReviewItems.length === 0 &&
+    reviewItems.length === 0
+  ) {
     const flag = await (deps.getAutoPublishCleanFirstSeen ?? defaultGetAutoPublishCleanFirstSeen)();
     if (flag.kind === "infra_error") {
       throw new Phase1InfraError(
@@ -347,6 +373,13 @@ export async function runPhase1(
       await callTx("updateShowPendingReview", () => tx.updateShowPendingReview(args.driveFileId));
     }
     return { outcome: "stage", triggeredReviewItems, stagedId: upserted.stagedId };
+  }
+
+  // MI-11 present → the rest of the parse still auto-applies; only the flagged crew's identity
+  // (email) holds. Phase 2 writes one `mi11_pending` `sync_holds` row per item and applies the
+  // rest hold-aware. MI-11 requires a prior snapshot, so this is unreachable first-seen.
+  if (mi11Items.length > 0) {
+    return { outcome: "auto_apply_with_holds", mi11Items };
   }
 
   if (!show && args.mode !== "onboarding_scan") {
