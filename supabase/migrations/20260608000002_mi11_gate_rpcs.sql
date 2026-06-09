@@ -445,6 +445,17 @@ begin
   -- step (4): delete ALL the group's holds.
   delete from public.sync_holds where id = any(v_group);
 
+  -- INVARIANT (P4-F2): every writer of an APPLIED crew-identity change_kind row MUST call
+  -- cleanup_superseded_before_images under the show lock BEFORE returning — not only the Phase-2
+  -- auto-apply tail. mi11_approve_hold writes applied crew_removed/crew_renamed/crew_email_changed
+  -- rows (single-node AND closed-group, all written above), so it runs cleanup here so an older
+  -- auto-apply rename/add row to the same/successor identity is flipped status='superseded' +
+  -- before_image nulled. Otherwise undo_change(originalRename/Add) stays callable during the window
+  -- before the next sync and restores STALE crew (PF19). The advisory lock is still held → race-safe.
+  -- (mi11_reject_hold writes status='rejected' rows and undo_change writes status='undone' rows —
+  -- neither is an APPLIED crew-identity write, so neither runs cleanup.)
+  perform public.cleanup_superseded_before_images(v_pshow);
+
   return jsonb_build_object('ok', true);
 end;
 $$;

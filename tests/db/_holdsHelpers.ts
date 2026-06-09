@@ -268,3 +268,49 @@ export async function callUndoAsNonAdmin(
       : { forbidden: e.code === "42501", errcode: e.code };
   }
 }
+
+export type ApproveDisposition =
+  | { disposition: "email_change"; name: string; email: string | null }
+  | { disposition: "rename"; name: string; email: string | null }
+  | { disposition: "removal" };
+
+/** Seed one mi11_pending hold (committed) and return its id + base_modified_time (ISO). */
+export async function seedMi11Hold(
+  show: SeededHoldsShow,
+  opts: {
+    entityKey: string;
+    heldValue: Record<string, unknown>;
+    proposedValue: ApproveDisposition;
+    baseModifiedTime: string;
+  },
+): Promise<{ id: string; baseModifiedTime: string }> {
+  const [row] = (await sql`
+    insert into public.sync_holds
+      (show_id, drive_file_id, domain, entity_key, held_value, proposed_value,
+       base_modified_time, kind, created_by)
+    values (${show.showId}, ${show.driveFileId}, 'crew_email', ${opts.entityKey},
+            ${sql.json(opts.heldValue as never)}, ${sql.json(opts.proposedValue as never)},
+            ${opts.baseModifiedTime}::timestamptz, 'mi11_pending', 'system')
+    returning id, base_modified_time`) as unknown as Array<{ id: string; base_modified_time: string | Date }>;
+  return {
+    id: row!.id,
+    baseModifiedTime: new Date(row!.base_modified_time).toISOString(),
+  };
+}
+
+export type ApproveResult = { ok: boolean; code?: string };
+
+/** Call mi11_approve_hold(p_hold_id, observed, expected) via the authed-admin path. */
+export async function callApproveAsAdmin(
+  holdId: string,
+  observed: string,
+  expectedBase: string,
+): Promise<ApproveResult> {
+  return asAdminTx(async (tx) => {
+    const [row] = await tx.unsafe(
+      `select public.mi11_approve_hold($1::uuid, $2::timestamptz, $3::timestamptz) as r`,
+      [holdId, observed, expectedBase],
+    );
+    return (row as unknown as { r: ApproveResult }).r;
+  });
+}

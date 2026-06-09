@@ -363,6 +363,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     // 'applied' crew-domain row whose entity_ref now has a newer change — so a stale Undo is both
     // hidden by the feed and rejected by undo_change (never falls into the tombstone branch). Runs
     // inside the existing show lock via the same service-role hold port (NO new lock).
+    // INVARIANT (P4-F2): every writer of an APPLIED crew-identity change_kind row MUST call
+    // cleanup_superseded_before_images under the show lock before returning. This is the Phase-2
+    // auto-apply writer; mi11_approve_hold is the other (it runs cleanup in its own body).
     // not-subject-to-meta: service-role SQL inside the JS-held show lock (no {data,error} client).
     await callTx("cleanupSupersededBeforeImages", () =>
       port.unsafe("select public.cleanup_superseded_before_images($1)", [snapshot.showId]),
