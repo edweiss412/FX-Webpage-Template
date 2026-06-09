@@ -123,4 +123,39 @@ describe("Phase 2 Task 2.10 — mixed-parse integration", () => {
       expect(logAfter2).toBe(logAfter1);
     });
   });
+
+  it("P2-F2 — a reservation-suppressed crew add gets NO crew_added show_change_log row", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      await seedCrew(tx, showId, crew("Alice", { email: "alice@old" }));
+
+      // Hold Alice alice@old→x@new; sheet keeps Alice at x@new AND adds a DISTINCT Alicia/x@new
+      // (reservation-suppressed, never inserted into crew_members).
+      const next = parseResult([
+        crew("Alice", { email: "x@new" }),
+        crew("Alicia", { email: "x@new" }),
+      ]);
+      const result = await runPhase2(phase2Tx(tx) as never, {
+        driveFileId,
+        mode: "cron" as const,
+        fileMeta: { driveFileId, name: "s", mimeType: "x", modifiedTime: MT, parents: ["f"] },
+        parseResult: next,
+        binding: { bindingToken: "t", modifiedTime: MT },
+        verifyReelOnApply: false as const,
+        mi11Items: [
+          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "alice@old", new_email: "x@new" },
+        ] as never,
+        notableItems: [] as TriggeredReviewItem[],
+      });
+      expect(result.outcome).toBe("applied");
+
+      const rows = await readCrew(tx, showId);
+      // (a) Alicia is ABSENT from crew_members (suppressed).
+      expect(rows.find((r) => r.name === "Alicia")).toBeUndefined();
+
+      const log = await readChangeLog(tx, showId);
+      // (b) NO crew_added show_change_log row for the never-inserted Alicia.
+      expect(log.find((r) => r.change_kind === "crew_added" && r.entity_ref === "Alicia")).toBeUndefined();
+    });
+  });
 });

@@ -66,10 +66,17 @@ function difference(left: string[], right: string[]): string[] {
   return left.filter((value) => !rightSet.has(value));
 }
 
+export type ApplyParseResultOutcome = {
+  // P2-F2: the crew list that ACTUALLY landed in crew_members (post-suppression / post-fold /
+  // identity-pinned). The change-log writer must derive crew_added/removed/renamed from THIS, not
+  // the raw parse list, so a reservation-suppressed row never gets a phantom auto_apply row.
+  appliedCrewMembers: ParseResult["crewMembers"];
+};
+
 export async function applyParseResult(
   tx: ApplyParseResultTx,
   args: ApplyParseResultArgs,
-): Promise<void> {
+): Promise<ApplyParseResultOutcome> {
   // Hold-aware path: when a hold port is supplied, transform the crew list (identity pins, folds,
   // suppressions, undo_override honoring) and protect held names from deletion/auth churn.
   let crewMembers = args.parseResult.crewMembers;
@@ -120,4 +127,5 @@ export async function applyParseResult(
     raw_unrecognized: args.parseResult.raw_unrecognized,
   });
   await tx.deleteLivePendingIngestion(args.driveFileId);
+  return { appliedCrewMembers: crewMembers };
 }

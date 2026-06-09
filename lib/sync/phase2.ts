@@ -301,7 +301,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     );
   }
 
-  await callTx("applyParseResult", () =>
+  const applyOutcome = await callTx("applyParseResult", () =>
     applyParseResult(tx, {
       driveFileId: args.driveFileId,
       parseResult,
@@ -325,7 +325,10 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
         showId: snapshot.showId,
         driveFileId: args.driveFileId,
         previousCrewMembers: snapshot.previousCrewMembers ?? [],
-        nextCrewMembers: parseResult.crewMembers,
+        // P2-F2: derive crew_added/removed/renamed from the ACTUALLY-APPLIED crew list, NOT the
+        // raw parse — a reservation-suppressed row never landed in crew_members, so it must not
+        // get a phantom auto_apply crew_added feed row.
+        nextCrewMembers: applyOutcome.appliedCrewMembers,
         triggeredItems: args.notableItems ?? [],
         heldNames,
       }),
