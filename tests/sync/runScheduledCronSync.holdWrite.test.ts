@@ -106,9 +106,15 @@ describe("Task 2.3 — wire mi11 hold write into the apply path", () => {
     // tests/auth/advisoryLockRpcDeadlock.test.ts. This Phase-2 guard only asserts the hold-WRITE
     // path adds no lock-taking RPC, so exempt the Phase-3 gate-RPC migration explicitly.
     const PHASE3_GATE_RPC_MIGRATION = "20260608000002_mi11_gate_rpcs.sql";
+    // Phase 4 OWNS undo_change, which ALSO takes the per-show advisory lock by design (admin path,
+    // §4.1) and is pinned by tests/auth/advisoryLockRpcDeadlock.test.ts. Same exemption rationale as
+    // the Phase-3 gate migration: this Phase-2 guard only asserts the hold-WRITE path adds no
+    // lock-taking RPC.
+    const PHASE4_UNDO_RPC_MIGRATION = "20260608000003_undo_change_rpc.sql";
     for (const file of readdirSync(dir)) {
       if (!file.startsWith("20260608")) continue; // this milestone's migrations
       if (file === PHASE3_GATE_RPC_MIGRATION) continue; // Phase-3-owned, pinned elsewhere
+      if (file === PHASE4_UNDO_RPC_MIGRATION) continue; // Phase-4-owned, pinned elsewhere
       // Strip SQL line-comments so prose mentioning "create function" / the lock does not match.
       const text = readFileSync(join(dir, file), "utf8")
         .split("\n")

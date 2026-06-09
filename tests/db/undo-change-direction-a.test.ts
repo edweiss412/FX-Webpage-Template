@@ -15,6 +15,7 @@ import {
   callUndoAsNonAdmin,
   closeHoldsHelpers,
   holdsSql,
+  newHoldsConn,
   readChangeLog,
   readCrew,
   readCrewByName,
@@ -198,5 +199,48 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     await callUndoAsAdmin(renamed.id);
     await runAutoApply(b.driveFileId, { crew: [{ name: "Alice", email: "alice@old" }] });
     expect(await readHold(b.showId, { entity_key: "Alice" })).toBeNull(); // released
+  });
+
+  it("concurrent show-lock holder serializes undo (no deadlock; undo blocks then completes, PF11)", async () => {
+    const { showId, driveFileId } = await seedShowWithCrew([{ name: "Alice", email: "alice@old" }]);
+    await runAutoApply(driveFileId, { crew: [] }); // remove Alice → R1
+    const r1 = await readChangeLog(showId, { change_kind: "crew_removed", entity_ref: "Alice" });
+
+    // A second connection holds the per-show advisory lock (the sync-path lock) in an OPEN txn.
+    const blocker = newHoldsConn();
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let undoStarted = false;
+    let undoFinished = false;
+    const blockerTxn = blocker
+      .begin(async (tx) => {
+        await tx.unsafe(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+        await held; // hold the lock until the test releases it
+      })
+      .catch(() => {});
+
+    // Give the blocker time to acquire the lock, then fire undo — it must BLOCK on the advisory lock
+    // (advisory-before-row order means no deadlock), not error.
+    await new Promise((r) => setTimeout(r, 150));
+    const undoPromise = (async () => {
+      undoStarted = true;
+      const res = await callUndoAsAdmin(r1.id);
+      undoFinished = true;
+      return res;
+    })();
+
+    // While the blocker holds the lock, undo has started but not finished (it's waiting on the lock).
+    await new Promise((r) => setTimeout(r, 200));
+    expect(undoStarted).toBe(true);
+    expect(undoFinished).toBe(false);
+
+    // Release the blocker → undo proceeds and succeeds (serialized, no deadlock).
+    release();
+    await blockerTxn;
+    const res = await undoPromise;
+    expect(res.ok).toBe(true);
+    expect(undoFinished).toBe(true);
+    expect(await readCrewByName(showId, "Alice")).not.toBeNull();
+    await blocker.end({ timeout: 5 });
   });
 });
