@@ -31,7 +31,7 @@ export type ExtractedSpecCodes = {
 const SPEC_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
 const OUTPUT_PATH = "lib/messages/__generated__/spec-codes.ts";
 const HELP_CONTEXT_ANCHOR = "<!-- §12.4 helpfulContext appendix";
-const CODE_RE = /^[A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*$/;
+const CODE_RE = /^[A-Za-z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*$/;
 const PSEUDO_NULL_SENTINELS = new Set(["null", "none", "n/a", "na"]);
 // middleware.ts removed from scan roots 2026-05-27 (Phase 0.A finding 5 /
 // commit b5999c8). Vestigial-middleware structural defense at

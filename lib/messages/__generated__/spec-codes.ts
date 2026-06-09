@@ -314,6 +314,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → sign in",
     "helpfulContext": null,
   },
+  "IDENTITY_WOULD_COLLIDE": {
+    "crewFacing": null,
+    "dougFacing": "We can't apply this email change without it clashing with another crew member's email or name. Fix the conflict in the sheet, then re-sync.",
+    "followUp": "Doug → fix sheet conflict",
+    "helpfulContext": "Applying this email change would give a crew member an email or name that another crew member already has, and that other row isn't part of the same swap — so we can't apply it without creating a duplicate. Two crew rows can't share an email. Fix the clash in the sheet (one of them is usually a typo or a stale row), then re-sync.",
+  },
   "INVALID_FOLDER_URL": {
     "crewFacing": null,
     "dougFacing": "Paste a Google Drive folder link.",
@@ -463,6 +469,48 @@ export const SPEC_CODES = {
     "dougFacing": "_<crew-name>_'s LEAD status changed (was _<prior>_, now _<new>_). LEAD grants admin / ops / financials access — confirm before applying.",
     "followUp": "Doug → review staged",
     "helpfulContext": "A crew member's LEAD status changed — they either gained or lost LEAD. LEAD grants admin/ops surface access including the ability to see internal financials, so we hold every LEAD toggle for review. (Non-LEAD role_flags changes — like swapping a department designation from A1 to V1, or adding BO — auto-apply with a `ROLE_FLAGS_NOTICE` entry in the alert feed and do NOT trigger this code.) Confirm the LEAD change is intentional before applying.",
+  },
+  "MI11_DRIVE_RECHECK_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't re-check the sheet right now. Try again in a moment.",
+    "followUp": "Doug → retry; if persistent, Eric",
+    "helpfulContext": "Before applying a queued email change we ask Google Drive for the sheet's latest revision time. That check just failed — usually a transient network or permissions hiccup. Nothing was changed. Try Approve again in a moment; if it keeps failing, check that the folder is still shared with the service account.",
+  },
+  "MI11_HOLD_ALREADY_RESOLVED": {
+    "crewFacing": null,
+    "dougFacing": "That change was already resolved. Refresh to see the current state.",
+    "followUp": "Doug → refresh",
+    "helpfulContext": "This pending email change was already resolved — either a later sync brought the sheet back in line on its own, or you (or another open tab) already approved or rejected it. There's nothing left to do here; refresh the show to see the current state.",
+  },
+  "mi11_pending_email_change": {
+    "crewFacing": null,
+    "dougFacing": "Email change pending for {name}: {old} → {new}",
+    "followUp": "Doug → Approve / Reject",
+    "helpfulContext": "This crew member's email changed in the sheet. Because changing an email signs out whoever is currently using that login, we're holding the change until you approve it. Approve to apply the new email (the old login stops working); Reject to keep the current email.",
+  },
+  "mi11_pending_removal": {
+    "crewFacing": null,
+    "dougFacing": "Removal pending for {name}",
+    "followUp": "Doug → Approve / Reject",
+    "helpfulContext": "A held crew member was dropped from the sheet entirely. We're not silently removing them while their change is pending. Approve to remove them (their login stops working); Reject to keep them on the list.",
+  },
+  "mi11_pending_rename": {
+    "crewFacing": null,
+    "dougFacing": "Rename pending: {old} → {new}",
+    "followUp": "Doug → Approve / Reject",
+    "helpfulContext": "An existing held crew member was renamed in the sheet. We're holding the rename until you approve it so the login transition is intentional. Approve to apply the new name and email; Reject to keep the original.",
+  },
+  "mi11_pending_rename_folded": {
+    "crewFacing": null,
+    "dougFacing": "Email change + rename pending for {name}",
+    "followUp": "Doug → Approve / Reject",
+    "helpfulContext": "This crew member has both an email change and a rename pending at once. We're holding both together until you approve, so the login transition happens in one intentional step. Approve to apply the new name + email; Reject to keep the original.",
+  },
+  "MI11_TARGET_MOVED": {
+    "crewFacing": null,
+    "dougFacing": "The sheet changed since this was queued, so we didn't apply it. Re-open the show to review the latest version.",
+    "followUp": "Doug → re-review",
+    "helpfulContext": "Before applying a queued email change we re-check the live sheet. If Doug edited the sheet after this change was queued, the change you're approving may no longer match what the sheet says — so we stop and ask you to re-review the latest version rather than apply a stale value.",
   },
   "MISSING_PENDING_INGESTION_MODTIME": {
     "crewFacing": null,
@@ -1111,6 +1159,24 @@ export const SPEC_CODES = {
     "dougFacing": null,
     "followUp": null,
     "helpfulContext": null,
+  },
+  "UNDO_EMAIL_CLAIMED": {
+    "crewFacing": null,
+    "dougFacing": "We can't undo this — the original email now belongs to someone else on the crew list. Fix it in the sheet instead.",
+    "followUp": "Doug → fix sheet",
+    "helpfulContext": "Undoing this would restore an email address that now belongs to a different crew member, and two people can't share an email. Rather than undo, fix the email in the sheet — the next sync will reconcile it safely.",
+  },
+  "UNDO_NOT_FOUND": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't find that change to undo. Refresh and try again.",
+    "followUp": "Doug → refresh",
+    "helpfulContext": "We couldn't find the change you tried to undo. It may have already been undone, or it's a notification-only change (like a section shrinking) that doesn't carry a saved 'before' value to restore. Refresh the feed and try again.",
+  },
+  "UNDO_SUPERSEDED": {
+    "crewFacing": null,
+    "dougFacing": "A newer sync already changed this, so there's nothing to undo. Refresh to see the current state.",
+    "followUp": "Doug → refresh",
+    "helpfulContext": "Undo only reverses the most recent change to a crew member. A newer sync has already changed this person again since the change you're trying to undo, so the saved 'before' value no longer matches what's live. Refresh to see the current state; if you still want the old value, edit the sheet directly.",
   },
   "UNEXPECTED_PARENT": {
     "crewFacing": null,
