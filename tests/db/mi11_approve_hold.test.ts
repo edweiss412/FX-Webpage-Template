@@ -290,3 +290,27 @@ describe("mi11_approve_hold — rename + removal dispositions (Task 3.3)", () =>
     expect(row?.before_image).toMatchObject({ name: "Alice", email: "alice@old" });
   });
 });
+
+describe("mi11_approve_hold — stale-target guard, last_seen_modified_time insufficient (Task 3.7/F13)", () => {
+  it("rejects on the PASSED observed Drive modtime even when shows.last_seen_modified_time == base", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", { email: "alice@old" });
+    const hold = await seedHold(mi11Sql, show, {
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@old"),
+      proposedValue: { disposition: "email_change", name: "Alice", email: "alice@new" },
+      baseModifiedTime: T0,
+    });
+    // shows.last_seen_modified_time set to T0 (== base) — would ADMIT a stale approve if the RPC
+    // used it for the guard. The passed observed Drive modtime is T1 (an edit landed in the sync→approve
+    // window), so the RPC MUST reject on T1 != base, not consult last_seen.
+    await mi11Sql`update public.shows set last_seen_modified_time = ${T0}::timestamptz where id = ${show.showId}`;
+
+    // p_observed=T1, p_expected=T0 (matches base → feed-token guard passes; observed!=base is the rejecter).
+    const res = await asAdminTx((tx) => callApprove(tx, hold.id, T1, hold.baseModifiedTime));
+    expect(res).toEqual({ ok: false, code: "MI11_TARGET_MOVED" });
+
+    expect((await readCrewByName(mi11Sql, show.showId, "Alice"))?.email).toBe("alice@old"); // no mutation
+    expect((await readHold(mi11Sql, hold.id))?.kind).toBe("mi11_pending");
+  });
+});
