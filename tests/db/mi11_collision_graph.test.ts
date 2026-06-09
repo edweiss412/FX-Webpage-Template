@@ -78,3 +78,238 @@ describe("mi11 collision graph — closure + IDENTITY_WOULD_COLLIDE (Task 3.4)",
     expect((await readCrewByName(mi11Sql, show.showId, "Alice2"))?.email).toBe("alice@old");
   });
 });
+
+describe("mi11 closed-group atomic swap-safe park (Task 3.5)", () => {
+  it("two-person email swap: both reassigned, both holds deleted, two applied logs", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", { email: "a@x" });
+    await seedCrew(mi11Sql, show.showId, "Bob", { email: "b@x" });
+    const aliceHold = await seedHold(mi11Sql, show, {
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "a@x"),
+      proposedValue: { disposition: "email_change", name: "Alice", email: "b@x" },
+      baseModifiedTime: T1,
+    });
+    await seedHold(mi11Sql, show, {
+      entityKey: "Bob",
+      heldValue: heldFromCrew("Bob", "b@x"),
+      proposedValue: { disposition: "email_change", name: "Bob", email: "a@x" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, aliceHold.id, T1, T1));
+    expect(res).toEqual({ ok: true });
+
+    expect((await readCrewByName(mi11Sql, show.showId, "Alice"))?.email).toBe("b@x");
+    expect((await readCrewByName(mi11Sql, show.showId, "Bob"))?.email).toBe("a@x");
+    expect((await readHoldsByShow(mi11Sql, show.showId)).length).toBe(0);
+    const applied = (await readChangeLogByShow(mi11Sql, show.showId)).filter(
+      (r) => r.source === "mi11_approve" && r.status === "applied",
+    );
+    expect(applied.length).toBe(2);
+  });
+
+  it("3-way email cycle A:1→2 B:2→3 C:3→1 closes; all holds gone", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "A", { email: "1@x" });
+    await seedCrew(mi11Sql, show.showId, "B", { email: "2@x" });
+    await seedCrew(mi11Sql, show.showId, "C", { email: "3@x" });
+    const aHold = await seedHold(mi11Sql, show, {
+      entityKey: "A",
+      heldValue: heldFromCrew("A", "1@x"),
+      proposedValue: { disposition: "email_change", name: "A", email: "2@x" },
+      baseModifiedTime: T1,
+    });
+    await seedHold(mi11Sql, show, {
+      entityKey: "B",
+      heldValue: heldFromCrew("B", "2@x"),
+      proposedValue: { disposition: "email_change", name: "B", email: "3@x" },
+      baseModifiedTime: T1,
+    });
+    await seedHold(mi11Sql, show, {
+      entityKey: "C",
+      heldValue: heldFromCrew("C", "3@x"),
+      proposedValue: { disposition: "email_change", name: "C", email: "1@x" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, aHold.id, T1, T1));
+    expect(res).toEqual({ ok: true });
+    expect((await readCrewByName(mi11Sql, show.showId, "A"))?.email).toBe("2@x");
+    expect((await readCrewByName(mi11Sql, show.showId, "B"))?.email).toBe("3@x");
+    expect((await readCrewByName(mi11Sql, show.showId, "C"))?.email).toBe("1@x");
+    expect((await readHoldsByShow(mi11Sql, show.showId)).length).toBe(0);
+  });
+
+  it("mixed rename + email swap exercises NOT-NULL name parking", async () => {
+    // Alice renames to 'Bob' (a name held by a vacating member); Bob renames to 'Alice'.
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", { email: "a@x" });
+    await seedCrew(mi11Sql, show.showId, "Bob", { email: "b@x" });
+    const aliceHold = await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "a@x"),
+      proposedValue: { disposition: "rename", name: "Bob", email: "a@x" },
+      baseModifiedTime: T1,
+    });
+    await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Bob",
+      heldValue: heldFromCrew("Bob", "b@x"),
+      proposedValue: { disposition: "rename", name: "Alice", email: "b@x" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, aliceHold.id, T1, T1));
+    expect(res).toEqual({ ok: true });
+    // Names swapped (rename = delete+insert), emails unchanged on each renamed identity.
+    expect((await readCrewByName(mi11Sql, show.showId, "Bob"))?.email).toBe("a@x");
+    expect((await readCrewByName(mi11Sql, show.showId, "Alice"))?.email).toBe("b@x");
+    expect((await readHoldsByShow(mi11Sql, show.showId)).length).toBe(0);
+  });
+
+  it("closed-group reassignment clears the participating node's claim (PF45)", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", {
+      email: "a@x",
+      claimed: "2026-05-31T23:00:00.000Z",
+    });
+    await seedCrew(mi11Sql, show.showId, "Bob", { email: "b@x" });
+    const aliceHold = await seedHold(mi11Sql, show, {
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "a@x"),
+      proposedValue: { disposition: "email_change", name: "Alice", email: "b@x" },
+      baseModifiedTime: T1,
+    });
+    await seedHold(mi11Sql, show, {
+      entityKey: "Bob",
+      heldValue: heldFromCrew("Bob", "b@x"),
+      proposedValue: { disposition: "email_change", name: "Bob", email: "a@x" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, aliceHold.id, T1, T1));
+    expect(res).toEqual({ ok: true });
+    const alice = await readCrewByName(mi11Sql, show.showId, "Alice");
+    expect(alice?.email).toBe("b@x");
+    expect(alice?.claimed_via_oauth_at).toBeNull(); // step (3) clears the moved-anchor claim
+  });
+
+  it("closed group with a removal node: email_change targets the freed email (PF29/PF32)", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", { email: "alice@x" });
+    await seedCrew(mi11Sql, show.showId, "Bob", { email: "bob@x" });
+    const aliceHold = await seedHold(mi11Sql, show, {
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@x"),
+      // email_change → ONLY the freed EMAIL; name stays 'Alice'.
+      proposedValue: { disposition: "email_change", name: "Alice", email: "bob@x" },
+      baseModifiedTime: T1,
+    });
+    await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Bob",
+      heldValue: heldFromCrew("Bob", "bob@x"),
+      proposedValue: { disposition: "removal" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, aliceHold.id, T1, T1));
+    expect(res).toEqual({ ok: true });
+    expect(await readCrewByName(mi11Sql, show.showId, "Bob")).toBeNull(); // removed
+    const alice = await readCrewByName(mi11Sql, show.showId, "Alice");
+    expect(alice?.name).toBe("Alice"); // name unchanged
+    expect(alice?.email).toBe("bob@x"); // got Bob's freed email
+    expect((await readHoldsByShow(mi11Sql, show.showId)).length).toBe(0);
+    const log = await readChangeLogByShow(mi11Sql, show.showId);
+    expect(log.filter((r) => r.change_kind === "crew_removed" && r.status === "applied").length).toBe(1);
+    expect(log.filter((r) => r.change_kind === "crew_email_changed" && r.status === "applied").length).toBe(1);
+  });
+
+  it("name-takeover variant uses a rename node → crew_renamed, NOT crew_email_changed (PF32)", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", { email: "alice@x" });
+    await seedCrew(mi11Sql, show.showId, "Bob", { email: "bob@x" });
+    const aliceHold = await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@x"),
+      proposedValue: { disposition: "rename", name: "Bob", email: "alice2@x" }, // takes Bob's freed NAME
+      baseModifiedTime: T1,
+    });
+    await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Bob",
+      heldValue: heldFromCrew("Bob", "bob@x"),
+      proposedValue: { disposition: "removal" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, aliceHold.id, T1, T1));
+    expect(res).toEqual({ ok: true });
+    expect((await readCrewByName(mi11Sql, show.showId, "Bob"))?.email).toBe("alice2@x"); // Alice→Bob
+    const log = await readChangeLogByShow(mi11Sql, show.showId);
+    expect(log.filter((r) => r.change_kind === "crew_removed" && r.status === "applied").length).toBe(1);
+    expect(log.filter((r) => r.change_kind === "crew_renamed" && r.status === "applied").length).toBe(1);
+    expect(log.filter((r) => r.change_kind === "crew_email_changed").length).toBe(0);
+  });
+
+  it("stale non-submitted group member → MI11_TARGET_MOVED, zero mutation (PF39)", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", { email: "a@x" });
+    await seedCrew(mi11Sql, show.showId, "Bob", { email: "b@x" });
+    await seedHold(mi11Sql, show, {
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "a@x"),
+      proposedValue: { disposition: "email_change", name: "Alice", email: "b@x" },
+      baseModifiedTime: T0, // STALE relative to the submitted/observed T1
+    });
+    const bobHold = await seedHold(mi11Sql, show, {
+      entityKey: "Bob",
+      heldValue: heldFromCrew("Bob", "b@x"),
+      proposedValue: { disposition: "email_change", name: "Bob", email: "a@x" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, bobHold.id, T1, T1));
+    expect(res).toEqual({ ok: false, code: "MI11_TARGET_MOVED" });
+
+    expect((await readCrewByName(mi11Sql, show.showId, "Alice"))?.email).toBe("a@x");
+    expect((await readCrewByName(mi11Sql, show.showId, "Bob"))?.email).toBe("b@x");
+    const holds = await readHoldsByShow(mi11Sql, show.showId);
+    expect(holds.length).toBe(2);
+    expect(holds.every((h) => h.kind === "mi11_pending")).toBe(true);
+    expect((await readChangeLogByShow(mi11Sql, show.showId)).length).toBe(0);
+  });
+
+  it("collision-blocked non-submitted group member → IDENTITY_WOULD_COLLIDE, zero mutation (PF39)", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", { email: "a@x" });
+    await seedCrew(mi11Sql, show.showId, "Bob", { email: "b@x" });
+    await seedHold(mi11Sql, show, {
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "a@x"),
+      proposedValue: { disposition: "email_change", name: "Alice", email: "b@x" },
+      baseModifiedTime: T1,
+      reservationCollisions: [{ name: "Alicia", email: "b@x" }], // Alice's hold is collision-blocked
+    });
+    const bobHold = await seedHold(mi11Sql, show, {
+      entityKey: "Bob",
+      heldValue: heldFromCrew("Bob", "b@x"),
+      proposedValue: { disposition: "email_change", name: "Bob", email: "a@x" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, bobHold.id, T1, T1));
+    expect(res).toEqual({ ok: false, code: "IDENTITY_WOULD_COLLIDE" });
+
+    expect((await readCrewByName(mi11Sql, show.showId, "Alice"))?.email).toBe("a@x");
+    expect((await readCrewByName(mi11Sql, show.showId, "Bob"))?.email).toBe("b@x");
+    const holds = await readHoldsByShow(mi11Sql, show.showId);
+    expect(holds.length).toBe(2);
+    const aliceHold = holds.find((h) => h.entity_key === "Alice");
+    expect(aliceHold?.reservation_collisions).toEqual([{ name: "Alicia", email: "b@x" }]); // intact
+    expect((await readChangeLogByShow(mi11Sql, show.showId)).length).toBe(0);
+  });
+});
