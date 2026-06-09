@@ -13,8 +13,12 @@
 **Shared contracts (from `00-overview.md` — do not re-derive):**
 - RPC: `undo_change(p_change_log_id uuid) returns jsonb` → `{ok:true,...} | {ok:false, code:'<MESSAGE_CODE>'}`.
 - `sync_holds`: `kind='undo_override'`, `domain='crew_identity'`, `proposed_value` NULL, `held_value` = prior crew row (held-present) OR `{absent:true,name,email}` (tombstone). `UNIQUE (show_id, domain, entity_key)`.
+- **`held_value.baseline` (PF13 / 00-overview resolution #16 — authoritative).** Every `crew_identity` `undo_override` stores a `baseline` sibling field **inside the `held_value` jsonb root** (`held_value.baseline`, chosen over a new column so Phase 1's DDL is untouched). It captures the **undone change's signature** so Phase 2 releases against **what the sheet asserts**, not against `held_value`:
+  - removal (Direction A, `crew_removed`): `baseline = {kind:'removal'}` — Phase 2 retains the row + releases only when the parse re-CONTAINS `entity_key`.
+  - rename (Direction A, `crew_renamed`): `baseline = {kind:'rename', suppressed_added:{name:<added name>, email:<added email>}}` — suppress the replacement by BOTH name and email (a different-named replacement must still be suppressed). This **replaces** the prior `held_value.suppressed_added_name` scalar.
+  - add (Direction B, tombstone): `baseline = {kind:'add', added:{name,email}}` — for symmetry; Phase 2 already releases when the sheet stops adding it.
 - `show_change_log`: undo writes a row `source='undo'`, `status='undone'`, `undo_of=<orig id>`.
-- Hold-aware apply contract (Phase 2, spec §4.2 `crew_identity`): held-present → re-insert/retain + exclude from delete + suppress conflicting add; held-absent → suppress the upsert of that crew member.
+- Hold-aware apply contract (Phase 2, spec §4.2 `crew_identity`): held-present → re-insert/retain + exclude from delete + suppress conflicting add (matched against `held_value.baseline.suppressed_added` name+email for a rename) + release when the parse's signature reconciles per `baseline`; held-absent → suppress the upsert of that crew member.
 
 ---
 
@@ -58,9 +62,9 @@ describe("before_image is pre-apply (F2)", () => {
 
 - [ ] **RED.** Add `tests/db/undo-change-direction-a.test.ts`. Seed `[Alice(alice@old), Bob(bob@x)]`; auto-apply a removal of Alice (produces a `crew_removed` change-log row with `before_image`). Call `undo_change(p_change_log_id := <that row id>)` via the **authed-admin** client (`asAdminRpc` = cookie-bound `authenticated` server client after `requireAdmin`, per resolution #11 — NOT a service-role rpc). Also assert a **non-admin** authenticated caller raises `errcode 42501` (forbidden — mirrors `archive_show` / Phase 3; no catalog code) and mutates nothing. Assert:
   1. `crew_members` again contains Alice with email `alice@old` (re-inserted from `before_image`), AND Bob is **untouched** (same id/email) — sibling-safety, derive both from the fixture.
-  2. A `sync_holds` row exists: `domain='crew_identity'`, `kind='undo_override'`, `entity_key='Alice'`, `held_value->>'email'='alice@old'`, `proposed_value IS NULL`.
+  2. A `sync_holds` row exists: `domain='crew_identity'`, `kind='undo_override'`, `entity_key='Alice'`, `held_value->>'email'='alice@old'`, `proposed_value IS NULL`, and `held_value->'baseline' = {"kind":"removal"}` (PF13 — the undone-change signature). Derive the baseline shape from the fixture.
   3. A new `show_change_log` row: `source='undo'`, `status='undone'`, `undo_of=<orig row id>`, and `created_by` equals the **admin JWT email** (from the test's `ADMIN_CLAIMS`), NOT `'system'` (PF7 — the default is only for auto_apply rows). Failure mode caught: an admin undo logs as `'system'`, losing the audit trail of who undid the change.
-  For a **rename** variant (Alice→Alicia, `change_kind='crew_renamed'` — the undoable crew set is `{crew_added, crew_removed, crew_renamed}`, NOT MI-12/13/14), assert `entity_key` records BOTH the retained name (`Alice`) and the suppressed added name (`Alicia`) so the apply skips re-adding Alicia (spec §6.3.1 / open-question on entity_key encoding — use `held_value.suppressed_added_name='Alicia'`).
+  For a **rename** variant (Alice→Alicia, `change_kind='crew_renamed'` — the undoable crew set is `{crew_added, crew_removed, crew_renamed}`, NOT MI-12/13/14), assert `entity_key='Alice'` (the retained old name) and `held_value->'baseline' = {"kind":"rename","suppressed_added":{"name":"Alicia","email":<Alicia's email>}}` — recording BOTH the suppressed added name AND email so the apply skips re-adding the replacement even if it is re-named again (PF13; replaces the prior `held_value.suppressed_added_name` scalar).
 
 - [ ] **GREEN.** Write `supabase/migrations/20260608000003_undo_change_rpc.sql` (allocated name per `00-overview.md` resolution #1). Mirror `rotate_show_share_token` shape (`security definer`, `set search_path = public, pg_temp`, `is_admin()` gate, resolve `drive_file_id` from `shows`, then `perform pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`). Inside the lock:
 
@@ -71,8 +75,10 @@ create or replace function public.undo_change(p_change_log_id uuid)
 declare
   v_log    public.show_change_log%rowtype;
   v_drive  text;
-  v_before jsonb;
-  v_name   text;
+  v_before   jsonb;
+  v_name     text;
+  v_baseline jsonb;   -- PF13: the undone-change signature stored at held_value.baseline
+  v_held     jsonb;   -- before_image + {baseline}
 begin
   -- LOCK ORDER (PF11 / 00-overview resolution #15 — CRITICAL): NO `for update`
   -- and no row read planned for mutation may run BEFORE pg_advisory_xact_lock.
@@ -122,6 +128,27 @@ begin
 
   -- Direction A: re-insert prior crew row + write held-present override.
   v_name := v_before->>'name';
+
+  -- PF13 (resolution #16): compute the baseline = the undone-change signature,
+  -- so Phase 2 releases against what the SHEET asserts (not against held_value).
+  --   crew_removed → {kind:'removal'}; release when the parse re-CONTAINS entity_key.
+  --   crew_renamed → {kind:'rename', suppressed_added:{name,email}} from the
+  --     UNDONE change's after_image (the replacement the sheet added). Suppress
+  --     the replacement by BOTH name and email — a different-named replacement
+  --     must still be suppressed.
+  if v_log.change_kind = 'crew_renamed' then
+    v_baseline := jsonb_build_object(
+      'kind', 'rename',
+      'suppressed_added', jsonb_build_object(
+        'name',  v_log.after_image->>'name',
+        'email', v_log.after_image->>'email'
+      )
+    );
+  else  -- crew_removed
+    v_baseline := jsonb_build_object('kind', 'removal');
+  end if;
+  v_held := v_before || jsonb_build_object('baseline', v_baseline);
+
   -- email-claim conflict guard (Task 4.4):
   if exists (
     select 1 from public.crew_members
@@ -164,8 +191,10 @@ begin
     flight_info       = excluded.flight_info,
     last_changed_at   = excluded.last_changed_at;
 
+  -- held_value carries before_image PLUS the baseline (PF13); Phase 2's release
+  -- eval reads held_value.baseline.
   insert into public.sync_holds (show_id, drive_file_id, domain, entity_key, held_value, kind, created_by)
-  values (v_log.show_id, v_drive, 'crew_identity', v_name, v_before, 'undo_override', public.current_admin_email())
+  values (v_log.show_id, v_drive, 'crew_identity', v_name, v_held, 'undo_override', public.current_admin_email())
   on conflict (show_id, domain, entity_key) do update
     set held_value = excluded.held_value, kind = 'undo_override', proposed_value = null;
 
@@ -190,6 +219,11 @@ grant execute on function public.undo_change(uuid) to authenticated;
     - `date_restriction` / `stage_restriction` (jsonb) — must be carried with `v_before->'col'` (the `->` operator); assert the migration does NOT use `v_before->>'date_restriction'` / `->>'stage_restriction'` (the `->>` text-coercion would break the jsonb column).
     - `name/email/phone/role/flight_info` (text) — restored with `->>'`.
   Failure mode: a type-mismatched restore (`->>'date_restriction'` into a jsonb column, or `v_before->'role_flags'` raw jsonb into a text[] column) fails the INSERT at runtime — this static guard catches it before the real-PG test runs. Derive the per-column expected-operator map from a single constant.
+- [ ] **RED (next-sync baseline behavior — PF13).** Add to `tests/db/undo-change-direction-a.test.ts` three next-sync cases that prove Phase 2 releases against the **sheet signature** (`held_value.baseline`), not against `held_value`:
+  - **(a) undo-removal holds across an unchanged sheet.** Seed `[Alice(alice@old), Bob]`; auto-apply removal of Alice (sheet `[Bob]`); `undo_change` (baseline `{kind:'removal'}`). Next sync with the sheet **STILL omitting Alice** (`[Bob]`) → Alice **STAYS** (no re-removal), hold persists. Failure mode caught: a release keyed off `held_value` (which still matches the restored row) would re-remove Alice on the very next sync.
+  - **(b) undo-rename suppresses a DIFFERENT-named replacement.** Seed `[Alice(alice@old)]`; auto-apply rename Alice→Alicia(alicia@new) (`crew_renamed`); `undo_change` (baseline `{kind:'rename',suppressed_added:{name:'Alicia',email:'alicia@new'}}`). Next sync where the sheet now lists the replacement under **yet another name** (`Alyx(alicia@new)`, same email) → restored `Alice` **STAYS** AND the replacement is **NOT re-added** (matched by baseline email, not just name). Failure mode caught: suppression keyed on name alone lets a re-named replacement slip through.
+  - **(c) release on reconcile.** From (a): next sync where the sheet **re-CONTAINS Alice** (`[Alice(alice@old), Bob]`) → the `undo_override` hold **releases** (row gone) and the sheet value applies. From (b): next sync where the sheet **drops the replacement entirely** (`[Alice(alice@old)]`) → hold releases. Failure mode caught: a stuck override that never releases ("permanent pin").
+  Derive every expected name/email from fixture constants; assert `crew_members` rows + `sync_holds` presence/absence directly.
 - [ ] **APPLY TO VALIDATION.** The persistent validation Supabase project must receive this migration (the `validation-schema-parity` / postgrest gates target it). Run:
   `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260608000003_undo_change_rpc.sql`
   then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema'"`
@@ -206,7 +240,7 @@ grant execute on function public.undo_change(uuid) to authenticated;
 - [ ] **RED.** Add `tests/db/undo-change-tombstone.test.ts`. Seed `[Bob]`; auto-apply a parse that ADDS `Carol(carol@new)` (sheet now `[Bob, Carol]`) → produces a `crew_added` change-log row with `before_image IS NULL`. Call `undo_change` on it. Assert:
   1. `crew_members` no longer contains Carol; Bob untouched.
   2. Carol's claim is revoked (assert via the claim/auth read used in Phase 2; if Carol had `claimed_via_oauth_at` set in the fixture, it is gone with the row).
-  3. A `sync_holds` row: `domain='crew_identity'`, `kind='undo_override'`, `entity_key='Carol'`, `held_value = {"absent":true,"name":"Carol","email":"carol@new"}`, `proposed_value IS NULL`.
+  3. A `sync_holds` row: `domain='crew_identity'`, `kind='undo_override'`, `entity_key='Carol'`, `held_value = {"absent":true,"name":"Carol","email":"carol@new","baseline":{"kind":"add","added":{"name":"Carol","email":"carol@new"}}}` (PF13 — symmetric `baseline.kind='add'`), `proposed_value IS NULL`.
   4. **Next sync, sheet UNCHANGED** (`runAutoApply` with `[Bob, Carol]` again) does **NOT** re-create Carol — `readCrew` stays `[Bob]`. (This is the F11 core; relies on Phase-2 held-absent suppression.)
   5. **Release:** a subsequent sync where the sheet DROPS Carol (`[Bob]`) releases the tombstone — `sync_holds` row gone (spec §4.3: "tombstoned add is removed from the sheet → override releases").
 
@@ -219,7 +253,10 @@ it("undone add is not re-created while sheet still lists them; removing from she
   await asAdminRpc("undo_change", { p_change_log_id: added.id });
   expect((await readCrew(showId)).map((c) => c.name)).toEqual([BOB.name]);
   const hold = await readHold(showId, { entity_key: CAROL.name });
-  expect(hold.held_value).toEqual({ absent: true, name: CAROL.name, email: CAROL.email });
+  expect(hold.held_value).toEqual({
+    absent: true, name: CAROL.name, email: CAROL.email,
+    baseline: { kind: "add", added: { name: CAROL.name, email: CAROL.email } }, // PF13
+  });
   await runAutoApply(driveFileId, { crew: [BOB, CAROL] }); // sheet unchanged
   expect((await readCrew(showId)).map((c) => c.name)).toEqual([BOB.name]); // F11: not re-created
   await runAutoApply(driveFileId, { crew: [BOB] }); // sheet drops Carol
@@ -227,7 +264,7 @@ it("undone add is not re-created while sheet still lists them; removing from she
 });
 ```
 
-- [ ] **GREEN.** Add the `_undo_tombstone(v_log, v_drive)` helper invoked when `before_image IS NULL`. **Lock-order (PF11):** `_undo_tombstone` is called from `undo_change` AFTER the advisory lock is already held — it MUST NOT re-acquire `pg_advisory_xact_lock` (that would be a nested second holder → deadlock; violates the single-holder rule). It runs entirely inside the caller's lock; any `for update` it takes is therefore already post-lock. It does: DELETE the added crew row by `entity_ref`; revoke its claim (reuse the Phase-2 revoke path / null `claimed_via_oauth_at`); upsert the held-absent `sync_holds` row with `held_value=jsonb_build_object('absent',true,'name',v_log.entity_ref,'email',<added email>)`; write the `source='undo'`/`status='undone'`/`undo_of` log row **with `created_by=public.current_admin_email()`** (PF7 — same explicit stamp as Direction A; the `'system'` default is auto_apply-only). The added email comes from `v_log.after_image->>'email'` (the applied add). Phase-2 release eval already deletes a tombstone when the sheet no longer lists that name — verify that path covers the absent case; if not, extend Phase-2 release eval (cite the Phase-2 file:line in the commit).
+- [ ] **GREEN.** Add the `_undo_tombstone(v_log, v_drive)` helper invoked when `before_image IS NULL`. **Lock-order (PF11):** `_undo_tombstone` is called from `undo_change` AFTER the advisory lock is already held — it MUST NOT re-acquire `pg_advisory_xact_lock` (that would be a nested second holder → deadlock; violates the single-holder rule). It runs entirely inside the caller's lock; any `for update` it takes is therefore already post-lock. It does: DELETE the added crew row by `entity_ref`; revoke its claim (reuse the Phase-2 revoke path / null `claimed_via_oauth_at`); upsert the held-absent `sync_holds` row with `held_value=jsonb_build_object('absent',true,'name',v_log.entity_ref,'email',<added email>,'baseline',jsonb_build_object('kind','add','added',jsonb_build_object('name',v_log.entity_ref,'email',<added email>)))` (PF13 — symmetric `baseline.kind='add'`; Phase 2 already releases the tombstone when the sheet stops adding that crew member); write the `source='undo'`/`status='undone'`/`undo_of` log row **with `created_by=public.current_admin_email()`** (PF7 — same explicit stamp as Direction A; the `'system'` default is auto_apply-only). The added email comes from `v_log.after_image->>'email'` (the applied add). Phase-2 release eval already deletes a tombstone when the sheet no longer lists that name — verify that path covers the absent case; if not, extend Phase-2 release eval (cite the Phase-2 file:line in the commit).
 - [ ] **VERIFY.** `pnpm vitest run tests/db/undo-change-tombstone.test.ts`
 - [ ] **COMMIT.** `feat(db): undo_change Direction B — crew_added tombstone + suppress re-add (F11)`
 
@@ -277,6 +314,7 @@ it("undone add is not re-created while sheet still lists them; removing from she
 - [ ] Single-holder check: `undo_change` acquires the show lock at exactly one layer; no nested lock; `cleanup_superseded_before_images` takes NO lock (runs inside the caller's lock).
 - [ ] **Lock-order check (PF11 / resolution #15 — CRITICAL):** in `undo_change` (and `_undo_tombstone`) NO `for update` and no read-planned-for-mutation precedes `pg_advisory_xact_lock`. Order is: is_admin → non-locking plan read → advisory lock → re-select FOR UPDATE + supersession revalidation + mutations. A regression test (`tests/db/undo-change-lock-order.test.ts`) statically asserts the migration's first `for update` token appears AFTER the `pg_advisory_xact_lock` token, and that no `for update` precedes it — guards the M5 R20 lock-inversion deadlock class. Concurrent cron-sync + undo on the same show serialize without deadlock (real-PG two-connection test in `undo-change-direction-a.test.ts`).
 - [ ] Direction completeness: held-present (A) and held-absent/tombstone (B) both covered; release for both directions tested; both guards tested.
+- [ ] **Baseline / release-against-sheet (PF13 / resolution #16):** every `crew_identity` `undo_override` writes `held_value.baseline` with the undone-change signature — `{kind:'removal'}` / `{kind:'rename',suppressed_added:{name,email}}` / `{kind:'add',added:{name,email}}`. Phase 2 releases against `baseline` (what the sheet asserts), NOT against `held_value`; rename suppression matches BOTH name and email. The three next-sync tests (undo-removal holds on unchanged sheet; undo-rename suppresses a re-named replacement; release on reconcile) are present. The old `held_value.suppressed_added_name` scalar is gone.
 - [ ] Identity (resolution #11): `undo_change` is SECURITY DEFINER, `grant execute to authenticated` + `revoke from anon`, **NOT granted to service_role**; body gates on `is_admin()` → **raises `errcode 42501`** when false (mirrors `archive_show` / Phase 3; no catalog code); `created_by=current_admin_email()`; tests call via the authed-admin client (not service-role) and assert non-admin denial (42501). Phase 1 already REVOKEd table DML.
 - [ ] §12.4 codes are added in Phase 1; Phase 4 only VERIFIES `UNDO_SUPERSEDED`/`UNDO_EMAIL_CLAIMED`/`UNDO_NOT_FOUND` exist (no §12.4/catalog/gen edits here); x1 green.
 - [ ] Migration is the allocated name `supabase/migrations/20260608000003_undo_change_rpc.sql`, applied to the validation project + `notify pgrst` schema reload; advisoryLock guard references the same filename.
@@ -285,4 +323,4 @@ it("undone add is not re-created while sheet still lists them; removing from she
 
 ## Task 4.8 — Phase 4 adversarial review (cross-model)
 
-Invoke the `adversarial-review` skill to send Phase 4 (this file + its diff) to the opposing CLI (Codex) for cross-model critique. REVIEWER ONLY — the reviewer does not fix; findings return to the implementer session. Iterate until convergence; escalate only genuine ambiguity. Focus surfaces: F2 pre-apply capture, F11 tombstone non-recreation + release, supersession + email-claim guards, single-layer lock topology for `undo_change`, the **lock order (PF11 / resolution #15): no FOR UPDATE before `pg_advisory_xact_lock`; supersession revalidated under the lock; `_undo_tombstone` never re-takes the lock**, the real-column restore SQL (no phantom `restrictions`; full-field ON CONFLICT restore; type-correct per-column expressions), and the admin-user identity (authed-admin client, `is_admin()` gate, not service-role) per resolution #11. Do not proceed to Phase 5 handoff without an APPROVE.
+Invoke the `adversarial-review` skill to send Phase 4 (this file + its diff) to the opposing CLI (Codex) for cross-model critique. REVIEWER ONLY — the reviewer does not fix; findings return to the implementer session. Iterate until convergence; escalate only genuine ambiguity. Focus surfaces: F2 pre-apply capture, F11 tombstone non-recreation + release, **the `held_value.baseline` release-against-sheet contract (PF13 / resolution #16): release keyed off the undone-change signature not `held_value`; rename suppression by name+email; the three next-sync behaviors**, supersession + email-claim guards, single-layer lock topology for `undo_change`, the **lock order (PF11 / resolution #15): no FOR UPDATE before `pg_advisory_xact_lock`; supersession revalidated under the lock; `_undo_tombstone` never re-takes the lock**, the real-column restore SQL (no phantom `restrictions`; full-field ON CONFLICT restore; type-correct per-column expressions), and the admin-user identity (authed-admin client, `is_admin()` gate, not service-role) per resolution #11. Do not proceed to Phase 5 handoff without an APPROVE.
