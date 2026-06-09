@@ -237,15 +237,17 @@ declare
   v_pdisp      text[]   := array[]::text[];     -- disposition
   v_pname      text[]   := array[]::text[];     -- proposed name (final)
   v_pemail     text[]   := array[]::text[];     -- proposed email (final)
-  v_pheld      jsonb[]  := array[]::jsonb[];    -- held_value (before_image)
+  v_pbefore    jsonb[]  := array[]::jsonb[];    -- LIVE-row before_image (id + claim + non-identity), P3-F1
   v_rmplace    text[]   := array[]::text[];     -- removal nodes' parked placeholder names
   v_rmkey      text[]   := array[]::text[];     -- removal nodes' entity_key
   v_rmdrive    text[]   := array[]::text[];
   v_rmshow     uuid[]   := array[]::uuid[];
-  v_rmheld     jsonb[]  := array[]::jsonb[];
+  v_rmbefore   jsonb[]  := array[]::jsonb[];    -- LIVE-row before_image for removal nodes, P3-F1
   v_pdrive     text;
   v_pshow      uuid;
   v_place      text;
+  v_live       public.crew_members%rowtype;     -- the live crew row read UNDER THE LOCK (P3-F1)
+  v_before     jsonb;                            -- authoritative before_image built from v_live
   i            int;
 begin
   if not public.is_admin() then
@@ -304,31 +306,52 @@ begin
     end if;
   end loop;
 
-  -- step (1): park EVERY participating live row + record per-member apply data.
+  -- step (1): for each member, READ THE LIVE ROW UNDER THE LOCK (P3-F1 / PF38 / resolution #24 — the
+  -- live row is authoritative: it carries the id + claimed_via_oauth_at that held_value omits, and
+  -- reflects any claim that landed AFTER the hold was created), build the full before_image, THEN park
+  -- the row (email→NULL, name→'__hold:<uuid>') to clear both unique indexes before any reassign.
   foreach v_id in array v_group loop
     select * into v_m from public.sync_holds where id = v_id;
+    select * into v_live from public.crew_members
+     where show_id = v_m.show_id and name = v_m.entity_key;
+    -- authoritative before_image — id + claimed_via_oauth_at + non-identity fields (Phase 4 undo restores them).
+    v_before := jsonb_build_object(
+      'id', v_live.id,
+      'name', v_live.name,
+      'email', v_live.email,
+      'phone', v_live.phone,
+      'role', v_live.role,
+      'role_flags', to_jsonb(v_live.role_flags),
+      'date_restriction', v_live.date_restriction,
+      'stage_restriction', v_live.stage_restriction,
+      'flight_info', v_live.flight_info,
+      'claimed_via_oauth_at', v_live.claimed_via_oauth_at
+    );
+
     v_place := '__hold:' || gen_random_uuid()::text;
     update public.crew_members
        set email = null, name = v_place
      where show_id = v_m.show_id and name = v_m.entity_key;
+
     if (v_m.proposed_value->>'disposition') = 'removal' then
-      v_rmplace := v_rmplace || v_place;
-      v_rmkey   := v_rmkey   || v_m.entity_key;
-      v_rmdrive := v_rmdrive || v_m.drive_file_id;
-      v_rmshow  := v_rmshow  || v_m.show_id;
-      v_rmheld  := v_rmheld  || v_m.held_value;
+      v_rmplace  := v_rmplace  || v_place;
+      v_rmkey    := v_rmkey    || v_m.entity_key;
+      v_rmdrive  := v_rmdrive  || v_m.drive_file_id;
+      v_rmshow   := v_rmshow   || v_m.show_id;
+      v_rmbefore := v_rmbefore || v_before;
     else
-      v_pholds := v_pholds || v_m.id;
-      v_pkeys  := v_pkeys  || v_m.entity_key;
-      v_pplace := v_pplace || v_place;
-      v_pdisp  := v_pdisp  || (v_m.proposed_value->>'disposition');
-      v_pname  := v_pname  || coalesce(v_m.proposed_value->>'name', v_m.entity_key);
-      v_pemail := v_pemail || (v_m.proposed_value->>'email');
-      v_pheld  := v_pheld  || v_m.held_value;
+      v_pholds  := v_pholds  || v_m.id;
+      v_pkeys   := v_pkeys   || v_m.entity_key;
+      v_pplace  := v_pplace  || v_place;
+      v_pdisp   := v_pdisp   || (v_m.proposed_value->>'disposition');
+      v_pname   := v_pname   || coalesce(v_m.proposed_value->>'name', v_m.entity_key);
+      v_pemail  := v_pemail  || (v_m.proposed_value->>'email');
+      v_pbefore := v_pbefore || v_before;
     end if;
   end loop;
 
-  -- step (2): DELETE the removal nodes' (now-parked) rows by their exact placeholder + crew_removed log.
+  -- step (2): DELETE the removal nodes' (now-parked) rows by their exact placeholder + crew_removed log
+  -- (before_image is the LIVE-row image captured under the lock — carries id + claim, P3-F1).
   if array_length(v_rmplace, 1) is not null then
     for i in 1 .. array_length(v_rmplace, 1) loop
       delete from public.crew_members
@@ -339,12 +362,14 @@ begin
       values
         (v_rmshow[i], v_rmdrive[i], 'mi11_approve', 'crew_removed', v_rmkey[i],
          'Removal of ' || v_rmkey[i] || ' was approved',
-         v_rmheld[i], null, 'applied', v_actor);
+         v_rmbefore[i], null, 'applied', v_actor);
     end loop;
   end if;
 
-  -- step (3): assign each email_change/rename node from its parked placeholder to its final value;
-  -- clear the moved-anchor claim (PF45); write a crew_email_changed / crew_renamed log.
+  -- step (3): apply each email_change/rename node from its parked placeholder. BRANCH BY DISPOSITION
+  -- (P3-F2): an email_change is the SAME person → in-place reassign (keep the PK), clear the moved
+  -- anchor's claim (#27); a rename = delete-old + insert-FRESH (new id, claim NULL, copy ONLY the F17
+  -- non-identity set) to match the single-node rename semantics (spec §5.4).
   if array_length(v_pholds, 1) is not null then
     for i in 1 .. array_length(v_pholds, 1) loop
       update public.crew_members
@@ -360,7 +385,7 @@ begin
          case when v_pdisp[i] = 'rename'
               then 'Rename of ' || v_pkeys[i] || ' to ' || v_pname[i] || ' was approved'
               else 'Email change for ' || v_pkeys[i] || ' was approved' end,
-         v_pheld[i],
+         v_pbefore[i],
          jsonb_build_object('name', v_pname[i], 'email', v_pemail[i]),
          'applied', v_actor);
     end loop;

@@ -291,6 +291,90 @@ describe("mi11_approve_hold — rename + removal dispositions (Task 3.3)", () =>
   });
 });
 
+describe("mi11_approve_hold — before_image carries id + claimed_via_oauth_at (P3-F1 / PF38 / resolution #24)", () => {
+  it("approved removal: crew_removed before_image carries the LIVE row's id + claimed_via_oauth_at", async () => {
+    const show = await seedShow(mi11Sql);
+    const seeded = await seedCrew(mi11Sql, show.showId, "Alice", {
+      email: "alice@old",
+      claimed: "2026-05-31T23:00:00.000Z",
+    });
+    // held_value DELIBERATELY lacks id + claimed_via_oauth_at (writeMi11Holds excludes them) — the fix
+    // must read the live row under the lock, NOT trust held_value.
+    const hold = await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@old"),
+      proposedValue: { disposition: "removal" },
+      baseModifiedTime: T0,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    expect(res).toEqual({ ok: true });
+
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    expect(row?.change_kind).toBe("crew_removed");
+    const before = row?.before_image as Record<string, unknown>;
+    expect(before.id).toBe(seeded.id); // derived from the seeded live row (anti-tautology)
+    expect(new Date(before.claimed_via_oauth_at as string).toISOString()).toBe(
+      seeded.claimed_via_oauth_at,
+    );
+  });
+
+  it("approved rename: crew_renamed before_image carries the OLD row's id + claimed_via_oauth_at", async () => {
+    const show = await seedShow(mi11Sql);
+    const seeded = await seedCrew(mi11Sql, show.showId, "Alice", {
+      email: "alice@old",
+      claimed: "2026-05-31T23:00:00.000Z",
+    });
+    const hold = await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@old"),
+      proposedValue: { disposition: "rename", name: "Alicia", email: "alice@new" },
+      baseModifiedTime: T0,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    expect(res).toEqual({ ok: true });
+
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    expect(row?.change_kind).toBe("crew_renamed");
+    const before = row?.before_image as Record<string, unknown>;
+    expect(before.id).toBe(seeded.id); // OLD row's id, for Phase-4 undo restore (resolution #24)
+    expect(new Date(before.claimed_via_oauth_at as string).toISOString()).toBe(
+      seeded.claimed_via_oauth_at,
+    );
+  });
+
+  it("approved email_change: before_image carries id + claim; the row KEEPS its id (same person)", async () => {
+    const show = await seedShow(mi11Sql);
+    const seeded = await seedCrew(mi11Sql, show.showId, "Alice", {
+      email: "alice@old",
+      claimed: "2026-05-31T23:00:00.000Z",
+    });
+    const hold = await seedHold(mi11Sql, show, {
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@old"),
+      proposedValue: { disposition: "email_change", name: "Alice", email: "alice@new" },
+      baseModifiedTime: T0,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    expect(res).toEqual({ ok: true });
+
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    const before = row?.before_image as Record<string, unknown>;
+    expect(before.id).toBe(seeded.id);
+    expect(new Date(before.claimed_via_oauth_at as string).toISOString()).toBe(
+      seeded.claimed_via_oauth_at,
+    );
+    // email_change is the same person — the PK is preserved, only email moves (claim cleared per #27).
+    const alice = await readCrewByName(mi11Sql, show.showId, "Alice");
+    expect(alice?.id).toBe(seeded.id);
+    expect(alice?.claimed_via_oauth_at).toBeNull();
+  });
+});
+
 describe("mi11_approve_hold — stale-target guard, last_seen_modified_time insufficient (Task 3.7/F13)", () => {
   it("rejects on the PASSED observed Drive modtime even when shows.last_seen_modified_time == base", async () => {
     const show = await seedShow(mi11Sql);
