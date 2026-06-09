@@ -55,16 +55,25 @@ export async function approveMi11Hold(
   holdId: string,
   expectedBaseModifiedTime: string | null,
 ): Promise<Mi11GateResult> {
+  // The admin-gate throw is the auth boundary, NOT a Supabase infra fault — it propagates by design.
   await requireAdmin();
 
   // (1) NON-locking SERVICE-ROLE read → the AUTHORITATIVE drive_file_id (NEVER client-supplied; PF23).
-  const service = createSupabaseServiceRoleClient();
-  const { data: hold, error: lookupError } = await service
-    .from("sync_holds")
-    .select("drive_file_id, show_id")
-    .eq("id", holdId)
-    .maybeSingle();
-  if (lookupError) {
+  // invariant 9: a THROWN construction/query fault maps to the same typed result as a returned {error},
+  // never an uncaught throw / untyped admin 500.
+  let hold: { drive_file_id?: string | null; show_id?: string | null } | null;
+  try {
+    const service = createSupabaseServiceRoleClient();
+    const { data, error: lookupError } = await service
+      .from("sync_holds")
+      .select("drive_file_id, show_id")
+      .eq("id", holdId)
+      .maybeSingle();
+    if (lookupError) {
+      return { ok: false, code: "SYNC_INFRA_ERROR" };
+    }
+    hold = data;
+  } catch {
     return { ok: false, code: "SYNC_INFRA_ERROR" };
   }
   if (!hold || !hold.drive_file_id) {
@@ -88,13 +97,18 @@ export async function approveMi11Hold(
   }
 
   // (3) mutation RPC via the AUTHENTICATED client; forward the CALLER token UNCHANGED (PF40).
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.rpc("mi11_approve_hold", {
-    p_hold_id: holdId,
-    p_observed_modified_time: observedModifiedTime,
-    p_expected_base_modified_time: expectedBaseModifiedTime,
-  });
-  return mapRpcOutcome(data as RpcResult, error);
+  // invariant 9: a THROWN client-construction / rpc fault → SYNC_INFRA_ERROR (same as returned {error}).
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.rpc("mi11_approve_hold", {
+      p_hold_id: holdId,
+      p_observed_modified_time: observedModifiedTime,
+      p_expected_base_modified_time: expectedBaseModifiedTime,
+    });
+    return mapRpcOutcome(data as RpcResult, error);
+  } catch {
+    return { ok: false, code: "SYNC_INFRA_ERROR" };
+  }
 }
 
 /**
@@ -108,10 +122,15 @@ export async function rejectMi11Hold(
   expectedBaseModifiedTime: string | null,
 ): Promise<Mi11GateResult> {
   await requireAdmin();
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.rpc("mi11_reject_hold", {
-    p_hold_id: holdId,
-    p_expected_base_modified_time: expectedBaseModifiedTime,
-  });
-  return mapRpcOutcome(data as RpcResult, error);
+  // invariant 9: a THROWN client-construction / rpc fault → SYNC_INFRA_ERROR (same as returned {error}).
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.rpc("mi11_reject_hold", {
+      p_hold_id: holdId,
+      p_expected_base_modified_time: expectedBaseModifiedTime,
+    });
+    return mapRpcOutcome(data as RpcResult, error);
+  } catch {
+    return { ok: false, code: "SYNC_INFRA_ERROR" };
+  }
 }
