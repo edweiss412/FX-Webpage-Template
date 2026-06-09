@@ -208,4 +208,51 @@ describe("writeMi11Holds (Task 2.2)", () => {
       expect(row.proposed).toEqual({ disposition: "email_change", name: "Alice", email: null });
     });
   });
+
+  it("P2-F5 — re-detection against a terminal undo_override hold does NOT overwrite it (or throw)", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      // Seed a terminal crew_email undo_override (e.g. a Phase-3 reject): proposed_value NULL + baseline.
+      await tx.unsafe(
+        `insert into public.sync_holds
+           (show_id, drive_file_id, domain, entity_key, held_value, kind, created_by)
+         values ($1,$2,'crew_email','Alice',$3::jsonb,'undo_override','admin@x')`,
+        [
+          showId,
+          driveFileId,
+          { name: "Alice", email: "a@old", baseline: { email: "a@old" } },
+        ] as never,
+      );
+
+      // Next sync: the rejected email still on the sheet → MI-11 re-detects for Alice. The
+      // unconditional upsert would try to set a non-null proposed_value on the undo_override row →
+      // sync_holds_kind_shape_chk violation. The conditional upsert must SKIP it instead.
+      await expect(
+        writeMi11Holds(makeTx(tx), {
+          showId,
+          driveFileId,
+          mi11Items: [
+            { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          ],
+          liveCrewByName: new Map([["Alice", liveCrew("Alice", "a@old")]]),
+          baseModifiedTime,
+        }),
+      ).resolves.toBeUndefined(); // (a) no throw / no shape-CHECK violation
+
+      // (b) the undo_override row remains valid + intact.
+      const [row] = await tx<{ kind: string; proposed: unknown; baseline: unknown }[]>`
+        select kind, proposed_value as proposed, held_value->'baseline' as baseline
+        from public.sync_holds where show_id = ${showId} and entity_key = 'Alice'
+      `;
+      expect(row.kind).toBe("undo_override");
+      expect(row.proposed).toBeNull();
+      expect(row.baseline).toEqual({ email: "a@old" });
+
+      // Exactly one row for Alice (the INSERT was a no-op on conflict).
+      const [{ count }] = await tx<{ count: number }[]>`
+        select count(*)::int as count from public.sync_holds where show_id = ${showId} and entity_key = 'Alice'
+      `;
+      expect(count).toBe(1);
+    });
+  });
 });

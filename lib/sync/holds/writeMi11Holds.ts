@@ -80,6 +80,11 @@ export async function writeMi11Holds(
           proposed_value = excluded.proposed_value,
           base_modified_time = excluded.base_modified_time,
           created_at = now()
+        -- P2-F5: ONLY overwrite an existing mi11_pending hold. A terminal undo_override row (reject/
+        -- undo: kind='undo_override', proposed_value NULL) owns the same (show_id,domain,entity_key)
+        -- after a reject; writing a non-null proposed_value onto it violates sync_holds_kind_shape_chk
+        -- and fails the whole sync. Skip it so hold-aware apply keeps honoring the override.
+        where sync_holds.kind = 'mi11_pending'
       `,
       [
         args.showId,
