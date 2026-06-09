@@ -188,8 +188,11 @@ export async function planHoldAwareApply(
   // Rows consumed by a rename/removal fold (the held crew's OWN target, NOT a different-entity
   // collision). P2-F1: these must be EXCLUDED from reservation_collisions — a folded row is the
   // hold's own rename target, so recording it would make Phase-3 Approve reject IDENTITY_WOULD_COLLIDE
-  // on the valid fold. Keyed by parse-row name.
-  const foldConsumedNames = new Set<string>();
+  // on the valid fold. WM-F1: this is PER-HOLD — a name consumed by hold A's fold is still a valid
+  // reservation_collision for a DIFFERENT hold B that proposes the same identity. Keyed by hold.id →
+  // set of parse-row names that hold's OWN fold consumed. (A global set let hold A's folded target
+  // suppress hold B's collision, stranding B's identity gate.)
+  const foldConsumedByHold = new Map<string, Set<string>>();
   // held_value rows to retain/re-insert even if the parse drops them.
   const retainRows = new Map<string, CrewMemberRow>();
   // non-identity field overrides to apply onto a pinned held row (from a folded rename row).
@@ -246,7 +249,14 @@ export async function planHoldAwareApply(
       if (renameRow) {
         // Suppress the added row; fold proposed_value → rename; apply its non-identity onto pinned old row.
         suppressedNames.add(renameRow.name);
-        foldConsumedNames.add(renameRow.name); // P2-F1: the hold's own target, not a collision.
+        // P2-F1 / WM-F1: record under THIS hold's id — the hold's own target, not a collision.
+        // Keyed per-hold so it only excludes from THIS hold's reservation_collisions, never another's.
+        let consumed = foldConsumedByHold.get(hold.id);
+        if (!consumed) {
+          consumed = new Set<string>();
+          foldConsumedByHold.set(hold.id, consumed);
+        }
+        consumed.add(renameRow.name);
         nonIdentityOverride.set(hold.entity_key, renameRow);
         retainRows.set(hold.entity_key, rowFromHeldValue(held));
         mutations.push({
@@ -303,7 +313,7 @@ export async function planHoldAwareApply(
   computeReservations(survivingHolds, parseResult, {
     suppressedNames,
     suppressedEmails,
-    foldConsumedNames,
+    foldConsumedByHold,
     effectiveProposed,
     priorCrewNames: new Set(args.previousCrewNames ?? []),
     mutations,
@@ -405,7 +415,7 @@ function computeReservations(
   out: {
     suppressedNames: Set<string>;
     suppressedEmails: Set<string>;
-    foldConsumedNames: Set<string>;
+    foldConsumedByHold: Map<string, Set<string>>;
     effectiveProposed: Map<string, Record<string, unknown> | null>;
     priorCrewNames: Set<string>;
     mutations: Array<
@@ -434,9 +444,10 @@ function computeReservations(
     for (const m of parseResult.crewMembers) {
       // A different-entity row (not the held crew itself) colliding with the reserved email or name.
       if (m.name === hold.entity_key) continue;
-      // P2-F1: a row consumed by THIS hold's rename/removal fold is the hold's OWN target, not a
-      // different-entity collision — never record it. (Reservation still suppresses other rows.)
-      if (out.foldConsumedNames.has(m.name)) continue;
+      // P2-F1 / WM-F1: a row consumed by THIS hold's OWN rename/removal fold is the hold's own
+      // target, not a different-entity collision — never record it for THIS hold. Keyed per-hold so
+      // a name consumed by ANOTHER hold's fold is still a valid collision for this one.
+      if (out.foldConsumedByHold.get(hold.id)?.has(m.name)) continue;
       const e = canonEmail(m.email);
       const emailCollides = reservedEmail != null && e === reservedEmail;
       const nameCollides = reservedName != null && m.name === reservedName;
