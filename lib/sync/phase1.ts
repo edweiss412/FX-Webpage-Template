@@ -199,7 +199,10 @@ function hasWarning(parseResult: ParseResult, code: string): boolean {
   return warningCount(parseResult, code) > 0;
 }
 
-function syncLayerReviewItems(
+// Exported (P2-F3): the real cron/push apply path reuses this to include the asset-drift
+// (DIAGRAMS_*/REEL_DRIFT_PENDING) sync-layer items in the auto-apply change-log notableItems set —
+// runInvariants alone omits them, so the asset_drift feed row was never written on the real path.
+export function syncLayerReviewItems(
   args: Phase1Args,
   parseResult: ParseResult,
   show: Phase1ShowRow | null,

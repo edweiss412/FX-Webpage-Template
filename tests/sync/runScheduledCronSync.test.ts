@@ -999,6 +999,56 @@ describe("processOneFile", () => {
     );
   });
 
+  test("P2-F3 — asset-drift warnings reach Phase 2 notableItems on the real apply path", async () => {
+    // The real cron/push path derives notableItems for the auto-apply change-log. runInvariants
+    // alone OMITS the sync-layer asset-drift items (DIAGRAMS_*/REEL_DRIFT_PENDING), so without the
+    // fix the asset_drift feed row is never written. Capture runPhase2's notableItems and assert
+    // the REEL_DRIFT_PENDING item is present (it comes from the parse warnings, not runInvariants).
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    let capturedNotableItems: unknown[] | undefined;
+    const parseWithReelDrift: ParseResult = {
+      ...parseResult(),
+      openingReel: {
+        driveFileId: "reel-1",
+        drive_modified_time: "2026-05-08T10:00:00.000Z",
+        headRevisionId: "rev-1",
+        mimeType: "video/mp4",
+      } as ParseResult["openingReel"],
+      warnings: [
+        { severity: "warn", code: "REEL_DRIFT_PENDING", message: "Reel drift detected" },
+      ] as ParseResult["warnings"],
+    };
+    const syncDeps = deps({
+      enrichWithDrivePins: vi.fn(async () => parseWithReelDrift),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "pass" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        capturedNotableItems = (args as { notableItems?: unknown[] }).notableItems;
+        return { outcome: "applied" as const, showId: "show-1" };
+      }),
+    });
+
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
+    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+
+    // The asset-drift item is threaded into notableItems so writeAutoApplyChanges emits asset_drift.
+    expect(capturedNotableItems).toBeDefined();
+    expect(
+      (capturedNotableItems ?? []).some(
+        (i) => (i as { invariant?: string }).invariant === "REEL_DRIFT_PENDING",
+      ),
+    ).toBe(true);
+  });
+
   test("Phase 1 MI-8 debounce defer logs a skip without Phase 2 or watermark writes", async () => {
     const fakeTx = tx() as LockedShowTx<PipelineTx>;
     const syncDeps = deps({

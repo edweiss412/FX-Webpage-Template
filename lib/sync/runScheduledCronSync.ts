@@ -43,6 +43,7 @@ import {
 import {
   Phase1InfraError,
   runPhase1,
+  syncLayerReviewItems,
   type Phase1Args,
   type Phase1Binding,
   type Phase1Tx,
@@ -2367,12 +2368,29 @@ export async function processOneFile_unlocked(
           // Defensive: runInvariants is pure but a degraded/minimal parseResult could throw; the
           // change-log is best-effort and must never fail the sync. Production parses always carry
           // full dates/crew, so this only guards malformed fixtures / partial parses.
+          let invariantItems: TriggeredReviewItem[] = [];
           try {
             const inv = runInvariants(priorShow.priorParseResult, pipeline.parseResult);
-            return inv.outcome === "stage" ? inv.triggeredItems : [];
+            invariantItems = inv.outcome === "stage" ? inv.triggeredItems : [];
           } catch {
-            return [];
+            invariantItems = [];
           }
+          // P2-F3: include the sync-layer asset-drift items (DIAGRAMS_*/REEL_DRIFT_PENDING). These
+          // come from the parse warnings, NOT runInvariants — without them the asset_drift feed row
+          // is never written on the real path (PF34: asset drift auto-applies but must still notify).
+          const phase1ArgsForSyncLayer: Phase1Args = {
+            driveFileId,
+            mode: pipeline.resolvedMode as Phase1Args["mode"],
+            fileMeta,
+            parseResult: pipeline.parseResult,
+            binding: pipeline.binding,
+          };
+          const assetItems = syncLayerReviewItems(
+            phase1ArgsForSyncLayer,
+            pipeline.parseResult,
+            priorShow,
+          );
+          return [...invariantItems, ...assetItems];
         })()
       : [];
   const phase2 = await runPhase2_unlocked(
