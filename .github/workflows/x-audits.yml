@@ -347,6 +347,47 @@ jobs:
           if-no-files-found: warn
           path: postgrest-dml-lockdown.log
 
+  validation-schema-parity:
+    # Catches the class where a committed migration's public tables/columns never
+    # reach the persistent validation Supabase project — the #9 notify-prefs
+    # incident: B3 migration 20260602000003 added app_settings notify columns to
+    # the repo + local + CI-fresh DB, but `supabase db push` is blocked on
+    # validation, so a surgical apply was required and one sibling migration was
+    # skipped → the live notify toggles read a column that didn't exist →
+    # infra_error → degraded UI. Layer 1 (manifest freshness tripwire) is DB-free
+    # and always runs; Layer 2 (parity) introspects the validation project via
+    # psql and asserts it is a superset of supabase/__generated__/schema-manifest.json.
+    # TEST_DATABASE_URL is the validation project's session-pooler URL — the same
+    # secret the postgrest-dml-lockdown job uses.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install psql (postgresql-client) for schema introspection
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Run validation-schema-parity gate
+        shell: bash
+        env:
+          TEST_DATABASE_URL: ${{ secrets.SUPABASE_TEST_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          pnpm test:audit:validation-schema-parity 2>&1 | tee validation-schema-parity.log
+      - name: Upload validation-schema-parity audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-schema-parity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: validation-schema-parity.log
+
   verify-branch-protection:
     # X6-D-1: solo-dev variant — branch protection removed, no team workflow.
     # See DEFERRED.md §X6-D-1 for re-enable triggers (second admin joins, etc.).
