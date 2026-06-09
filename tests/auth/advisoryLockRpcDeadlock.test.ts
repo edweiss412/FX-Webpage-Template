@@ -25,6 +25,9 @@ function lockTakingRpcNames(): string[] {
     // Sync changes-feed Phase 3 — MI-11 gate RPCs (mi11_approve_hold/mi11_reject_hold)
     // each acquire the per-show advisory lock themselves (admin path, §4.1).
     "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
+    // Sync changes-feed Phase 4 — undo_change acquires the per-show advisory lock itself
+    // (admin path, §4.1); _undo_tombstone runs inside that lock and never re-takes it.
+    "supabase/migrations/20260608000003_undo_change_rpc.sql",
   ];
 
   const names = new Set<string>();
@@ -60,6 +63,8 @@ describe("advisory-lock RPC deadlock guard", () => {
     // Sync changes-feed Phase 3 — the MI-11 gate RPCs are single-holder admin lock-takers.
     expect(lockTakingNames).toContain("mi11_approve_hold");
     expect(lockTakingNames).toContain("mi11_reject_hold");
+    // Sync changes-feed Phase 4 — undo_change is a single-holder admin lock-taker.
+    expect(lockTakingNames).toContain("undo_change");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
@@ -106,6 +111,7 @@ describe("advisory-lock RPC deadlock guard", () => {
       "supabase/migrations/20260527210000_mint_validation_fixture_atomic.sql",
       "supabase/migrations/20260527210001_validation_finalize_all_atomic.sql",
       "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
+      "supabase/migrations/20260608000003_undo_change_rpc.sql",
     ];
 
     for (const file of lockTakingMigrations) {
