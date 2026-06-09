@@ -13,6 +13,7 @@ import {
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
 import {
+  Phase2GateBypassError,
   runPhase2,
   type Phase2Args,
   type Phase2Result,
@@ -1340,6 +1341,18 @@ export async function applyStaged_unlocked(
     pending.triggeredReviewItems,
     validation.choices,
   );
+
+  // P2-F7 — FAIL CLOSED (peer of P2-F6): a LIVE staged parse carrying an MI-11 item must NEVER be
+  // applied via this legacy whole-parse path. It would call runPhase2 with NO mi11Items → no
+  // sync_holds row, no hold-aware pin → the changed email applies UNGATED, bypassing the identity
+  // gate (the milestone's security boundary). MI-11 cannot fire first-seen/wizard (no prior
+  // snapshot), so this only guards the live existing-show path. The live staging path is RETIRED;
+  // the cutover resets last_seen_modified_time so a residual row is re-processed by the new decision
+  // rule (which writes a hold) on the next sync — so failing closed here strands nothing.
+  if (pending.triggeredReviewItems.some((item) => item.invariant === "MI-11")) {
+    throw new Phase2GateBypassError();
+  }
+
   const assetAdjusted = deps.liveAssetReviewEffects;
   if (!assetAdjusted) return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
 
