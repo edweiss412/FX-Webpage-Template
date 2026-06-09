@@ -245,6 +245,40 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     },
     rowFilter: "?dedup_key=eq.postgrest-dml-lockdown-test-no-such-row",
   },
+  {
+    // Sync changes feed / MI-11 gate: held identity (email) + before/after crew PII are
+    // admin-only; DML flows ONLY through the sync pipeline (service_role) + SECURITY DEFINER
+    // RPCs. F9 — no PostgREST SELECT either (selectAnon/Authenticated both false).
+    table: "sync_holds",
+    closed_at: "supabase/migrations/20260608000000_sync_holds.sql:46",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      show_id: "00000000-0000-0000-0000-000000000000",
+      drive_file_id: "lockdown-test",
+      domain: "crew_email",
+      entity_key: "postgrest-dml-lockdown-test",
+      held_value: {},
+      kind: "mi11_pending",
+      created_by: "postgrest-dml-lockdown-test",
+    },
+    rowFilter: "?entity_key=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
+    table: "show_change_log",
+    closed_at: "supabase/migrations/20260608000001_show_change_log.sql:42",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      show_id: "00000000-0000-0000-0000-000000000000",
+      drive_file_id: "lockdown-test",
+      source: "auto_apply",
+      change_kind: "crew_added",
+      summary: "postgrest-dml-lockdown-test",
+      status: "applied",
+    },
+    rowFilter: "?summary=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
 ] as const;
 
 // =============================================================================
