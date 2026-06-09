@@ -116,10 +116,103 @@ revoke all on function public.mi11_reject_hold(uuid, timestamptz) from public, a
 grant execute on function public.mi11_reject_hold(uuid, timestamptz) to authenticated;
 
 -- ---------------------------------------------------------------------------
+-- _mi11_collision_group(p_show_id, p_hold_id) → uuid[] of the closed group's hold ids
+-- (including the submitted hold), or NULL if the group is NON-CLOSEABLE.
+--
+-- Directed transitive closure over {email, name} targets (PF29 + Task 3.4). For each axis where the
+-- proposed value DIFFERS from the row's own current value (satisfied self-edges for unchanged
+-- columns are skipped), find the live owner of that target value. If the owner is covered by an open
+-- mi11_pending hold whose proposed_value VACATES that exact value → add to the group + recurse; else
+-- → NON-CLOSEABLE (return NULL). Covers LIVE-owner chains only; suppressed distinct-entity rows are
+-- handled by the reservation_collisions guard, not here. A removal hold vacates BOTH name and email.
+-- ---------------------------------------------------------------------------
+create or replace function public._mi11_collision_group(p_show_id uuid, p_hold_id uuid)
+returns uuid[]
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_group   uuid[] := array[]::uuid[];
+  v_work    uuid[];
+  v_cur     uuid;
+  v_hold    public.sync_holds%rowtype;
+  v_disp    text;
+  v_axis    text;
+  v_target  text;
+  v_self    text;
+  v_owner   public.crew_members%rowtype;
+  v_owner_hold public.sync_holds%rowtype;
+  v_owner_vacates boolean;
+begin
+  v_work := array[p_hold_id];
+  while array_length(v_work, 1) is not null loop
+    v_cur := v_work[1];
+    v_work := v_work[2:];
+    if v_cur = any(v_group) then
+      continue;
+    end if;
+    v_group := v_group || v_cur;
+
+    select * into v_hold from public.sync_holds where id = v_cur and show_id = p_show_id;
+    if not found or v_hold.kind <> 'mi11_pending' then
+      return null;
+    end if;
+    v_disp := v_hold.proposed_value->>'disposition';
+    if v_disp = 'removal' then
+      continue;  -- vacates its row; claims no target → no outgoing edge.
+    end if;
+
+    foreach v_axis in array array['email','name'] loop
+      v_target := v_hold.proposed_value->>v_axis;
+      if v_target is null then
+        continue;
+      end if;
+      if v_axis = 'name' then
+        v_self := v_hold.entity_key;
+      else
+        select cm.email into v_self from public.crew_members cm
+         where cm.show_id = p_show_id and cm.name = v_hold.entity_key;
+      end if;
+      if v_target is not distinct from v_self then
+        continue;  -- satisfied self-edge (unchanged column).
+      end if;
+
+      if v_axis = 'name' then
+        select * into v_owner from public.crew_members cm
+         where cm.show_id = p_show_id and cm.name = v_target;
+      else
+        select * into v_owner from public.crew_members cm
+         where cm.show_id = p_show_id and cm.email = v_target;
+      end if;
+      if not found then
+        continue;  -- target free → no edge.
+      end if;
+      if v_owner.name = v_hold.entity_key then
+        continue;
+      end if;
+
+      select * into v_owner_hold from public.sync_holds
+       where show_id = p_show_id and entity_key = v_owner.name and kind = 'mi11_pending';
+      if not found then
+        return null;  -- chain terminates at a non-held live row.
+      end if;
+      v_owner_vacates := (v_owner_hold.proposed_value->>'disposition') = 'removal'
+        or ((v_owner_hold.proposed_value->>v_axis) is distinct from v_target);
+      if not v_owner_vacates then
+        return null;
+      end if;
+      v_work := v_work || v_owner_hold.id;
+    end loop;
+  end loop;
+
+  return v_group;
+end;
+$$;
+revoke all on function public._mi11_collision_group(uuid, uuid) from public, anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
 -- mi11_approve_hold(p_hold_id, p_observed_modified_time, p_expected_base_modified_time)
--- Apply the locked disposition under the show advisory lock; delete the hold; write an
--- applied mi11_approve log. (Task 3.2: email_change self-edge; Tasks 3.3-3.5 add rename/
--- removal + the collision graph + swap-safe park.)
 -- ---------------------------------------------------------------------------
 create or replace function public.mi11_approve_hold(
   p_hold_id uuid,
@@ -132,148 +225,151 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_hold   public.sync_holds%rowtype;
-  v_disp   text;
-  v_email  text;
-  v_actor  text := public.auth_email_canonical();
+  v_hold       public.sync_holds%rowtype;
+  v_group      uuid[];
+  v_id         uuid;
+  v_m          public.sync_holds%rowtype;
+  v_actor      text := public.auth_email_canonical();
+  -- parallel arrays for the parked email_change/rename nodes (removals handled separately).
+  v_pholds     uuid[]   := array[]::uuid[];     -- hold id
+  v_pkeys      text[]   := array[]::text[];     -- entity_key (the held crew name)
+  v_pplace     text[]   := array[]::text[];     -- placeholder name assigned at park
+  v_pdisp      text[]   := array[]::text[];     -- disposition
+  v_pname      text[]   := array[]::text[];     -- proposed name (final)
+  v_pemail     text[]   := array[]::text[];     -- proposed email (final)
+  v_pheld      jsonb[]  := array[]::jsonb[];    -- held_value (before_image)
+  v_rmplace    text[]   := array[]::text[];     -- removal nodes' parked placeholder names
+  v_rmkey      text[]   := array[]::text[];     -- removal nodes' entity_key
+  v_rmdrive    text[]   := array[]::text[];
+  v_rmshow     uuid[]   := array[]::uuid[];
+  v_rmheld     jsonb[]  := array[]::jsonb[];
+  v_pdrive     text;
+  v_pshow      uuid;
+  v_place      text;
+  i            int;
 begin
-  -- (1) admin gate FIRST.
   if not public.is_admin() then
     raise exception using errcode = '42501', message = 'forbidden', hint = 'mi11_approve_hold is admin-only';
   end if;
 
-  -- (2) NON-locking read to discover drive_file_id / show_id (+ early no-row pre-check).
   select * into v_hold from public.sync_holds where id = p_hold_id;
   if not found or v_hold.kind <> 'mi11_pending' then
     return jsonb_build_object('ok', false, 'code', 'MI11_HOLD_ALREADY_RESOLVED');
   end if;
 
-  -- (3) advisory lock BEFORE any row lock.
   perform pg_advisory_xact_lock(hashtext('show:' || v_hold.drive_file_id));
 
-  -- (4) RE-select FOR UPDATE + RE-validate (read base/proposed/reservation from the LOCKED row).
   select * into v_hold from public.sync_holds where id = p_hold_id for update;
   if not found or v_hold.kind <> 'mi11_pending' then
     return jsonb_build_object('ok', false, 'code', 'MI11_HOLD_ALREADY_RESOLVED');
   end if;
+  v_pdrive := v_hold.drive_file_id;
+  v_pshow  := v_hold.show_id;
 
-  v_disp := v_hold.proposed_value->>'disposition';
-
-  -- (4a) disposition-validity guard (PF32): email_change MUST keep the existing name.
-  if v_disp = 'email_change'
+  -- Submitted-hold guards: disposition-validity (PF32), staleness pair (PF40), reservation (PF37).
+  if (v_hold.proposed_value->>'disposition') = 'email_change'
      and (v_hold.proposed_value->>'name') is distinct from v_hold.entity_key then
     return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
   end if;
-
-  -- (4b) TWO staleness guards (PF40): the hold must satisfy observed == base == expected.
   if p_observed_modified_time is distinct from v_hold.base_modified_time then
     return jsonb_build_object('ok', false, 'code', 'MI11_TARGET_MOVED');
   end if;
   if v_hold.base_modified_time is distinct from p_expected_base_modified_time then
     return jsonb_build_object('ok', false, 'code', 'MI11_TARGET_MOVED');
   end if;
-
-  -- (4c) reservation-collision guard (PF37) — independent of and PRECEDES the collision graph.
   if jsonb_array_length(coalesce(v_hold.reservation_collisions, '[]'::jsonb)) > 0 then
     return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
   end if;
 
-  -- (5) collision group + apply. Task 3.4/3.5 extend this with the transitive-closure graph +
-  -- swap-safe park; Task 3.2 covers the single-node email_change self-edge (occupied-target check).
-  if v_disp = 'email_change' then
-    v_email := v_hold.proposed_value->>'email';
-    -- single-node occupied-email check: a DIFFERENT live row already owns the target email.
-    if v_email is not null and exists (
-      select 1 from public.crew_members cm
-       where cm.show_id = v_hold.show_id
-         and cm.email = v_email
-         and cm.name is distinct from v_hold.entity_key
-    ) then
-      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
-    end if;
-
-    -- apply: move the email anchor + clear the OAuth claim (PF45 — anchor always moves in the gate).
-    update public.crew_members
-       set email = v_email, claimed_via_oauth_at = null
-     where show_id = v_hold.show_id and name = v_hold.entity_key;
-
-    delete from public.sync_holds where id = p_hold_id;
-
-    insert into public.show_change_log
-      (show_id, drive_file_id, source, change_kind, entity_ref, summary,
-       before_image, after_image, status, created_by)
-    values
-      (v_hold.show_id, v_hold.drive_file_id, 'mi11_approve', 'crew_email_changed', v_hold.entity_key,
-       'Email change for ' || v_hold.entity_key || ' was approved',
-       v_hold.held_value,
-       jsonb_build_object('name', v_hold.entity_key, 'email', v_email),
-       'applied', v_actor);
-
-    return jsonb_build_object('ok', true);
-
-  elsif v_disp = 'rename' then
-    v_email := v_hold.proposed_value->>'email';
-    -- single-node occupied-target checks: a DIFFERENT live row already owns the target name/email.
-    if exists (
-      select 1 from public.crew_members cm
-       where cm.show_id = v_hold.show_id
-         and cm.name = (v_hold.proposed_value->>'name')
-         and cm.name is distinct from v_hold.entity_key
-    ) then
-      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
-    end if;
-    if v_email is not null and exists (
-      select 1 from public.crew_members cm
-       where cm.show_id = v_hold.show_id
-         and cm.email = v_email
-         and cm.name is distinct from v_hold.entity_key
-    ) then
-      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
-    end if;
-
-    -- rename = delete-old + insert-new (§5.4). The new row copies ONLY the F17 non-identity set
-    -- (phone, role, role_flags, date_restriction, stage_restriction, flight_info); it MUST NOT copy
-    -- claimed_via_oauth_at — the new identity starts unclaimed (PF45).
-    insert into public.crew_members
-      (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info)
-    select v_hold.show_id, v_hold.proposed_value->>'name', v_email,
-           old.phone, old.role, old.role_flags, old.date_restriction, old.stage_restriction, old.flight_info
-      from public.crew_members old
-     where old.show_id = v_hold.show_id and old.name = v_hold.entity_key;
-
-    delete from public.crew_members where show_id = v_hold.show_id and name = v_hold.entity_key;
-    delete from public.sync_holds where id = p_hold_id;
-
-    insert into public.show_change_log
-      (show_id, drive_file_id, source, change_kind, entity_ref, summary,
-       before_image, after_image, status, created_by)
-    values
-      (v_hold.show_id, v_hold.drive_file_id, 'mi11_approve', 'crew_renamed', v_hold.entity_key,
-       'Rename of ' || v_hold.entity_key || ' to ' || (v_hold.proposed_value->>'name') || ' was approved',
-       v_hold.held_value,
-       jsonb_build_object('name', v_hold.proposed_value->>'name', 'email', v_email),
-       'applied', v_actor);
-
-    return jsonb_build_object('ok', true);
-
-  elsif v_disp = 'removal' then
-    -- removal = delete the crew row; the DELETE drops the OAuth claim with it (resolution #4).
-    delete from public.crew_members where show_id = v_hold.show_id and name = v_hold.entity_key;
-    delete from public.sync_holds where id = p_hold_id;
-
-    insert into public.show_change_log
-      (show_id, drive_file_id, source, change_kind, entity_ref, summary,
-       before_image, after_image, status, created_by)
-    values
-      (v_hold.show_id, v_hold.drive_file_id, 'mi11_approve', 'crew_removed', v_hold.entity_key,
-       'Removal of ' || v_hold.entity_key || ' was approved',
-       v_hold.held_value, null, 'applied', v_actor);
-
-    return jsonb_build_object('ok', true);
+  v_group := public._mi11_collision_group(v_hold.show_id, p_hold_id);
+  if v_group is null then
+    return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
   end if;
 
-  -- unknown disposition (shape CHECK should prevent this).
-  return jsonb_build_object('ok', false, 'code', 'MI11_HOLD_ALREADY_RESOLVED');
+  -- Per-member validation pass (PF39): re-select EVERY group hold FOR UPDATE, re-run the SAME guards.
+  foreach v_id in array v_group loop
+    select * into v_m from public.sync_holds where id = v_id for update;
+    if not found or v_m.kind <> 'mi11_pending' then
+      return jsonb_build_object('ok', false, 'code', 'MI11_HOLD_ALREADY_RESOLVED');
+    end if;
+    if v_m.base_modified_time is distinct from p_observed_modified_time then
+      return jsonb_build_object('ok', false, 'code', 'MI11_TARGET_MOVED');
+    end if;
+    if jsonb_array_length(coalesce(v_m.reservation_collisions, '[]'::jsonb)) > 0 then
+      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+    end if;
+    if (v_m.proposed_value->>'disposition') = 'email_change'
+       and (v_m.proposed_value->>'name') is distinct from v_m.entity_key then
+      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+    end if;
+  end loop;
+
+  -- step (1): park EVERY participating live row + record per-member apply data.
+  foreach v_id in array v_group loop
+    select * into v_m from public.sync_holds where id = v_id;
+    v_place := '__hold:' || gen_random_uuid()::text;
+    update public.crew_members
+       set email = null, name = v_place
+     where show_id = v_m.show_id and name = v_m.entity_key;
+    if (v_m.proposed_value->>'disposition') = 'removal' then
+      v_rmplace := v_rmplace || v_place;
+      v_rmkey   := v_rmkey   || v_m.entity_key;
+      v_rmdrive := v_rmdrive || v_m.drive_file_id;
+      v_rmshow  := v_rmshow  || v_m.show_id;
+      v_rmheld  := v_rmheld  || v_m.held_value;
+    else
+      v_pholds := v_pholds || v_m.id;
+      v_pkeys  := v_pkeys  || v_m.entity_key;
+      v_pplace := v_pplace || v_place;
+      v_pdisp  := v_pdisp  || (v_m.proposed_value->>'disposition');
+      v_pname  := v_pname  || coalesce(v_m.proposed_value->>'name', v_m.entity_key);
+      v_pemail := v_pemail || (v_m.proposed_value->>'email');
+      v_pheld  := v_pheld  || v_m.held_value;
+    end if;
+  end loop;
+
+  -- step (2): DELETE the removal nodes' (now-parked) rows by their exact placeholder + crew_removed log.
+  if array_length(v_rmplace, 1) is not null then
+    for i in 1 .. array_length(v_rmplace, 1) loop
+      delete from public.crew_members
+       where show_id = v_rmshow[i] and name = v_rmplace[i];
+      insert into public.show_change_log
+        (show_id, drive_file_id, source, change_kind, entity_ref, summary,
+         before_image, after_image, status, created_by)
+      values
+        (v_rmshow[i], v_rmdrive[i], 'mi11_approve', 'crew_removed', v_rmkey[i],
+         'Removal of ' || v_rmkey[i] || ' was approved',
+         v_rmheld[i], null, 'applied', v_actor);
+    end loop;
+  end if;
+
+  -- step (3): assign each email_change/rename node from its parked placeholder to its final value;
+  -- clear the moved-anchor claim (PF45); write a crew_email_changed / crew_renamed log.
+  if array_length(v_pholds, 1) is not null then
+    for i in 1 .. array_length(v_pholds, 1) loop
+      update public.crew_members
+         set name = v_pname[i], email = v_pemail[i], claimed_via_oauth_at = null
+       where show_id = v_pshow and name = v_pplace[i];
+      insert into public.show_change_log
+        (show_id, drive_file_id, source, change_kind, entity_ref, summary,
+         before_image, after_image, status, created_by)
+      values
+        (v_pshow, v_pdrive, 'mi11_approve',
+         case when v_pdisp[i] = 'rename' then 'crew_renamed' else 'crew_email_changed' end,
+         v_pkeys[i],
+         case when v_pdisp[i] = 'rename'
+              then 'Rename of ' || v_pkeys[i] || ' to ' || v_pname[i] || ' was approved'
+              else 'Email change for ' || v_pkeys[i] || ' was approved' end,
+         v_pheld[i],
+         jsonb_build_object('name', v_pname[i], 'email', v_pemail[i]),
+         'applied', v_actor);
+    end loop;
+  end if;
+
+  -- step (4): delete ALL the group's holds.
+  delete from public.sync_holds where id = any(v_group);
+
+  return jsonb_build_object('ok', true);
 end;
 $$;
 
