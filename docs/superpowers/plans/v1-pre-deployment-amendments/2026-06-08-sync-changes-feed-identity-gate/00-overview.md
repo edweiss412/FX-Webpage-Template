@@ -84,11 +84,20 @@ export type SyncHold = {
 };
 export type ChangeLogSource = "auto_apply" | "mi11_approve" | "mi11_reject" | "undo";
 export type ChangeStatus = "applied" | "pending" | "rejected" | "undone";
+// Gate payload for a PENDING mi11 entry — everything Phase 6 needs to mount Approve/Reject
+// WITHOUT a second query (resolves PF14). Present iff action==='approve_reject'.
+export type FeedGate = {
+  holdId: string;            // sync_holds.id — the Approve/Reject RPC target
+  disposition: Disposition;  // email_change | rename | removal (drives copy + which RPC effect)
+};
 export type FeedEntry = {
   id: string; occurredAt: string; status: ChangeStatus;
   summary: string; action: "undo" | "approve_reject" | "none"; entityRef: string | null;
+  gate?: FeedGate;           // set ⟺ action==='approve_reject' (an open mi11_pending hold)
+  changeLogId?: string;      // set ⟺ action==='undo' (the show_change_log.id passed to undo_change)
 };
 ```
+(Swap/collision groups + the `IDENTITY_WOULD_COLLIDE` conflict are resolved at Approve TIME by `mi11_approve_hold` — approving any group member approves the closed group atomically, a genuine duplicate returns the typed conflict — so the feed needs only `holdId`+`disposition` to mount the controls; no collision-graph duplication in the read path.)
 
 ### RPC signatures (SECURITY DEFINER, lock-taking via `pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`)
 ```
@@ -184,6 +193,10 @@ Phase 2 is **TS-only** (no migration — hold-aware apply lives in `lib/sync/app
 - **PF8 — `change_kind` is ALWAYS a structural value, NEVER `MI-*`** (whole-plan R3 closes the residual). The complete set: undoable crew-identity `{crew_added, crew_removed, crew_renamed}`; gate-resolved (not undoable) `crew_email_changed`; non-crew `{field_changed, section_shrunk, asset_drift}`. **Disposition → change_kind map for the MI-11 gate rows (Phase 3 `mi11_approve_hold`/`mi11_reject_hold`):** `email_change→'crew_email_changed'`, `rename→'crew_renamed'`, `removal→'crew_removed'` (status `applied` on approve, `rejected` on reject). The undoable predicate `isCrewDomainChangeKind` = `{crew_added, crew_removed, crew_renamed}` AND `status='applied'`. NO writer (Phase 2/3/4) inserts a `change_kind` matching `/^MI-/`; Phase 5 feed fixtures seed structural values only. **A structural guard test (Phase 1) fails if any `show_change_log` insert in the migrations OR TS sets `change_kind` to an `MI-*` value.** (The MI invariant code, when useful, lives in the `summary` text — never in `change_kind`.)
 
 **12. Message codes added in ONE Phase 1 task (resolves PF3).** Phase 1 includes a concrete task doing the full §12.4 three-lockstep (master-spec §12.4 prose + `pnpm gen:spec-codes` regenerating `lib/messages/__generated__/spec-codes.ts` + `lib/messages/catalog.ts` rows, ONE commit) for **every** code in resolution #5 (7 result codes + 4 `mi11_pending_*` summary keys incl. `mi11_pending_rename_folded`). Phases 3/4/5/6 only **reference** these (their catalog steps are verification-only). No phase ships a raw code or uncataloged summary (x1-catalog-parity enforces lockstep).
+
+**17. Pending-gate payload + Phase-6 action-file lock guard (resolves PF14/PF15).**
+- **PF14:** the canonical `FeedEntry` now carries an optional `gate` ({holdId, disposition}) populated by `readShowChangeFeed` for every `action==='approve_reject'` entry, and an optional `changeLogId` for every `action==='undo'` entry. Phase 5 populates them; Phase 6 consumes `gate` to mount `Mi11GateActions` and `changeLogId` for Undo — NO second query. Phase 5 test: every `approve_reject` entry has a `gate` with a real `holdId`+`disposition`; every `undo` entry has a `changeLogId`. Phase 6 test: a pending entry renders Approve/Reject wired to `gate.holdId`.
+- **PF15:** Phase 6's `app/admin/show/[slug]/_actions.ts` server actions **DELEGATE** to the already-guarded Phase 3/4 helpers (`lib/sync/holds/mi11GateActions.ts` `approveMi11Hold`/`rejectMi11Hold`, and the Phase 4 undo action) — they do NOT call the RPCs inline, and they NEVER wrap them in `withShowAdvisoryLock` (the RPC self-locks; single-holder, §4.1). Phase 6 adds a task extending `tests/auth/advisoryLockRpcDeadlock.test.ts` `sourceFiles` to include `app/admin/show/[slug]/_actions.ts`, asserting none of the three lock-taking RPC calls occur inside a JS-held show lock.
 
 **16. `undo_override` release tests the SOURCE-CONFLICT baseline, not `held_value` (resolves PF13).** An undo override is reverting what the *sheet* did; it must persist while the sheet still reproduces that change, and release only when the sheet diverges from it — comparing to `held_value` is wrong (an undone removal keeps Alice present while the sheet still omits her, so `held_value`≠sheet is *immediately* true → the next sync would re-remove her). So a `crew_identity` `undo_override` hold stores, alongside `held_value`, a **`baseline`** = the undone change's signature:
 - **undo of a removal** → `held_value`=the restored crew row; `baseline={kind:'removal'}` (the sheet OMITS this `entity_key`). Apply: **retain** the held row (exclude from `deleteCrewMembersNotIn`). **Release** when the incoming parse CONTAINS `entity_key` again (the sheet re-added them) — then apply the sheet's value.

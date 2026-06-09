@@ -5,7 +5,7 @@
 Builds `lib/sync/feed/readShowChangeFeed.ts`: the **server-only (service-role)** read that merges `show_change_log` (most-recent *N*, default 50, `occurred_at desc`) with open `sync_holds` (pending MI-11) and shapes each row into the canonical `FeedEntry` (`00-overview.md` §"TypeScript types"). NEVER via PostgREST `from()` — service-role only (spec §6.1 read posture, finding F9; lockdown landed Phase 1). The consumer (Phase 6 UI) renders the truncation disclosure; this layer only sets `{ entries, truncated, totalShown }`.
 
 **Canonical contracts (do not redefine — import from `00-overview.md`):**
-- `FeedEntry = { id; occurredAt; status: ChangeStatus; summary; action: "undo" | "approve_reject" | "none"; entityRef: string | null }`
+- `FeedEntry = { id; occurredAt; status: ChangeStatus; summary; action: "undo" | "approve_reject" | "none"; entityRef: string | null; gate?: { holdId: string; disposition: Disposition }; changeLogId?: string }` — the two optional fields (`00-overview.md` resolution #17) carry the action payload so Phase 6 needs NO second query.
 - `ChangeStatus = "applied" | "pending" | "rejected" | "undone"`
 - `readShowChangeFeed(showId: string, opts?: { limit?: number }): Promise<{ entries: FeedEntry[]; truncated: boolean; totalShown: number }>`
 - Service-role client: `createSupabaseServiceRoleClient()` (`lib/supabase/server.ts:79`).
@@ -13,10 +13,10 @@ Builds `lib/sync/feed/readShowChangeFeed.ts`: the **server-only (service-role)**
 
 **Shaping rules (spec §6.1/§6.2):**
 - `show_change_log` row → `FeedEntry`: `id`, `occurredAt=occurred_at`, `status` (the column value), `summary` (the column value), `entityRef=entity_ref`. `action`:
-  - `status='applied'` AND crew-domain `change_kind` ∈ `{'crew_added','crew_removed','crew_renamed'}` → `action='undo'` (canonical taxonomy: rename rows carry `change_kind='crew_renamed'`, NOT MI-12/13/14 — `00-overview.md` resolutions #3 + #13).
-  - `status='applied'` AND any other `change_kind` (`crew_email_changed` — a gate-resolved MI-11 email change, `field_changed`, `section_shrunk`, `asset_drift`, etc.) → `action='none'` (notification-only, finding F6 — `before_image` is null, no undo). NOTE: `change_kind` is NEVER an `MI-*` value (`00-overview.md` resolution #13) — `show_change_log` rows always carry structural kinds.
-  - `status` ∈ `{rejected, undone}` → `action='none'`.
-- Open `sync_holds` row (`kind='mi11_pending'`) → pending `FeedEntry`: `status='pending'`, `action='approve_reject'`, derive old→proposed summary from the hold's `held_value` (old) and `proposed_value` disposition (`email_change` | `rename` | `removal`), `entityRef=entity_key`. Holds whose `kind='undo_override'` are NOT pending entries (their effect already shows as an `undone`/`rejected` `show_change_log` row) — exclude them.
+  - `status='applied'` AND crew-domain `change_kind` ∈ `{'crew_added','crew_removed','crew_renamed'}` → `action='undo'` (canonical taxonomy: rename rows carry `change_kind='crew_renamed'`, NOT MI-12/13/14 — `00-overview.md` resolutions #3 + #13). **Set `changeLogId = show_change_log.id`** (the id `undo_change` takes, resolution #17). No `gate`.
+  - `status='applied'` AND any other `change_kind` (`crew_email_changed` — a gate-resolved MI-11 email change, `field_changed`, `section_shrunk`, `asset_drift`, etc.) → `action='none'` (notification-only, finding F6 — `before_image` is null, no undo). NOTE: `change_kind` is NEVER an `MI-*` value (`00-overview.md` resolution #13) — `show_change_log` rows always carry structural kinds. **Neither `gate` nor `changeLogId` set.**
+  - `status` ∈ `{rejected, undone}` → `action='none'` (neither optional field set).
+- Open `sync_holds` row (`kind='mi11_pending'`) → pending `FeedEntry`: `status='pending'`, `action='approve_reject'`, derive old→proposed summary from the hold's `held_value` (old) and `proposed_value` disposition (`email_change` | `rename` | `removal`), `entityRef=entity_key`. **Set `gate = { holdId: sync_holds.id, disposition: proposed_value }`** (the canonical `Disposition`, resolution #17). No `changeLogId`. Holds whose `kind='undo_override'` are NOT pending entries (their effect already shows as an `undone`/`rejected` `show_change_log` row) — exclude them.
 - **Crew-domain decision** lives in one exported helper `isCrewDomainChangeKind(kind: string): boolean` so the undo-gating set is single-sourced and testable.
 - **Cap/truncation:** fetch the *N* most-recent `show_change_log` rows (`limit = opts.limit ?? 50`); query `count` of total log rows for the show. Pending MI-11 holds are **always** included (they are the actionable items) and prepended/merged into the ordered result by `occurredAt` (a hold's `created_at` is its `occurredAt`). `truncated = totalLogRows > limit`. `totalShown = entries.length`. Never a silent cut — `truncated` drives the consumer's "older changes not shown" disclosure.
 
@@ -138,6 +138,35 @@ describe("readShowChangeFeed", () => {
     const shrink = entries.find((e) => e.entityRef === "Hotels");
     expect(shrink!.action).toBe("none"); // non-crew → notification-only
 
+    // Resolution #17: action payload is inlined so Phase 6 needs no 2nd query.
+    // Derive expected ids from the DB (the seeded rows' own ids), not literals.
+    const holdId = runPsql(
+      `select id from public.sync_holds where show_id = ${q(showId)} and entity_key = 'Alice';`,
+    );
+    const addedLogId = runPsql(
+      `select id from public.show_change_log where show_id = ${q(showId)} and entity_ref = 'Bob';`,
+    );
+    const renamedLogId = runPsql(
+      `select id from public.show_change_log where show_id = ${q(showId)} and entity_ref = 'Dana';`,
+    );
+
+    // approve_reject → gate{holdId, disposition}; NO changeLogId.
+    expect(pending!.gate).toEqual({
+      holdId,
+      disposition: { disposition: "email_change", name: "Alice", email: "alice@new" },
+    });
+    expect(pending!.changeLogId).toBeUndefined();
+
+    // undo → changeLogId = the show_change_log.id undo_change takes; NO gate.
+    expect(added!.changeLogId).toBe(addedLogId);
+    expect(added!.gate).toBeUndefined();
+    expect(renamed!.changeLogId).toBe(renamedLogId);
+    expect(renamed!.gate).toBeUndefined();
+
+    // none → neither field set.
+    expect(shrink!.gate).toBeUndefined();
+    expect(shrink!.changeLogId).toBeUndefined();
+
     expect(truncated).toBe(false);
     expect(totalShown).toBe(entries.length);
   });
@@ -160,8 +189,8 @@ describe("readShowChangeFeed", () => {
   });
 });
 ```
-  **Failure modes caught:** (1) crew add offered no undo / non-crew offered undo (F6 mis-gating); (2) pending MI-11 entry missing or not rendering old→proposed (feed≠hold disposition); (3) `undo_override` leaking in as a spurious pending action row.
-- [ ] **Minimal impl** — `readShowChangeFeed`: service-role client; `select(...).eq("show_id").order("occurred_at",{ascending:false}).limit(limit)` for the log; a separate `count` query for `truncated`; `select(...).eq("show_id").eq("kind","mi11_pending")` for holds (NOTE: these reads run as service-role — RLS denies anon/authenticated per Phase 1, so this layer is the only read path). Map each via the shaping rules; render pending summaries via `lib/messages` (catalog string from §12.4 — confirm the code exists; Open Question below). Merge + sort by `occurredAt desc`. Destructure `{ data, error }` on every call; throw a typed error on `error` (invariant 9).
+  **Failure modes caught:** (1) crew add offered no undo / non-crew offered undo (F6 mis-gating); (2) pending MI-11 entry missing or not rendering old→proposed (feed≠hold disposition); (3) `undo_override` leaking in as a spurious pending action row; (4) **action payload missing/cross-wired (resolution #17 PF14)** — `approve_reject` lacking `gate.holdId`/`gate.disposition`, `undo` lacking `changeLogId`, or `none` carrying either — which would force Phase 6 into a second query (or a wrong-id RPC call).
+- [ ] **Minimal impl** — `readShowChangeFeed`: service-role client; select `id` (→ `changeLogId` for undo rows), plus `(...).eq("show_id").order("occurred_at",{ascending:false}).limit(limit)` for the log; a separate `count` query for `truncated`; `select("id, ...").eq("show_id").eq("kind","mi11_pending")` for holds, mapping each to `gate={holdId:id, disposition:proposed_value}` (NOTE: these reads run as service-role — RLS denies anon/authenticated per Phase 1, so this layer is the only read path). Map each via the shaping rules; render pending summaries via `lib/messages` (catalog string from §12.4 — confirm the code exists; Open Question below). Merge + sort by `occurredAt desc`. Destructure `{ data, error }` on every call; throw a typed error on `error` (invariant 9).
 - [ ] `pnpm vitest run tests/sync/feed/readShowChangeFeed.test.ts`
 - [ ] Commit: `feat(sync): readShowChangeFeed merges change-log + pending MI-11 holds into FeedEntry`
 
