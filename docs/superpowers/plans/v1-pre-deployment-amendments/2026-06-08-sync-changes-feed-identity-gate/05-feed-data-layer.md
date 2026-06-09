@@ -95,8 +95,11 @@ describe("readShowChangeFeed", () => {
       renamed as (
         insert into public.show_change_log
           (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+        -- entity_ref = the PRIOR name (the addressing key undo restores on),
+        -- NOT the new name (00-overview resolution #19). Summary still shows
+        -- "Dan → Dana"; only the addressing key is the old name.
         select id, ${q(prefix + "-a")}, now() - interval '90 sec',
-          'auto_apply', 'crew_renamed', 'Dana', 'Crew renamed: Dan → Dana', '{"name":"Dana"}'::jsonb, 'applied' from s
+          'auto_apply', 'crew_renamed', 'Dan', 'Crew renamed: Dan → Dana', '{"name":"Dana"}'::jsonb, 'applied' from s
         returning id
       ),
       shrink as (
@@ -132,7 +135,8 @@ describe("readShowChangeFeed", () => {
     expect(added!.status).toBe("applied");
     expect(added!.action).toBe("undo"); // crew_added → crew-domain → undo
 
-    const renamed = entries.find((e) => e.entityRef === "Dana");
+    // entity_ref for crew_renamed is the PRIOR name ('Dan'), not 'Dana' (res #19).
+    const renamed = entries.find((e) => e.entityRef === "Dan");
     expect(renamed!.action).toBe("undo"); // crew_renamed → crew-domain → undo
 
     const shrink = entries.find((e) => e.entityRef === "Hotels");
@@ -147,7 +151,7 @@ describe("readShowChangeFeed", () => {
       `select id from public.show_change_log where show_id = ${q(showId)} and entity_ref = 'Bob';`,
     );
     const renamedLogId = runPsql(
-      `select id from public.show_change_log where show_id = ${q(showId)} and entity_ref = 'Dana';`,
+      `select id from public.show_change_log where show_id = ${q(showId)} and entity_ref = 'Dan';`,
     );
 
     // approve_reject → gate{holdId, disposition}; NO changeLogId.
