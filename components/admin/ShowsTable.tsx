@@ -383,8 +383,8 @@ export function ShowsTable({
           data-testid="shows-table-overflow"
           className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
         >
-          Showing the first {rows.length} of {activeCount} shows. Contact the developer if you need
-          the full list.
+          Showing the first {rows.length} of {activeCount} shows — sorting and Find apply to just
+          these {rows.length}, not the full set. Contact the developer if you need the full list.
         </p>
       ) : null}
     </div>

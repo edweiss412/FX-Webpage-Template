@@ -139,6 +139,9 @@ describe("ShowsTable", () => {
     expect(notice.textContent).toMatch(/1/);
     expect(notice.textContent).toMatch(/600/);
     expect(notice.textContent).toMatch(/developer/i);
+    // M12.10: when capped, the notice DISCLOSES that sort/Find scope to the shown
+    // rows (the headers sort only the loaded slice, not the full set).
+    expect(notice.textContent).toMatch(/sorting and Find apply to just these/i);
   });
 
   it("overflowCount=0 -> no overflow notice", () => {
