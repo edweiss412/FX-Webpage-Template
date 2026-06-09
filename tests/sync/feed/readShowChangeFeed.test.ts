@@ -152,15 +152,18 @@ describe("readShowChangeFeed", () => {
         insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
         values (${q(prefix + "-c")}, ${q(prefix + "-c")}, 'Feed Test', 'FXAV', 'v4', true)
         returning id
+      ),
+      ins as (
+        insert into public.show_change_log
+          (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+        select (select id from s), ${q(prefix + "-c")},
+          now() - (g || ' min')::interval, 'auto_apply', 'crew_added', 'C' || g,
+          'Crew added: C' || g, '{}'::jsonb, 'applied'
+        from generate_series(1, ${seeded}) g
+        returning 1
       )
-      insert into public.show_change_log
-        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
-      select (select id from s), ${q(prefix + "-c")},
-        now() - (g || ' min')::interval, 'auto_apply', 'crew_added', 'C' || g,
-        'Crew added: C' || g, '{}'::jsonb, 'applied'
-      from generate_series(1, ${seeded}) g
-      returning (select id from s);
-    `).split("\n")[0];
+      select id from s;
+    `);
 
     const { entries, truncated, totalShown } = await readShowChangeFeed(showId, { limit });
     expect(entries.filter((e) => e.status === "applied")).toHaveLength(limit); // derived from limit
