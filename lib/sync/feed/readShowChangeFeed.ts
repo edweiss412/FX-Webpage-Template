@@ -94,6 +94,23 @@ function toIso(value: string | null): string | null {
   return new Date(value).toISOString();
 }
 
+// Build a FULL-PRECISION chronological sort key from a raw timestamptz string
+// (P5-F5 microsecond-truncation class — the feed merge must NOT sort on the
+// Date/toIso-truncated display value, which loses sub-millisecond precision so
+// same-ms cross-source rows compare equal and the holds-before-logs build order
+// floats an older hold ahead of a newer change). Key = millisecond instant
+// (zero-padded, monotonic) + the 6-digit fractional-second micros, so lexical
+// comparison is chronological even across rows that share a millisecond.
+function sortKeyFromRaw(value: string): string {
+  const ms = new Date(value).getTime(); // millisecond instant (offset-agnostic)
+  const msKey = String(ms).padStart(16, "0");
+  // Extract the fractional seconds digits (microseconds) from the raw string;
+  // pad to 6 so 0.12 < 0.123456. Absent fractional part → all zeros.
+  const frac = /\.(\d+)/.exec(value)?.[1] ?? "";
+  const microKey = frac.padEnd(6, "0").slice(0, 6);
+  return `${msKey}.${microKey}`;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -217,10 +234,21 @@ export async function readShowChangeFeed(
         .eq("kind", "mi11_pending"),
   );
 
-  const logEntries: FeedEntry[] = ((logData ?? []) as ChangeLogRow[]).map((row) => {
-    const base: FeedEntry = {
+  // Each entry carries an INTERNAL full-precision sort key (`sortKey`) derived
+  // from the RAW timestamptz string (microseconds intact). The merge sorts on
+  // sortKey, never on the ms-truncated display `occurredAt` (P5-F4/P5-F5
+  // microsecond-truncation class): two cross-source rows differing only below
+  // 1ms must keep their true chronological order. sortKey is stripped before
+  // returning so it never leaks into FeedEntry.
+  type RankedEntry = FeedEntry & { sortKey: string };
+
+  const logEntries: RankedEntry[] = ((logData ?? []) as ChangeLogRow[]).map((row) => {
+    const base: RankedEntry = {
       id: row.id,
+      // Display only — Date-normalized to canonical ISO (P5-F4/P5-F5: display
+      // fields go through Date; sort/token keys stay full-precision raw).
       occurredAt: toIso(row.occurred_at) ?? row.occurred_at,
+      sortKey: sortKeyFromRaw(row.occurred_at),
       status: row.status as FeedEntry["status"],
       summary: row.summary,
       action: "none",
@@ -239,7 +267,7 @@ export async function readShowChangeFeed(
     return base;
   });
 
-  const holdEntries: FeedEntry[] = ((holdData ?? []) as HoldRow[]).map((hold) => {
+  const holdEntries: RankedEntry[] = ((holdData ?? []) as HoldRow[]).map((hold) => {
     const gate: FeedGate = {
       holdId: hold.id,
       disposition: hold.proposed_value,
@@ -255,7 +283,8 @@ export async function readShowChangeFeed(
     };
     return {
       id: hold.id,
-      occurredAt: toIso(hold.created_at) ?? hold.created_at,
+      occurredAt: toIso(hold.created_at) ?? hold.created_at, // display only (Date-normalized)
+      sortKey: sortKeyFromRaw(hold.created_at), // sort key — full precision (P5-F5)
       status: "pending",
       summary: renderPendingSummary(hold),
       action: "approve_reject",
@@ -264,9 +293,13 @@ export async function readShowChangeFeed(
     };
   });
 
-  const entries = [...holdEntries, ...logEntries].sort((a, b) =>
-    a.occurredAt < b.occurredAt ? 1 : a.occurredAt > b.occurredAt ? -1 : 0,
-  );
+  // Sort newest-first on the FULL-PRECISION raw sortKey, NOT the ms-truncated
+  // display value — otherwise a hold and a change-log row in the same ms but
+  // different microseconds compare equal and the holds-before-logs build order
+  // can float an OLDER hold ahead of a NEWER change (P5-F5). Strip sortKey after.
+  const entries: FeedEntry[] = [...holdEntries, ...logEntries]
+    .sort((a, b) => (a.sortKey < b.sortKey ? 1 : a.sortKey > b.sortKey ? -1 : 0))
+    .map(({ sortKey: _sortKey, ...entry }) => entry);
 
   return {
     entries,

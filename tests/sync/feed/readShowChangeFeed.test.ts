@@ -356,4 +356,50 @@ describe("readShowChangeFeed", () => {
     const folded = getRequiredDougFacing("mi11_pending_rename_folded").replaceAll("{name}", "Jack");
     expect(pending!.summary).not.toBe(folded);
   });
+
+  // P5-F5: the merge must order cross-source rows by FULL-PRECISION timestamps,
+  // not the ms-truncated display value. Seed a pending hold (created_at) and a
+  // change-log row (occurred_at) in the SAME millisecond but the change-log row
+  // strictly NEWER in microseconds → it must sort BEFORE the older hold
+  // (newest-first), even though both truncate to the same millisecond and the
+  // array is built holds-before-logs.
+  test("cross-source merge honors microsecond ordering (same ms, log newer than hold)", async () => {
+    // Anchor both at the same millisecond; the change-log row is +123µs newer.
+    const holdTs = "2026-06-09T12:00:00.000111+00";
+    const logTs = "2026-06-09T12:00:00.000234+00"; // same ms (.000), larger micros → strictly newer
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-j")}, ${q(prefix + "-j")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      ),
+      hold as (
+        insert into public.sync_holds
+          (show_id, drive_file_id, domain, entity_key, held_value, proposed_value, base_modified_time, kind, created_by, created_at)
+        select id, ${q(prefix + "-j")}, 'crew_email', 'Kim',
+          '{"name":"Kim","email":"kim@old"}'::jsonb,
+          '{"disposition":"email_change","name":"Kim","email":"kim@new"}'::jsonb,
+          now(), 'mi11_pending', 'system', ${q(holdTs)}::timestamptz from s
+        returning id
+      ),
+      log as (
+        insert into public.show_change_log
+          (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+        select id, ${q(prefix + "-j")}, ${q(logTs)}::timestamptz,
+          'auto_apply', 'crew_added', 'Leo', 'Crew added: Leo', '{"name":"Leo"}'::jsonb, 'applied' from s
+        returning id
+      )
+      select id from s;
+    `);
+
+    const { entries } = await readShowChangeFeed(showId);
+    const logIdx = entries.findIndex((e) => e.entityRef === "Leo"); // newer change-log row
+    const holdIdx = entries.findIndex((e) => e.entityRef === "Kim"); // older pending hold
+    expect(logIdx).toBeGreaterThanOrEqual(0);
+    expect(holdIdx).toBeGreaterThanOrEqual(0);
+    // Newest-first: the microsecond-newer change-log row precedes the older hold.
+    // Derived from the seeded timestamps (logTs micros > holdTs micros), not a
+    // hardcoded order.
+    expect(logIdx).toBeLessThan(holdIdx);
+  });
 });
