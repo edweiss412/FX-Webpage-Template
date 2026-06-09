@@ -137,15 +137,18 @@ mi11_pending_rename_folded: "This crew member has both an email change and a ren
 
 **Steps:**
 
-- [ ] **1. Write failing test** — `tests/db/sync-holds-schema.test.ts`. Asserts the table exists with the exact column set + types, the three CHECK constraints reject bad values and accept good ones, the unique constraint is enforced, and the index exists. Uses `postgres.js` against `TEST_DATABASE_URL` (local fallback), each mutation inside a ROLLBACK'd txn so nothing persists.
+- [ ] **1. Write failing test** — `tests/db/sync-holds-schema.test.ts`. Asserts the table exists with the exact column set + types, the four CHECK constraints (domain / kind / kind-shape / unique) reject bad values and accept good ones, and the index exists. The kind-shape CHECK (resolution #26 / PF41) gets a dedicated rejection-plus-positive case: pending without `proposed_value` → violation; pending without `base_modified_time` → violation; pending with an invalid `disposition` → violation; `undo_override` with a non-null `proposed_value` → violation; a full `mi11_pending` (valid disposition + anchor) and an `undo_override` with NULL `proposed_value` both insert. Uses `postgres.js` against `TEST_DATABASE_URL` (local fallback), each mutation inside a ROLLBACK'd txn so nothing persists. **Failure mode this pins:** a malformed service-role write / partial migration / fixture must NOT be able to strand a permanent unrenderable, unresolvable pending hold.
 
 ```ts
 /**
  * tests/db/sync-holds-schema.test.ts (Phase 1 Task 1.1 — 00-overview.md §"Shared contracts")
  *
- * Pins the public.sync_holds DDL: column set, the three CHECK constraints
- * (domain / kind / unique entity), and the show index. Real DB; each write
- * inside a ROLLBACK'd txn so the table stays empty for sibling tests.
+ * Pins the public.sync_holds DDL: column set, the four CHECK constraints
+ * (domain / kind / kind-shape / unique entity), and the show index. The kind-shape
+ * CHECK (resolution #26 / PF41) enforces that a mi11_pending row carries a non-null
+ * proposed_value with a valid disposition + a non-null base_modified_time, and that an
+ * undo_override row has proposed_value NULL. Real DB; each write inside a ROLLBACK'd txn
+ * so the table stays empty for sibling tests.
  */
 import { afterAll, describe, expect, it } from "vitest";
 import postgres, { type Sql } from "postgres";
@@ -228,11 +231,18 @@ describe("public.sync_holds DDL", () => {
   it("a hold inserted without reservation_collisions reads back [] (not NULL)", async () => {
     await inRollback(async (tx) => {
       const showId = await seedShow(tx);
+      // PF41: the hold must carry a CHECK-valid shape (full mi11_pending: non-null
+      // proposed_value with a valid disposition + non-null base_modified_time) so
+      // sync_holds_kind_shape_chk doesn't reject it — we're pinning the default of a
+      // DIFFERENT column (reservation_collisions), not the shape CHECK.
       const [row] = await tx`
         insert into public.sync_holds
-          (show_id, drive_file_id, domain, entity_key, held_value, kind, created_by)
+          (show_id, drive_file_id, domain, entity_key, held_value,
+           proposed_value, base_modified_time, kind, created_by)
         values (${showId}, 'drv', 'crew_email', 'Alice',
-                ${tx.json({})}, 'mi11_pending', 'system')
+                ${tx.json({ email: "a@old", name: "Alice" })},
+                ${tx.json({ disposition: "email_change", name: "Alice", email: "a@new" })},
+                now(), 'mi11_pending', 'system')
         returning reservation_collisions
       `;
       expect(row.reservation_collisions).toEqual([]);
@@ -263,33 +273,125 @@ describe("public.sync_holds DDL", () => {
       `;
       expect(inserted.count).toBe(1);
 
+      // Both bad rows carry an otherwise CHECK-valid mi11_pending shape (proposed_value +
+      // base_modified_time present) so ONLY the targeted constraint fails — Postgres does not
+      // guarantee CHECK evaluation order, so a bare {} held_value would risk tripping
+      // sync_holds_kind_shape_chk first and matching the wrong constraint name (PF41).
       await expect(
         tx`insert into public.sync_holds
-             (show_id, drive_file_id, domain, entity_key, held_value, kind, created_by)
+             (show_id, drive_file_id, domain, entity_key, held_value,
+              proposed_value, base_modified_time, kind, created_by)
            values (${showId}, 'drv', 'NOT_A_DOMAIN', 'Bob',
-                   ${tx.json({})}, 'mi11_pending', 'system')`,
+                   ${tx.json({ email: "b@old", name: "Bob" })},
+                   ${tx.json({ disposition: "email_change", name: "Bob", email: "b@new" })},
+                   now(), 'mi11_pending', 'system')`,
       ).rejects.toThrow(/sync_holds_domain_chk/);
 
+      // An unknown kind fails sync_holds_kind_chk; it also satisfies neither branch of
+      // sync_holds_kind_shape_chk, and CHECK eval order is unspecified — accept either name.
       await expect(
         tx`insert into public.sync_holds
              (show_id, drive_file_id, domain, entity_key, held_value, kind, created_by)
            values (${showId}, 'drv', 'crew_email', 'Carol',
-                   ${tx.json({})}, 'NOT_A_KIND', 'system')`,
-      ).rejects.toThrow(/sync_holds_kind_chk/);
+                   ${tx.json({ email: "c@old", name: "Carol" })}, 'NOT_A_KIND', 'system')`,
+      ).rejects.toThrow(/sync_holds_kind_chk|sync_holds_kind_shape_chk/);
     });
   });
 
   it("enforces UNIQUE (show_id, domain, entity_key)", async () => {
     await inRollback(async (tx) => {
       const showId = await seedShow(tx);
+      // PF41: each row carries a CHECK-valid mi11_pending shape so it reaches the unique
+      // constraint (a malformed shape would fail sync_holds_kind_shape_chk first, masking
+      // the duplicate-key signal this test is pinning).
       const ins = (key: string) => tx`
         insert into public.sync_holds
-          (show_id, drive_file_id, domain, entity_key, held_value, kind, created_by)
+          (show_id, drive_file_id, domain, entity_key, held_value,
+           proposed_value, base_modified_time, kind, created_by)
         values (${showId}, 'drv', 'crew_email', ${key},
-                ${tx.json({})}, 'mi11_pending', 'system')
+                ${tx.json({ email: "a@old", name: key })},
+                ${tx.json({ disposition: "email_change", name: key, email: "a@new" })},
+                now(), 'mi11_pending', 'system')
       `;
       await ins("Alice");
       await expect(ins("Alice")).rejects.toThrow(/sync_holds_uniq/);
+    });
+  });
+
+  it("the shape CHECK rejects malformed pending holds and accepts valid ones (PF41)", async () => {
+    // resolution #26 / PF41 — every consumer (feed gate.disposition, Approve/Reject
+    // proposed_value->>'disposition', the staleness token) assumes a non-null Disposition +
+    // anchor on a pending hold. A malformed service-role write / partial migration / fixture
+    // must NOT be able to strand a permanent unrenderable, unresolvable pending hold.
+    await inRollback(async (tx) => {
+      const showId = await seedShow(tx);
+
+      // REJECT: mi11_pending without proposed_value.
+      await expect(
+        tx`insert into public.sync_holds
+             (show_id, drive_file_id, domain, entity_key, held_value,
+              base_modified_time, kind, created_by)
+           values (${showId}, 'drv', 'crew_email', 'NoProposed',
+                   ${tx.json({ email: "a@old", name: "NoProposed" })},
+                   now(), 'mi11_pending', 'system')`,
+      ).rejects.toThrow(/sync_holds_kind_shape_chk/);
+
+      // REJECT: mi11_pending without base_modified_time.
+      await expect(
+        tx`insert into public.sync_holds
+             (show_id, drive_file_id, domain, entity_key, held_value,
+              proposed_value, kind, created_by)
+           values (${showId}, 'drv', 'crew_email', 'NoAnchor',
+                   ${tx.json({ email: "a@old", name: "NoAnchor" })},
+                   ${tx.json({ disposition: "email_change", name: "NoAnchor", email: "a@new" })},
+                   'mi11_pending', 'system')`,
+      ).rejects.toThrow(/sync_holds_kind_shape_chk/);
+
+      // REJECT: mi11_pending whose disposition is not in {email_change,rename,removal}.
+      await expect(
+        tx`insert into public.sync_holds
+             (show_id, drive_file_id, domain, entity_key, held_value,
+              proposed_value, base_modified_time, kind, created_by)
+           values (${showId}, 'drv', 'crew_email', 'BadDisp',
+                   ${tx.json({ email: "a@old", name: "BadDisp" })},
+                   ${tx.json({ disposition: "bogus", name: "BadDisp", email: "a@new" })},
+                   now(), 'mi11_pending', 'system')`,
+      ).rejects.toThrow(/sync_holds_kind_shape_chk/);
+
+      // REJECT: undo_override with a NON-null proposed_value.
+      await expect(
+        tx`insert into public.sync_holds
+             (show_id, drive_file_id, domain, entity_key, held_value,
+              proposed_value, kind, created_by)
+           values (${showId}, 'drv', 'crew_email', 'UndoWithProposed',
+                   ${tx.json({ baseline: { email: "a@old", name: "UndoWithProposed" } })},
+                   ${tx.json({ disposition: "email_change" })}, 'undo_override', 'system')`,
+      ).rejects.toThrow(/sync_holds_kind_shape_chk/);
+
+      // PASS: a valid mi11_pending (full Disposition + non-null anchor).
+      const okPending = await tx`
+        insert into public.sync_holds
+          (show_id, drive_file_id, domain, entity_key, held_value,
+           proposed_value, base_modified_time, kind, created_by)
+        values (${showId}, 'drv', 'crew_email', 'ValidPending',
+                ${tx.json({ email: "a@old", name: "Alice" })},
+                ${tx.json({ disposition: "email_change", name: "Alice", email: "a@new" })},
+                now(), 'mi11_pending', 'system')
+        returning id
+      `;
+      expect(okPending.count).toBe(1);
+
+      // PASS: a valid undo_override (proposed_value NULL).
+      const okUndo = await tx`
+        insert into public.sync_holds
+          (show_id, drive_file_id, domain, entity_key, held_value,
+           kind, created_by)
+        values (${showId}, 'drv', 'crew_email', 'ValidUndo',
+                ${tx.json({ baseline: { email: "a@old", name: "ValidUndo" } })},
+                'undo_override', 'system')
+        returning id
+      `;
+      expect(okUndo.count).toBe(1);
     });
   });
 });
@@ -297,7 +399,7 @@ describe("public.sync_holds DDL", () => {
 
 - [ ] **2. Run it — fails** — `pnpm vitest run tests/db/sync-holds-schema.test.ts`. Expected: every case errors with `relation "public.sync_holds" does not exist` (table not created yet).
 
-- [ ] **3. Minimal impl** — create `supabase/migrations/20260608000000_sync_holds.sql` with the exact `00-overview.md` DDL, CHECKs via DROP-IF-EXISTS+ADD, REVOKE, RLS-enable, and a no-policy deny-by-default posture (service_role bypasses RLS; F9 — no anon/authenticated SELECT):
+- [ ] **3. Minimal impl** — create `supabase/migrations/20260608000000_sync_holds.sql` with the exact `00-overview.md` DDL, the four CHECKs (domain / kind / kind-shape / unique) via DROP-IF-EXISTS+ADD, REVOKE, RLS-enable, and a no-policy deny-by-default posture (service_role bypasses RLS; F9 — no anon/authenticated SELECT):
 
 ```sql
 -- Phase 1 Task 1.1 — sync_holds: per-entity identity holds (MI-11 gate + undo).
@@ -332,6 +434,19 @@ alter table public.sync_holds add  constraint sync_holds_domain_chk
 alter table public.sync_holds drop constraint if exists sync_holds_kind_chk;
 alter table public.sync_holds add  constraint sync_holds_kind_chk
   check (kind in ('mi11_pending','undo_override'));
+-- resolution #26 / PF41: a mi11_pending row MUST carry a valid Disposition + staleness anchor
+-- (every consumer — feed gate.disposition, Approve/Reject proposed_value->>'disposition', the
+-- staleness token — assumes a non-null disposition); an undo_override row MUST have
+-- proposed_value NULL (target lives in held_value.baseline). DROP IF EXISTS + ADD = apply-twice idempotent.
+alter table public.sync_holds drop constraint if exists sync_holds_kind_shape_chk;
+alter table public.sync_holds add  constraint sync_holds_kind_shape_chk
+  check (
+    (kind = 'mi11_pending'
+       and proposed_value is not null
+       and base_modified_time is not null
+       and proposed_value->>'disposition' in ('email_change','rename','removal'))
+    or (kind = 'undo_override' and proposed_value is null)
+  );
 alter table public.sync_holds drop constraint if exists sync_holds_uniq;
 alter table public.sync_holds add  constraint sync_holds_uniq
   unique (show_id, domain, entity_key);
@@ -654,9 +769,12 @@ beforeAll(async () => {
   showId = show.id as string;
   const [hold] = await priv`
     insert into public.sync_holds
-      (show_id, drive_file_id, domain, entity_key, held_value, kind, created_by)
+      (show_id, drive_file_id, domain, entity_key, held_value,
+       proposed_value, base_modified_time, kind, created_by)
     values (${showId}, 'drv', 'crew_email', 'Alice',
-            ${priv.json({ email: SECRET_EMAIL, name: "Alice" })}, 'mi11_pending', 'system')
+            ${priv.json({ email: SECRET_EMAIL, name: "Alice" })},
+            ${priv.json({ disposition: "email_change", name: "Alice", email: "a@new" })},
+            now(), 'mi11_pending', 'system')
     returning id
   `;
   holdId = hold.id as string;
@@ -895,7 +1013,7 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "notify pgrst, 'reload schema';"
 - [ ] **2. Idempotency sweep** — re-apply both migrations to the local stack a SECOND time; confirm no error (CHECK DROP-IF-EXISTS+ADD, `create table if not exists`, `create index if not exists`, REVOKE, `enable row level security`, `grant ... to service_role` all idempotent).
 - [ ] **3. Lockdown completeness** — confirm both tables appear in `RPC_GATED_TABLES` with `selectAnon:false`/`selectAuthenticated:false`; confirm `service_role` retains ALL (Layer 1). Confirm Layer 4 registry↔live-REVOKE parity is green.
 - [ ] **4. Anti-tautology confirm** — re-run the read-lockdown's "privileged CAN read" case; confirm it sees `SECRET_EMAIL` (proves the rows exist and the deny is real, not vacuous).
-- [ ] **5. Numeric/value sweep** — confirm the CHECK value sets exactly match the spec enums: `domain ∈ {crew_email, crew_identity}`, `kind ∈ {mi11_pending, undo_override}`, `source ∈ {auto_apply, mi11_approve, mi11_reject, undo}`, `status ∈ {applied, pending, rejected, undone, superseded}`. No stale/extra value.
+- [ ] **5. Numeric/value sweep** — confirm the CHECK value sets exactly match the spec enums: `domain ∈ {crew_email, crew_identity}`, `kind ∈ {mi11_pending, undo_override}`, the `sync_holds_kind_shape_chk` disposition set `∈ {email_change, rename, removal}` (PF41), `source ∈ {auto_apply, mi11_approve, mi11_reject, undo}`, `status ∈ {applied, pending, rejected, undone, superseded}`. No stale/extra value. Confirm `sync_holds_kind_shape_chk` matches `00-overview.md` lines 48–54 character-for-character (the two-branch `mi11_pending`/`undo_override` shape).
 - [ ] **6. Citation pass** — confirm the two `closed_at` line citations in `RPC_GATED_TABLES` point at the actual `revoke all on table ...` lines (`grep -n`).
 - [ ] **7. Message-codes lockstep sweep (Task 1.0)** — confirm all 11 new codes exist field-identical in §12.4 prose, the regenerated `lib/messages/__generated__/spec-codes.ts`, AND `lib/messages/catalog.ts`; run `pnpm gen:spec-codes --check` (must report fresh) + `pnpm vitest run tests/cross-cutting/codes.test.ts` (x1 green). Confirm all four files moved in one commit (no mid-history x1 red). Confirm no §12.4 row uses `crewFacing` copy (all 11 are admin-only / `—`).
 
