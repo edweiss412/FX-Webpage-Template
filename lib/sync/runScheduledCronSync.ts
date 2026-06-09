@@ -14,12 +14,13 @@ import {
   type HeartbeatWriteResult,
 } from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { runInvariants } from "@/lib/parser/invariants";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
-import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
+import type { ParsedSheet, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   enrichWithDrivePins,
@@ -42,6 +43,7 @@ import {
 import {
   Phase1InfraError,
   runPhase1,
+  syncLayerReviewItems,
   type Phase1Args,
   type Phase1Binding,
   type Phase1Tx,
@@ -361,6 +363,14 @@ class PostgresPipelineTx implements SyncPipelineTx {
   private async one<T>(sql: string, params: unknown[] = []): Promise<T | null> {
     const rows = await this.rows<T>(sql, params);
     return rows[0] ?? null;
+  }
+
+  holdPort() {
+    // Service-role hold-port over the same locked txn (Phase 2 hold writes + hold-aware apply).
+    // Rides the existing JS-held show lock; no nested lock-taking RPC (invariant 2).
+    return {
+      unsafe: (query: string, params: unknown[]) => this.tx.unsafe(query, params),
+    };
   }
 
   async readCurrentDiagrams(driveFileId: string): Promise<unknown> {
@@ -912,6 +922,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
     );
     const previousCrew = existing
       ? await this.rows<{
+          id: string;
           name: string;
           email: string | null;
           phone: string | null;
@@ -920,9 +931,13 @@ class PostgresPipelineTx implements SyncPipelineTx {
           date_restriction: unknown;
           stage_restriction: unknown;
           flight_info: string | null;
+          claimed_via_oauth_at: string | null;
         }>(
+          // PF38 (resolution #24): id + claimed_via_oauth_at are load-bearing for Phase-4 undo
+          // identity continuity (picker-cookie key + OAuth claim). Widened from name/email/phone/...
           `
-            select name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info
+            select id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
+                   flight_info, claimed_via_oauth_at
               from public.crew_members
              where show_id = $1
              order by name
@@ -1087,6 +1102,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       showId: updated.id,
       previousCrewNames: previousCrew.map((row) => row.name),
       previousCrewMembers: previousCrew.map((row) => ({
+        id: row.id,
         name: row.name,
         email: row.email,
         phone: row.phone,
@@ -1097,6 +1113,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         stage_restriction:
           row.stage_restriction as ParseResult["crewMembers"][number]["stage_restriction"],
         flight_info: row.flight_info,
+        claimed_via_oauth_at: row.claimed_via_oauth_at,
       })),
     };
   }
@@ -2339,6 +2356,43 @@ export async function processOneFile_unlocked(
     ? (showId: string) =>
         makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
     : undefined;
+  // Task 2.9: derive the notable changes (renames, section shrink, field changes, asset drift) for
+  // the auto-apply show_change_log feed rows. Only an EXISTING show (phase1 'pass' or
+  // 'auto_apply_with_holds') has a prior to diff against; a first-seen show ('auto_publish_ready')
+  // has no prior, so notableItems stays empty and no extra read happens.
+  const notableItems: TriggeredReviewItem[] =
+    phase1.outcome === "pass" || phase1.outcome === "auto_apply_with_holds"
+      ? await (async () => {
+          const priorShow = await tx.readShowForPhase1(driveFileId);
+          if (!priorShow) return [];
+          // Defensive: runInvariants is pure but a degraded/minimal parseResult could throw; the
+          // change-log is best-effort and must never fail the sync. Production parses always carry
+          // full dates/crew, so this only guards malformed fixtures / partial parses.
+          let invariantItems: TriggeredReviewItem[] = [];
+          try {
+            const inv = runInvariants(priorShow.priorParseResult, pipeline.parseResult);
+            invariantItems = inv.outcome === "stage" ? inv.triggeredItems : [];
+          } catch {
+            invariantItems = [];
+          }
+          // P2-F3: include the sync-layer asset-drift items (DIAGRAMS_*/REEL_DRIFT_PENDING). These
+          // come from the parse warnings, NOT runInvariants — without them the asset_drift feed row
+          // is never written on the real path (PF34: asset drift auto-applies but must still notify).
+          const phase1ArgsForSyncLayer: Phase1Args = {
+            driveFileId,
+            mode: pipeline.resolvedMode as Phase1Args["mode"],
+            fileMeta,
+            parseResult: pipeline.parseResult,
+            binding: pipeline.binding,
+          };
+          const assetItems = syncLayerReviewItems(
+            phase1ArgsForSyncLayer,
+            pipeline.parseResult,
+            priorShow,
+          );
+          return [...invariantItems, ...assetItems];
+        })()
+      : [];
   const phase2 = await runPhase2_unlocked(
     tx,
     {
@@ -2353,6 +2407,11 @@ export async function processOneFile_unlocked(
       // re-verifies because review latency creates the drift window.
       verifyReelOnApply: false,
       ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
+      // Phase 2 decision rule: an MI-11 parse routes to auto_apply_with_holds — write the holds +
+      // run the hold-aware apply inside the same locked txn.
+      ...(phase1.outcome === "auto_apply_with_holds" ? { mi11Items: phase1.mi11Items } : {}),
+      // Task 2.9: drive the auto-apply changes feed.
+      notableItems,
     },
     txDeps,
   );

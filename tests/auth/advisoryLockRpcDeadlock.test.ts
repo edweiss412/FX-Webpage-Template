@@ -22,6 +22,12 @@ function lockTakingRpcNames(): string[] {
     // M12 Phase 0.C Codex R15-F1 — finalize RPC acquires per-show
     // advisory locks before DELETE during stale-show pruning.
     "supabase/migrations/20260527210001_validation_finalize_all_atomic.sql",
+    // Sync changes-feed Phase 3 — MI-11 gate RPCs (mi11_approve_hold/mi11_reject_hold)
+    // each acquire the per-show advisory lock themselves (admin path, §4.1).
+    "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
+    // Sync changes-feed Phase 4 — undo_change acquires the per-show advisory lock itself
+    // (admin path, §4.1); _undo_tombstone runs inside that lock and never re-takes it.
+    "supabase/migrations/20260608000003_undo_change_rpc.sql",
   ];
 
   const names = new Set<string>();
@@ -54,6 +60,11 @@ describe("advisory-lock RPC deadlock guard", () => {
     // M12 Phase 0.C Codex R15-F1 — finalize RPC also acquires per-show
     // locks before DELETEing stale validation shows during prune.
     expect(lockTakingNames).toContain("validation_finalize_all_atomic");
+    // Sync changes-feed Phase 3 — the MI-11 gate RPCs are single-holder admin lock-takers.
+    expect(lockTakingNames).toContain("mi11_approve_hold");
+    expect(lockTakingNames).toContain("mi11_reject_hold");
+    // Sync changes-feed Phase 4 — undo_change is a single-holder admin lock-taker.
+    expect(lockTakingNames).toContain("undo_change");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
@@ -66,6 +77,9 @@ describe("advisory-lock RPC deadlock guard", () => {
       "lib/auth/picker/resetPickerEpoch.ts",
       "lib/auth/picker/rotateShareToken.ts",
       "lib/auth/picker/selectIdentity.ts",
+      // Sync changes-feed Phase 3 — the MI-11 gate server actions await the self-locking RPCs
+      // bare (no JS-side withShowAdvisoryLock); nesting would deadlock under burst (M5 R20 class).
+      "lib/sync/holds/mi11GateActions.ts",
     ];
 
     for (const file of sourceFiles) {
@@ -81,6 +95,41 @@ describe("advisory-lock RPC deadlock guard", () => {
             `${file} calls rpc("${name}") inside withShowAdvisoryLock; if the RPC also acquires pg_advisory_xact_lock on another connection, the request deadlocks`,
           ).not.toMatch(new RegExp(`\\.rpc\\(\\s*["']${name}["']`));
         }
+      }
+    }
+  });
+
+  test("lock-order: no lock-taking RPC row-locks (FOR UPDATE) before its first pg_advisory_xact_lock (PF11)", () => {
+    // resolution #15 / PF11 CRITICAL — the sync path holds the show advisory lock THEN touches rows;
+    // a lock-taking admin RPC that grabbed a FOR UPDATE row lock first and then waited on the advisory
+    // lock deadlocks under burst (M5 R20). Pin advisory-before-row for EVERY lock-taking RPC body.
+    const lockTakingMigrations = [
+      "supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql",
+      "supabase/migrations/20260523000004_rotate_show_share_token.sql",
+      "supabase/migrations/20260523000007_select_identity_atomic.sql",
+      "supabase/migrations/20260524000002_claim_oauth_identity.sql",
+      "supabase/migrations/20260527210000_mint_validation_fixture_atomic.sql",
+      "supabase/migrations/20260527210001_validation_finalize_all_atomic.sql",
+      "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
+      "supabase/migrations/20260608000003_undo_change_rpc.sql",
+    ];
+
+    for (const file of lockTakingMigrations) {
+      const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+      const functionBlocks = source.matchAll(
+        /create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/gi,
+      );
+      for (const match of functionBlocks) {
+        const [, name, body] = match;
+        if (!name || !body) continue;
+        const advisoryAt = body.search(/pg_(?:try_)?advisory_xact_lock\s*\(/i);
+        if (advisoryAt === -1) continue; // not a lock-taking body
+        const forUpdateAt = body.search(/\bfor\s+update\b/i);
+        // Either no FOR UPDATE at all, or it appears AFTER the first advisory lock.
+        expect(
+          forUpdateAt === -1 || forUpdateAt > advisoryAt,
+          `${file}: ${name} contains "FOR UPDATE" (idx ${forUpdateAt}) before its first pg_advisory_xact_lock (idx ${advisoryAt}) — reverses the advisory-then-row order and deadlocks under burst (PF11)`,
+        ).toBe(true);
       }
     }
   });

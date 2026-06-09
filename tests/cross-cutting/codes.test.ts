@@ -102,6 +102,37 @@ describe("AC-X.1 §12.4 catalog parity", () => {
     }
   });
 
+  test("the sync-changes-feed milestone codes are present in catalog + §12.4 (PF3 front-load)", () => {
+    const RESULT_CODES = [
+      "MI11_TARGET_MOVED",
+      "MI11_DRIVE_RECHECK_FAILED",
+      "MI11_HOLD_ALREADY_RESOLVED",
+      "IDENTITY_WOULD_COLLIDE",
+      "UNDO_SUPERSEDED",
+      "UNDO_EMAIL_CLAIMED",
+      "UNDO_NOT_FOUND",
+    ] as const;
+    const FEED_SUMMARY_CODES = [
+      "mi11_pending_email_change",
+      "mi11_pending_rename",
+      "mi11_pending_removal",
+      "mi11_pending_rename_folded",
+    ] as const;
+    for (const code of [...RESULT_CODES, ...FEED_SUMMARY_CODES]) {
+      expect(SPEC_CODES, `${code} missing from §12.4-generated SPEC_CODES`).toHaveProperty(code);
+      expect(MESSAGE_CATALOG, `${code} missing from lib/messages/catalog.ts`).toHaveProperty(code);
+      const row = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG];
+      expect(row.dougFacing, `${code}.dougFacing must be non-null (Doug surface)`).not.toBeNull();
+      expect(row.crewFacing, `${code}.crewFacing must be null (admin-only)`).toBeNull();
+    }
+
+    expect(MESSAGE_CATALOG.mi11_pending_email_change.dougFacing).toContain("{name}");
+    expect(MESSAGE_CATALOG.mi11_pending_rename.dougFacing).toContain("{old}");
+    expect(MESSAGE_CATALOG.mi11_pending_rename.dougFacing).toContain("{new}");
+    expect(MESSAGE_CATALOG.mi11_pending_removal.dougFacing).toContain("{name}");
+    expect(MESSAGE_CATALOG.mi11_pending_rename_folded.dougFacing).toContain("{name}");
+  });
+
   test("source code literals do not introduce orphan active-style message codes", () => {
     const allowed = new Set([...Object.keys(SPEC_CODES), ...Object.keys(RETIRED_CODES)]);
     const orphans = [...codeProducerLiterals()].filter((code) => !allowed.has(code)).sort();

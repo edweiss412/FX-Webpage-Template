@@ -1,7 +1,15 @@
 import type { DriveListedFile } from "@/lib/drive/list";
 import { deriveSlug } from "@/lib/parser/slug";
-import type { ParseResult } from "@/lib/parser/types";
-import { applyParseResult, type ApplyParseResultTx } from "@/lib/sync/applyParseResult";
+import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
+import { readOpenHolds } from "@/lib/sync/holds/holdPort";
+import {
+  applyParseResult,
+  type ApplyParseResultTx,
+  type PreviousCrewMember,
+} from "@/lib/sync/applyParseResult";
+import { writeMi11Holds, type Mi11Item, type LiveCrewRow } from "@/lib/sync/holds/writeMi11Holds";
+import type { HoldPort } from "@/lib/sync/holds/holdPort";
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { ResolvedSyncMode } from "@/lib/sync/perFileProcessor";
 import type { SnapshotAssetsResult } from "@/lib/sync/snapshotAssets";
@@ -18,6 +26,9 @@ export type StaleWriteCode =
   | "STALE_MANUAL_REPLAY_ABORTED";
 
 export type Phase2Tx = ApplyParseResultTx & {
+  // Phase 2: service-role hold-port over the same locked txn (writeMi11Holds + hold-aware apply).
+  // No nested lock — rides the existing JS-held show lock.
+  holdPort?(): HoldPort;
   readCurrentDiagrams?(driveFileId: string): Promise<unknown>;
   applyShowSnapshot(args: {
     driveFileId: string;
@@ -35,7 +46,7 @@ export type Phase2Tx = ApplyParseResultTx & {
         outcome: "updated";
         showId: string;
         previousCrewNames: string[];
-        previousCrewMembers?: ParseResult["crewMembers"];
+        previousCrewMembers?: PreviousCrewMember[];
       }
     | {
         outcome: "stale";
@@ -68,6 +79,13 @@ export type Phase2Args = {
     unpublishToken: string;
     unpublishTokenExpiresAt: string;
   };
+  // Phase 2: MI-11 items from the decision rule (Phase1 outcome 'auto_apply_with_holds'). Each is
+  // written as a mi11_pending hold AFTER the snapshot (so liveCrewByName is the prior snapshot) and
+  // BEFORE the hold-aware applyParseResult sees the open holds.
+  mi11Items?: Mi11Item[];
+  // Phase 2 Task 2.9: the full set of triggered review items for this sync (renames, section
+  // shrink, field changes, asset drift) — drives the auto-apply show_change_log feed rows.
+  notableItems?: TriggeredReviewItem[];
 };
 
 export type RoleFlagsNotice = {
@@ -100,6 +118,23 @@ export class Phase2InfraError extends Error {
     this.name = "Phase2InfraError";
     this.operation = operation;
     this.cause = cause;
+  }
+}
+
+/**
+ * P2-F6 (fail-closed): a Phase-2 apply carrying MI-11 items REQUIRES a hold port (the MI-11 items
+ * are written as `sync_holds` and the apply must run hold-aware to pin the old identity). If the
+ * tx has no `holdPort`, the legacy raw apply would upsert the NEW email directly — silently
+ * BYPASSING the identity-only gate, the milestone's security boundary. Refuse to apply instead.
+ */
+export class Phase2GateBypassError extends Error {
+  readonly code = "MI11_GATE_NO_HOLD_PORT";
+  constructor() {
+    super(
+      "MI-11 items present but the transaction exposes no holdPort — refusing to apply the " +
+        "identity change ungated (fail closed).",
+    );
+    this.name = "Phase2GateBypassError";
   }
 }
 
@@ -164,6 +199,13 @@ function reelWarning(code: ReelWarningCode): ParseResult["warnings"][number] {
 }
 
 export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2Result> {
+  // P2-F6 — FAIL CLOSED: an MI-11-bearing parse with no hold port must NEVER apply ungated. Throw
+  // BEFORE any mutation (reel verify / snapshot apply / crew upsert) so the new identity never
+  // reaches crew_members. The no-MI-11 legacy path is unaffected (no holds to write).
+  if (args.mi11Items && args.mi11Items.length > 0 && !tx.holdPort) {
+    throw new Phase2GateBypassError();
+  }
+
   let parseResult = args.parseResult;
   let snapshotRevisionId: string | undefined;
   const verifyReelOnApply =
@@ -252,13 +294,83 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     );
   }
 
-  await callTx("applyParseResult", () =>
+  // Phase 2: write MI-11 holds (if any) BEFORE the hold-aware apply, using the prior snapshot as
+  // liveCrewByName, then run applyParseResult hold-aware. Both ride the existing JS show lock via
+  // the service-role hold-port — no nested lock-taking RPC (invariant 2).
+  const port = tx.holdPort?.();
+  if (port && args.mi11Items && args.mi11Items.length > 0) {
+    const liveCrewByName = new Map<string, LiveCrewRow>(
+      (snapshot.previousCrewMembers ?? []).map((member) => [
+        member.name,
+        {
+          name: member.name,
+          email: member.email,
+          phone: member.phone,
+          role: member.role,
+          role_flags: member.role_flags as unknown as string[],
+          date_restriction: member.date_restriction,
+          stage_restriction: member.stage_restriction,
+          flight_info: member.flight_info,
+        },
+      ]),
+    );
+    await callTx("writeMi11Holds", () =>
+      writeMi11Holds(port, {
+        showId: snapshot.showId,
+        driveFileId: args.driveFileId,
+        mi11Items: args.mi11Items!,
+        liveCrewByName,
+        baseModifiedTime: args.binding.modifiedTime,
+      }),
+    );
+  }
+
+  const applyOutcome = await callTx("applyParseResult", () =>
     applyParseResult(tx, {
       driveFileId: args.driveFileId,
       parseResult,
       snapshot,
+      ...(port ? { holds: { port, baseModifiedTime: args.binding.modifiedTime } } : {}),
     }),
   );
+
+  // Task 2.9: write show_change_log rows for each AUTO-APPLIED notable change, using the
+  // PRE-reconcile snapshot for before_image (load-bearing for Phase-4 undo). Held entities are
+  // excluded (their feed entry comes from sync_holds, Phase 5). Runs inside the locked txn.
+  if (port && snapshot.previousCrewMembers && args.notableItems !== undefined) {
+    const heldNames = new Set(
+      (await callTx("readOpenHolds", () => readOpenHolds(port, snapshot.showId))).map(
+        (hold) => hold.entity_key,
+      ),
+    );
+    await callTx("writeAutoApplyChanges", () =>
+      writeAutoApplyChanges({
+        port,
+        showId: snapshot.showId,
+        driveFileId: args.driveFileId,
+        previousCrewMembers: snapshot.previousCrewMembers ?? [],
+        // P2-F2: derive crew_added/removed/renamed from the ACTUALLY-APPLIED crew list, NOT the
+        // raw parse — a reservation-suppressed row never landed in crew_members, so it must not
+        // get a phantom auto_apply crew_added feed row.
+        nextCrewMembers: applyOutcome.appliedCrewMembers,
+        triggeredItems: args.notableItems ?? [],
+        heldNames,
+      }),
+    );
+
+    // Phase 4 / PF19 (resolution #18): before_image retention + supersession flip. After the new
+    // change rows are written, null the before_image AND flip status='superseded' on any OLDER
+    // 'applied' crew-domain row whose entity_ref now has a newer change — so a stale Undo is both
+    // hidden by the feed and rejected by undo_change (never falls into the tombstone branch). Runs
+    // inside the existing show lock via the same service-role hold port (NO new lock).
+    // INVARIANT (P4-F2): every writer of an APPLIED crew-identity change_kind row MUST call
+    // cleanup_superseded_before_images under the show lock before returning. This is the Phase-2
+    // auto-apply writer; mi11_approve_hold is the other (it runs cleanup in its own body).
+    // not-subject-to-meta: service-role SQL inside the JS-held show lock (no {data,error} client).
+    await callTx("cleanupSupersededBeforeImages", () =>
+      port.unsafe("select public.cleanup_superseded_before_images($1)", [snapshot.showId]),
+    );
+  }
 
   const roleFlagChanges = nonLeadRoleFlagChanges(
     snapshot.previousCrewMembers,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
+import { Phase2GateBypassError } from "@/lib/sync/phase2";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import {
   applyStaged,
@@ -508,6 +509,44 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
   });
 
+  test("P2-F7: a LIVE staged row carrying an MI-11 item FAILS CLOSED (throws, never runs Phase 2)", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const mi11Item: TriggeredReviewItem = {
+      id: "mi11-1",
+      invariant: "MI-11",
+      crew_name: "Alice",
+      prior_email: "a@old",
+      new_email: "a@new",
+    };
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ wizardSessionId: null, triggeredReviewItems: [mi11Item] }),
+      ),
+    });
+
+    // The reviewer-choice/validation passes (a valid `apply` choice for the MI-11 item), but the
+    // legacy staged path would call runPhase2 with NO mi11Items → an UNGATED email change. The
+    // fail-closed guard must throw BEFORE runPhase2, so the identity change is never applied.
+    await expect(
+      applyStaged_unlocked(
+        tx,
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "live",
+          stagedId: "staged-live",
+          reviewerChoices: [{ item_id: "mi11-1", action: "apply" }],
+          appliedByEmail: "doug@fxav.test",
+        },
+        syncDeps,
+      ),
+    ).rejects.toBeInstanceOf(Phase2GateBypassError);
+
+    // (a) no ungated apply: runPhase2 (which would upsert the new email) was NEVER invoked.
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    // (c) no crew upsert / no sync_holds write happened (the fake tx records crew/snapshot ops).
+    expect(tx.operations).not.toContain("applyShowSnapshot");
+  });
+
   test("missing live row returns PENDING_SYNC_NOT_FOUND without falling back to wizard rows", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({ readLivePendingSyncForApply: vi.fn(async () => null) });
@@ -969,14 +1008,10 @@ describe("applyStaged live-scope", () => {
   });
 
   test("auth-sensitive review choices derive revoked-below-version floor bumps", async () => {
+    // P2-F7: a LIVE staged row carrying an MI-11 item now FAILS CLOSED (it must be re-synced to be
+    // gated), so MI-11 can no longer be applied via this legacy path. The rename/removal floor-bump
+    // derivation (MI-12/13/14) is unaffected and still exercised here.
     const items: TriggeredReviewItem[] = [
-      {
-        id: "mi11",
-        invariant: "MI-11",
-        crew_name: "Alice",
-        prior_email: "a@old.test",
-        new_email: "a@new.test",
-      },
       {
         id: "mi12",
         invariant: "MI-12",
@@ -999,7 +1034,6 @@ describe("applyStaged live-scope", () => {
         sourceScope: "live",
         stagedId: "staged-live",
         reviewerChoices: [
-          { item_id: "mi11", action: "apply" },
           { item_id: "mi12", action: "rename", rename_value: "Robert" },
           { item_id: "mi13", action: "apply" },
           { item_id: "mi14", action: "rename", rename_value: "Dane" },
@@ -1012,11 +1046,10 @@ describe("applyStaged live-scope", () => {
     expect(result).toMatchObject({
       outcome: "applied",
       derivedSideEffects: {
-        revokeFloorForNames: ["Alice", "Bob", "Charlie", "Dana", "Dane", "Robert"],
+        revokeFloorForNames: ["Bob", "Charlie", "Dana", "Dane", "Robert"],
       },
     });
     expect(syncDeps.bumpReviewerAuthFloors).toHaveBeenCalledWith(tx, "show-1", [
-      "Alice",
       "Bob",
       "Charlie",
       "Dana",

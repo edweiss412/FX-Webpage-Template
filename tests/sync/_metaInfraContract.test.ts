@@ -317,6 +317,18 @@ const infraRegistry = [
     contract:
       "live first-seen staged discard gates admin and delegates to discardStaged with live source scope",
   },
+  {
+    helper: "approveMi11Hold",
+    path: "lib/sync/holds/mi11GateActions.ts",
+    contract:
+      "MI-11 approve gate action (P3-F4): a THROWN fault at every Supabase boundary (service-role construction, sync_holds lookup SELECT, authed client construction, supabase.rpc) AND a returned {error} both map to { ok:false, code:'SYNC_INFRA_ERROR' }; never an uncaught throw (invariant 9)",
+  },
+  {
+    helper: "rejectMi11Hold",
+    path: "lib/sync/holds/mi11GateActions.ts",
+    contract:
+      "MI-11 reject gate action (P3-F4): a THROWN authed-client-construction / supabase.rpc fault AND a returned {error} both map to { ok:false, code:'SYNC_INFRA_ERROR' }; never an uncaught throw (invariant 9)",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -783,6 +795,70 @@ describe("sync Supabase infra-failure contract", () => {
           },
         ),
       ).rejects.toBeInstanceOf(DriveWebhookInfraError);
+    });
+  });
+
+  // P3-F4 — pin the MI-11 gate actions' thrown-fault coverage here (registry rows above + behavior).
+  // Self-contained via vi.doMock + isolated module registry so it does not perturb the shared mock.
+  describe("mi11GateActions (P3-F4)", () => {
+    async function importGateWithThrows(opts: {
+      throwOnServiceConstruct?: boolean;
+      throwOnServerConstruct?: boolean;
+      throwOnRpc?: boolean;
+    }) {
+      vi.resetModules();
+      vi.doMock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => undefined }));
+      vi.doMock("@/lib/drive/fetch", () => ({
+        fetchDriveFileMetadata: async () => ({ modifiedTime: "2026-06-02T00:00:00.000Z" }),
+        DriveFetchError: class extends Error {},
+      }));
+      vi.doMock("@/lib/supabase/server", () => ({
+        createSupabaseServiceRoleClient: () => {
+          if (opts.throwOnServiceConstruct) throw new Error("META: service-role construct fault");
+          return {
+            from: () => ({
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: { drive_file_id: "drive-1", show_id: "show-1" },
+                    error: null,
+                  }),
+                }),
+              }),
+            }),
+          };
+        },
+        createSupabaseServerClient: async () => {
+          if (opts.throwOnServerConstruct) throw new Error("META: server construct fault");
+          return {
+            rpc: async () => {
+              if (opts.throwOnRpc) throw new Error("META: rpc fault");
+              return { data: { ok: true }, error: null };
+            },
+          };
+        },
+      }));
+      const mod = await import("@/lib/sync/holds/mi11GateActions");
+      return mod;
+    }
+
+    const INFRA = { ok: false, code: "SYNC_INFRA_ERROR" };
+
+    test("approveMi11Hold: service-role construction throw → SYNC_INFRA_ERROR (no throw)", async () => {
+      const { approveMi11Hold } = await importGateWithThrows({ throwOnServiceConstruct: true });
+      await expect(approveMi11Hold("h1", "T0")).resolves.toEqual(INFRA);
+    });
+    test("approveMi11Hold: rpc throw → SYNC_INFRA_ERROR (no throw)", async () => {
+      const { approveMi11Hold } = await importGateWithThrows({ throwOnRpc: true });
+      await expect(approveMi11Hold("h1", "T0")).resolves.toEqual(INFRA);
+    });
+    test("rejectMi11Hold: server-client construction throw → SYNC_INFRA_ERROR (no throw)", async () => {
+      const { rejectMi11Hold } = await importGateWithThrows({ throwOnServerConstruct: true });
+      await expect(rejectMi11Hold("h1", "T0")).resolves.toEqual(INFRA);
+    });
+    test("rejectMi11Hold: rpc throw → SYNC_INFRA_ERROR (no throw)", async () => {
+      const { rejectMi11Hold } = await importGateWithThrows({ throwOnRpc: true });
+      await expect(rejectMi11Hold("h1", "T0")).resolves.toEqual(INFRA);
     });
   });
 });
