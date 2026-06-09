@@ -479,7 +479,7 @@ alter table public.show_change_log add  constraint show_change_log_source_chk
   check (source in ('auto_apply','mi11_approve','mi11_reject','undo'));
 alter table public.show_change_log drop constraint if exists show_change_log_status_chk;
 alter table public.show_change_log add  constraint show_change_log_status_chk
-  check (status in ('applied','pending','rejected','undone'));
+  check (status in ('applied','pending','rejected','undone','superseded'));
 -- change_kind is open-ended (invariant codes MI-* plus structural kinds); guard only
 -- against empty so a row always carries a renderable kind.
 alter table public.show_change_log drop constraint if exists show_change_log_change_kind_chk;
@@ -858,7 +858,7 @@ psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "notify pgrst, 'reload schema';"
 - [ ] **2. Idempotency sweep** — re-apply both migrations to the local stack a SECOND time; confirm no error (CHECK DROP-IF-EXISTS+ADD, `create table if not exists`, `create index if not exists`, REVOKE, `enable row level security`, `grant ... to service_role` all idempotent).
 - [ ] **3. Lockdown completeness** — confirm both tables appear in `RPC_GATED_TABLES` with `selectAnon:false`/`selectAuthenticated:false`; confirm `service_role` retains ALL (Layer 1). Confirm Layer 4 registry↔live-REVOKE parity is green.
 - [ ] **4. Anti-tautology confirm** — re-run the read-lockdown's "privileged CAN read" case; confirm it sees `SECRET_EMAIL` (proves the rows exist and the deny is real, not vacuous).
-- [ ] **5. Numeric/value sweep** — confirm the CHECK value sets exactly match the spec enums: `domain ∈ {crew_email, crew_identity}`, `kind ∈ {mi11_pending, undo_override}`, `source ∈ {auto_apply, mi11_approve, mi11_reject, undo}`, `status ∈ {applied, pending, rejected, undone}`. No stale/extra value.
+- [ ] **5. Numeric/value sweep** — confirm the CHECK value sets exactly match the spec enums: `domain ∈ {crew_email, crew_identity}`, `kind ∈ {mi11_pending, undo_override}`, `source ∈ {auto_apply, mi11_approve, mi11_reject, undo}`, `status ∈ {applied, pending, rejected, undone, superseded}`. No stale/extra value.
 - [ ] **6. Citation pass** — confirm the two `closed_at` line citations in `RPC_GATED_TABLES` point at the actual `revoke all on table ...` lines (`grep -n`).
 - [ ] **7. Message-codes lockstep sweep (Task 1.0)** — confirm all 11 new codes exist field-identical in §12.4 prose, the regenerated `lib/messages/__generated__/spec-codes.ts`, AND `lib/messages/catalog.ts`; run `pnpm gen:spec-codes --check` (must report fresh) + `pnpm vitest run tests/cross-cutting/codes.test.ts` (x1 green). Confirm all four files moved in one commit (no mid-history x1 red). Confirm no §12.4 row uses `crewFacing` copy (all 11 are admin-only / `—`).
 

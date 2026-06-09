@@ -452,12 +452,12 @@ test.describe("changes feed layout", () => {
 ## Resolved decisions (settled in-plan — do not relitigate)
 
 - **First-seen review surface stays.** `ParsePanel` + `StagedReviewCard` are NOT deleted — confirmed by importer grep they back the wizard `wizard_failed_reapply` route (`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx`) and the live `first_seen` route (`app/admin/show/staged/[stagedId]/page.tsx`). Phase 6 removes ONLY the per-show LIVE whole-parse review **mount** in `app/admin/show/[slug]/page.tsx` (the `admin-show-parse-warnings-section` + its `pending_syncs` query + `rows` derivation — exact lines in T6.7). First-seen approval is unchanged: governed by `auto_publish_clean_first_seen` + its dedicated `/admin/show/staged/[stagedId]` route. No first-seen surface is deleted.
-- **Pending-disposition copy keys (added in Phase 1, referenced here).** The page derives each MI-11 entry's `gate.detail` via `lib/messages` from the open `sync_holds` `proposed_value.disposition`:
+- **Pending-disposition copy keys (added in Phase 1, used by Phase 5).** **PF20: `FeedEntry.gate` is ONLY `{holdId, disposition}` — there is no `gate.detail` field.** Phase 5 (the feed data layer, NOT Phase 6) renders the old→new copy into `entry.summary` via `lib/messages`, keyed on the open `sync_holds` `proposed_value.disposition`:
   - `email_change` → `mi11_pending_email_change`
   - `rename` → `mi11_pending_rename`
   - `removal` → `mi11_pending_removal`
   - rename folded into an open email hold (§4.2c) → `mi11_pending_rename_folded`
-  These are catalog keys (no raw codes in the DOM, invariant 5); the page passes the rendered string as `gate.detail` to `Mi11GateActions`.
+  These are catalog keys (no raw codes in the DOM, invariant 5). **Phase 6 passes ONLY `entry.summary`, `entry.gate.holdId`, `entry.gate.disposition`, and `entry.changeLogId` — it renders no disposition string itself and performs no second query.**
 - **Feed cap = 50** (00-overview resolution #8). Wired into the T6.6 truncation copy.
 
 ## Notes / shared-component impact
