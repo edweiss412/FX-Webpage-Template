@@ -169,6 +169,52 @@ describe("mi11 closed-group atomic swap-safe park (Task 3.5)", () => {
     expect((await readHoldsByShow(mi11Sql, show.showId)).length).toBe(0);
   });
 
+  it("closed-group RENAME node = delete+insert: replacement gets a FRESH id, before_image keeps the old id (P3-F2)", async () => {
+    // A rename node inside a closed group must match single-node rename semantics (spec §5.4):
+    // the renamed replacement is a NEW crew_members row (fresh id, unclaimed), NOT the old PK reused.
+    const show = await seedShow(mi11Sql);
+    const seededAlice = await seedCrew(mi11Sql, show.showId, "Alice", {
+      email: "a@x",
+      claimed: "2026-05-31T23:00:00.000Z",
+    });
+    await seedCrew(mi11Sql, show.showId, "Bob", { email: "b@x" });
+    // Alice renames to 'Bob' (Bob vacates his name+email by also renaming to 'Alice').
+    const aliceHold = await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "a@x"),
+      proposedValue: { disposition: "rename", name: "Bob", email: "a@x" },
+      baseModifiedTime: T1,
+    });
+    await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Bob",
+      heldValue: heldFromCrew("Bob", "b@x"),
+      proposedValue: { disposition: "rename", name: "Alice", email: "b@x" },
+      baseModifiedTime: T1,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, aliceHold.id, T1, T1));
+    expect(res).toEqual({ ok: true });
+
+    // The replacement row named 'Bob' (Alice→Bob) is a FRESH identity: different id, unclaimed.
+    const newBob = await readCrewByName(mi11Sql, show.showId, "Bob");
+    expect(newBob?.email).toBe("a@x");
+    expect(newBob?.id).not.toBe(seededAlice.id); // NOT the old Alice PK reused
+    expect(newBob?.claimed_via_oauth_at).toBeNull();
+
+    // crew_renamed before_image for Alice→Bob carries Alice's OLD id + claim (P3-F1).
+    const log = await readChangeLogByShow(mi11Sql, show.showId);
+    const aliceRename = log.find(
+      (r) => r.change_kind === "crew_renamed" && r.entity_ref === "Alice",
+    );
+    const before = aliceRename?.before_image as Record<string, unknown>;
+    expect(before.id).toBe(seededAlice.id);
+    expect(new Date(before.claimed_via_oauth_at as string).toISOString()).toBe(
+      seededAlice.claimed_via_oauth_at,
+    );
+  });
+
   it("closed-group reassignment clears the participating node's claim (PF45)", async () => {
     const show = await seedShow(mi11Sql);
     await seedCrew(mi11Sql, show.showId, "Alice", {

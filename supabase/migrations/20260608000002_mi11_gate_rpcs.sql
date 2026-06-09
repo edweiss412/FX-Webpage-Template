@@ -372,9 +372,24 @@ begin
   -- non-identity set) to match the single-node rename semantics (spec §5.4).
   if array_length(v_pholds, 1) is not null then
     for i in 1 .. array_length(v_pholds, 1) loop
-      update public.crew_members
-         set name = v_pname[i], email = v_pemail[i], claimed_via_oauth_at = null
-       where show_id = v_pshow and name = v_pplace[i];
+      if v_pdisp[i] = 'rename' then
+        delete from public.crew_members where show_id = v_pshow and name = v_pplace[i];
+        insert into public.crew_members
+          (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info)
+        values (
+          v_pshow, v_pname[i], v_pemail[i],
+          v_pbefore[i]->>'phone',
+          v_pbefore[i]->>'role',
+          coalesce(array(select jsonb_array_elements_text(v_pbefore[i]->'role_flags')), '{}')::text[],
+          v_pbefore[i]->'date_restriction',
+          v_pbefore[i]->'stage_restriction',
+          v_pbefore[i]->>'flight_info'
+        );
+      else
+        update public.crew_members
+           set name = v_pname[i], email = v_pemail[i], claimed_via_oauth_at = null
+         where show_id = v_pshow and name = v_pplace[i];
+      end if;
       insert into public.show_change_log
         (show_id, drive_file_id, source, change_kind, entity_ref, summary,
          before_image, after_image, status, created_by)

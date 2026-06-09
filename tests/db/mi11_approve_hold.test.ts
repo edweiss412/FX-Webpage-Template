@@ -230,6 +230,7 @@ describe("mi11_approve_hold — rename + removal dispositions (Task 3.3)", () =>
     expect(alicia?.email).toBe(proposed.email);
     expect(alicia?.role).toBe(before?.role); // non-identity field copied
     expect(alicia?.phone).toBe(before?.phone);
+    expect(alicia?.id).not.toBe(before?.id); // delete+insert → FRESH id, not the old PK (P3-F2, spec §5.4)
     expect(await readHold(mi11Sql, hold.id)).toBeNull();
 
     const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
