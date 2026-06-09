@@ -210,9 +210,69 @@ begin
        'applied', v_actor);
 
     return jsonb_build_object('ok', true);
+
+  elsif v_disp = 'rename' then
+    v_email := v_hold.proposed_value->>'email';
+    -- single-node occupied-target checks: a DIFFERENT live row already owns the target name/email.
+    if exists (
+      select 1 from public.crew_members cm
+       where cm.show_id = v_hold.show_id
+         and cm.name = (v_hold.proposed_value->>'name')
+         and cm.name is distinct from v_hold.entity_key
+    ) then
+      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+    end if;
+    if v_email is not null and exists (
+      select 1 from public.crew_members cm
+       where cm.show_id = v_hold.show_id
+         and cm.email = v_email
+         and cm.name is distinct from v_hold.entity_key
+    ) then
+      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+    end if;
+
+    -- rename = delete-old + insert-new (§5.4). The new row copies ONLY the F17 non-identity set
+    -- (phone, role, role_flags, date_restriction, stage_restriction, flight_info); it MUST NOT copy
+    -- claimed_via_oauth_at — the new identity starts unclaimed (PF45).
+    insert into public.crew_members
+      (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info)
+    select v_hold.show_id, v_hold.proposed_value->>'name', v_email,
+           old.phone, old.role, old.role_flags, old.date_restriction, old.stage_restriction, old.flight_info
+      from public.crew_members old
+     where old.show_id = v_hold.show_id and old.name = v_hold.entity_key;
+
+    delete from public.crew_members where show_id = v_hold.show_id and name = v_hold.entity_key;
+    delete from public.sync_holds where id = p_hold_id;
+
+    insert into public.show_change_log
+      (show_id, drive_file_id, source, change_kind, entity_ref, summary,
+       before_image, after_image, status, created_by)
+    values
+      (v_hold.show_id, v_hold.drive_file_id, 'mi11_approve', 'crew_renamed', v_hold.entity_key,
+       'Rename of ' || v_hold.entity_key || ' to ' || (v_hold.proposed_value->>'name') || ' was approved',
+       v_hold.held_value,
+       jsonb_build_object('name', v_hold.proposed_value->>'name', 'email', v_email),
+       'applied', v_actor);
+
+    return jsonb_build_object('ok', true);
+
+  elsif v_disp = 'removal' then
+    -- removal = delete the crew row; the DELETE drops the OAuth claim with it (resolution #4).
+    delete from public.crew_members where show_id = v_hold.show_id and name = v_hold.entity_key;
+    delete from public.sync_holds where id = p_hold_id;
+
+    insert into public.show_change_log
+      (show_id, drive_file_id, source, change_kind, entity_ref, summary,
+       before_image, after_image, status, created_by)
+    values
+      (v_hold.show_id, v_hold.drive_file_id, 'mi11_approve', 'crew_removed', v_hold.entity_key,
+       'Removal of ' || v_hold.entity_key || ' was approved',
+       v_hold.held_value, null, 'applied', v_actor);
+
+    return jsonb_build_object('ok', true);
   end if;
 
-  -- rename / removal dispositions land in Task 3.3.
+  -- unknown disposition (shape CHECK should prevent this).
   return jsonb_build_object('ok', false, 'code', 'MI11_HOLD_ALREADY_RESOLVED');
 end;
 $$;

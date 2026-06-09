@@ -207,3 +207,86 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
     expect(row?.status).toBe("applied");
   });
 });
+
+describe("mi11_approve_hold — rename + removal dispositions (Task 3.3)", () => {
+  it("rename: deletes old row, inserts new identity, copies non-identity fields, crew_renamed log", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", { email: "alice@old", role: "A2" });
+    const before = await readCrewByName(mi11Sql, show.showId, "Alice");
+    const proposed: Disposition = { disposition: "rename", name: "Alicia", email: "alice@new" };
+    const hold = await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@old"),
+      proposedValue: proposed,
+      baseModifiedTime: T0,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    expect(res).toEqual({ ok: true });
+
+    expect(await readCrewByName(mi11Sql, show.showId, "Alice")).toBeNull(); // old gone
+    const alicia = await readCrewByName(mi11Sql, show.showId, "Alicia");
+    expect(alicia?.email).toBe(proposed.email);
+    expect(alicia?.role).toBe(before?.role); // non-identity field copied
+    expect(alicia?.phone).toBe(before?.phone);
+    expect(await readHold(mi11Sql, hold.id)).toBeNull();
+
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    expect(row?.change_kind).toBe("crew_renamed");
+    expect(row?.status).toBe("applied");
+    expect(row?.created_by).toBe(ADMIN_EMAIL);
+    expect(row?.before_image).toMatchObject({ name: "Alice", email: "alice@old" });
+    expect(row?.after_image).toMatchObject({ name: "Alicia", email: proposed.email });
+  });
+
+  it("rename-with-changed-email: new identity starts UNCLAIMED — does NOT inherit the deleted claim (PF45)", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", {
+      email: "alice@old",
+      claimed: "2026-05-31T23:00:00.000Z",
+    });
+    const proposed: Disposition = { disposition: "rename", name: "Alicia", email: "alice@new" };
+    const hold = await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@old"),
+      proposedValue: proposed,
+      baseModifiedTime: T0,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    expect(res).toEqual({ ok: true });
+
+    const alicia = await readCrewByName(mi11Sql, show.showId, "Alicia");
+    expect(alicia?.email).toBe(proposed.email);
+    expect(alicia?.claimed_via_oauth_at).toBeNull(); // born unclaimed
+  });
+
+  it("removal: deletes the crew row (claim gone with it), crew_removed log", async () => {
+    const show = await seedShow(mi11Sql);
+    await seedCrew(mi11Sql, show.showId, "Alice", {
+      email: "alice@old",
+      claimed: "2026-05-31T23:00:00.000Z",
+    });
+    const hold = await seedHold(mi11Sql, show, {
+      domain: "crew_identity",
+      entityKey: "Alice",
+      heldValue: heldFromCrew("Alice", "alice@old"),
+      proposedValue: { disposition: "removal" },
+      baseModifiedTime: T0,
+    });
+
+    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    expect(res).toEqual({ ok: true });
+
+    expect(await readCrewByName(mi11Sql, show.showId, "Alice")).toBeNull(); // row deleted, no orphan
+    expect(await readHold(mi11Sql, hold.id)).toBeNull();
+
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    expect(row?.change_kind).toBe("crew_removed");
+    expect(row?.status).toBe("applied");
+    expect(row?.created_by).toBe(ADMIN_EMAIL);
+    expect(row?.before_image).toMatchObject({ name: "Alice", email: "alice@old" });
+  });
+});
