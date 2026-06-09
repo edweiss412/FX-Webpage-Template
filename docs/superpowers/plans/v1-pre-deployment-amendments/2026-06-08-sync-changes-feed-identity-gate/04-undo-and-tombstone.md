@@ -119,22 +119,38 @@ begin
     return jsonb_build_object('ok', false, 'code', 'UNDO_SUPERSEDED');  -- not 'applied' → already undone/superseded
   end if;
 
-  -- ORDERING IS LOAD-BEARING (PF19 / resolution #18): the status<>'applied'
-  -- guard ABOVE runs BEFORE the before_image IS NULL tombstone branch BELOW. A
-  -- newer same-entity sync marks the stale crew_removed row status='superseded'
-  -- AND nulls its before_image (cleanup_superseded_before_images, Task 4.6). If
-  -- the tombstone branch ran first, that stale row (before_image now null) would
-  -- fall into _undo_tombstone and DELETE the current crew member — corruption.
-  -- The status guard rejects it as UNDO_SUPERSEDED before before_image is ever
-  -- inspected. Do NOT reorder these two checks.
-  v_before := v_log.before_image;
-  if v_before is null then
-    -- Direction B (tombstone) — Task 4.3. Reached ONLY for a still-'applied'
-    -- crew_added row (genuine add with no prior state), never a superseded one.
+  -- (4c) SECURITY-BOUNDARY GUARD (PF22 / resolution #18). undo_change is
+  -- SECURITY DEFINER and admin-callable with an ARBITRARY p_change_log_id — it
+  -- MUST NOT trust the feed's action gating. The RPC enforces the undoable set
+  -- ITSELF: only crew add/remove/rename are undoable. Any other applied row
+  -- (e.g. crew_email_changed — has a before_image; section_shrunk / field_changed
+  -- — before_image NULL) is rejected here, BEFORE any path selection, so it can
+  -- never enter the restore OR the tombstone branch and corrupt current crew.
+  if v_log.change_kind not in ('crew_added','crew_removed','crew_renamed') then
+    return jsonb_build_object('ok', false, 'code', 'UNDO_NOT_FOUND');  -- not an undoable change
+  end if;
+
+  -- DIRECTION SELECTED BY change_kind, NOT by before_image-null (PF22). Using
+  -- before_image-null as the selector mis-routes a crew_email_changed row (which
+  -- HAS a before_image but is non-undoable — already filtered above) or a stale
+  -- null-before_image row into the wrong branch. change_kind is the only safe
+  -- discriminator:
+  --   crew_added              → Direction B (tombstone delete + held-absent)
+  --   crew_removed/crew_renamed → Direction A (restore from before_image)
+  if v_log.change_kind = 'crew_added' then
+    -- Direction B (tombstone) — Task 4.3.
     return public._undo_tombstone(v_log, v_drive);
   end if;
 
+  -- ORDERING IS LOAD-BEARING (PF19 / resolution #18): the status<>'applied'
+  -- guard ABOVE runs BEFORE this restore path. A newer same-entity sync marks a
+  -- stale crew_removed row status='superseded' AND nulls its before_image
+  -- (cleanup_superseded_before_images, Task 4.6); the status guard rejects it as
+  -- UNDO_SUPERSEDED before before_image is ever inspected. A crew_removed /
+  -- crew_renamed row that reaches HERE is still 'applied', so before_image is
+  -- guaranteed non-null (Task 4.1 / F2 captures it pre-apply). Do NOT reorder.
   -- Direction A: re-insert prior crew row + write held-present override.
+  v_before := v_log.before_image;
   v_name := v_before->>'name';
 
   -- PF13 (resolution #16): compute the baseline = the undone-change signature,
@@ -290,6 +306,11 @@ it("undone add is not re-created while sheet still lists them; removing from she
 - [ ] **RED.** Add `tests/db/undo-change-guards.test.ts`:
   - **Superseded:** seed `[Alice(alice@old)]`; auto-apply removal of Alice (→ change-log row R1). Then auto-apply a *newer* change to the same entity (re-add Alice with `alice@v2`, → R2 with `occurred_at > R1`). `undo_change(R1)` → `{ok:false, code:'UNDO_SUPERSEDED'}`; assert `crew_members` is unchanged (Alice still `alice@v2`, no stale restore). Failure mode: undo blindly restores `alice@old` over the newer `alice@v2`.
   - **Email-now-claimed conflict:** seed `[Alice(alice@old)]`; remove Alice (→ R1). Add a *different* crew member `Dana` who now holds `alice@old` with `claimed_via_oauth_at` set. `undo_change(R1)` → `{ok:false, code:'UNDO_EMAIL_CLAIMED'}`; assert no insert happened and Dana's claim is intact. Failure mode: undo steals/duplicates `alice@old`.
+  - **Non-undoable change_kind security boundary (PF22 / resolution #18):** the RPC must reject any non-crew-add/remove/rename row REGARDLESS of `before_image` shape, since an admin can call it with an arbitrary `p_change_log_id` (do NOT trust the feed's action gating). Three cases, each an **applied** row:
+    - a `crew_email_changed` row with `entity_ref='Alice'` (Alice is a **real current crew member**; this row HAS a `before_image`) → `undo_change` returns `{ok:false, code:'UNDO_NOT_FOUND'}` and makes **ZERO mutation**: Alice's `crew_members` row is byte-identical, NO `sync_holds` row created, NO `show_change_log` row inserted, the orig row's `status` stays `'applied'`.
+    - an applied `section_shrunk` row (`before_image IS NULL`) → same `UNDO_NOT_FOUND`, zero mutation.
+    - an applied `field_changed` row (`before_image IS NULL`) → same.
+    Failure mode caught: a non-undoable applied row enters the wrong path (`crew_email_changed`'s non-null before_image → Direction A restore; a null-before_image non-crew row → `_undo_tombstone`) and DELETES/overwrites current crew. Derive the current-crew snapshot from the fixture and assert it is unchanged.
   - **Double-undo / re-runnable guard (PF16 / resolution #18):** undo the SAME `crew_removed` change-log row TWICE → 1st call `{ok:true}`, 2nd call `{ok:false, code:'UNDO_SUPERSEDED'}` with NO mutation. Assert: exactly **one** `source='undo'` row exists (not two), exactly **one** `undo_override` `sync_holds` row for that entity, and the **original** row's `status='undone'` after the 1st call (so the feed shows no Undo button). Run the same TWICE assertion for a **Direction B `crew_added`** tombstone (orig row also flips to `'undone'`; 2nd undo → `UNDO_SUPERSEDED`; one tombstone hold). Failure mode caught: a refresh/double-submit re-runs the undo (two undo rows, duplicate/clobbered hold) because the orig row stayed `'applied'`.
   - Derive `UNDO_SUPERSEDED` / `UNDO_EMAIL_CLAIMED` codes from `lib/messages/catalog.ts` (added by the Phase 1 catalog task; Task 4.6 only verifies they exist); assert the RPC returns the code string, and that `messageFor(code)` resolves to non-null copy (invariant 5 — no raw codes).
 - [ ] **GREEN.** All guards are in the Task 4.2 RPC body above: the `UNDO_SUPERSEDED` single `status<>'applied'` check (PF16 — the orig row flips to `'undone'` on success, so it covers both newer-supersession and double-submit); the `UNDO_EMAIL_CLAIMED` claim check before insert. If RED surfaces a gap, tighten there.
@@ -330,6 +351,7 @@ it("undone add is not re-created while sheet still lists them; removing from she
 - [ ] Single-holder check: `undo_change` acquires the show lock at exactly one layer; no nested lock; `cleanup_superseded_before_images` takes NO lock (runs inside the caller's lock).
 - [ ] **Lock-order check (PF11 / resolution #15 — CRITICAL):** in `undo_change` (and `_undo_tombstone`) NO `for update` and no read-planned-for-mutation precedes `pg_advisory_xact_lock`. Order is: is_admin → non-locking plan read → advisory lock → re-select FOR UPDATE + supersession revalidation + mutations. A regression test (`tests/db/undo-change-lock-order.test.ts`) statically asserts the migration's first `for update` token appears AFTER the `pg_advisory_xact_lock` token, and that no `for update` precedes it — guards the M5 R20 lock-inversion deadlock class. Concurrent cron-sync + undo on the same show serialize without deadlock (real-PG two-connection test in `undo-change-direction-a.test.ts`).
 - [ ] Direction completeness: held-present (A) and held-absent/tombstone (B) both covered; release for both directions tested; both guards tested.
+- [ ] **change_kind security boundary + direction selection (PF22 / resolution #18):** undo_change enforces the undoable set ITSELF (`change_kind in ('crew_added','crew_removed','crew_renamed')` else `UNDO_NOT_FOUND`), never trusting the feed's action gating, since an admin can pass an arbitrary `p_change_log_id`. Direction is selected by **change_kind** (`crew_added`→tombstone; `crew_removed`/`crew_renamed`→restore), NOT by `before_image IS NULL`. Tests prove an applied `crew_email_changed` / `section_shrunk` / `field_changed` row returns `UNDO_NOT_FOUND` with zero mutation.
 - [ ] **Stale-undo no-corruption (PF19 / resolution #18):** `cleanup_superseded_before_images` flips superseded crew-domain rows to `status='superseded'` in the SAME pass it nulls `before_image` (never one without the other); the Phase 1 status CHECK accepts `'superseded'`; the `undo_change` `status<>'applied'` guard runs BEFORE the `before_image IS NULL` tombstone branch (explicit ordering comment present); the end-to-end test proves a stale `crew_removed` row rejects with `UNDO_SUPERSEDED` and does NOT tombstone-delete current crew.
 - [ ] **Undo idempotency / not re-runnable (PF16 / resolution #18):** undo flips the ORIGINAL row to `status='undone'` under the same lock (both Direction A and the tombstone B path); supersession keys off `orig.status<>'applied'` (single guard); a 2nd undo of the same row returns `UNDO_SUPERSEDED` with no mutation; exactly one undo row + one `undo_override` hold result. The feed's `action='undo' iff status='applied'` rule and this guard share one source of truth.
 - [ ] **Baseline / release-against-sheet (PF13 / resolution #16):** every `crew_identity` `undo_override` writes `held_value.baseline` with the undone-change signature — `{kind:'removal'}` / `{kind:'rename',suppressed_added:{name,email}}` / `{kind:'add',added:{name,email}}`. Phase 2 releases against `baseline` (what the sheet asserts), NOT against `held_value`; rename suppression matches BOTH name and email. The three next-sync tests (undo-removal holds on unchanged sheet; undo-rename suppresses a re-named replacement; release on reconcile) are present. The old `held_value.suppressed_added_name` scalar is gone.
@@ -341,4 +363,4 @@ it("undone add is not re-created while sheet still lists them; removing from she
 
 ## Task 4.8 — Phase 4 adversarial review (cross-model)
 
-Invoke the `adversarial-review` skill to send Phase 4 (this file + its diff) to the opposing CLI (Codex) for cross-model critique. REVIEWER ONLY — the reviewer does not fix; findings return to the implementer session. Iterate until convergence; escalate only genuine ambiguity. Focus surfaces: F2 pre-apply capture, F11 tombstone non-recreation + release, **stale-undo no-corruption (PF19 / resolution #18): cleanup flips superseded rows to status='superseded' in the same pass it nulls before_image; the status<>'applied' guard precedes the before_image-null tombstone branch so a stale crew_removed row rejects instead of deleting current crew**, **undo idempotency (PF16 / resolution #18): orig row flips to status='undone' under the lock both directions; supersession keys off orig.status<>'applied'; a 2nd undo is a no-op UNDO_SUPERSEDED**, **the `held_value.baseline` release-against-sheet contract (PF13 / resolution #16): release keyed off the undone-change signature not `held_value`; rename suppression by name+email; the three next-sync behaviors**, supersession + email-claim guards, single-layer lock topology for `undo_change`, the **lock order (PF11 / resolution #15): no FOR UPDATE before `pg_advisory_xact_lock`; supersession revalidated under the lock; `_undo_tombstone` never re-takes the lock**, the real-column restore SQL (no phantom `restrictions`; full-field ON CONFLICT restore; type-correct per-column expressions), and the admin-user identity (authed-admin client, `is_admin()` gate, not service-role) per resolution #11. Do not proceed to Phase 5 handoff without an APPROVE.
+Invoke the `adversarial-review` skill to send Phase 4 (this file + its diff) to the opposing CLI (Codex) for cross-model critique. REVIEWER ONLY — the reviewer does not fix; findings return to the implementer session. Iterate until convergence; escalate only genuine ambiguity. Focus surfaces: F2 pre-apply capture, F11 tombstone non-recreation + release, **change_kind security boundary (PF22 / resolution #18): RPC self-enforces the undoable set with an arbitrary p_change_log_id (no feed trust); direction selected by change_kind not before_image-null; a crew_email_changed / section_shrunk / field_changed row returns UNDO_NOT_FOUND with zero mutation**, **stale-undo no-corruption (PF19 / resolution #18): cleanup flips superseded rows to status='superseded' in the same pass it nulls before_image; the status<>'applied' guard precedes the before_image-null tombstone branch so a stale crew_removed row rejects instead of deleting current crew**, **undo idempotency (PF16 / resolution #18): orig row flips to status='undone' under the lock both directions; supersession keys off orig.status<>'applied'; a 2nd undo is a no-op UNDO_SUPERSEDED**, **the `held_value.baseline` release-against-sheet contract (PF13 / resolution #16): release keyed off the undone-change signature not `held_value`; rename suppression by name+email; the three next-sync behaviors**, supersession + email-claim guards, single-layer lock topology for `undo_change`, the **lock order (PF11 / resolution #15): no FOR UPDATE before `pg_advisory_xact_lock`; supersession revalidated under the lock; `_undo_tombstone` never re-takes the lock**, the real-column restore SQL (no phantom `restrictions`; full-field ON CONFLICT restore; type-correct per-column expressions), and the admin-user identity (authed-admin client, `is_admin()` gate, not service-role) per resolution #11. Do not proceed to Phase 5 handoff without an APPROVE.
