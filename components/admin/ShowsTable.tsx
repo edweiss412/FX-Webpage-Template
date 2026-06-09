@@ -26,7 +26,7 @@ import {
 } from "@/components/admin/ActiveShowsPanel";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
-import { syncStatusBucket } from "@/lib/admin/syncStatus";
+import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
 
 type ShowsTableProps = {
   rows: ActiveShowRow[];
@@ -70,10 +70,21 @@ function sortValue(row: ActiveShowRow, key: SortKey): string | number | null {
       return row.showDateStart ?? row.showDateEnd; // ISO 'YYYY-MM-DD' or null
     case "crew":
       return row.crewCount ?? 0;
-    case "sync":
-      return row.lastSyncedAt; // ISO timestamp (lexically sortable) or null
+    case "sync": {
+      // Sort by the VISIBLE health, not the (usually hidden) timestamp: the
+      // SyncCell only renders the relative time for "ok" rows, so ordering by
+      // lastSyncedAt would reorder every non-ok row by data the user can't see.
+      // Group by bucket severity (problems first) then the visible label — both
+      // are shown (dot color + text). Never null, so sync rows never sort "last".
+      const { bucket, label } = syncStatusBucket(row.lastSyncStatus);
+      return `${SYNC_SORT_RANK[bucket]}|${label}`;
+    }
   }
 }
+
+// Severity order for the Sync column sort — most-attention-first (problems
+// before healthy). Matches the visible dot color + label grouping.
+const SYNC_SORT_RANK: Record<SyncBucket, number> = { warn: 0, review: 1, idle: 2, positive: 3 };
 
 function sortRows(rows: ActiveShowRow[], sort: SortState): ActiveShowRow[] {
   if (!sort) return rows;

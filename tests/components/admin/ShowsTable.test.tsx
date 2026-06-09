@@ -416,6 +416,41 @@ describe("ShowsTable", () => {
     expect(rowOrder()).toEqual(["endOnly", "earlyStart", "trulyNull"]);
   });
 
+  it("Sync sort orders by the VISIBLE health (problems first), not the hidden timestamp", () => {
+    // SyncCell only shows the relative time for ok rows, so sorting by
+    // lastSyncedAt would reorder non-ok rows by data the user can't see. Sort by
+    // bucket severity (warn < review < idle < positive) so the visible dots/labels
+    // group. lastSyncedAt is deliberately UNORDERED vs status to prove the sort
+    // ignores it: the ok row is newest yet must land last in asc.
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "ok", lastSyncStatus: "ok", lastSyncedAt: "2026-06-03T11:59:00.000Z" }),
+          row({
+            slug: "drive",
+            lastSyncStatus: "drive_error",
+            lastSyncedAt: "2026-06-01T00:00:00.000Z",
+          }),
+          row({
+            slug: "review",
+            lastSyncStatus: "pending_review",
+            lastSyncedAt: "2026-06-02T00:00:00.000Z",
+          }),
+        ]}
+        now={now}
+        activeCount={3}
+        overflowCount={0}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-sync")); // asc: warn(drive) < review < positive(ok)
+    expect(rowOrder()).toEqual(["drive", "review", "ok"]);
+    // the visible sync text confirms the dimension that drove the order
+    expect(screen.getByTestId("shows-sync-drive").textContent).toContain("Couldn't reach Drive");
+    expect(screen.getByTestId("shows-sync-review").textContent).toContain("Changes to review");
+    fireEvent.click(screen.getByTestId("shows-sort-sync")); // desc reverses
+    expect(rowOrder()).toEqual(["ok", "review", "drive"]);
+  });
+
   it("the sort header is a real 44px tap target (min-h-tap-min) and the dates cell never wraps/truncates", () => {
     render(
       <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
