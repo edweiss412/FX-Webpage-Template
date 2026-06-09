@@ -9,6 +9,7 @@
 // totalShown }.
 
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
+import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import {
   UNDOABLE_CHANGE_KINDS,
   type Disposition,
@@ -18,6 +19,42 @@ import {
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const DEFAULT_LIMIT = 50;
+
+// invariant 9 / P5-F1: every Supabase boundary fault — service-role construction
+// throw, .from() throw, network throw, AND a returned {error} — maps to the
+// existing typed SyncInfraError (operation + source), so the Phase-6 admin page
+// (which calls this server-side after requireAdmin) can catalog-render / degrade
+// instead of surfacing an unclassified 500. Mirrors the perFileProcessor /
+// readShowGateRow thrown-fault discipline.
+type FeedSupabaseClient = ReturnType<typeof createSupabaseServiceRoleClient>;
+
+function createFeedSupabaseClient(): FeedSupabaseClient {
+  try {
+    return createSupabaseServiceRoleClient();
+  } catch (cause) {
+    throw new SyncInfraError("readShowChangeFeed.createServiceRoleClient", "thrown_error", cause);
+  }
+}
+
+async function runFeedRead<T>(
+  operation: string,
+  query: () => PromiseLike<{
+    data: T | null;
+    count?: number | null;
+    error: { message?: string } | null;
+  }>,
+): Promise<{ data: T | null; count?: number | null }> {
+  try {
+    const { data, count, error } = await query();
+    if (error) {
+      throw new SyncInfraError(operation, "returned_error", error);
+    }
+    return { data, count: count ?? null };
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError(operation, "thrown_error", cause);
+  }
+}
 
 // Single-source the undo-gating set so the feed predicate and Phase 4's
 // undo_change change_kind guard (00-overview resolution #18 / PF22) stay in
@@ -123,40 +160,41 @@ export async function readShowChangeFeed(
   opts?: { limit?: number },
 ): Promise<{ entries: FeedEntry[]; truncated: boolean; totalShown: number }> {
   const limit = opts?.limit ?? DEFAULT_LIMIT;
-  const supabase = createSupabaseServiceRoleClient();
+  const supabase = createFeedSupabaseClient();
 
   // 1. Most-recent N show_change_log rows for the show (feed history + undo).
-  const { data: logData, error: logError } = await supabase
-    .from("show_change_log")
-    .select("id, occurred_at, status, summary, entity_ref, change_kind, individually_undoable")
-    .eq("show_id", showId)
-    .order("occurred_at", { ascending: false })
-    .limit(limit);
-  if (logError) {
-    throw new Error(`readShowChangeFeed: show_change_log read failed: ${logError.message}`);
-  }
+  //    Every read goes through runFeedRead → returned {error} AND thrown faults
+  //    become a typed SyncInfraError (invariant 9 / P5-F1).
+  const { data: logData } = await runFeedRead<ChangeLogRow[]>(
+    "readShowChangeFeed.showChangeLog",
+    () =>
+      supabase
+        .from("show_change_log")
+        .select("id, occurred_at, status, summary, entity_ref, change_kind, individually_undoable")
+        .eq("show_id", showId)
+        .order("occurred_at", { ascending: false })
+        .limit(limit),
+  );
 
   // 2. Total log-row count for the truncation flag (pending holds excluded —
   //    they always render and never count toward truncation, resolution #8).
-  const { count: totalLogRows, error: countError } = await supabase
-    .from("show_change_log")
-    .select("id", { count: "exact", head: true })
-    .eq("show_id", showId);
-  if (countError) {
-    throw new Error(`readShowChangeFeed: show_change_log count failed: ${countError.message}`);
-  }
+  const { count: totalLogRows } = await runFeedRead<unknown>(
+    "readShowChangeFeed.showChangeLogCount",
+    () => supabase.from("show_change_log").select("id", { count: "exact", head: true }).eq("show_id", showId),
+  );
 
   // 3. Open pending MI-11 holds (actionable approve_reject entries). The select
   //    list MUST include base_modified_time (the PF40 staleness token). The
   //    kind='undo_override' holds are internal suppression state, NOT entries.
-  const { data: holdData, error: holdError } = await supabase
-    .from("sync_holds")
-    .select("id, entity_key, held_value, proposed_value, base_modified_time, created_at")
-    .eq("show_id", showId)
-    .eq("kind", "mi11_pending");
-  if (holdError) {
-    throw new Error(`readShowChangeFeed: sync_holds read failed: ${holdError.message}`);
-  }
+  const { data: holdData } = await runFeedRead<HoldRow[]>(
+    "readShowChangeFeed.syncHolds",
+    () =>
+      supabase
+        .from("sync_holds")
+        .select("id, entity_key, held_value, proposed_value, base_modified_time, created_at")
+        .eq("show_id", showId)
+        .eq("kind", "mi11_pending"),
+  );
 
   const logEntries: FeedEntry[] = ((logData ?? []) as ChangeLogRow[]).map((row) => {
     const base: FeedEntry = {

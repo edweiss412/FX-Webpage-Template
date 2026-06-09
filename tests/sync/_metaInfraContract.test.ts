@@ -329,6 +329,12 @@ const infraRegistry = [
     contract:
       "MI-11 reject gate action (P3-F4): a THROWN authed-client-construction / supabase.rpc fault AND a returned {error} both map to { ok:false, code:'SYNC_INFRA_ERROR' }; never an uncaught throw (invariant 9)",
   },
+  {
+    helper: "readShowChangeFeed",
+    path: "lib/sync/feed/readShowChangeFeed.ts",
+    contract:
+      "feed data-layer read (P5-F1): a THROWN service-role construction / .from() fault AND a returned {error} at every read (show_change_log / count / sync_holds) map to a typed SyncInfraError (operation + source); never a plain Error / uncaught throw, so the Phase-6 page boundary can catalog-render / degrade (invariant 9). Enforced by tests/sync/feed/readShowChangeFeed.infra.test.ts",
+  },
 ] as const;
 
 function read(path: string): string {
