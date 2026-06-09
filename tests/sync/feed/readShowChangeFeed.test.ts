@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
+import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 
 const databaseUrl =
@@ -275,5 +276,72 @@ describe("readShowChangeFeed", () => {
     expect(hank!.action).toBe("none");
     expect(hank!.gate).toBeUndefined();
     expect(hank!.changeLogId).toBeUndefined();
+  });
+
+  // P5-F3: a FOLDED email+rename pending hold (proposed email MOVES the OAuth
+  // anchor) must render the rename_FOLDED warning copy, not the plain rename
+  // copy — otherwise Doug sees "Rename pending" while Approve also changes the
+  // email + evicts the claimed session. Anti-tautology: expected text is the
+  // catalog dougFacing for the folded key, derived via getRequiredDougFacing,
+  // never a hardcoded literal.
+  test("folded rename (proposed email != held email) renders the rename_folded warning copy", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-h")}, ${q(prefix + "-h")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.sync_holds
+        (show_id, drive_file_id, domain, entity_key, held_value, proposed_value, base_modified_time, kind, created_by)
+      select id, ${q(prefix + "-h")}, 'crew_identity', 'Iris',
+        '{"name":"Iris","email":"iris@old"}'::jsonb,
+        '{"disposition":"rename","name":"Irene","email":"irene@new"}'::jsonb,
+        now(), 'mi11_pending', 'system' from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    const pending = entries.find((e) => e.status === "pending");
+    expect(pending).toBeDefined();
+    expect(pending!.action).toBe("approve_reject");
+    // Folded copy: "Email change + rename pending for {name}" → {name}=entity_key.
+    const foldedExpected = getRequiredDougFacing("mi11_pending_rename_folded").replaceAll(
+      "{name}",
+      "Iris",
+    );
+    expect(pending!.summary).toBe(foldedExpected);
+    // It must NOT use the plain-rename copy (the bug under test rendered this).
+    const plainRename = getRequiredDougFacing("mi11_pending_rename")
+      .replaceAll("{old}", "Iris")
+      .replaceAll("{new}", "Irene");
+    expect(pending!.summary).not.toBe(plainRename);
+  });
+
+  // Control: a rename whose proposed email EQUALS the held email does NOT move
+  // the OAuth anchor → plain rename copy (so the folded branch is conditional,
+  // not hardcoded; a future pure-rename case renders correctly).
+  test("pure rename (proposed email == held email) renders the plain rename copy", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-i")}, ${q(prefix + "-i")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.sync_holds
+        (show_id, drive_file_id, domain, entity_key, held_value, proposed_value, base_modified_time, kind, created_by)
+      select id, ${q(prefix + "-i")}, 'crew_identity', 'Jack',
+        '{"name":"Jack","email":"jack@same"}'::jsonb,
+        '{"disposition":"rename","name":"Jacques","email":"jack@same"}'::jsonb,
+        now(), 'mi11_pending', 'system' from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    const pending = entries.find((e) => e.status === "pending");
+    expect(pending).toBeDefined();
+    const plainExpected = getRequiredDougFacing("mi11_pending_rename")
+      .replaceAll("{old}", "Jack")
+      .replaceAll("{new}", "Jacques");
+    expect(pending!.summary).toBe(plainExpected);
+    const folded = getRequiredDougFacing("mi11_pending_rename_folded").replaceAll("{name}", "Jack");
+    expect(pending!.summary).not.toBe(folded);
   });
 });

@@ -9,6 +9,7 @@
 // totalShown }.
 
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
+import { canonEmail } from "@/lib/sync/holds/holdPort";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import {
   UNDOABLE_CHANGE_KINDS,
@@ -119,6 +120,26 @@ function renderPendingSummary(hold: HoldRow): string {
     });
   }
   if (disposition.disposition === "rename") {
+    // P5-F3: a FOLDED rename (Phase-2 Task 2.5 retargets an open email_change
+    // hold to {disposition:'rename', name, email} when an added row matches the
+    // held/proposed email) ALSO moves the email / OAuth-login anchor. Doug sees
+    // ONLY entry.summary, so a folded rename must warn that the email changes
+    // too — the settled contract reserves `mi11_pending_rename_folded` for
+    // exactly this. The anchor MOVES iff the proposed email differs from the
+    // held identity email (the email the OAuth claim currently uses). A future
+    // pure rename (same email) keeps the plain `mi11_pending_rename` copy — the
+    // branch is conditional, never hardcoded-folded. Compare canonicalized so
+    // it matches the fold's own canonEmail-keyed match (holdAwareApply.ts:241).
+    const heldEmail = canonEmail(strOrEmpty(held.email) || null);
+    const proposedEmail = canonEmail(strOrEmpty(proposed.email) || null);
+    const emailAnchorMoved = proposedEmail !== heldEmail;
+    if (emailAnchorMoved) {
+      return fill(getRequiredDougFacing("mi11_pending_rename_folded"), {
+        name: hold.entity_key,
+        old: strOrEmpty(held.name) || hold.entity_key,
+        new: strOrEmpty(proposed.name),
+      });
+    }
     return fill(getRequiredDougFacing("mi11_pending_rename"), {
       name: hold.entity_key,
       old: strOrEmpty(held.name) || hold.entity_key,
