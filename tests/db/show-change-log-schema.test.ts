@@ -97,6 +97,7 @@ describe("public.show_change_log DDL", () => {
       "drive_file_id",
       "entity_ref",
       "id",
+      "individually_undoable",
       "occurred_at",
       "show_id",
       "source",
@@ -104,6 +105,21 @@ describe("public.show_change_log DDL", () => {
       "summary",
       "undo_of",
     ]);
+  });
+
+  it("individually_undoable is boolean NOT NULL defaulting to true (P4-F4)", async () => {
+    const cols = await sql<
+      { data_type: string; is_nullable: string; column_default: string | null }[]
+    >`
+      select data_type, is_nullable, column_default
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'show_change_log'
+        and column_name = 'individually_undoable'
+    `;
+    expect(cols).toHaveLength(1);
+    expect(cols[0]!.data_type).toBe("boolean");
+    expect(cols[0]!.is_nullable).toBe("NO");
+    expect(cols[0]!.column_default).toMatch(/true/);
   });
 
   it("created_by is text NOT NULL defaulting to 'system' (PF7)", async () => {

@@ -139,6 +139,15 @@ begin
     return jsonb_build_object('ok', false, 'code', 'UNDO_NOT_FOUND');
   end if;
 
+  -- (4d) NOT-INDIVIDUALLY-UNDOABLE GUARD (P4-F4): a multi-node closed-group approval (rename swap /
+  -- cycle / chain) is an ATOMIC unit — its rows are stamped individually_undoable=false at write time
+  -- (mi11_approve_hold). Undoing one in isolation would always fail the swap-sibling name guard and
+  -- leave a perpetually-failing Undo. Reject defensively here with ZERO mutation (the Phase-5 feed
+  -- predicate also hides the button). Defaults true for single-node approvals + Phase-2 auto-apply.
+  if not v_log.individually_undoable then
+    return jsonb_build_object('ok', false, 'code', 'UNDO_NOT_FOUND');
+  end if;
+
   -- Direction selected by change_kind, NOT by before_image-null (PF22).
   if v_log.change_kind = 'crew_added' then
     return public._undo_tombstone(v_log, v_drive);  -- Direction B (Task 4.3).

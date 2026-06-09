@@ -249,6 +249,7 @@ declare
   v_live       public.crew_members%rowtype;     -- the live crew row read UNDER THE LOCK (P3-F1)
   v_before     jsonb;                            -- authoritative before_image built from v_live
   v_rc         int;                              -- ROW_COUNT fail-safe (P3-F3)
+  v_undoable   boolean;                          -- P4-F4: false for a MULTI-node closed group
   i            int;
 begin
   if not public.is_admin() then
@@ -306,6 +307,14 @@ begin
       return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
     end if;
   end loop;
+
+  -- P4-F4: a MULTI-node closed group (rename swap / cycle / chain) is approved ATOMICALLY and writes
+  -- several applied crew-identity rows sharing occurred_at=now(); none supersedes another, and
+  -- undoing one in isolation always fails the swap-sibling name guard → a perpetually-failing Undo.
+  -- Per spec undo is PER-ITEM / one-step, so a multi-node group's rows are NOT individually undoable:
+  -- stamp individually_undoable=false (undo_change rejects them; the feed predicate hides the button).
+  -- Single-node approvals (group size 1) keep the default true (true reversal, P4-F3).
+  v_undoable := (coalesce(array_length(v_group, 1), 1) <= 1);
 
   -- step (1): for each member, READ THE LIVE ROW UNDER THE LOCK (P3-F1 / PF38 / resolution #24 — the
   -- live row is authoritative: it carries the id + claimed_via_oauth_at that held_value omits, and
@@ -382,11 +391,11 @@ begin
       end if;
       insert into public.show_change_log
         (show_id, drive_file_id, source, change_kind, entity_ref, summary,
-         before_image, after_image, status, created_by)
+         before_image, after_image, status, created_by, individually_undoable)
       values
         (v_rmshow[i], v_rmdrive[i], 'mi11_approve', 'crew_removed', v_rmkey[i],
          'Removal of ' || v_rmkey[i] || ' was approved',
-         v_rmbefore[i], null, 'applied', v_actor);
+         v_rmbefore[i], null, 'applied', v_actor, v_undoable);
     end loop;
   end if;
 
@@ -428,7 +437,7 @@ begin
       end if;
       insert into public.show_change_log
         (show_id, drive_file_id, source, change_kind, entity_ref, summary,
-         before_image, after_image, status, created_by)
+         before_image, after_image, status, created_by, individually_undoable)
       values
         (v_pshow, v_pdrive, 'mi11_approve',
          case when v_pdisp[i] = 'rename' then 'crew_renamed' else 'crew_email_changed' end,
@@ -438,7 +447,7 @@ begin
               else 'Email change for ' || v_pkeys[i] || ' was approved' end,
          v_pbefore[i],
          jsonb_build_object('name', v_pname[i], 'email', v_pemail[i]),
-         'applied', v_actor);
+         'applied', v_actor, v_undoable);
     end loop;
   end if;
 

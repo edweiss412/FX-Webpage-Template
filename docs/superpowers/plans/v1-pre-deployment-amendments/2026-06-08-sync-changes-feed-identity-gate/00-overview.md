@@ -72,10 +72,12 @@ create table if not exists public.show_change_log (
   after_image   jsonb,                              -- applied values (feed display)
   status        text not null,                      -- 'applied' | 'pending' | 'rejected' | 'undone' | 'superseded' (resolution #18: a row goes non-actionable on undo OR when a newer same-entity change supersedes it)
   created_by    text not null default 'system',     -- 'system' for auto_apply; admin email (current_admin_email()) for mi11_approve/mi11_reject/undo (PF7)
-  undo_of       uuid references public.show_change_log(id)
+  undo_of       uuid references public.show_change_log(id),
+  individually_undoable boolean not null default true -- P4-F4: false for MULTI-node closed-group (rename swap/cycle/chain) mi11_approve rows — an atomic group is not per-item undoable; undo_change rejects (UNDO_NOT_FOUND) + the feed predicate hides the button. Single-node + auto_apply rows keep true. Added by migration 20260608000005.
 );
 create index if not exists show_change_log_feed_idx on public.show_change_log (show_id, occurred_at desc);
 -- CHECK constraints on source/change_kind/status added with DROP IF EXISTS + ADD (apply-twice idempotent).
+-- Feed undoable predicate (Phase 5): change_kind ∈ {crew_added,crew_removed,crew_renamed} AND status='applied' AND individually_undoable (P4-F4).
 ```
 
 ### TypeScript types (canonical — define once, import everywhere; suggested home `lib/sync/holds/types.ts`)

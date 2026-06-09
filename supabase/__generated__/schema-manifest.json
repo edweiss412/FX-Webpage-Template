@@ -235,6 +235,7 @@
     "drive_file_id",
     "entity_ref",
     "id",
+    "individually_undoable",
     "occurred_at",
     "show_id",
     "source",
