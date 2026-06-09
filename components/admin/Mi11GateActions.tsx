@@ -42,11 +42,20 @@ function dispositionName(disposition: Disposition): string | null {
 function GateButton({
   variant,
   pending,
+  disabled,
   accessibleName,
+  onMark,
 }: {
   variant: "approve" | "reject";
+  // `pending` = THIS button's own in-flight state (drives the busy label + aria-busy).
   pending: boolean;
+  // `disabled` = the SINGLE-critical-section gate (P6-F3): true while EITHER action
+  // is in flight, so the sibling can't be submitted concurrently.
+  disabled: boolean;
   accessibleName: string;
+  // Records this button as the last-submitted action SYNCHRONOUSLY, before/outside
+  // the form-action transition (P6-F4). Does NOT disable — so the dispatch survives.
+  onMark: () => void;
 }) {
   const isApprove = variant === "approve";
   const idleLabel = isApprove ? "Approve" : "Reject";
@@ -54,9 +63,10 @@ function GateButton({
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={disabled}
       aria-busy={pending}
       aria-label={accessibleName}
+      onClick={onMark}
       data-testid={isApprove ? "mi11-approve" : "mi11-reject"}
       className={
         isApprove
@@ -88,19 +98,15 @@ export function Mi11GateActions({
   const [approveResult, approveDispatch, approvePending] = useActionState(approveAction, null);
   const [rejectResult, rejectDispatch, rejectPending] = useActionState(rejectAction, null);
 
-  // P6-F2: track which gate action was submitted LAST so the error panel reflects
-  // the latest submitted action's typed result — not a fixed approve-over-reject
-  // precedence (which would keep a stale Approve failure visible after a newer
-  // Reject failed, pointing the operator at the wrong recovery path).
+  // P6-F2/F4: track which gate action was submitted LAST so the error panel reflects
+  // ONLY the latest submitted action's own result — never a fall-back to the other
+  // action's stale failure. Recorded SYNCHRONOUSLY in each button's onMouseDown/onClick
+  // (which fires BEFORE — and outside — the React 19 form-action transition); setting
+  // it inside the action wrapper would defer the update into the transition and let a
+  // stale render show the prior action's error. The onClick does NOT disable the button
+  // (the disabled gate is the rendered `disabled={anyPending}` prop), so it can't cancel
+  // the dispatch.
   const [lastSubmitted, setLastSubmitted] = useState<"approve" | "reject" | null>(null);
-  const submitApprove = (formData: FormData) => {
-    setLastSubmitted("approve");
-    approveDispatch(formData);
-  };
-  const submitReject = (formData: FormData) => {
-    setLastSubmitted("reject");
-    rejectDispatch(formData);
-  };
 
   const name = dispositionName(disposition);
   const forWhom = name ? ` for ${name}` : "";
@@ -108,30 +114,56 @@ export function Mi11GateActions({
   // action normalizes "" → null before delegating).
   const token = baseModifiedTime ?? "";
 
-  // The LATEST submitted action's failing result drives the post-submit conflict
-  // copy (PF17 + P6-F2). Prefer the last-submitted action's result; fall back to
-  // whichever has a failure (covers the first submit before lastSubmitted settles).
-  const approveFailing = approveResult && approveResult.ok === false ? approveResult : null;
-  const rejectFailing = rejectResult && rejectResult.ok === false ? rejectResult : null;
-  const failing =
-    lastSubmitted === "reject"
-      ? (rejectFailing ?? approveFailing)
-      : lastSubmitted === "approve"
-        ? (approveFailing ?? rejectFailing)
-        : (approveFailing ?? rejectFailing);
+  // P6-F3 — SINGLE critical section: while EITHER gate action is in flight, BOTH
+  // buttons are disabled, so the same hold can never have two concurrent in-flight
+  // resolutions (the backend advisory lock would otherwise pick a nondeterministic
+  // winner). Disabled via the rendered `disabled` prop (NOT a synchronous onClick
+  // self-disable, which would cancel the React 19 form-action dispatch).
+  const anyPending = approvePending || rejectPending;
+
+  // P6-F4 — render ONLY the LAST-SUBMITTED action's OWN result, with NO fallback to
+  // the other action's stale failure. A failure shows only when the last-submitted
+  // action is SETTLED-and-failing; while it is PENDING or after it SUCCEEDS, show
+  // NO error. So a newer submission (pending or success) immediately supersedes any
+  // prior error.
+  const lastResult =
+    lastSubmitted === "approve"
+      ? approveResult
+      : lastSubmitted === "reject"
+        ? rejectResult
+        : null;
+  const lastPending =
+    lastSubmitted === "approve"
+      ? approvePending
+      : lastSubmitted === "reject"
+        ? rejectPending
+        : false;
+  const failing = !lastPending && lastResult && lastResult.ok === false ? lastResult : null;
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <form action={submitApprove}>
+        <form action={approveDispatch}>
           <input type="hidden" name="holdId" value={holdId} />
           <input type="hidden" name="expectedBaseModifiedTime" value={token} />
-          <GateButton variant="approve" pending={approvePending} accessibleName={`Approve change${forWhom}`} />
+          <GateButton
+            variant="approve"
+            pending={approvePending}
+            disabled={anyPending}
+            accessibleName={`Approve change${forWhom}`}
+            onMark={() => setLastSubmitted("approve")}
+          />
         </form>
-        <form action={submitReject}>
+        <form action={rejectDispatch}>
           <input type="hidden" name="holdId" value={holdId} />
           <input type="hidden" name="expectedBaseModifiedTime" value={token} />
-          <GateButton variant="reject" pending={rejectPending} accessibleName={`Reject change${forWhom}`} />
+          <GateButton
+            variant="reject"
+            pending={rejectPending}
+            disabled={anyPending}
+            accessibleName={`Reject change${forWhom}`}
+            onMark={() => setLastSubmitted("reject")}
+          />
         </form>
       </div>
       {failing ? (

@@ -163,3 +163,126 @@ it("shows the LATEST submitted result: Reject fails then Approve fails → Appro
   // …and NOT the stale Reject copy.
   expect(screen.queryByText(/the sheet changed since this was queued/i)).toBeNull();
 });
+
+// A deferred action stays PENDING until its resolver is called — lets the test
+// observe the in-flight (pending) state of one gate action.
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+// P6-F3 — Approve and Reject are a SINGLE critical section: while EITHER is in
+// flight, BOTH buttons are disabled, so the same hold can never have two
+// concurrent in-flight resolutions (the backend lock would otherwise pick a
+// nondeterministic winner).
+it("disables BOTH gate buttons while Approve is pending (P6-F3)", async () => {
+  const d = deferred<{ ok: true }>();
+  const approveAction = vi.fn().mockReturnValue(d.promise);
+  render(
+    <Mi11GateActions
+      holdId="h1"
+      disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
+      baseModifiedTime="2026-06-09T10:00:00Z"
+      approveAction={approveAction}
+      rejectAction={vi.fn()}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /approve change for alice/i }));
+  });
+  // Approve is in flight → the OTHER button (Reject) is also disabled.
+  expect(screen.getByTestId("mi11-approve")).toBeDisabled();
+  expect(screen.getByTestId("mi11-reject")).toBeDisabled();
+  await act(async () => {
+    d.resolve({ ok: true });
+  });
+});
+
+it("disables BOTH gate buttons while Reject is pending (P6-F3 reverse)", async () => {
+  const d = deferred<{ ok: true }>();
+  const rejectAction = vi.fn().mockReturnValue(d.promise);
+  render(
+    <Mi11GateActions
+      holdId="h1"
+      disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
+      baseModifiedTime="2026-06-09T10:00:00Z"
+      approveAction={vi.fn()}
+      rejectAction={rejectAction}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /reject change for alice/i }));
+  });
+  expect(screen.getByTestId("mi11-approve")).toBeDisabled();
+  expect(screen.getByTestId("mi11-reject")).toBeDisabled();
+  await act(async () => {
+    d.resolve({ ok: true });
+  });
+});
+
+// P6-F4 — a newer submission immediately supersedes any prior error. A pending OR
+// successful newer action shows NO error — never a fall-back to the other
+// action's stale failure.
+it("a pending then successful Reject clears a prior Approve failure (no fallback) (P6-F4)", async () => {
+  const approveAction = vi.fn().mockResolvedValue({ ok: false, code: "IDENTITY_WOULD_COLLIDE" });
+  const d = deferred<{ ok: true }>();
+  const rejectAction = vi.fn().mockReturnValue(d.promise);
+  render(
+    <Mi11GateActions
+      holdId="h1"
+      disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
+      baseModifiedTime="2026-06-09T10:00:00Z"
+      approveAction={approveAction}
+      rejectAction={rejectAction}
+    />,
+  );
+  // Approve fails first → panel shows the Approve copy.
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /approve change for alice/i }));
+  });
+  expect(await screen.findByText(/clashing with another crew member/i)).toBeInTheDocument();
+  // Submit Reject — now PENDING → the prior Approve error is immediately cleared.
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /reject change for alice/i }));
+  });
+  expect(screen.queryByText(/clashing with another crew member/i)).toBeNull();
+  expect(screen.queryByTestId("mi11-gate-result")).toBeNull();
+  // Reject SUCCEEDS → still no error (page revalidates).
+  await act(async () => {
+    d.resolve({ ok: true });
+  });
+  expect(screen.queryByText(/clashing with another crew member/i)).toBeNull();
+  expect(screen.queryByTestId("mi11-gate-result")).toBeNull();
+});
+
+it("a pending then successful Approve clears a prior Reject failure (no fallback) (P6-F4 reverse)", async () => {
+  const rejectAction = vi.fn().mockResolvedValue({ ok: false, code: "MI11_TARGET_MOVED" });
+  const d = deferred<{ ok: true }>();
+  const approveAction = vi.fn().mockReturnValue(d.promise);
+  render(
+    <Mi11GateActions
+      holdId="h1"
+      disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
+      baseModifiedTime="2026-06-09T10:00:00Z"
+      approveAction={approveAction}
+      rejectAction={rejectAction}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /reject change for alice/i }));
+  });
+  expect(await screen.findByText(/the sheet changed since this was queued/i)).toBeInTheDocument();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /approve change for alice/i }));
+  });
+  expect(screen.queryByText(/the sheet changed since this was queued/i)).toBeNull();
+  expect(screen.queryByTestId("mi11-gate-result")).toBeNull();
+  await act(async () => {
+    d.resolve({ ok: true });
+  });
+  expect(screen.queryByText(/the sheet changed since this was queued/i)).toBeNull();
+  expect(screen.queryByTestId("mi11-gate-result")).toBeNull();
+});
