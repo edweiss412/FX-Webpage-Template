@@ -125,6 +125,13 @@ export type HoldAwareApplyArgs = {
   openHolds: OpenHoldRow[];
   /** The current sheet's modifiedTime — the staleness anchor for re-evaluated proposed_value. */
   baseModifiedTime: string;
+  /**
+   * Prior live-crew names (P2-F4): reservation may only SUPPRESS an ADDED row colliding with a held
+   * proposed identity. A PRE-EXISTING live crew member that owns the reserved email/name must stay
+   * live (the conflict is resolved at Approve time by Phase 3's collision graph). Defaults to empty
+   * (treat all parse rows as added) when the snapshot is unavailable.
+   */
+  previousCrewNames?: string[];
 };
 
 /**
@@ -286,6 +293,7 @@ export async function planHoldAwareApply(
     suppressedEmails,
     foldConsumedNames,
     effectiveProposed,
+    priorCrewNames: new Set(args.previousCrewNames ?? []),
     mutations,
     baseModifiedTime: proposedBaseTime(args),
   });
@@ -383,6 +391,7 @@ function computeReservations(
     suppressedEmails: Set<string>;
     foldConsumedNames: Set<string>;
     effectiveProposed: Map<string, Record<string, unknown> | null>;
+    priorCrewNames: Set<string>;
     mutations: Array<
       | { kind: "retarget"; holdId: string; proposed: Record<string, unknown>; baseModifiedTime: string }
       | { kind: "reservation"; holdId: string; collisions: Array<{ name: string; email: string | null }> }
@@ -416,8 +425,16 @@ function computeReservations(
       const emailCollides = reservedEmail != null && e === reservedEmail;
       const nameCollides = reservedName != null && m.name === reservedName;
       if (emailCollides || nameCollides) {
-        out.suppressedNames.add(m.name);
-        if (reservedEmail != null) out.suppressedEmails.add(reservedEmail);
+        // P2-F4: only an ADDED row (not present in the prior live snapshot) may be SUPPRESSED.
+        // A PRE-EXISTING live crew member that owns the reserved email/name must STAY LIVE — never
+        // delete an unrelated live person because a held crew's proposed identity collides with it.
+        // The pre-existing-owner conflict is resolved at Approve time by Phase 3's collision graph.
+        const isAddedRow = !out.priorCrewNames.has(m.name);
+        if (isAddedRow) {
+          out.suppressedNames.add(m.name);
+          if (reservedEmail != null && e === reservedEmail) out.suppressedEmails.add(reservedEmail);
+        }
+        // Record either way (belt-and-suspenders so Phase 3 Approve sees the conflict).
         collisions.push({ name: m.name, email: e });
       }
     }

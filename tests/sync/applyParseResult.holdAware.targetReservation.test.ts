@@ -160,4 +160,42 @@ describe("hold-aware apply — proposed-target reservation (Task 2.7, F16/PF37)"
       expect((await readHolds(tx, showId))[0]!.reservation_collisions).toEqual([]);
     });
   });
+
+  it("P2-F4 — a PRE-EXISTING live crew member owning the reserved email is NOT deleted", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      // prior: [Alice(a@old), Bob(b@x)] — Bob is a real, pre-existing live crew member.
+      const aliceLive = crew("Alice", { email: "a@old" });
+      const bobLive = crew("Bob", { email: "b@x" });
+      const aliceRow = await seedCrew(tx, showId, aliceLive);
+      const bobRow = await seedCrew(tx, showId, bobLive);
+      // Alice MI-11 to Bob's EXISTING email b@x → the hold reserves b@x.
+      await writeMi11Holds(holdPort(tx), {
+        showId,
+        driveFileId,
+        mi11Items: [
+          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "b@x" },
+        ],
+        liveCrewByName: new Map([["Alice", aliceLive]]),
+        baseModifiedTime: MT,
+      });
+
+      // next: [Alice(b@x), Bob(b@x)] — Alice now claims Bob's email; Bob unchanged & still present.
+      const next = parseResult([crew("Alice", { email: "b@x" }), crew("Bob", { email: "b@x" })]);
+      await applyParseResult(applyTx(tx), {
+        driveFileId,
+        parseResult: next,
+        snapshot: snapshot(showId, [prevMember(aliceRow, aliceLive), prevMember(bobRow, bobLive)]),
+        holds: { port: holdPort(tx), baseModifiedTime: MT2 },
+      });
+
+      const rows = await readCrew(tx, showId);
+      // Bob (a pre-existing live owner of the reserved email) must NOT be deleted.
+      const bob = rows.find((r) => r.name === "Bob");
+      expect(bob).toBeDefined();
+      expect(bob!.email).toBe("b@x");
+      // Alice's identity stays pinned to her old email until Approve.
+      expect(rows.find((r) => r.name === "Alice")!.email).toBe("a@old");
+    });
+  });
 });

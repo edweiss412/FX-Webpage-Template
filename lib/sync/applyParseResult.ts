@@ -91,6 +91,8 @@ export async function applyParseResult(
         parseResult: args.parseResult,
         openHolds,
         baseModifiedTime: args.holds.baseModifiedTime,
+        // P2-F4: distinguish added vs pre-existing rows so reservation never deletes a live member.
+        previousCrewNames: args.snapshot.previousCrewNames,
       });
       crewMembers = plan.crewMembers;
       deleteProtectedNames = [...plan.protectedNames];
