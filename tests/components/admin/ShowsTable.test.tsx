@@ -144,6 +144,22 @@ describe("ShowsTable", () => {
     expect(notice.textContent).toMatch(/sorting and Find apply to just these/i);
   });
 
+  it("capped: the scope notice renders ABOVE the table header (seen before sorting/Find) — R4 placement", () => {
+    // Negative-regression: this FAILS on the prior R3 placement (notice rendered
+    // AFTER the list, below the sort headers). Order must be controls → notice →
+    // table header so the limitation is visible before the first sort/search.
+    render(
+      <ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={600} overflowCount={599} />,
+    );
+    const notice = screen.getByTestId("shows-table-overflow");
+    const header = screen.getByTestId("shows-table-header");
+    const chip = screen.getByTestId("shows-count-chip");
+    // table header FOLLOWS the notice (would be PRECEDING with the R3 placement)
+    expect(notice.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // the count chip / controls row PRECEDES the notice
+    expect(notice.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
   it("overflowCount=0 -> no overflow notice", () => {
     render(<ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={1} overflowCount={0} />);
     expect(screen.queryByTestId("shows-table-overflow")).toBeNull();
