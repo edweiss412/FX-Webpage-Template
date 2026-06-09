@@ -17,7 +17,7 @@
 1. **`ChangesFeed`** — a Server Component on `app/admin/show/[slug]/page.tsx` that calls `readShowChangeFeed(show.id)` (Phase 5) and renders a reverse-chron list. Each entry: summary + relative time + status badge + per-entry action. Cap/truncation disclosure ("older changes not shown") when `truncated`.
 2. **Per-entry action affordances** (client components, one per `action` discriminant):
    - `action: "undo"` → **[Undo]** button (bound to `entry.changeLogId`) → server action → delegates to the Phase 4 undo helper.
-   - `action: "approve_reject"` → **[Approve] [Reject]** (bound to `entry.gate.holdId`) → server actions → delegate to the Phase 3 `approveMi11Hold` / `rejectMi11Hold` helpers (which own the Drive-`modifiedTime`-first F13 orchestration + the lock-taking RPCs). **PF17: the swap/collision outcome is NOT pre-rendered. The Approve button is always a single `[Approve]`; on submit, the action's typed result drives the rendering — a `{ok:false, code:'IDENTITY_WOULD_COLLIDE'}` shows the conflict copy via `lib/messages`, an approved (possibly group/swap) success flips the entry status. No pre-computed `[Approve group]` / conflict-no-button state.**
+   - `action: "approve_reject"` → **[Approve] [Reject]** (each form submits ONLY `entry.gate.holdId`) → server actions → delegate to the Phase 3 `approveMi11Hold(holdId)` / `rejectMi11Hold(holdId)` helpers (which resolve the show's `drive_file_id` FROM the hold and own the Drive-`modifiedTime`-first F13 orchestration + the lock-taking RPCs). **PF23: the page never binds `showId`/`driveFileId` — only `holdId` crosses the boundary.** **PF17: the swap/collision outcome is NOT pre-rendered. The Approve button is always a single `[Approve]`; on submit, the action's typed result drives the rendering — a `{ok:false, code:'IDENTITY_WOULD_COLLIDE'}` shows the conflict copy via `lib/messages`, an approved (possibly group/swap) success flips the entry status. No pre-computed `[Approve group]` / conflict-no-button state.**
    - `action: "none"` → no button (non-crew notification-only rows, §6.2).
 3. **Slimmed MI-11 gate card** — replace the whole-parse `StagedReviewCard` review path with a focused **email/rename/removal disposition Approve/Reject card** rendered from the `sync_holds` disposition. **Remove the legacy whole-parse `ParsePanel` + `StagedReviewCard` mount** from the per-show page (no invariant stages a whole parse anymore — §8). The MI-11 pending entries surface inside the feed (`status: "pending"`, `action: "approve_reject"`); a focused gate card is the entry body for those rows.
 
@@ -359,15 +359,19 @@ it("shows a calm empty state when there are no entries", () => {
 // Mocks: readShowChangeFeed → fixture entries; the Phase 3/4 action helpers.
 import * as gate from "@/lib/sync/holds/mi11GateActions";
 
-it("mi11ApproveAction DELEGATES to approveMi11Hold (no inline supabase.rpc)", async () => {
+it("mi11ApproveAction submits ONLY holdId and DELEGATES to approveMi11Hold(holdId)", async () => {
   const spy = vi.spyOn(gate, "approveMi11Hold").mockResolvedValue({ ok: true });
   const fd = new FormData();
   fd.set("holdId", "h1");
   await mi11ApproveAction(fd); // requireAdmin mocked to pass
-  // PF15: the server action forwards to the guarded helper, which owns the
-  // Drive-modifiedTime read (F13) + the lock-taking RPC. The action itself
-  // performs NO supabase.rpc() call and NO withShowAdvisoryLock wrap.
-  expect(spy).toHaveBeenCalledWith(expect.objectContaining({ holdId: "h1" }));
+  // PF23: the action passes ONLY the holdId. The helper resolves the show's
+  // drive_file_id FROM the hold server-side and does the Drive re-check
+  // internally (a holdId from another show would otherwise re-check the wrong
+  // file). The page/client never binds showId/driveFileId.
+  // PF15: the helper owns the Drive-modifiedTime read (F13) + the lock-taking
+  // RPC; the action performs NO supabase.rpc() and NO withShowAdvisoryLock wrap.
+  expect(spy).toHaveBeenCalledWith("h1");
+  expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ driveFileId: expect.anything() }));
 });
 
 it("a delegated failure result maps to a lib/messages code, never a raw code in the DOM", async () => {
@@ -379,14 +383,14 @@ it("a delegated failure result maps to a lib/messages code, never a raw code in 
 });
 ```
 
-> The F13 (Drive-modifiedTime-first) and F15 (Drive-read-failure non-mutating) contracts are tested at the **helper** layer in Phase 3, not duplicated here — the server action only proves it delegates. Keeping the Drive orchestration in the guarded helper is what PF15 requires.
+> The F13 (Drive-modifiedTime-first) and F15 (Drive-read-failure non-mutating) contracts — and the **driveFileId-resolved-from-hold** security property (PF23) — are tested at the **helper** layer in Phase 3, not duplicated here. The server action only proves it passes the bare `holdId` and delegates.
 
-- [ ] **Impl** `app/admin/show/[slug]/_actions.ts` — add `undoChangeAction`, `mi11ApproveAction`, `mi11RejectAction` (`"use server"`). **PF15: these server actions are THIN — `await requireAdmin()`, read `FormData`, then DELEGATE to the already-advisory-lock-guarded Phase 3/4 action helpers; they NEVER call `supabase.rpc()` inline and NEVER wrap the call in `withShowAdvisoryLock` (the lock-taking SECURITY DEFINER RPC self-locks — wrapping it would nest two holders on the same hashkey and deadlock, violating invariant 2 / `tests/auth/advisoryLockRpcDeadlock.test.ts`).** Delegation targets:
-  - `mi11ApproveAction` → `approveMi11Hold(...)` (`lib/sync/holds/mi11GateActions.ts`)
-  - `mi11RejectAction` → `rejectMi11Hold(...)` (`lib/sync/holds/mi11GateActions.ts`)
-  - `undoChangeAction` → the Phase 4 undo action helper (`lib/sync/holds/undoChange.ts` per Phase 4)
+- [ ] **Impl** `app/admin/show/[slug]/_actions.ts` — add `undoChangeAction`, `mi11ApproveAction`, `mi11RejectAction` (`"use server"`). **PF15: these server actions are THIN — `await requireAdmin()`, read the single id from `FormData`, then DELEGATE to the already-advisory-lock-guarded Phase 3/4 action helpers; they NEVER call `supabase.rpc()` inline and NEVER wrap the call in `withShowAdvisoryLock` (the lock-taking SECURITY DEFINER RPC self-locks — wrapping it would nest two holders on the same hashkey and deadlock, violating invariant 2 / `tests/auth/advisoryLockRpcDeadlock.test.ts`).** **PF23: the approve/reject actions submit and forward ONLY `holdId`; the undo action forwards ONLY `changeLogId`. The page/client NEVER binds `showId`/`driveFileId` into these actions — Phase 3 resolves the show's `drive_file_id` from the HOLD server-side (a `holdId` from another show would otherwise drive the Drive re-check against the wrong file). Forwarding a client-supplied file id is the vulnerability this forbids.** Delegation targets:
+  - `mi11ApproveAction(formData)` → reads `holdId` → `approveMi11Hold(holdId)` (`lib/sync/holds/mi11GateActions.ts`)
+  - `mi11RejectAction(formData)` → reads `holdId` → `rejectMi11Hold(holdId)` (`lib/sync/holds/mi11GateActions.ts`)
+  - `undoChangeAction(formData)` → reads `changeLogId` → the Phase 4 undo action helper (`lib/sync/holds/undoChange.ts` per Phase 4)
 
-  Those helpers own the cookie-bound authenticated client (`createSupabaseServerClient()` — admin session, NOT service-role; 00-overview #11: the RPCs are `SECURITY DEFINER`, gate on `is_admin()`, `GRANT EXECUTE … TO authenticated`) and the `{ data, error }` destructuring (invariant 9). **Approve orchestration (F13/F15) lives in the Phase 3 helper:** it reads the current Drive `modifiedTime` for `show.drive_file_id` FIRST; on returned-error OR thrown → a typed `lib/messages` result, no RPC call, hold stays pending; else passes the observed time as `p_observed_modified_time`. The server action `revalidatePath('/admin/show/[slug]', 'page')` on the helper's success result and maps every `{ok:false, code}` to a `lib/messages` code (no raw codes — invariant 5). The service-role client is used **only** for the feed READ (`readShowChangeFeed`, Phase 5).
+  Those helpers own the cookie-bound authenticated client (`createSupabaseServerClient()` — admin session, NOT service-role; 00-overview #11: the RPCs are `SECURITY DEFINER`, gate on `is_admin()`, `GRANT EXECUTE … TO authenticated`) and the `{ data, error }` destructuring (invariant 9). **Approve orchestration (F13/F15) lives entirely in the Phase 3 helper:** from the `holdId` it loads the hold, resolves the hold's `drive_file_id`, reads that file's current Drive `modifiedTime` FIRST; on returned-error OR thrown → a typed `lib/messages` result, no RPC call, hold stays pending; else passes the observed time into the lock-taking RPC. The server action `revalidatePath('/admin/show/[slug]', 'page')` on the helper's success result and maps every `{ok:false, code}` to a `lib/messages` code (no raw codes — invariant 5). The service-role client is used **only** for the feed READ (`readShowChangeFeed`, Phase 5).
 - [ ] **Impl** `app/admin/show/[slug]/page.tsx` — `await readShowChangeFeed(show.id)`; render `<ChangesFeed>` (passing the three thin server actions + `now`). **PF14: each entry already carries its own action payload from Phase 5 — `entry.gate = {holdId, disposition}` for `approve_reject`, `entry.changeLogId` for `undo` — so the page does NO second query for hold/disposition data; it just forwards `entries` to `<ChangesFeed>`.** **Remove EXACTLY the per-show LIVE whole-parse review mount and nothing else:** delete (a) the `<section data-testid="admin-show-parse-warnings-section">` block that renders `<ParsePanel rows={rows} showId={show.id} readOnly={archived} />` (page.tsx:625–639); (b) the `pending_syncs` query (`supabase.from("pending_syncs")…` at :190–212) and the `rows: StagedRow[]` derivation that feeds it (:214–228); (c) the now-unused imports (`ParsePanel`, `StagedRow` type, `parseTriggeredReviewItems`, `deriveParseSummary`, `safeStringField`). **Do NOT touch** the `StagedReviewCard` / `ParsePanel` components themselves — they remain in use by the wizard `wizard_failed_reapply` route (`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx`) and the live `first_seen` route (`app/admin/show/staged/[stagedId]/page.tsx`), confirmed by importer grep. First-seen approval is **unchanged** in this phase: it stays governed by `auto_publish_clean_first_seen` and its dedicated `/admin/show/staged/[stagedId]` route; Phase 6 deletes no first-seen surface. Keep the wrapping `requireAdmin` + try/catch boundary discipline.
 - [ ] Commit `feat(admin): mount changes feed, wire gate/undo actions, drop whole-parse review`.
 
