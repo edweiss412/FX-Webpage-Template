@@ -130,6 +130,12 @@
    */
   --tracking-eyebrow: 0.12em;
   --tracking-eyebrow-strong: 0.18em;
+  /* Negative tracking for the admin page-title (AdminPageHeader). Matches the
+     admin design bundle's `.page-title` letter-spacing of -0.02em — distinct
+     from Tailwind's built-in `tracking-tight` (-0.025em). Named here (not
+     an inline arbitrary bracket value) per the no-arbitrary-tracking contract in
+     tests/styles/eyebrow-tracking.test.ts + DESIGN.md §2. */
+  --tracking-page-title: -0.02em;
 
   /* ── Spacing ── */
   --spacing-tap-min: 44px;
@@ -447,25 +453,41 @@ body {
    the panel is no longer a descendant of <details>, the UA
    `details:not([open]) > *` hide rule never applied to it; this general-sibling
    rule hides it when the disclosure is closed. Pure CSS — no-JS reachable. */
-[data-testid="admin-alert-banner"] details:not([open]) ~ [data-testid="admin-alert-panel"] { display: none; }
+[data-testid="admin-alert-banner"] details:not([open]) ~ [data-testid="admin-alert-panel"] {
+  display: none;
+}
 
 /* The rest below is progressive enhancement only; native <details> works without it. */
 /* Arrow swap ⌄/⌃ */
-[data-testid="admin-alert-banner"] summary .caret::after { content: " ⌄"; }
-[data-testid="admin-alert-banner"] details[open] summary .caret::after { content: " ⌃"; }
+[data-testid="admin-alert-banner"] summary .caret::after {
+  content: " ⌄";
+}
+[data-testid="admin-alert-banner"] details[open] summary .caret::after {
+  content: " ⌃";
+}
 /* Visible LABEL swap Details→Hide (CSS-driven off native details[open]; the
    display:none span is also out of the a11y tree). */
-[data-testid="admin-alert-banner"] .caret .lbl-open { display: none; }
-[data-testid="admin-alert-banner"] details[open] .caret .lbl-closed { display: none; }
-[data-testid="admin-alert-banner"] details[open] .caret .lbl-open { display: inline; }
+[data-testid="admin-alert-banner"] .caret .lbl-open {
+  display: none;
+}
+[data-testid="admin-alert-banner"] details[open] .caret .lbl-closed {
+  display: none;
+}
+[data-testid="admin-alert-banner"] details[open] .caret .lbl-open {
+  display: inline;
+}
 
 /* Height-morph the panel open/close. interpolate-size lets height animate
    to/from auto; falls back to instant where unsupported. Honors reduced
    motion via --duration-fast (already 0ms under the reduced-motion block). */
 @supports (interpolate-size: allow-keywords) {
-  :root { interpolate-size: allow-keywords; }
+  :root {
+    interpolate-size: allow-keywords;
+  }
   [data-testid="admin-alert-panel"] {
     overflow: hidden;
-    transition: height var(--duration-fast) ease-out, content-visibility var(--duration-fast) allow-discrete;
+    transition:
+      height var(--duration-fast) ease-out,
+      content-visibility var(--duration-fast) allow-discrete;
   }
 }

@@ -28,13 +28,7 @@ import { NAV, isNavItemActive, shouldRenderOverflow } from "./navConfig";
 import { NotifBell } from "./NotifBell";
 import { UserMenu } from "./UserMenu";
 
-export function AdminNav({
-  email,
-  alertCount,
-}: {
-  email: string;
-  alertCount: AlertCountResult;
-}) {
+export function AdminNav({ email, alertCount }: { email: string; alertCount: AlertCountResult }) {
   const pathname = usePathname();
   const overflow = shouldRenderOverflow(NAV.length);
 
@@ -43,7 +37,9 @@ export function AdminNav({
       <nav
         data-testid="admin-nav-topbar"
         aria-label="Admin"
-        className="mb-section-gap flex items-center gap-3 border-b border-border pb-3"
+        /* M12.8: tighter top-nav → page-header gap to MATCH the design bundle's
+           .pagehead 16px top padding (was mb-section-gap 32px). */
+        className="mb-4 flex items-center gap-3 border-b border-border pb-3"
       >
         <Link
           href="/admin"
@@ -58,9 +54,7 @@ export function AdminNav({
             height={28}
             className="size-7 shrink-0"
           />
-          <span className="text-lg font-semibold tracking-tight text-text-strong">
-            FXAV
-          </span>
+          <span className="text-lg font-semibold tracking-tight text-text-strong">FXAV</span>
           <span className="rounded-pill border border-border bg-surface-raised px-2 text-xs font-semibold text-text-subtle">
             Admin
           </span>

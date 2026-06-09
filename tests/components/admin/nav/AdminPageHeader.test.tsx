@@ -7,7 +7,9 @@ import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 
 afterEach(() => cleanup());
 it("renders title + sub", () => {
-  render(<AdminPageHeader title="Dashboard" sub="Your live shows and anything that needs review." />);
+  render(
+    <AdminPageHeader title="Dashboard" sub="Your live shows and anything that needs review." />,
+  );
   expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   expect(screen.getByText(/live shows/)).toBeInTheDocument();
 });
@@ -26,17 +28,28 @@ it("no sub/crumb/backHref/rightSlot → title only, no crash (guard: all optiona
   expect(screen.queryByTestId("admin-page-header-back")).toBeNull();
   expect(screen.queryByTestId("admin-page-header-crumb")).toBeNull();
 });
-it("eyebrow renders 'Admin' when no crumb or backHref (dashboard/settings pages)", () => {
+it("M12.8: NO 'Admin' eyebrow on dashboard/settings pages (it duplicated the top-nav 'Admin' label)", () => {
   render(<AdminPageHeader title="Dashboard" sub="x" />);
-  const eyebrow = screen.getByTestId("admin-page-header-eyebrow");
-  expect(eyebrow).toBeInTheDocument();
-  expect(eyebrow).toHaveTextContent("Admin");
+  expect(screen.queryByTestId("admin-page-header-eyebrow")).toBeNull();
+  expect(screen.queryByText("Admin")).toBeNull(); // no eyebrow text above the title
   expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
 });
 it("eyebrow absent when crumb/backHref present (per-show pages)", () => {
   render(<AdminPageHeader title="Show" crumb="Admin › Active shows" backHref="/admin" />);
   expect(screen.queryByTestId("admin-page-header-eyebrow")).toBeNull();
   expect(screen.getByTestId("admin-page-header-crumb")).toBeInTheDocument();
+});
+it("M12.8: title letter-spacing matches the design's -0.02em (NOT Tailwind tracking-tight's -0.025em)", () => {
+  render(<AdminPageHeader title="Dashboard" />);
+  const h1 = screen.getByTestId("admin-page-header-title");
+  // The design bundle's `.page-title` is letter-spacing:-.02em. Tailwind's
+  // `tracking-tight` token is -0.025em — close but NOT the design value, so the
+  // named `tracking-page-title` token (= -0.02em, declared in app/globals.css
+  // @theme) is the contract. Inline `tracking-[…]` is banned by
+  // tests/styles/eyebrow-tracking.test.ts. (jsdom doesn't compute
+  // letter-spacing, so we pin the class that guarantees it.)
+  expect(h1.className).toContain("tracking-page-title");
+  expect(h1.className).not.toContain("tracking-tight");
 });
 it("architectural guard: header is prop-driven — NO global HEADERS / route-to-header map exists in components/admin/nav/", () => {
   // an unknown route cannot crash a global header lookup because there is none.
