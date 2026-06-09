@@ -19,6 +19,10 @@ blob-report/
 # Generated
 next-env.d.ts
 *.tsbuildinfo
+# schema-manifest.json is byte-compared by tests/db/validation-schema-parity.test.ts
+# (layer 3) and must stay in gen-script format (JSON.stringify 2-space); keep
+# prettier from re-flowing it.
+supabase/__generated__/
 
 # Editor / OS
 .DS_Store
