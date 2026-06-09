@@ -252,15 +252,29 @@ grant execute on function public.undo_change(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- cleanup_superseded_before_images(p_show_id) — one-step before_image retention (resolution #9 /
--- spec §7) + supersession flip (PF19 / resolution #18). Called from the Phase-2 apply TAIL inside the
--- existing show lock (NO new lock — single-holder per §4.1). In ONE idempotent pass over crew-domain
--- rows: for any 'applied' row that has a NEWER same-entity_ref crew-domain change-log row, set
--- before_image = null AND status = 'superseded' (NEVER one without the other — a status='applied' row
--- with a NULL before_image would mis-route undo_change into the tombstone branch and corrupt crew).
--- summary + after_image survive (feed history intact). Already-undone/superseded rows are untouched.
--- SECURITY INVOKER + EXECUTE REVOKEd from public/anon/authenticated: it mutates the RPC-gated
--- show_change_log, so it must run only inside the service-role-held sync txn (the hold port calls it),
--- never via a direct PostgREST rpc().
+-- spec §7) + supersession flip (PF19 / resolution #18 + P4-F1). Called from the Phase-2 apply TAIL
+-- inside the existing show lock (NO new lock — single-holder per §4.1). In ONE idempotent pass over
+-- crew-domain rows: for any 'applied' row superseded by a NEWER same-show crew-domain change-log row,
+-- set before_image = null AND status = 'superseded' (NEVER one without the other — a status='applied'
+-- row with a NULL before_image would mis-route undo_change into the tombstone branch and corrupt
+-- crew). summary + after_image survive (feed history intact). Already-undone/superseded rows are
+-- untouched. SECURITY INVOKER + EXECUTE REVOKEd from public/anon/authenticated: it mutates the
+-- RPC-gated show_change_log, so it must run only inside the service-role-held sync txn (the hold port
+-- calls it), never via a direct PostgREST rpc().
+--
+-- A newer row supersedes an older undoable row on EITHER of two signatures:
+--   (1) SAME entity_ref (PF28 — e.g. a fresh same-name re-add, or a successive change to the same
+--       crew name). This covers crew_added/crew_removed and a re-add under the rename's PRIOR name.
+--   (2) SUCCESSOR-IDENTITY of a crew_renamed row (P4-F1 — HIGH). A crew_renamed row is keyed
+--       entity_ref = the PRIOR name (resolution #19), but later changes to the renamed-TO identity
+--       are logged under the NEW name. So an Alice→Alicia rename row (entity_ref='Alice',
+--       after_image.name='Alicia') must ALSO be superseded when a NEWER row targets 'Alicia' — by
+--       name (newer.entity_ref = older.after_image->>'name') OR by the persistent email signature
+--       (newer.after_image->>'email' = older.after_image->>'email', so a successor whose name
+--       changed but email persisted is still caught). Otherwise undo_change(originalRename) stays
+--       callable and restores a STALE Alice that no longer matches the sheet (phantom restore).
+-- Both matches are scoped by show_id and require a strictly-newer occurred_at — an unrelated crew
+-- member sharing a name in a DIFFERENT show never triggers it.
 -- ---------------------------------------------------------------------------
 create or replace function public.cleanup_superseded_before_images(p_show_id uuid)
   returns void language plpgsql security invoker
@@ -274,10 +288,23 @@ begin
      and exists (
        select 1 from public.show_change_log newer
         where newer.show_id = older.show_id
-          and newer.entity_ref is not distinct from older.entity_ref
           and newer.id <> older.id
           and newer.occurred_at > older.occurred_at
-          -- a NEWER row (any source/kind) to the same entity supersedes the older undoable row.
+          and (
+            -- (1) same entity_ref (PF28).
+            newer.entity_ref is not distinct from older.entity_ref
+            -- (2) successor-identity of a crew_renamed row (P4-F1): the renamed-TO name/email.
+            or (
+              older.change_kind = 'crew_renamed'
+              and (
+                newer.entity_ref is not distinct from (older.after_image->>'name')
+                or (
+                  (older.after_image->>'email') is not null
+                  and (newer.after_image->>'email') is not distinct from (older.after_image->>'email')
+                )
+              )
+            )
+          )
      );
 end;
 $$;
