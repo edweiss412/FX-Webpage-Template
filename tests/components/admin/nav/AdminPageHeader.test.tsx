@@ -22,6 +22,22 @@ it("renders rightSlot content", () => {
   render(<AdminPageHeader title="RPAS" rightSlot={<span data-testid="pill">Published</span>} />);
   expect(screen.getByTestId("pill")).toBeInTheDocument();
 });
+it("M12.9: titleAppendSlot renders INLINE next to the title (not in the right slot)", () => {
+  render(
+    <AdminPageHeader
+      title="RPAS"
+      titleAppendSlot={<span data-testid="appended">Published</span>}
+      subSlot={<p data-testid="sub">Client · dates</p>}
+    />,
+  );
+  const append = screen.getByTestId("admin-page-header-title-append");
+  expect(append).toContainElement(screen.getByTestId("appended"));
+  // the appended pill shares the title's row, ABOVE the subSlot
+  const title = screen.getByTestId("admin-page-header-title");
+  expect(append.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  // no right slot when none is passed (pill is not duplicated there)
+  expect(screen.queryByTestId("admin-page-header-right")).toBeNull();
+});
 it("no sub/crumb/backHref/rightSlot → title only, no crash (guard: all optional; covers the §2.6 unknown/slug-less route)", () => {
   render(<AdminPageHeader title="Staged candidate" />);
   expect(screen.getByRole("heading", { name: "Staged candidate" })).toBeInTheDocument();
