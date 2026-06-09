@@ -144,6 +144,33 @@ describe("readShowChangeFeed", () => {
     expect(entries.filter((e) => e.status === "pending")).toHaveLength(0);
   });
 
+  test("caps at limit and sets truncated when more rows exist", async () => {
+    const seeded = 8;
+    const limit = 3;
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-c")}, ${q(prefix + "-c")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.show_change_log
+        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+      select (select id from s), ${q(prefix + "-c")},
+        now() - (g || ' min')::interval, 'auto_apply', 'crew_added', 'C' || g,
+        'Crew added: C' || g, '{}'::jsonb, 'applied'
+      from generate_series(1, ${seeded}) g
+      returning (select id from s);
+    `).split("\n")[0];
+
+    const { entries, truncated, totalShown } = await readShowChangeFeed(showId, { limit });
+    expect(entries.filter((e) => e.status === "applied")).toHaveLength(limit); // derived from limit
+    expect(truncated).toBe(true); // seeded(8) > limit(3)
+    expect(totalShown).toBe(entries.length);
+    // newest-first: most recent occurred_at (g=1) appears before older (g=8)
+    const refs = entries.filter((e) => e.status === "applied").map((e) => e.entityRef);
+    expect(refs).toEqual(["C1", "C2", "C3"]);
+  });
+
   test("a superseded crew-domain row is feed history only — status='superseded', action='none', no payload (PF21)", async () => {
     showId = runPsql(`
       with s as (
