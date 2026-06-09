@@ -34,7 +34,9 @@ function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
 
 describe("ShowsTable", () => {
   it("row links to /admin/show/{slug}; renders Show/Dates/Crew/Sync + chevron", () => {
-    render(<ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />);
+    render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
     const link = screen.getByTestId("shows-table-row-rpas");
     expect(link.getAttribute("href")).toBe("/admin/show/rpas");
     expect(screen.getByTestId("shows-sync-rpas")).toBeInTheDocument();
@@ -44,7 +46,12 @@ describe("ShowsTable", () => {
 
   it("sync column uses syncStatusBucket ordered priority (drive_error -> warn 'Couldn't reach Drive', not synced)", () => {
     render(
-      <ShowsTable rows={[row({ slug: "x", lastSyncStatus: "drive_error" })]} now={now} activeCount={1} overflowCount={0} />,
+      <ShowsTable
+        rows={[row({ slug: "x", lastSyncStatus: "drive_error" })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
     );
     const sync = screen.getByTestId("shows-sync-x");
     expect(sync.textContent).toContain("Couldn't reach Drive");
@@ -53,14 +60,24 @@ describe("ShowsTable", () => {
   });
 
   it("ok sync shows 'Synced {relative}' in the sync column", () => {
-    render(<ShowsTable rows={[row({ slug: "ok1", lastSyncStatus: "ok" })]} now={now} activeCount={1} overflowCount={0} />);
+    render(
+      <ShowsTable
+        rows={[row({ slug: "ok1", lastSyncStatus: "ok" })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
     expect(screen.getByTestId("shows-sync-ok1").textContent).toMatch(/Synced/);
   });
 
   it("Live pill renders by title iff row.isLive (never in sync column)", () => {
     render(
       <ShowsTable
-        rows={[row({ slug: "live", isLive: true, lastSyncStatus: "drive_error" }), row({ slug: "dead", isLive: false })]}
+        rows={[
+          row({ slug: "live", isLive: true, lastSyncStatus: "drive_error" }),
+          row({ slug: "dead", isLive: false }),
+        ]}
         now={now}
         activeCount={2}
         overflowCount={0}
@@ -107,7 +124,9 @@ describe("ShowsTable", () => {
       row({ slug: "b", isLive: false }),
       row({ slug: "c", isLive: true }),
     ];
-    const { container } = render(<ShowsTable rows={rows} now={now} activeCount={3} overflowCount={0} />);
+    const { container } = render(
+      <ShowsTable rows={rows} now={now} activeCount={3} overflowCount={0} />,
+    );
     const pills = container.querySelectorAll("[data-testid^='shows-live-pill-']");
     expect(pills.length).toBe(rows.filter((r) => r.isLive).length);
   });
@@ -120,6 +139,25 @@ describe("ShowsTable", () => {
     expect(notice.textContent).toMatch(/1/);
     expect(notice.textContent).toMatch(/600/);
     expect(notice.textContent).toMatch(/developer/i);
+    // M12.10: when capped, the notice DISCLOSES that sort/Find scope to the shown
+    // rows (the headers sort only the loaded slice, not the full set).
+    expect(notice.textContent).toMatch(/sorting and Find apply to just these/i);
+  });
+
+  it("capped: the scope notice renders ABOVE the table header (seen before sorting/Find) — R4 placement", () => {
+    // Negative-regression: this FAILS on the prior R3 placement (notice rendered
+    // AFTER the list, below the sort headers). Order must be controls → notice →
+    // table header so the limitation is visible before the first sort/search.
+    render(
+      <ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={600} overflowCount={599} />,
+    );
+    const notice = screen.getByTestId("shows-table-overflow");
+    const header = screen.getByTestId("shows-table-header");
+    const chip = screen.getByTestId("shows-count-chip");
+    // table header FOLLOWS the notice (would be PRECEDING with the R3 placement)
+    expect(notice.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // the count chip / controls row PRECEDES the notice
+    expect(notice.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
   it("overflowCount=0 -> no overflow notice", () => {
@@ -133,7 +171,14 @@ describe("ShowsTable", () => {
   });
 
   it("null title -> slug fallback (preserve ActiveShowsPanel)", () => {
-    render(<ShowsTable rows={[row({ slug: "no-title", title: null })]} now={now} activeCount={1} overflowCount={0} />);
+    render(
+      <ShowsTable
+        rows={[row({ slug: "no-title", title: null })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
     expect(screen.getByTestId("shows-table-row-no-title").textContent).toContain("no-title");
   });
 
@@ -278,11 +323,164 @@ describe("ShowsTable", () => {
 
   // ── M12.5 item: count chip + HoverHelp next to the Active-shows title ──
   it("header renders the count chip with activeCount and a help trigger", () => {
-    render(
-      <ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={42} overflowCount={0} />,
-    );
+    render(<ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={42} overflowCount={0} />);
     const chip = screen.getByTestId("shows-count-chip");
     expect(chip.textContent).toBe("42");
     expect(screen.getByTestId("shows-help-trigger")).toBeInTheDocument();
+  });
+
+  // ── M12.10: sortable columns ──
+  const rowOrder = () =>
+    screen
+      .getAllByTestId(/^shows-table-row-/)
+      .map((el) => (el.getAttribute("data-testid") ?? "").replace("shows-table-row-", ""));
+
+  it("default order is the incoming `rows` order (no sort until a header is clicked)", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "c", title: "Charlie" }),
+          row({ slug: "a", title: "Alpha" }),
+          row({ slug: "b", title: "Bravo" }),
+        ]}
+        now={now}
+        activeCount={3}
+        overflowCount={0}
+      />,
+    );
+    expect(rowOrder()).toEqual(["c", "a", "b"]);
+  });
+
+  it("clicking the Show header sorts by title asc, then desc on a second click", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "c", title: "Charlie" }),
+          row({ slug: "a", title: "Alpha" }),
+          row({ slug: "b", title: "Bravo" }),
+        ]}
+        now={now}
+        activeCount={3}
+        overflowCount={0}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-title"));
+    expect(rowOrder()).toEqual(["a", "b", "c"]);
+    expect(screen.getByTestId("shows-sort-title")).toHaveAttribute(
+      "aria-label",
+      "Sort by Show, currently ascending",
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-title"));
+    expect(rowOrder()).toEqual(["c", "b", "a"]);
+    expect(screen.getByTestId("shows-sort-title")).toHaveAttribute(
+      "aria-label",
+      "Sort by Show, currently descending",
+    );
+  });
+
+  it("sorting by Crew is numeric (10 > 2), not lexicographic", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "two", crewCount: 2 }),
+          row({ slug: "ten", crewCount: 10 }),
+          row({ slug: "one", crewCount: 1 }),
+        ]}
+        now={now}
+        activeCount={3}
+        overflowCount={0}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-crew"));
+    expect(rowOrder()).toEqual(["one", "two", "ten"]);
+  });
+
+  it("rows with no dates sort LAST regardless of direction (nulls last)", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "nodate", showDateStart: null, showDateEnd: null }),
+          row({ slug: "early", showDateStart: "2026-01-01", showDateEnd: "2026-01-02" }),
+          row({ slug: "late", showDateStart: "2026-12-01", showDateEnd: "2026-12-02" }),
+        ]}
+        now={now}
+        activeCount={3}
+        overflowCount={0}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-dates")); // asc
+    expect(rowOrder()).toEqual(["early", "late", "nodate"]);
+    fireEvent.click(screen.getByTestId("shows-sort-dates")); // desc — nulls STILL last
+    expect(rowOrder()).toEqual(["late", "early", "nodate"]);
+  });
+
+  it("Dates sort uses the END date when start is null (matches the rendered fallback), not 'nulls last'", () => {
+    // formatDateRange shows a value when EITHER bound exists, so an end-only row
+    // is a VISIBLE date and must sort by that date — never forced last.
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "endOnly", showDateStart: null, showDateEnd: "2026-06-15" }),
+          row({ slug: "earlyStart", showDateStart: "2026-01-01", showDateEnd: "2026-01-02" }),
+          row({ slug: "trulyNull", showDateStart: null, showDateEnd: null }),
+        ]}
+        now={now}
+        activeCount={3}
+        overflowCount={0}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-dates")); // asc: earlyStart(1/1) < endOnly(6/15) < null
+    expect(rowOrder()).toEqual(["earlyStart", "endOnly", "trulyNull"]);
+    fireEvent.click(screen.getByTestId("shows-sort-dates")); // desc: endOnly > earlyStart, null still last
+    expect(rowOrder()).toEqual(["endOnly", "earlyStart", "trulyNull"]);
+  });
+
+  it("Sync sort orders by the VISIBLE health (problems first), not the hidden timestamp", () => {
+    // SyncCell only shows the relative time for ok rows, so sorting by
+    // lastSyncedAt would reorder non-ok rows by data the user can't see. Sort by
+    // bucket severity (warn < review < idle < positive) so the visible dots/labels
+    // group. lastSyncedAt is deliberately UNORDERED vs status to prove the sort
+    // ignores it: the ok row is newest yet must land last in asc.
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "ok", lastSyncStatus: "ok", lastSyncedAt: "2026-06-03T11:59:00.000Z" }),
+          row({
+            slug: "drive",
+            lastSyncStatus: "drive_error",
+            lastSyncedAt: "2026-06-01T00:00:00.000Z",
+          }),
+          row({
+            slug: "review",
+            lastSyncStatus: "pending_review",
+            lastSyncedAt: "2026-06-02T00:00:00.000Z",
+          }),
+        ]}
+        now={now}
+        activeCount={3}
+        overflowCount={0}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-sync")); // asc: warn(drive) < review < positive(ok)
+    expect(rowOrder()).toEqual(["drive", "review", "ok"]);
+    // the visible sync text confirms the dimension that drove the order
+    expect(screen.getByTestId("shows-sync-drive").textContent).toContain("Couldn't reach Drive");
+    expect(screen.getByTestId("shows-sync-review").textContent).toContain("Changes to review");
+    fireEvent.click(screen.getByTestId("shows-sort-sync")); // desc reverses
+    expect(rowOrder()).toEqual(["ok", "review", "drive"]);
+  });
+
+  it("the sort header is a real 44px tap target (min-h-tap-min) and the dates cell never wraps/truncates", () => {
+    render(
+      <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    expect(screen.getByTestId("shows-sort-dates").className).toContain("min-h-tap-min");
+    // title wraps (no truncate); dates are nowrap and not truncated
+    const link = screen.getByTestId("shows-table-row-rpas");
+    expect(link.innerHTML).not.toContain("truncate");
+    const datesCell = screen.getByTestId("shows-dates-rpas");
+    expect(datesCell.textContent).toBe("6/1/26 → 6/5/26");
+    expect(datesCell.className).toContain("whitespace-nowrap");
+    expect(datesCell.className).not.toContain("truncate");
   });
 });

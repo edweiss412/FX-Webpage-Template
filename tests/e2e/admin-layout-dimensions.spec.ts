@@ -94,18 +94,26 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
         .first()
         .getAttribute("data-testid");
       expect(firstRowId).toBeTruthy();
-      const row = (await gridTemplate(page, firstRowId!)).split(" ").map((v) => Number.parseFloat(v));
+      const row = (await gridTemplate(page, firstRowId!))
+        .split(" ")
+        .map((v) => Number.parseFloat(v));
       expect(row.length).toBe(header.length);
-      // The four FIXED tracks (8rem/5rem/12rem/1.25rem) must align exactly —
+      // The four FIXED tracks (10rem/5rem/12rem/1.25rem; Dates widened to 10rem
+      // in M12.10 so the range fits one line) must align exactly —
       // those are what keep the dates/crew/sync/chevron columns lined up between
       // the header and every row. The first (minmax(0,1fr)) title track differs
       // by ~2px because each row carries a 1px border the header does not, so
       // the flexible track absorbs the border-box delta. Tolerate only that 1fr
       // delta; everything else is exact.
       for (let i = 1; i < header.length; i++) {
-        expect(Math.abs(row[i]! - header[i]!), `fixed track ${i} alignment`).toBeLessThanOrEqual(TOL);
+        expect(Math.abs(row[i]! - header[i]!), `fixed track ${i} alignment`).toBeLessThanOrEqual(
+          TOL,
+        );
       }
-      expect(Math.abs(row[0]! - header[0]!), "1fr title track (row border delta)").toBeLessThanOrEqual(3);
+      expect(
+        Math.abs(row[0]! - header[0]!),
+        "1fr title track (row border delta)",
+      ).toBeLessThanOrEqual(3);
     }
   });
 
@@ -160,7 +168,9 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
 
       const rows = page.locator("[data-testid^='shows-table-row-']");
       const rowCount = await rows.count();
-      expect(rowCount, `seeded rows must render at ${width}px (run pnpm db:seed)`).toBeGreaterThan(0);
+      expect(rowCount, `seeded rows must render at ${width}px (run pnpm db:seed)`).toBeGreaterThan(
+        0,
+      );
       const firstRow = rows.first();
 
       // (a) Title track = the row grid's first column (minmax(0,1fr)). Measure
@@ -175,7 +185,9 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
         if (!cols || cols === "none") return -1; // not in grid mode (< 720px)
         return Number.parseFloat(cols.split(" ")[0] ?? "0");
       });
-      expect(titleTrack, `title grid track width at ${width}px`).toBeGreaterThanOrEqual(MIN_TITLE_PX);
+      expect(titleTrack, `title grid track width at ${width}px`).toBeGreaterThanOrEqual(
+        MIN_TITLE_PX,
+      );
 
       // (b) No horizontal overflow on the row (collapsed tracks push content out).
       const overflow = await firstRow.evaluate((el) => el.scrollWidth - el.clientWidth);
