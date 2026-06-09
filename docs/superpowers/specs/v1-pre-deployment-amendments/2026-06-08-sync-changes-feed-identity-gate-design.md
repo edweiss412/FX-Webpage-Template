@@ -64,13 +64,13 @@ sheet change → parse (unchanged) → runInvariants (unchanged: MI-1…MI-14)
                                  applyParseResult (HOLD-AWARE):
                                  reconcile sheet→live EXCEPT held entities
                                           │
-                              record events in sync_audit (extended)
+                          write show_change_log row (before/after image)
                                           │
                           per-show CHANGES FEED (admin show page)
                             • auto-applied → [Undo]
                             • mi11_pending → [Approve] [Reject]
                                           │
-                   Undo → restore entity from prior snapshot + undo_override hold
+                   Undo → restore entity from before_image + undo_override hold
                    Approve → release hold + apply new email (evicts/enables claim)
 ```
 
@@ -78,8 +78,8 @@ sheet change → parse (unchanged) → runInvariants (unchanged: MI-1…MI-14)
 1. **Decision rule** (`lib/sync/phase1.ts`) — route auto-apply vs hold-and-apply based on MI-11 presence.
 2. **`sync_holds` store + helpers** (new) — the per-entity hold set; CRUD + release evaluation.
 3. **Hold-aware apply** (`lib/sync/applyParseResult.ts`) — reconcile snapshot minus held entities.
-4. **Snapshot retention** — full `parse_result` retained on `sync_audit` for one-step undo.
-5. **Feed data layer** — read `sync_audit` (+ open `sync_holds`) per show.
+4. **`show_change_log` store** (new) — one row per change with `before_image`/`after_image`; the feed source and the one-step-undo before-image.
+5. **Feed data layer** — read `show_change_log` (+ open `sync_holds`) per show.
 6. **Feed + gate + undo UI** (Opus/impeccable) — admin show page.
 
 ---
@@ -103,16 +103,19 @@ A new table; one row per held change.
 
 - `UNIQUE (show_id, domain, entity_key)` — at most one active hold per entity (a new conflicting change supersedes / re-evaluates, never duplicates).
 - `CHECK (domain in ('crew_email','crew_identity'))` for v1 (extensible later). **Migration discipline:** the inline `tables/`-equivalent CHECK and any `migrations/` CHECK must accept the same set; new domains use `DROP CONSTRAINT IF EXISTS` + `ADD` for apply-twice idempotency.
-- **PostgREST DML lockdown:** `sync_holds` mutations flow only through SECURITY DEFINER RPCs (advisory-lock-gated). `REVOKE INSERT, UPDATE, DELETE ON public.sync_holds FROM anon, authenticated;` in the creating migration, **and** a `RPC_GATED_TABLES` registry row in `tests/db/postgrest-dml-lockdown.test.ts` (per the class-wide invariant). It is also covered by the new `validation-schema-parity` gate automatically (it's a `public` table → manifest).
+- **Lock topology + PostgREST lockdown (single-holder rule, invariant 2).** Two entry points write `sync_holds`, each acquiring the per-show advisory lock at **exactly one** layer, never nested:
+  - **Sync/apply path** — the JS wrapper already holds `pg_advisory_xact_lock(hashtext('show:'||drive_file_id))` (`lib/sync/lockedShowTx.ts:57`). Hold reads/writes here run as **direct service-role SQL inside that transaction** — NO nested lock-taking RPC (calling one would deadlock and violate `tests/auth/advisoryLockRpcDeadlock.test.ts`).
+  - **Admin actions** (Approve/Reject/Undo) run OUTSIDE any JS-held lock, so they go through a **SECURITY DEFINER RPC that itself acquires the show lock** (blocking `pg_advisory_xact_lock`) — the lock is taken at one layer (the RPC), and these RPCs are never invoked from within a JS-held show lock.
+  - **PostgREST DML lockdown:** `REVOKE INSERT, UPDATE, DELETE ON public.sync_holds FROM anon, authenticated;` forces every PostgREST-reachable (admin) mutation through those RPCs; the sync pipeline writes as `service_role`, exempt from the REVOKE. Add the `RPC_GATED_TABLES` registry row in `tests/db/postgrest-dml-lockdown.test.ts` **and extend `tests/auth/advisoryLockRpcDeadlock.test.ts`** to pin the new admin RPC surfaces (lock-taking, never nested under a JS holder). Also covered automatically by `validation-schema-parity` (public table → manifest).
 
 ### 4.2 Hold-aware apply contract
 `applyParseResult` (`lib/sync/applyParseResult.ts:49`) gains a hold lookup at the top of the locked transaction and applies this contract **per entity**, leaving all non-held entities to the existing whole-snapshot reconcile:
 
-- **`crew_email` hold on crew "Alice":** when upserting Alice's row, write `held_value.email` instead of the parse's email. Everything else about Alice (and every other crew member) follows the sheet.
-- **`crew_identity` hold (undo of a rename/removal):** retain the held entity row (re-insert if the parse would delete it) and suppress the conflicting added row, per §6.3.
+- **`crew_email` hold on crew "Alice":** the held crew member is **frozen** until the hold resolves. Concretely: **(a)** Alice's name is **excluded from `deleteCrewMembersNotIn`** (`lib/sync/applyParseResult.ts:53`; `lib/sync/runScheduledCronSync.ts:1104`) so a later sheet edit cannot drop her while the hold is open; **(b)** on upsert her email is pinned to `held_value.email` (the rest of her row follows the sheet); **(c)** if a later parse **renames** Alice (MI-12/13/14 emit a removed `Alice` + an added `Alicia` — `lib/parser/invariants.ts:596`), the rename does **not** auto-apply over the hold — the added `Alicia` row is suppressed and the rename is **folded into the pending decision** (the feed entry escalates to "email change + rename"), so Approval stays the *only* moment Alice's old-email claim is evicted. Resolving the hold then applies or discards the combined change. Everything about every *non-held* crew member follows the sheet.
+- **`crew_identity` hold (undo of a rename/removal):** retain the held entity row (re-insert if the parse would delete it, and exclude its name from `deleteCrewMembersNotIn`) and suppress the conflicting added row, per §6.3.
 - All section/field steps are unchanged in v1 (no holds in those domains yet).
 
-**Grain & contract:** the apply remains *one row per crew member per show*; the hold layer only **substitutes values for held keys**, never changes row cardinality semantics beyond "retain a held entity the sheet would drop." Single advisory-lock holder is preserved — holds are read and written **inside** the existing `withPostgresSyncPipelineLock` transaction (`lib/sync/runScheduledCronSync.ts`); no new lock layer (plan-wide invariant 2).
+**Grain & contract:** the apply remains *one row per crew member per show*; the hold layer only **substitutes values for held keys** and **suppresses deletion of held entities**, never otherwise changing row cardinality. Lock ownership follows §4.1: the sync-path apply reads/writes holds inside the existing show-locked transaction (JS holder); admin-path hold mutations acquire the lock via their own SECURITY DEFINER RPC. Single-holder per key is preserved — the lock is acquired at exactly one layer in each path, never nested (invariant 2).
 
 ### 4.3 Release semantics
 A hold releases (row deleted) when **either**:
@@ -144,15 +147,34 @@ No zombie states: every hold is written by exactly one path, read by the apply +
 
 ## 6. The changes feed (admin show page)
 
-### 6.1 Data source
-Backed by `sync_audit` (`supabase/migrations/20260501001000_internal_and_admin.sql:204`), already indexed `(show_id, applied_at desc)` and `(drive_file_id, applied_at desc)` — purpose-built for a per-show reverse-chron feed. **Extension:** today `sync_audit` is written only on the review-Apply path (`lib/sync/applyStaged.ts:881`). Auto-applies (Phase 2) must **also** write `sync_audit` rows so the feed shows them. Open `sync_holds` rows are joined in as `pending` / `undone` entries.
+### 6.1 Data source — new `show_change_log` table
+`sync_audit` **cannot** back the feed: its `staged_id`, `reviewer_choices`, `derived_side_effects`, `parse_result_summary`, `staged_modified_time` columns are NOT NULL staged-review fields (`supabase/migrations/20260501001000_internal_and_admin.sql:204-216`) that a non-staged Phase-2 auto-apply has no values for, and the only writer inserts exactly that staged payload (`lib/sync/applyStaged.ts:873-889,1391-1401`). Overloading it would force fake review data the feed/undo layer would misread. So the feed gets a **dedicated table**; `sync_audit` is left unchanged (it stays the formal MI-11-approval audit).
+
+**`show_change_log`** — one row per notable change, written on **every** apply path (auto-apply, MI-11 approve/reject, undo):
+
+| column | type | meaning |
+|---|---|---|
+| `id` | uuid pk | |
+| `show_id` | uuid fk → shows | |
+| `drive_file_id` | text not null | |
+| `occurred_at` | timestamptz not null default now() | feed sort key — index `(show_id, occurred_at desc)` |
+| `source` | text not null | `auto_apply` \| `mi11_approve` \| `mi11_reject` \| `undo` |
+| `change_kind` | text not null | invariant code (`MI-12`, …) or structural (`crew_added` / `crew_removed` / `field_changed`) |
+| `entity_ref` | text | the affected entity (crew name; section+key) — addresses per-item undo |
+| `summary` | text not null | rendered copy via `lib/messages` (no raw codes, invariant 5) |
+| `before_image` | jsonb | the affected entities' **pre-apply** values — the undo source (§7) |
+| `after_image` | jsonb | the applied values (feed display) |
+| `status` | text not null | `applied` \| `pending` \| `rejected` \| `undone` |
+| `undo_of` | uuid fk → show_change_log | set on an undo row; points at the entry it reverts |
+
+The feed reads `show_change_log` (+ open `sync_holds` for `pending` MI-11 entries). Same lockdown posture as `sync_holds` (§4.1): REVOKE from anon/authenticated, RPC-gated writes, `RPC_GATED_TABLES` registry row, and automatic `validation-schema-parity` coverage (public table → manifest). **CHECK** constraints on `source`/`status`/`change_kind` use `DROP ... IF EXISTS` + `ADD` for apply-twice idempotency.
 
 ### 6.2 Entry shape & scope
 Each feed entry: `{ summary, occurred_at, status, action }` where `status ∈ {auto_applied, pending, rejected, undone}` and `action ∈ {undo, approve_reject, none}`. **Scope (signal-rich, not noisy):** entries cover the invariant-flagged changes (MI-6…MI-14, asset drift) + notable structural changes (crew add/remove). Routine field syncs that trip no invariant are **not** individually logged. **Cap/truncation:** the feed shows the most recent *N* (proposed 50) entries with an explicit "older changes not shown" note when truncated (never a silent cut).
 
 ### 6.3 Undo flow (per-item, one-step)
 On an `auto_applied` entry → **Undo** (admin-gated, advisory-locked):
-1. Restore the affected entity from the **retained prior snapshot** (§7): for a removal/rename, re-insert the prior entity row and suppress the sheet's replacement; for a field change, restore the prior value.
+1. Restore the affected entity from the entry's **`before_image`** (§7): for a removal/rename, re-insert the prior entity row and suppress the sheet's replacement; for a field change, restore the prior value.
 2. Write an `undo_override` hold (`domain='crew_identity'` for rename/removal, `held_value=<prior entity row>`; `entity_key` = the prior crew name; for a rename the key also records the suppressed added name so the apply skips re-adding it).
 3. The show **keeps syncing**; only the held entity is pinned. The feed entry flips to *"undone — overriding the sheet."*
 4. **Release** per §4.3: when the sheet's value for that entity next changes, the override releases and the new value applies. One-step — the override pins the immediately-prior value only.
@@ -161,9 +183,13 @@ On an `auto_applied` entry → **Undo** (admin-gated, advisory-locked):
 
 ---
 
-## 7. Prior-snapshot retention
+## 7. Prior-state retention for undo
 
-Undo restores an entity to its pre-apply value, so the **last applied snapshot per show** is retained. **Decision (approved):** store the full `parse_result` on the `sync_audit` row (today it stores `parse_result_summary` only — `sync_audit` DDL at migration `:211-214`). One-step undo reads the most recent `sync_audit.parse_result` for the show. (Rejected alternative: a `last_applied_snapshot` column on `shows`.) Retention is one row deep for undo purposes; older `sync_audit` rows keep their summary for the feed history but need not retain full payloads (storage bound).
+Undo restores an entity to its **pre-apply** value, so each `show_change_log` row carries a **`before_image`** of the entities it changed, captured at apply time *before* the reconcile writes the new values. Undo re-inserts a removed/renamed entity from `before_image` or restores a changed field from it.
+
+**Why before-image, not the applied `parse_result`** (corrects the original §7 and adversarial finding F2): the most-recent *applied* `parse_result` is the **post**-change state, so reading it after an auto-applied removal/rename returns the current live sheet state and **cannot** reconstruct the removed prior entity. The prior crew snapshot otherwise exists only transiently in `applyShowSnapshot`'s return (`lib/sync/runScheduledCronSync.ts:1084`) and is not persisted anywhere. The per-entry `before_image` is the only reliable undo source.
+
+**Retention / cleanup:** `before_image` is kept while undo is available — one-step, i.e. until a newer change to the **same entity** supersedes it. A cleanup pass MAY null `before_image` on superseded rows to bound storage; the feed-history row survives via `summary` + `after_image`. **Decision (approved goal — one-step undo retention; mechanism corrected by F2):** per-entry before/after on `show_change_log`, not full `parse_result` on `sync_audit`.
 
 ---
 
@@ -180,18 +206,22 @@ All UI ships under invariant 8 (impeccable dual-gate) and the UI-always-Opus rou
 ## 9. Migration & test surface
 
 **Meta-tests created/extended (declared up front per writing-plans discipline):**
-- `tests/db/postgrest-dml-lockdown.test.ts` — **extended** with a `sync_holds` `RPC_GATED_TABLES` row + REVOKE.
-- `validation-schema-parity` — **automatic** coverage of `sync_holds` (new `public` table → manifest; regen + apply to validation per the gate's checklist).
-- New structural test pinning the **single advisory-lock holder** across the hold read/write (extends `tests/auth/advisoryLockRpcDeadlock.test.ts` topology if a new RPC surface is added).
+- `tests/db/postgrest-dml-lockdown.test.ts` — **extended** with `RPC_GATED_TABLES` rows + REVOKEs for **both** `sync_holds` and `show_change_log`.
+- `tests/auth/advisoryLockRpcDeadlock.test.ts` — **extended** to pin the new admin lock-taking RPC surfaces (Approve/Reject/Undo, and any hold/change-log mutation RPC) as single-layer holders never nested under a JS-held show lock (the §4.1 topology).
+- `validation-schema-parity` — **automatic** coverage of `sync_holds` + `show_change_log` (new `public` tables → manifest; regen + apply to validation per the gate's checklist).
 
-**Migrations:** `sync_holds` table + REVOKE + RPC(s); `sync_audit.parse_result` column add (`add column if not exists parse_result jsonb`); apply both to the validation project (the `validation-schema-parity` gate will fail until they land there).
+**Migrations:** `sync_holds` table + REVOKE + RPC(s); `show_change_log` table + REVOKE + RPC(s) + `(show_id, occurred_at desc)` index; apply **all** to the validation project (the `validation-schema-parity` gate fails until they land there). `sync_audit` is **unchanged** (the feed does not write to it — finding F1).
 
 **Key test cases (each names its failure mode):**
 - Decision rule: MI-11-only parse → email held, rest applied (catches "whole-parse still staged").
-- Hold-aware apply: held crew keeps old email while a sibling crew's email change (no MI-11? — N/A) / a hotel drop applies (catches "hold blocks unrelated changes").
+- Hold-aware apply: held crew keeps old email while a hotel drop in the same parse applies (catches "hold blocks unrelated changes").
+- **Rename-while-held (F3):** Alice has an open MI-11 email hold; next parse renames Alice→Alicia → Alice is NOT deleted, Alicia add is suppressed, the pending decision escalates; the old-email claim is evicted ONLY on Approve (catches "hold bypassed by rename").
 - MI-11 Approve evicts old-email claim + enables new (catches "email applied without claim transition").
+- **Undo before-image (F2):** auto-applied crew removal → undo re-inserts the removed crew member from `before_image` (catches "undo reads post-state and can't restore a removed entity").
 - Undo restores one entity, leaves siblings (catches "undo clobbers FYI changes").
 - Undo + sheet-still-conflicts → no re-apply next sync; sheet-reconciled → override releases (catches whack-a-mole + stuck-override).
+- **Auto-apply change-log insert (F1):** a Phase-2 auto-apply writes a `show_change_log` row with no staged fields (catches "feed row needs staged_id/reviewer_choices").
+- **Lock topology (F4):** an admin Approve RPC acquires the show lock and is never invoked under a JS-held lock; a concurrent cron sync serializes on the same key without deadlock.
 - Same-email rename (MI-12) auto-applies and an OAuth viewer self-heals (catches "rename gated" regression).
 
 **Invariants preserved:** advisory-lock single-holder (2), email canonicalization at boundaries (3), no global cursor (4), no raw error codes in feed copy (5), spec-canonical (7), impeccable dual-gate on UI (8), Supabase call-boundary discipline (9).
@@ -207,6 +237,7 @@ All UI ships under invariant 8 (impeccable dual-gate) and the UI-always-Opus rou
 ---
 
 ## 11. Open questions for spec review
-- `sync_audit.parse_result` storage growth — acceptable to retain full payload only on the most-recent row per show, summary on older? (Proposed yes.)
-- Exact `entity_key` encoding for a `crew_identity` undo of a rename (records both retained + suppressed names) — confirm the format in the plan.
+- `show_change_log.before_image` storage growth — confirm the cleanup pass (null superseded before-images) is sufficient; define its trigger (on next change to the same entity vs a periodic reaper).
+- Exact `entity_key` / `entity_ref` encoding for a `crew_identity` undo of a rename (records both the retained and the suppressed name) — confirm the format in the plan.
 - Feed entry cap (proposed 50) and whether sync *failures* (`sync_log`, distinct from `sync_audit`) appear in the same feed or a separate "technical log" expander.
+- Escalation copy for a rename-folded-into-an-MI-11-hold (§4.2c) — the combined "email change + rename" pending entry needs a catalog string in §12.4 / `lib/messages`.
