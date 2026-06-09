@@ -249,3 +249,37 @@ end;
 $$;
 revoke all on function public.undo_change(uuid) from public, anon;
 grant execute on function public.undo_change(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- cleanup_superseded_before_images(p_show_id) — one-step before_image retention (resolution #9 /
+-- spec §7) + supersession flip (PF19 / resolution #18). Called from the Phase-2 apply TAIL inside the
+-- existing show lock (NO new lock — single-holder per §4.1). In ONE idempotent pass over crew-domain
+-- rows: for any 'applied' row that has a NEWER same-entity_ref crew-domain change-log row, set
+-- before_image = null AND status = 'superseded' (NEVER one without the other — a status='applied' row
+-- with a NULL before_image would mis-route undo_change into the tombstone branch and corrupt crew).
+-- summary + after_image survive (feed history intact). Already-undone/superseded rows are untouched.
+-- SECURITY INVOKER + EXECUTE REVOKEd from public/anon/authenticated: it mutates the RPC-gated
+-- show_change_log, so it must run only inside the service-role-held sync txn (the hold port calls it),
+-- never via a direct PostgREST rpc().
+-- ---------------------------------------------------------------------------
+create or replace function public.cleanup_superseded_before_images(p_show_id uuid)
+  returns void language plpgsql security invoker
+  set search_path = public, pg_temp as $$
+begin
+  update public.show_change_log older
+     set before_image = null, status = 'superseded'
+   where older.show_id = p_show_id
+     and older.status = 'applied'
+     and older.change_kind in ('crew_added', 'crew_removed', 'crew_renamed')
+     and exists (
+       select 1 from public.show_change_log newer
+        where newer.show_id = older.show_id
+          and newer.entity_ref is not distinct from older.entity_ref
+          and newer.id <> older.id
+          and newer.occurred_at > older.occurred_at
+          -- a NEWER row (any source/kind) to the same entity supersedes the older undoable row.
+     );
+end;
+$$;
+revoke execute on function public.cleanup_superseded_before_images(uuid)
+  from public, anon, authenticated;
