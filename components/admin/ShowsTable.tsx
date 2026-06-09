@@ -18,7 +18,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronRight, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, ChevronsUpDown, Search } from "lucide-react";
 import {
   formatDateRange,
   formatRelative,
@@ -46,8 +46,47 @@ type ShowsTableProps = {
 // gridTemplateColumns and the labels wouldn't align (the real-browser layout
 // test caught this). Fixed lengths + a 1fr title track make every grid resolve
 // to identical tracks at the same container width.
+// M12.10: the Dates track is 10rem (was 8rem) so the full "M/D/YY → M/D/YY"
+// range always fits on ONE line (whitespace-nowrap) — the longest range
+// ("12/31/26 → 12/31/26") measures ~140px, which 8rem (128px) truncated. The
+// 1fr Show track lets long titles WRAP (no truncation) while the row stays
+// vertically centered (items-center). Crew/Sync wrap within their tracks too.
 const ROW_GRID =
-  "min-[720px]:grid min-[720px]:grid-cols-[minmax(0,1fr)_8rem_5rem_12rem_1.25rem] min-[720px]:items-center min-[720px]:gap-4";
+  "min-[720px]:grid min-[720px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_1.25rem] min-[720px]:items-center min-[720px]:gap-4";
+
+// M12.10 — sortable columns. `null` = the server's incoming order (live-first),
+// preserved until the user picks a column. Nulls (no dates / never-synced)
+// always sort LAST regardless of direction; ties break by title for stability.
+type SortKey = "title" | "dates" | "crew" | "sync";
+type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
+
+function sortValue(row: ActiveShowRow, key: SortKey): string | number | null {
+  switch (key) {
+    case "title":
+      return rowTitle(row).toLowerCase();
+    case "dates":
+      return row.showDateStart; // ISO 'YYYY-MM-DD' (lexically sortable) or null
+    case "crew":
+      return row.crewCount ?? 0;
+    case "sync":
+      return row.lastSyncedAt; // ISO timestamp (lexically sortable) or null
+  }
+}
+
+function sortRows(rows: ActiveShowRow[], sort: SortState): ActiveShowRow[] {
+  if (!sort) return rows;
+  const dir = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = sortValue(a, sort.key);
+    const bv = sortValue(b, sort.key);
+    if (av == null && bv == null) return rowTitle(a).localeCompare(rowTitle(b));
+    if (av == null) return 1; // nulls last, both directions
+    if (bv == null) return -1;
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return rowTitle(a).localeCompare(rowTitle(b)); // stable tiebreak
+  });
+}
 
 function StatePill({ row }: { row: ActiveShowRow }) {
   if (row.isLive) {
@@ -111,6 +150,7 @@ export function ShowsTable({
   bucketControl,
 }: ShowsTableProps) {
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortState>(null);
 
   const trimmed = query.trim().toLowerCase();
   const filtered = useMemo(
@@ -120,11 +160,53 @@ export function ShowsTable({
         : rows.filter((row) => rowTitle(row).toLowerCase().includes(trimmed)),
     [rows, trimmed],
   );
+  // Find narrows the set; sort orders it. Sorting after filtering keeps the two
+  // independent (a sort persists across query edits).
+  const visible = useMemo(() => sortRows(filtered, sort), [filtered, sort]);
 
   // The Find control is hidden when there are no rows to search (the empty
   // state owns the surface). It always renders when ≥1 show exists, even if a
   // query filters everything out (so the user can clear the query).
   const showFind = rows.length > 0;
+
+  // M12.10 — a sortable column header. Click toggles asc↔desc on the active
+  // column, or selects a new column (asc). The 44px tap floor (DESIGN §10) is
+  // met by min-h-tap-min filling the header cell. SR users get the live sort
+  // state via aria-label; the arrow glyph is decorative.
+  const sortHeader = (key: SortKey, label: string) => {
+    const active = sort?.key === key;
+    const dir = active ? sort.dir : null;
+    return (
+      <button
+        type="button"
+        data-testid={`shows-sort-${key}`}
+        aria-label={
+          active
+            ? `Sort by ${label}, currently ${dir === "asc" ? "ascending" : "descending"}`
+            : `Sort by ${label}`
+        }
+        onClick={() =>
+          setSort((prev) =>
+            prev?.key === key
+              ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+              : { key, dir: "asc" },
+          )
+        }
+        className="flex min-h-tap-min w-full items-center gap-1 text-left transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring"
+      >
+        <span>{label}</span>
+        {active ? (
+          dir === "asc" ? (
+            <ArrowUp aria-hidden="true" className="size-3 shrink-0 text-text" />
+          ) : (
+            <ArrowDown aria-hidden="true" className="size-3 shrink-0 text-text" />
+          )
+        ) : (
+          <ChevronsUpDown aria-hidden="true" className="size-3 shrink-0 opacity-40" />
+        )}
+      </button>
+    );
+  };
 
   return (
     <div data-testid="shows-table" className="flex flex-col gap-3">
@@ -189,8 +271,8 @@ export function ShowsTable({
             // searched (adversarial R1, M12.3). Scope the copy honestly so a
             // no-match never reads as "this show does not exist".
             <>
-              No matches for “{query.trim()}” among the {rows.length} shown shows —{" "}
-              {overflowCount} more aren’t loaded here.
+              No matches for “{query.trim()}” among the {rows.length} shown shows — {overflowCount}{" "}
+              more aren’t loaded here.
             </>
           ) : (
             <>No shows match “{query.trim()}”.</>
@@ -200,21 +282,24 @@ export function ShowsTable({
         // Clean table: ONE bordered/rounded container; header + rows separated
         // by light dividers (divide-y) — no per-row boxed cards (M12.3 item 10).
         <div className="overflow-hidden rounded-md border border-border bg-surface">
-          {/* Header — desktop only; shares ROW_GRID column tracks with the rows. */}
+          {/* Header — desktop only; shares ROW_GRID column tracks with the rows.
+              M12.10: each label is a sort button (44px tap area via min-h-tap-min,
+              so the header row grows to ~44px). No py on the container — the
+              buttons carry the height. */}
           <div
             data-testid="shows-table-header"
-            className={`hidden border-b border-border bg-surface-sunken px-4 py-2 text-xs font-medium uppercase text-text-subtle ${ROW_GRID}`}
+            className={`hidden border-b border-border bg-surface-sunken px-4 text-xs font-medium uppercase text-text-subtle ${ROW_GRID}`}
             style={{ letterSpacing: "var(--tracking-eyebrow)" }}
           >
-            <span>Show</span>
-            <span>Dates</span>
-            <span>Crew</span>
-            <span>Sync status</span>
+            {sortHeader("title", "Show")}
+            {sortHeader("dates", "Dates")}
+            {sortHeader("crew", "Crew")}
+            {sortHeader("sync", "Sync status")}
             <span aria-hidden="true" />
           </div>
 
           <ul className="divide-y divide-border">
-            {filtered.map((row) => {
+            {visible.map((row) => {
               const dates = formatDateRange(row.showDateStart, row.showDateEnd);
               const crewLabel = `${row.crewCount ?? 0} crew`;
               return (
@@ -227,7 +312,10 @@ export function ShowsTable({
                     {/* Show cell — title + state pill (always visible) */}
                     <div className="flex min-w-0 flex-col gap-1">
                       <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-text-strong">
+                        {/* M12.10: title WRAPS (no truncate) — min-w-0 + break-words
+                            let a long name flow to a second line; the row stays
+                            vertically centered (grid items-center). */}
+                        <span className="min-w-0 break-words text-sm font-semibold text-text-strong">
                           {rowTitle(row)}
                         </span>
                         <StatePill row={row} />
@@ -243,17 +331,22 @@ export function ShowsTable({
                       </div>
                     </div>
 
-                    {/* Desktop columns (hidden <md). min-w-0 + truncate so content
-                        stays within its fixed grid track and never pushes alignment. */}
-                    <span className="hidden min-w-0 truncate text-sm text-text-subtle tabular-nums min-[720px]:block">
+                    {/* Desktop columns (hidden <md). M12.10: NO truncation.
+                        Dates never wrap (whitespace-nowrap) and fit the widened
+                        10rem track; Crew is short; Sync wraps within its track.
+                        All vertically centered via the grid's items-center. */}
+                    <span
+                      data-testid={`shows-dates-${row.slug}`}
+                      className="hidden whitespace-nowrap text-sm text-text-subtle tabular-nums min-[720px]:block"
+                    >
                       {dates ?? "—"}
                     </span>
-                    <span className="hidden min-w-0 truncate text-sm text-text-subtle tabular-nums min-[720px]:block">
+                    <span className="hidden text-sm text-text-subtle tabular-nums min-[720px]:block">
                       {crewLabel}
                     </span>
                     <span
                       data-testid={`shows-sync-${row.slug}`}
-                      className="hidden min-w-0 overflow-hidden text-sm min-[720px]:block"
+                      className="hidden text-sm min-[720px]:block"
                     >
                       <SyncCell row={row} now={now} />
                     </span>
@@ -277,8 +370,8 @@ export function ShowsTable({
           data-testid="shows-table-overflow"
           className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
         >
-          Showing the first {rows.length} of {activeCount} shows. Contact the developer if you
-          need the full list.
+          Showing the first {rows.length} of {activeCount} shows. Contact the developer if you need
+          the full list.
         </p>
       ) : null}
     </div>
