@@ -167,6 +167,11 @@ export async function planHoldAwareApply(
   const suppressedNames = new Set<string>();
   // emails to suppress (reservation / tombstone collisions) keyed by canonical email.
   const suppressedEmails = new Set<string>();
+  // Rows consumed by a rename/removal fold (the held crew's OWN target, NOT a different-entity
+  // collision). P2-F1: these must be EXCLUDED from reservation_collisions — a folded row is the
+  // hold's own rename target, so recording it would make Phase-3 Approve reject IDENTITY_WOULD_COLLIDE
+  // on the valid fold. Keyed by parse-row name.
+  const foldConsumedNames = new Set<string>();
   // held_value rows to retain/re-insert even if the parse drops them.
   const retainRows = new Map<string, CrewMemberRow>();
   // non-identity field overrides to apply onto a pinned held row (from a folded rename row).
@@ -222,6 +227,7 @@ export async function planHoldAwareApply(
       if (renameRow) {
         // Suppress the added row; fold proposed_value → rename; apply its non-identity onto pinned old row.
         suppressedNames.add(renameRow.name);
+        foldConsumedNames.add(renameRow.name); // P2-F1: the hold's own target, not a collision.
         nonIdentityOverride.set(hold.entity_key, renameRow);
         retainRows.set(hold.entity_key, rowFromHeldValue(held));
         mutations.push({
@@ -265,11 +271,21 @@ export async function planHoldAwareApply(
     }
   }
 
+  // P2-F1: reservations must reserve the EFFECTIVE (post-fold/retarget) proposed identity, not the
+  // stale DB proposed_value. Build the effective proposed per hold from this apply's retarget
+  // mutations; holds with no retarget keep their current proposed_value.
+  const effectiveProposed = new Map<string, Record<string, unknown> | null>();
+  for (const mut of mutations) {
+    if (mut.kind === "retarget") effectiveProposed.set(mut.holdId, mut.proposed);
+  }
+
   // ---- Reservation (Task 2.7): reserve every surviving hold's proposed email+name; suppress
   // DIFFERENT-entity rows colliding with a reservation; record them in reservation_collisions. ----
   computeReservations(survivingHolds, parseResult, {
     suppressedNames,
     suppressedEmails,
+    foldConsumedNames,
+    effectiveProposed,
     mutations,
     baseModifiedTime: proposedBaseTime(args),
   });
@@ -365,6 +381,8 @@ function computeReservations(
   out: {
     suppressedNames: Set<string>;
     suppressedEmails: Set<string>;
+    foldConsumedNames: Set<string>;
+    effectiveProposed: Map<string, Record<string, unknown> | null>;
     mutations: Array<
       | { kind: "retarget"; holdId: string; proposed: Record<string, unknown>; baseModifiedTime: string }
       | { kind: "reservation"; holdId: string; collisions: Array<{ name: string; email: string | null }> }
@@ -377,7 +395,10 @@ function computeReservations(
       // undo_override reservations are handled via suppressedNames above; no collision recording.
       continue;
     }
-    const proposed = hold.proposed_value as Record<string, unknown> | null;
+    // P2-F1: reserve the EFFECTIVE (post-fold/retarget) proposed identity, not the stale DB value.
+    const proposed = out.effectiveProposed.has(hold.id)
+      ? out.effectiveProposed.get(hold.id)!
+      : (hold.proposed_value as Record<string, unknown> | null);
     if (!proposed) {
       out.mutations.push({ kind: "reservation", holdId: hold.id, collisions: [] });
       continue;
@@ -388,6 +409,9 @@ function computeReservations(
     for (const m of parseResult.crewMembers) {
       // A different-entity row (not the held crew itself) colliding with the reserved email or name.
       if (m.name === hold.entity_key) continue;
+      // P2-F1: a row consumed by THIS hold's rename/removal fold is the hold's OWN target, not a
+      // different-entity collision — never record it. (Reservation still suppresses other rows.)
+      if (out.foldConsumedNames.has(m.name)) continue;
       const e = canonEmail(m.email);
       const emailCollides = reservedEmail != null && e === reservedEmail;
       const nameCollides = reservedName != null && m.name === reservedName;

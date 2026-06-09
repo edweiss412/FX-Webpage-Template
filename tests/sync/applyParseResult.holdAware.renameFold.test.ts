@@ -110,4 +110,45 @@ describe("hold-aware apply — held-crew rename fold (Task 2.5, F8 + R9)", () =>
       expect(holds[0]!.proposed_value).toEqual({ disposition: "rename", name: "Alicia", email: "a@new" });
     });
   });
+
+  it("P2-F1 — a folded rename row is NOT recorded as a reservation collision", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId, aliceLive, aliceRow } = await setup(tx);
+      // Held Alice a@old→a@new; sheet drops Alice + adds Alicia/a@new → this is the held crew's
+      // OWN rename target (consumed by the fold), NOT a different-entity collision.
+      const next = parseResult([crew("Alicia", { email: "a@new" })]);
+      await applyParseResult(applyTx(tx), {
+        driveFileId,
+        parseResult: next,
+        snapshot: snapshot(showId, [prevMember(aliceRow, aliceLive)]),
+        holds: { port: holdPort(tx), baseModifiedTime: MT2 },
+      });
+
+      const holds = await readHolds(tx, showId);
+      // The fold consumed Alicia → proposed is the rename; reservation_collisions must be EMPTY so
+      // Phase-3 Approve does not reject the valid folded rename with IDENTITY_WOULD_COLLIDE.
+      expect(holds[0]!.proposed_value).toEqual({ disposition: "rename", name: "Alicia", email: "a@new" });
+      expect(holds[0]!.reservation_collisions).toEqual([]);
+    });
+  });
+
+  it("P2-F1 control — a GENUINE distinct collision (no fold) IS still recorded", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId, aliceLive, aliceRow } = await setup(tx);
+      // Alice STILL present (no rename fold — she keeps her own row at a@new) AND a distinct Alicia
+      // also claims a@new → genuine reservation collision, recorded.
+      const next = parseResult([crew("Alice", { email: "a@new" }), crew("Alicia", { email: "a@new" })]);
+      await applyParseResult(applyTx(tx), {
+        driveFileId,
+        parseResult: next,
+        snapshot: snapshot(showId, [prevMember(aliceRow, aliceLive)]),
+        holds: { port: holdPort(tx), baseModifiedTime: MT2 },
+      });
+
+      const rows = await readCrew(tx, showId);
+      expect(rows.find((r) => r.name === "Alicia")).toBeUndefined(); // suppressed
+      const holds = await readHolds(tx, showId);
+      expect(holds[0]!.reservation_collisions).toEqual([{ name: "Alicia", email: "a@new" }]);
+    });
+  });
 });
