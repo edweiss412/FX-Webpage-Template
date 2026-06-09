@@ -21,9 +21,10 @@
    - `action: "none"` → no button (non-crew notification-only rows, §6.2).
 3. **Slimmed MI-11 gate card** — replace the whole-parse `StagedReviewCard` review path with a focused **email/rename/removal disposition Approve/Reject card** rendered from the `sync_holds` disposition. **Remove the legacy whole-parse `ParsePanel` + `StagedReviewCard` mount** from the per-show page (no invariant stages a whole parse anymore — §8). The MI-11 pending entries surface inside the feed (`status: "pending"`, `action: "approve_reject"`); a focused gate card is the entry body for those rows.
 
-**Mode boundaries (the three entry render modes — name which elements belong to which):**
-- `auto_applied` / `undone` / `rejected` rows → summary + time + status badge + (Undo | none).
+**Mode boundaries (the entry render modes — name which elements belong to which):**
+- `applied` (auto-applied) / `undone` / `rejected` rows → summary + time + status badge + (Undo | none).
 - `pending` (MI-11) rows → summary + time + **"Pending review" badge** + **[Approve] [Reject]** bound to `entry.gate.holdId`. **PF17: the old→new text is the server-rendered `entry.summary` (no separate disposition-detail field); the swap/collision/`IDENTITY_WOULD_COLLIDE` outcome is NOT pre-rendered — it surfaces post-submit from the Approve action's typed result. There is no pre-computed `[Approve group]` button or conflict-no-button state on the entry.**
+- `superseded` rows (PF21 — canonical 5th status) → summary + time + **muted "Superseded" badge** ("Replaced by a newer change") + **NO action** (`action='none'`; never Undo/Approve — a replaced entry is inert history). Same shell as the other action-less rows.
 - Shared across ALL modes: the `<li>` row shell, the `<time>` element, the status badge slot, the summary `<p>` (which carries the old→new text for pending rows).
 
 ---
@@ -44,6 +45,9 @@ describe("ChangeFeedBadge", () => {
     ["pending", "Pending review"],
     ["rejected", "Rejected"],
     ["undone", "Undone"],
+    // PF21: 'superseded' is the canonical 5th ChangeStatus — a newer change
+    // replaced this entry. Muted, action-less.
+    ["superseded", "Superseded"],
   ] as const)("renders %s with visible text label", (status, label) => {
     render(<ChangeFeedBadge status={status} />);
     expect(screen.getByText(label)).toBeInTheDocument();
@@ -54,10 +58,17 @@ describe("ChangeFeedBadge", () => {
     // a11y: textContent must carry the meaning, not an aria-hidden dot
     expect(container.textContent?.trim()).toBe("Rejected");
   });
+
+  it("renders the superseded badge with a muted label (PF21)", () => {
+    render(<ChangeFeedBadge status="superseded" />);
+    // copy comes from lib/messages — the raw status string never appears
+    expect(screen.getByText("Superseded")).toBeInTheDocument();
+    expect(screen.queryByText("superseded")).toBeNull();
+  });
 });
 ```
 
-- [ ] **Impl** `components/admin/ChangeFeedBadge.tsx`. Map `ChangeStatus` → `{label, className}` using DESIGN.md tokens (`bg-info-bg`/`text-text-subtle` for pending, `bg-warning-bg`/`text-warning-text` for rejected, positive tokens for applied, neutral for undone). Status text is a real text node (not color-only — DESIGN §a11y, mirrors `StatusIndicator` discipline).
+- [ ] **Impl** `components/admin/ChangeFeedBadge.tsx`. Map the canonical `ChangeStatus` (`applied | pending | rejected | undone | superseded`) → `{label, className}` using DESIGN.md tokens: positive tokens for `applied`; `bg-info-bg`/`text-text-subtle` for `pending`; `bg-warning-bg`/`text-warning-text` for `rejected`; neutral for `undone`; **muted/quiet tokens (`bg-surface-sunken`/`text-text-subtle`) for `superseded`** so a replaced entry reads as inactive history, not an active state. The label copy is resolved via `lib/messages` (no raw status string in the DOM — invariant 5); the `superseded` label is **"Superseded"** with helper/title copy **"Replaced by a newer change."** Status text is a real text node (not color-only — DESIGN §a11y, mirrors `StatusIndicator` discipline).
 - [ ] Commit `feat(admin): change-feed status badge`.
 
 ### T6.2 — Relative-time rendering (reuse existing helper)
@@ -233,6 +244,20 @@ it("notification-only (none) row offers NO action button", () => {
     />,
   );
   const row = screen.getByTestId("change-feed-entry-e1");
+  expect(within(row).queryByRole("button")).toBeNull();
+});
+
+it("superseded row renders the muted badge and NO action (PF21)", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{ ...base, status: "superseded", action: "none", summary: "Removed Alice" }}
+      now={now} undoAction={noop} approveAction={noop} rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  // the "Superseded" badge renders (copy via lib/messages, no raw status string)
+  expect(within(row).getByText("Superseded")).toBeInTheDocument();
+  // an inert/replaced entry never offers Undo or Approve/Reject
   expect(within(row).queryByRole("button")).toBeNull();
 });
 

@@ -83,7 +83,7 @@ export type SyncHold = {
   baseModifiedTime: string | null; kind: HoldKind; createdAt: string; createdBy: string;
 };
 export type ChangeLogSource = "auto_apply" | "mi11_approve" | "mi11_reject" | "undo";
-export type ChangeStatus = "applied" | "pending" | "rejected" | "undone";
+export type ChangeStatus = "applied" | "pending" | "rejected" | "undone" | "superseded"; // 'superseded' = a newer same-entity change made this row non-actionable (resolution #18); feed → action='none', a distinct badge
 // Gate payload for a PENDING mi11 entry — everything Phase 6 needs to mount Approve/Reject
 // WITHOUT a second query (resolves PF14). Present iff action==='approve_reject'.
 export type FeedGate = {

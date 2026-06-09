@@ -15,7 +15,7 @@ Builds `lib/sync/feed/readShowChangeFeed.ts`: the **server-only (service-role)**
 - `show_change_log` row → `FeedEntry`: `id`, `occurredAt=occurred_at`, `status` (the column value), `summary` (the column value), `entityRef=entity_ref`. `action`:
   - `status='applied'` AND crew-domain `change_kind` ∈ `{'crew_added','crew_removed','crew_renamed'}` → `action='undo'` (canonical taxonomy: rename rows carry `change_kind='crew_renamed'`, NOT MI-12/13/14 — `00-overview.md` resolutions #3 + #13). **Set `changeLogId = show_change_log.id`** (the id `undo_change` takes, resolution #17). No `gate`.
   - `status='applied'` AND any other `change_kind` (`crew_email_changed` — a gate-resolved MI-11 email change, `field_changed`, `section_shrunk`, `asset_drift`, etc.) → `action='none'` (notification-only, finding F6 — `before_image` is null, no undo). NOTE: `change_kind` is NEVER an `MI-*` value (`00-overview.md` resolution #13) — `show_change_log` rows always carry structural kinds. **Neither `gate` nor `changeLogId` set.**
-  - `status` ∈ `{rejected, undone}` → `action='none'` (neither optional field set).
+  - `status` ∈ `{rejected, undone, superseded}` → `action='none'` (neither optional field set). A `superseded` row (a newer same-entity change made it non-actionable — `00-overview.md`, PF21) is feed history only — even a crew-domain `change_kind` here is NEVER undoable; only `status='applied'` crew-domain rows get `action='undo'`.
 - Open `sync_holds` row (`kind='mi11_pending'`) → pending `FeedEntry`: `status='pending'`, `action='approve_reject'`, derive old→proposed summary from the hold's `held_value` (old) and `proposed_value` disposition (`email_change` | `rename` | `removal`), `entityRef=entity_key`. **Set `gate = { holdId: sync_holds.id, disposition: proposed_value }`** (the canonical `Disposition`, resolution #17). No `changeLogId`. Holds whose `kind='undo_override'` are NOT pending entries (their effect already shows as an `undone`/`rejected` `show_change_log` row) — exclude them.
 - **Crew-domain decision** lives in one exported helper `isCrewDomainChangeKind(kind: string): boolean` so the undo-gating set is single-sourced and testable.
 - **Cap/truncation:** fetch the *N* most-recent `show_change_log` rows (`limit = opts.limit ?? 50`); query `count` of total log rows for the show. Pending MI-11 holds are **always** included (they are the actionable items) and prepended/merged into the ordered result by `occurredAt` (a hold's `created_at` is its `occurredAt`). `truncated = totalLogRows > limit`. `totalShown = entries.length`. Never a silent cut — `truncated` drives the consumer's "older changes not shown" disclosure.
@@ -187,9 +187,34 @@ describe("readShowChangeFeed", () => {
     const { entries } = await readShowChangeFeed(showId);
     expect(entries.filter((e) => e.status === "pending")).toHaveLength(0);
   });
+
+  test("a superseded crew-domain row is feed history only — status='superseded', action='none', no payload (PF21)", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-d")}, ${q(prefix + "-d")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.show_change_log
+        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+      select id, ${q(prefix + "-d")}, now() - interval '5 min',
+        'auto_apply', 'crew_renamed', 'Eve', 'Crew renamed: Ev → Eve', '{"name":"Eve"}'::jsonb, 'superseded'
+      from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    // Anti-tautology: a CREW-DOMAIN change_kind ('crew_renamed') that would be
+    // undoable at status='applied' must NOT be undoable at status='superseded'.
+    const eve = entries.find((e) => e.entityRef === "Eve");
+    expect(eve).toBeDefined();
+    expect(eve!.status).toBe("superseded");
+    expect(eve!.action).toBe("none");
+    expect(eve!.gate).toBeUndefined();
+    expect(eve!.changeLogId).toBeUndefined();
+  });
 });
 ```
-  **Failure modes caught:** (1) crew add offered no undo / non-crew offered undo (F6 mis-gating); (2) pending MI-11 entry missing or not rendering old→proposed (feed≠hold disposition); (3) `undo_override` leaking in as a spurious pending action row; (4) **action payload missing/cross-wired (resolution #17 PF14)** — `approve_reject` lacking `gate.holdId`/`gate.disposition`, `undo` lacking `changeLogId`, or `none` carrying either — which would force Phase 6 into a second query (or a wrong-id RPC call).
+  **Failure modes caught:** (1) crew add offered no undo / non-crew offered undo (F6 mis-gating); (2) pending MI-11 entry missing or not rendering old→proposed (feed≠hold disposition); (3) `undo_override` leaking in as a spurious pending action row; (4) **action payload missing/cross-wired (resolution #17 PF14)** — `approve_reject` lacking `gate.holdId`/`gate.disposition`, `undo` lacking `changeLogId`, or `none` carrying either — which would force Phase 6 into a second query (or a wrong-id RPC call); (5) **superseded row offered undo (PF21)** — a `status='superseded'` crew-domain row mis-gated as `action='undo'` because the predicate only checked `change_kind` and not `status='applied'`.
 - [ ] **Minimal impl** — `readShowChangeFeed`: service-role client; select `id` (→ `changeLogId` for undo rows), plus `(...).eq("show_id").order("occurred_at",{ascending:false}).limit(limit)` for the log; a separate `count` query for `truncated`; `select("id, ...").eq("show_id").eq("kind","mi11_pending")` for holds, mapping each to `gate={holdId:id, disposition:proposed_value}` (NOTE: these reads run as service-role — RLS denies anon/authenticated per Phase 1, so this layer is the only read path). Map each via the shaping rules; render pending summaries via `lib/messages` (catalog string from §12.4 — confirm the code exists; Open Question below). Merge + sort by `occurredAt desc`. Destructure `{ data, error }` on every call; throw a typed error on `error` (invariant 9).
 - [ ] `pnpm vitest run tests/sync/feed/readShowChangeFeed.test.ts`
 - [ ] Commit: `feat(sync): readShowChangeFeed merges change-log + pending MI-11 holds into FeedEntry`
