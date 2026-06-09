@@ -66,6 +66,10 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "app/api/admin/onboarding/scan/route.ts::defaultVerifyFolder",
     "onboarding verify-folder route checks a folder id before any sheet admission; runOnboardingScan lists sheets from that pending_folder_id",
   ],
+  [
+    "lib/sync/holds/mi11GateActions.ts::approveMi11Hold",
+    "MI-11 gate F13 two-stage Drive re-check: reads modifiedTime for an AUTHORITATIVE drive_file_id already bound to an existing sync_holds/shows row (resolved server-side, never client-supplied per PF23). This is a staleness re-verification of an already-admitted show, NOT sheet admission by drive_file_id — it never parses/processes the sheet, only compares the modtime inside the lock-taking RPC.",
+  ],
 ]);
 
 function walkTsFiles(dir: string): string[] {

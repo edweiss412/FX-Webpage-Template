@@ -101,8 +101,14 @@ describe("Task 2.3 — wire mi11 hold write into the apply path", () => {
     // create function — assert no create-function body in any phase-added migration takes the lock.
     const dir = "supabase/migrations";
     const offenders: string[] = [];
+    // Phase 3 OWNS the MI-11 gate RPCs (mi11_approve_hold/mi11_reject_hold), which DO take the
+    // per-show advisory lock by design (admin path, §4.1) and are pinned by
+    // tests/auth/advisoryLockRpcDeadlock.test.ts. This Phase-2 guard only asserts the hold-WRITE
+    // path adds no lock-taking RPC, so exempt the Phase-3 gate-RPC migration explicitly.
+    const PHASE3_GATE_RPC_MIGRATION = "20260608000002_mi11_gate_rpcs.sql";
     for (const file of readdirSync(dir)) {
       if (!file.startsWith("20260608")) continue; // this milestone's migrations
+      if (file === PHASE3_GATE_RPC_MIGRATION) continue; // Phase-3-owned, pinned elsewhere
       // Strip SQL line-comments so prose mentioning "create function" / the lock does not match.
       const text = readFileSync(join(dir, file), "utf8")
         .split("\n")
