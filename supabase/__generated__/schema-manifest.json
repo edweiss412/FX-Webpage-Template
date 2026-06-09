@@ -227,6 +227,21 @@
     "strike_time",
     "video"
   ],
+  "show_change_log": [
+    "after_image",
+    "before_image",
+    "change_kind",
+    "created_by",
+    "drive_file_id",
+    "entity_ref",
+    "id",
+    "occurred_at",
+    "show_id",
+    "source",
+    "status",
+    "summary",
+    "undo_of"
+  ],
   "show_share_tokens": [
     "created_at",
     "rotated_at",
@@ -295,6 +310,20 @@
     "staged_id",
     "staged_modified_time",
     "triggered_review_items"
+  ],
+  "sync_holds": [
+    "base_modified_time",
+    "created_at",
+    "created_by",
+    "domain",
+    "drive_file_id",
+    "entity_key",
+    "held_value",
+    "id",
+    "kind",
+    "proposed_value",
+    "reservation_collisions",
+    "show_id"
   ],
   "sync_log": [
     "drive_file_id",
