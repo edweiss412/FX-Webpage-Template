@@ -117,9 +117,9 @@ export async function seedHold(
       (show_id, drive_file_id, domain, entity_key, held_value, proposed_value,
        base_modified_time, kind, reservation_collisions, created_by)
     values (${show.showId}, ${show.driveFileId}, ${opts.domain ?? "crew_email"}, ${opts.entityKey},
-            ${tx.json(opts.heldValue)}, ${tx.json(opts.proposedValue)},
+            ${tx.json(opts.heldValue as never)}, ${tx.json(opts.proposedValue as never)},
             ${opts.baseModifiedTime}::timestamptz, 'mi11_pending',
-            ${tx.json(opts.reservationCollisions ?? [])}, 'system')
+            ${tx.json((opts.reservationCollisions ?? []) as never)}, 'system')
     returning id, base_modified_time`;
   const b = row!.base_modified_time as Date | string;
   return { id: row!.id as string, baseModifiedTime: new Date(b).toISOString() };
@@ -218,7 +218,7 @@ export async function callReject(
     `select public.mi11_reject_hold($1::uuid, $2::timestamptz) as r`,
     [holdId, expectedBase],
   );
-  return (row as { r: { ok: boolean; code?: string } }).r;
+  return (row as unknown as { r: { ok: boolean; code?: string } }).r;
 }
 
 /** Call mi11_approve_hold(p_hold_id, p_observed_modified_time, p_expected_base_modified_time). */
@@ -232,5 +232,5 @@ export async function callApprove(
     `select public.mi11_approve_hold($1::uuid, $2::timestamptz, $3::timestamptz) as r`,
     [holdId, observed, expectedBase],
   );
-  return (row as { r: { ok: boolean; code?: string } }).r;
+  return (row as unknown as { r: { ok: boolean; code?: string } }).r;
 }
