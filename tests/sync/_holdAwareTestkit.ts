@@ -101,7 +101,13 @@ export async function seedCrew(
             ${member.flight_info}, ${opts.claimed ? tx`now()` : null})
     returning id, claimed_via_oauth_at
   `;
-  return { id: row!.id as string, claimed_via_oauth_at: (row!.claimed_via_oauth_at as string | null) ?? null };
+  // postgres.js coerces timestamptz to a Date; normalize to the ISO string the declared
+  // PreviousCrewMember.claimed_via_oauth_at type (string | null) expects (Date boundary memory).
+  const claim = row!.claimed_via_oauth_at as Date | string | null;
+  return {
+    id: row!.id as string,
+    claimed_via_oauth_at: claim == null ? null : new Date(claim).toISOString(),
+  };
 }
 
 export async function readCrew(tx: Sql, showId: string) {

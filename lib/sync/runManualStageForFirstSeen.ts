@@ -103,6 +103,9 @@ async function toResult(
       ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
       verifyReelOnApply: false,
       autoPublishFirstSeen,
+      // Phase 2 parity with the cron path. A first-seen sheet has no prior — no notable diffs
+      // to log and no MI-11 holds.
+      notableItems: [],
     });
     if (phase2.outcome === "stale") {
       return { outcome: "hard_failed", errorCode: phase2.code };

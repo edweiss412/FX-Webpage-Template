@@ -1,6 +1,8 @@
 import type { DriveListedFile } from "@/lib/drive/list";
 import { deriveSlug } from "@/lib/parser/slug";
-import type { ParseResult } from "@/lib/parser/types";
+import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
+import { readOpenHolds } from "@/lib/sync/holds/holdPort";
 import {
   applyParseResult,
   type ApplyParseResultTx,
@@ -81,6 +83,9 @@ export type Phase2Args = {
   // written as a mi11_pending hold AFTER the snapshot (so liveCrewByName is the prior snapshot) and
   // BEFORE the hold-aware applyParseResult sees the open holds.
   mi11Items?: Mi11Item[];
+  // Phase 2 Task 2.9: the full set of triggered review items for this sync (renames, section
+  // shrink, field changes, asset drift) — drives the auto-apply show_change_log feed rows.
+  notableItems?: TriggeredReviewItem[];
 };
 
 export type RoleFlagsNotice = {
@@ -304,6 +309,28 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       ...(port ? { holds: { port, baseModifiedTime: args.binding.modifiedTime } } : {}),
     }),
   );
+
+  // Task 2.9: write show_change_log rows for each AUTO-APPLIED notable change, using the
+  // PRE-reconcile snapshot for before_image (load-bearing for Phase-4 undo). Held entities are
+  // excluded (their feed entry comes from sync_holds, Phase 5). Runs inside the locked txn.
+  if (port && snapshot.previousCrewMembers && args.notableItems !== undefined) {
+    const heldNames = new Set(
+      (await callTx("readOpenHolds", () => readOpenHolds(port, snapshot.showId))).map(
+        (hold) => hold.entity_key,
+      ),
+    );
+    await callTx("writeAutoApplyChanges", () =>
+      writeAutoApplyChanges({
+        port,
+        showId: snapshot.showId,
+        driveFileId: args.driveFileId,
+        previousCrewMembers: snapshot.previousCrewMembers ?? [],
+        nextCrewMembers: parseResult.crewMembers,
+        triggeredItems: args.notableItems ?? [],
+        heldNames,
+      }),
+    );
+  }
 
   const roleFlagChanges = nonLeadRoleFlagChanges(
     snapshot.previousCrewMembers,

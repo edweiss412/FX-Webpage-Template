@@ -14,12 +14,13 @@ import {
   type HeartbeatWriteResult,
 } from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { runInvariants } from "@/lib/parser/invariants";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
-import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
+import type { ParsedSheet, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   enrichWithDrivePins,
@@ -2354,6 +2355,26 @@ export async function processOneFile_unlocked(
     ? (showId: string) =>
         makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
     : undefined;
+  // Task 2.9: derive the notable changes (renames, section shrink, field changes, asset drift) for
+  // the auto-apply show_change_log feed rows. Only an EXISTING show (phase1 'pass' or
+  // 'auto_apply_with_holds') has a prior to diff against; a first-seen show ('auto_publish_ready')
+  // has no prior, so notableItems stays empty and no extra read happens.
+  const notableItems: TriggeredReviewItem[] =
+    phase1.outcome === "pass" || phase1.outcome === "auto_apply_with_holds"
+      ? await (async () => {
+          const priorShow = await tx.readShowForPhase1(driveFileId);
+          if (!priorShow) return [];
+          // Defensive: runInvariants is pure but a degraded/minimal parseResult could throw; the
+          // change-log is best-effort and must never fail the sync. Production parses always carry
+          // full dates/crew, so this only guards malformed fixtures / partial parses.
+          try {
+            const inv = runInvariants(priorShow.priorParseResult, pipeline.parseResult);
+            return inv.outcome === "stage" ? inv.triggeredItems : [];
+          } catch {
+            return [];
+          }
+        })()
+      : [];
   const phase2 = await runPhase2_unlocked(
     tx,
     {
@@ -2371,6 +2392,8 @@ export async function processOneFile_unlocked(
       // Phase 2 decision rule: an MI-11 parse routes to auto_apply_with_holds — write the holds +
       // run the hold-aware apply inside the same locked txn.
       ...(phase1.outcome === "auto_apply_with_holds" ? { mi11Items: phase1.mi11Items } : {}),
+      // Task 2.9: drive the auto-apply changes feed.
+      notableItems,
     },
     txDeps,
   );

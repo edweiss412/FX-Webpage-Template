@@ -22,8 +22,9 @@ const ALLOWED = new Set([
 ]);
 
 // Captures change_kind assignments in both SQL (= 'x' / values ... 'x') and TS
-// (change_kind: "x" / change_kind = 'x'). Quote char is normalized away.
-const CHANGE_KIND_RE = /change_kind['"\s:=]+['"]([^'"]+)['"]/g;
+// (change_kind: "x" / change_kind = 'x', AND the camelCase `changeKind: "x"` field the
+// Phase-2 auto-apply writer uses). Quote char is normalized away.
+const CHANGE_KIND_RE = /change[_]?kind['"\s:=]+['"]([^'"]+)['"]/gi;
 
 // Captures the SQL *positional* INSERT form that the adjacent matcher misses:
 //   insert into public.show_change_log (col, ..., change_kind, ...) values (..., 'MI-12', ...)
@@ -204,15 +205,27 @@ describe("show_change_log change_kind taxonomy (PF8 — structural, never MI-*)"
         found.push({ file, value });
       }
     }
-    // Anti-tautology: the scan must have found at least one real literal once writers exist.
-    // (In Phase 1, lib/sync writers don't exist yet — the migrations contain no change_kind
-    //  literal either, so this assertion is GATED on writers existing. Until Phase 2 lands a
-    //  writer, assert only the migration scan ran; flip the floor to >=1 once a writer ships.)
+    // PF9 — Phase 2 lands a real auto-apply writer (lib/sync/changeLog/writeAutoApplyChanges.ts),
+    // so the floor flips from "scan ran" to ">= 1 real literal". A broken matcher (finding nothing)
+    // now fails here instead of vacuously passing.
+    expect(
+      found.length,
+      "no change_kind literal found in any migration/writer — the matcher is broken or the writer regressed",
+    ).toBeGreaterThanOrEqual(1);
+
     const violations = found.filter(({ value }) => /^MI-/.test(value) || !ALLOWED.has(value));
     expect(
       violations,
       `change_kind literals outside the structural set {${[...ALLOWED].join(", ")}} or matching /^MI-/:\n` +
         violations.map((v) => `  - ${v.file}: ${v.value}`).join("\n"),
     ).toEqual([]);
+  });
+
+  it("the floor catches a writer that drifts change_kind to an MI-* value (RED-proof)", () => {
+    // Stub a writer emitting an MI code as the camelCase field; the matcher must flag it.
+    const stub = `const row = { changeKind: "MI-12", entityRef: null };`;
+    const found = extract(stub);
+    expect(found).toContain("MI-12");
+    expect(found.some((v) => /^MI-/.test(v))).toBe(true);
   });
 });
