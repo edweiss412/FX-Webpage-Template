@@ -16,15 +16,15 @@
 
 1. **`ChangesFeed`** — a Server Component on `app/admin/show/[slug]/page.tsx` that calls `readShowChangeFeed(show.id)` (Phase 5) and renders a reverse-chron list. Each entry: summary + relative time + status badge + per-entry action. Cap/truncation disclosure ("older changes not shown") when `truncated`.
 2. **Per-entry action affordances** (client components, one per `action` discriminant):
-   - `action: "undo"` → **[Undo]** button → server action → `undo_change` RPC.
-   - `action: "approve_reject"` → **[Approve] [Reject]** → server actions → `mi11_approve_hold` / `mi11_reject_hold`. **Approve reads the current Drive `modifiedTime` in the server action FIRST (F13), passes it as `p_observed_modified_time`.** A closed collision **group** (Phase 3) renders a single **[Approve group]**; a rejected/`IDENTITY_WOULD_COLLIDE` group renders the conflict copy and **no Approve button** (§5 — never a button that always fails).
+   - `action: "undo"` → **[Undo]** button (bound to `entry.changeLogId`) → server action → delegates to the Phase 4 undo helper.
+   - `action: "approve_reject"` → **[Approve] [Reject]** (bound to `entry.gate.holdId`) → server actions → delegate to the Phase 3 `approveMi11Hold` / `rejectMi11Hold` helpers (which own the Drive-`modifiedTime`-first F13 orchestration + the lock-taking RPCs). **PF17: the swap/collision outcome is NOT pre-rendered. The Approve button is always a single `[Approve]`; on submit, the action's typed result drives the rendering — a `{ok:false, code:'IDENTITY_WOULD_COLLIDE'}` shows the conflict copy via `lib/messages`, an approved (possibly group/swap) success flips the entry status. No pre-computed `[Approve group]` / conflict-no-button state.**
    - `action: "none"` → no button (non-crew notification-only rows, §6.2).
 3. **Slimmed MI-11 gate card** — replace the whole-parse `StagedReviewCard` review path with a focused **email/rename/removal disposition Approve/Reject card** rendered from the `sync_holds` disposition. **Remove the legacy whole-parse `ParsePanel` + `StagedReviewCard` mount** from the per-show page (no invariant stages a whole parse anymore — §8). The MI-11 pending entries surface inside the feed (`status: "pending"`, `action: "approve_reject"`); a focused gate card is the entry body for those rows.
 
 **Mode boundaries (the three entry render modes — name which elements belong to which):**
-- `auto_applied` / `undone` / `rejected` rows → summary + time + status badge + (Undo | none). No disposition detail block.
-- `pending` (MI-11) rows → summary + time + **"Pending review" badge** + **disposition detail line** ("Email change: old → new" / "Rename: old → new" / "Removal") + **[Approve] [Reject]** (or **[Approve group]** / conflict-no-button).
-- Shared across ALL modes: the `<li>` row shell, the `<time>` element, the status badge slot, the summary `<p>`.
+- `auto_applied` / `undone` / `rejected` rows → summary + time + status badge + (Undo | none).
+- `pending` (MI-11) rows → summary + time + **"Pending review" badge** + **[Approve] [Reject]** bound to `entry.gate.holdId`. **PF17: the old→new text is the server-rendered `entry.summary` (no separate disposition-detail field); the swap/collision/`IDENTITY_WOULD_COLLIDE` outcome is NOT pre-rendered — it surfaces post-submit from the Approve action's typed result. There is no pre-computed `[Approve group]` button or conflict-no-button state on the entry.**
+- Shared across ALL modes: the `<li>` row shell, the `<time>` element, the status badge slot, the summary `<p>` (which carries the old→new text for pending rows).
 
 ---
 
@@ -144,67 +144,59 @@ export function UndoChangeButton({
 
 - [ ] Commit `feat(admin): change-feed undo button (form-action submit-safe)`.
 
-### T6.4 — Approve / Reject gate buttons + collision-group / conflict modes
+### T6.4 — Approve / Reject gate buttons (conflict surfaces post-submit from the action result)
 
-- [ ] **Test** `tests/components/admin/Mi11GateActions.test.tsx`. Failure modes: *(a) Approve renders even when the entry is a rejected `IDENTITY_WOULD_COLLIDE` group (a button that always fails, §5); (b) a closed group renders two separate Approves instead of one **[Approve group]**; (c) disposition detail text is missing so the admin can't see old→new.*
+- [ ] **Test** `tests/components/admin/Mi11GateActions.test.tsx`. Failure modes: *(a) the component reads a non-canonical `detail`/`groupState`/`conflictCode` prop that the Phase-5 `FeedEntry` doesn't produce (forces a 2nd query — PF14/PF17); (b) the IDENTITY_WOULD_COLLIDE conflict is pre-rendered as a static field instead of surfacing from the Approve action's typed result after submit; (c) the Approve form isn't bound to `gate.holdId`.*
 
 ```tsx
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Mi11GateActions } from "@/components/admin/Mi11GateActions";
 
 const noop = vi.fn();
 
-it("renders Approve + Reject with the disposition detail for a single email_change", () => {
+it("renders Approve + Reject for a pending hold from gate (no detail/groupState props)", () => {
   render(
     <Mi11GateActions
       holdId="h1"
       disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
-      detail="Email change: a@old → a@new"
-      groupState="single"
       approveAction={noop}
       rejectAction={noop}
     />,
   );
-  expect(screen.getByText("Email change: a@old → a@new")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /^Approve$/i })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /^Reject$/i })).toBeInTheDocument();
+  // PF17: the row's old→new text is the entry SUMMARY (server-rendered by
+  // Phase 5 via lib/messages) and lives on the ChangeFeedEntry, NOT here —
+  // this component only owns the Approve/Reject forms bound to gate.holdId.
+  expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /reject/i })).toBeInTheDocument();
+  // the Approve form carries the holdId so the bound action targets the hold.
+  expect(screen.getByDisplayValue("h1")).toBeInTheDocument();
 });
 
-it("renders a single Approve group button for a closed collision group", () => {
+it("surfaces an IDENTITY_WOULD_COLLIDE conflict POST-SUBMIT from the action result, via lib/messages (no raw code)", async () => {
+  // PF17: collision/swap outcomes are NOT pre-rendered entry fields. The
+  // Approve action returns its typed result; the component shows the conflict
+  // message after submit. closed-group success / approved-group is the same
+  // path — the result, not a pre-computed groupState, drives the rendering.
+  const approveAction = vi.fn().mockResolvedValue({ ok: false, code: "IDENTITY_WOULD_COLLIDE" });
   render(
     <Mi11GateActions
       holdId="h1"
       disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
-      detail="Swap: 2 people exchange emails"
-      groupState="closed_group"
-      approveAction={noop}
+      approveAction={approveAction}
       rejectAction={noop}
     />,
   );
-  expect(screen.getByRole("button", { name: /approve group/i })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /^Approve$/i })).toBeNull();
-});
-
-it("renders the conflict copy and NO approve button for a blocked group", () => {
-  render(
-    <Mi11GateActions
-      holdId="h1"
-      disposition={{ disposition: "email_change", name: "Alice", email: "a@new" }}
-      detail="Email change: a@old → a@new"
-      groupState="conflict"
-      conflictCode="IDENTITY_WOULD_COLLIDE"
-      approveAction={noop}
-      rejectAction={noop}
-    />,
-  );
-  expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
-  // conflict copy comes through lib/messages (no raw code in the DOM)
+  await userEvent.click(screen.getByRole("button", { name: /approve/i }));
+  // ErrorExplainer renders the catalog copy for the code; the raw code never
+  // appears in the DOM (invariant 5).
+  expect(await screen.findByTestId("mi11-gate-result")).toBeInTheDocument();
   expect(screen.queryByText("IDENTITY_WOULD_COLLIDE")).toBeNull();
 });
 ```
 
-- [ ] **Impl** `components/admin/Mi11GateActions.tsx` (`"use client"`). Props: `holdId`, `disposition: Disposition`, `detail: string`, `groupState: "single" | "closed_group" | "conflict"`, `conflictCode?: string`, `approveAction`, `rejectAction` (server actions). Two `<form>`s (Approve, Reject), each with a `useFormStatus` `SubmitButton`. When `groupState === "conflict"`: render `<ErrorExplainer code={conflictCode} surface="admin" />` (no raw code, invariant 5) and **omit** the Approve form; Reject still available. Approve label is `"Approve group"` when `closed_group`, else `"Approve"`. The disposition `detail` line is supplied by the page (rendered via `lib/messages`); this component does not stringify codes itself. 44px tap (`min-h-tap-min`), accessible names ("Approve email change for Alice" via `aria-label` when the bare label is ambiguous — WCAG 2.5.3, M12.6 precedent).
-- [ ] Commit `feat(admin): MI-11 gate Approve/Reject + collision-group actions`.
+- [ ] **Impl** `components/admin/Mi11GateActions.tsx` (`"use client"`). **Props (PF17 — canonical fields only): `holdId: string`, `disposition: Disposition`, `approveAction`, `rejectAction` (server actions returning a typed `{ok:true,...} | {ok:false,code}` result). NO `detail`, `groupState`, or `conflictCode` props** — those are not on the canonical `FeedEntry` and would require a second query (PF14). Two `<form>`s (Approve, Reject), each with a `useFormStatus` `SubmitButton` (44px tap, `min-h-tap-min`). The Approve button label is always `"Approve"`; **the swap/collision/IDENTITY_WOULD_COLLIDE vs approved-group outcome is determined by the action's typed RESULT after submit** — capture it via `useActionState` (or a small wrapper that stores the returned result) and, on `{ok:false, code}`, render `<ErrorExplainer code={code} surface="admin" data-testid="mi11-gate-result" />` (no raw code, invariant 5); on `{ok:true}` the page revalidates and the entry flips status. Accessible names disambiguate the otherwise-identical buttons via `aria-label` using `disposition.name` (e.g. "Approve change for Alice" — WCAG 2.5.3, M12.6 precedent). This component never pre-renders a conflict or a group state — it reacts to the result.
+- [ ] Commit `feat(admin): MI-11 gate Approve/Reject (conflict surfaces post-submit)`.
 
 ### T6.5 — `ChangeFeedEntry` (row shell, mode dispatch)
 
@@ -244,7 +236,7 @@ it("notification-only (none) row offers NO action button", () => {
   expect(within(row).queryByRole("button")).toBeNull();
 });
 
-it("pending MI-11 row reads entry.gate (holdId + disposition), mounts Approve/Reject bound to gate.holdId, no Undo", () => {
+it("pending MI-11 row renders old→new from entry.summary and mounts Approve/Reject bound to gate.holdId, no Undo", () => {
   const approve = vi.fn();
   render(
     <ChangeFeedEntry
@@ -252,19 +244,22 @@ it("pending MI-11 row reads entry.gate (holdId + disposition), mounts Approve/Re
         ...base,
         status: "pending",
         action: "approve_reject",
-        summary: "Email change for Alice",
+        // PF17: the old→new text IS the summary (Phase 5 server-renders it via
+        // lib/messages). There is no entry.detail/groupState/conflictCode.
+        summary: "Email change for Alice: a@old → a@new",
         // PF14: the canonical FeedEntry carries gate {holdId, disposition} —
         // Phase 5 populates it; the page does NO second query.
         gate: { holdId: "h1", disposition: { disposition: "email_change", name: "Alice", email: "a@new" } },
-        detail: "Email change: a@old → a@new",
-        groupState: "single",
       }}
       now={now} undoAction={noop} approveAction={approve} rejectAction={noop}
     />,
   );
   const row = screen.getByTestId("change-feed-entry-e1");
   expect(within(row).queryByTestId("change-feed-undo")).toBeNull();
-  expect(within(row).getByText("Email change: a@old → a@new")).toBeInTheDocument();
+  // anti-tautology: the old→new text lives in the entry's OWN summary node.
+  expect(within(row).getByTestId("change-feed-summary")).toHaveTextContent(
+    "Email change for Alice: a@old → a@new",
+  );
   // the Approve form carries the holdId from entry.gate (hidden input), so the
   // bound action targets the right hold with no extra lookup.
   expect(within(row).getByDisplayValue("h1")).toBeInTheDocument();
@@ -285,7 +280,7 @@ it("undo row wires the Undo button to entry.changeLogId", () => {
 });
 ```
 
-- [ ] **Impl** `components/admin/ChangeFeedEntry.tsx` (`"use client"` — hosts the action forms). Renders an `<li data-testid={`change-feed-entry-${entry.id}`}>` with: summary `<p data-testid="change-feed-summary">`, `<ChangeFeedTime>`, `<ChangeFeedBadge>`, and a mode switch on `entry.action`: `undo` → `<UndoChangeButton changeLogId={entry.changeLogId!} undoAction={undoAction} />`; `approve_reject` → `<Mi11GateActions holdId={entry.gate!.holdId} disposition={entry.gate!.disposition} detail={entry.detail!} groupState={entry.groupState ?? "single"} … />`; `none` → no button. **PF14: read the action payload straight off the canonical `FeedEntry` (`entry.gate = {holdId, disposition}` for approve_reject; `entry.changeLogId` for undo) — Phase 5 populates both, so the page performs NO second query.** Guard: if `action === "approve_reject"` but `entry.gate` is undefined (or `undo` but `changeLogId` undefined), render the row notification-only (defensive — never a dangling Approve with no hold / Undo with no target).
+- [ ] **Impl** `components/admin/ChangeFeedEntry.tsx` (`"use client"` — hosts the action forms). Renders an `<li data-testid={`change-feed-entry-${entry.id}`}>` with: summary `<p data-testid="change-feed-summary">{entry.summary}</p>` (the old→new text for a pending row IS the server-rendered summary — PF17), `<ChangeFeedTime>`, `<ChangeFeedBadge>`, and a mode switch on `entry.action`: `undo` → `<UndoChangeButton changeLogId={entry.changeLogId!} undoAction={undoAction} />`; `approve_reject` → `<Mi11GateActions holdId={entry.gate!.holdId} disposition={entry.gate!.disposition} approveAction={approveAction} rejectAction={rejectAction} />`; `none` → no button. **PF17/PF14: ChangeFeedEntry consumes ONLY the canonical `FeedEntry` fields — `summary`, `gate = {holdId, disposition}` (approve_reject), `changeLogId` (undo). It reads NO `detail`, `groupState`, or `conflictCode` (those are not on `FeedEntry`); the swap/collision outcome surfaces post-submit from the Approve action's typed result inside `Mi11GateActions`, not as a pre-computed entry field — so the page performs NO second query.** Guard: if `action === "approve_reject"` but `entry.gate` is undefined (or `undo` but `changeLogId` undefined), render the row notification-only (defensive — never a dangling Approve with no hold / Undo with no target).
 - [ ] Commit `feat(admin): change-feed entry row + action mode dispatch`.
 
 ### T6.6 — `ChangesFeed` list + cap/truncation disclosure
