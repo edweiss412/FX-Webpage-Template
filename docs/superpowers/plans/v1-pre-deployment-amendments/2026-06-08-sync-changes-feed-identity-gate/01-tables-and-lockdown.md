@@ -203,8 +203,40 @@ describe("public.sync_holds DDL", () => {
       "id",
       "kind",
       "proposed_value",
+      "reservation_collisions",
       "show_id",
     ]);
+  });
+
+  it("the reservation_collisions column is jsonb NOT NULL defaulting to an empty array", async () => {
+    const cols = await sql<
+      { data_type: string; is_nullable: string; column_default: string | null }[]
+    >`
+      select data_type, is_nullable, column_default
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'sync_holds'
+        and column_name = 'reservation_collisions'
+    `;
+    expect(cols).toHaveLength(1);
+    expect(cols[0].data_type).toBe("jsonb");
+    expect(cols[0].is_nullable).toBe("NO");
+    // Default re-derived fresh each apply by Phase 2 (PF37); a hold inserted without it
+    // reads back [] — NOT NULL — so Phase 2's array-append + Phase 3's non-empty check hold.
+    expect(cols[0].column_default).toMatch(/'\[\]'::jsonb/);
+  });
+
+  it("a hold inserted without reservation_collisions reads back [] (not NULL)", async () => {
+    await inRollback(async (tx) => {
+      const showId = await seedShow(tx);
+      const [row] = await tx`
+        insert into public.sync_holds
+          (show_id, drive_file_id, domain, entity_key, held_value, kind, created_by)
+        values (${showId}, 'drv', 'crew_email', 'Alice',
+                ${tx.json({})}, 'mi11_pending', 'system')
+        returning reservation_collisions
+      `;
+      expect(row.reservation_collisions).toEqual([]);
+    });
   });
 
   it("the show index exists", async () => {
@@ -284,6 +316,11 @@ create table if not exists public.sync_holds (
   proposed_value     jsonb,
   base_modified_time timestamptz,
   kind               text not null,
+  -- Distinct-entity rows this open mi11_pending hold's email/name reservation suppressed
+  -- during an apply (array of {name,email}); '[]' = none. Re-derived fresh each apply by
+  -- Phase 2 Task 2.7; read by Phase 3 mi11_approve_hold to reject IDENTITY_WOULD_COLLIDE
+  -- while non-empty (00-overview resolution #23 / PF37).
+  reservation_collisions jsonb not null default '[]'::jsonb,
   created_at         timestamptz not null default now(),
   created_by         text not null
 );
