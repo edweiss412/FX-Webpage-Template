@@ -376,6 +376,38 @@ describe("mi11_approve_hold — before_image carries id + claimed_via_oauth_at (
   });
 });
 
+describe("mi11_approve_hold — live crew row vanished before approve → fail-safe, zero mutation (P3-F3)", () => {
+  for (const disp of [
+    { kind: "email_change", proposed: { disposition: "email_change", name: "Alice", email: "alice@new" } },
+    { kind: "removal", proposed: { disposition: "removal" } },
+    { kind: "rename", proposed: { disposition: "rename", name: "Alicia", email: "alice@new" } },
+  ] as const) {
+    it(`${disp.kind}: live row deleted, hold remains → MI11_TARGET_MOVED, NO phantom log, hold kept`, async () => {
+      const show = await seedShow(mi11Sql);
+      await seedCrew(mi11Sql, show.showId, "Alice", { email: "alice@old" });
+      const hold = await seedHold(mi11Sql, show, {
+        domain: disp.kind === "email_change" ? "crew_email" : "crew_identity",
+        entityKey: "Alice",
+        heldValue: heldFromCrew("Alice", "alice@old"),
+        proposedValue: disp.proposed as Disposition,
+        baseModifiedTime: T0,
+      });
+      // Some other path deleted Alice's live crew row while the hold remained open.
+      await mi11Sql`delete from public.crew_members where show_id = ${show.showId} and name = 'Alice'`;
+
+      const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+      expect(res).toEqual({ ok: false, code: "MI11_TARGET_MOVED" });
+
+      // ZERO mutation: NO phantom applied log row, the hold is STILL present, no crew row created.
+      expect((await readChangeLogByShow(mi11Sql, show.showId)).length).toBe(0);
+      expect((await readHold(mi11Sql, hold.id))?.kind).toBe("mi11_pending");
+      expect(await readCrewByName(mi11Sql, show.showId, "Alice")).toBeNull();
+      expect(await readCrewByName(mi11Sql, show.showId, "Alicia")).toBeNull();
+      expect(messageFor("MI11_TARGET_MOVED")).toBeTruthy();
+    });
+  }
+});
+
 describe("mi11_approve_hold — stale-target guard, last_seen_modified_time insufficient (Task 3.7/F13)", () => {
   it("rejects on the PASSED observed Drive modtime even when shows.last_seen_modified_time == base", async () => {
     const show = await seedShow(mi11Sql);

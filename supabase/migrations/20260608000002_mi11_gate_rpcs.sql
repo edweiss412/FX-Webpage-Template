@@ -248,6 +248,7 @@ declare
   v_place      text;
   v_live       public.crew_members%rowtype;     -- the live crew row read UNDER THE LOCK (P3-F1)
   v_before     jsonb;                            -- authoritative before_image built from v_live
+  v_rc         int;                              -- ROW_COUNT fail-safe (P3-F3)
   i            int;
 begin
   if not public.is_admin() then
@@ -314,6 +315,14 @@ begin
     select * into v_m from public.sync_holds where id = v_id;
     select * into v_live from public.crew_members
      where show_id = v_m.show_id and name = v_m.entity_key;
+    -- FAIL-SAFE (P3-F3): a missing SELECT INTO leaves v_live fields NULL (no error). If the live crew
+    -- row vanished before approve (concurrent delete, or another path removed it while the hold
+    -- lingered), abort with a typed non-mutating result BEFORE building before_image / parking /
+    -- logging — never write a phantom applied log with a NULL-id before_image. The hold stays pending
+    -- and the next sync reconciles. ZERO mutation.
+    if not found then
+      return jsonb_build_object('ok', false, 'code', 'MI11_TARGET_MOVED');
+    end if;
     -- authoritative before_image — id + claimed_via_oauth_at + non-identity fields (Phase 4 undo restores them).
     v_before := jsonb_build_object(
       'id', v_live.id,
@@ -332,6 +341,15 @@ begin
     update public.crew_members
        set email = null, name = v_place
      where show_id = v_m.show_id and name = v_m.entity_key;
+    -- ROW_COUNT fail-safe (P3-F3): the park MUST hit exactly the one live row we just read. If the row
+    -- vanished in the (lock-held) window since the FOUND check, abort the whole RPC (raise → rollback
+    -- of any earlier parks in this group) rather than proceed against a half-parked group.
+    get diagnostics v_rc = row_count;
+    if v_rc <> 1 then
+      raise exception using errcode = 'P0001',
+        message = 'MI11_ROW_VANISHED',
+        hint = 'crew row vanished mid-approve during park';
+    end if;
 
     if (v_m.proposed_value->>'disposition') = 'removal' then
       v_rmplace  := v_rmplace  || v_place;
@@ -356,6 +374,12 @@ begin
     for i in 1 .. array_length(v_rmplace, 1) loop
       delete from public.crew_members
        where show_id = v_rmshow[i] and name = v_rmplace[i];
+      -- the parked removal row MUST still exist (we just parked it under the lock); P3-F3.
+      get diagnostics v_rc = row_count;
+      if v_rc <> 1 then
+        raise exception using errcode = 'P0001',
+          message = 'MI11_ROW_VANISHED', hint = 'parked removal row vanished mid-approve';
+      end if;
       insert into public.show_change_log
         (show_id, drive_file_id, source, change_kind, entity_ref, summary,
          before_image, after_image, status, created_by)
@@ -374,6 +398,12 @@ begin
     for i in 1 .. array_length(v_pholds, 1) loop
       if v_pdisp[i] = 'rename' then
         delete from public.crew_members where show_id = v_pshow and name = v_pplace[i];
+        -- the parked rename row MUST still exist (P3-F3).
+        get diagnostics v_rc = row_count;
+        if v_rc <> 1 then
+          raise exception using errcode = 'P0001',
+            message = 'MI11_ROW_VANISHED', hint = 'parked rename row vanished mid-approve';
+        end if;
         insert into public.crew_members
           (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info)
         values (
@@ -389,6 +419,12 @@ begin
         update public.crew_members
            set name = v_pname[i], email = v_pemail[i], claimed_via_oauth_at = null
          where show_id = v_pshow and name = v_pplace[i];
+        -- the parked email_change row MUST still exist (P3-F3).
+        get diagnostics v_rc = row_count;
+        if v_rc <> 1 then
+          raise exception using errcode = 'P0001',
+            message = 'MI11_ROW_VANISHED', hint = 'parked email_change row vanished mid-approve';
+        end if;
       end if;
       insert into public.show_change_log
         (show_id, drive_file_id, source, change_kind, entity_ref, summary,
