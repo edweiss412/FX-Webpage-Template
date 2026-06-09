@@ -105,13 +105,25 @@ describe("readShowChangeFeed", () => {
     );
 
     // approve_reject → gate{holdId, disposition, baseModifiedTime}; NO changeLogId.
-    // baseModifiedTime (PF40) is the open hold's base_modified_time AS RENDERED —
-    // the optimistic-concurrency token Phase 6 submits as p_expected_base_modified_time.
-    expect(pending!.gate).toEqual({
-      holdId,
-      disposition: { disposition: "email_change", name: "Alice", email: "alice@new" },
-      baseModifiedTime: new Date(holdBaseModifiedTime).toISOString(), // === seeded hold's base_modified_time
+    // baseModifiedTime (PF40) is the open hold's base_modified_time AS RETURNED
+    // by the query — the OPAQUE optimistic-concurrency token Phase 6 submits as
+    // p_expected_base_modified_time. P5-F4: it must carry the RAW full-precision
+    // string (microseconds intact), NOT a Date/toIso-normalized value (which
+    // would truncate sub-millisecond precision → false MI11_TARGET_MOVED). So
+    // assert holdId + disposition exactly, and the token at FULL precision.
+    expect(pending!.gate!.holdId).toBe(holdId);
+    expect(pending!.gate!.disposition).toEqual({
+      disposition: "email_change",
+      name: "Alice",
+      email: "alice@new",
     });
+    // Token normalized via the DB equals the stored base_modified_time at full
+    // microsecond precision (derived from the seeded row, not a literal); and it
+    // must NOT have been millisecond-truncated by a Date round-trip.
+    const tokenNorm = runPsql(
+      `select to_char((${q(pending!.gate!.baseModifiedTime!)}::text)::timestamptz at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"');`,
+    );
+    expect(tokenNorm).toBe(holdBaseModifiedTime); // === seeded hold's base_modified_time, full precision
     expect(pending!.changeLogId).toBeUndefined();
 
     // undo → changeLogId = the show_change_log.id undo_change takes; NO gate.

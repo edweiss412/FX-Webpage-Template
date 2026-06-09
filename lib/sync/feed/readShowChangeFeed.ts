@@ -243,7 +243,15 @@ export async function readShowChangeFeed(
     const gate: FeedGate = {
       holdId: hold.id,
       disposition: hold.proposed_value,
-      baseModifiedTime: toIso(hold.base_modified_time),
+      // P5-F4 / PF40: gate.baseModifiedTime is the OPAQUE optimistic-concurrency
+      // token the MI-11 RPCs compare EXACTLY (base_modified_time IS DISTINCT FROM
+      // p_expected_base_modified_time). It MUST carry the raw timestamptz string
+      // as returned by the query (full PostgreSQL microsecond precision) — NOT a
+      // Date/toIso()-normalized value, which drops postgres microseconds
+      // (...123456Z → ...123Z) and would falsely trip MI11_TARGET_MOVED on a hold
+      // that never retargeted. Display timestamps (occurredAt below) stay
+      // normalized; only this concurrency token must be byte-exact.
+      baseModifiedTime: hold.base_modified_time,
     };
     return {
       id: hold.id,
