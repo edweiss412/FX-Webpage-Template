@@ -93,8 +93,8 @@ describe("parseAlterAddColumns", () => {
 
   it("excludes columns added to a table that is later dropped", () => {
     const sql =
-      "alter table public.link_sessions add column if not exists rotated_at timestamptz;\n" +
-      "drop table if exists public.link_sessions;";
+      "alter table public.legacy_scratch add column if not exists rotated_at timestamptz;\n" +
+      "drop table if exists public.legacy_scratch;";
     expect(parseAlterAddColumns(sql)).toEqual([]);
   });
 
@@ -136,8 +136,8 @@ describe("parseCreatedPublicTables", () => {
 
   it("excludes a public table that is created then later dropped (final state)", () => {
     const sql =
-      "create table public.crew_member_auth (id text);\n" +
-      "drop table if exists public.crew_member_auth;";
+      "create table public.legacy_scratch (id text);\n" +
+      "drop table if exists public.legacy_scratch;";
     expect(parseCreatedPublicTables(sql)).toEqual([]);
   });
 
