@@ -8,6 +8,7 @@ import {
   diffManifestAgainstLive,
   manifestFromRows,
   parseAlterAddColumns,
+  parseCreatedPublicTables,
   parsePsqlRows,
   serializeManifest,
   stripSqlNoise,
@@ -102,6 +103,49 @@ describe("parseAlterAddColumns", () => {
       "ALTER TABLE PUBLIC.app_settings ADD COLUMN IF NOT EXISTS rotated_at timestamptz;\n" +
       "alter table public.app_settings add column if not exists rotated_at timestamptz;";
     expect(parseAlterAddColumns(sql)).toEqual([{ table: "app_settings", column: "rotated_at" }]);
+  });
+});
+
+describe("parseCreatedPublicTables", () => {
+  it("captures public + bare-public create-table names (the real migration shapes)", () => {
+    const sql =
+      "create table public.app_settings (id text primary key, alert_on_sync_problems boolean);\n" +
+      "CREATE TABLE IF NOT EXISTS public.email_deliveries (id uuid);\n" +
+      "create table if not exists public.show_share_tokens (token text);\n" +
+      "create table admin_alerts (code text);";
+    expect(parseCreatedPublicTables(sql)).toEqual([
+      "admin_alerts",
+      "app_settings",
+      "email_deliveries",
+      "show_share_tokens",
+    ]);
+  });
+
+  it("excludes the dev.* shadow schema", () => {
+    expect(parseCreatedPublicTables("create table if not exists dev.contacts (id text);")).toEqual(
+      [],
+    );
+  });
+
+  it("ignores CREATE TABLE inside a comment or string", () => {
+    const sql =
+      "-- CREATE TABLE public.ghost (x int)\n" +
+      "do $$ begin raise notice 'create table public.phantom'; end $$;";
+    expect(parseCreatedPublicTables(sql)).toEqual([]);
+  });
+
+  it("excludes a public table that is created then later dropped (final state)", () => {
+    const sql =
+      "create table public.crew_member_auth (id text);\n" +
+      "drop table if exists public.crew_member_auth;";
+    expect(parseCreatedPublicTables(sql)).toEqual([]);
+  });
+
+  it("matches `create unlogged table` but not temp tables", () => {
+    const sql =
+      "create unlogged table public.report_rate_limits (id text);\n" +
+      "create temporary table public.scratch (x int);";
+    expect(parseCreatedPublicTables(sql)).toEqual(["report_rate_limits"]);
   });
 });
 

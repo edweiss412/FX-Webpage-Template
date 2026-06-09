@@ -160,6 +160,36 @@ export function collectDroppedPublicTables(cleanSql: string): Set<string> {
   return dropped;
 }
 
+/**
+ * Parse `create [unlogged] table [if not exists] [public.]<table>` occurrences
+ * and return the public-schema table NAMES that survive to final state (tables
+ * dropped by a later `drop table` are excluded). Names only — NOT the column
+ * lists (those are regex-fragile and covered by manifest regen + the local
+ * freshness equality check). This closes the new-TABLE half of the freshness
+ * tripwire: without it, a migration that creates a public table but skips
+ * `pnpm gen:schema-manifest` contributes nothing to Layer 1 (which otherwise
+ * only sees `add column`), so a stale manifest + un-applied validation lets a
+ * whole new table drift silently past CI (Layer 2 compares against the stale
+ * manifest; Layer 3 skips when TEST_DATABASE_URL is set). `temp`/`temporary`
+ * tables are intentionally not matched (they live in pg_temp, never `public`).
+ */
+export function parseCreatedPublicTables(sql: string): string[] {
+  const clean = stripSqlNoise(sql);
+  const dropped = collectDroppedPublicTables(clean);
+  const created = new Set<string>();
+  const re = /\bcreate\s+(?:unlogged\s+)?table\s+(?:if\s+not\s+exists\s+)?(?:(\w+)\.)?(\w+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(clean)) !== null) {
+    const schema = m[1]?.toLowerCase();
+    const table = m[2];
+    if (!table) continue;
+    if (schema && schema !== "public") continue; // dev.* and others excluded
+    if (dropped.has(table)) continue;
+    created.add(table);
+  }
+  return [...created].sort();
+}
+
 /** SQL that lists public base tables and their columns (one row per column). */
 export const INTROSPECT_PUBLIC_COLUMNS_SQL = `
 select c.table_name, c.column_name

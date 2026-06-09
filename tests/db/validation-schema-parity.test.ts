@@ -12,11 +12,15 @@
  * THREE layers (see scripts/schema-manifest/lib.ts for the shared logic):
  *
  *   1. MANIFEST FRESHNESS TRIPWIRE (DB-free, ALWAYS runs, incl. CI): every
- *      `alter table public.<t> add column <c>` across the migrations — the exact
- *      #9 vector — must already appear in the committed manifest. This is what
- *      stops a STALE manifest from blinding layer 2: if a dev adds the migration
- *      but forgets `pnpm gen:schema-manifest`, this fails in CI with no DB,
- *      BEFORE the (manifest-driven) parity check could falsely pass.
+ *      `alter table public.<t> add column <c>` AND every `create table public.<t>`
+ *      across the migrations must already appear in the committed manifest. This
+ *      is what stops a STALE manifest from blinding layer 2: if a dev adds the
+ *      migration but forgets `pnpm gen:schema-manifest`, this fails in CI with no
+ *      DB, BEFORE the (manifest-driven) parity check could falsely pass. Covering
+ *      BOTH vectors matters — without the create-table half, a whole new public
+ *      table whose manifest regen was skipped would drift past CI silently (Layer
+ *      2 compares against the stale manifest; Layer 3 skips when
+ *      TEST_DATABASE_URL is set).
  *
  *   2. VALIDATION PARITY (runs against TEST_DATABASE_URL): the validation
  *      project must be a SUPERSET of the manifest — every repo-defined public
@@ -44,6 +48,7 @@ import {
   diffManifestAgainstLive,
   manifestFromRows,
   parseAlterAddColumns,
+  parseCreatedPublicTables,
   parsePsqlRows,
   serializeManifest,
   type SchemaManifest,
@@ -118,9 +123,26 @@ describe("validation-schema-parity", () => {
     ).toEqual([]);
   });
 
-  it("layer 1 — sanity: the #9 columns are present in the manifest (anti-tautology)", () => {
-    // Guards against an empty/degenerate manifest making layer 1 vacuously pass.
+  it("layer 1 — every migration `create table` (public) is reflected in the committed manifest", () => {
     const manifest = loadManifest();
+    const created = parseCreatedPublicTables(allMigrationsSql());
+    const stale = created.filter((table) => !(table in manifest));
+    expect(
+      stale,
+      `Committed ${MANIFEST_PATH} is STALE — it is missing public table(s) that a ` +
+        `migration creates:\n` +
+        stale.map((t) => `  - ${t}`).join("\n") +
+        `\nRun \`pnpm gen:schema-manifest\` (against your local stack) and commit the result.`,
+    ).toEqual([]);
+  });
+
+  it("layer 1 — sanity: a real created table + the #9 columns are in the manifest (anti-tautology)", () => {
+    // Guards against an empty/degenerate manifest making layer 1 vacuously pass,
+    // for BOTH the create-table and add-column halves.
+    const manifest = loadManifest();
+    expect(Object.keys(manifest)).toEqual(
+      expect.arrayContaining(["email_deliveries", "show_share_tokens"]),
+    );
     expect(manifest.app_settings ?? []).toEqual(
       expect.arrayContaining([
         "alert_on_sync_problems",
