@@ -198,4 +198,82 @@ describe("readShowChangeFeed", () => {
     expect(eve!.gate).toBeUndefined();
     expect(eve!.changeLogId).toBeUndefined();
   });
+
+  // P5-F2: cover the cases the THREE-conjunct predicate exists to protect. A
+  // regression dropping individually_undoable, or only special-casing
+  // 'superseded' while letting 'rejected'/'undone' through, must RED here.
+  test("applied crew_renamed with individually_undoable=false → action='none', no payload (P4-F4)", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-e")}, ${q(prefix + "-e")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.show_change_log
+        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status, individually_undoable)
+      select id, ${q(prefix + "-e")}, now() - interval '3 min',
+        'mi11_approve', 'crew_renamed', 'Frank', 'Crew renamed: Fr → Frank', '{"name":"Frank"}'::jsonb, 'applied', false
+      from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    // Anti-tautology: an APPLIED crew-domain row (which WOULD be undo at
+    // individually_undoable=true) must NOT be undoable when the column is FALSE.
+    const frank = entries.find((e) => e.entityRef === "Frank");
+    expect(frank).toBeDefined();
+    expect(frank!.status).toBe("applied"); // applied — only the third conjunct gates it
+    expect(frank!.action).toBe("none"); // individually_undoable=false → no undo
+    expect(frank!.gate).toBeUndefined();
+    expect(frank!.changeLogId).toBeUndefined();
+  });
+
+  test("a rejected crew-domain row → action='none', no payload", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-f")}, ${q(prefix + "-f")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.show_change_log
+        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+      select id, ${q(prefix + "-f")}, now() - interval '4 min',
+        'mi11_reject', 'crew_removed', 'Gina', 'Removal rejected: Gina', '{}'::jsonb, 'rejected'
+      from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    // Anti-tautology: a CREW-DOMAIN change_kind ('crew_removed') is undoable only
+    // at status='applied'; a 'rejected' row must NOT carry undo.
+    const gina = entries.find((e) => e.entityRef === "Gina");
+    expect(gina).toBeDefined();
+    expect(gina!.status).toBe("rejected");
+    expect(gina!.action).toBe("none");
+    expect(gina!.gate).toBeUndefined();
+    expect(gina!.changeLogId).toBeUndefined();
+  });
+
+  test("an undone crew-domain row → action='none', no payload", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-g")}, ${q(prefix + "-g")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.show_change_log
+        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+      select id, ${q(prefix + "-g")}, now() - interval '6 min',
+        'auto_apply', 'crew_added', 'Hank', 'Crew added: Hank', '{"name":"Hank"}'::jsonb, 'undone'
+      from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    // Anti-tautology: a CREW-DOMAIN change_kind ('crew_added') is undoable only at
+    // status='applied'; an 'undone' row must NOT carry undo.
+    const hank = entries.find((e) => e.entityRef === "Hank");
+    expect(hank).toBeDefined();
+    expect(hank!.status).toBe("undone");
+    expect(hank!.action).toBe("none");
+    expect(hank!.gate).toBeUndefined();
+    expect(hank!.changeLogId).toBeUndefined();
+  });
 });
