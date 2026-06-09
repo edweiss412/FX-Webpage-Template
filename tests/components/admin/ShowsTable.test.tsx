@@ -395,6 +395,27 @@ describe("ShowsTable", () => {
     expect(rowOrder()).toEqual(["late", "early", "nodate"]);
   });
 
+  it("Dates sort uses the END date when start is null (matches the rendered fallback), not 'nulls last'", () => {
+    // formatDateRange shows a value when EITHER bound exists, so an end-only row
+    // is a VISIBLE date and must sort by that date — never forced last.
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "endOnly", showDateStart: null, showDateEnd: "2026-06-15" }),
+          row({ slug: "earlyStart", showDateStart: "2026-01-01", showDateEnd: "2026-01-02" }),
+          row({ slug: "trulyNull", showDateStart: null, showDateEnd: null }),
+        ]}
+        now={now}
+        activeCount={3}
+        overflowCount={0}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-dates")); // asc: earlyStart(1/1) < endOnly(6/15) < null
+    expect(rowOrder()).toEqual(["earlyStart", "endOnly", "trulyNull"]);
+    fireEvent.click(screen.getByTestId("shows-sort-dates")); // desc: endOnly > earlyStart, null still last
+    expect(rowOrder()).toEqual(["endOnly", "earlyStart", "trulyNull"]);
+  });
+
   it("the sort header is a real 44px tap target (min-h-tap-min) and the dates cell never wraps/truncates", () => {
     render(
       <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,

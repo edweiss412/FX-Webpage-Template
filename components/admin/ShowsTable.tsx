@@ -65,7 +65,9 @@ function sortValue(row: ActiveShowRow, key: SortKey): string | number | null {
     case "title":
       return rowTitle(row).toLowerCase();
     case "dates":
-      return row.showDateStart; // ISO 'YYYY-MM-DD' (lexically sortable) or null
+      // Match the RENDERED date: formatDateRange shows a value when EITHER
+      // bound exists, so an end-only row must sort by its end (not as null).
+      return row.showDateStart ?? row.showDateEnd; // ISO 'YYYY-MM-DD' or null
     case "crew":
       return row.crewCount ?? 0;
     case "sync":
