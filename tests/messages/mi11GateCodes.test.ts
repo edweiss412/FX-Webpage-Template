@@ -22,6 +22,6 @@ describe("MI-11 gate result codes resolve to non-null copy (Task 3.8, verificati
     const entry = messageFor(code);
     expect(entry).toBeTruthy();
     expect(typeof entry.title).toBe("string");
-    expect(entry.title.length).toBeGreaterThan(0);
+    expect((entry.title ?? "").length).toBeGreaterThan(0);
   });
 });
