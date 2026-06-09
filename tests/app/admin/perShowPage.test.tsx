@@ -12,6 +12,13 @@ const state = vi.hoisted(() => ({
   crew: [] as Array<Record<string, unknown>>,
   pending: [] as Array<Record<string, unknown>>,
   token: null as string | null,
+  // Phase 6 — the per-show changes feed (replaces the retired ParsePanel mount).
+  feed: {
+    entries: [] as Array<Record<string, unknown>>,
+    truncated: false,
+    totalShown: 0,
+  } as { entries: Array<Record<string, unknown>>; truncated: boolean; totalShown: number },
+  feedThrows: false as boolean,
   selectColsByTable: {} as Record<string, string>,
   // §3.2 finalize-owned predicate result (readfinalizeowned_b2). Default false
   // → a !published row reads "Held"; set true to exercise the "Publishing…" pill.
@@ -35,6 +42,25 @@ vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
         props.actions,
       ),
     resolveOrigin: () => "https://crew.example.com",
+  };
+});
+
+// Phase 6 — the changes feed is the server-only (service-role) data layer; the
+// page calls it after requireAdmin. Mock it so the per-show page render exercises
+// the ChangesFeed mount (a thrown SyncInfraError degrades to a calm notice).
+vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
+  // Import the REAL perFileProcessor through the normal module graph (it is not
+  // mocked) so the thrown SyncInfraError is the SAME class the page's
+  // `instanceof SyncInfraError` check uses — vi.importActual would yield a
+  // distinct evaluation and the instanceof would miss.
+  const { SyncInfraError } = await import("@/lib/sync/perFileProcessor");
+  return {
+    readShowChangeFeed: async () => {
+      if (state.feedThrows) {
+        throw new SyncInfraError("readShowChangeFeed.test", "thrown_error", null);
+      }
+      return state.feed;
+    },
   };
 });
 
@@ -125,6 +151,8 @@ beforeEach(() => {
   state.crew = [{ id: "c1", name: "Alex Lee", role: "A1" }];
   state.pending = [];
   state.token = "tok-123";
+  state.feed = { entries: [], truncated: false, totalShown: 0 };
+  state.feedThrows = false;
   state.selectColsByTable = {};
   state.finalizeOwned = false;
 });
@@ -268,19 +296,54 @@ describe("per-show page (§6)", () => {
     expect(screen.queryByTestId("admin-reset-picker-epoch-button")).toBeNull();
   });
 
-  it("archived show: ParsePanel read-only (apply suppressed, view-only notice shown)", async () => {
+  // Phase 6 — the legacy live whole-parse review mount (ParsePanel) is RETIRED on
+  // the per-show page (§8 / resolution #21 cutover): no invariant stages a whole
+  // parse anymore. The page mounts the ChangesFeed instead, and never the
+  // staged-review apply/read-only affordances.
+  it("does NOT mount the retired live whole-parse ParsePanel review (archived)", async () => {
     state.show = { ...baseShow, archived: true, published: true };
-    state.pending = [pendingRow];
     await renderPage();
-    expect(screen.getByTestId("staged-review-read-only")).toBeInTheDocument();
+    expect(screen.queryByTestId("staged-review-read-only")).toBeNull();
     expect(screen.queryByTestId("staged-review-apply")).toBeNull();
+    expect(screen.queryByTestId("admin-show-parse-warnings-section")).toBeNull();
   });
 
-  it("non-archived show: ParsePanel apply present", async () => {
-    state.pending = [pendingRow];
+  it("does NOT mount the retired live whole-parse ParsePanel review (non-archived)", async () => {
     await renderPage();
-    expect(screen.getByTestId("staged-review-apply")).toBeInTheDocument();
+    expect(screen.queryByTestId("staged-review-apply")).toBeNull();
     expect(screen.queryByTestId("staged-review-read-only")).toBeNull();
+    expect(screen.queryByTestId("admin-show-parse-warnings-section")).toBeNull();
+  });
+
+  it("mounts the changes feed (calm empty state when no changes)", async () => {
+    await renderPage();
+    expect(screen.getByTestId("change-feed-empty")).toBeInTheDocument();
+  });
+
+  it("renders the changes-feed entries when present", async () => {
+    state.feed = {
+      entries: [
+        {
+          id: "e1",
+          occurredAt: "2026-06-03T09:00:00.000Z",
+          status: "applied",
+          action: "none",
+          summary: "Section shrank",
+          entityRef: null,
+        },
+      ],
+      truncated: false,
+      totalShown: 1,
+    };
+    await renderPage();
+    expect(screen.getByTestId("change-feed-entry-e1")).toBeInTheDocument();
+  });
+
+  it("degrades to a calm notice when the feed read throws a SyncInfraError", async () => {
+    state.feedThrows = true;
+    await renderPage();
+    expect(screen.getByTestId("change-feed-infra-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("change-feed-empty")).toBeNull();
   });
 
   it("sync footer shows 'Last synced {rel}' + StatusIndicator", async () => {
@@ -409,19 +472,13 @@ describe("per-show header — M12.3 #16/#18/#15a", () => {
     expect(chip.querySelector("input")).toBeNull();
   });
 
-  // #15a — Parse warnings section is hidden entirely when there are no staged
-  // changes; present (with the apply control) when there are.
-  it("hides the Parse warnings section when there are zero staged changes (#15a)", async () => {
-    state.pending = [];
+  // Phase 6 — the legacy "Parse warnings" / live whole-parse review section is
+  // retired (§8). The per-show page never renders it regardless of legacy
+  // pending_syncs state; the changes feed is the replacement surface.
+  it("never renders the retired Parse warnings section (#15a superseded by Phase 6)", async () => {
+    state.pending = [pendingRow];
     await renderPage();
     expect(screen.queryByTestId("admin-show-parse-warnings-section")).toBeNull();
     expect(screen.queryByText(/Parse warnings/)).toBeNull();
-  });
-
-  it("shows the Parse warnings section when staged changes exist (#15a)", async () => {
-    state.pending = [pendingRow];
-    await renderPage();
-    expect(screen.getByTestId("admin-show-parse-warnings-section")).toBeInTheDocument();
-    expect(screen.getByText(/Parse warnings/)).toBeInTheDocument();
   });
 });

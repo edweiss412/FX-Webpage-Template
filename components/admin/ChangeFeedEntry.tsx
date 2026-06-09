@@ -42,7 +42,7 @@ export function ChangeFeedEntry({
 }: {
   entry: FeedEntry;
   now: Date;
-  undoAction: (formData: FormData) => void | Promise<void>;
+  undoAction: (formData: FormData) => unknown | Promise<unknown>;
   approveAction: GateServerAction;
   rejectAction: GateServerAction;
 }) {

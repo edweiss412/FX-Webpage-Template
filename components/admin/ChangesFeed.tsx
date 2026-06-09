@@ -31,7 +31,7 @@ export function ChangesFeed({
   entries: FeedEntry[];
   truncated: boolean;
   now: Date;
-  undoAction: (formData: FormData) => void | Promise<void>;
+  undoAction: (formData: FormData) => unknown | Promise<unknown>;
   approveAction: GateServerAction;
   rejectAction: GateServerAction;
 }) {

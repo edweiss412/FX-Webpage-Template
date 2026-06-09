@@ -32,10 +32,19 @@ export function UndoChangeButton({
   undoAction,
 }: {
   changeLogId: string;
-  undoAction: (formData: FormData) => void | Promise<void>;
+  // The bound undo server action; React ignores its return value for a plain
+  // <form action>, so the type is intentionally permissive (the action may
+  // return a typed UndoChangeResult that the form discards).
+  undoAction: (formData: FormData) => unknown | Promise<unknown>;
 }) {
+  // The form action must satisfy React's void-returning shape; we discard the
+  // helper's typed result (a plain <form action> ignores it; the page revalidates
+  // on the action's success path).
+  const formAction = async (formData: FormData): Promise<void> => {
+    await undoAction(formData);
+  };
   return (
-    <form action={undoAction}>
+    <form action={formAction}>
       <input type="hidden" name="changeLogId" value={changeLogId} />
       <SubmitButton label="Undo this change" />
     </form>
