@@ -60,7 +60,10 @@ function GateButton({
       data-testid={isApprove ? "mi11-approve" : "mi11-reject"}
       className={
         isApprove
-          ? "min-h-tap-min min-w-tap-min rounded-sm border border-border-strong bg-status-positive px-4 py-2 text-sm font-medium text-surface transition-colors duration-fast hover:bg-status-positive-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          ? // Brand-primary CTA (DESIGN §1.3: status hues are dots/pills only, never a
+            // large fill; mirrors PublishShowButton). accent-text on accent + semibold
+            // clears WCAG AA for the 14px label.
+            "min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           : "min-h-tap-min min-w-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       }
     >
