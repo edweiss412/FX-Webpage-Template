@@ -912,6 +912,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
     );
     const previousCrew = existing
       ? await this.rows<{
+          id: string;
           name: string;
           email: string | null;
           phone: string | null;
@@ -920,9 +921,13 @@ class PostgresPipelineTx implements SyncPipelineTx {
           date_restriction: unknown;
           stage_restriction: unknown;
           flight_info: string | null;
+          claimed_via_oauth_at: string | null;
         }>(
+          // PF38 (resolution #24): id + claimed_via_oauth_at are load-bearing for Phase-4 undo
+          // identity continuity (picker-cookie key + OAuth claim). Widened from name/email/phone/...
           `
-            select name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info
+            select id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
+                   flight_info, claimed_via_oauth_at
               from public.crew_members
              where show_id = $1
              order by name
@@ -1087,6 +1092,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       showId: updated.id,
       previousCrewNames: previousCrew.map((row) => row.name),
       previousCrewMembers: previousCrew.map((row) => ({
+        id: row.id,
         name: row.name,
         email: row.email,
         phone: row.phone,
@@ -1097,6 +1103,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         stage_restriction:
           row.stage_restriction as ParseResult["crewMembers"][number]["stage_restriction"],
         flight_info: row.flight_info,
+        claimed_via_oauth_at: row.claimed_via_oauth_at,
       })),
     };
   }

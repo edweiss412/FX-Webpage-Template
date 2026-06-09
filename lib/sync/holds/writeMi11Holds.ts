@@ -6,7 +6,8 @@ import type { TriggeredReviewItem } from "@/lib/parser/types";
  *
  * Runs as direct service-role SQL on the LOCKED sync transaction (no nested
  * lock-taking RPC — single-holder discipline, AGENTS.md invariant 2). The
- * caller already holds `pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`.
+ * caller already holds the per-show advisory lock (see lockedShowTx.ts); this
+ * helper acquires NO lock of its own.
  *
  * held_value  = the prior LIVE crew row (old email/name + non-identity fields).
  * proposed_value = { disposition:'email_change', name, email: canonicalize(new) }.

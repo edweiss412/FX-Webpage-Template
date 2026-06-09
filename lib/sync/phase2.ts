@@ -1,7 +1,11 @@
 import type { DriveListedFile } from "@/lib/drive/list";
 import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult } from "@/lib/parser/types";
-import { applyParseResult, type ApplyParseResultTx } from "@/lib/sync/applyParseResult";
+import {
+  applyParseResult,
+  type ApplyParseResultTx,
+  type PreviousCrewMember,
+} from "@/lib/sync/applyParseResult";
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { ResolvedSyncMode } from "@/lib/sync/perFileProcessor";
 import type { SnapshotAssetsResult } from "@/lib/sync/snapshotAssets";
@@ -35,7 +39,7 @@ export type Phase2Tx = ApplyParseResultTx & {
         outcome: "updated";
         showId: string;
         previousCrewNames: string[];
-        previousCrewMembers?: ParseResult["crewMembers"];
+        previousCrewMembers?: PreviousCrewMember[];
       }
     | {
         outcome: "stale";

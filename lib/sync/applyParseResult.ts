@@ -1,9 +1,19 @@
-import type { ParseResult } from "@/lib/parser/types";
+import type { CrewMemberRow, ParseResult } from "@/lib/parser/types";
+import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
+import { readOpenHolds, type HoldPort } from "@/lib/sync/holds/holdPort";
+
+// PF38 (resolution #24): the prior-crew snapshot carries id + claimed_via_oauth_at so the
+// auto-apply before_image can restore the ORIGINAL crew identity (picker-cookie key + OAuth
+// claim) on a Phase-4 undo. Without them an undo re-inserts a different, unclaimed identity.
+export type PreviousCrewMember = CrewMemberRow & {
+  id: string;
+  claimed_via_oauth_at: string | null;
+};
 
 export type ApplyParseResultSnapshot = {
   showId: string;
   previousCrewNames: string[];
-  previousCrewMembers?: ParseResult["crewMembers"];
+  previousCrewMembers?: PreviousCrewMember[];
 };
 
 export type ApplyParseResultTx = {
@@ -35,6 +45,16 @@ export type ApplyParseResultArgs = {
   driveFileId: string;
   parseResult: ParseResult;
   snapshot: ApplyParseResultSnapshot;
+  /**
+   * Hold-aware apply context (Phase 2). When present, the apply reads open `sync_holds`, pins
+   * held crew identity (email+name), suppresses deletes of held names, folds later rename/removal
+   * of held crew, reserves proposed targets, honors undo_override holds, and re-evaluates/releases
+   * holds in-place — all via service-role SQL on the same locked txn. Absent → legacy apply.
+   */
+  holds?: {
+    port: HoldPort;
+    baseModifiedTime: string;
+  };
 };
 
 function namesFrom(parseResult: ParseResult): string[] {
@@ -50,12 +70,39 @@ export async function applyParseResult(
   tx: ApplyParseResultTx,
   args: ApplyParseResultArgs,
 ): Promise<void> {
-  const nextCrewNames = namesFrom(args.parseResult);
-  const removedCrewNames = difference(args.snapshot.previousCrewNames, nextCrewNames);
-  const addedCrewNames = difference(nextCrewNames, args.snapshot.previousCrewNames);
+  // Hold-aware path: when a hold port is supplied, transform the crew list (identity pins, folds,
+  // suppressions, undo_override honoring) and protect held names from deletion/auth churn.
+  let crewMembers = args.parseResult.crewMembers;
+  let deleteProtectedNames: string[] = [];
+  let heldNames = new Set<string>();
+  if (args.holds) {
+    const openHolds = await readOpenHolds(args.holds.port, args.snapshot.showId);
+    if (openHolds.length > 0) {
+      const { plan } = await planHoldAwareApply({
+        port: args.holds.port,
+        showId: args.snapshot.showId,
+        parseResult: args.parseResult,
+        openHolds,
+        baseModifiedTime: args.holds.baseModifiedTime,
+      });
+      crewMembers = plan.crewMembers;
+      deleteProtectedNames = [...plan.protectedNames];
+      heldNames = plan.heldNames;
+    }
+  }
 
-  await tx.deleteCrewMembersNotIn(args.snapshot.showId, nextCrewNames);
-  await tx.upsertCrewMembers(args.snapshot.showId, args.parseResult.crewMembers);
+  const nextCrewNames = crewMembers.map((m) => m.name);
+  // Delete-suppression: held names are never deleted even if absent from the parse.
+  const deleteKeepNames = [...new Set([...nextCrewNames, ...deleteProtectedNames])];
+  const removedCrewNames = difference(args.snapshot.previousCrewNames, nextCrewNames).filter(
+    (name) => !heldNames.has(name),
+  );
+  const addedCrewNames = difference(nextCrewNames, args.snapshot.previousCrewNames).filter(
+    (name) => !heldNames.has(name),
+  );
+
+  await tx.deleteCrewMembersNotIn(args.snapshot.showId, deleteKeepNames);
+  await tx.upsertCrewMembers(args.snapshot.showId, crewMembers);
   await tx.provisionAddedCrewAuth(args.snapshot.showId, addedCrewNames);
   await tx.revokeRemovedCrewAuth(args.snapshot.showId, removedCrewNames);
   await tx.replaceHotelReservations(args.snapshot.showId, args.parseResult.hotelReservations);
