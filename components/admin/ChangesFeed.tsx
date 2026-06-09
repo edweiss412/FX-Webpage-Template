@@ -13,12 +13,18 @@
 
 import { ChangeFeedEntry } from "@/components/admin/ChangeFeedEntry";
 import type { Mi11GateActionResult } from "@/components/admin/Mi11GateActions";
+import type { UndoButtonResult } from "@/components/admin/UndoChangeButton";
 import type { FeedEntry } from "@/lib/sync/holds/types";
 
 type GateServerAction = (
   prev: Mi11GateActionResult | null,
   formData: FormData,
 ) => Mi11GateActionResult | Promise<Mi11GateActionResult>;
+
+type UndoServerAction = (
+  prev: UndoButtonResult | null,
+  formData: FormData,
+) => UndoButtonResult | Promise<UndoButtonResult>;
 
 export function ChangesFeed({
   entries,
@@ -31,7 +37,7 @@ export function ChangesFeed({
   entries: FeedEntry[];
   truncated: boolean;
   now: Date;
-  undoAction: (formData: FormData) => unknown | Promise<unknown>;
+  undoAction: UndoServerAction;
   approveAction: GateServerAction;
   rejectAction: GateServerAction;
 }) {

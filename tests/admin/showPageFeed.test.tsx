@@ -74,7 +74,9 @@ it("undoChangeAction forwards changeLogId to the undo helper", async () => {
   const spy = vi.spyOn(undo, "undoChange").mockResolvedValue({ ok: true });
   const fd = new FormData();
   fd.set("changeLogId", "cl-9");
-  await undoChangeAction(fd);
+  // P6-F1: the action is (prevState, formData) so UndoChangeButton can drive it
+  // via useActionState and surface typed failures.
+  await undoChangeAction(null, fd);
   expect(spy).toHaveBeenCalledWith("cl-9");
 });
 

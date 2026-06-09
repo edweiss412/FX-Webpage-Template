@@ -76,7 +76,14 @@ export async function mi11RejectAction(
   return result;
 }
 
-export async function undoChangeAction(formData: FormData): Promise<UndoChangeResult> {
+// P6-F1: (prevState, formData) so UndoChangeButton can drive it via useActionState
+// and surface the typed failure post-submit; prevState is ignored (the result is
+// derived fresh each submit). On success the page revalidates so the row flips to
+// undone; every {ok:false, code} is rendered via ErrorExplainer (no raw code).
+export async function undoChangeAction(
+  _prev: UndoChangeResult | null,
+  formData: FormData,
+): Promise<UndoChangeResult> {
   await requireAdmin();
   const changeLogId = String(formData.get("changeLogId") ?? "");
   const result = await undoChange(changeLogId);
