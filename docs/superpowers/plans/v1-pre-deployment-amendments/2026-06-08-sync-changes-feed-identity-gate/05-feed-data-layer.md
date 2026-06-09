@@ -6,7 +6,7 @@ Builds `lib/sync/feed/readShowChangeFeed.ts`: the **server-only (service-role)**
 
 **Canonical contracts (do not redefine — import from `00-overview.md`):**
 - `FeedEntry = { id; occurredAt; status: ChangeStatus; summary; action: "undo" | "approve_reject" | "none"; entityRef: string | null; gate?: { holdId: string; disposition: Disposition }; changeLogId?: string }` — the two optional fields (`00-overview.md` resolution #17) carry the action payload so Phase 6 needs NO second query.
-- `ChangeStatus = "applied" | "pending" | "rejected" | "undone"`
+- `ChangeStatus = "applied" | "pending" | "rejected" | "undone" | "superseded"` (matches `00-overview.md`:86 exactly — `'superseded'` rows are feed history, `action='none'`)
 - `readShowChangeFeed(showId: string, opts?: { limit?: number }): Promise<{ entries: FeedEntry[]; truncated: boolean; totalShown: number }>`
 - Service-role client: `createSupabaseServiceRoleClient()` (`lib/supabase/server.ts:79`).
 - Summary copy: rendered via `lib/messages` (`messageFor(code, params)` → `lib/messages/lookup.ts`), never raw codes (invariant 5). `show_change_log.summary` is already a rendered string written at apply/RPC time (spec §6.1); this layer passes it through and only renders pending-MI-11 summaries (which have no `show_change_log` row) itself.
