@@ -56,12 +56,13 @@ create table if not exists public.show_change_log (
   drive_file_id text not null,
   occurred_at   timestamptz not null default now(),
   source        text not null,                      -- 'auto_apply' | 'mi11_approve' | 'mi11_reject' | 'undo'
-  change_kind   text not null,                      -- invariant code ('MI-12'…) | 'crew_added'|'crew_removed'|'field_changed'|'section_shrunk'|…
+  change_kind   text not null,                      -- CREW-IDENTITY (undoable): 'crew_added'|'crew_removed'|'crew_renamed'. NON-CREW (notification): 'field_changed'|'section_shrunk'|'asset_drift'. (NOT the MI-* codes — resolution #3 + PF8.)
   entity_ref    text,                               -- crew name | section+key (per-item undo addressing)
   summary       text not null,                      -- rendered via lib/messages (no raw codes)
   before_image  jsonb,                              -- prior crew entity values (crew-domain only; null for non-crew rows)
   after_image   jsonb,                              -- applied values (feed display)
   status        text not null,                      -- 'applied' | 'pending' | 'rejected' | 'undone'
+  created_by    text not null default 'system',     -- 'system' for auto_apply; admin email (current_admin_email()) for mi11_approve/mi11_reject/undo (PF7)
   undo_of       uuid references public.show_change_log(id)
 );
 create index if not exists show_change_log_feed_idx on public.show_change_log (show_id, occurred_at desc);
@@ -176,5 +177,10 @@ Phase 2 is **TS-only** (no migration — hold-aware apply lives in `lib/sync/app
 - **Sync-path hold WRITES (Phase 2)** — system-initiated, no admin user: **direct `service_role` SQL inside the existing `lockedShowTx`** (JS lock holder). `created_by='system'`. REVOKE-exempt by role.
 - **Admin mutation RPCs (Phase 3 `mi11_approve_hold`/`mi11_reject_hold`, Phase 4 `undo_change`)** — admin-user-initiated: SECURITY DEFINER, **`grant execute … to authenticated` (revoke from `anon`; do NOT grant to / rely on `service_role`)**, body **gates on `public.is_admin()`** (typed forbidden result if false) and stamps `created_by = public.current_admin_email()`. Called from the admin server action via the **cookie-bound authenticated Supabase server client** (the admin's session JWT — `lib/supabase/server.ts`) **after `requireAdmin`**, NOT the service-role client. `is_admin()` + `pg_advisory_xact_lock` both work inside a SECURITY DEFINER RPC invoked via PostgREST authenticated (JWT claims readable; lock taken in the body). Matches the repo's existing admin-RPC pattern (grep `is_admin()` + `security definer` in `supabase/migrations/`). The Approve action reads Drive `modifiedTime` in the server action BEFORE the RPC call (F13) and passes it as `p_observed_modified_time`.
 - **Feed READS (Phase 5)** — server-side `service_role` (RLS-bypassing) per resolution #10.
+
+**13. Schema-correctness pins (resolve whole-plan R2 — PF6/PF7/PF8).**
+- **PF6 — `crew_members` column types for the undo restore.** `name/email/phone/role/flight_info` are **`text`** (use `v_before->>'col'`); `role_flags` is **`text[]`** (restore `coalesce(array(select jsonb_array_elements_text(v_before->'role_flags')), '{}')::text[]`); `date_restriction`/`stage_restriction` are **`jsonb`** (restore `v_before->'col'`, NOT `->>`). The Phase-4 phantom-column guard is extended to also assert the restore EXPRESSION is type-correct per column (not just that the name exists).
+- **PF7 — `show_change_log.created_by`** is a real column (added above: `text not null default 'system'`). Phase 1's migration + schema test include it; auto-apply rows get `'system'`, admin RPC rows stamp `current_admin_email()`.
+- **PF8 — rename `change_kind` is `'crew_renamed'`** everywhere (NOT `MI-12`/`MI-13`/`MI-14`). The undoable predicate `isCrewDomainChangeKind` = `{crew_added, crew_removed, crew_renamed}`. Phase 2 writer, Phase 4 undo tests, and Phase 5 predicate all use this exact set.
 
 **12. Message codes added in ONE Phase 1 task (resolves PF3).** Phase 1 includes a concrete task doing the full §12.4 three-lockstep (master-spec §12.4 prose + `pnpm gen:spec-codes` regenerating `lib/messages/__generated__/spec-codes.ts` + `lib/messages/catalog.ts` rows, ONE commit) for **every** code in resolution #5 (7 result codes + 4 `mi11_pending_*` summary keys incl. `mi11_pending_rename_folded`). Phases 3/4/5/6 only **reference** these (their catalog steps are verification-only). No phase ships a raw code or uncataloged summary (x1-catalog-parity enforces lockstep).

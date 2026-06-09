@@ -393,6 +393,7 @@ describe("public.show_change_log DDL", () => {
       "after_image",
       "before_image",
       "change_kind",
+      "created_by",
       "drive_file_id",
       "entity_ref",
       "id",
@@ -468,7 +469,8 @@ create table if not exists public.show_change_log (
   before_image  jsonb,
   after_image   jsonb,
   status        text not null,
-  undo_of       uuid references public.show_change_log(id)
+  undo_of       uuid references public.show_change_log(id),
+  created_by    text not null default 'system'
 );
 
 -- CHECKs: DROP IF EXISTS + ADD for apply-twice idempotency + future-value widening.

@@ -60,7 +60,7 @@ describe("before_image is pre-apply (F2)", () => {
   1. `crew_members` again contains Alice with email `alice@old` (re-inserted from `before_image`), AND Bob is **untouched** (same id/email) — sibling-safety, derive both from the fixture.
   2. A `sync_holds` row exists: `domain='crew_identity'`, `kind='undo_override'`, `entity_key='Alice'`, `held_value->>'email'='alice@old'`, `proposed_value IS NULL`.
   3. A new `show_change_log` row: `source='undo'`, `status='undone'`, `undo_of=<orig row id>`.
-  For a **rename** variant (Alice→Alicia, `change_kind='MI-12'`), assert `entity_key` records BOTH the retained name (`Alice`) and the suppressed added name (`Alicia`) so the apply skips re-adding Alicia (spec §6.3.1 / open-question on entity_key encoding — use `held_value.suppressed_added_name='Alicia'`).
+  For a **rename** variant (Alice→Alicia, `change_kind='crew_renamed'` — the undoable crew set is `{crew_added, crew_removed, crew_renamed}`, NOT MI-12/13/14), assert `entity_key` records BOTH the retained name (`Alice`) and the suppressed added name (`Alicia`) so the apply skips re-adding Alicia (spec §6.3.1 / open-question on entity_key encoding — use `held_value.suppressed_added_name='Alicia'`).
 
 - [ ] **GREEN.** Write `supabase/migrations/20260608000003_undo_change_rpc.sql` (allocated name per `00-overview.md` resolution #1). Mirror `rotate_show_share_token` shape (`security definer`, `set search_path = public, pg_temp`, `is_admin()` gate, resolve `drive_file_id` from `shows`, then `perform pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`). Inside the lock:
 
@@ -115,14 +115,20 @@ begin
   -- claimed_via_oauth_at). There is NO `restrictions` column. On conflict
   -- (rename: a row may already exist under the old name) restore ALL of
   -- before_image's identity+non-identity fields, not just email.
+  -- TYPE-CORRECT restore per live column type (PF6):
+  --   text:   name, email, phone, role, flight_info  → v_before->>'col'
+  --   text[]: role_flags  → array(jsonb_array_elements_text(...))::text[]
+  --   jsonb:  date_restriction, stage_restriction  → v_before->'col'
+  --           (-> keeps jsonb; ->> would coerce to text and break the jsonb column)
   insert into public.crew_members (
     show_id, name, email, phone, role, role_flags,
     date_restriction, stage_restriction, flight_info, last_changed_at
   )
   values (
     v_log.show_id, v_name, v_before->>'email', v_before->>'phone',
-    v_before->>'role', (v_before->'role_flags'),
-    v_before->>'date_restriction', v_before->>'stage_restriction',
+    v_before->>'role',
+    coalesce(array(select jsonb_array_elements_text(v_before->'role_flags')), '{}')::text[],
+    v_before->'date_restriction', v_before->'stage_restriction',
     v_before->>'flight_info', clock_timestamp()
   )
   on conflict (show_id, name) do update set
@@ -150,8 +156,14 @@ revoke all on function public.undo_change(uuid) from public, anon;
 grant execute on function public.undo_change(uuid) to authenticated;
 ```
 
-(`role_flags` is jsonb in `before_image`, so carry it as a jsonb subscript `v_before->'role_flags'`, not `->>'`. The other fields are text. Verify every column against the live schema before writing the migration — the real set is **id, show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info, last_changed_at, claimed_via_oauth_at** (NO `restrictions`); `tests/db/crew_members_claimed_via_oauth_at.test.ts` confirms the claim column. Use the project's `current_admin_email()`/`is_admin()` helpers as they appear in existing migrations.)
-- [ ] **RED (phantom-column guard).** Add `tests/db/undo-change-no-phantom-columns.test.ts`: read `supabase/migrations/20260608000003_undo_change_rpc.sql`, extract every column name referenced against `public.crew_members` (the `insert into public.crew_members (...)` list + each `set <col> =` in the `do update`), and assert the set ⊆ the REAL column set `{id, show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info, last_changed_at, claimed_via_oauth_at}`. **Failure mode caught:** a nonexistent column (e.g. `restrictions`) makes the RPC fail at runtime with `column "restrictions" does not exist` — this static guard catches it before the real-PG test even runs. Derive the allowed set from a single constant; the test fails if any referenced column ∉ that set.
+(Each restore expression must match the **live column type**, not just the column name (PF6): `role_flags` is `text[]` → rebuild from the jsonb array via `coalesce(array(select jsonb_array_elements_text(v_before->'role_flags')), '{}')::text[]`; `date_restriction` / `stage_restriction` are `jsonb` → carry with `->` (NOT `->>`, which coerces to text and breaks the jsonb column); `name/email/phone/role/flight_info` are `text` → `->>'`. Verify every column + type against the live schema before writing the migration — the real set is **id, show_id, name, email, phone, role, role_flags (text[]), date_restriction (jsonb), stage_restriction (jsonb), flight_info, last_changed_at, claimed_via_oauth_at** (NO `restrictions`); `tests/db/crew_members_claimed_via_oauth_at.test.ts` confirms the claim column. Use the project's `current_admin_email()`/`is_admin()` helpers as they appear in existing migrations.)
+- [ ] **RED (phantom-column + type-correctness guard).** Add `tests/db/undo-change-no-phantom-columns.test.ts`: read `supabase/migrations/20260608000003_undo_change_rpc.sql`.
+  - **Phantom-column:** extract every column name referenced against `public.crew_members` (the `insert into public.crew_members (...)` list + each `set <col> =` in the `do update`), and assert the set ⊆ the REAL column set `{id, show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info, last_changed_at, claimed_via_oauth_at}`. Failure mode: a nonexistent column (e.g. `restrictions`) fails the RPC at runtime with `column "restrictions" does not exist` — caught statically before the real-PG test runs. Derive the allowed set from a single constant.
+  - **Type-correctness (PF6):** assert each restore EXPRESSION matches the column's live type, not just that the name exists:
+    - `role_flags` (text[]) — the migration must reconstruct it via `jsonb_array_elements_text` + `::text[]` (assert the SQL matches `/role_flags[\s\S]*?jsonb_array_elements_text[\s\S]*?::text\[\]/` and does NOT restore role_flags with a bare `->>` or raw `->` jsonb subscript).
+    - `date_restriction` / `stage_restriction` (jsonb) — must be carried with `v_before->'col'` (the `->` operator); assert the migration does NOT use `v_before->>'date_restriction'` / `->>'stage_restriction'` (the `->>` text-coercion would break the jsonb column).
+    - `name/email/phone/role/flight_info` (text) — restored with `->>'`.
+  Failure mode: a type-mismatched restore (`->>'date_restriction'` into a jsonb column, or `v_before->'role_flags'` raw jsonb into a text[] column) fails the INSERT at runtime — this static guard catches it before the real-PG test runs. Derive the per-column expected-operator map from a single constant.
 - [ ] **APPLY TO VALIDATION.** The persistent validation Supabase project must receive this migration (the `validation-schema-parity` / postgrest gates target it). Run:
   `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260608000003_undo_change_rpc.sql`
   then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema'"`

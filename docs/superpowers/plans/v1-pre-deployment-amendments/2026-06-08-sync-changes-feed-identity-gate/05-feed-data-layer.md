@@ -13,8 +13,8 @@ Builds `lib/sync/feed/readShowChangeFeed.ts`: the **server-only (service-role)**
 
 **Shaping rules (spec §6.1/§6.2):**
 - `show_change_log` row → `FeedEntry`: `id`, `occurredAt=occurred_at`, `status` (the column value), `summary` (the column value), `entityRef=entity_ref`. `action`:
-  - `status='applied'` AND crew-domain `change_kind` (`crew_added` | `crew_removed` | `MI-12`/`MI-13`/`MI-14` rename rows) → `action='undo'`.
-  - `status='applied'` AND non-crew `change_kind` (e.g. `MI-7`, `MI-8`, asset drift) → `action='none'` (notification-only, finding F6 — `before_image` is null, no undo).
+  - `status='applied'` AND crew-domain `change_kind` ∈ `{'crew_added','crew_removed','crew_renamed'}` → `action='undo'` (canonical taxonomy: rename rows carry `change_kind='crew_renamed'`, NOT MI-12/13/14 — `00-overview.md` resolutions #3 + #13).
+  - `status='applied'` AND any other `change_kind` (`field_changed`, `section_shrunk`, `asset_drift`, `MI-11`, etc.) → `action='none'` (notification-only, finding F6 — `before_image` is null, no undo).
   - `status` ∈ `{rejected, undone}` → `action='none'`.
 - Open `sync_holds` row (`kind='mi11_pending'`) → pending `FeedEntry`: `status='pending'`, `action='approve_reject'`, derive old→proposed summary from the hold's `held_value` (old) and `proposed_value` disposition (`email_change` | `rename` | `removal`), `entityRef=entity_key`. Holds whose `kind='undo_override'` are NOT pending entries (their effect already shows as an `undone`/`rejected` `show_change_log` row) — exclude them.
 - **Crew-domain decision** lives in one exported helper `isCrewDomainChangeKind(kind: string): boolean` so the undo-gating set is single-sourced and testable.
@@ -30,11 +30,13 @@ import { describe, expect, test } from "vitest";
 import { isCrewDomainChangeKind } from "@/lib/sync/feed/readShowChangeFeed";
 
 describe("isCrewDomainChangeKind", () => {
-  test.each(["crew_added", "crew_removed", "MI-12", "MI-13", "MI-14"])(
+  test.each(["crew_added", "crew_removed", "crew_renamed"])(
     "crew-domain kind %s is undo-eligible",
     (kind) => expect(isCrewDomainChangeKind(kind)).toBe(true),
   );
-  test.each(["MI-7", "MI-8", "MI-8b", "field_changed", "section_shrunk", "REEL_DRIFT"])(
+  // Canonical taxonomy: rename rows are 'crew_renamed', NOT MI-12/13/14
+  // (00-overview resolutions #3 + #13). MI codes are non-crew/notification.
+  test.each(["MI-12", "MI-13", "MI-14", "MI-7", "MI-8", "field_changed", "section_shrunk", "asset_drift", "MI-11"])(
     "non-crew kind %s is notification-only",
     (kind) => expect(isCrewDomainChangeKind(kind)).toBe(false),
   );
@@ -89,6 +91,13 @@ describe("readShowChangeFeed", () => {
           'auto_apply', 'crew_added', 'Bob', 'Crew added: Bob', '{"name":"Bob"}'::jsonb, 'applied' from s
         returning id
       ),
+      renamed as (
+        insert into public.show_change_log
+          (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+        select id, ${q(prefix + "-a")}, now() - interval '90 sec',
+          'auto_apply', 'crew_renamed', 'Dana', 'Crew renamed: Dan → Dana', '{"name":"Dana"}'::jsonb, 'applied' from s
+        returning id
+      ),
       shrink as (
         insert into public.show_change_log
           (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
@@ -120,7 +129,10 @@ describe("readShowChangeFeed", () => {
 
     const added = entries.find((e) => e.entityRef === "Bob");
     expect(added!.status).toBe("applied");
-    expect(added!.action).toBe("undo"); // crew-domain → undo
+    expect(added!.action).toBe("undo"); // crew_added → crew-domain → undo
+
+    const renamed = entries.find((e) => e.entityRef === "Dana");
+    expect(renamed!.action).toBe("undo"); // crew_renamed → crew-domain → undo
 
     const shrink = entries.find((e) => e.entityRef === "Hotels");
     expect(shrink!.action).toBe("none"); // non-crew → notification-only
