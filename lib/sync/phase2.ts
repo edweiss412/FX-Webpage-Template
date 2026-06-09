@@ -6,6 +6,8 @@ import {
   type ApplyParseResultTx,
   type PreviousCrewMember,
 } from "@/lib/sync/applyParseResult";
+import { writeMi11Holds, type Mi11Item, type LiveCrewRow } from "@/lib/sync/holds/writeMi11Holds";
+import type { HoldPort } from "@/lib/sync/holds/holdPort";
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { ResolvedSyncMode } from "@/lib/sync/perFileProcessor";
 import type { SnapshotAssetsResult } from "@/lib/sync/snapshotAssets";
@@ -22,6 +24,9 @@ export type StaleWriteCode =
   | "STALE_MANUAL_REPLAY_ABORTED";
 
 export type Phase2Tx = ApplyParseResultTx & {
+  // Phase 2: service-role hold-port over the same locked txn (writeMi11Holds + hold-aware apply).
+  // No nested lock — rides the existing JS-held show lock.
+  holdPort?(): HoldPort;
   readCurrentDiagrams?(driveFileId: string): Promise<unknown>;
   applyShowSnapshot(args: {
     driveFileId: string;
@@ -72,6 +77,10 @@ export type Phase2Args = {
     unpublishToken: string;
     unpublishTokenExpiresAt: string;
   };
+  // Phase 2: MI-11 items from the decision rule (Phase1 outcome 'auto_apply_with_holds'). Each is
+  // written as a mi11_pending hold AFTER the snapshot (so liveCrewByName is the prior snapshot) and
+  // BEFORE the hold-aware applyParseResult sees the open holds.
+  mi11Items?: Mi11Item[];
 };
 
 export type RoleFlagsNotice = {
@@ -256,11 +265,43 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     );
   }
 
+  // Phase 2: write MI-11 holds (if any) BEFORE the hold-aware apply, using the prior snapshot as
+  // liveCrewByName, then run applyParseResult hold-aware. Both ride the existing JS show lock via
+  // the service-role hold-port — no nested lock-taking RPC (invariant 2).
+  const port = tx.holdPort?.();
+  if (port && args.mi11Items && args.mi11Items.length > 0) {
+    const liveCrewByName = new Map<string, LiveCrewRow>(
+      (snapshot.previousCrewMembers ?? []).map((member) => [
+        member.name,
+        {
+          name: member.name,
+          email: member.email,
+          phone: member.phone,
+          role: member.role,
+          role_flags: member.role_flags as unknown as string[],
+          date_restriction: member.date_restriction,
+          stage_restriction: member.stage_restriction,
+          flight_info: member.flight_info,
+        },
+      ]),
+    );
+    await callTx("writeMi11Holds", () =>
+      writeMi11Holds(port, {
+        showId: snapshot.showId,
+        driveFileId: args.driveFileId,
+        mi11Items: args.mi11Items!,
+        liveCrewByName,
+        baseModifiedTime: args.binding.modifiedTime,
+      }),
+    );
+  }
+
   await callTx("applyParseResult", () =>
     applyParseResult(tx, {
       driveFileId: args.driveFileId,
       parseResult,
       snapshot,
+      ...(port ? { holds: { port, baseModifiedTime: args.binding.modifiedTime } } : {}),
     }),
   );
 

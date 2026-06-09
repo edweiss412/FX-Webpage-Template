@@ -363,6 +363,14 @@ class PostgresPipelineTx implements SyncPipelineTx {
     return rows[0] ?? null;
   }
 
+  holdPort() {
+    // Service-role hold-port over the same locked txn (Phase 2 hold writes + hold-aware apply).
+    // Rides the existing JS-held show lock; no nested lock-taking RPC (invariant 2).
+    return {
+      unsafe: (query: string, params: unknown[]) => this.tx.unsafe(query, params),
+    };
+  }
+
   async readCurrentDiagrams(driveFileId: string): Promise<unknown> {
     const row = await this.one<{ diagrams: unknown }>(
       "select diagrams from public.shows where drive_file_id = $1 limit 1",
@@ -2360,6 +2368,9 @@ export async function processOneFile_unlocked(
       // re-verifies because review latency creates the drift window.
       verifyReelOnApply: false,
       ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
+      // Phase 2 decision rule: an MI-11 parse routes to auto_apply_with_holds — write the holds +
+      // run the hold-aware apply inside the same locked txn.
+      ...(phase1.outcome === "auto_apply_with_holds" ? { mi11Items: phase1.mi11Items } : {}),
     },
     txDeps,
   );

@@ -184,6 +184,56 @@ export function applyTx(tx: Sql): ApplyParseResultTx {
   };
 }
 
+/**
+ * A real-postgres Phase2Tx adapter for the Task 2.3 integration test. Implements applyShowSnapshot
+ * (updates the show + returns the widened previousCrewMembers), the crew methods, the holdPort, and
+ * stubs the diagram/reel/asset hooks (tests drive an empty-diagrams, verifyReelOnApply:false parse).
+ */
+export function phase2Tx(tx: Sql) {
+  const base = applyTx(tx);
+  return {
+    ...base,
+    holdPort: () => holdPort(tx),
+    async applyShowSnapshot(args: {
+      driveFileId: string;
+      modifiedTime: string;
+      parseResult: ParseResult;
+    }) {
+      const [show] = (await tx`select id from public.shows where drive_file_id = ${args.driveFileId} limit 1`) as Array<{
+        id: string;
+      }>;
+      const showId = show!.id;
+      const previous = (await tx`
+        select id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
+               flight_info, claimed_via_oauth_at
+          from public.crew_members where show_id = ${showId} order by name
+      `) as unknown as PreviousCrewMember[];
+      await tx`
+        update public.shows set last_seen_modified_time = ${args.modifiedTime}::timestamptz,
+               last_synced_at = now(), last_sync_status = 'ok', last_sync_error = null
+         where drive_file_id = ${args.driveFileId}
+      `;
+      return {
+        outcome: "updated" as const,
+        showId,
+        previousCrewNames: previous.map((p) => p.name),
+        previousCrewMembers: previous.map((p) => ({
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          phone: p.phone,
+          role: p.role,
+          role_flags: p.role_flags,
+          date_restriction: p.date_restriction,
+          stage_restriction: p.stage_restriction,
+          flight_info: p.flight_info,
+          claimed_via_oauth_at: p.claimed_via_oauth_at,
+        })),
+      };
+    },
+  };
+}
+
 export function snapshot(
   showId: string,
   previous: PreviousCrewMember[],
