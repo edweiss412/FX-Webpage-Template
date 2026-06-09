@@ -12,12 +12,13 @@ When a watched Google Sheet changes, the sync pipeline parses it and — if any 
 
 A trace of the **current** (post-M11.5 picker + OAuth-claim) auth model shows that the only change which silently breaks a live viewer's access is **MI-11** (an existing crew member's email changes): the OAuth-claim path matches a viewer to a crew row by `crew_members.email` = their Google account email (`lib/auth/validateGoogleSession.ts:125`), re-checked live every request (`lib/auth/picker/resolvePickerSelection.ts:122-143`), so changing the email evicts whoever claimed that identity. Every other invariant is either unambiguous + recoverable (shrinkage, field degradation, role) or self-healing (a same-email rename: email is the match key **and** is unique per show — partial unique index `crew_members_show_email_unique` at `supabase/migrations/20260501000000_initial_public_schema.sql:49` — so OAuth viewers re-claim the new row automatically).
 
-**Goal.** Stop gating routine changes. **Auto-apply everything except MI-11**; surface every change in a per-show **changes feed**; give each auto-applied change a **per-item undo**. A single **per-entity hold** mechanism underpins both the MI-11 gate and undo, so the apply engine stays atomic and the show never has to pause wholesale.
+**Goal.** Stop gating routine changes. **Auto-apply everything except MI-11**; surface every change in a per-show **changes feed**; give each auto-applied **crew-identity** change a **per-item undo**. A single **per-entity hold** mechanism underpins both the MI-11 gate and undo, so the apply engine stays atomic and the show never has to pause wholesale.
 
 ### Non-goals (explicitly out of scope)
-- **Cross-show "Needs attention" rollup (backlog #11)** — a later surface that reads the same `sync_holds` / `sync_audit` data. Not in this spec.
+- **Cross-show "Needs attention" rollup (backlog #11)** — a later surface that reads the same `sync_holds` / `show_change_log` data. Not in this spec.
 - **Two-way sheet write-back** — filed as `BL-TWO-WAY-SHEET-SYNC`. The app stays read-only on Google.
 - **Multi-step undo history** — undo is one-step (the immediately-prior value).
+- **Undo for non-crew changes** (MI-7 section shrinkage, MI-8/8b/8c field degradation, asset drift) — these appear in the feed as **notification-only** rows in v1 (the current Phase-2 snapshot captures prior *crew* rows only; backing non-crew undo needs a Phase-2 capture widening — deferred, §7 / finding F6). Undo in v1 covers **crew-identity** changes (add/remove/rename).
 - **Changing invariant definitions** — MI-1…MI-14 still compute identically; only the *consequence* of MI-6…MI-10, MI-12…MI-14 changes (stage → auto-apply).
 
 ---
@@ -96,7 +97,9 @@ A new table; one row per held change.
 | `drive_file_id` | text not null | denormalized for the sync path (mirrors `pending_syncs`) |
 | `domain` | text not null | `crew_email` \| `crew_identity` (extensible: `section_row`, `field`) |
 | `entity_key` | text not null | stable key within the show+domain (crew **name** for `crew_email`; for `crew_identity` the rename pair, see §6.3) |
-| `held_value` | jsonb not null | the value the apply pins (e.g. `{"email":"a@old.test"}`; for an undo-suppressed removal, the retained entity row) |
+| `held_value` | jsonb not null | the value the apply pins — the **current/old** value kept live (e.g. `{"email":"a@old.test"}`; for an undo-suppressed removal, the retained prior entity row) |
+| `proposed_value` | jsonb | the **target** the sheet wants, for `mi11_pending` (e.g. `{"email":"a@new.test"}`) — what the feed renders as "→ new" and what Approve applies. Null for `undo_override`. |
+| `base_modified_time` | timestamptz | the sheet `modifiedTime` the `proposed_value` was read at — a staleness guard so Approve never applies a target the sheet has since moved past (see §5). |
 | `kind` | text not null | `mi11_pending` \| `undo_override` |
 | `created_at` | timestamptz not null default now() | |
 | `created_by` | text not null | admin email (canonicalized) or `'system'` |
@@ -120,13 +123,13 @@ A new table; one row per held change.
 ### 4.3 Release semantics
 A hold releases (row deleted) when **either**:
 1. **Admin action** — Approve/Reject an `mi11_pending` (§5), or Redo an `undo_override` (re-apply the sheet's value).
-2. **Sheet reconciliation** — on a later sync, the sheet's value for that entity no longer conflicts with `held_value` (the source was corrected, or changed to something new). On a *new* conflicting value for an `mi11_pending` entity, the hold is **re-evaluated** (the pending email target updates; still one hold, not a duplicate). On a new value for an `undo_override`, the override **releases** and the new value applies (the admin's "don't re-apply *that*" no longer matches — the sheet moved on).
+2. **Sheet reconciliation** — on a later sync, the sheet's value for that entity no longer conflicts with `held_value`. If the sheet's email now **equals `held_value`** (the source was corrected back), the `mi11_pending` hold **releases** (no change needed). If the sheet's email changed to a **new** target, the hold is **re-evaluated in place**: `proposed_value` and `base_modified_time` update to the latest sheet value (still one hold, never a duplicate) — so the feed and Approve always reflect the most recent target. On a new value for an `undo_override`, the override **releases** and the new value applies (the admin's "don't re-apply *that*" no longer matches — the sheet moved on).
 
 **Flag lifecycle** (per the project's flag-lifecycle discipline):
 
 | field | storage | write path | read path | effect |
 |---|---|---|---|---|
-| `kind=mi11_pending` | `sync_holds` | decision rule (§2) on MI-11 detect | apply (§4.2) pins old email; feed renders Approve/Reject | email withheld until approve |
+| `kind=mi11_pending` | `sync_holds` (`held_value`=old, `proposed_value`=new, `base_modified_time`) | decision rule (§2) on MI-11 detect; re-eval on later conflict (§4.3) | apply (§4.2) pins old email; feed renders old→`proposed_value` Approve/Reject | email withheld until approve; Approve applies `proposed_value` |
 | `kind=undo_override` | `sync_holds` | Undo action (§6) / MI-11 Reject (§5) | apply (§4.2) pins held value; release eval (§4.3) | sheet change suppressed until reconciled |
 
 No zombie states: every hold is written by exactly one path, read by the apply + the feed, and released by admin action or sheet reconciliation.
@@ -135,20 +138,20 @@ No zombie states: every hold is written by exactly one path, read by the apply +
 
 ## 5. MI-11 gate flow
 
-1. **Detect** — MI-11 present → write `mi11_pending` hold per flagged crew: `domain='crew_email'`, `entity_key=<crew name>`, `held_value={email:<current live email>}`, `created_by='system'`.
-2. **Apply** — the rest of the parse auto-applies; the held crew member keeps the old email.
-3. **Feed entry** — `mi11_pending` renders: *"<name> — email change pending: <old> → <new>"* with **[Approve] [Reject]** (copy via `lib/messages` — no raw codes, invariant 5).
-4. **Approve** (admin-gated server action, advisory-locked) → release the hold + set the crew row's email to the new value. **This is the only moment** a claimed session is evicted (old-email holder fails the live email check on next request → `session_mismatch`) and the new email becomes claimable.
-5. **Reject** → convert the hold to `undo_override` pinning the old email; feed shows *"rejected — keeping <old>."* It releases per §4.3 when the sheet's email for that crew changes again.
+1. **Detect** — MI-11 present → write `mi11_pending` hold per flagged crew: `domain='crew_email'`, `entity_key=<crew name>`, `held_value={email:<current live email>}` (the **old** value kept live), `proposed_value={email:<sheet's new email>}` (the **durable target** — this is the only persisted home for the proposed email once whole-parse `pending_syncs` is off this path), `base_modified_time=<sheet modifiedTime>`, `created_by='system'`.
+2. **Apply** — the rest of the parse auto-applies; the held crew member keeps `held_value.email`.
+3. **Feed entry** — the pending entry is rendered **from the `sync_holds` row** (not `show_change_log`): *"<name> — email change pending: `held_value.email` → `proposed_value.email`"* with **[Approve] [Reject]** (copy via `lib/messages` — no raw codes, invariant 5).
+4. **Approve** (admin-gated lock-taking RPC, §4.1) → set the crew row's email to **`proposed_value.email`** (the locked target — never the transient parse), release the hold, and write a `show_change_log` row (`source='mi11_approve'`, `before_image={email:old}`, `after_image={email:new}`). **This is the only moment** a claimed session is evicted (old-email holder fails the live email check next request → `session_mismatch`) and the new email becomes claimable.
+5. **Reject** → convert the hold to `undo_override` pinning `held_value` (old email); write a `show_change_log` row (`source='mi11_reject'`). Feed shows *"rejected — keeping <old>."* Releases per §4.3 when the sheet's email for that crew changes again.
 
-**Guard conditions:** Approve/Reject are idempotent against a stale hold (if the hold already released via sheet reconciliation, the action no-ops with a typed "already resolved" result, surfaced through `lib/messages`). Concurrent sync + approve are serialized by the per-show advisory lock.
+**Guard conditions:** Approve/Reject are idempotent against a stale hold (if it already released via sheet reconciliation, the action no-ops with a typed "already resolved" result via `lib/messages`). Approve uses `base_modified_time` to detect a target the sheet has since moved past: if the live sheet `modifiedTime` no longer matches, Approve returns a typed "target changed — re-review" result rather than applying a stale email. Concurrent sync + approve are serialized by the per-show advisory lock.
 
 ---
 
 ## 6. The changes feed (admin show page)
 
 ### 6.1 Data source — new `show_change_log` table
-`sync_audit` **cannot** back the feed: its `staged_id`, `reviewer_choices`, `derived_side_effects`, `parse_result_summary`, `staged_modified_time` columns are NOT NULL staged-review fields (`supabase/migrations/20260501001000_internal_and_admin.sql:204-216`) that a non-staged Phase-2 auto-apply has no values for, and the only writer inserts exactly that staged payload (`lib/sync/applyStaged.ts:873-889,1391-1401`). Overloading it would force fake review data the feed/undo layer would misread. So the feed gets a **dedicated table**; `sync_audit` is left unchanged (it stays the formal MI-11-approval audit).
+`sync_audit` **cannot** back the feed: its `staged_id`, `reviewer_choices`, `derived_side_effects`, `parse_result_summary`, `staged_modified_time` columns are NOT NULL staged-review fields (`supabase/migrations/20260501001000_internal_and_admin.sql:204-216`) that a non-staged Phase-2 auto-apply has no values for, and the only writer inserts exactly that staged payload (`lib/sync/applyStaged.ts:873-889,1391-1401`). Overloading it would force fake review data the feed/undo layer would misread. So the feed gets a **dedicated table**; `sync_audit` is left **unchanged** — its legacy review-apply audit role stands, and the feed neither reads nor writes it (an MI-11 Approve writes `show_change_log`; whether it *also* appends a `sync_audit` row if it reuses the `applyStaged` path is an implementation detail orthogonal to the feed).
 
 **`show_change_log`** — one row per notable change, written on **every** apply path (auto-apply, MI-11 approve/reject, undo):
 
@@ -162,7 +165,7 @@ No zombie states: every hold is written by exactly one path, read by the apply +
 | `change_kind` | text not null | invariant code (`MI-12`, …) or structural (`crew_added` / `crew_removed` / `field_changed`) |
 | `entity_ref` | text | the affected entity (crew name; section+key) — addresses per-item undo |
 | `summary` | text not null | rendered copy via `lib/messages` (no raw codes, invariant 5) |
-| `before_image` | jsonb | the affected entities' **pre-apply** values — the undo source (§7) |
+| `before_image` | jsonb | the affected **crew** entities' **pre-apply** values — the undo source. Populated only for crew-domain `change_kind`s (the ones the current Phase-2 snapshot captures); null for non-crew FYI rows, which are notification-only in v1 (§7) |
 | `after_image` | jsonb | the applied values (feed display) |
 | `status` | text not null | `applied` \| `pending` \| `rejected` \| `undone` |
 | `undo_of` | uuid fk → show_change_log | set on an undo row; points at the entry it reverts |
@@ -170,11 +173,15 @@ No zombie states: every hold is written by exactly one path, read by the apply +
 The feed reads `show_change_log` (+ open `sync_holds` for `pending` MI-11 entries). Same lockdown posture as `sync_holds` (§4.1): REVOKE from anon/authenticated, RPC-gated writes, `RPC_GATED_TABLES` registry row, and automatic `validation-schema-parity` coverage (public table → manifest). **CHECK** constraints on `source`/`status`/`change_kind` use `DROP ... IF EXISTS` + `ADD` for apply-twice idempotency.
 
 ### 6.2 Entry shape & scope
-Each feed entry: `{ summary, occurred_at, status, action }` where `status ∈ {auto_applied, pending, rejected, undone}` and `action ∈ {undo, approve_reject, none}`. **Scope (signal-rich, not noisy):** entries cover the invariant-flagged changes (MI-6…MI-14, asset drift) + notable structural changes (crew add/remove). Routine field syncs that trip no invariant are **not** individually logged. **Cap/truncation:** the feed shows the most recent *N* (proposed 50) entries with an explicit "older changes not shown" note when truncated (never a silent cut).
+Each feed entry: `{ summary, occurred_at, status, action }` where `status ∈ {auto_applied, pending, rejected, undone}` and `action ∈ {undo, approve_reject, none}`. **Scope (signal-rich, not noisy):** entries cover the invariant-flagged changes (MI-6…MI-14, asset drift) + notable structural changes (crew add/remove). Routine field syncs that trip no invariant are **not** individually logged.
 
-### 6.3 Undo flow (per-item, one-step)
-On an `auto_applied` entry → **Undo** (admin-gated, advisory-locked):
-1. Restore the affected entity from the entry's **`before_image`** (§7): for a removal/rename, re-insert the prior entity row and suppress the sheet's replacement; for a field change, restore the prior value.
+**Undo availability (v1 scope — finding F6):** the `undo` action is offered **only on crew-domain entries** (`crew_added` / `crew_removed` / the MI-12/13/14 rename rows), whose pre-apply state the current Phase-2 snapshot captures (§7). Non-crew FYI rows (MI-7 section shrinkage, MI-8/8b/8c field degradation, asset drift) are **notification-only** in v1 — `action='none'`, with a "edit the sheet to change this" pointer — because backing their undo would require widening Phase-2 prior-state capture (deferred; see §1 non-goals + §7). This honors the approved "crew-identity undo first, non-crew only if cheap" scope (call 9); F6 showed non-crew is not cheap.
+
+**Cap/truncation:** the feed shows the most recent *N* (proposed 50) entries with an explicit "older changes not shown" note when truncated (never a silent cut).
+
+### 6.3 Undo flow (per-item, one-step — crew-domain entries only in v1)
+On an `auto_applied` **crew-domain** entry → **Undo** (admin-gated, lock-taking RPC per §4.1):
+1. Restore the affected crew entity from the entry's **`before_image`** (§7): for a removal/rename, re-insert the prior crew row and suppress the sheet's replacement. (Field-level undo for non-crew domains is deferred — §6.2/§7.)
 2. Write an `undo_override` hold (`domain='crew_identity'` for rename/removal, `held_value=<prior entity row>`; `entity_key` = the prior crew name; for a rename the key also records the suppressed added name so the apply skips re-adding it).
 3. The show **keeps syncing**; only the held entity is pinned. The feed entry flips to *"undone — overriding the sheet."*
 4. **Release** per §4.3: when the sheet's value for that entity next changes, the override releases and the new value applies. One-step — the override pins the immediately-prior value only.
@@ -185,11 +192,13 @@ On an `auto_applied` entry → **Undo** (admin-gated, advisory-locked):
 
 ## 7. Prior-state retention for undo
 
-Undo restores an entity to its **pre-apply** value, so each `show_change_log` row carries a **`before_image`** of the entities it changed, captured at apply time *before* the reconcile writes the new values. Undo re-inserts a removed/renamed entity from `before_image` or restores a changed field from it.
+Undo restores a crew entity to its **pre-apply** value, so each crew-domain `show_change_log` row carries a **`before_image`** of the crew rows it changed, captured at apply time *before* the reconcile writes the new values.
 
-**Why before-image, not the applied `parse_result`** (corrects the original §7 and adversarial finding F2): the most-recent *applied* `parse_result` is the **post**-change state, so reading it after an auto-applied removal/rename returns the current live sheet state and **cannot** reconstruct the removed prior entity. The prior crew snapshot otherwise exists only transiently in `applyShowSnapshot`'s return (`lib/sync/runScheduledCronSync.ts:1084`) and is not persisted anywhere. The per-entry `before_image` is the only reliable undo source.
+**Capture source — what's actually available (finding F6):** Phase 2 already snapshots the **prior crew rows** before applying — `applyShowSnapshot` returns `previousCrewNames` + `previousCrewMembers` (`lib/sync/phase2.ts:33-39`), captured at `lib/sync/runScheduledCronSync.ts:913-932,1088-1100`. The change-log writer persists those prior crew rows into `before_image` *before* `applyParseResult` mutates the tables. This is sufficient for crew add/remove/rename undo. It is **NOT** available for non-crew domains: Phase 2 does **not** capture prior hotel/room/contact rows, show fields, diagrams, or reel state. Widening that capture is out of v1 scope, so **non-crew rows are notification-only** (§6.2) — they get no `before_image` and no undo button. This is the F6 resolution and matches approved scope call 9.
 
-**Retention / cleanup:** `before_image` is kept while undo is available — one-step, i.e. until a newer change to the **same entity** supersedes it. A cleanup pass MAY null `before_image` on superseded rows to bound storage; the feed-history row survives via `summary` + `after_image`. **Decision (approved goal — one-step undo retention; mechanism corrected by F2):** per-entry before/after on `show_change_log`, not full `parse_result` on `sync_audit`.
+**Why before-image, not the applied `parse_result`** (finding F2): the most-recent *applied* `parse_result` is the **post**-change state, so reading it after an auto-applied removal/rename returns the current live sheet state and **cannot** reconstruct the removed prior entity. The per-entry `before_image` (captured pre-reconcile) is the only reliable undo source.
+
+**Retention / cleanup:** `before_image` is kept while undo is available — one-step, i.e. until a newer change to the **same crew entity** supersedes it. A cleanup pass MAY null `before_image` on superseded rows to bound storage; the feed-history row survives via `summary` + `after_image`.
 
 ---
 
@@ -216,7 +225,9 @@ All UI ships under invariant 8 (impeccable dual-gate) and the UI-always-Opus rou
 - Decision rule: MI-11-only parse → email held, rest applied (catches "whole-parse still staged").
 - Hold-aware apply: held crew keeps old email while a hotel drop in the same parse applies (catches "hold blocks unrelated changes").
 - **Rename-while-held (F3):** Alice has an open MI-11 email hold; next parse renames Alice→Alicia → Alice is NOT deleted, Alicia add is suppressed, the pending decision escalates; the old-email claim is evicted ONLY on Approve (catches "hold bypassed by rename").
+- **MI-11 durable target (F5):** detection writes `proposed_value`=new email; Approve applies `proposed_value` (not the transient parse); an oscillating sheet re-evaluates `proposed_value`+`base_modified_time` in place; Approve against a moved-past target returns "re-review" (catches "proposed email lost / stale target applied").
 - MI-11 Approve evicts old-email claim + enables new (catches "email applied without claim transition").
+- **Non-crew notification-only (F6):** an MI-7 section shrinkage / MI-8 field degradation auto-applies and produces a feed row with `action='none'` and null `before_image` — **no** undo button (catches "undo offered for a change with no captured prior state").
 - **Undo before-image (F2):** auto-applied crew removal → undo re-inserts the removed crew member from `before_image` (catches "undo reads post-state and can't restore a removed entity").
 - Undo restores one entity, leaves siblings (catches "undo clobbers FYI changes").
 - Undo + sheet-still-conflicts → no re-apply next sync; sheet-reconciled → override releases (catches whack-a-mole + stuck-override).
