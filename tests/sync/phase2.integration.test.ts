@@ -6,12 +6,13 @@ import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
 import type { TriggeredReviewItem } from "@/lib/parser/types";
-import { runPhase2 } from "@/lib/sync/phase2";
+import { Phase2GateBypassError, runPhase2 } from "@/lib/sync/phase2";
 
 import {
   crew,
   parseResult,
   phase2Tx,
+  phase2TxNoHoldPort,
   readChangeLog,
   readCrew,
   readHolds,
@@ -156,6 +157,38 @@ describe("Phase 2 Task 2.10 — mixed-parse integration", () => {
       const log = await readChangeLog(tx, showId);
       // (b) NO crew_added show_change_log row for the never-inserted Alicia.
       expect(log.find((r) => r.change_kind === "crew_added" && r.entity_ref === "Alicia")).toBeUndefined();
+    });
+  });
+
+  it("P2-F6 — an MI-11 parse with NO holdPort FAILS CLOSED: throws and applies nothing", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      await seedCrew(tx, showId, crew("Alice", { email: "a@old" }));
+
+      // Alice's email changes a@old→a@new (a real MI-11 identity change), but the tx exposes NO
+      // holdPort — the gate cannot be honored, so the apply must REFUSE rather than apply ungated.
+      const next = parseResult([crew("Alice", { email: "a@new" })]);
+      await expect(
+        runPhase2(phase2TxNoHoldPort(tx) as never, {
+          driveFileId,
+          mode: "cron" as const,
+          fileMeta: { driveFileId, name: "s", mimeType: "x", modifiedTime: MT, parents: ["f"] },
+          parseResult: next,
+          binding: { bindingToken: "t", modifiedTime: MT },
+          verifyReelOnApply: false as const,
+          mi11Items: [
+            { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          ] as never,
+          notableItems: [] as TriggeredReviewItem[],
+        }),
+        // (b) fail-closed signal: a typed gate-bypass error, NOT a silent pass.
+      ).rejects.toBeInstanceOf(Phase2GateBypassError);
+
+      // (a) the raw identity change did NOT reach crew_members — Alice's email is unchanged.
+      const alice = (await readCrew(tx, showId)).find((r) => r.name === "Alice")!;
+      expect(alice.email).toBe("a@old");
+      // No MI-11 hold was written either (we refused before any mutation).
+      expect(await readHolds(tx, showId)).toHaveLength(0);
     });
   });
 });

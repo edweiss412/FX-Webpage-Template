@@ -195,6 +195,13 @@ export function applyTx(tx: Sql): ApplyParseResultTx {
  * (updates the show + returns the widened previousCrewMembers), the crew methods, the holdPort, and
  * stubs the diagram/reel/asset hooks (tests drive an empty-diagrams, verifyReelOnApply:false parse).
  */
+/** Phase2Tx WITHOUT a holdPort — P2-F6 fail-closed: an MI-11-bearing apply must refuse to run. */
+export function phase2TxNoHoldPort(tx: Sql) {
+  const { holdPort: _omit, ...rest } = phase2Tx(tx);
+  void _omit;
+  return rest;
+}
+
 export function phase2Tx(tx: Sql) {
   const base = applyTx(tx);
   return {

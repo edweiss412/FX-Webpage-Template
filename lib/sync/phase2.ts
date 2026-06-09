@@ -121,6 +121,23 @@ export class Phase2InfraError extends Error {
   }
 }
 
+/**
+ * P2-F6 (fail-closed): a Phase-2 apply carrying MI-11 items REQUIRES a hold port (the MI-11 items
+ * are written as `sync_holds` and the apply must run hold-aware to pin the old identity). If the
+ * tx has no `holdPort`, the legacy raw apply would upsert the NEW email directly — silently
+ * BYPASSING the identity-only gate, the milestone's security boundary. Refuse to apply instead.
+ */
+export class Phase2GateBypassError extends Error {
+  readonly code = "MI11_GATE_NO_HOLD_PORT";
+  constructor() {
+    super(
+      "MI-11 items present but the transaction exposes no holdPort — refusing to apply the " +
+        "identity change ungated (fail closed).",
+    );
+    this.name = "Phase2GateBypassError";
+  }
+}
+
 async function callTx<T>(operation: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
@@ -182,6 +199,13 @@ function reelWarning(code: ReelWarningCode): ParseResult["warnings"][number] {
 }
 
 export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2Result> {
+  // P2-F6 — FAIL CLOSED: an MI-11-bearing parse with no hold port must NEVER apply ungated. Throw
+  // BEFORE any mutation (reel verify / snapshot apply / crew upsert) so the new identity never
+  // reaches crew_members. The no-MI-11 legacy path is unaffected (no holds to write).
+  if (args.mi11Items && args.mi11Items.length > 0 && !tx.holdPort) {
+    throw new Phase2GateBypassError();
+  }
+
   let parseResult = args.parseResult;
   let snapshotRevisionId: string | undefined;
   const verifyReelOnApply =
