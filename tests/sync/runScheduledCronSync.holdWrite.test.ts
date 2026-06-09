@@ -103,12 +103,18 @@ describe("Task 2.3 — wire mi11 hold write into the apply path", () => {
     const offenders: string[] = [];
     for (const file of readdirSync(dir)) {
       if (!file.startsWith("20260608")) continue; // this milestone's migrations
-      const text = readFileSync(join(dir, file), "utf8");
-      // crude: any `create ... function ... pg_advisory_xact_lock` is a lock-taking RPC.
+      // Strip SQL line-comments so prose mentioning "create function" / the lock does not match.
+      const text = readFileSync(join(dir, file), "utf8")
+        .split("\n")
+        .map((line) => line.replace(/--.*$/, ""))
+        .join("\n");
+      // A real lock-taking RPC: a `create ... function` whose body takes pg_advisory_xact_lock.
       if (/create\s+(or\s+replace\s+)?function[\s\S]*pg_advisory_xact_lock/i.test(text)) {
         offenders.push(file);
       }
     }
+    // The 2.10b cutover migration takes the lock inside a DO block (NOT a create function), so it
+    // is NOT a lock-taking RPC — it must NOT appear here.
     expect(offenders).toEqual([]);
   });
 });
