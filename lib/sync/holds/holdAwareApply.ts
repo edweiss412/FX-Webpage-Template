@@ -96,13 +96,24 @@ function undoOverrideReleased(
     return parseByName.has(hold.entity_key);
   }
   if (baseline?.kind === "rename") {
-    // Undo-of-rename: release when entity_key present again OR suppressed_added gone/changed.
+    // Undo-of-rename: release when entity_key present again OR the suppressed_added entity is
+    // gone/changed. Match suppressed_added by name+email (resolution #16): a re-named replacement
+    // carrying the same email still reproduces the undone rename, so it must NOT release. Released
+    // only when NO sheet row carries the suppressed email (under any name) AND no row carries the
+    // suppressed name with that email.
     if (parseByName.has(hold.entity_key)) return true;
     const sa = baseline.suppressed_added;
     if (!sa) return true;
-    const stillAdding = parseByName.get(sa.name);
-    if (!stillAdding) return true;
-    return canonRow(stillAdding.email) !== canonRow(sa.email);
+    const saEmail = canonRow(sa.email);
+    // still reproducing the rename iff some sheet row matches by email (any name) or by name+email.
+    const stillReproduced =
+      saEmail != null
+        ? [...parseByName.values()].some((m) => canonRow(m.email) === saEmail)
+        : (() => {
+            const byName = parseByName.get(sa.name);
+            return byName != null && canonRow(byName.email) === saEmail;
+          })();
+    return !stillReproduced;
   }
   return false;
 }
@@ -197,6 +208,7 @@ export async function planHoldAwareApply(
       applyUndoOverrideToMaps(hold, parseByName, parseByEmail, {
         protectedNames,
         suppressedNames,
+        suppressedEmails,
         retainRows,
         pinnedIdentity,
       });
@@ -352,6 +364,7 @@ function applyUndoOverrideToMaps(
   maps: {
     protectedNames: Set<string>;
     suppressedNames: Set<string>;
+    suppressedEmails: Set<string>;
     retainRows: Map<string, CrewMemberRow>;
     pinnedIdentity: Map<string, { name: string; email: string | null }>;
   },
@@ -377,8 +390,11 @@ function applyUndoOverrideToMaps(
   maps.retainRows.set(hold.entity_key, rowFromHeldValue(held));
   const baseline = baselineOf(held);
   if (baseline?.kind === "rename" && baseline.suppressed_added) {
-    // Suppress the replacement by name AND email (it may be differently named).
+    // Suppress the replacement by name AND email (resolution #16): a re-named replacement carrying
+    // the same email must still be suppressed, so add BOTH the name and the canonical email.
     maps.suppressedNames.add(baseline.suppressed_added.name);
+    const e = canonRow(baseline.suppressed_added.email);
+    if (e) maps.suppressedEmails.add(e);
     void parseByName;
   }
 }
