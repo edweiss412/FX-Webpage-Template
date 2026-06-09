@@ -87,7 +87,12 @@ const baseShow = {
   slug: "rpas",
   title: "RPAS Central",
   client_label: "Northwind Bank",
-  dates: { travelIn: "2026-06-14", set: null, showDays: ["2026-06-14", "2026-06-15"], travelOut: "2026-06-15" },
+  dates: {
+    travelIn: "2026-06-14",
+    set: null,
+    showDays: ["2026-06-14", "2026-06-15"],
+    travelOut: "2026-06-15",
+  },
   drive_file_id: "d1",
   published: true,
   archived: false,
@@ -153,21 +158,23 @@ describe("per-show page (§6)", () => {
 
   it("renders the AdminPageHeader breadcrumb 'Admin › Active shows'", async () => {
     await renderPage();
-    expect(screen.getByTestId("admin-page-header-crumb").textContent).toBe(
-      "Admin › Active shows",
-    );
+    expect(screen.getByTestId("admin-page-header-crumb").textContent).toBe("Admin › Active shows");
   });
 
   it("title + pill + chip live in the AdminPageHeader (single source, rendered once)", async () => {
     await renderPage();
     // title is the header's title node
     expect(screen.getByTestId("admin-page-header-title").textContent).toBe("RPAS Central");
-    // pill + chip live inside admin-page-header-right, each rendered exactly once
+    // M12.9: the status pill is APPENDED inline after the title
+    // (admin-page-header-title-append); the share chip is the right slot.
+    const titleAppend = screen.getByTestId("admin-page-header-title-append");
     const right = screen.getByTestId("admin-page-header-right");
     const pill = screen.getByTestId("admin-show-status-pill");
     const chip = screen.getByTestId("admin-show-share-chip");
-    expect(right).toContainElement(pill);
+    expect(titleAppend).toContainElement(pill);
     expect(right).toContainElement(chip);
+    // the pill is NOT in the right slot anymore (it moved next to the title)
+    expect(right).not.toContainElement(pill);
     expect(screen.getAllByTestId("admin-show-status-pill")).toHaveLength(1);
     expect(screen.getAllByTestId("admin-show-share-chip")).toHaveLength(1);
   });
@@ -299,7 +306,11 @@ describe("per-show page (§6)", () => {
     ["pending_review", /Changes to review/],
     ["pending", /Sync in progress/],
   ])("sync footer surfaces the textual label for non-ok status %s", async (status, labelRe) => {
-    state.show = { ...baseShow, last_sync_status: status, last_synced_at: "2026-06-03T08:00:00.000Z" };
+    state.show = {
+      ...baseShow,
+      last_sync_status: status,
+      last_synced_at: "2026-06-03T08:00:00.000Z",
+    };
     await renderPage();
     const footer = screen.getByTestId("admin-show-sync-footer");
     // The descriptive health label appears (not color-only)…
@@ -328,7 +339,11 @@ describe("per-show page (§6)", () => {
   });
 
   it("sync footer keeps plain 'Last synced {rel}' for ok status (no redundant label)", async () => {
-    state.show = { ...baseShow, last_sync_status: "ok", last_synced_at: "2026-06-03T08:00:00.000Z" };
+    state.show = {
+      ...baseShow,
+      last_sync_status: "ok",
+      last_synced_at: "2026-06-03T08:00:00.000Z",
+    };
     await renderPage();
     const footer = screen.getByTestId("admin-show-sync-footer");
     expect(footer.textContent).toMatch(/Last synced/);
@@ -378,7 +393,9 @@ describe("per-show header — M12.3 #16/#18/#15a", () => {
     await renderPage();
     const chip = screen.getByTestId("admin-show-share-chip");
     // copy affordance present (load-bearing — full URL goes to clipboard)
-    expect(chip.querySelector("[data-testid='admin-current-share-link-copy-button']")).not.toBeNull();
+    expect(
+      chip.querySelector("[data-testid='admin-current-share-link-copy-button']"),
+    ).not.toBeNull();
     // the host-stripped compact path IS shown as the chip text…
     expect(chip.textContent).toMatch(/\/show\/rpas\/tok-123/);
     // …but the chip text is NOT the full absolute URL (no scheme://host inline)

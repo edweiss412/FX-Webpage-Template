@@ -308,10 +308,7 @@ export default async function AdminShowPage({
   // dates are absent; render nothing when neither client nor a date range
   // exists (a partially-parsed show must not render an empty subtitle node).
   const clientLabel = typeof show.client_label === "string" ? show.client_label.trim() : "";
-  const dateRangeLabel = formatDateRange(
-    deriveShowStart(show.dates),
-    deriveShowEnd(show.dates),
-  );
+  const dateRangeLabel = formatDateRange(deriveShowStart(show.dates), deriveShowEnd(show.dates));
   const subtitleParts: string[] = [];
   if (clientLabel) subtitleParts.push(clientLabel);
   if (dateRangeLabel) subtitleParts.push(dateRangeLabel);
@@ -401,12 +398,11 @@ export default async function AdminShowPage({
             </p>
           ) : undefined
         }
-        rightSlot={
-          <>
-            {pill}
-            {chip}
-          </>
-        }
+        /* M12.9: the status pill is appended INLINE after the title
+           ("… (R5) [Published]"); the share-link chip stays on the right,
+           vertically centered against the title+subtitle block. */
+        titleAppendSlot={pill}
+        rightSlot={chip}
       />
 
       <PerShowAlertSection
@@ -435,8 +431,8 @@ export default async function AdminShowPage({
                 role="status"
                 className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
               >
-                This show is archived. Crew links are dead. Unarchive and re-publish
-                to bring it back.
+                This show is archived. Crew links are dead. Unarchive and re-publish to bring it
+                back.
               </p>
               <div className="flex">
                 <UnarchiveShowButton showId={show.id} unarchiveAction={unarchiveShowAction} />
@@ -449,8 +445,7 @@ export default async function AdminShowPage({
                 role="status"
                 className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
               >
-                Held — not published. Publish to make it live, then issue a crew
-                link.
+                Held — not published. Publish to make it live, then issue a crew link.
               </p>
               <div className="flex flex-wrap items-start gap-3">
                 <PublishShowButton
@@ -499,13 +494,12 @@ export default async function AdminShowPage({
               data-testid="per-show-crew-lookup-failed"
               className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
             >
-              We could not load the crew list right now. Refresh the page; if the
-              problem repeats, contact the developer.
+              We could not load the crew list right now. Refresh the page; if the problem repeats,
+              contact the developer.
             </p>
           ) : crew.length === 0 ? (
             <p data-testid="per-show-crew-empty" className="text-sm text-text-subtle">
-              No crew members on this show yet. Once a sync brings them in, they
-              will appear here.
+              No crew members on this show yet. Once a sync brings them in, they will appear here.
             </p>
           ) : (
             <>
@@ -568,8 +562,8 @@ export default async function AdminShowPage({
         >
           <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
           <p className="text-sm text-text-subtle">
-            One share-link reaches the whole crew. Rotate the link if it leaks;
-            reset the picker if a crew member needs to re-pick their identity.
+            One share-link reaches the whole crew. Rotate the link if it leaks; reset the picker if
+            a crew member needs to re-pick their identity.
           </p>
           {isShowEligibleForCrewLink ? (
             // Pass the page's SINGLE token snapshot (Codex R2) so the header
@@ -617,9 +611,8 @@ export default async function AdminShowPage({
               data-testid="admin-share-link-inactive"
               className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
             >
-              The crew link is inactive while this show is{" "}
-              {archived ? "archived" : "unpublished"}. It will be available once the
-              show is published.
+              The crew link is inactive while this show is {archived ? "archived" : "unpublished"}.
+              It will be available once the show is published.
             </p>
           )}
         </section>
