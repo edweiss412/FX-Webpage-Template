@@ -21,6 +21,7 @@
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
+import { PageTransition } from "@/components/layout/PageTransition";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 
@@ -65,9 +66,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-page-pad-mobile sm:p-page-pad-desktop text-center"
         >
           <h1 className="text-2xl font-semibold">Admin session unavailable</h1>
-          <p className="mt-4 text-base text-text-subtle">
-            {infraMessage}
-          </p>
+          <p className="mt-4 text-base text-text-subtle">{infraMessage}</p>
           <a
             href="/admin"
             className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
@@ -106,7 +105,11 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           mounts ONLY on the dashboard, under the "Dashboard" header — see
           <DashboardWithHeader> in app/admin/page.tsx, which keeps the
           `<div id="alerts">` queue-chip scroll target for `/admin#alerts`. */}
-      {children}
+      {/* M12.11: animate the page content on every /admin/* navigation. The nav
+          above persists (it's outside the wrapper); only the content below
+          transitions. loading.tsx skeletons render INSIDE this wrapper, so the
+          skeleton fades in on click and the real content swaps in when ready. */}
+      <PageTransition>{children}</PageTransition>
     </div>
   );
 }
