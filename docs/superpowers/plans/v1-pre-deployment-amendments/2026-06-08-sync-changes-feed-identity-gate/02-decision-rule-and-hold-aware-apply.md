@@ -237,6 +237,23 @@ Every `sync_holds` / `show_change_log` write in this phase runs on the **sync/ap
 
 ---
 
+### Task 2.10b — Cutover: retire the LIVE whole-parse `pending_syncs` staging path (PF31)
+
+**Failure mode caught (PF31, per 00-overview resolution #21):** the new decision rule auto-applies + writes `sync_holds` and NEVER inserts a live `pending_sync`, so the legacy LIVE whole-parse staging path is retired. But any pre-existing LIVE `pending_syncs` rows (`wizard_session_id IS NULL`) would **strand**: `_publish_show_core` blocks publish on `exists (select 1 from public.pending_syncs where drive_file_id=v_drive and wizard_session_id is null)` raising `PUBLISH_BLOCKED_PENDING_REVIEW` (`supabase/migrations/20260601000000_b2_show_lifecycle.sql:124-128`), and the dashboard routes those shows to the per-show staged-review mount that **Phase 6 removes** — leaving a permanently unpublishable, unreviewable show. This cutover task MUST land in Phase 2 (BEFORE Phase 6's mount removal). The **wizard** `pending_syncs` path (`wizard_session_id IS NOT NULL`, onboarding) is UNTOUCHED — only the LIVE cohort is retired.
+
+- [ ] **Migration** `supabase/migrations/20260608000004_retire_live_pending_syncs.sql` (next free timestamp after `20260602000005`):
+  - `DELETE FROM public.pending_syncs WHERE wizard_session_id IS NULL;` — drop existing LIVE staged rows (keep wizard rows).
+  - Reset those shows so the next cron re-processes the sheet under the new auto-apply+MI-11 rule: `UPDATE public.shows s SET last_seen_modified_time = NULL, requires_resync = true FROM (…the deleted drive_file_ids…) WHERE s.drive_file_id = …` (capture the deleted `drive_file_id`s via a CTE `WITH del AS (DELETE … RETURNING drive_file_id)` so the UPDATE targets exactly the un-staged shows; nulling `last_seen_modified_time` forces re-parse, `requires_resync=true` makes the intent explicit). Idempotent: re-applying after the LIVE cohort is gone is a no-op (empty DELETE → empty UPDATE).
+  - This is a one-shot data migration (no DDL, no new RPC). Apply to the validation project: `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260608000004_retire_live_pending_syncs.sql`. Run `pnpm gen:schema-manifest` and `git diff` the manifest — a data-only migration should NOT change it; if it does, commit the regen (verify, don't assume).
+- [ ] **Test** `tests/sync/cutover.retireLivePendingSyncs.test.ts` (DB-backed):
+  - `the new decision rule NEVER inserts a live pending_sync row` — drive an MI-11 sync AND an FYI sync through the full path; assert ZERO rows in `pending_syncs WHERE wizard_session_id IS NULL` were created (only `sync_holds` + auto-apply). Spy/query the table directly. **Failure mode:** the decision rule still writes a live `pending_sync`, re-creating the strand.
+  - `after the cutover migration + a re-sync of a previously-staged show, publish_show is NOT blocked by PUBLISH_BLOCKED_PENDING_REVIEW` — seed a show WITH a LIVE `pending_sync` (`wizard_session_id IS NULL`); run the cutover migration; re-sync the show; call `publish_show(showId)` and assert it does NOT raise `PUBLISH_BLOCKED_PENDING_REVIEW` (target the exact gate predicate at `20260601000000_b2_show_lifecycle.sql:124-128`). **Failure mode:** the stranded live row survives and blocks publish forever.
+  - `the wizard pending_syncs path is untouched` — seed a WIZARD `pending_sync` (`wizard_session_id IS NOT NULL`); run the cutover migration; assert that row STILL exists. **Failure mode:** the cutover deletes onboarding wizard rows.
+- [ ] **Run:** `pnpm vitest run tests/sync/cutover.retireLivePendingSyncs.test.ts`
+- [ ] **Commit:** `feat(sync): retire live whole-parse pending_syncs staging path + cutover migration (PF31)`
+
+---
+
 ### Task 2.11 — Phase 2 self-review
 
 **Not a code task.** Before adversarial review, the implementer audits the Phase-2 diff against this checklist (record findings inline in the PR/handoff):
