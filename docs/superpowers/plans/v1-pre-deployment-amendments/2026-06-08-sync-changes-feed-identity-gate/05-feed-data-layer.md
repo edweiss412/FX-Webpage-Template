@@ -5,7 +5,7 @@
 Builds `lib/sync/feed/readShowChangeFeed.ts`: the **server-only (service-role)** read that merges `show_change_log` (most-recent *N*, default 50, `occurred_at desc`) with open `sync_holds` (pending MI-11) and shapes each row into the canonical `FeedEntry` (`00-overview.md` §"TypeScript types"). NEVER via PostgREST `from()` — service-role only (spec §6.1 read posture, finding F9; lockdown landed Phase 1). The consumer (Phase 6 UI) renders the truncation disclosure; this layer only sets `{ entries, truncated, totalShown }`.
 
 **Canonical contracts (do not redefine — import from `00-overview.md`):**
-- `FeedEntry = { id; occurredAt; status: ChangeStatus; summary; action: "undo" | "approve_reject" | "none"; entityRef: string | null; gate?: { holdId: string; disposition: Disposition }; changeLogId?: string }` — the two optional fields (`00-overview.md` resolution #17) carry the action payload so Phase 6 needs NO second query.
+- `FeedEntry = { id; occurredAt; status: ChangeStatus; summary; action: "undo" | "approve_reject" | "none"; entityRef: string | null; gate?: { holdId: string; disposition: Disposition; baseModifiedTime: string | null }; changeLogId?: string }` — the two optional fields (`00-overview.md` resolution #17) carry the action payload so Phase 6 needs NO second query. `gate.baseModifiedTime` (the open hold's `base_modified_time` AS RENDERED, ISO string | null — `00-overview.md` resolution #26, PF40) is the optimistic-concurrency token Phase 6's Approve/Reject submit back as `p_expected_base_modified_time`; if the hold retargeted (Phase 2 Task 2.8 in-place re-eval flips disposition + bumps `base_modified_time`) since the admin rendered the feed → `MI11_TARGET_MOVED`, zero mutation.
 - `ChangeStatus = "applied" | "pending" | "rejected" | "undone" | "superseded"` (matches `00-overview.md`:86 exactly — `'superseded'` rows are feed history, `action='none'`)
 - `readShowChangeFeed(showId: string, opts?: { limit?: number }): Promise<{ entries: FeedEntry[]; truncated: boolean; totalShown: number }>`
 - Service-role client: `createSupabaseServiceRoleClient()` (`lib/supabase/server.ts:79`).
@@ -16,7 +16,7 @@ Builds `lib/sync/feed/readShowChangeFeed.ts`: the **server-only (service-role)**
   - `status='applied'` AND crew-domain `change_kind` ∈ `{'crew_added','crew_removed','crew_renamed'}` → `action='undo'` (canonical taxonomy: rename rows carry `change_kind='crew_renamed'`, NOT MI-12/13/14 — `00-overview.md` resolutions #3 + #13). **Set `changeLogId = show_change_log.id`** (the id `undo_change` takes, resolution #17). No `gate`.
   - `status='applied'` AND any other `change_kind` (`crew_email_changed` — a gate-resolved MI-11 email change, `field_changed`, `section_shrunk`, `asset_drift`, etc.) → `action='none'` (notification-only, finding F6 — `before_image` is null, no undo). NOTE: `change_kind` is NEVER an `MI-*` value (`00-overview.md` resolution #13) — `show_change_log` rows always carry structural kinds. **Neither `gate` nor `changeLogId` set.**
   - `status` ∈ `{rejected, undone, superseded}` → `action='none'` (neither optional field set). A `superseded` row (a newer same-entity change made it non-actionable — `00-overview.md`, PF21) is feed history only — even a crew-domain `change_kind` here is NEVER undoable; only `status='applied'` crew-domain rows get `action='undo'`.
-- Open `sync_holds` row (`kind='mi11_pending'`) → pending `FeedEntry`: `status='pending'`, `action='approve_reject'`, derive old→proposed summary from the hold's `held_value` (old) and `proposed_value` disposition (`email_change` | `rename` | `removal`), `entityRef=entity_key`. **Set `gate = { holdId: sync_holds.id, disposition: proposed_value }`** (the canonical `Disposition`, resolution #17). No `changeLogId`. Holds whose `kind='undo_override'` are NOT pending entries (their effect already shows as an `undone`/`rejected` `show_change_log` row) — exclude them.
+- Open `sync_holds` row (`kind='mi11_pending'`) → pending `FeedEntry`: `status='pending'`, `action='approve_reject'`, derive old→proposed summary from the hold's `held_value` (old) and `proposed_value` disposition (`email_change` | `rename` | `removal`), `entityRef=entity_key`. **Set `gate = { holdId: sync_holds.id, disposition: proposed_value, baseModifiedTime: base_modified_time }`** (the canonical `Disposition`, resolution #17; `baseModifiedTime` from this same open hold's `base_modified_time` column — the `SyncHold.baseModifiedTime` field, `00-overview.md` shared TS types — rendered as ISO string | null, resolution #26 / PF40). No `changeLogId`. Holds whose `kind='undo_override'` are NOT pending entries (their effect already shows as an `undone`/`rejected` `show_change_log` row) — exclude them.
 - **Crew-domain decision** lives in one exported helper `isCrewDomainChangeKind(kind: string): boolean` so the undo-gating set is single-sourced and testable.
 - **Cap/truncation:** fetch the *N* most-recent `show_change_log` rows (`limit = opts.limit ?? 50`); query `count` of total log rows for the show. Pending MI-11 holds are **always** included (they are the actionable items) and prepended/merged into the ordered result by `occurredAt` (a hold's `created_at` is its `occurredAt`). `truncated = totalLogRows > limit`. `totalShown = entries.length`. Never a silent cut — `truncated` drives the consumer's "older changes not shown" disclosure.
 
@@ -147,6 +147,13 @@ describe("readShowChangeFeed", () => {
     const holdId = runPsql(
       `select id from public.sync_holds where show_id = ${q(showId)} and entity_key = 'Alice';`,
     );
+    // PF40 staleness token: derive the EXPECTED baseModifiedTime from the seeded
+    // hold's own base_modified_time AS RENDERED by the read layer (ISO 8601),
+    // never a hardcoded literal. The read renders timestamptz as ISO; format the
+    // DB value identically so the assertion pins the rendered token, not the raw.
+    const holdBaseModifiedTime = runPsql(
+      `select to_char(base_modified_time at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') from public.sync_holds where show_id = ${q(showId)} and entity_key = 'Alice';`,
+    );
     const addedLogId = runPsql(
       `select id from public.show_change_log where show_id = ${q(showId)} and entity_ref = 'Bob';`,
     );
@@ -154,10 +161,13 @@ describe("readShowChangeFeed", () => {
       `select id from public.show_change_log where show_id = ${q(showId)} and entity_ref = 'Dan';`,
     );
 
-    // approve_reject → gate{holdId, disposition}; NO changeLogId.
+    // approve_reject → gate{holdId, disposition, baseModifiedTime}; NO changeLogId.
+    // baseModifiedTime (PF40) is the open hold's base_modified_time AS RENDERED —
+    // the optimistic-concurrency token Phase 6 submits as p_expected_base_modified_time.
     expect(pending!.gate).toEqual({
       holdId,
       disposition: { disposition: "email_change", name: "Alice", email: "alice@new" },
+      baseModifiedTime: new Date(holdBaseModifiedTime).toISOString(), // === seeded hold's base_modified_time
     });
     expect(pending!.changeLogId).toBeUndefined();
 
@@ -218,8 +228,8 @@ describe("readShowChangeFeed", () => {
   });
 });
 ```
-  **Failure modes caught:** (1) crew add offered no undo / non-crew offered undo (F6 mis-gating); (2) pending MI-11 entry missing or not rendering old→proposed (feed≠hold disposition); (3) `undo_override` leaking in as a spurious pending action row; (4) **action payload missing/cross-wired (resolution #17 PF14)** — `approve_reject` lacking `gate.holdId`/`gate.disposition`, `undo` lacking `changeLogId`, or `none` carrying either — which would force Phase 6 into a second query (or a wrong-id RPC call); (5) **superseded row offered undo (PF21)** — a `status='superseded'` crew-domain row mis-gated as `action='undo'` because the predicate only checked `change_kind` and not `status='applied'`.
-- [ ] **Minimal impl** — `readShowChangeFeed`: service-role client; select `id` (→ `changeLogId` for undo rows), plus `(...).eq("show_id").order("occurred_at",{ascending:false}).limit(limit)` for the log; a separate `count` query for `truncated`; `select("id, ...").eq("show_id").eq("kind","mi11_pending")` for holds, mapping each to `gate={holdId:id, disposition:proposed_value}` (NOTE: these reads run as service-role — RLS denies anon/authenticated per Phase 1, so this layer is the only read path). Map each via the shaping rules; render pending summaries via `lib/messages` (catalog string from §12.4 — confirm the code exists; Open Question below). Merge + sort by `occurredAt desc`. Destructure `{ data, error }` on every call; throw a typed error on `error` (invariant 9).
+  **Failure modes caught:** (1) crew add offered no undo / non-crew offered undo (F6 mis-gating); (2) pending MI-11 entry missing or not rendering old→proposed (feed≠hold disposition); (3) `undo_override` leaking in as a spurious pending action row; (4) **action payload missing/cross-wired (resolution #17 PF14)** — `approve_reject` lacking `gate.holdId`/`gate.disposition`/`gate.baseModifiedTime`, `undo` lacking `changeLogId`, or `none` carrying either — which would force Phase 6 into a second query (or a wrong-id RPC call); (4b) **staleness token dropped (resolution #26 / PF40)** — the feed drops `gate.baseModifiedTime` → Phase 6 can't submit it as `p_expected_base_modified_time` → the PF40 retarget guard is vacuous (no token to compare, so a hold that retargeted since render mutates silently instead of returning `MI11_TARGET_MOVED`); (5) **superseded row offered undo (PF21)** — a `status='superseded'` crew-domain row mis-gated as `action='undo'` because the predicate only checked `change_kind` and not `status='applied'`.
+- [ ] **Minimal impl** — `readShowChangeFeed`: service-role client; select `id` (→ `changeLogId` for undo rows), plus `(...).eq("show_id").order("occurred_at",{ascending:false}).limit(limit)` for the log; a separate `count` query for `truncated`; `select("id, ..., base_modified_time").eq("show_id").eq("kind","mi11_pending")` for holds (the select list MUST include `base_modified_time`), mapping each to `gate={holdId:id, disposition:proposed_value, baseModifiedTime:base_modified_time}` (PF40 staleness token, rendered as ISO string | null) (NOTE: these reads run as service-role — RLS denies anon/authenticated per Phase 1, so this layer is the only read path). Map each via the shaping rules; render pending summaries via `lib/messages` (catalog string from §12.4 — confirm the code exists; Open Question below). Merge + sort by `occurredAt desc`. Destructure `{ data, error }` on every call; throw a typed error on `error` (invariant 9).
 - [ ] `pnpm vitest run tests/sync/feed/readShowChangeFeed.test.ts`
 - [ ] Commit: `feat(sync): readShowChangeFeed merges change-log + pending MI-11 holds into FeedEntry`
 
@@ -279,5 +289,5 @@ Structural guard: pin that `readShowChangeFeed` uses the service-role client and
 ## Task 5.5 — Phase 5 adversarial review (cross-model)
 
 - [ ] Run the full Phase-5 self-review (anti-tautology check: every expected value derives from seeded fixtures; numeric sweep on the cap default 50 vs the per-test small `N`; confirm `isCrewDomainChangeKind` set matches the crew-domain `change_kind`s Phase 2/3/4 actually write).
-- [ ] Invoke the `adversarial-review` skill (Codex, REVIEWER ONLY — do not fix). Focus: F6 undo-gating set correctness, F9 service-role-only read posture, pending-MI-11 old→proposed shaping fidelity vs the `sync_holds` disposition, truncation honesty. Inline (not memory-cited) the do-not-relitigate contracts: undo is crew-domain-only by ratified scope (§1 non-goals + §6.2 F6); the feed reads `show_change_log` + open `sync_holds`, never `sync_audit` (§6.1 F1).
+- [ ] Invoke the `adversarial-review` skill (Codex, REVIEWER ONLY — do not fix). Focus: F6 undo-gating set correctness, F9 service-role-only read posture, pending-MI-11 old→proposed shaping fidelity vs the `sync_holds` disposition (incl. `gate.baseModifiedTime` carrying the open hold's `base_modified_time` AS RENDERED — the PF40 staleness token Phase 6 submits as `p_expected_base_modified_time`), truncation honesty. Inline (not memory-cited) the do-not-relitigate contracts: undo is crew-domain-only by ratified scope (§1 non-goals + §6.2 F6); the feed reads `show_change_log` + open `sync_holds`, never `sync_audit` (§6.1 F1).
 - [ ] Iterate to convergence; only escalate genuine ambiguity. Do not proceed to Phase 6 handoff until APPROVE.
