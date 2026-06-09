@@ -264,6 +264,20 @@ export function ShowsTable({
         </div>
       </div>
 
+      {/* M12.10: when the list is CAPPED, the sort headers + Find only act on the
+          loaded slice. Disclose that ABOVE the table — adjacent to the controls —
+          so it's seen BEFORE the first sort/search, not hundreds of rows below
+          (adversarial R4). Renders only when overflowCount>0. */}
+      {overflowCount > 0 ? (
+        <p
+          data-testid="shows-table-overflow"
+          className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
+        >
+          Showing the first {rows.length} of {activeCount} shows — sorting and Find apply to just
+          these {rows.length}, not the full set. Contact the developer if you need the full list.
+        </p>
+      ) : null}
+
       {rows.length === 0 ? (
         <div
           data-testid="admin-active-shows-empty"
@@ -377,16 +391,6 @@ export function ShowsTable({
           </ul>
         </div>
       )}
-
-      {overflowCount > 0 ? (
-        <p
-          data-testid="shows-table-overflow"
-          className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
-        >
-          Showing the first {rows.length} of {activeCount} shows — sorting and Find apply to just
-          these {rows.length}, not the full set. Contact the developer if you need the full list.
-        </p>
-      ) : null}
     </div>
   );
 }
