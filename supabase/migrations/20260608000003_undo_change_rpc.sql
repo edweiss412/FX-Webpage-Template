@@ -97,6 +97,8 @@ declare
   v_baseline jsonb;   -- PF13: the undone-change signature stored at held_value.baseline
   v_held     jsonb;   -- before_image + {baseline}
   v_rc       int;     -- ROW_COUNT fail-safe
+  v_succ_name  text;  -- crew_renamed undo: the SUCCESSOR (renamed-TO) name (after_image)
+  v_succ_id    uuid;  -- the live successor row id, locked + deleted before restore (P4-F3)
 begin
   -- (1) is_admin gate FIRST.
   if not public.is_admin() then
@@ -161,21 +163,35 @@ begin
   end if;
   v_held := v_before || jsonb_build_object('baseline', v_baseline);
 
+  -- crew_renamed undo is a TRUE reversal (P4-F3): a rename was applied as delete-old + insert-new
+  -- (Alice→Dana), so undo must DELETE the successor (Dana) before restoring the prior (Alice). The
+  -- status<>'applied' guard above already proved this rename is still the latest change, so
+  -- after_image names the CURRENT live successor. We compute the successor name now, but the guards
+  -- below (which must run with ZERO mutation on the reject paths) EXCLUDE the successor — then the
+  -- actual successor delete happens AFTER the guards pass (so a reject never leaves Dana deleted).
+  if v_log.change_kind = 'crew_renamed' then
+    v_succ_name := v_log.after_image->>'name';
+  end if;
+
   -- Email-collision guard (PF27): the predicate matches crew_members_show_email_unique (show_id,
-  -- email) — reject if ANY OTHER live crew row (different name) already holds the non-null prior
-  -- email, claimed OR not, so the restore INSERT never hits a raw 23505. Typed UNDO_EMAIL_CLAIMED.
+  -- email) — reject if ANY OTHER live crew row already holds the non-null prior email, claimed OR
+  -- not, so the restore INSERT never hits a raw 23505. Typed UNDO_EMAIL_CLAIMED. EXCLUDES the rename
+  -- SUCCESSOR (deleted below) so a SAME-EMAIL rename (Alice(a@x)→Dana(a@x)) is undoable — only a
+  -- GENUINELY unrelated owner of the prior email trips it (P4-F3).
   if (v_before->>'email') is not null and exists (
     select 1 from public.crew_members
      where show_id = v_log.show_id
        and email = (v_before->>'email')
        and name <> v_name
+       and name is distinct from v_succ_name
   ) then
     return jsonb_build_object('ok', false, 'code', 'UNDO_EMAIL_CLAIMED');
   end if;
 
   -- Name-collision guard (PF28) symmetric to the email guard: if a DIFFERENT-email live crew row
   -- already holds the restore-target name, reject (UNDO_SUPERSEDED) so ON CONFLICT (show_id, name)
-  -- never clobbers a newer live row of that name.
+  -- never clobbers a newer live row of that name. (The successor name differs from the prior name,
+  -- so this never matches the to-be-deleted successor for a normal rename.)
   if exists (
     select 1 from public.crew_members
      where show_id = v_log.show_id
@@ -183,6 +199,25 @@ begin
        and (v_before->>'email') is distinct from email
   ) then
     return jsonb_build_object('ok', false, 'code', 'UNDO_SUPERSEDED');
+  end if;
+
+  -- All reject guards passed → NOW delete the successor (crew_renamed only). This frees the
+  -- successor's name AND email before the restore INSERT. FOUND/ROW_COUNT fail-safe: if the live
+  -- successor vanished since the status guard, the state moved → UNDO_SUPERSEDED (zero mutation).
+  if v_log.change_kind = 'crew_renamed' then
+    select id into v_succ_id from public.crew_members
+     where show_id = v_log.show_id and name = v_succ_name
+     for update;
+    if not found then
+      return jsonb_build_object('ok', false, 'code', 'UNDO_SUPERSEDED');
+    end if;
+    delete from public.crew_members
+     where show_id = v_log.show_id and name = v_succ_name;
+    get diagnostics v_rc = row_count;
+    if v_rc <> 1 then
+      raise exception using errcode = 'P0001', message = 'UNDO_SUCCESSOR_ROW_COUNT',
+        hint = 'crew_renamed undo successor delete affected an unexpected row count';
+    end if;
   end if;
 
   -- Re-insert the prior crew row. Restores BOTH identity columns id + claimed_via_oauth_at (PF38 /
