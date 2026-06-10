@@ -20,7 +20,6 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
-import { ParsePanel } from "@/components/admin/ParsePanel";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
@@ -34,12 +33,20 @@ import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
 import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
-import type { StagedRow } from "@/components/admin/StagedReviewCard";
-import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { PublishShowButton } from "@/components/admin/PublishShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
-import { archiveShowAction, publishShowAction, unarchiveShowAction } from "./_actions";
+import {
+  archiveShowAction,
+  publishShowAction,
+  unarchiveShowAction,
+  mi11ApproveAction,
+  mi11RejectAction,
+  undoChangeAction,
+} from "./_actions";
+import { ChangesFeed } from "@/components/admin/ChangesFeed";
+import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
+import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 
 export const dynamic = "force-dynamic";
 
@@ -63,42 +70,11 @@ type ShowLookupRow = {
   last_sync_status: string | null;
 };
 
-type PendingSyncRow = {
-  staged_id: string;
-  drive_file_id: string;
-  source_kind: StagedRow["sourceKind"];
-  staged_modified_time: string;
-  base_modified_time: string | null;
-  warning_summary: string;
-  triggered_review_items: unknown;
-  parse_result: unknown;
-};
-
 type CrewMemberRow = {
   id: string;
   name: string;
   role: string | null;
 };
-
-function safeStringField(value: unknown, key: string): string | null {
-  if (value === null || typeof value !== "object") return null;
-  const candidate = (value as Record<string, unknown>)[key];
-  return typeof candidate === "string" ? candidate : null;
-}
-
-function deriveParseSummary(parseResult: unknown): string | undefined {
-  if (parseResult === null || typeof parseResult !== "object") return undefined;
-  const show = (parseResult as Record<string, unknown>).show;
-  const title = safeStringField(show, "title");
-  const client = safeStringField(show, "client_label");
-  const parts: string[] = [];
-  if (title) parts.push(title);
-  if (client) parts.push(client);
-  if (parts.length === 0) return undefined;
-  // " · " (middot), not an em-dash — the project copy rule bans em-dashes in
-  // rendered copy (impeccable audit P3).
-  return parts.join(" · ");
-}
 
 function initialsFor(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -186,46 +162,33 @@ export default async function AdminShowPage({
     notFound();
   }
 
-  let pendingRows: PendingSyncRow[] | null;
+  // Phase 6 — the per-show changes feed (auto-applied edits + MI-11 pending holds
+  // + undo/reject log). Replaces the retired live whole-parse review mount: no
+  // invariant stages a whole parse anymore (§8 / resolution #21 cutover). The feed
+  // data layer reads server-side (service-role) after the requireAdmin above and
+  // THROWS a typed SyncInfraError on an infra fault, which we degrade gracefully
+  // rather than surfacing an unclassified 500 (invariant 9). The page does NO
+  // second query for hold/disposition data — each entry carries its own action
+  // payload (gate / changeLogId) from Phase 5 (PF14).
+  let feed: Awaited<ReturnType<typeof readShowChangeFeed>> | null = null;
+  let feedInfraError = false;
   try {
-    const { data, error: pendingError } = await supabase
-      .from("pending_syncs")
-      .select(
-        "staged_id, drive_file_id, source_kind, staged_modified_time, base_modified_time, warning_summary, triggered_review_items, parse_result",
-      )
-      .eq("drive_file_id", show.drive_file_id)
-      .is("wizard_session_id", null)
-      .order("staged_modified_time", { ascending: false })
-      .returns<PendingSyncRow[]>();
-    if (pendingError) {
-      console.error("[/admin/show/[slug]] pending_syncs lookup failed:", pendingError.message);
-      throw new Error("pending_syncs_lookup_failed");
-    }
-    pendingRows = data;
+    feed = await readShowChangeFeed(show.id);
   } catch (err) {
-    if (err instanceof Error && err.message === "pending_syncs_lookup_failed") throw err;
-    console.error(
-      "[/admin/show/[slug]] pending_syncs lookup threw:",
-      err instanceof Error ? err.message : String(err),
-    );
-    throw new Error("pending_syncs_lookup_failed");
+    // readShowChangeFeed wraps EVERY boundary fault as a typed SyncInfraError
+    // (invariant 9 / P5-F1). Match by instanceof OR by the typed `name` so a
+    // cross-realm instance (e.g. a duplicated module evaluation under test) is
+    // still recognized; anything else is a genuine bug and re-throws.
+    if (err instanceof SyncInfraError || (err instanceof Error && err.name === "SyncInfraError")) {
+      feedInfraError = true;
+      console.error(
+        "[/admin/show/[slug]] changes feed read failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    } else {
+      throw err;
+    }
   }
-
-  const rows: StagedRow[] = (pendingRows ?? []).map((row) => {
-    const summary = deriveParseSummary(row.parse_result);
-    const parsed = parseTriggeredReviewItems(row.triggered_review_items);
-    const base: StagedRow = {
-      driveFileId: row.drive_file_id,
-      stagedId: row.staged_id,
-      sourceKind: row.source_kind,
-      stagedModifiedTime: row.staged_modified_time,
-      baseModifiedTime: row.base_modified_time,
-      warningSummary: row.warning_summary,
-      triggeredReviewItems: parsed.ok ? parsed.items : [],
-      reviewItemsCorrupt: !parsed.ok,
-    };
-    return summary ? { ...base, parseSummaryLine: summary } : base;
-  });
 
   let crew: PerShowCrewRow[] = [];
   let crewLookupFailed = false;
@@ -618,25 +581,36 @@ export default async function AdminShowPage({
         </section>
       </div>
 
-      {/* Parse warnings — read-only for an archived show (R32 / §16 DEF-2).
-          #15a: hide the section entirely when there are zero staged changes
-          (no heading, no "No staged changes" empty card) — it's noise on the
-          common no-pending-review case. Renders only when rows exist. */}
-      {rows.length > 0 ? (
-        <section
-          data-testid="admin-show-parse-warnings-section"
-          aria-labelledby="admin-show-parse-warnings-heading"
-          className="flex flex-col gap-3"
-        >
+      {/* Changes feed (Phase 6) — replaces the retired live whole-parse review
+          mount. Routine sheet edits auto-apply and land here with a per-item Undo;
+          MI-11 (existing-crew email change) pending holds surface inline with
+          Approve/Reject. A feed read infra fault degrades to a calm notice rather
+          than an unclassified 500 (invariant 9). */}
+      {feedInfraError || feed === null ? (
+        <section aria-labelledby="admin-changes-feed-error-heading" className="flex flex-col gap-3">
           <h2
-            id="admin-show-parse-warnings-heading"
+            id="admin-changes-feed-error-heading"
             className="text-lg font-semibold text-text-strong"
           >
-            Parse warnings
+            Changes
           </h2>
-          <ParsePanel rows={rows} showId={show.id} readOnly={archived} />
+          <p
+            data-testid="change-feed-infra-error"
+            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+          >
+            We couldn&rsquo;t load this show&rsquo;s changes right now. Refresh to try again.
+          </p>
         </section>
-      ) : null}
+      ) : (
+        <ChangesFeed
+          entries={feed.entries}
+          truncated={feed.truncated}
+          now={now}
+          undoAction={undoChangeAction}
+          approveAction={mi11ApproveAction}
+          rejectAction={mi11RejectAction}
+        />
+      )}
 
       {/* Quiet sync footer (replaces the standalone Sync health section). */}
       <footer

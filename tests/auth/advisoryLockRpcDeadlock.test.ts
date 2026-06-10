@@ -80,6 +80,14 @@ describe("advisory-lock RPC deadlock guard", () => {
       // Sync changes-feed Phase 3 — the MI-11 gate server actions await the self-locking RPCs
       // bare (no JS-side withShowAdvisoryLock); nesting would deadlock under burst (M5 R20 class).
       "lib/sync/holds/mi11GateActions.ts",
+      // Phase 4 undo delegation helper — calls undo_change bare (self-locking RPC).
+      "lib/sync/holds/undoChange.ts",
+      // Phase 6 (T6.9b / PF15) — the per-show changes-feed server actions DELEGATE to the
+      // Phase 3/4 helpers (no inline supabase.rpc, no withShowAdvisoryLock wrap). NOTE: the
+      // plan names this surface app/admin/show/[slug]/_actions.ts; this repo organizes the
+      // per-show server actions under the _actions/ DIRECTORY, so the actual delegating file
+      // is _actions/feed.ts — that is the surface pinned here.
+      "app/admin/show/[slug]/_actions/feed.ts",
     ];
 
     for (const file of sourceFiles) {
@@ -97,6 +105,26 @@ describe("advisory-lock RPC deadlock guard", () => {
         }
       }
     }
+
+    // Phase 6 (T6.9b / PF15) — strongest form for the per-show feed action surface:
+    // it must DELEGATE (no direct lock-taking-RPC call site at all), so the ONLY
+    // path to the lock is the guarded Phase 3/4 helper — never a re-inlined or
+    // JS-lock-wrapped RPC. (Negative-regression: re-inline a
+    // supabase.rpc("mi11_approve_hold", …) here and this assertion fails.)
+    const feedActions = stripComments(
+      readFileSync(join(ROOT, "app/admin/show/[slug]/_actions/feed.ts"), "utf8"),
+    );
+    for (const name of ["mi11_approve_hold", "mi11_reject_hold", "undo_change"]) {
+      expect(
+        feedActions,
+        `_actions/feed.ts must NOT call rpc("${name}") directly — it delegates to the guarded helper (PF15)`,
+      ).not.toMatch(new RegExp(`\\.rpc\\(\\s*["']${name}["']`));
+    }
+    // And no JS-side show lock is taken on this surface at all (the helpers/RPCs self-lock).
+    expect(
+      feedActions,
+      "_actions/feed.ts must NOT wrap delegation in withShowAdvisoryLock (single-holder rule)",
+    ).not.toMatch(/withShowAdvisoryLock/);
   });
 
   test("lock-order: no lock-taking RPC row-locks (FOR UPDATE) before its first pg_advisory_xact_lock (PF11)", () => {

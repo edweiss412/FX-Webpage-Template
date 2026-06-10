@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
+import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 
 const databaseUrl =
@@ -104,13 +105,25 @@ describe("readShowChangeFeed", () => {
     );
 
     // approve_reject → gate{holdId, disposition, baseModifiedTime}; NO changeLogId.
-    // baseModifiedTime (PF40) is the open hold's base_modified_time AS RENDERED —
-    // the optimistic-concurrency token Phase 6 submits as p_expected_base_modified_time.
-    expect(pending!.gate).toEqual({
-      holdId,
-      disposition: { disposition: "email_change", name: "Alice", email: "alice@new" },
-      baseModifiedTime: new Date(holdBaseModifiedTime).toISOString(), // === seeded hold's base_modified_time
+    // baseModifiedTime (PF40) is the open hold's base_modified_time AS RETURNED
+    // by the query — the OPAQUE optimistic-concurrency token Phase 6 submits as
+    // p_expected_base_modified_time. P5-F4: it must carry the RAW full-precision
+    // string (microseconds intact), NOT a Date/toIso-normalized value (which
+    // would truncate sub-millisecond precision → false MI11_TARGET_MOVED). So
+    // assert holdId + disposition exactly, and the token at FULL precision.
+    expect(pending!.gate!.holdId).toBe(holdId);
+    expect(pending!.gate!.disposition).toEqual({
+      disposition: "email_change",
+      name: "Alice",
+      email: "alice@new",
     });
+    // Token normalized via the DB equals the stored base_modified_time at full
+    // microsecond precision (derived from the seeded row, not a literal); and it
+    // must NOT have been millisecond-truncated by a Date round-trip.
+    const tokenNorm = runPsql(
+      `select to_char((${q(pending!.gate!.baseModifiedTime!)}::text)::timestamptz at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"');`,
+    );
+    expect(tokenNorm).toBe(holdBaseModifiedTime); // === seeded hold's base_modified_time, full precision
     expect(pending!.changeLogId).toBeUndefined();
 
     // undo → changeLogId = the show_change_log.id undo_change takes; NO gate.
@@ -197,5 +210,196 @@ describe("readShowChangeFeed", () => {
     expect(eve!.action).toBe("none");
     expect(eve!.gate).toBeUndefined();
     expect(eve!.changeLogId).toBeUndefined();
+  });
+
+  // P5-F2: cover the cases the THREE-conjunct predicate exists to protect. A
+  // regression dropping individually_undoable, or only special-casing
+  // 'superseded' while letting 'rejected'/'undone' through, must RED here.
+  test("applied crew_renamed with individually_undoable=false → action='none', no payload (P4-F4)", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-e")}, ${q(prefix + "-e")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.show_change_log
+        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status, individually_undoable)
+      select id, ${q(prefix + "-e")}, now() - interval '3 min',
+        'mi11_approve', 'crew_renamed', 'Frank', 'Crew renamed: Fr → Frank', '{"name":"Frank"}'::jsonb, 'applied', false
+      from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    // Anti-tautology: an APPLIED crew-domain row (which WOULD be undo at
+    // individually_undoable=true) must NOT be undoable when the column is FALSE.
+    const frank = entries.find((e) => e.entityRef === "Frank");
+    expect(frank).toBeDefined();
+    expect(frank!.status).toBe("applied"); // applied — only the third conjunct gates it
+    expect(frank!.action).toBe("none"); // individually_undoable=false → no undo
+    expect(frank!.gate).toBeUndefined();
+    expect(frank!.changeLogId).toBeUndefined();
+  });
+
+  test("a rejected crew-domain row → action='none', no payload", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-f")}, ${q(prefix + "-f")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.show_change_log
+        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+      select id, ${q(prefix + "-f")}, now() - interval '4 min',
+        'mi11_reject', 'crew_removed', 'Gina', 'Removal rejected: Gina', '{}'::jsonb, 'rejected'
+      from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    // Anti-tautology: a CREW-DOMAIN change_kind ('crew_removed') is undoable only
+    // at status='applied'; a 'rejected' row must NOT carry undo.
+    const gina = entries.find((e) => e.entityRef === "Gina");
+    expect(gina).toBeDefined();
+    expect(gina!.status).toBe("rejected");
+    expect(gina!.action).toBe("none");
+    expect(gina!.gate).toBeUndefined();
+    expect(gina!.changeLogId).toBeUndefined();
+  });
+
+  test("an undone crew-domain row → action='none', no payload", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-g")}, ${q(prefix + "-g")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.show_change_log
+        (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+      select id, ${q(prefix + "-g")}, now() - interval '6 min',
+        'auto_apply', 'crew_added', 'Hank', 'Crew added: Hank', '{"name":"Hank"}'::jsonb, 'undone'
+      from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    // Anti-tautology: a CREW-DOMAIN change_kind ('crew_added') is undoable only at
+    // status='applied'; an 'undone' row must NOT carry undo.
+    const hank = entries.find((e) => e.entityRef === "Hank");
+    expect(hank).toBeDefined();
+    expect(hank!.status).toBe("undone");
+    expect(hank!.action).toBe("none");
+    expect(hank!.gate).toBeUndefined();
+    expect(hank!.changeLogId).toBeUndefined();
+  });
+
+  // P5-F3: a FOLDED email+rename pending hold (proposed email MOVES the OAuth
+  // anchor) must render the rename_FOLDED warning copy, not the plain rename
+  // copy — otherwise Doug sees "Rename pending" while Approve also changes the
+  // email + evicts the claimed session. Anti-tautology: expected text is the
+  // catalog dougFacing for the folded key, derived via getRequiredDougFacing,
+  // never a hardcoded literal.
+  test("folded rename (proposed email != held email) renders the rename_folded warning copy", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-h")}, ${q(prefix + "-h")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.sync_holds
+        (show_id, drive_file_id, domain, entity_key, held_value, proposed_value, base_modified_time, kind, created_by)
+      select id, ${q(prefix + "-h")}, 'crew_identity', 'Iris',
+        '{"name":"Iris","email":"iris@old"}'::jsonb,
+        '{"disposition":"rename","name":"Irene","email":"irene@new"}'::jsonb,
+        now(), 'mi11_pending', 'system' from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    const pending = entries.find((e) => e.status === "pending");
+    expect(pending).toBeDefined();
+    expect(pending!.action).toBe("approve_reject");
+    // Folded copy: "Email change + rename pending for {name}" → {name}=entity_key.
+    const foldedExpected = getRequiredDougFacing("mi11_pending_rename_folded").replaceAll(
+      "{name}",
+      "Iris",
+    );
+    expect(pending!.summary).toBe(foldedExpected);
+    // It must NOT use the plain-rename copy (the bug under test rendered this).
+    const plainRename = getRequiredDougFacing("mi11_pending_rename")
+      .replaceAll("{old}", "Iris")
+      .replaceAll("{new}", "Irene");
+    expect(pending!.summary).not.toBe(plainRename);
+  });
+
+  // Control: a rename whose proposed email EQUALS the held email does NOT move
+  // the OAuth anchor → plain rename copy (so the folded branch is conditional,
+  // not hardcoded; a future pure-rename case renders correctly).
+  test("pure rename (proposed email == held email) renders the plain rename copy", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-i")}, ${q(prefix + "-i")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      )
+      insert into public.sync_holds
+        (show_id, drive_file_id, domain, entity_key, held_value, proposed_value, base_modified_time, kind, created_by)
+      select id, ${q(prefix + "-i")}, 'crew_identity', 'Jack',
+        '{"name":"Jack","email":"jack@same"}'::jsonb,
+        '{"disposition":"rename","name":"Jacques","email":"jack@same"}'::jsonb,
+        now(), 'mi11_pending', 'system' from s
+      returning show_id;
+    `);
+    const { entries } = await readShowChangeFeed(showId);
+    const pending = entries.find((e) => e.status === "pending");
+    expect(pending).toBeDefined();
+    const plainExpected = getRequiredDougFacing("mi11_pending_rename")
+      .replaceAll("{old}", "Jack")
+      .replaceAll("{new}", "Jacques");
+    expect(pending!.summary).toBe(plainExpected);
+    const folded = getRequiredDougFacing("mi11_pending_rename_folded").replaceAll("{name}", "Jack");
+    expect(pending!.summary).not.toBe(folded);
+  });
+
+  // P5-F5: the merge must order cross-source rows by FULL-PRECISION timestamps,
+  // not the ms-truncated display value. Seed a pending hold (created_at) and a
+  // change-log row (occurred_at) in the SAME millisecond but the change-log row
+  // strictly NEWER in microseconds → it must sort BEFORE the older hold
+  // (newest-first), even though both truncate to the same millisecond and the
+  // array is built holds-before-logs.
+  test("cross-source merge honors microsecond ordering (same ms, log newer than hold)", async () => {
+    // Anchor both at the same millisecond; the change-log row is +123µs newer.
+    const holdTs = "2026-06-09T12:00:00.000111+00";
+    const logTs = "2026-06-09T12:00:00.000234+00"; // same ms (.000), larger micros → strictly newer
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-j")}, ${q(prefix + "-j")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      ),
+      hold as (
+        insert into public.sync_holds
+          (show_id, drive_file_id, domain, entity_key, held_value, proposed_value, base_modified_time, kind, created_by, created_at)
+        select id, ${q(prefix + "-j")}, 'crew_email', 'Kim',
+          '{"name":"Kim","email":"kim@old"}'::jsonb,
+          '{"disposition":"email_change","name":"Kim","email":"kim@new"}'::jsonb,
+          now(), 'mi11_pending', 'system', ${q(holdTs)}::timestamptz from s
+        returning id
+      ),
+      log as (
+        insert into public.show_change_log
+          (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+        select id, ${q(prefix + "-j")}, ${q(logTs)}::timestamptz,
+          'auto_apply', 'crew_added', 'Leo', 'Crew added: Leo', '{"name":"Leo"}'::jsonb, 'applied' from s
+        returning id
+      )
+      select id from s;
+    `);
+
+    const { entries } = await readShowChangeFeed(showId);
+    const logIdx = entries.findIndex((e) => e.entityRef === "Leo"); // newer change-log row
+    const holdIdx = entries.findIndex((e) => e.entityRef === "Kim"); // older pending hold
+    expect(logIdx).toBeGreaterThanOrEqual(0);
+    expect(holdIdx).toBeGreaterThanOrEqual(0);
+    // Newest-first: the microsecond-newer change-log row precedes the older hold.
+    // Derived from the seeded timestamps (logTs micros > holdTs micros), not a
+    // hardcoded order.
+    expect(logIdx).toBeLessThan(holdIdx);
   });
 });
