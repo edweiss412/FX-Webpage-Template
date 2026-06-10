@@ -214,6 +214,8 @@ export async function planHoldAwareApply(
         suppressedEmails,
         retainRows,
         pinnedIdentity,
+        // WM-F4: same prior-live snapshot the rename-fold (WM-F3) + reservation (P2-F4) guards use.
+        previousCrewNames: new Set(args.previousCrewNames ?? []),
       });
       continue;
     }
@@ -388,6 +390,7 @@ function applyUndoOverrideToMaps(
     suppressedEmails: Set<string>;
     retainRows: Map<string, CrewMemberRow>;
     pinnedIdentity: Map<string, { name: string; email: string | null }>;
+    previousCrewNames: Set<string>;
   },
 ): void {
   const held = hold.held_value;
@@ -413,9 +416,27 @@ function applyUndoOverrideToMaps(
   if (baseline?.kind === "rename" && baseline.suppressed_added) {
     // Suppress the replacement by name AND email (resolution #16): a re-named replacement carrying
     // the same email must still be suppressed, so add BOTH the name and the canonical email.
-    maps.suppressedNames.add(baseline.suppressed_added.name);
-    const e = canonRow(baseline.suppressed_added.email);
-    if (e) maps.suppressedEmails.add(e);
+    //
+    // WM-F4 (SAME class as P2-F4 reservation + WM-F3 rename-fold — recurred 3×): the suppressed_added
+    // name belongs to the REJECTED rename's proposed target, NOT to this hold's own entity. When that
+    // target NAME is a PRE-EXISTING live crew member (a reservation-colliding live owner the sheet
+    // still lists), suppressing it drops it from the transformed crew list → deleteKeepNames omits it
+    // → the snapshot-replace DELETES that independent live person. Repro: live [Alice, Bob]; Alice
+    // MI-11 → a@new; sheet has Bob carrying a@new; the fold targets Bob; admin REJECTS → baseline
+    // suppressed_added={Bob, a@new}; next sync still lists Bob → WITHOUT this guard Bob is deleted.
+    // The rename whose target now collides with a live owner is caught at Approve by Phase-3's
+    // collision graph (chain terminates at a non-held live row → IDENTITY_WOULD_COLLIDE). The
+    // undo-of-ADD tombstone above is a DIFFERENT, legitimate path (self-suppression of the entity's
+    // own added row) and is intentionally NOT guarded here.
+    const sa = baseline.suppressed_added;
+    if (!maps.previousCrewNames.has(sa.name)) {
+      maps.suppressedNames.add(sa.name);
+      // Email suppression is keyed off the SAME guard: only suppress the email when the name is a
+      // truly-added replacement. A live owner carrying that email (same-email case) must stay live;
+      // heldNames-gating in the crew-list build only spares HELD names, not this collision owner.
+      const e = canonRow(sa.email);
+      if (e) maps.suppressedEmails.add(e);
+    }
     void parseByName;
   }
 }
