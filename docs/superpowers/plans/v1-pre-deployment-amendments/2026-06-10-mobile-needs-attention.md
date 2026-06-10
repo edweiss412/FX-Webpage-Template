@@ -93,7 +93,8 @@ describe("loadNeedsAttention", () => {
 
 - [ ] **Step 1.4: Run tests** — `pnpm vitest run tests/admin/loadNeedsAttention.test.ts` → PASS. Also `pnpm vitest run tests/admin tests/components/admin tests/app/admin tests/help` → no regressions (Dashboard tests must stay green; if a Dashboard test pinned the inline block, update it to mock/exercise the loader instead).
 
-- [ ] **Step 1.5: Register in the meta-test** — add to `infraRegistry` in `tests/admin/_metaInfraContract.test.ts` (rows start ~`:160`):
+- [ ] **Step 1.5: Register in BOTH structural guards (same commit, R1-P1-F2):**
+  1. `infraRegistry` in `tests/admin/_metaInfraContract.test.ts` (rows start ~`:160`):
 
 ```ts
 {
@@ -103,7 +104,9 @@ describe("loadNeedsAttention", () => {
 },
 ```
 
-Follow the file's existing behavioral-assertion pattern (throwing client via the mocked `@/lib/supabase/server`); run `pnpm vitest run tests/admin/_metaInfraContract.test.ts` → PASS.
+  2. **Bounded-read guard:** `tests/admin/_metaBoundedReads.test.ts` currently scans `components/admin/Dashboard.tsx` for the `.limit(cap+1)` / head-count / existence-`.in()` shapes — after the extraction those reads live in the loader, so extend the guard's scanned-module list (`READ_MODULES` or equivalent — read the file for the exact registry name) with `lib/admin/loadNeedsAttention.ts` in the SAME commit, and verify the Dashboard-side scan doesn't silently become a no-op (if the guard's Dashboard assertions now match nothing, retarget them at the loader rather than deleting them).
+
+Follow each file's existing assertion pattern; run `pnpm vitest run tests/admin/_metaInfraContract.test.ts tests/admin/_metaBoundedReads.test.ts` → PASS.
 
 - [ ] **Step 1.6: Typecheck + commit**
 
@@ -142,19 +145,22 @@ export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResu
     return { kind: "infra_error" };
   }
   try {
-    const ingestions = await supabase
+    // invariant 9: destructure { data, error } (alertCount.ts:26 pattern), never a bare result object
+    const { data: _ingestionData, count: ingestionCount, error: ingestionError } = await supabase
       .from("pending_ingestions")
       .select("id", { count: "exact", head: true })
       .is("wizard_session_id", null);
-    if (ingestions.error) return { kind: "infra_error" };
-    if (typeof ingestions.count !== "number") return { kind: "infra_error" };
-    const syncs = await supabase
+    void _ingestionData;
+    if (ingestionError) return { kind: "infra_error" };
+    if (typeof ingestionCount !== "number") return { kind: "infra_error" };
+    const { data: _syncData, count: syncCount, error: syncError } = await supabase
       .from("pending_syncs")
       .select("staged_id", { count: "exact", head: true })
       .is("wizard_session_id", null);
-    if (syncs.error) return { kind: "infra_error" };
-    if (typeof syncs.count !== "number") return { kind: "infra_error" };
-    return { kind: "ok", count: ingestions.count + syncs.count };
+    void _syncData;
+    if (syncError) return { kind: "infra_error" };
+    if (typeof syncCount !== "number") return { kind: "infra_error" };
+    return { kind: "ok", count: ingestionCount + syncCount };
   } catch {
     return { kind: "infra_error" };
   }
@@ -434,17 +440,14 @@ export default async function NeedsAttentionPage() {
 
 `loading.tsx`: header-bar skeleton + 3 stacked list-row placeholders following `app/admin/loading.tsx`'s silhouette idiom (animate-pulse tokens-only blocks; copy that file's structure, swap the dashboard silhouette for header + rows).
 
-- [ ] **Step 5.4: PROTECTED_ROUTES row (same commit):** `{ path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] },` among the page rows (`lib/audit/trustDomains.ts:34-41`). Update the M12.3 banner-placement comments: `app/admin/page.tsx:90-96` ("dashboard-only" → "dashboard + /admin/needs-attention only") and `app/admin/show/[slug]/page.tsx:13` likewise.
-- [ ] **Step 5.5: Run tests + audit specs** → PASS. **Commit** — `git commit -m "feat(admin): /admin/needs-attention page (alerts + full inbox, cap 100) + loading skeleton + PROTECTED_ROUTES row"`
+- [ ] **Step 5.4: Same-commit contract updates (R1-P1-F1 — the spec REQUIRES these in the page's commit):**
+  1. `PROTECTED_ROUTES` row: `{ path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] },` among the page rows (`lib/audit/trustDomains.ts:34-41`).
+  2. M12.3 banner-placement comments: `app/admin/page.tsx:90-96` ("dashboard-only" → "dashboard + /admin/needs-attention only") and `app/admin/show/[slug]/page.tsx:13` likewise.
+  3. **Banner e2e contract amendment** (`tests/e2e/admin-banner.spec.ts:386`): per TDD, amend this BEFORE mounting the banner (it's the failing test for the mount) — banner present on `/admin` AND `/admin/needs-attention`; absent on `/admin/dev`, `/admin/settings`, `/admin/show/[slug]` (keep the existing absent-route loop, add the present-route assertion). Retitle: "banner placement contract: present on /admin + /admin/needs-attention, absent elsewhere (M12.3, amended by needs-attention spec D-5)".
+- [ ] **Step 5.5: Run** — unit tests + audit specs + `pnpm exec playwright test tests/e2e/admin-banner.spec.ts` (against a prod build; local dev hydration is broken in this sandbox) → PASS.
+- [ ] **Step 5.6: Commit (single commit for page + skeleton + registry row + comments + banner e2e)** — `git commit -m "feat(admin): /admin/needs-attention page (alerts + full inbox, cap 100) + banner contract amendment + PROTECTED_ROUTES row"`
 
-### Task 6: Banner placement contract amendment (e2e)
-
-**Files:**
-- Modify: `tests/e2e/admin-banner.spec.ts:386-…` (the "dashboard-only contract" test)
-
-- [ ] **Step 6.1: Amend the contract test** — banner present on `/admin` AND `/admin/needs-attention`; absent on `/admin/dev`, `/admin/settings`, `/admin/show/[slug]` (keep the existing absent-route loop, add the new present-route assertion). Rename the test title to "banner placement contract: present on /admin + /admin/needs-attention, absent elsewhere (M12.3, amended by needs-attention spec D-5)".
-- [ ] **Step 6.2: Run** — `pnpm exec playwright test tests/e2e/admin-banner.spec.ts` (prod build per project e2e convention; local dev hydration is broken in this sandbox — always e2e against a prod build) → PASS.
-- [ ] **Step 6.3: Commit** — `git commit -m "test(admin): amend banner placement contract to dashboard + needs-attention page"`
+### Task 6: (folded into Task 5 — intentionally empty; numbering preserved so later cross-references hold)
 
 ### Task 7: Summary card + dashboard dual render
 
@@ -533,7 +536,7 @@ Dimensional invariants from spec §4.8 — assert ALL of these (verbatim list):
 3. summary card ≥44px (`min-h-tap-min`) at all mobile widths; chevron vertically centered within card rect ±1px
 4. desktop inbox parity through the new wrapper: at 1080/1280, `|inboxCol.height − showsCol.height| ≤ 0.5` (the `min-[1080px]:items-stretch` equal-height split, `Dashboard.tsx:544`) and `needs-attention-inbox` has a non-zero rect inside `dashboard-inbox-desktop`
 
-- [ ] **Step 8.1: Write the assertions** — extend the existing per-width test: at 600/719 → `admin-bottom-tab-attention` rect equals dashboard/settings tab rects in width (±0.5) and height; `needs-attention-summary-card` visible with height ≥ 44 and chevron centered; `needs-attention-inbox` zero-rect (`display:none`). At 720/860/1024/1280 → summary card zero-rect; topbar contains NO link with href `/admin/needs-attention` (locator count 0); inbox visible. At 1080-band widths (1080 via added width if not in `WIDTHS` — add 1080 to the sweep) + 1280 → invariant 4. Badge height-neutrality: run one mobile width with seeded pending rows (badge present) and compare tab heights against the no-badge run.
+- [ ] **Step 8.1: Write the assertions** — extend the existing per-width test. **Empty-state-safe selectors (R1-P1-F3):** the seeded clean fixture has 0 pending rows, so `NeedsAttentionInbox` renders `admin-needs-attention-empty` INSTEAD of `needs-attention-inbox` (`NeedsAttentionInbox.tsx:127/:137`) — target the wrapper `dashboard-inbox-desktop` for visibility/zero-rect assertions, and inside it accept whichever of `needs-attention-inbox` / `admin-needs-attention-empty` the seed state produces (assert exactly one exists). Assertions: at 600/719 → `admin-bottom-tab-attention` rect equals dashboard/settings tab rects in width (±0.5) and height; `needs-attention-summary-card` visible with height ≥ 44 and chevron centered; `dashboard-inbox-desktop` zero-rect (`display:none`). At 720/860/1024/1280 → summary card zero-rect; topbar contains NO link with href `/admin/needs-attention` (locator count 0); `dashboard-inbox-desktop` visible with non-zero rect. Add 1080 to the sweep; at 1080 + 1280 → invariant 4 (col-height parity), with the inner content node being whichever of the two testids exists. Badge height-neutrality: run one mobile width with seeded pending rows (badge present) and compare tab heights against the no-badge run; the seeded run also exercises the non-empty `needs-attention-inbox` branch.
 - [ ] **Step 8.2: Run** — `pnpm exec playwright test tests/e2e/admin-nav-layout-dimensions.spec.ts` against a prod build → PASS (iterate on wrapper classes if invariant 4 fails — the wrapper classes are the variable, the invariant is not).
 - [ ] **Step 8.3: Commit** — `git commit -m "test(admin): band-sweep invariants for attention tab, badge neutrality, summary card, desktop inbox parity"`
 
