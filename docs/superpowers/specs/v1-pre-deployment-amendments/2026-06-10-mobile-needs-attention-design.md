@@ -54,15 +54,20 @@ export type LoadNeedsAttentionResult =
   | NeedsAttention                                  // from lib/admin/needsAttention.ts:84-89
   | { kind: "infra_error"; message: string };
 
+// No-arg overload constructs the server client INTERNALLY and catches
+// construction throws → typed infra_error (the lib/admin/alertCount.ts:11-17
+// fetchUnresolvedAlertCount pattern). An optional injected client exists ONLY
+// for fetchDashboardData (which already holds one) and for tests.
 export async function loadNeedsAttention(
-  supabase: SupabaseClient,                          // same client type fetchDashboardData receives
-  opts: { cap: number },
+  opts: { cap: number; supabase?: SupabaseClient },
 ): Promise<LoadNeedsAttentionResult>;
 ```
 
+When `opts.supabase` is omitted, `createSupabaseServerClient()` is awaited inside a try/catch and a throw returns `{ kind: "infra_error", message: "client construction failed: …" }` — a client-construction fault can therefore never escape the helper as an exception (R1 finding).
+
 - Internally identical to today's block: two bounded queries (`.limit(cap + 1)`), two head-counts, existence lookup, `buildNeedsAttention`. The only generalization is `cap` replacing the hardcoded `RENDER_CAP` in the queries and in `buildNeedsAttention`'s slice (thread `cap` through `BuildNeedsAttentionInput`; `RENDER_CAP` at `lib/admin/needsAttention.ts:16` remains the dashboard's value and the default).
-- `fetchDashboardData` calls `loadNeedsAttention(supabase, { cap: RENDER_CAP })` and merges the result into `DashboardData` exactly as today; an `infra_error` from the loader propagates as `fetchDashboardData`'s existing `infra_error` return. **Parity requirement:** dashboard output is bit-identical for the same rows (pinned by regression test, §9).
-- The page calls `loadNeedsAttention(supabase, { cap: PAGE_RENDER_CAP })` with `PAGE_RENDER_CAP = 100` (single named constant exported from `lib/admin/needsAttention.ts`; every other reference in code/tests derives from it).
+- `fetchDashboardData` calls `loadNeedsAttention({ cap: RENDER_CAP, supabase })` (injecting the client it already constructed) and merges the result into `DashboardData` exactly as today; an `infra_error` from the loader propagates as `fetchDashboardData`'s existing `infra_error` return. **Parity requirement:** dashboard output is bit-identical for the same rows (pinned by regression test, §9).
+- The page calls `loadNeedsAttention({ cap: PAGE_RENDER_CAP })` (no injected client — internal construction path) with `PAGE_RENDER_CAP = 100` (single named constant exported from `lib/admin/needsAttention.ts`; every other reference in code/tests derives from it).
 - Supabase call-boundary discipline (invariant 9): the moved code already destructures `{ data, error }` and returns typed `infra_error`; the new module gets a registry row in the structural meta-test that covers admin data helpers (`tests/admin/_metaInfraContract.test.ts`) or an inline `// not-subject-to-meta: <reason>` — decided at plan time per the meta-test inventory rule.
 
 ### 4.2 Badge count helper — `lib/admin/needsAttentionCount.ts`
@@ -70,12 +75,14 @@ export async function loadNeedsAttention(
 The badge needs only `totalCount`, fetched in the (server) admin layout on every navigation:
 
 ```ts
-export async function loadNeedsAttentionCount(
-  supabase: SupabaseClient,
-): Promise<{ count: number } | { kind: "infra_error"; message: string }>;
+export type NeedsAttentionCountResult =
+  | { kind: "ok"; count: number }
+  | { kind: "infra_error" };
+
+export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResult>;
 ```
 
-- Implementation = the two existing head-count queries only (`Dashboard.tsx:347-360` + `:385-398` shapes, both `.is("wizard_session_id", null)`), summed. No row fetches, no existence lookup.
+- Mirrors `fetchUnresolvedAlertCount` (`lib/admin/alertCount.ts:11-36`) exactly: constructs `createSupabaseServerClient()` internally with construction throws caught → `infra_error`; the two existing head-count queries only (`Dashboard.tsx:347-360` + `:385-398` shapes, both `.is("wizard_session_id", null)`), summed; a non-number `count` with no error is an integrity failure → `infra_error`, never a clean zero (same rationale as `alertCount.ts:29-31`). No row fetches, no existence lookup.
 - **Display posture (ratified):** the layout passes `badgeCount: number | null` to `AdminNav`; on `infra_error` it passes `null` and the badge is simply not rendered. This is a deliberate fail-quiet *display* decision for a navigation adornment — the fault is still a discriminable typed result at the helper boundary (invariant 9 satisfied; the same fault surfaces loudly on the dashboard/page through their own loaders). Review should not re-litigate fail-quiet here; the alternative (blocking nav chrome on a count query) is worse.
 - Cost note: this adds two head-count queries to every admin server navigation. They are `count: "exact", head: true` on small, indexed, admin-only tables; acceptable for a single-admin tool.
 
@@ -236,6 +243,7 @@ Unit/component (jsdom where layout isn't asserted):
 5. **Active-state matrix** — `isNavItemActive` over `/admin`, `/admin/needs-attention`, `/admin/needs-attention/x`, `/admin/settings`, `/admin/show/abc`: exactly one active id each, dashboard NOT active on needs-attention paths. *Catches: catch-all double-active.*
 6. **Desktop bar filter** — rendered `AdminNav` desktop bar contains exactly dashboard+settings links; mobile bar contains all three. Anti-tautology: query within `admin-nav-topbar` / `admin-bottom-tabs` containers respectively. *Catches: `mobileOnly` ignored.*
 7. **Page degraded block** — loader mocked to `infra_error` → degraded copy renders, no raw code text in DOM, AlertBanner section still present. *Catches: page hard-crash on infra fault (invariant 5/9).*
+7b. **Client-construction throw containment** (R1) — `createSupabaseServerClient` mocked to THROW: `loadNeedsAttentionCount()` resolves `{ kind: "infra_error" }` (never rejects; layout renders nav with no badge), and `loadNeedsAttention({ cap })` resolves `infra_error` (page renders the degraded block). *Catches: construction fault escaping the typed boundary and crashing the admin shell.*
 
 Real-browser (Playwright, extends the existing band-sweep file pattern):
 8. **Layout dimensions task** (§4.8 invariants verbatim): 3 tabs across `WIDTHS`, equal widths, full-bar heights, badge height-neutrality, summary-card ≥44px + chevron centering, at 600/719 the summary card is visible and the full inbox has zero client rect (and inversely at 720/1280). *Catches: Tailwind v4 stretch/collapse class bugs jsdom cannot see.*
