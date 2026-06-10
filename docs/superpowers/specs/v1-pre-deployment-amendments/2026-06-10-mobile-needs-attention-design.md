@@ -100,7 +100,8 @@ The page fetches alerts (via `AlertBanner`'s self-fetch) and the inbox independe
 // navConfig.ts
 export type NavItem = {
   id: "dashboard" | "attention" | "settings";
-  label: string; short: string; href: string; Icon: LucideIcon;
+  label: string; short: string; href: string;
+  Icon: ComponentType<{ className?: string }>;   // existing Icon type, navConfig.ts:4
   mobileOnly?: true;                 // NEW: excluded from the desktop top bar
 };
 export const NAV: readonly NavItem[] = [
@@ -228,7 +229,7 @@ No raw error codes anywhere (invariant 5). No new catalog rows, so no §12.4 / `
 ## 9. Testing
 
 Unit/component (jsdom where layout isn't asserted):
-1. **Loader parity regression** — `loadNeedsAttention` with `cap: 20` against fixture rows produces the identical `NeedsAttention` value the pre-extraction assembly produced (fixture-derived expectations, not hardcoded). *Failure mode caught: extraction silently changing ordering/classification/counts.*
+1. **Loader parity regression** — `loadNeedsAttention` with `cap: 20` against fixture rows produces a `NeedsAttention` value whose pre-existing fields (`items`, `renderedCount`, `totalCount`, `overflowCount`) are identical to what the pre-extraction assembly produced (the two new total fields are additive); fixture-derived expectations, not hardcoded. *Failure mode caught: extraction silently changing ordering/classification/counts.*
 2. **Cap threading** — fixtures with 25 sync rows: `cap: 20` yields `renderedCount 20 / overflowCount > 0`; `cap: 100` renders all 25. *Catches: cap not threaded through `buildNeedsAttention` slice or the `limit(cap+1)` queries.*
 3. **Summary card states** — 0 → "All caught up" (link still present); n>0 → headline exact `totalCount`, chips show exact stream totals, zero-valued chip hidden. Anti-tautology: assertions scope to `[data-testid=needs-attention-summary-card]` only, after removing the sibling full-inbox node from the cloned tree (it renders overlapping labels). *Catches: chips counting the rendered subset instead of head-counts.*
 4. **Badge logic** — `null`/`0`/`NaN`/`-1` → no badge node; `3` → "3"; `10` → "9+"; aria-label matrix. *Catches: NaN/negative leaking into nav chrome.*
