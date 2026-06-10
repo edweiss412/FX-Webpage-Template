@@ -156,6 +156,82 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
     });
   });
 
+  // -------- WM-F6: rename-fold ONTO a live owner must NOT bleed the owner's non-identity --------
+  // Guard under test: holdAwareApply.ts rename-fold — the WHOLE fold (suppression + foldConsumed +
+  // nonIdentityOverride + rename retarget) is gated on `!previousCrewNames.has(renameRow.name)`.
+  // Revert the override guard → Alice's retained row gets BOB's role/phone (red).
+  it("rename-fold onto a live owner: held crew keeps ITS OWN non-identity (no Bob bleed) + approve blocks", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      // Distinct non-identity per person so a bleed is detectable (anti-tautology: derived from seeds).
+      const aliceLive = crew("Alice", { email: "a@old", role: "A1", phone: "P-A" });
+      const bobLive = crew("Bob", {
+        email: "b@x",
+        role: "V1",
+        phone: "P-B",
+        date_restriction: { kind: "explicit", days: ["2026-05-09"] },
+      });
+      const aliceRow = await seedCrew(tx, showId, aliceLive);
+      const bobRow = await seedCrew(tx, showId, bobLive);
+      await writeMi11Holds(holdPort(tx), {
+        showId,
+        driveFileId,
+        mi11Items: [
+          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+        ],
+        liveCrewByName: new Map([["Alice", aliceLive]]),
+        baseModifiedTime: MT,
+      });
+
+      // Next sync: Alice dropped; the sheet lists only Bob carrying a@new (Alice's proposed email) →
+      // the fold matches Bob's row. Bob keeps his OWN sheet non-identity (V1 / P-B / R-B here).
+      await applyParseResult(applyTx(tx), {
+        driveFileId,
+        parseResult: parseResult([
+          crew("Bob", {
+            email: "a@new",
+            role: "V1",
+            phone: "P-B",
+            date_restriction: { kind: "explicit", days: ["2026-05-09"] },
+          }),
+        ]),
+        snapshot: snapshot(showId, [prevMember(aliceRow, aliceLive), prevMember(bobRow, bobLive)]),
+        holds: { port: holdPort(tx), baseModifiedTime: MT2 },
+      });
+
+      const rows = await readCrew(tx, showId);
+      // (a) Bob survives with HIS OWN non-identity intact (not Alice's).
+      const bob = rows.find((r) => r.name === "Bob")!;
+      expect(bob).toBeDefined();
+      expect(bob.role).toBe("V1");
+      expect(bob.phone).toBe("P-B");
+      // (b) Alice's retained held row keeps HER OWN held non-identity — NOT Bob's (the WM-F6 bug).
+      const alice = rows.find((r) => r.name === "Alice")!;
+      expect(alice).toBeDefined();
+      expect(alice.role).toBe("A1"); // would be "V1" (Bob's) under the bug
+      expect(alice.phone).toBe("P-A"); // would be "P-B" (Bob's) under the bug
+      // (c) Alice's email still held at the OLD value (identity pinned, gate pending).
+      expect(alice.email).toBe("a@old");
+
+      // (d) Approving Alice's hold is BLOCKED — the live-owner collision was recorded.
+      const hold = (await readHolds(tx, showId)).find((h) => h.entity_key === "Alice")!;
+      expect(hold.reservation_collisions.some((c) => c.name === "Bob")).toBe(true);
+      const adminClaims = JSON.stringify({
+        sub: "00000000-0000-0000-0000-000000000020",
+        email: "dlarson@fxav.net",
+        app_metadata: { role: "admin" },
+      });
+      await tx`select set_config('role', 'authenticated', true)`;
+      await tx`select set_config('request.jwt.claims', ${adminClaims}, true)`;
+      const [approveRow] = (await tx.unsafe(
+        `select public.mi11_approve_hold($1::uuid, $2::timestamptz, $3::timestamptz) as r`,
+        [hold.id, hold.base_modified_time, hold.base_modified_time] as never,
+      )) as Array<{ r: { ok: boolean; code?: string } }>;
+      expect(approveRow!.r.ok).toBe(false);
+      expect(approveRow!.r.code).toBe("IDENTITY_WOULD_COLLIDE");
+    });
+  });
+
   // -------- P2-F4: reservation EMAIL collision IS a pre-existing live owner --------
   // Guard under test: holdAwareApply.ts computeReservations `!priorCrewNames.has(m.name)`.
   // Alice's MI-11 hold reserves email x@new (a real email-change progression, via writeMi11Holds so

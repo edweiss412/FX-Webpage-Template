@@ -248,28 +248,33 @@ export async function planHoldAwareApply(
           break;
         }
       }
-      if (renameRow) {
-        // Fold proposed_value → rename; apply the rename row's non-identity onto the pinned old row.
-        // WM-F3 (same class as P2-F4): the fold target is suppressible ONLY when it is TRULY ADDED.
-        // A PRE-EXISTING live crew member whose name happens to be the fold target must NOT be
-        // suppressed — suppressing it drops it from the transformed crew list, so applyParseResult's
-        // deleteKeepNames omits it and the snapshot-replace DELETES a different live person BEFORE
-        // Approve. We keep that live owner in the crew list (so it stays live), and the held rename
-        // whose target now collides with a live owner is caught at Approve by Phase-3's collision
-        // graph (chain terminating at a non-held live row → IDENTITY_WOULD_COLLIDE). The held crew's
-        // OWN identity stays pinned for the genuine added-rename case below.
-        const previousCrewNames = new Set(args.previousCrewNames ?? []);
-        if (!previousCrewNames.has(renameRow.name)) {
-          suppressedNames.add(renameRow.name);
-          // P2-F1 / WM-F1: record under THIS hold's id — the hold's own target, not a collision.
-          // Keyed per-hold so it only excludes from THIS hold's reservation_collisions, never another's.
-          let consumed = foldConsumedByHold.get(hold.id);
-          if (!consumed) {
-            consumed = new Set<string>();
-            foldConsumedByHold.set(hold.id, consumed);
-          }
-          consumed.add(renameRow.name);
+      // WM-F3 + WM-F6 (same class as P2-F4): the fold target is foldable ONLY when it is TRULY ADDED.
+      // A PRE-EXISTING live crew member whose name happens to be the fold target must NOT be folded
+      // ONTO at all — EVERY fold side-effect (suppression, foldConsumed, nonIdentityOverride, and the
+      // rename retarget) is gated on the truly-added test:
+      //   - WM-F3: suppressing it drops it from the transformed crew list → deleteKeepNames omits it →
+      //     snapshot-replace DELETES a different live person BEFORE Approve.
+      //   - WM-F6: nonIdentityOverride bleeds the LIVE OWNER's role/phone/restrictions onto the held
+      //     crew's OWN retained row (corrupts the held crew's page + violates F17 — only identity is
+      //     held; the held crew's non-identity must follow the sheet for ITS OWN name, never another
+      //     person's fields). The rename retarget would also let Approve land the rename onto the live
+      //     owner's identity instead of blocking.
+      // For a live-owner target the fold is NEUTERED: the held crew stays pinned to its OWN held
+      // identity + held non-identity (retainRows), proposed_value keeps the original MI-11 email-change
+      // (no retarget), and the collision surfaces via reservation_collisions (computeReservations falls
+      // back to hold.proposed_value, records the live owner, → Approve blocks IDENTITY_WOULD_COLLIDE).
+      // The GENUINE added-rename case keeps the full fold (suppress + override + rename retarget).
+      const previousCrewNames = new Set(args.previousCrewNames ?? []);
+      if (renameRow && !previousCrewNames.has(renameRow.name)) {
+        suppressedNames.add(renameRow.name);
+        // P2-F1 / WM-F1: record under THIS hold's id — the hold's own target, not a collision.
+        // Keyed per-hold so it only excludes from THIS hold's reservation_collisions, never another's.
+        let consumed = foldConsumedByHold.get(hold.id);
+        if (!consumed) {
+          consumed = new Set<string>();
+          foldConsumedByHold.set(hold.id, consumed);
         }
+        consumed.add(renameRow.name);
         nonIdentityOverride.set(hold.entity_key, renameRow);
         retainRows.set(hold.entity_key, rowFromHeldValue(held));
         mutations.push({
@@ -280,6 +285,28 @@ export async function planHoldAwareApply(
             name: renameRow.name,
             email: canonRow(renameRow.email),
           },
+          baseModifiedTime: proposedBaseTime(args),
+        });
+        folded = true;
+      } else if (renameRow) {
+        // WM-F6 live-owner target: retain the held crew's OWN row (held identity + held non-identity);
+        // do NOT override with the live owner's fields, do NOT suppress/consume, do NOT fold the
+        // proposed_value into a rename ONTO the live owner. The held crew stays pinned to ITS OWN held
+        // identity; the proposed_value KEEPS its original (pre-fold) MI-11 disposition so reservations
+        // reserve THAT and record the live-owner collision (→ Approve blocks IDENTITY_WOULD_COLLIDE).
+        // We DO re-anchor base_modified_time to the current sheet (PF40 staleness anchor must track the
+        // observed revision even though the proposed value is unchanged); pass the existing proposed
+        // value back unchanged so only the base time moves.
+        retainRows.set(hold.entity_key, rowFromHeldValue(held));
+        const existingProposed = (hold.proposed_value as Record<string, unknown> | null) ?? {
+          disposition: "email_change",
+          name: hold.entity_key,
+          email: proposedEmail,
+        };
+        mutations.push({
+          kind: "retarget",
+          holdId: hold.id,
+          proposed: existingProposed,
           baseModifiedTime: proposedBaseTime(args),
         });
         folded = true;
