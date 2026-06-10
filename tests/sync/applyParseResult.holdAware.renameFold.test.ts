@@ -151,4 +151,61 @@ describe("hold-aware apply — held-crew rename fold (Task 2.5, F8 + R9)", () =>
       expect(holds[0]!.reservation_collisions).toEqual([{ name: "Alicia", email: "a@new" }]);
     });
   });
+
+  it("WM-F3 — fold target is a PRE-EXISTING live crew member: NOT deleted, approve blocked IDENTITY_WOULD_COLLIDE", async () => {
+    await inRollback(async (tx) => {
+      // Prior live: Alice(a@old) + Bob(b@x). Alice has an MI-11 hold a@old -> a@new.
+      const { showId, driveFileId } = await seedShow(tx);
+      const aliceLive = crew("Alice", { email: "a@old", phone: "555-OLD", role: "A1" });
+      const bobLive = crew("Bob", { email: "b@x", phone: "555-BOB", role: "B1" });
+      const aliceRow = await seedCrew(tx, showId, aliceLive);
+      const bobRow = await seedCrew(tx, showId, bobLive);
+      await writeMi11Holds(holdPort(tx), {
+        showId,
+        driveFileId,
+        mi11Items: [
+          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+        ],
+        liveCrewByName: new Map([["Alice", aliceLive]]),
+        baseModifiedTime: MT,
+      });
+
+      // Parse contains ONLY Bob, but Bob now carries Alice's proposed new email a@new. The rename-fold
+      // path matches Bob's row by email and (under the bug) suppresses 'Bob' -> deletes the live owner.
+      const next = parseResult([crew("Bob", { email: "a@new", phone: "555-BOB", role: "B1" })]);
+      await applyParseResult(applyTx(tx), {
+        driveFileId,
+        parseResult: next,
+        snapshot: snapshot(showId, [prevMember(aliceRow, aliceLive), prevMember(bobRow, bobLive)]),
+        holds: { port: holdPort(tx), baseModifiedTime: MT2 },
+      });
+
+      // (a) Bob — a PRE-EXISTING live owner — must STILL EXIST (not deleted by fold suppression).
+      const rows = await readCrew(tx, showId);
+      const bob = rows.find((r) => r.name === "Bob");
+      expect(bob).toBeDefined();
+      expect(bob!.email).toBe("a@new"); // Bob's sheet row applied through
+
+      // (b) Approving Alice's hold is BLOCKED IDENTITY_WOULD_COLLIDE: the rename target (Bob/a@new)
+      // collides with the live Bob owner; Phase-3's graph terminates at a non-held live row -> NULL.
+      const holds = await readHolds(tx, showId);
+      const aliceHold = holds.find((h) => h.entity_key === "Alice")!;
+      await tx`select set_config('role', 'authenticated', true)`;
+      await tx`select set_config('request.jwt.claims', ${JSON.stringify({
+        sub: "00000000-0000-0000-0000-000000000020",
+        email: "dlarson@fxav.net",
+        app_metadata: { role: "admin" },
+      })}, true)`;
+      const [approveRow] = (await tx.unsafe(
+        `select public.mi11_approve_hold($1::uuid, $2::timestamptz, $3::timestamptz) as r`,
+        [aliceHold.id, MT2, MT2],
+      )) as Array<{ r: { ok: boolean; code?: string } }>;
+      expect(approveRow!.r.ok).toBe(false);
+      expect(approveRow!.r.code).toBe("IDENTITY_WOULD_COLLIDE");
+
+      // Bob survives the (rejected) approve attempt too.
+      const after = await readCrew(tx, showId);
+      expect(after.find((r) => r.name === "Bob")).toBeDefined();
+    });
+  });
 });

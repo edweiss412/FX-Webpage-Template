@@ -247,16 +247,27 @@ export async function planHoldAwareApply(
         }
       }
       if (renameRow) {
-        // Suppress the added row; fold proposed_value → rename; apply its non-identity onto pinned old row.
-        suppressedNames.add(renameRow.name);
-        // P2-F1 / WM-F1: record under THIS hold's id — the hold's own target, not a collision.
-        // Keyed per-hold so it only excludes from THIS hold's reservation_collisions, never another's.
-        let consumed = foldConsumedByHold.get(hold.id);
-        if (!consumed) {
-          consumed = new Set<string>();
-          foldConsumedByHold.set(hold.id, consumed);
+        // Fold proposed_value → rename; apply the rename row's non-identity onto the pinned old row.
+        // WM-F3 (same class as P2-F4): the fold target is suppressible ONLY when it is TRULY ADDED.
+        // A PRE-EXISTING live crew member whose name happens to be the fold target must NOT be
+        // suppressed — suppressing it drops it from the transformed crew list, so applyParseResult's
+        // deleteKeepNames omits it and the snapshot-replace DELETES a different live person BEFORE
+        // Approve. We keep that live owner in the crew list (so it stays live), and the held rename
+        // whose target now collides with a live owner is caught at Approve by Phase-3's collision
+        // graph (chain terminating at a non-held live row → IDENTITY_WOULD_COLLIDE). The held crew's
+        // OWN identity stays pinned for the genuine added-rename case below.
+        const previousCrewNames = new Set(args.previousCrewNames ?? []);
+        if (!previousCrewNames.has(renameRow.name)) {
+          suppressedNames.add(renameRow.name);
+          // P2-F1 / WM-F1: record under THIS hold's id — the hold's own target, not a collision.
+          // Keyed per-hold so it only excludes from THIS hold's reservation_collisions, never another's.
+          let consumed = foldConsumedByHold.get(hold.id);
+          if (!consumed) {
+            consumed = new Set<string>();
+            foldConsumedByHold.set(hold.id, consumed);
+          }
+          consumed.add(renameRow.name);
         }
-        consumed.add(renameRow.name);
         nonIdentityOverride.set(hold.entity_key, renameRow);
         retainRows.set(hold.entity_key, rowFromHeldValue(held));
         mutations.push({
