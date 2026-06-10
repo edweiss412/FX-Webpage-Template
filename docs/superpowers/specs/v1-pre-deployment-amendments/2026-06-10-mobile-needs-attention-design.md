@@ -70,7 +70,7 @@ When `opts.supabase` is omitted, `createSupabaseServerClient()` is awaited insid
   - **Count integrity (R2-F3):** the current block falls back from a null PostgREST head-count to the bounded row length (`q.count ?? ingestionRows.length` / `q.count ?? syncRows.length`). The loader instead treats a non-number `count` with no error as `{ kind: "infra_error" }` — same integrity stance as `lib/admin/alertCount.ts:29-31` — because the summary card and badge promise EXACT totals; a silent fallback to a capped row length would understate them. This intentionally changes dashboard behavior on the (integrity-violation) null-count path from "render understated totals" to "render the degraded block"; the well-formed-count path is byte-identical (parity test, §9).
 - `fetchDashboardData` calls `loadNeedsAttention({ cap: RENDER_CAP, supabase })` (injecting the client it already constructed) and merges the result into `DashboardData` exactly as today; an `infra_error` from the loader propagates as `fetchDashboardData`'s existing `infra_error` return. **Parity requirement:** dashboard output is bit-identical for the same rows (pinned by regression test, §9).
 - The page calls `loadNeedsAttention({ cap: PAGE_RENDER_CAP })` (no injected client — internal construction path) with `PAGE_RENDER_CAP = 100` (single named constant exported from `lib/admin/needsAttention.ts`; every other reference in code/tests derives from it).
-- Supabase call-boundary discipline (invariant 9): the moved code already destructures `{ data, error }` and returns typed `infra_error`; the new module gets a registry row in the structural meta-test that covers admin data helpers (`tests/admin/_metaInfraContract.test.ts`) or an inline `// not-subject-to-meta: <reason>` — decided at plan time per the meta-test inventory rule.
+- Supabase call-boundary discipline (invariant 9, R3-F2 — **mandatory, not optional**): the moved code already destructures `{ data, error }` and returns typed `infra_error`. BOTH new helpers (`loadNeedsAttention`, `loadNeedsAttentionCount`) get registry rows in `tests/admin/_metaInfraContract.test.ts` in the same commit that creates them — they are typed-result Supabase read helpers, squarely subject; no inline exemption is acceptable. Registry coverage includes grep-shape checks for every Supabase-derived await plus behavioral throw tests (client construction throw + each queried table's returned-error and thrown-await paths → `infra_error`).
 
 ### 4.2 Badge count helper — `lib/admin/needsAttentionCount.ts`
 
@@ -102,6 +102,7 @@ Server component, structure mirroring `app/admin/page.tsx`:
    - on `infra_error`: render the dashboard's established inline degraded block (copy pattern of `Dashboard.tsx:498` — catalog-free static copy, no raw codes; invariant 5 holds because no error code is rendered).
    - on success: `<NeedsAttentionInbox items totalCount renderedCount overflowCount now />` — the same component the dashboard uses, unchanged API (`NeedsAttentionInbox.tsx:17-24`). Empty state and "+N more" overflow note come free (`:127-133`, `:144-146`).
 5. Page wrapper carries `data-testid="admin-needs-attention-page"`.
+5b. **Trust-domain registry (R3-F1, mandatory):** both new routes register in `PROTECTED_ROUTES` (`lib/audit/trustDomains.ts:31`) in the same commit that creates them — `{ path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] }` and `{ path: "app/api/admin/needs-attention-count/route.ts", chain: ["requireAdmin"] }` (matching the existing `app/api/admin/**` rows, e.g. `trustDomains.ts:52-60`). The X.3 auth-chain audit walks `app/api` + `app/admin` live routes (`lib/audit/protectedRoutes.ts:43`) and fails on unlisted/unclassified routes; the registry row — not prose — is what structurally pins the admin boundary.
 6. `app/admin/needs-attention/loading.tsx`: skeleton with header bar + 3 stacked list-row placeholders, following `app/admin/loading.tsx`'s silhouette approach. `PageTransition` applies automatically (it wraps all admin children at `app/admin/layout.tsx:112`).
 
 The page fetches alerts (via `AlertBanner`'s self-fetch) and the inbox independently; a failure in one never blanks the other (AlertBanner already degrades internally to `admin-alert-banner-degraded`, `AlertBanner.tsx:145-167`).
@@ -260,7 +261,10 @@ Real-browser (Playwright, extends the existing band-sweep file pattern):
 10. **Navigation flow** — at 390px: tap summary card → page renders inbox items; tap Attention tab from settings → page; badge text matches seeded pending counts. *Catches: wrong hrefs, badge fed by rendered-subset count.*
 11. **Badge freshness across soft navigation** (R2-F1) — load `/admin`, then change seeded pending counts server-side, then client-side navigate (tab tap, no full reload) → badge reflects the new count. *Catches: layout-cached badge going stale because App Router layouts don't re-render on soft navigation.*
 
-Meta-test inventory (declared per plan rule): extends `tests/admin/_metaInfraContract.test.ts` (new `lib/admin` helpers' registry rows) — or documents inline exemption; no sentinel-hiding, alert-catalog, advisory-lock, or DML-lockdown registries are touched (no DB writes, no new alert codes).
+Meta-test / structural-registry inventory (declared per plan rule; all MANDATORY, same-commit as the surface they pin):
+- `tests/admin/_metaInfraContract.test.ts` — registry rows for `loadNeedsAttention` + `loadNeedsAttentionCount` (R3-F2; §4.1).
+- `PROTECTED_ROUTES` in `lib/audit/trustDomains.ts:31` — rows for the new page + count route handler (R3-F1; §4.3.5b).
+- Not touched (declared): sentinel-hiding, alert-catalog, advisory-lock, and DML-lockdown registries (no DB writes, no new alert codes, no locks).
 
 ## 10. Implementation shape (for writing-plans)
 
