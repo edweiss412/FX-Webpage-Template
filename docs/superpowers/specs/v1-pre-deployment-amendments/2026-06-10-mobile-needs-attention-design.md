@@ -65,14 +65,16 @@ export async function loadNeedsAttention(
 
 When `opts.supabase` is omitted, `createSupabaseServerClient()` is awaited inside a try/catch and a throw returns `{ kind: "infra_error", message: "client construction failed: …" }` — a client-construction fault can therefore never escape the helper as an exception (R1 finding).
 
-- Internally identical to today's block: two bounded queries (`.limit(cap + 1)`), two head-counts, existence lookup, `buildNeedsAttention`. The only generalization is `cap` replacing the hardcoded `RENDER_CAP` in the queries and in `buildNeedsAttention`'s slice (thread `cap` through `BuildNeedsAttentionInput`; `RENDER_CAP` at `lib/admin/needsAttention.ts:16` remains the dashboard's value and the default).
+- Internally identical to today's block: two bounded queries (`.limit(cap + 1)`), two head-counts, existence lookup, `buildNeedsAttention`. Two deliberate deviations from "verbatim":
+  - `cap` replaces the hardcoded `RENDER_CAP` in the queries and in `buildNeedsAttention`'s slice (thread `cap` through `BuildNeedsAttentionInput`; `RENDER_CAP` at `lib/admin/needsAttention.ts:16` remains the dashboard's value and the default).
+  - **Count integrity (R2-F3):** the current block falls back from a null PostgREST head-count to the bounded row length (`q.count ?? ingestionRows.length` / `q.count ?? syncRows.length`). The loader instead treats a non-number `count` with no error as `{ kind: "infra_error" }` — same integrity stance as `lib/admin/alertCount.ts:29-31` — because the summary card and badge promise EXACT totals; a silent fallback to a capped row length would understate them. This intentionally changes dashboard behavior on the (integrity-violation) null-count path from "render understated totals" to "render the degraded block"; the well-formed-count path is byte-identical (parity test, §9).
 - `fetchDashboardData` calls `loadNeedsAttention({ cap: RENDER_CAP, supabase })` (injecting the client it already constructed) and merges the result into `DashboardData` exactly as today; an `infra_error` from the loader propagates as `fetchDashboardData`'s existing `infra_error` return. **Parity requirement:** dashboard output is bit-identical for the same rows (pinned by regression test, §9).
 - The page calls `loadNeedsAttention({ cap: PAGE_RENDER_CAP })` (no injected client — internal construction path) with `PAGE_RENDER_CAP = 100` (single named constant exported from `lib/admin/needsAttention.ts`; every other reference in code/tests derives from it).
 - Supabase call-boundary discipline (invariant 9): the moved code already destructures `{ data, error }` and returns typed `infra_error`; the new module gets a registry row in the structural meta-test that covers admin data helpers (`tests/admin/_metaInfraContract.test.ts`) or an inline `// not-subject-to-meta: <reason>` — decided at plan time per the meta-test inventory rule.
 
 ### 4.2 Badge count helper — `lib/admin/needsAttentionCount.ts`
 
-The badge needs only `totalCount`, fetched in the (server) admin layout on every navigation:
+The badge needs only `totalCount`. Server-fetched at first paint, refreshed per soft navigation via a route handler (mechanism below):
 
 ```ts
 export type NeedsAttentionCountResult =
@@ -83,7 +85,10 @@ export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResu
 ```
 
 - Mirrors `fetchUnresolvedAlertCount` (`lib/admin/alertCount.ts:11-36`) exactly: constructs `createSupabaseServerClient()` internally with construction throws caught → `infra_error`; the two existing head-count queries only (`Dashboard.tsx:347-360` + `:385-398` shapes, both `.is("wizard_session_id", null)`), summed; a non-number `count` with no error is an integrity failure → `infra_error`, never a clean zero (same rationale as `alertCount.ts:29-31`). No row fetches, no existence lookup.
-- **Display posture (ratified):** the layout passes `badgeCount: number | null` to `AdminNav`; on `infra_error` it passes `null` and the badge is simply not rendered. This is a deliberate fail-quiet *display* decision for a navigation adornment — the fault is still a discriminable typed result at the helper boundary (invariant 9 satisfied; the same fault surfaces loudly on the dashboard/page through their own loaders). Review should not re-litigate fail-quiet here; the alternative (blocking nav chrome on a count query) is worse.
+- **Freshness mechanism (R2-F1):** App Router layouts do NOT re-render on soft navigations between sibling segments, so a layout-only fetch would go stale. Two-part design:
+  1. **First paint:** `app/admin/layout.tsx` awaits `loadNeedsAttentionCount()` and passes `initialBadgeCount: number | null` to `AdminNav` (null on `infra_error`).
+  2. **Per-navigation refresh:** `AdminNav` (already a client component) re-fetches on `usePathname()` change — skipping the initial mount, since the server already supplied it — from a new route handler `app/api/admin/needs-attention-count/route.ts` (GET; gated by the same admin identity check as sibling `app/api/admin/**` routes; body `{ count: number }` on success, error status on `infra_error` — it calls `loadNeedsAttentionCount()` and never leaks raw codes). Any fetch/HTTP/parse failure → badge state set to `null` (hidden), never a thrown render error. The route handler is `app/api/**`, i.e. outside the UI-files-always-Opus surface definition but in-scope for this milestone.
+- **Display posture (ratified):** badge renders only from a finite count `> 0`; on `infra_error`/fetch failure the badge is simply not rendered. This is a deliberate fail-quiet *display* decision for a navigation adornment — the fault is still a discriminable typed result at the helper boundary (invariant 9 satisfied; the same fault surfaces loudly on the dashboard/page through their own loaders). Review should not re-litigate fail-quiet here; the alternative (blocking nav chrome on a count query) is worse.
 - Cost note: this adds two head-count queries to every admin server navigation. They are `count: "exact", head: true` on small, indexed, admin-only tables; acceptable for a single-admin tool.
 
 ### 4.3 The page — `app/admin/needs-attention/page.tsx`
@@ -93,7 +98,7 @@ Server component, structure mirroring `app/admin/page.tsx`:
 1. Defensive gate: `requireAdminIdentity` (same import as `app/admin/settings/page.tsx:29`) — layout already gates, pages re-gate per convention.
 2. `<AdminPageHeader title="Needs attention" sub="Everything waiting on you, across all shows." />`
 3. `<AlertBanner />` mounted in its own `<div id="alerts">` exactly as `app/admin/page.tsx:107`. **This amends the M12.3 dashboard-only contract** to "dashboard + needs-attention page" (owner decision D-5). The contract test `tests/e2e/admin-banner.spec.ts:386` and the contract comments at `app/admin/page.tsx:90-96` / `app/admin/show/[slug]/page.tsx:13` update in the same commit. The banner still does NOT mount on settings / dev / per-show / staged routes.
-4. Inbox section: `loadNeedsAttention(supabase, { cap: PAGE_RENDER_CAP })` →
+4. Inbox section: `loadNeedsAttention({ cap: PAGE_RENDER_CAP })` — the page MUST NOT construct or inject its own Supabase client for this loader (internal-construction path is what contains construction throws, §4.1/R1) →
    - on `infra_error`: render the dashboard's established inline degraded block (copy pattern of `Dashboard.tsx:498` — catalog-free static copy, no raw codes; invariant 5 holds because no error code is rendered).
    - on success: `<NeedsAttentionInbox items totalCount renderedCount overflowCount now />` — the same component the dashboard uses, unchanged API (`NeedsAttentionInbox.tsx:17-24`). Empty state and "+N more" overflow note come free (`:127-133`, `:144-146`).
 5. Page wrapper carries `data-testid="admin-needs-attention-page"`.
@@ -125,7 +130,7 @@ export const NAV: readonly NavItem[] = [
   - `settings` ← `pathname === "/admin/settings"` or `startsWith("/admin/settings/")` (unchanged)
   - `attention` ← `pathname === "/admin/needs-attention"` or `startsWith("/admin/needs-attention/")` (new)
   - `dashboard` ← everything else under `/admin` (the existing catch-all now also excludes needs-attention)
-- **Badge:** rendered inside the attention tab only, when `badgeCount` is a finite integer `> 0`; text = `count > 9 ? "9+" : String(count)`; absolutely positioned over the icon's top-right (`absolute` chip, accent bg, white text, ~16px tall) so tab height is untouched. Accessible name: the tab link's `aria-label` becomes `` `Needs attention, ${count} item${s}` `` when badged, else "Needs attention". `AdminNav` gains a `badgeCount?: number | null` prop supplied by the layout (`app/admin/layout.tsx:100` mount site; layout calls `loadNeedsAttentionCount` per §4.2). `AdminNav` stays a client component; the count is plain serialized data.
+- **Badge:** rendered inside the attention tab only, when `badgeCount` is a finite integer `> 0`; text = `count > 9 ? "9+" : String(count)`; absolutely positioned over the icon's top-right (`absolute` chip, accent bg, white text, ~16px tall) so tab height is untouched. Accessible name: the tab link's `aria-label` becomes `` `Needs attention, ${count} item${s}` `` when badged, else "Needs attention". `AdminNav` gains an `initialBadgeCount?: number | null` prop supplied by the layout (`app/admin/layout.tsx:100` mount site; layout calls `loadNeedsAttentionCount` per §4.2) and keeps the live value in client state, refreshed on `usePathname()` change via the §4.2 route handler. `AdminNav` stays a client component; the initial count is plain serialized data.
 
 ### 4.5 Mobile dashboard swap — summary card
 
@@ -156,7 +161,7 @@ Both dashboard inbox renders exist in the DOM at all widths (CSS-only switching 
 
 | Input | null / absent | 0 | NaN / negative | large |
 |---|---|---|---|---|
-| `badgeCount` (AdminNav prop) | no badge | no badge | no badge (guard: `Number.isFinite(c) && c > 0`) | "9+" when `> 9` |
+| badge count (`initialBadgeCount` prop / refreshed client state) | no badge | no badge | no badge (guard: `Number.isFinite(c) && c > 0`) | "9+" when `> 9` |
 | `totalCount` (summary card) | — (loader guarantees number; `infra_error` short-circuits to dashboard degraded block before the card renders) | "All caught up" state | n/a (same guarantee) | headline shows exact number; chips show exact numbers |
 | `ingestionTotal` / `syncTotal` chips | — | chip hidden | n/a | exact number |
 | `items` (page) | — | existing empty state (`admin-needs-attention-empty`) | — | cap 100 + existing "+N more" note |
@@ -176,7 +181,7 @@ All states on these surfaces are **server-rendered per navigation** — there is
 
 | Transition | Treatment |
 |---|---|
-| badge hidden ↔ shown (count crosses 0) | instant — only changes across server navigations |
+| badge hidden ↔ shown (count crosses 0) | instant — changes only on navigation (server render or route-handler refresh); no animation |
 | badge n ↔ 9+ | instant — same |
 | summary card items ↔ all-caught-up | instant — same |
 | page alerts present ↔ absent | instant — same |
@@ -206,7 +211,8 @@ No env-gated features; no build-vs-runtime gates. No boolean config stored in DB
 |---|---|---|
 | Inbox loader `infra_error` (page) | page | inline degraded block (Dashboard `:498` pattern); alerts section still renders |
 | Inbox loader `infra_error` (dashboard) | dashboard | unchanged (existing degraded block; summary card not rendered) |
-| Badge count `infra_error` | bottom nav | badge hidden (`null` prop); typed at helper boundary; ratified D-4/§4.2 |
+| Badge count `infra_error` (layout fetch) | bottom nav | badge hidden (`null` initial prop); typed at helper boundary; ratified D-4/§4.2 |
+| Badge refresh fetch failure (route handler / network / parse) | bottom nav | badge state → `null` (hidden) until next successful fetch; never a thrown render error |
 | Alerts fetch fault | page + dashboard | AlertBanner's own degraded row (`admin-alert-banner-degraded`), unchanged |
 
 No raw error codes anywhere (invariant 5). No new catalog rows, so no §12.4 / `gen:spec-codes` / `catalog.ts` lockstep updates.
@@ -224,6 +230,8 @@ No raw error codes anywhere (invariant 5). No new catalog rows, so no §12.4 / `
 5. **Two exact chips, not a three-way split** (§4.5) — capped-list honesty; the 3-chip mockup variant was superseded.
 6. **Dual-render CSS switching** is the established pattern (`AdminNav.tsx:64`/`:95`); no JS width detection.
 7. **`buildNeedsAttention` gains a cap parameter + two total fields** — additive; dashboard parity pinned by regression test.
+8. **Badge freshness mechanism** = server-rendered initial count + `usePathname()`-triggered refetch from `app/api/admin/needs-attention-count` (§4.2, R2-F1). A layout-only fetch is known-stale (App Router layout semantics); do not propose moving the fetch back into the layout alone, and do not propose polling/realtime (out of scope §8).
+9. **Null head-count ⇒ `infra_error`** (§4.1, R2-F3) is an intentional behavior change from the current `q.count ?? rows.length` fallback, matching `alertCount.ts:29-31`; the well-formed path is parity-pinned.
 
 ## 8. Out of scope
 
@@ -239,7 +247,8 @@ Unit/component (jsdom where layout isn't asserted):
 1. **Loader parity regression** — `loadNeedsAttention` with `cap: 20` against fixture rows produces a `NeedsAttention` value whose pre-existing fields (`items`, `renderedCount`, `totalCount`, `overflowCount`) are identical to what the pre-extraction assembly produced (the two new total fields are additive); fixture-derived expectations, not hardcoded. *Failure mode caught: extraction silently changing ordering/classification/counts.*
 2. **Cap threading** — fixtures with 25 sync rows: `cap: 20` yields `renderedCount 20 / overflowCount > 0`; `cap: 100` renders all 25. *Catches: cap not threaded through `buildNeedsAttention` slice or the `limit(cap+1)` queries.*
 3. **Summary card states** — 0 → "All caught up" (link still present); n>0 → headline exact `totalCount`, chips show exact stream totals, zero-valued chip hidden. Anti-tautology: assertions scope to `[data-testid=needs-attention-summary-card]` only, after removing the sibling full-inbox node from the cloned tree (it renders overlapping labels). *Catches: chips counting the rendered subset instead of head-counts.*
-4. **Badge logic** — `null`/`0`/`NaN`/`-1` → no badge node; `3` → "3"; `10` → "9+"; aria-label matrix. *Catches: NaN/negative leaking into nav chrome.*
+4. **Badge logic** — `null`/`0`/`NaN`/`-1` → no badge node; `3` → "3"; `10` → "9+"; aria-label matrix; refresh-fetch rejection/non-OK/garbage-JSON → badge hidden, no thrown error. *Catches: NaN/negative/fetch-fault leaking into nav chrome.*
+4b. **Null head-count integrity** (R2-F3) — head-count query mocked to return `count: null, error: null` with rows present → `loadNeedsAttention` returns `infra_error` (and `loadNeedsAttentionCount` likewise); never a success with row-length totals. *Catches: exact chips/badge silently degrading to capped row counts.*
 5. **Active-state matrix** — `isNavItemActive` over `/admin`, `/admin/needs-attention`, `/admin/needs-attention/x`, `/admin/settings`, `/admin/show/abc`: exactly one active id each, dashboard NOT active on needs-attention paths. *Catches: catch-all double-active.*
 6. **Desktop bar filter** — rendered `AdminNav` desktop bar contains exactly dashboard+settings links; mobile bar contains all three. Anti-tautology: query within `admin-nav-topbar` / `admin-bottom-tabs` containers respectively. *Catches: `mobileOnly` ignored.*
 7. **Page degraded block** — loader mocked to `infra_error` → degraded copy renders, no raw code text in DOM, AlertBanner section still present. *Catches: page hard-crash on infra fault (invariant 5/9).*
@@ -248,7 +257,8 @@ Unit/component (jsdom where layout isn't asserted):
 Real-browser (Playwright, extends the existing band-sweep file pattern):
 8. **Layout dimensions task** (§4.8 invariants verbatim): 3 tabs across `WIDTHS`, equal widths, full-bar heights, badge height-neutrality, summary-card ≥44px + chevron centering, at 600/719 the summary card is visible and the full inbox has zero client rect (and inversely at 720/1280). *Catches: Tailwind v4 stretch/collapse class bugs jsdom cannot see.*
 9. **Banner placement contract** — banner present on `/admin` AND `/admin/needs-attention`, absent on settings/dev/per-show (amended `admin-banner.spec.ts:386` test). *Catches: accidental layout-level mount.*
-10. **Navigation flow** — at 390px: tap summary card → page renders inbox items; tap Attention tab from settings → page; badge text matches seeded pending counts. *Catches: wrong hrefs, badge fed by stale/rendered-subset count.*
+10. **Navigation flow** — at 390px: tap summary card → page renders inbox items; tap Attention tab from settings → page; badge text matches seeded pending counts. *Catches: wrong hrefs, badge fed by rendered-subset count.*
+11. **Badge freshness across soft navigation** (R2-F1) — load `/admin`, then change seeded pending counts server-side, then client-side navigate (tab tap, no full reload) → badge reflects the new count. *Catches: layout-cached badge going stale because App Router layouts don't re-render on soft navigation.*
 
 Meta-test inventory (declared per plan rule): extends `tests/admin/_metaInfraContract.test.ts` (new `lib/admin` helpers' registry rows) — or documents inline exemption; no sentinel-hiding, alert-catalog, advisory-lock, or DML-lockdown registries are touched (no DB writes, no new alert codes).
 
