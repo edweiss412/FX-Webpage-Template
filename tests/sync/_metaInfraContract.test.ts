@@ -335,6 +335,12 @@ const infraRegistry = [
     contract:
       "feed data-layer read (P5-F1): a THROWN service-role construction / .from() fault AND a returned {error} at every read (show_change_log / count / sync_holds) map to a typed SyncInfraError (operation + source); never a plain Error / uncaught throw, so the Phase-6 page boundary can catalog-render / degrade (invariant 9). Enforced by tests/sync/feed/readShowChangeFeed.infra.test.ts",
   },
+  {
+    helper: "undoChange",
+    path: "lib/sync/holds/undoChange.ts",
+    contract:
+      "feed Undo action (WM-F5): a THROWN createSupabaseServerClient / supabase.rpc fault, a returned {error}, AND a null/unexpected RPC shape ALL map to { ok:false, code:'SYNC_INFRA_ERROR' }; a typed data.ok===false code (e.g. UNDO_SUPERSEDED) passes through unclobbered and data.ok===true → { ok:true }; never an uncaught throw / untyped admin 500 (invariant 9). Enforced by tests/sync/holds/undoChange.infra.test.ts",
+  },
 ] as const;
 
 function read(path: string): string {
