@@ -138,7 +138,7 @@ Both finalize routes' `defaultWithRowTx` callbacks gain a second argument `pipel
 | Registry | Action (task) |
 |---|---|
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | EXTEND — pin that `lib/sync/applyStagedCore.ts` contains zero `pg_advisory` acquisitions and exactly one `assertShowLockHeld`/`adoptShowLockHeld` adoption (Task 1.7). |
-| NEW `tests/sync/_secondCopyApplyTripwire.test.ts` | Second-copy tripwire: walks `app/api/**` + `lib/**`; `insert into public.shows` / child snapshot-replacement SQL allowed ONLY at the pinned path+symbol allowlist (Task 1.7). |
+| NEW `tests/sync/_secondCopyApplyTripwire.test.ts` | Second-copy tripwire: walks `app/api/**` + `lib/**`; `insert into public.shows` / `update public.shows` / child snapshot-replacement SQL allowed ONLY inside per-`(file, symbol)` body ranges — no file-wide exemptions (Task 1.7). |
 | NEW `tests/sync/_livePartitionClassificationContract.test.ts` | Pins the §3.2 live-vs-wizard classification of every live-partition lifecycle op reachable from the core (Task 1.2 registry, Task 1.7 walker). |
 | `tests/auth/_metaInfraContract.test.ts` | **None applies** — F1 adds no Supabase-js call boundaries; the finalize routes and core run on postgres.js transaction handles (no `{data,error}` clients). Declared explicitly per invariant 9. |
 | `tests/messages/_metaAdminAlertCatalog.test.ts` | **None applies** — F1 adds no admin-alert codes (per-row codes reuse cataloged `STAGED_*` rows). |
@@ -344,9 +344,9 @@ describe("applyStagedCore", () => {
 **Files:**
 - Modify: `lib/sync/applyStagedCore.ts` (fill `LIVE_PARTITION_CLASSIFICATION`)
 - Create: `tests/sync/applyStagedCore.livePartition.test.ts`
-- Create: `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` (real DB)
+- Create: `tests/sync/_applyStagedCoreTestkit.ts` (shared spy helpers)
 
-**Concrete failure modes caught:** (a) a wizard finalize deletes the LIVE `pending_ingestions` row for the same `drive_file_id` (the `ApplyParseResultTx.deleteLivePendingIngestion` unconditional call, `applyParseResult.ts:131` → `runScheduledCronSync.ts:649-658`) — silently erasing an operator-visible live failure record; (b) a wizard finalize deletes the LIVE `pending_syncs` staged row (step 6L, `defaultDeleteLivePendingSync`) — destroying a dashboard reviewer's staged parse from a wizard action; (c) a wizard apply resolves live sync-problem suppressors (`resolveStaleSyncProblemAlerts_unlocked`).
+**Concrete failure modes caught:** (a) a wizard finalize deletes the LIVE `pending_ingestions` row for the same `drive_file_id` (the `ApplyParseResultTx.deleteLivePendingIngestion` unconditional call, `applyParseResult.ts:131` → `runScheduledCronSync.ts:649-658`) — silently erasing an operator-visible live failure record; (b) a wizard finalize deletes the LIVE `pending_syncs` staged row (step 6L, `defaultDeleteLivePendingSync`) — destroying a dashboard reviewer's staged parse from a wizard action; (c) a wizard apply resolves live sync-problem suppressors (`resolveStaleSyncProblemAlerts_unlocked`). Unit-level scoping is pinned HERE (passes with this task's implementation — TDD invariant 1: no intentionally-red commits); the END-TO-END coexistence DB regression through the real finalize writers lands in Task 1.5, where the writers it exercises exist.
 
 **rg class enumeration (plan-time deliverable — executed 2026-06-11; re-run during the task and reconcile):**
 
@@ -421,14 +421,8 @@ describe("applyStagedCore live-partition source scoping", () => {
 
 - [ ] **Run to verify failure:** `pnpm vitest run tests/sync/applyStagedCore.livePartition.test.ts` — expected failure: wizard scope still calls `deleteLivePendingIngestion` (op recorded by spy) and `LIVE_PARTITION_CLASSIFICATION` is an empty stub.
 - [ ] **Implementation:** in `applyStagedCore.ts` (a) wire `withWizardScopedLivePartitionOps` into core step 5 and gate core step 10 on `sourceScope === "live"` (if not already done structurally in T1.1, this is where it becomes test-pinned); (b) fill `LIVE_PARTITION_CLASSIFICATION` with the 7-row table above as `export const LIVE_PARTITION_CLASSIFICATION: ReadonlyArray<{ op: string; site: string; class: "live-only" | "wizard-only"; wizardBehavior: string }>` — the table IS the registry the T1.7 meta-test walks.
-- [ ] **Run to pass:** `pnpm vitest run tests/sync/applyStagedCore.livePartition.test.ts`
-- [ ] **Write failing DB regression** `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` (real local Supabase, gated on `TEST_DATABASE_URL` reachability per `tests/onboarding/onboardingFinalizePublishDb.test.ts` pattern). NOTE: this test exercises the FULL wizard finalize writers, so it is written here, expected RED, and turns green only after Tasks 1.3 + 1.5 land — mark it `describe.todo`-free but accept multi-task redness (the plan runs it again at T1.5's gate):
-  - Seed: a live show `drive-coexist-1` (synced, watermark T0); a LIVE `pending_ingestions` row for `drive-coexist-1` (`wizard_session_id null`, `last_error_code 'PARSE_ERROR'`); a LIVE `pending_syncs` staged row for `drive-coexist-1` (`wizard_session_id null`, `base_modified_time` = T0); a wizard session with an approved existing-show row for the SAME `drive_file_id` (Phase B path) staged at T1.
-  - Drive Phase B (`handleOnboardingFinalize` with injected `fetchDriveFileMetadata` returning T1) then Phase D (`handleOnboardingFinalizeCas`).
-  - Assert AFTER Phase D: the live `pending_ingestions` row still exists (`select … where drive_file_id='drive-coexist-1' and wizard_session_id is null` → 1 row); the live `pending_syncs` row still exists (same predicate → 1 row). **Concrete failure mode:** the unconditional `deleteLivePendingIngestion` / 6L delete reached the live partition from a wizard action.
-  - Expected failure NOW: Phase D's bespoke `applyShadow` doesn't route through the core yet, so the live rows survive trivially — therefore ALSO assert the post-T1.5 success signal in the same test (`crew_members` rows exist for the shadow's parse) so the test is RED today for the right reason (zero crew written by the bespoke UPDATE) and cannot pass tautologically.
-- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — expected failure: crew-count assertion is 0 (bespoke writers drop children — the origin incident reproduced as a failing test).
-- [ ] **Commit:** `feat(sync): source-scope live-partition ops in apply core + coexistence regression (red until Phase B/D rewire)`
+- [ ] **Run to pass:** `pnpm vitest run tests/sync/applyStagedCore.livePartition.test.ts` (and re-run `tests/sync/applyStagedCore.test.ts` — the testkit extraction must not break Task 1.1's suite)
+- [ ] **Commit:** `feat(sync): source-scope live-partition ops in apply core (classification registry + unit pins)`
 
 ---
 
@@ -442,7 +436,7 @@ describe("applyStagedCore live-partition source scoping", () => {
 - Modify: `tests/onboarding/finalize.test.ts` (fake-tx rows gain the new SELECT columns)
 - Modify: `supabase/__generated__/schema-manifest.json` (regen)
 
-**Concrete failure modes caught:** (a) THE origin incident — first-seen finalize persists only `shows` columns, 0 crew / 0 rooms / empty `shows_internal` with `last_sync_status='ok'`; (b) the wizard interim row becomes crew-visible early (`published` defaults `true` through the shared insert) — spec §3.1 flag lifecycle; (c) audit provenance stubs — `triggered_review_items='[]'`, `applied_at` = finalize-click time, actor ≠ approving admin (spec §3.1 R8-1); (d) F4's data-loss class — no `created_show_id` provenance means the reap must fall back to the `published=false` proxy.
+**Concrete failure modes caught:** (a) THE origin incident — first-seen finalize persists only `shows` columns, 0 crew / 0 rooms / empty `shows_internal` with `last_sync_status='ok'`; (b) the wizard interim row becomes crew-visible early (`published` defaults `true` through the shared insert) — spec §3.1 flag lifecycle; (c) audit provenance stubs — `triggered_review_items='[]'`, `applied_at` = finalize-click time, actor ≠ approving admin (spec §3.1 R8-1); (d) F4's data-loss class — no `created_show_id` provenance means the reap must fall back to the `published=false` proxy; (e) **provenance-race orphan** — a wizard-session supersession committing between the core apply and the provenance UPDATE makes the UPDATE's active-session EXISTS predicate match 0 rows; without a row-count check the per-row transaction still COMMITS an unpublished show with NO `created_show_id` recorded, and `deleteApprovedPending` consumes the staging row — a permanent invisible orphan: the F4 reap can never identify the show as session-created, Phase D's narrowed flip never publishes it, and the operator has no pending row left to re-apply.
 
 - [ ] **Write failing test** `tests/onboarding/finalizeFirstSeenFullApply.db.test.ts` (real DB; harness per `onboardingFinalizePublishDb.test.ts` — real `handleOnboardingFinalize` with default `withTx`/`withRowTx`, injected `requireAdminIdentity` (finalizing admin `finalizer@fxav.com`) and `fetchDriveFileMetadata` pinned to the staged instant; seed via the REAL wizard-staging writer so the parse_result jsonb shape is production-true):
 
@@ -508,9 +502,33 @@ test("Phase B first-seen finalize persists the FULL parse: children + shows_inte
 test("pending_syncs row is consumed and the wizard row never touched the live partition", async () => {
   expect((await sql`select 1 from public.pending_syncs where drive_file_id = ${DRIVE_FILE_ID}`).length).toBe(0);
 });
+
+test("provenance race: session superseded between core apply and provenance UPDATE → per-row tx ROLLS BACK, staging row stays recoverable", async () => {
+  // Concrete failure mode: without the returning-check, this race COMMITS an orphan unpublished
+  // show (no created_show_id) while deleteApprovedPending consumes the pending row — unrecoverable.
+  // Injection: wrap deps.withRowTx so the FinalizeRouteTx it hands to processApprovedRow is a
+  // proxy whose query() detects the `set created_show_id` UPDATE and, BEFORE forwarding it,
+  // commits a session flip on a SEPARATE postgres connection (READ COMMITTED makes the flip
+  // visible to the EXISTS predicate):
+  //   await sideSql`update public.app_settings set pending_wizard_session_id = ${OTHER_SESSION}::uuid where id = 'default'`;
+  const response = await handleOnboardingFinalize(request(), depsWithProvenanceRaceFlip);
+  const row = ((await response.json()) as { per_row: Array<{ code: string }> }).per_row[0]!;
+  expect(row.code).toBe("WIZARD_SESSION_SUPERSEDED");
+  // Rolled back: no show, no children, no audit, no provenance:
+  expect((await sql`select 1 from public.shows where drive_file_id = ${RACE_FILE_ID}`).length).toBe(0);
+  expect((await sql`select 1 from public.sync_audit where drive_file_id = ${RACE_FILE_ID}`).length).toBe(0);
+  // Staging row RECOVERABLE: rollback preserved it; the per-row abort follow-up demoted it
+  // (wizard_approved reverted, manifest back to 'staged' — the existing demote contract):
+  const pending = one(await sql`select wizard_approved, last_finalize_failure_code
+                                 from public.pending_syncs where drive_file_id = ${RACE_FILE_ID}`);
+  expect(pending.wizard_approved).toBe(false);
+  expect(pending.last_finalize_failure_code).toBe("WIZARD_SESSION_SUPERSEDED");
+  expect(one(await sql`select status from public.onboarding_scan_manifest
+                        where drive_file_id = ${RACE_FILE_ID}`).status).toBe("staged");
+});
 ```
 
-- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeFirstSeenFullApply.db.test.ts` — expected failure: crew/rooms/internal selects return 0 rows (negative regression against the live bespoke INSERT — testing-spine item 2), `created_show_id` column does not exist (SQL error), `applied_by` = finalizer.
+- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeFirstSeenFullApply.db.test.ts` — expected failure: crew/rooms/internal selects return 0 rows (negative regression against the live bespoke INSERT — testing-spine item 2), `created_show_id` column does not exist (SQL error), `applied_by` = finalizer; the race test fails because no provenance UPDATE exists yet to intercept (the proxy's trigger never fires — assert the proxy recorded an interception so the race test cannot pass vacuously).
 - [ ] **Implementation:**
   1. **Migration** `supabase/migrations/20260611000000_onboarding_manifest_created_show_id.sql`:
      ```sql
@@ -544,15 +562,16 @@ test("pending_syncs row is consumed and the wizard row never touched the live pa
        firstSeenPublished: false,
      });
      ```
-     Map `invalid_request`/`stale_baseline`/`stale_write` → `demotePending(tx, …, WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED-class typed PerRowResult? NO — use the existing demote machinery with code STAGED_PARSE_REVISION_RACE_DURING_FINALIZE for stale_write` and treat `invalid_request` as the corrupt-by-construction throw (approved rows passed `validateReviewerChoices` at approval time, `applyStaged.ts:1242-1243`). On `applied`: record provenance in the SAME per-row tx —
+     Map `stale_write` → the existing demote machinery with code `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`; treat `invalid_request` and `stale_baseline` as corrupt-by-construction throws (approved rows passed `validateReviewerChoices` at approval time, `applyStaged.ts:1242-1243`; first-seen rows have no live baseline). On `applied`: record provenance in the SAME per-row tx, **`returning`-checked** —
      ```sql
      update public.onboarding_scan_manifest
         set created_show_id = $3::uuid
       where drive_file_id = $1 and wizard_session_id = $2::uuid
         and exists (select 1 from public.app_settings
                      where id = 'default' and pending_wizard_session_id = $2::uuid)
+     returning true as recorded
      ```
-     then `deleteApprovedPending` (unchanged). The slug path is preserved automatically: `applyShowSnapshot`'s first-seen arm IS `insertFirstSeenShowWithSlugRetry` (`runScheduledCronSync.ts:1074`).
+     0 rows returned → `throw new FirstSeenProvenanceRaceError(row.drive_file_id, wizardSessionId)` (new typed error class in `finalize/route.ts`, exported) **BEFORE `deleteApprovedPending` runs** — the throw aborts the per-row transaction, so the just-applied show/children/audit roll back and the `pending_syncs` row survives untouched. Only after `recorded === true`: `deleteApprovedPending` (unchanged). **Per-row abort follow-up (the existing demote contract):** the per-row loop in `handleOnboardingFinalize` (`finalize/route.ts:679-689`) wraps the `withRowTx` call in try/catch for `FirstSeenProvenanceRaceError`; on catch it runs `demotePending(tx, wizardSessionId, driveFileId, WIZARD_SESSION_SUPERSEDED)` in a FRESH `withRowTx` (re-acquiring the per-show lock; `last_finalize_failure_code` is free-text — `internal_and_admin.sql` CHECKs constrain only the approval-payload shape, migration `20260518010444` — and `WIZARD_SESSION_SUPERSEDED` is already cataloged, `lib/messages/catalog.ts:133`) and pushes the typed `PerRowResult` `{ code: WIZARD_SESSION_SUPERSEDED, re_apply_url }` (widen the `PerRowResult` failure-code union + `demotePending`'s code parameter union by `typeof WIZARD_SESSION_SUPERSEDED`). The slug path is preserved automatically: `applyShowSnapshot`'s first-seen arm IS `insertFirstSeenShowWithSlugRetry` (`runScheduledCronSync.ts:1074`).
   5. **DELETE** `applyFirstSeenDraft` (`:324-373`) and `insertFinalizeAudit` (`:375-408`) — the core writes the audit. Remove the now-unused `insertFirstSeenShowWithSlugRetry`/`deriveSlug` imports.
   6. **`withRowTx` plumbing:** `FinalizeRouteDeps.withRowTx` callback signature becomes `(tx: FinalizeRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>`; `defaultWithRowTx` (`:104-120`) builds `makeSyncPipelineTx(rawTx)` from the SAME raw transaction after taking the lock. Update `tests/onboarding/finalize.test.ts` fakes: `withRowTx: async (_id, fn) => fn(db, fakePipelineTx)` where `fakePipelineTx` is a minimal spy implementing the methods the core touches (the existing fake-DB tests assert routing/demote behavior, not apply internals — the apply internals are covered by the DB test above).
   7. Regenerate the schema manifest: `pnpm gen:schema-manifest` and commit `supabase/__generated__/schema-manifest.json` in this commit (validation-schema-parity Layer 1).
@@ -639,6 +658,7 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
 **Files:**
 - Modify: `app/api/admin/onboarding/finalize-cas/route.ts`
 - Create: `tests/onboarding/finalizeCasFullApply.db.test.ts`
+- Create: `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` (real DB — moved here from Task 1.2 so it is written failing at this task's START and green by its END; no intentionally-red commit)
 - Modify: `tests/onboarding/finalize-cas.test.ts` (fake rows/withRowTx plumbing)
 
 **Concrete failure modes caught:** (a) the `<=` gate (`finalize-cas/route.ts:277`) applies from a baseline the reviewer never saw — live row advanced after staging but still `<= staged_modified_time` (spec §3.2 R21-1); (b) Phase D routes through the legacy whole-parse path and either throws P2-F7 (wedging finalize) or — worse — applies an MI-11 email ungated (spec §3.2 R4-2); (c) the bulk publish flip force-publishes a pre-existing `published=false` (archived/unpublished) show approved into a shadow — crew-visibility data exposure (spec §3.4 R18-1); (d) Phase D audit lacks `base_modified_time` / real provenance, breaking F2 Arm B's broken-writer-shape detection.
@@ -716,7 +736,11 @@ test("(d) publish flip is narrowed to session-CREATED rows: pre-existing publish
 });
 ```
 
-- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts` — expected failures: (a) crew assertion 0 rows + no feed row + `base_modified_time` null in audit; (b) 200 instead of 409 (the `<=` gate applies it); (c) `OK` for the corrupt row and Ada's email CHANGED (fail-open reproduced); (d) pre-existing show force-published.
+- [ ] **Write failing DB regression** `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` (real local Supabase, gated on `TEST_DATABASE_URL` reachability per `tests/onboarding/onboardingFinalizePublishDb.test.ts` pattern) — the end-to-end half of Task 1.2's class (unit pins landed there; this exercises the real finalize writers):
+  - Seed: a live show `drive-coexist-1` (synced, watermark T0); a LIVE `pending_ingestions` row for `drive-coexist-1` (`wizard_session_id null`, `last_error_code 'PARSE_ERROR'`); a LIVE `pending_syncs` staged row for `drive-coexist-1` (`wizard_session_id null`, `base_modified_time` = T0); a wizard session with an approved existing-show row for the SAME `drive_file_id` (Phase B path) staged at T1.
+  - Drive Phase B (`handleOnboardingFinalize` with injected `fetchDriveFileMetadata` returning T1) then Phase D (`handleOnboardingFinalizeCas`).
+  - Assert AFTER Phase D: the live `pending_ingestions` row still exists (`select … where drive_file_id='drive-coexist-1' and wizard_session_id is null` → 1 row); the live `pending_syncs` row still exists (same predicate → 1 row); AND `crew_members` rows exist matching the shadow's parse (the apply actually ran — anti-tautology: without this, the pre-rewire bespoke UPDATE would pass the survival assertions trivially). **Concrete failure mode:** the unconditional `deleteLivePendingIngestion` / 6L delete reached the live partition from a wizard action.
+- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — expected failures: (a) crew assertion 0 rows + no feed row + `base_modified_time` null in audit; (b) 200 instead of 409 (the `<=` gate applies it); (c) `OK` for the corrupt row and Ada's email CHANGED (fail-open reproduced); (d) pre-existing show force-published; coexistence test fails on its crew-count assertion (bespoke writers drop children — the origin incident reproduced).
 - [ ] **Implementation:**
   1. `FinalizeCasRouteDeps.withRowTx` gains the `pipelineTx` second argument exactly as Task 1.3 step 6 (factory `makeSyncPipelineTx` over the same raw tx that took the lock at `:103`).
   2. Rewrite `applyShadow` (`:241-306`):
@@ -771,9 +795,8 @@ test("(d) publish flip is narrowed to session-CREATED rows: pre-existing publish
      ```
      Existing-show shadow applies PRESERVE the live `published` value automatically — the payload never carries `published` and `applyShowSnapshot`'s UPDATE arm (`runScheduledCronSync.ts:1018-1072`) never writes it.
   5. Update `tests/onboarding/finalize-cas.test.ts` fakes: shadow fixture payloads gain `triggered_review_items`/`base_modified_time`; `withRowTx` passes a spy `pipelineTx`; the fake-DB CAS-fail classifier keys on the equality predicate now.
-- [ ] **Run to pass:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/finalize-cas.test.ts`
-- [ ] **Run the Task-1.2 coexistence regression (now expected GREEN):** `pnpm vitest run tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts`
-- [ ] **Commit:** `feat(onboarding): Phase D applyShadow routes through shared apply core (equality preflight, mi11 holds, narrowed publish flip)`
+- [ ] **Run to pass:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts tests/onboarding/finalize-cas.test.ts`
+- [ ] **Commit:** `feat(onboarding): Phase D applyShadow routes through shared apply core (equality preflight, mi11 holds, coexistence, narrowed publish flip)`
 
 ---### Task 1.6 — Behavior regressions: multi-shadow best-effort, MI-11 wizard/dashboard parity, legacy P2-F7 preserved
 
@@ -911,7 +934,7 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
 });
 ```
 
-`tests/sync/_secondCopyApplyTripwire.test.ts`:
+`tests/sync/_secondCopyApplyTripwire.test.ts` — **no file-wide escape hatch**: EVERY pattern match in EVERY walked file (including `runScheduledCronSync.ts`) must fall inside an explicit allowed `(file, symbol)` range; a match outside every range fails with `file :: pattern :: line`. The allowed ranges were enumerated by grepping the live worktree (every match's owning function verified): snapshot writers — `applyShowSnapshot` (insert `:1079`, snapshot UPDATEs `:1022/:1047`), `deleteCrewMembersNotIn` `:1122`, `upsertCrewMembers` `:1132`, `replaceHotelReservations` `:1173/:1177`, `replaceRooms` `:1199/:1203`, `replaceTransportation` `:1234/:1238`, `replaceContacts` `:1260/:1264`, `upsertShowsInternal` `:1278`; legitimate non-snapshot `update public.shows` lifecycle sites — `runScheduledCronSync.ts` `applyDiagramSnapshot` `:400`, `updateShowParseError` `:703`, `updateShowPendingReview` `:716`, `markShowSheetUnavailable` `:736`, `markShowDriveError` `:761`; plus `defaultRestoreShowStatus` (`applyStaged.ts:823-839` AND its twin in `discardStaged.ts:233`), `runManualSyncForShow` (`runManualSyncForShow.ts:397`, `requires_resync` clear), `promoteSnapshotUpload` (`promoteSnapshot.ts:159/:271`) + `repairSnapshotRollback` (`:400`), `updateRecoveredDiagrams` (`assetRecovery.ts:522`), `clearUnpublishToken`/`archiveAndConsumeUnpublishToken` (`unpublishShow.ts:114/:130`), and the narrowed `publishAppliedWizardShows` (`finalize-cas/route.ts:344` — survives T1.5). The bespoke writers at `finalize/route.ts:324-373` and `finalize-cas/route.ts:241-306` are NOT listed — they are deleted by T1.3/T1.5, and their resurrection is exactly what this test fails on:
 
 ```ts
 import { describe, expect, test } from "vitest";
@@ -931,47 +954,98 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 const SNAPSHOT_SQL = [
-  /insert\s+into\s+public\.shows\b/i,
+  /insert\s+into\s+public\.shows\b/gi,
   // Plan-R1 finding 2: the ORIGIN bug was a bespoke `UPDATE public.shows SET ...` with no child
   // writes (finalize-cas applyShadow) — the tripwire must catch shows UPDATEs too, not just inserts.
-  /update\s+public\.shows\b/i,
-  /delete\s+from\s+public\.(crew_members|rooms|hotel_reservations|transportation|contacts)\b/i,
-  /insert\s+into\s+public\.(crew_members|rooms|hotel_reservations|transportation|contacts|shows_internal)\b/i,
+  /update\s+public\.shows\b/gi,
+  /delete\s+from\s+public\.(crew_members|rooms|hotel_reservations|transportation|contacts)\b/gi,
+  /insert\s+into\s+public\.(crew_members|rooms|hotel_reservations|transportation|contacts|shows_internal)\b/gi,
 ];
 
-// NOTE: `update public.shows` has more legitimate writers than the snapshot inserts (lifecycle
-// actions, watermark resets). The allowlist below is therefore PER-PATTERN: shows-UPDATE sites are
-// enumerated explicitly (path + owning function), and the second test pins each to its function
-// body the same way applyShowSnapshot is pinned — file-wide exemptions are NOT allowed.
+// Path+symbol allowlist (spec §9, corrected: the canonical writer methods live on
+// PostgresPipelineTx — NOT `upsertShow`, which does not exist). NO file-wide entries:
+// every match must sit inside one of these symbol bodies. Lifecycle shows-UPDATE sites
+// are enumerated individually; adding a new writer means adding a row HERE, in review.
+const ALLOWED: ReadonlyArray<{ file: string; symbol: string }> = [
+  // canonical snapshot writers (PostgresPipelineTx):
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async applyShowSnapshot(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async deleteCrewMembersNotIn(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async upsertCrewMembers(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async replaceHotelReservations(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async replaceRooms(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async replaceTransportation(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async replaceContacts(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async upsertShowsInternal(" },
+  // legitimate non-snapshot shows-UPDATE lifecycle sites (enumerated from the live worktree):
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async applyDiagramSnapshot(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async updateShowParseError(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async updateShowPendingReview(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowSheetUnavailable(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowDriveError(" },
+  { file: "lib/sync/applyStaged.ts", symbol: "async function defaultRestoreShowStatus(" },
+  { file: "lib/sync/discardStaged.ts", symbol: "async function defaultRestoreShowStatus(" },
+  { file: "lib/sync/runManualSyncForShow.ts", symbol: "export async function runManualSyncForShow(" },
+  { file: "lib/sync/promoteSnapshot.ts", symbol: "export async function promoteSnapshotUpload(" },
+  { file: "lib/sync/promoteSnapshot.ts", symbol: "export async function repairSnapshotRollback(" },
+  { file: "lib/sync/assetRecovery.ts", symbol: "async updateRecoveredDiagrams(" },
+  { file: "lib/sync/unpublishShow.ts", symbol: "async clearUnpublishToken(" },
+  { file: "lib/sync/unpublishShow.ts", symbol: "async archiveAndConsumeUnpublishToken(" },
+  { file: "app/api/admin/onboarding/finalize-cas/route.ts", symbol: "async function publishAppliedWizardShows(" },
+];
 
-// Path+symbol allowlist (spec §9, corrected: the canonical first-seen insert + child snapshot SQL
-// live inside PostgresPipelineTx.applyShowSnapshot / its sibling replace* methods — NOT `upsertShow`,
-// which does not exist).
-const ALLOWED_FILE = "lib/sync/runScheduledCronSync.ts";
+// [start, end) source range of a symbol body: from the symbol marker to the next
+// top-level function or class-method declaration (or end of file).
+const NEXT_DECL = /\n(?:export\s+(?:async\s+)?function\s+\w|async\s+function\s+\w|function\s+\w|  (?:private\s+)?async\s+\w+\()/;
+function allowedRanges(file: string, src: string): Array<[number, number]> {
+  return ALLOWED.filter((a) => a.file === file).map((a) => {
+    const start = src.indexOf(a.symbol);
+    if (start === -1) throw new Error(`allowlist symbol not found: ${a.file} :: ${a.symbol}`);
+    const tail = src.slice(start + a.symbol.length);
+    const next = tail.search(NEXT_DECL);
+    const end = next === -1 ? src.length : start + a.symbol.length + next;
+    return [start, end] as [number, number];
+  });
+}
+
+function lineOf(src: string, index: number): number {
+  return src.slice(0, index).split("\n").length;
+}
 
 describe("second-copy apply tripwire (the meta-test that would have caught the origin incident)", () => {
-  test("no file under app/api/** or lib/** issues shows/child snapshot-replacement SQL outside the allowlist", () => {
+  test("every shows/child snapshot or shows-UPDATE statement under app/api/** + lib/** sits inside an allowed (file, symbol) range", () => {
     const offenders: string[] = [];
     for (const file of [...walk("app/api"), ...walk("lib")]) {
-      if (file === ALLOWED_FILE) continue;
       const src = readFileSync(join(ROOT, file), "utf8");
+      const ranges = allowedRanges(file, src);
       for (const pattern of SNAPSHOT_SQL) {
-        if (pattern.test(src)) offenders.push(`${file} :: ${pattern}`);
+        for (const match of src.matchAll(pattern)) {
+          const idx = match.index ?? 0;
+          const allowed = ranges.some(([start, end]) => idx >= start && idx < end);
+          if (!allowed) offenders.push(`${file} :: ${pattern} :: line ${lineOf(src, idx)}`);
+        }
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  test("the allowlisted writer keeps its snapshot SQL inside the PostgresPipelineTx apply surface", () => {
-    const src = readFileSync(join(ROOT, ALLOWED_FILE), "utf8");
-    const classStart = src.indexOf("class PostgresPipelineTx");
-    const insertIdx = src.search(/insert\s+into\s+public\.shows\b/i);
-    expect(classStart).toBeGreaterThan(-1);
-    expect(insertIdx).toBeGreaterThan(classStart);                   // inside the class, i.e. applyShowSnapshot's arm
-    expect(src.slice(classStart, insertIdx)).toContain("async applyShowSnapshot(");
+  test("the allowlist itself is live — every pinned symbol still contains at least one matched statement", () => {
+    // Guards against entries rotting into dead exemptions that would mask a future writer
+    // moving into a stale range.
+    for (const entry of ALLOWED) {
+      const src = readFileSync(join(ROOT, entry.file), "utf8");
+      const start = src.indexOf(entry.symbol);
+      const [range] = allowedRanges(entry.file, src).filter(([s]) => s === start);
+      const body = src.slice(range![0], range![1]);
+      expect(
+        SNAPSHOT_SQL.some((p) => new RegExp(p.source, "i").test(body)),
+        `${entry.file} :: ${entry.symbol} no longer contains matched SQL — prune or update the allowlist`,
+      ).toBe(true);
+    }
   });
 });
 ```
+
+  (During implementation, re-run the enumeration grep — `rg -nEi "insert\s+into\s+public\.shows|update\s+public\.shows|delete\s+from\s+public\.(crew_members|rooms|hotel_reservations|transportation|contacts)|insert\s+into\s+public\.(crew_members|rooms|hotel_reservations|transportation|contacts|shows_internal)" lib app/api` — and reconcile the allowlist against ACTUAL offenders at that commit; any site not in the table above is either a T1.3/T1.5 leftover (fix it) or a genuinely new lifecycle writer (add a reviewed row).)
 
 `tests/sync/_livePartitionClassificationContract.test.ts`:
 
