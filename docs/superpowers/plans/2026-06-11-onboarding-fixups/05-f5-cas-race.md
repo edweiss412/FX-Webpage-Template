@@ -177,6 +177,9 @@ export class WizardSessionSupersededRollbackError extends Error {
 
 ## Task 5.2 — Real-DB partial-commit regression + half (i) of the two-half guarantee
 
+**Contract alignment (plan R39-1):** ONE throw contract across Task 5.1 and 5.2 — helpers stay boolean-returning (`returning true as ...`; the ROUTE/handleAction layer converts 0-row to `WizardSessionSupersededRollbackError`). The real-DB race test therefore does NOT call the exported SQL helper bare and expect a throw: inside its test transaction it executes the helper AND the same `if (!ok) throw new WizardSessionSupersededRollbackError(...)` conversion the route performs (import the error class; mirror the route's exact conversion), then asserts the transaction aborts with the typed error and all rows are unchanged. This proves the rollback semantics, not a harness artifact.
+
+
 **Files:**
 - `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts` (export the three statement helpers for the DB test: `transitionManifestRow`, `upsertWizardDeferral`, `deletePendingIngestion`)
 - `tests/onboarding/wizardSessionCasRaceDb.test.ts` (new, real-Postgres)

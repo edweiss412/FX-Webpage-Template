@@ -1372,7 +1372,7 @@ test("stage → Doug edit → Phase D applies STAGED content → next cron pass 
   // derived from the fixture diff, and no orphaned open hold exists:
   const feedKinds = await sql`select change_kind from public.show_change_log where show_id = ${show.id}`;
   expect(feedKinds.length).toBeGreaterThan(0);
-  expect((await sql`select 1 from public.sync_holds where show_id = ${show.id} and released_at is null`).length).toBe(0);
+  // R39-2: sync_holds has NO released_at column (release = row DELETE; supabase/migrations/20260608000000_sync_holds.sql, lib/sync/holds/holdPort.ts). Open-hold predicate = row EXISTENCE: assert zero rows in public.sync_holds for the show after convergence.
 });
 
 test("negative control: a genuinely current show (no Doug edit) is SKIPPED by the next cron pass", async () => {
@@ -1381,7 +1381,7 @@ test("negative control: a genuinely current show (no Doug edit) is SKIPPED by th
 });
 ```
 
-  (The `sync_holds.released_at` column name must be re-verified against `supabase/migrations/20260608000000_sync_holds.sql` when writing the test — adjust to the actual open-hold predicate `readOpenHolds` uses, `lib/sync/holds/holdPort.ts`.)
+  // R39-2: sync_holds has NO released_at column (release = row DELETE; supabase/migrations/20260608000000_sync_holds.sql, lib/sync/holds/holdPort.ts). Open-hold predicate = row EXISTENCE: assert zero rows in public.sync_holds for the show after convergence.
 - [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasDougEditSelfHeal.db.test.ts` — before T1.5 this fails at step 4 (children don't match `PARSE_T1` — bespoke UPDATE wrote no children). If executed after T1.5 (the normal order), force the red run by temporarily stamping `now()` instead of the staged instant in the apply (the failure mode this test exists for) and confirm the cron-convergence assertion fails; restore.
 - [ ] **Implementation:** none expected — this is a pure regression pin over T1.3/T1.5 behavior plus the untouched cron pipeline. Any failure here is a real bug in those tasks; apply `superpowers:systematic-debugging` rather than adjusting the assertions.
 - [ ] **Run to pass:** `pnpm vitest run tests/onboarding/finalizeCasDougEditSelfHeal.db.test.ts`
