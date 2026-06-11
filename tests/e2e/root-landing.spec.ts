@@ -51,7 +51,12 @@ test.describe("Root landing — signed-in redirect chain (spec D-2)", () => {
     await page.goto(`${TEST_BASE_URL}/`);
     // Two hops: / → /auth/sign-in?next=/admin → /admin. page.goto follows
     // both; the FINAL URL is the contract (admin lands on the dashboard).
-    await expect(page).toHaveURL(/\/admin(?:$|\?)/);
+    // PATHNAME-exact: a stranded hop-2 URL (…/auth/sign-in?next=/admin)
+    // also ENDS in "/admin", so a substring regex would false-pass
+    // (T4 review finding).
+    await expect
+      .poll(() => new URL(page.url()).pathname, { message: "final pathname must be /admin" })
+      .toBe("/admin");
     // The landing card must never flash for a signed-in visitor — the
     // redirect happens server-side before any HTML renders.
     await expect(page.getByTestId("root-landing-card")).toHaveCount(0);
@@ -63,7 +68,9 @@ test.describe("Root landing — signed-in redirect chain (spec D-2)", () => {
     // Hop 2's resolution: next=/admin + confirmed not-admin → /me
     // (app/auth/sign-in/page.tsx non-admin fallback). /me renders its
     // empty state even with no crew rows, so the URL is stable.
-    await expect(page).toHaveURL(/\/me(?:$|\?)/);
+    await expect
+      .poll(() => new URL(page.url()).pathname, { message: "final pathname must be /me" })
+      .toBe("/me");
     await expect(page.getByTestId("root-landing-card")).toHaveCount(0);
   });
 });
