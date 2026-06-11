@@ -90,3 +90,12 @@ jobs:
         run: |
           git diff --exit-code public/help/screenshots/
           test -z "$(git ls-files --others --exclude-standard public/help/screenshots/)"
+      # On drift, upload the freshly-captured bytes so the diff is inspectable
+      # (PR #22 burned multiple round-trips diagnosing a one-file drift blind).
+      - name: Upload drifted captures (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drifted-screenshots
+          path: public/help/screenshots/
+          retention-days: 7

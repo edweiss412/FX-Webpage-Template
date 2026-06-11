@@ -44,4 +44,23 @@ describe("help screenshot capture script (Task F.3)", () => {
       gotoIdx,
     );
   });
+
+  // Capture-determinism hardening (M11-A-D5 recipe, applied to the capture
+  // script after needs-attention-mobile-dark proved environment-bimodal on
+  // loaded pull_request runners vs solo dispatch runners): networkidle alone
+  // does not guarantee fonts are rasterized or the last paint has flushed.
+  // Failure mode caught: waitForQuiescence loses its fonts.ready / paint-settle
+  // barrier and the drift gate regresses to runner-load-dependent bytes.
+  it("waitForQuiescence awaits document.fonts.ready and a double-rAF paint settle", () => {
+    const source = readFileSync(scriptPath, "utf8");
+    const quiesceFn = source.match(/async function waitForQuiescence[\s\S]*?\n}/)?.[0];
+    expect(quiesceFn, "waitForQuiescence() should exist").toBeTruthy();
+    expect(quiesceFn).toContain("document.fonts.ready");
+    expect(quiesceFn).toContain("requestAnimationFrame");
+    // Barrier order: fonts/paint settle AFTER networkidle, BEFORE the stable wait.
+    const idleIdx = quiesceFn!.indexOf("networkidle");
+    const fontsIdx = quiesceFn!.indexOf("document.fonts.ready");
+    expect(idleIdx).toBeGreaterThan(-1);
+    expect(fontsIdx, "fonts.ready must come after networkidle").toBeGreaterThan(idleIdx);
+  });
 });

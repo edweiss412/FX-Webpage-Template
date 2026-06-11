@@ -149,6 +149,16 @@ async function waitForQuiescence(page: Page, entry: ManifestEntry): Promise<void
   const waitFor = entry.waitFor ?? entry.captureSelector ?? "body";
   await page.locator(waitFor).first().waitFor({ state: "visible" });
   await page.waitForLoadState("networkidle");
+  // M11-A-D5 recipe: networkidle does not guarantee fonts are rasterized or
+  // the last layout/paint has flushed — on loaded CI runners the same content
+  // captured different bytes run-to-run (needs-attention-mobile-dark, PR #22).
+  // fonts.ready + a double-rAF flush pins the paint before the stable wait.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
   await page.waitForTimeout(entry.expectStableMs ?? DEFAULT_EXPECT_STABLE_MS);
 }
 
