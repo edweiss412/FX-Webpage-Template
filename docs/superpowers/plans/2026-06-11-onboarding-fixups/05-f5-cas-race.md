@@ -5,7 +5,7 @@
 All F5 real-DB tests mutate `app_settings` / `pending_ingestions` / manifest rows / deferrals / alerts and therefore MUST use the local-only convention shared with F1/F2/F4:
 
 - Connection: `process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres"`, passed through `assertLocalDbUrl(...)` (the F2 helper) which THROWS on any non-loopback host BEFORE a connection is attempted.
-- Env pinning: set `process.env.TEST_DATABASE_URL = undefined` (delete it) in the suite's setup so route/lib defaults that prefer it cannot escape to validation.
+- Env pinning (plan R19-1): route/lib default openers resolve `process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL` (e.g., the retry route's `databaseUrl` helper, retry/route.ts:47-49) — deleting only TEST_DATABASE_URL leaves DATABASE_URL live. For every suite that invokes a default route/lib opener: set BOTH `process.env.TEST_DATABASE_URL` AND `process.env.DATABASE_URL` to the `assertLocalDbUrl`-validated loopback URL in suite setup (restore originals in teardown), and add an explicit guard assertion that the resolved opener URL is loopback before the first route call. Where the task injects `withTx`/`withRowTx` deps instead, construct them from the validated loopback URL.
 - `TEST_DATABASE_URL` (the validation project) appears in this phase ONLY inside explicitly labeled validation close-out commands — never in a test harness.
 - Concrete failure mode this prevents: a routine `pnpm vitest` run with `.env.local` loaded mutating validation onboarding state outside the controlled close-out path.
 
