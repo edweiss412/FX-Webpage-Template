@@ -206,6 +206,9 @@ describe("loadNeedsAttention", () => {
     expect(result.renderedCount).toBe(expected.renderedCount);
     expect(result.totalCount).toBe(expected.totalCount);
     expect(result.overflowCount).toBe(expected.overflowCount);
+    // New additive fields hold in the basic (counts == row lengths) case too:
+    expect(result.ingestionTotal).toBe(ingestions.length);
+    expect(result.syncTotal).toBe(syncs.length);
 
     // Independent classification + ordering assertions (not via the assembler):
     const variants = new Map(result.items.map((i) => [i.key, i.variant]));
