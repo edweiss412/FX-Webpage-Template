@@ -1,5 +1,11 @@
 # Phase 1 — F1: Shared apply core (wizard finalize runs the full Phase-2 apply)
 
+
+## Plan-R10 disposition — D-2 parity target (read before T1.1/T1.5)
+
+The parity contract is wizard-vs-LIVE-apply (cron auto-apply via the hold-aware `runPhase2` core: feed rows + MI-11 holds), NOT wizard-vs-legacy-dashboard-staged-Apply. The legacy whole-parse staged Apply path is RETIRED (P2-F7, `applyStaged.ts:1345-1353`), stays fail-closed, gets NO notableItems wiring, and writes no feed rows — extending it would resurrect a retired surface. Spec D-2 row updated to say this explicitly. The MI-11/feed parity regressions in T1.6 therefore compare wizard shadow applies to the cron decision-rule path; a wizard-vs-retired-dashboard parity test is intentionally absent.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans`. Every task is strict TDD: write the failing test → run it red → minimal implementation → run it green → commit. Never write impl before the test. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Spec:** `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-onboarding-fixups-design.md` §3 (F1) — §3.1 first-seen branch, §3.2 existing-show branch, §3.3 lock topology, §3.4 non-changes — plus the F1 rows of §9 (meta-tests) and §10 (testing spine items 1–3, 8-first-half, 9).
