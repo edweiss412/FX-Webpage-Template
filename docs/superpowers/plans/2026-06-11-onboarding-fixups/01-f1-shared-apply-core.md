@@ -97,6 +97,10 @@ export type ApplyStagedCoreResult =
       roleFlagsNotice?: RoleFlagsNotice; snapshotRevisionId?: string }
   | { outcome: "invalid_request"; code: typeof MISSING_REVIEWER_CHOICE | typeof EXTRA_REVIEWER_CHOICE
       | typeof DUPLICATE_REVIEWER_CHOICE | typeof INVALID_REVIEWER_ACTION }
+  | { outcome: "discarded_by_choice" }     // ANY reject choice: NO Phase 2, NO audit, NO floors — the
+                                           // core consumes nothing; each caller maps to its partition's
+                                           // discard semantics (live contract applyStaged.ts:1327-1339;
+                                           // pinned by tests/sync/applyStaged.test.ts:1118-1147)
   | { outcome: "stale_baseline" }          // live last_seen_modified_time ≠ args.baseModifiedTime
   | { outcome: "stale_write" };            // runPhase2's internal CAS guard fired post-preflight
 ```
@@ -105,17 +109,31 @@ export type ApplyStagedCoreResult =
 
 1. `await assertShowLockHeld(tx, args.driveFileId)` — **adoption assertion only; the core NEVER acquires** (§3.3 single-holder rule; every caller's holder is enumerated in the spec's lock matrix).
 2. `validateReviewerChoices(items, choices)` → `invalid_request` (moved function, identical logic).
-3. Equality stale-baseline preflight: `!sameTimestamp(args.show?.lastSeenModifiedTime ?? null, args.baseModifiedTime)` → `stale_baseline`. (For the legacy live caller this is a redundant second defense behind `applyStaged.ts:1296-1300`, which is kept verbatim; for Phase D it IS the gate that replaces the `<=` CAS predicate — spec §3.2 R21.)
-4. `deriveAuthSideEffects(items, choices)` (moved function, identical logic).
-5. `const applyTx = args.sourceScope === "wizard" ? withWizardScopedLivePartitionOps(tx) : tx` — wizard wrapper overrides `deleteLivePendingIngestion` to a no-op via `Object.assign(Object.create(tx), …)` (the `makeInlineOnboardingScanTx` precedent, `applyStaged.ts:1628`). Classification registry in Task 1.2.
-6. `runPhase2(applyTx, { driveFileId, mode: "manual", fileMeta, parseResult, skipDiagramsWrite, snapshotAssetsForApply?, autoPublishFirstSeen?, firstSeenPublished?, verifyReelOnApply: false, …(mi11Items.length > 0 ? { mi11Items } : {}), …(notableItems !== undefined ? { notableItems } : {}), binding: { bindingToken: stagedModifiedTime, modifiedTime: stagedModifiedTime } })`. P2-F6 (`phase2.ts:205`) remains the structural guard against an MI-11 apply with no hold port.
-7. `stale` → `stale_write`.
-8. `bumpReviewerAuthFloors(tx, showId, revokeFloorForNames)` (moved default no-op, injectable).
-9. `insertSyncAudit` with `parseResultSummary: { ...parseResultSummary(parseResult), source: args.auditSource }` and `appliedAt: args.appliedAt` (SQL gains `applied_at = coalesce($11::timestamptz, now())`).
-10. Live-partition staged-row delete: `sourceScope === "live"` → `defaultDeleteLivePendingSync(tx, driveFileId, stagedId)`; `"wizard"` → no-op (the wizard row was already consumed by Phase B's `deleteApprovedPending`, `finalize/route.ts:452-468`).
-11. Return `applied` (+ `roleFlagsNotice`/`snapshotRevisionId` passthrough).
+3. **Choice-semantics dispatch (mirrors the live `:1325-1339` validation→reject sequence):** `validation.choices.some((c) => c.action === "reject")` → return `{ outcome: "discarded_by_choice" }` BEFORE any mutation — no Phase 2, no audit, no floors (live contract: `tests/sync/applyStaged.test.ts:1118-1147` asserts `runPhase2` and `insertSyncAudit` are never called on reject). Reject is only valid against an EXISTING show — the live first-seen reject is `INVALID_REVIEWER_ACTION` (`applyStaged.ts:1328-1330`, test `:1150-1186`); the core returns `invalid_request: INVALID_REVIEWER_ACTION` when `args.show === null` and a reject choice is present, preserving that contract. `rename` / `independent` / `apply` take NO dispatch branch: the live contract applies the staged parse WHOLESALE for all three — the per-action difference is ONLY in `deriveAuthSideEffects` floors + the audit record (MI-13 `independent` test `tests/sync/applyStaged.test.ts:1189-1217`: applied with `revokeFloorForNames: ["Old Person"]`).
+4. Equality stale-baseline preflight: `!sameTimestamp(args.show?.lastSeenModifiedTime ?? null, args.baseModifiedTime)` → `stale_baseline`. (For the legacy live caller this is a redundant second defense behind `applyStaged.ts:1296-1300`, which is kept verbatim; for Phase D it IS the gate that replaces the `<=` CAS predicate — spec §3.2 R21.)
+5. `deriveAuthSideEffects(items, choices)` (moved function, identical logic).
+6. `const applyTx = args.sourceScope === "wizard" ? withWizardScopedLivePartitionOps(tx) : tx` — wizard wrapper overrides `deleteLivePendingIngestion` to a no-op via `Object.assign(Object.create(tx), …)` (the `makeInlineOnboardingScanTx` precedent, `applyStaged.ts:1628`). Classification registry in Task 1.2.
+7. `runPhase2(applyTx, { driveFileId, mode: "manual", fileMeta, parseResult, skipDiagramsWrite, snapshotAssetsForApply?, autoPublishFirstSeen?, firstSeenPublished?, verifyReelOnApply: false, …(mi11Items.length > 0 ? { mi11Items } : {}), …(notableItems !== undefined ? { notableItems } : {}), binding: { bindingToken: stagedModifiedTime, modifiedTime: stagedModifiedTime } })`. P2-F6 (`phase2.ts:205`) remains the structural guard against an MI-11 apply with no hold port.
+8. `stale` → `stale_write`.
+9. `bumpReviewerAuthFloors(tx, showId, revokeFloorForNames)` (moved default no-op, injectable).
+10. `insertSyncAudit` with `parseResultSummary: { ...parseResultSummary(parseResult), source: args.auditSource }` and `appliedAt: args.appliedAt` (SQL gains `applied_at = coalesce($11::timestamptz, now())`).
+11. Live-partition staged-row delete: `sourceScope === "live"` → `defaultDeleteLivePendingSync(tx, driveFileId, stagedId)`; `"wizard"` → no-op (the wizard row was already consumed by Phase B's `deleteApprovedPending`, `finalize/route.ts:452-468`).
+12. Return `applied` (+ `roleFlagsNotice`/`snapshotRevisionId` passthrough).
 
-**What stays in `applyStaged.ts` (live-only caller-level semantics, classified in Task 1.2):** all preflights/reverifies, `restoreDeleteAndIngest` (`restoreShowStatus`/`upsertLivePendingIngestion`), the reject branch, the **P2-F7 guard verbatim**, `applyAssetReviewEffects`, the first-published tail + admin-alert emissions, and the early baseline check at `:1296-1300`.
+**What stays in `applyStaged.ts` (live-only caller-level semantics, classified in Task 1.2):** all preflights/reverifies, `restoreDeleteAndIngest` (`restoreShowStatus`/`upsertLivePendingIngestion`), the reject branch at `:1327-1339` **verbatim** (the core's step-3 dispatch is then unreachable on the live path — kept as the shared contract the wizard callers depend on, and as a second defense), the **P2-F7 guard verbatim**, `applyAssetReviewEffects`, the first-published tail + admin-alert emissions, and the early baseline check at `:1296-1300`. The live mapping for `discarded_by_choice` (defensive, normally unreachable): `restoreShowStatus` + `deleteLivePendingSync` + `{ outcome: "discarded", variant: "try_again" }` — byte-equal to `:1331-1338`.
+
+**Choice-semantics matrix (per invariant × action — every cell cites its live contract):**
+
+| Invariant | Allowed actions (`allowedActions`, `applyStaged.ts:424-431`; UI parity `components/admin/StagedReviewCard.tsx:113-115`) | Action | Live behavior (contract source) | Phase D behavior (mirror) |
+|---|---|---|---|---|
+| MI-11 | `apply` (default arm `:430`) | `apply` | never reaches the legacy apply (P2-F7 throw `:1345-1354`); the hold path applies it via `mi11Items` → `writeMi11Holds` (cron wiring `runScheduledCronSync.ts:2410-2414`); floors push `crew_name` (`deriveAuthSideEffects:484-486`) | identical: `parsed.mi11Items` → core → `runPhase2` holds composition; floors identical (T1.5 sketch; parity test T1.6) |
+| MI-12 | `rename` \| `reject` (`:426`) | `rename` | wholesale Phase-2 apply of the staged parse; floors push `removed_name, added_name` (`:487-489`) | identical via core (no dispatch branch) |
+| MI-12 | | `reject` | discard: `restoreShowStatus` + `deleteLivePendingSync`, NO `runPhase2`, NO `insertSyncAudit`, outcome `discarded/try_again` (`:1327-1339`; test `tests/sync/applyStaged.test.ts:1118-1147`) | core returns `discarded_by_choice`; Phase D deletes the SHADOW (its staged-row analogue), applies nothing, writes NO audit, live row untouched; next cron re-stages for re-review via the unchanged watermark (the live `try_again` analogue) |
+| MI-13 / MI-14 | `rename` \| `independent` (`:427-429`) | `rename` | wholesale apply; floors `removed_name, added_name` (`:490-491`); `rename_value` must equal `added_name` (`expectedRenameValue:433-438`, stray-value test `:1090-1116`) | identical via core |
+| MI-13 / MI-14 | | `independent` | wholesale apply — SAME parse application as rename; difference is floors = `removed_name` ONLY (`:492`; test `:1189-1217`) + the audit's `derived_side_effects` record | identical via core (the matrix's load-bearing cell: independent ≠ a parse mutation; it is a floors/audit distinction) |
+| MI-13-orphan-remove / MI-14-orphan-remove | `apply` (default arm `:430`) | `apply` | wholesale apply; floors `removed_name` (`:494-499`) | identical via core |
+| asset-review invariants (`ASSET_REVIEW_INVARIANTS:417-422`) | `apply` (`:425`) | `apply` | wholesale apply with asset-review effects (live caller level) | wizard payload diagrams are already canonical (spec §3.4); items pass through as notable feed items only |
+| reject on a first-seen row | — | `reject` | `INVALID_REVIEWER_ACTION` (no show to restore, `:1328-1330`; test `:1150-1186`) | unreachable at Phase B by construction (MI-12 requires prior crew → cannot fire first-seen); the core's `show === null` + reject → `invalid_request` pins the same contract |
 
 **Lock adoption helper:** new export in `lib/sync/lockedShowTx.ts`:
 
@@ -325,6 +343,43 @@ describe("applyStagedCore", () => {
     expect(result).toEqual({ outcome: "invalid_request", code: MISSING_REVIEWER_CHOICE });
     expect(tx.ops).toEqual([]);
   });
+
+  test("reject choice dispatches to discarded_by_choice BEFORE any mutation — no Phase 2, no audit, no floors", async () => {
+    // Mirrors the live contract (applyStaged.ts:1327-1339; tests/sync/applyStaged.test.ts:1118-1147).
+    const tx = spyTx();
+    const insertSyncAudit = vi.fn(async () => null);
+    const deleteLivePendingSync = vi.fn();
+    const result = await applyStagedCore(
+      tx,
+      coreArgs(tx, {
+        triggeredReviewItems: [{ id: "mi12", invariant: "MI-12", removed_name: "Bob",
+          added_name: "Robert", email: "bob@test.test" } as never],
+        reviewerChoices: [{ item_id: "mi12", action: "reject" }],
+      }),
+      { insertSyncAudit, deleteLivePendingSync },
+    );
+    expect(result).toEqual({ outcome: "discarded_by_choice" });
+    expect(tx.ops).toEqual([]);                          // runPhase2 never reached
+    expect(insertSyncAudit).not.toHaveBeenCalled();      // live contract: no audit on reject
+    expect(deleteLivePendingSync).not.toHaveBeenCalled(); // staged-row consumption is the CALLER's mapping
+  });
+
+  test("reject with no existing show is INVALID_REVIEWER_ACTION (live first-seen contract :1150-1186)", async () => {
+    const tx = spyTx();
+    const result = await applyStagedCore(
+      tx,
+      coreArgs(tx, {
+        show: null,
+        baseModifiedTime: null,
+        triggeredReviewItems: [{ id: "mi12", invariant: "MI-12", removed_name: "Bob",
+          added_name: "Robert", email: "bob@test.test" } as never],
+        reviewerChoices: [{ item_id: "mi12", action: "reject" }],
+      }),
+      { insertSyncAudit: vi.fn(async () => null), deleteLivePendingSync: vi.fn() },
+    );
+    expect(result).toEqual({ outcome: "invalid_request", code: "INVALID_REVIEWER_ACTION" });
+    expect(tx.ops).toEqual([]);
+  });
 });
 ```
 
@@ -336,7 +391,7 @@ describe("applyStagedCore", () => {
   4. In the moved `defaultInsertSyncAudit`: add `applied_at` to the column list and `coalesce($11::timestamptz, now())` to VALUES; row type gains `appliedAt: string | null`; param array gains `row.appliedAt`. (`sync_audit.applied_at` exists with default `now()` — `internal_and_admin.sql:208` — so `null` preserves today's behavior byte-for-byte.)
   5. Implement `withWizardScopedLivePartitionOps(tx)` in the new module: `Object.assign(Object.create(tx), { async deleteLivePendingIngestion() { /* wizard no-op — live partition untouched (spec §3.2) */ } })` (precedent `applyStaged.ts:1628`). Export the Task-1.2 classification registry stub `LIVE_PARTITION_CLASSIFICATION` (filled in Task 1.2).
   6. Implement `applyStagedCore` per the Design section (steps 1–11). `deps` (all optional): `runPhase2`, `insertSyncAudit`, `bumpReviewerAuthFloors`, `deleteLivePendingSync` — defaulting to the moved defaults / `runPhase2` import.
-  7. `lib/sync/applyStaged.ts`: import + **re-export** every moved symbol (`export { MISSING_REVIEWER_CHOICE, … } from "@/lib/sync/applyStagedCore"`) so the route/test import sites (`tests/sync/applyStaged.test.ts:12-27`, the staged-apply routes) are untouched. Rewire `applyStaged_unlocked`'s live branch: keep `:1284-1339` (reads, corrupt guards, stagedId check, baseline check `:1296-1300`, reverify dispatch, reject branch) and the P2-F7 guard `:1345-1354` **verbatim**; keep `applyAssetReviewEffects` + `snapshotAssetsForApply` + `autoPublishFirstSeen` construction (`:1356-1382`); then REPLACE `:1384-1416` (the `runPhase2` call through `deleteLivePendingSync`) with one `applyStagedCore(tx, { sourceScope: "live", driveFileId: pending.driveFileId, show, parseResult: assetAdjusted.parseResult, triggeredReviewItems: pending.triggeredReviewItems, reviewerChoices: args.reviewerChoices, stagedId: pending.stagedId, stagedModifiedTime: pending.stagedModifiedTime, baseModifiedTime: pending.baseModifiedTime, appliedByEmail: args.appliedByEmail, appliedAt: null, auditSource: "staged_apply", fileMeta: metadata, mi11Items: [], skipDiagramsWrite: assetAdjusted.skipDiagramsWrite, …(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}), …(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}) }, { …(injectedDeps.runPhase2 ? { runPhase2: deps.runPhase2 } : {}), …(injectedDeps.insertSyncAudit ? wrap-to-core-shape : {}), …same for bumpReviewerAuthFloors/deleteLivePendingSync })` and map: `invalid_request` → return as-is; `stale_baseline` → `deleteLivePendingSync` + `{ outcome: "superseded", code: STAGED_PARSE_SUPERSEDED }` (unreachable in practice behind `:1296-1300`; kept for parity); `stale_write` → `restoreDeleteAndIngest(…, STAGED_PARSE_SUPERSEDED, …)` + superseded (exact `:1398-1401` semantics); `applied` → build the existing `ApplyStagedResult` + the unchanged tail block `:1429-1456`. NOTE the dashboard does NOT pass `notableItems` (today's `:1384-1397` call passes none → no feed write; parity preserved — D-2 feed semantics for the dashboard staged path are out of F1 scope).
+  7. `lib/sync/applyStaged.ts`: import + **re-export** every moved symbol (`export { MISSING_REVIEWER_CHOICE, … } from "@/lib/sync/applyStagedCore"`) so the route/test import sites (`tests/sync/applyStaged.test.ts:12-27`, the staged-apply routes) are untouched. Rewire `applyStaged_unlocked`'s live branch: keep `:1284-1339` (reads, corrupt guards, stagedId check, baseline check `:1296-1300`, reverify dispatch, reject branch) and the P2-F7 guard `:1345-1354` **verbatim**; keep `applyAssetReviewEffects` + `snapshotAssetsForApply` + `autoPublishFirstSeen` construction (`:1356-1382`); then REPLACE `:1384-1416` (the `runPhase2` call through `deleteLivePendingSync`) with one `applyStagedCore(tx, { sourceScope: "live", driveFileId: pending.driveFileId, show, parseResult: assetAdjusted.parseResult, triggeredReviewItems: pending.triggeredReviewItems, reviewerChoices: args.reviewerChoices, stagedId: pending.stagedId, stagedModifiedTime: pending.stagedModifiedTime, baseModifiedTime: pending.baseModifiedTime, appliedByEmail: args.appliedByEmail, appliedAt: null, auditSource: "staged_apply", fileMeta: metadata, mi11Items: [], skipDiagramsWrite: assetAdjusted.skipDiagramsWrite, …(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}), …(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}) }, { …(injectedDeps.runPhase2 ? { runPhase2: deps.runPhase2 } : {}), …(injectedDeps.insertSyncAudit ? wrap-to-core-shape : {}), …same for bumpReviewerAuthFloors/deleteLivePendingSync })` and map: `invalid_request` → return as-is; `discarded_by_choice` → `restoreShowStatus` + `deleteLivePendingSync` + `{ outcome: "discarded", variant: "try_again" }` (byte-equal to `:1331-1338`; unreachable in practice because the verbatim `:1327-1339` reject branch fires first — defensive second mapping); `stale_baseline` → `deleteLivePendingSync` + `{ outcome: "superseded", code: STAGED_PARSE_SUPERSEDED }` (unreachable in practice behind `:1296-1300`; kept for parity); `stale_write` → `restoreDeleteAndIngest(…, STAGED_PARSE_SUPERSEDED, …)` + superseded (exact `:1398-1401` semantics); `applied` → build the existing `ApplyStagedResult` + the unchanged tail block `:1429-1456`. NOTE the dashboard does NOT pass `notableItems` (today's `:1384-1397` call passes none → no feed write; parity preserved — D-2 feed semantics for the dashboard staged path are out of F1 scope).
   8. Bridge dep types: `ApplyStagedDeps.insertSyncAudit`'s row type (`applyStaged.ts:292-306`) gains the optional `appliedAt?: string | null` field so injected fakes keep compiling; the core's call always provides it.
 - [ ] **Run to pass:** `pnpm vitest run tests/sync/applyStagedCore.test.ts`
 - [ ] **Regression gate (extraction-parity):** `pnpm vitest run tests/sync/applyStaged.test.ts tests/sync/applyStaged.authFloors.test.ts tests/sync/applyStaged.wizardDriveReverify.test.ts tests/sync/applyStagedReadCoercion.test.ts tests/sync/mi11GateActions.test.ts` — all green WITHOUT editing those files (any edit beyond the additive `appliedAt` fake-field is a parity break — stop and re-derive).
@@ -687,7 +742,7 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
 - Create: `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` (real DB — moved here from Task 1.2 so it is written failing at this task's START and green by its END; no intentionally-red commit)
 - Modify: `tests/onboarding/finalize-cas.test.ts` (fake rows/withRowTx plumbing)
 
-**Concrete failure modes caught:** (a) the `<=` gate (`finalize-cas/route.ts:277`) applies from a baseline the reviewer never saw — live row advanced after staging but still `<= staged_modified_time` (spec §3.2 R21-1); (b) Phase D routes through the legacy whole-parse path and either throws P2-F7 (wedging finalize) or — worse — applies an MI-11 email ungated (spec §3.2 R4-2); (c) the bulk publish flip force-publishes a pre-existing `published=false` (archived/unpublished) show approved into a shadow — crew-visibility data exposure (spec §3.4 R18-1); (d) Phase D audit lacks `base_modified_time` / real provenance, breaking F2 Arm B's broken-writer-shape detection; (e) **mid-loop session-currency race** — Phase D today reads `app_settings` WITHOUT `FOR UPDATE` (`readSession`, `finalize-cas/route.ts:129-142`), applies each shadow in separately-COMMITTED row transactions (`:449-451`), and only detects supersession when `promoteSettings` returns null at the tail (`:460-461`): a scan/cleanup superseding the session mid-loop lets old-session shadow applies (children, feed, audit, shadow deletion, publish flip, deferral cleanup, `markFinalCasDone` is the only thing skipped) COMMIT before the 409 — durable old-session writes the operator believes were refused; (f) **damaged-shadow silent consumption** — the legacy `if (!row.payload.parse_result) { deleteAppliedShadowRow; return OK }` branch (`finalize-cas/route.ts:249-252`) CONSUMES a corrupt/incomplete shadow and reports it successful: no children applied, no audit, no operator-recovery state — the damaged shadow disappears during finalize-cas leaving stale live data with no retry surface, contradicting the fail-closed posture for corrupt Phase D payloads (spec §3.2 R2-1).
+**Concrete failure modes caught:** (a) the `<=` gate (`finalize-cas/route.ts:277`) applies from a baseline the reviewer never saw — live row advanced after staging but still `<= staged_modified_time` (spec §3.2 R21-1); (b) Phase D routes through the legacy whole-parse path and either throws P2-F7 (wedging finalize) or — worse — applies an MI-11 email ungated (spec §3.2 R4-2); (c) the bulk publish flip force-publishes a pre-existing `published=false` (archived/unpublished) show approved into a shadow — crew-visibility data exposure (spec §3.4 R18-1); (d) Phase D audit lacks `base_modified_time` / real provenance, breaking F2 Arm B's broken-writer-shape detection; (e) **mid-loop session-currency race** — Phase D today reads `app_settings` WITHOUT `FOR UPDATE` (`readSession`, `finalize-cas/route.ts:129-142`), applies each shadow in separately-COMMITTED row transactions (`:449-451`), and only detects supersession when `promoteSettings` returns null at the tail (`:460-461`): a scan/cleanup superseding the session mid-loop lets old-session shadow applies (children, feed, audit, shadow deletion, publish flip, deferral cleanup, `markFinalCasDone` is the only thing skipped) COMMIT before the 409 — durable old-session writes the operator believes were refused; (f) **damaged-shadow silent consumption** — the legacy `if (!row.payload.parse_result) { deleteAppliedShadowRow; return OK }` branch (`finalize-cas/route.ts:249-252`) CONSUMES a corrupt/incomplete shadow and reports it successful: no children applied, no audit, no operator-recovery state — the damaged shadow disappears during finalize-cas leaving stale live data with no retry surface, contradicting the fail-closed posture for corrupt Phase D payloads (spec §3.2 R2-1); (g) **reviewer-choice override** — without a choice-semantics dispatch before the core's Phase-2 call, a wizard shadow carrying an MI-12 `reject` choice (StagedReviewCard posts reject/rename/independent in wizard mode, `components/admin/StagedReviewCard.tsx:113-115`) would still WHOLESALE-apply the staged rename, write feed + audit, delete the shadow, and return OK — silently overriding the operator's identity-review decision; the live contract proves reject must discard and never reach Phase 2 (`applyStaged.ts:1327-1339`; `tests/sync/applyStaged.test.ts:1118-1147`).
 
 - [ ] **Write failing test** `tests/onboarding/finalizeCasFullApply.db.test.ts` (real DB; drives `handleOnboardingFinalizeCas` with default `withTx`/`withRowTx`; seeds `shows_pending_changes` rows with the Task-1.4 payload shape; all expectations derived from the seeded payload fixtures):
 
@@ -783,6 +838,52 @@ test("(d) publish flip is narrowed to session-CREATED rows: pre-existing publish
   expect(one(await sql`select published from public.shows where id = ${PREEXISTING_UNPUBLISHED_ID}`).published).toBe(false);
 });
 
+test("(g1) MI-12 REJECT wizard shadow: staged rename NOT applied — discard mirror of the live contract", async () => {
+  // Concrete failure mode: without the choice-semantics dispatch, Phase D runs the full Phase-2
+  // apply on the staged parse — the REJECTED rename (Bob→Robert) lands in crew_members, feed +
+  // audit rows are written, and the shadow returns OK: the operator's identity-review choice is
+  // silently overridden. Live contract: reject → discard, NO Phase 2, NO audit
+  // (applyStaged.ts:1327-1339; tests/sync/applyStaged.test.ts:1118-1147).
+  // Seed: live show drive-cas-8, crew [Bob(b@x)]; shadow parse renames Bob→Robert (same email),
+  // items=[MI-12 {removed_name:'Bob', added_name:'Robert'}], choices=[{action:'reject'}].
+  const res = await handleOnboardingFinalizeCas(request(), deps);
+  const rows = ((await res.json()) as { per_row: Array<Record<string, string>> }).per_row;
+  const row8 = rows.find((r) => r.drive_file_id === "drive-cas-8")!;
+  expect(row8.code).toBe("OK");
+  expect(row8.disposition).toBe("discarded_by_reviewer_choice");
+  const show = one(await sql`select id, last_seen_modified_time from public.shows where drive_file_id = 'drive-cas-8'`);
+  // Live row INTACT per the discard contract — Bob survives, Robert never lands:
+  const crew = await sql`select name from public.crew_members where show_id = ${show.id}`;
+  expect(crew.map((c) => c.name)).toEqual(["Bob"]);
+  // NO audit (live contract: insertSyncAudit never called on reject) and NO feed row:
+  expect((await sql`select 1 from public.sync_audit where drive_file_id = 'drive-cas-8'`).length).toBe(0);
+  expect((await sql`select 1 from public.show_change_log where show_id = ${show.id}`).length).toBe(0);
+  // Shadow CONSUMED-as-discarded (the deleteLivePendingSync analogue), watermark UNCHANGED
+  // (the try_again analogue — next cron re-stages for dashboard re-review):
+  expect((await sql`select 1 from public.shows_pending_changes where drive_file_id = 'drive-cas-8'`).length).toBe(0);
+  expect(new Date(show.last_seen_modified_time).toISOString()).toBe(CAS8_BASE);
+});
+
+test("(g2) MI-13 INDEPENDENT wizard shadow: wholesale apply + removed-name-only floor — not a plain rename", async () => {
+  // Concrete failure mode: independent collapsing into rename semantics — wrong revocation floor
+  // (added person's floor bumped too) and a wrong audit record — or, inversely, independent being
+  // treated as a parse mutation. Live contract: independent applies the SAME wholesale parse;
+  // floors = removed name ONLY (deriveAuthSideEffects applyStaged.ts:492;
+  // tests/sync/applyStaged.test.ts:1189-1217).
+  // Seed: live show drive-cas-9, crew [Old Person]; shadow parse has [New Person] (Old absent),
+  // items=[MI-13 {removed_name:'Old Person', added_name:'New Person'}], choices=[{action:'independent'}].
+  const res = await handleOnboardingFinalizeCas(request(), deps);
+  expect(res.status).toBe(200);
+  const show = one(await sql`select id from public.shows where drive_file_id = 'drive-cas-9'`);
+  // Wholesale apply landed: Old removed, New added (fixture-derived):
+  const crew = await sql`select name from public.crew_members where show_id = ${show.id}`;
+  expect(crew.map((c) => c.name)).toEqual(CAS9_SHADOW_PARSE.crewMembers.map((m) => m.name));
+  // Audit derived_side_effects = removed name ONLY (the independent ≠ rename distinction):
+  const audit = one(await sql`select derived_side_effects from public.sync_audit where drive_file_id = 'drive-cas-9'`);
+  expect(audit.derived_side_effects).toEqual({ revokeFloorForNames: ["Old Person"] });
+  expect((await sql`select 1 from public.shows_pending_changes where drive_file_id = 'drive-cas-9'`).length).toBe(0);
+});
+
 test("(e1) PRE-superseded session: typed abort BEFORE any row transaction — zero shadow applies persisted", async () => {
   // Concrete failure mode: without the up-front FOR UPDATE session-currency check, Phase D reads
   // S1, a supersession lands, and S1's shadows still apply row-by-row in committed transactions
@@ -821,7 +922,7 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
   - Seed: a live show `drive-coexist-1` (synced, watermark T0); a LIVE `pending_ingestions` row for `drive-coexist-1` (`wizard_session_id null`, `last_error_code 'PARSE_ERROR'`); a LIVE `pending_syncs` staged row for `drive-coexist-1` (`wizard_session_id null`, `base_modified_time` = T0); a wizard session with an approved existing-show row for the SAME `drive_file_id` (Phase B path) staged at T1.
   - Drive Phase B (`handleOnboardingFinalize` with injected `fetchDriveFileMetadata` returning T1) then Phase D (`handleOnboardingFinalizeCas`).
   - Assert AFTER Phase D: the live `pending_ingestions` row still exists (`select … where drive_file_id='drive-coexist-1' and wizard_session_id is null` → 1 row); the live `pending_syncs` row still exists (same predicate → 1 row); AND `crew_members` rows exist matching the shadow's parse (the apply actually ran — anti-tautology: without this, the pre-rewire bespoke UPDATE would pass the survival assertions trivially). **Concrete failure mode:** the unconditional `deleteLivePendingIngestion` / 6L delete reached the live partition from a wizard action.
-- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — expected failures: (a) crew assertion 0 rows + no feed row + `base_modified_time` null in audit; (b) 200 instead of 409 (the `<=` gate applies it); (c) `OK` for the corrupt row and Ada's email CHANGED (fail-open reproduced); (c2) fails with `OK` for drive-cas-6 AND the shadow-retained assertion at 0 rows (the legacy branch consumed it — silent-success bug reproduced); (d) pre-existing show force-published; (e2) fails with order `["flip", "finalize"]` — against the current no-FOR-UPDATE `readSession`, the mid-loop flip does NOT block, S1's shadow applies commit, and the tail CAS 409s after the fact (the durable-old-session-writes bug demonstrated live; e1 alone is NOT a sufficient red signal — current code also refuses a pre-flip read at `readSession` time); coexistence test fails on its crew-count assertion (bespoke writers drop children — the origin incident reproduced).
+- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — expected failures: (a) crew assertion 0 rows + no feed row + `base_modified_time` null in audit; (b) 200 instead of 409 (the `<=` gate applies it); (c) `OK` for the corrupt row and Ada's email CHANGED (fail-open reproduced); (c2) fails with `OK` for drive-cas-6 AND the shadow-retained assertion at 0 rows (the legacy branch consumed it — silent-success bug reproduced); (d) pre-existing show force-published; (g1) fails with Robert in `crew_members` + an audit row present (the rejected rename applied — choice-override bug reproduced); (g2) fails with no children/audit at all (bespoke writer) and, post-rewire-without-dispatch, would fail on the floors assertion if independent collapsed into rename; (e2) fails with order `["flip", "finalize"]` — against the current no-FOR-UPDATE `readSession`, the mid-loop flip does NOT block, S1's shadow applies commit, and the tail CAS 409s after the fact (the durable-old-session-writes bug demonstrated live; e1 alone is NOT a sufficient red signal — current code also refuses a pre-flip read at `readSession` time); coexistence test fails on its crew-count assertion (bespoke writers drop children — the origin incident reproduced).
 - [ ] **Implementation:**
   0. **Session-currency lock UP FRONT (spec §7 global lock-order rule: `app_settings` is acquired BEFORE any per-show advisory lock; the inverse never happens).** `readSession` (`finalize-cas/route.ts:129-142`) gains `for update` on its `app_settings` SELECT — making it the authoritative, serializing currency check, taken in `runFinalizeCas` BEFORE any per-row shadow apply and held by the outer `withTx` transaction through the tail `promoteSettings` CAS (`:367-393`, which already UPDATEs the same row). A pre-superseded read (null / no matching checkpoint) hits the EXISTING typed aborts (`WIZARD_FINALIZE_CHECKPOINT_MISSING` / `WIZARD_FINALIZE_BATCHES_PENDING`) before any row transaction starts; a MID-flight supersession attempt now BLOCKS on the row lock until Phase D commits or aborts — the old detect-at-tail-only window (`promoteSettings` null at `:460-461`) is closed. Lock-order consistency: the per-row `withRowTx` connections take per-show advisory locks WHILE the outer connection holds `app_settings` — that is the sanctioned `app_settings → per-show` order (`sessionLifecycle.ts:331-374` precedent); no path here takes `app_settings` while holding a per-show lock, so the R4-1 deadlock inversion cannot occur. Mirrors `readActiveSession`'s existing FOR UPDATE on the Phase B side (`finalize/route.ts:171-181`).
   1. `FinalizeCasRouteDeps.withRowTx` gains the `pipelineTx` second argument exactly as Task 1.3 step 6 (factory `makeSyncPipelineTx` over the same raw tx that took the lock at `:103`).
@@ -863,11 +964,23 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
          skipDiagramsWrite: false,                                                    // payload diagrams already canonical (spec §3.4)
        });
        if (core.outcome === "invalid_request") return { drive_file_id: row.drive_file_id, code: "STAGED_REVIEW_ITEMS_CORRUPT" };
+       if (core.outcome === "discarded_by_choice") {
+         // Mirror of the live MI-12 reject contract (applyStaged.ts:1327-1339, test
+         // tests/sync/applyStaged.test.ts:1118-1147): nothing applied, NO Phase 2, NO audit
+         // (the live contract writes no sync_audit row on reject — mirrored exactly), live row
+         // untouched. The shadow is the wizard's staged-row analogue of deleteLivePendingSync's
+         // target, so it is CONSUMED-as-discarded; the live watermark is unchanged, so the next
+         // cron pass re-stages the change for dashboard re-review — the `try_again` analogue.
+         // (restoreShowStatus is N/A: stageExistingShowShadow never altered the live row's status.)
+         await deleteAppliedShadowRow(tx, row);
+         return { drive_file_id: row.drive_file_id, code: OK_CODE, disposition: "discarded_by_reviewer_choice" };
+       }
        if (core.outcome !== "applied") return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
        await deleteAppliedShadowRow(tx, row);
        return { drive_file_id: row.drive_file_id, code: OK_CODE };
      }
      ```
+     `ShadowApplyResult`'s OK member gains the optional `disposition?: "discarded_by_reviewer_choice"` field (response metadata, NOT an error code — no §12.4 row; invariant 5 unaffected since OK rows never render through the error catalog).
      `ShadowApplyResult` code union widens to include `"STAGED_REVIEW_ITEMS_CORRUPT"` and `"STAGED_PARSE_RESULT_CORRUPT"` (both §12.4-cataloged, `catalog.ts:1252`/`:1265`). The per-row loop (`:449-456`) and best-effort posture are UNCHANGED (ratified, spec §3.2 R6-1 — do not relitigate); the blocked→409 top-level code stays `STAGED_PARSE_OUTDATED_AT_PHASE_D` with the typed `per_row` array as the precise surface (no new §12.4 code).
   3. **DELETE** `insertShadowAudit` (`:308-336`) — the core writes the audit — and the bespoke UPDATE inside the old `applyShadow`.
   4. Narrow `publishAppliedWizardShows` (`:338-356`):
@@ -890,7 +1003,7 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
 - Create: `tests/onboarding/finalizeCasMi11Parity.db.test.ts`
 - Modify: `tests/sync/applyStaged.test.ts` (one added test) — the ONLY sanctioned edit to that file in this phase
 
-**Concrete failure modes caught:** (a) a later sibling's CAS failure rolls back or corrupts an earlier committed row, or — the inverse bug — the failing row leaves PARTIAL child writes (violating the ratified per-row contract, spec §3.2 R6-1); (b) wizard MI-11 semantics drift from the cron decision-rule path — hold row shape, identity pin, or feed differ, making the wizard a second identity-gate variant (D-2 violation); (c) the extraction accidentally relaxed P2-F7 so a live MI-11 staged row applies ungated.
+**Concrete failure modes caught:** (a) a later sibling's CAS failure rolls back or corrupts an earlier committed row, or — the inverse bug — the failing row leaves PARTIAL child writes (violating the ratified per-row contract, spec §3.2 R6-1); (b) wizard MI-11 semantics drift from the cron decision-rule path — hold row shape, identity pin, or feed differ, making the wizard a second identity-gate variant (D-2 violation); (c) the extraction accidentally relaxed P2-F7 so a live MI-11 staged row applies ungated. Choice-semantics parity (reject discard / independent floors — the matrix in the Design section) is pinned by T1.5's (g1)/(g2) real-DB regressions plus T1.1's core dispatch unit tests; T1.6's parity oracle therefore covers the MI-11 hold cell, and a multi-shadow seed here includes one rejected-choice shadow alongside A/B to prove the discard row neither blocks nor corrupts siblings.
 
 - [ ] **Write failing/green-verified test** `tests/onboarding/finalizeCasMultiShadow.db.test.ts` (real DB):
 
