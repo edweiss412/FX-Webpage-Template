@@ -148,6 +148,8 @@ test("rootSessionProbe destructures getUser and classifies via isAuthSessionMiss
 });
 ```
 
+  3. **Behavioral registry rows (spec §4.1.3 — IN the meta-test file, not only the unit file; R1-P-F1):** add a `describe("rootSessionProbe behavioral contract")` block in `tests/auth/_metaInfraContract.test.ts` using that file's own mocking harness (read how its existing behavioral assertions mock `@/lib/supabase/server`), with the four spec-required cases — construction throw ⇒ `infra_error`; `getUser` throw ⇒ `infra_error`; returned `AuthSessionMissingError` ⇒ `anonymous`; returned NON-missing error ⇒ `infra_error`. These duplicate four unit cases BY DESIGN: the registry gate must fail on a collapse regression even if the helper's unit file is renamed/skipped.
+
   Run `pnpm vitest run tests/auth/_metaInfraContract.test.ts` → PASS (the constructor-inside-try scan must accept the new file as written; if it flags, the probe's construction try placement is wrong — fix the probe, not the scan).
 
 - [ ] **Step 1.6: Typecheck + commit**
@@ -164,7 +166,7 @@ git commit -m "feat(auth): rootSessionProbe — discriminated session probe for 
 - Modify: `app/auth/sign-in/page.tsx` (guard region `:113-116`)
 - Test: `tests/auth/signInPageRedirect.test.ts` (extend — read its existing harness/mocks first and follow them)
 
-- [ ] **Step 2.1: Failing test** — in the existing file's harness style: mock `getUser` to RETURN `{ data: { user: null }, error: { name: "AuthApiError", message: "Database error", status: 500 } }` → rendering the sign-in page shows the error block (`sign-in-error-block`) with `ADMIN_SESSION_LOOKUP_FAILED` copy (resolve expected copy via `lib/messages/lookup.ts` `getRequiredDougFacing`/`messageFor`, not a hardcoded string) and does NOT redirect. Also a guard-keeping test: returned `{ name: "AuthSessionMissingError" }` still falls through to the plain CTA with NO error block (pins that only non-missing errors trip the code).
+- [ ] **Step 2.1: Failing test** — in the existing file's harness style: mock `getUser` to RETURN `{ data: { user: null }, error: { name: "AuthApiError", message: "Database error", status: 500 } }` → rendering the sign-in page shows the error block (`sign-in-error-block`) with `ADMIN_SESSION_LOOKUP_FAILED` copy (resolve expected copy via the CREW-facing field — `messageFor("ADMIN_SESSION_LOOKUP_FAILED").crewFacing` (or the crew-facing getter if one exists in `lib/messages/lookup.ts`) — NOT `getRequiredDougFacing`: this catalog row has `dougFacing: null` and the sign-in page renders `ErrorExplainer` with `surface="crew"`, so the Doug-facing path would throw before proving anything (R1-P-F2); never hardcode the string) and does NOT redirect. Also a guard-keeping test: returned `{ name: "AuthSessionMissingError" }` still falls through to the plain CTA with NO error block (pins that only non-missing errors trip the code).
 - [ ] **Step 2.2: Verify FAIL** (the non-missing case renders a bare CTA today).
 - [ ] **Step 2.3: Implement the one branch** — in `app/auth/sign-in/page.tsx` after `const error = getUserResult?.error;` (`:115`):
 
