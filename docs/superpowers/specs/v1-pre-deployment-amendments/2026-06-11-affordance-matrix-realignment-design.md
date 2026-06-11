@@ -151,7 +151,7 @@ Failure messages name the file and the rule, so a violating PR fails in seconds 
 
 ## 8. Dead component deletion
 
-- `components/admin/ActiveShowsPanel.tsx`: delete the `ActiveShowsPanel` component. Move `formatRelative`, `formatDateRange`, and the `ActiveShowRow` type to `lib/admin/format.ts` (new) — importers re-pointed: `ShowsTable.tsx:26`, `NeedsAttentionInbox.tsx:13-14`, `app/admin/show/[slug]/page.tsx:28`, `ChangeFeedTime.tsx:11`, `ArchivedShowRow.tsx:30`, `Dashboard.tsx:21`.
+- `components/admin/ActiveShowsPanel.tsx`: delete the `ActiveShowsPanel` component. Move `formatRelative`, `formatDateRange`, and the `ActiveShowRow` type to `lib/admin/showDisplay.ts` (new; name matches the plan — R13 reconciliation) — importers re-pointed: `ShowsTable.tsx:26`, `NeedsAttentionInbox.tsx:13-14`, `app/admin/show/[slug]/page.tsx:28`, `ChangeFeedTime.tsx:11`, `ArchivedShowRow.tsx:30`, `Dashboard.tsx:21`.
 - `components/admin/PendingPanel.tsx`: delete the `PendingPanel` component; relocate its still-used type exports (`PendingIngestionRow`, `FirstSeenStagedRow` — consumers enumerated at plan time) alongside.
 - Affected tests (enumerated by grep at plan time; currently 13 files reference the two components): component-level tests of dead bodies (e.g. `tests/components/admin/PendingPanel-awaiting-approval.test.tsx`, `DashboardPanels.test.tsx`) are deleted or migrated to live equivalents; pure-helper tests (`formatDateRange.test.ts`, `class-sweep-now-utility.test.ts`) re-point imports; `tests/help/_uiLabelExceptions.ts` and `forbidden-prose-registry.test.ts` entries are updated.
 

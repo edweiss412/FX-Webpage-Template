@@ -442,13 +442,39 @@ function domainFiles(): string[] {
   return out;
 }
 
+// Blank out /* */ and // comment CONTENT while preserving newlines, so the
+// call-site scan never matches doc prose like "Distinct from <HelpTooltip>"
+// (HoverHelp.tsx:33) and reported line numbers stay valid (R13). The
+// EXEMPTION check reads the RAW source — "// not-a-help-affordance:" is
+// itself a comment and must survive for that rule.
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:"'])\/\/[^\n]*/gm, (m, pre) => pre + " ".repeat(m.length - pre.length));
+}
+
 const concreteIds = new Set(
   AFFORDANCE_MATRIX.flatMap((r) => (r.kind === "concrete" ? [r.testid] : [])),
 );
 const liveIds = new Set([...concreteIds].filter((id) => !DEFERRED_TESTIDS.has(id)));
 
 describe("affordance-matrix ↔ live-surface parity (spec §7)", () => {
-  const files = domainFiles().map((f) => ({ path: f, rel: relative(ROOT, f), src: readFileSync(f, "utf8") }));
+  const files = domainFiles().map((f) => {
+    const raw = readFileSync(f, "utf8");
+    return {
+      path: f,
+      rel: relative(ROOT, f),
+      raw, // exemption comments are read from RAW source
+      src: stripComments(raw), // call sites + literals scanned comment-free (R13)
+    };
+  });
+
+  it("stripComments: prose mentions of <HelpTooltip> in comments are not call sites (R13 fixture)", () => {
+    const sample = `// Distinct from <HelpTooltip>\nconst x = 1; /* <HoverHelp testId="y"> */\nrender(<HoverHelp label="z" />);\n`;
+    const stripped = stripComments(sample);
+    expect(stripped.match(/<(HoverHelp|HelpTooltip)\b/g)).toHaveLength(1);
+    expect(stripped.split("\n").length).toBe(sample.split("\n").length); // line numbers preserved
+  });
 
   it("every HoverHelp/HelpTooltip call site references a live matrix testid or carries an exemption", () => {
     const failures: string[] = [];
@@ -460,13 +486,16 @@ describe("affordance-matrix ↔ live-surface parity (spec §7)", () => {
       // (rootTestId="…" for HoverHelp, testId="help-affordance--…" for HelpTooltip)
       // or an exemption comment within the 3 lines above the call site.
       const lines = f.src.split("\n");
+      const rawLines = f.raw.split("\n");
       lines.forEach((line, i) => {
         if (!/<(HoverHelp|HelpTooltip)\b/.test(line)) return;
         const window = lines.slice(i, Math.min(i + 12, lines.length)).join("\n");
-        const above = lines.slice(Math.max(0, i - 3), i).join("\n");
+        // Exemption comments live in the RAW source (stripComments blanks them).
+        const rawAbove = rawLines.slice(Math.max(0, i - 3), i).join("\n");
+        const rawWindow = rawLines.slice(i, Math.min(i + 12, rawLines.length)).join("\n");
         const literal = window.match(/(?:rootTestId|testId)=["'](help-affordance--[^"']+)["']/);
         if (literal && liveIds.has(literal[1]!)) return;
-        if (EXEMPT.test(above) || EXEMPT.test(window)) return;
+        if (EXEMPT.test(rawAbove) || EXEMPT.test(rawWindow)) return;
         failures.push(`${f.rel}:${i + 1} — call site resolves no live matrix testid and carries no exemption`);
       });
     }
@@ -536,7 +565,6 @@ Concrete failure modes: a new HoverHelp without a matrix row (call-site rule); a
 import { describe, expect, it } from "vitest";
 import { AFFORDANCE_MATRIX } from "@/app/help/_affordanceMatrix";
 import { allWalkableRows, prepKindFor, routeForPure, walksAt } from "../e2e/helpers/walkerRoutes";
-import { AFFORDANCE_MATRIX } from "@/app/help/_affordanceMatrix";
 
 describe("walker route derivation (spec §3.1/§6)", () => {
   it("non-placeholder sourceRoutes pass through routeForPure unchanged (R4 pin)", () => {
