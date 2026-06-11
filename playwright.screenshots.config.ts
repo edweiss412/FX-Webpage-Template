@@ -61,7 +61,23 @@ export default defineConfig({
           reducedMotion: "reduce",
         },
         launchOptions: {
-          args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+          // Raster-path determinism (PR #22): the pinned Docker image pins the
+          // BINARY, but Chromium picks raster paths (GPU/SwiftShader vs CPU,
+          // partial-raster tiling) by environment at runtime — loaded
+          // pull_request runners produced ±6/255 pixel jitter vs idle dispatch
+          // runners on identical content, and the lossy WebP encoder amplified
+          // it into drift-gate byte failures. --disable-gpu +
+          // --disable-partial-raster + --force-color-profile=srgb pin the
+          // path; --disable-lcd-text is deliberately omitted (would churn
+          // every committed text baseline). Pinned by
+          // tests/help/capture-script.test.ts.
+          args: [
+            "--font-render-hinting=none",
+            "--disable-skia-runtime-opts",
+            "--disable-gpu",
+            "--disable-partial-raster",
+            "--force-color-profile=srgb",
+          ],
         },
         locale: "en-US",
         timezoneId: "America/New_York",

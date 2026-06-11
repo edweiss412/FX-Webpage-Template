@@ -45,6 +45,32 @@ describe("help screenshot capture script (Task F.3)", () => {
     );
   });
 
+  // Raster-path determinism: the pinned Docker image + platform pin the
+  // BINARY, but Chromium still picks raster paths (GPU/SwiftShader vs CPU,
+  // partial-raster tiling) by environment/load at runtime. PR #22 measured the
+  // result: identical content captured ±6/255-channel pixel jitter on loaded
+  // pull_request runners vs idle dispatch runners, which the lossy WebP
+  // encoder amplified into different bytes (3/3 drift fails vs 2/2 regen
+  // no-ops). These flags pin the raster path; --disable-lcd-text is
+  // deliberately NOT pinned (it would re-rasterize all text and churn every
+  // committed baseline).
+  it("capture project pins raster-path determinism launch flags", () => {
+    const config = readFileSync(join(process.cwd(), "playwright.screenshots.config.ts"), "utf8");
+    const captureProject = config.match(
+      /name: "screenshots-help-capture"[\s\S]*?launchOptions[\s\S]*?\]/,
+    )?.[0];
+    expect(captureProject, "screenshots-help-capture project should exist").toBeTruthy();
+    for (const flag of [
+      "--font-render-hinting=none",
+      "--disable-skia-runtime-opts",
+      "--disable-gpu",
+      "--disable-partial-raster",
+      "--force-color-profile=srgb",
+    ]) {
+      expect(captureProject).toContain(flag);
+    }
+  });
+
   // Capture-determinism hardening (M11-A-D5 recipe, applied to the capture
   // script after needs-attention-mobile-dark proved environment-bimodal on
   // loaded pull_request runners vs solo dispatch runners): networkidle alone
