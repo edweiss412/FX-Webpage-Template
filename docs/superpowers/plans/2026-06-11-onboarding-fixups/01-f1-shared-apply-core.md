@@ -14,6 +14,9 @@ The parity contract is wizard-vs-LIVE-apply (cron auto-apply via the hold-aware 
 
 **Depends on:** nothing in this milestone (F1 is the foundation phase). F2 (remediation) consumes the audit-summary `source`/`crewCount` shape this phase ships; F4 consumes the `created_show_id` provenance column.
 
+**Provenance binding contract (plan R47-1 — applies to EVERY created_show_id consumer):** `created_show_id` is never trusted bare. Every consumer joins BOTH conditions: `s.id = m.created_show_id AND s.drive_file_id = m.drive_file_id` (the manifest row's drive id must match the target show's drive id), and where a locked set exists, `m.drive_file_id = any($lockedDriveFileIds)`. This binds the provenance to the advisory-locked drive id — a forged/stale manifest row (manifest is PostgREST-writable until Task 4.7's lockdown) pointing `created_show_id` at an UNRELATED `published=false` show can otherwise be published by Phase D's flip or deleted by F4 cleanup/reap while holding only the wrong show's lock. Required DB regression (Phase D + F4 both): seed a manifest row whose `created_show_id` references a different unpublished show (mismatched drive id) → the publish flip does NOT publish it and cleanup/reap does NOT delete it. Schema note: the F1 migration adds a composite consistency CHECK or trigger only if the plan's implementation finds the join insufficient — default is join-everywhere + regression.
+
+
 **Scope boundary:** This phase does NOT touch the F2 remediation migration, the F3 re-apply page, the F4 reap, or F5. It does not change cron/push/manual sync semantics (§3.4). The only schema change is the `onboarding_scan_manifest.created_show_id` provenance column (Task 1.3).
 
 ---
