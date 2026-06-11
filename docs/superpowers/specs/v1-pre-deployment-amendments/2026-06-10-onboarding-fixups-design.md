@@ -232,7 +232,7 @@ Promotion condition (c) of the backlog entry is met: the M-onboarding-fixups mil
 | `tests/auth/_metaInfraContract.test.ts` | EXTEND: registry rows for any new Supabase call boundaries (F4 reap reads, F5 RPC caller). |
 | `tests/messages/_metaAdminAlertCatalog.test.ts` | EXTEND: F5 `admin_alerts` row. |
 | `tests/db/postgrest-dml-lockdown.test.ts` | EXTEND if F5's RPC gates a table that still grants `authenticated` DML. |
-| NEW structural guard | A meta-test asserting no file outside the shared apply module issues `insert into public.shows` / child-table snapshot-replacement SQL (the "second copy" tripwire that would have caught this bug at introduction). Walks `app/api/**` + `lib/**`, not a lexical file list. |
+| NEW structural guard | A meta-test asserting no file outside an explicit allowlist issues `insert into public.shows` / child-table snapshot-replacement SQL (the "second copy" tripwire that would have caught this bug at introduction). Allowlist pinned by path+symbol (R22 finding 1): the shared apply module AND the canonical first-seen insert inside `lib/sync/runScheduledCronSync.ts` (`upsertShow`'s `insertFirstSeenShowWithSlugRetry` call site) — which §3.1 deliberately retains. Walks `app/api/**` + `lib/**`, not a lexical file list; any NEW writer (e.g., a resurrected bespoke wizard insert) fails. |
 | NEW structural guard (R17) | A meta-test pinning the live-vs-wizard partition classification of every live-partition lifecycle operation reachable from the shared apply core (the §3.2 class enumeration) — wizard callers must resolve to no-ops/wizard-scoped variants for every classified-live operation. |
 
 ## 10. Testing spine (headline assertions; full TDD breakdown is plan-level)
