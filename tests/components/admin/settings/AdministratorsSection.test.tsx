@@ -141,6 +141,22 @@ describe("AdministratorsSection (Task 6.2)", () => {
     expect(screen.queryByText(/Send invite/i)).not.toBeInTheDocument();
   });
 
+  // M12.12 matrix row 11 — failure mode caught: a settings redesign drops the
+  // header HoverHelp (or its learnMore deep link) → the matrix root testid or
+  // the hidden help-link href vanishes; pinned at unit speed instead of via
+  // the e2e affordance walker.
+  it("Administrators header help carries matrix root testid + settings#administrators link (row 11)", () => {
+    const rows = [row({ email: "alice@example.com" })];
+    render(
+      <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
+    );
+    const root = screen.getByTestId("help-affordance--settings-administrators--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/settings#administrators",
+    );
+  });
+
   it("copy guard: no 'Send invite' / 'invite' string anywhere in the section (email infra is B3)", () => {
     const src = readFileSync("components/admin/settings/AdministratorsSection.tsx", "utf8");
     expect(src).not.toMatch(/Send invite/i);

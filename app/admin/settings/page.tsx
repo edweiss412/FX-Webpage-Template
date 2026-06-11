@@ -121,7 +121,12 @@ export default async function AdminSettingsPage() {
           >
             Preferences
           </h2>
-          <HoverHelp label="Help: Preferences" testId="prefs-help">
+          <HoverHelp
+            label="Help: Preferences"
+            testId="prefs-help"
+            rootTestId="help-affordance--settings-preferences--tooltip"
+            learnMore={{ href: "/help/admin/settings#preferences" }}
+          >
             <p>
               Account-wide settings: email alerts, auto-publishing clean shows,
               and developer tools.

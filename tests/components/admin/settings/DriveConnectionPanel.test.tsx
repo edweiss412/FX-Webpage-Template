@@ -77,10 +77,20 @@ describe("DriveConnectionPanel", () => {
     // M12.5 a11y regression (impeccable audit + adversarial review): the badge
     // hover trigger MUST be programmatically associated with the explainer body
     // so screen readers announce the reason-specific recovery copy — not just the
-    // badge's aria-label. A dropped aria-describedby fails here.
+    // badge's aria-label. M12.12 learnMore disclosure: aria-controls points at
+    // the popover body; aria-describedby narrows to the children-only wrapper
+    // INSIDE the body so the "Learn more →" link text stays OUT of the SR
+    // description. A dropped aria-describedby/aria-controls fails here.
     const trigger = screen.getByTestId("drive-connection-health-help-trigger");
-    expect(trigger.getAttribute("aria-describedby")).toBe(helpBody.id);
     expect(helpBody.id).toBeTruthy();
+    expect(trigger.getAttribute("aria-controls")).toBe(helpBody.id);
+    const describedId = trigger.getAttribute("aria-describedby");
+    expect(describedId).toBeTruthy();
+    const described = document.getElementById(describedId!)!;
+    expect(helpBody.contains(described)).toBe(true);
+    expect(described.textContent ?? "").toMatch(/re-run setup/i);
+    // The interactive link is excluded from the description wrapper.
+    expect(within(described).queryByRole("link", { hidden: true })).toBeNull();
   });
 
   it("warn/not_configured → 'Connection not set up', no 'Connected' prefix, no last-read clause", () => {
@@ -234,6 +244,47 @@ describe("DriveConnectionPanel", () => {
     };
     render(<DriveConnectionPanel health={health} now={NOW} />);
     expect(screen.queryByTestId("drive-connection-open-folder")).toBeNull();
+  });
+
+  // M12.12 matrix rows 12 + 13 — failure mode caught: a panel redesign drops
+  // either HoverHelp (or its learnMore deep link) → the matrix root testid or
+  // the hidden help-link href vanishes; pinned at unit speed instead of via
+  // the e2e affordance walker.
+  it("Drive connection header help carries matrix root testid + settings#drive-connection link (row 12)", () => {
+    const health: DriveConnectionHealth = {
+      health: "positive",
+      folderName: "Show Sheets 2026",
+      folderId: "abc123",
+      syncingCount: 2,
+      lastReadAt: TWO_HR_AGO,
+    };
+    render(<DriveConnectionPanel health={health} now={NOW} />);
+    const root = screen.getByTestId("help-affordance--settings-drive-connection--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/settings#drive-connection",
+    );
+  });
+
+  it("non-healthy badge help carries matrix root testid + settings#drive-health link (row 13)", () => {
+    const health: DriveConnectionHealth = {
+      health: "warn",
+      reason: "watch_inactive",
+      code: "WATCH_CHANNEL_ORPHANED",
+      folderName: "Show Sheets 2026",
+      folderId: "abc123",
+      syncingCount: 4,
+      attentionCount: 4,
+      lastReadAt: TWO_HR_AGO,
+    };
+    render(<DriveConnectionPanel health={health} now={NOW} />);
+    const root = screen.getByTestId("help-affordance--settings-drive-health-badge--tooltip");
+    // The badge itself is the trigger inside the affordance root.
+    expect(within(root).getByTestId("drive-connection-health-badge")).toBeInTheDocument();
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/settings#drive-health",
+    );
   });
 
   it("Re-run setup submits rerunSetupServerAction (unchanged)", () => {
