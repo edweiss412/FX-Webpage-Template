@@ -48,7 +48,7 @@ The only lock-relevant surface is walker fixture seeding of `shows` rows. Holder
 | `components/admin/ActiveShowsPanel.tsx` | Delete | Dead since M12.2 (after importers re-point) |
 | `components/admin/PendingPanel.tsx` | Delete | Dead since M12.2 (after type-consumer grep) |
 | `tests/help/_metaAffordanceMatrixParity.test.ts` | Create | Spec §7 structural meta-test |
-| `tests/e2e/helpers/walkerRoutes.ts` | Create | Runner-neutral `routeFor` (placeholder-only) + `prepareAdminState` (pathname-keyed) + `rowsForViewport` |
+| `tests/e2e/helpers/walkerRoutes.ts` | Create | Runner-neutral `allWalkableRows` + `walksAt` + `routeForPure` (placeholder-only) + `prepKindFor` (pathname-keyed) |
 | `tests/e2e/deep-link-walker.spec.ts` | Modify | Imports helpers + matrix `DEFERRED_TESTIDS`; HoverHelp `assertTarget` arm; per-viewport row filtering |
 | `tests/help/walker-routes.test.ts` | Create | Unit pins: non-placeholder pass-through; pathname-keyed prep (row 5 path) |
 | `playwright.config.ts` | Modify | `help-docs` (mobile, existing) + `help-docs-desktop` (1280×800) projects |
@@ -521,7 +521,8 @@ Concrete failure modes: a new HoverHelp without a matrix row (call-site rule); a
 ```ts
 import { describe, expect, it } from "vitest";
 import { AFFORDANCE_MATRIX } from "@/app/help/_affordanceMatrix";
-import { prepKindFor, routeForPure, rowsForViewport } from "../e2e/helpers/walkerRoutes";
+import { allWalkableRows, prepKindFor, routeForPure, walksAt } from "../e2e/helpers/walkerRoutes";
+import { AFFORDANCE_MATRIX } from "@/app/help/_affordanceMatrix";
 
 describe("walker route derivation (spec §3.1/§6)", () => {
   it("non-placeholder sourceRoutes pass through routeForPure unchanged (R4 pin)", () => {
@@ -539,13 +540,16 @@ describe("walker route derivation (spec §3.1/§6)", () => {
     expect(prepKindFor("/admin/settings", "help-affordance--settings-preferences--tooltip")).toBe("none");
   });
 
-  it("rowsForViewport partitions by visibleAt", () => {
-    const mobile = rowsForViewport("mobile").map((r) => r.testid);
-    const desktop = rowsForViewport("desktop").map((r) => r.testid);
-    expect(mobile).not.toContain("help-affordance--dashboard-needs-attention--tooltip");
-    expect(desktop).toContain("help-affordance--dashboard-needs-attention--tooltip");
-    expect(mobile).toContain("help-affordance--needs-attention-page--tooltip");
-    for (const r of rowsForViewport("mobile")) expect(["mobile", "both"]).toContain(r.visibleAt);
+  it("walksAt partitions by visibleAt; allWalkableRows registers every non-deferred row (R7 pin)", () => {
+    const desktopOnly = allWalkableRows.find(
+      (r) => r.testid === "help-affordance--dashboard-needs-attention--tooltip",
+    );
+    expect(desktopOnly, "desktop-only row must be REGISTERED (skip at runtime, never absent)").toBeDefined();
+    expect(walksAt(desktopOnly!, "desktop")).toBe(true);
+    expect(walksAt(desktopOnly!, "mobile")).toBe(false);
+    const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
+    expect(allWalkableRows).toHaveLength(concrete.length - 2); // minus the two DEFERRED_TESTIDS
+    for (const r of allWalkableRows) expect(walksAt(r, "mobile") || walksAt(r, "desktop")).toBe(true);
   });
 });
 ```
@@ -553,9 +557,9 @@ describe("walker route derivation (spec §3.1/§6)", () => {
 Concrete failure modes: a re-introduced per-testid route special case; exact-string prep regression stranding `?bucket=archived` in wizard mode; a `visibleAt: desktop` row walked at 390px (guaranteed false failure).
 
 - [ ] **Step 11.2:** Run → FAIL (module doesn't exist).
-- [ ] **Step 11.3: Implement `walkerRoutes.ts`:** export `rowsForViewport(vp: "mobile" | "desktop")` = concrete rows minus `DEFERRED_TESTIDS` (import from the matrix) where `visibleAt === vp || visibleAt === "both"`; `routeForPure(row, fixtures)` = pure placeholder substitution ONLY (`rpas-central-2026` → `fixtures.slug`, `eric-weiss` → `fixtures.crewId`, `STAGED_ID_PLACEHOLDER` → `fixtures.stagedId`); `prepKindFor(sourceRoute, testid)` = `"wizard"` if testid starts with `help-affordance--wizard-step`, else `"dashboard"` if `new URL(sourceRoute, "http://localhost:3004").pathname === "/admin"`, else `"none"`.
+- [ ] **Step 11.3: Implement `walkerRoutes.ts`:** export `allWalkableRows` = concrete rows minus `DEFERRED_TESTIDS` (import both from the matrix — the ONE registration array); `walksAt(row, vp: "mobile" | "desktop")` = `row.visibleAt === vp || row.visibleAt === "both"`; `routeForPure(row, fixtures)` = pure placeholder substitution ONLY (`rpas-central-2026` → `fixtures.slug`, `eric-weiss` → `fixtures.crewId`, `STAGED_ID_PLACEHOLDER` → `fixtures.stagedId`); `prepKindFor(sourceRoute, testid)` = `"wizard"` if testid starts with `help-affordance--wizard-step`, else `"dashboard"` if `new URL(sourceRoute, "http://localhost:3004").pathname === "/admin"`, else `"none"`.
 - [ ] **Step 11.4:** Run → PASS.
-- [ ] **Step 11.5: Rework the spec file.** `deep-link-walker.spec.ts`: delete the local `DEFERRED_TESTIDS` (`:17-30`) and the wizard `routeFor` special case (`:195-200`); import from `@/app/help/_affordanceMatrix` + `./helpers/walkerRoutes`; row selection becomes `rowsForViewport(process.env.WALKER_VIEWPORT === "desktop" ? "desktop" : "mobile")`; `prepareAdminState` switches on `prepKindFor(...)`; `assertTarget` gains the HoverHelp arm between the direct-href and details arms:
+- [ ] **Step 11.5: Rework the spec file.** `deep-link-walker.spec.ts`: delete the local `DEFERRED_TESTIDS` (`:17-30`) and the wizard `routeFor` special case (`:195-200`); import from `@/app/help/_affordanceMatrix` + `./helpers/walkerRoutes`; registration iterates `allWalkableRows` — the ONLY selection path; there is NO module-level viewport filter and NO env var (an unset env var would silently drop desktop-only rows from registration — R7). Viewport filtering is exclusively the runtime `test.skip` in Step 11.6. `prepareAdminState` switches on `prepKindFor(...)`; `assertTarget` gains the HoverHelp arm between the direct-href and details arms:
 
 ```ts
 const hoverTrigger = root.locator("button[aria-expanded]").first();
@@ -566,17 +570,19 @@ if ((await hoverTrigger.count()) > 0) {
 
 (then falls through to the existing nested-link assertion `:231-236`, which resolves the now-visible Learn-more inside the root). The legend row (`--legend`) is a direct `<a>` → first arm, untouched.
 
-- [ ] **Step 11.6: Two projects.** In `playwright.config.ts`, the `help-docs` project (`:154-168`) keeps iPhone 14 + gains `WALKER_VIEWPORT` via... Playwright projects can't set env per-project — instead pass viewport identity through `use: { }` custom field? Use the supported mechanism: `metadata` is not exposed to tests; the robust pattern in this repo: name-based — read `test.info().project.name` inside the spec (`const vp = test.info().project.name === "help-docs-desktop" ? "desktop" : "mobile"`). BUT row selection happens at module level (test registration), where `test.info()` is unavailable. Resolution: register ALL non-deferred rows and `test.skip()` per-row at runtime when the project's viewport doesn't match:
+- [ ] **Step 11.6: Two projects, runtime skip.** Project identity is only available inside a test (`test.info().project.name`), never at module load — hence the unconditional registration:
 
 ```ts
 for (const row of allWalkableRows) {
   test(`${row.testid} resolves on ${row.sourceRoute}`, async ({ page }) => {
     const vp = test.info().project.name === "help-docs-desktop" ? "desktop" : "mobile";
-    test.skip(row.visibleAt !== "both" && row.visibleAt !== vp, `visibleAt=${row.visibleAt}`);
+    test.skip(!walksAt(row, vp), `visibleAt=${row.visibleAt} — not walked at ${vp}`);
     // …existing body
   });
 }
 ```
+
+A desktop-only row reports `skipped` on mobile and `passed`/`failed` on desktop — never absent from either report.
 
 Add the `help-docs-desktop` project: same `testMatch`/`dependencies`/`baseURL`/`locale`/`timezoneId`/`reducedMotion` as `help-docs`, but `viewport: { width: 1280, height: 800 }` and NO `devices["iPhone 14"]` spread. (`help-auth`/`help-mobile` specs in the shared `testMatch` are mobile-shaped — scope the desktop project's `testMatch` to `/deep-link-walker\.spec\.ts/` only.)
 
@@ -590,16 +596,17 @@ Add the `help-docs-desktop` project: same `testMatch`/`dependencies`/`baseURL`/`
 - Modify: `tests/e2e/help-docs-setup.ts` (after the `pnpm db:seed` spawnSync, `:16-19`)
 
 - [ ] **Step 12.1: Failing check:** add to `help-docs-setup.ts` (it is itself a Playwright setup "test") after seeding: query `shows` for `drive_file_id like 'seed-fixture:walker-%'` expecting 3 rows — run `pnpm test:e2e --project=help-docs-setup` → FAIL (0 rows).
-- [ ] **Step 12.2: Implement `supabase/seedWalkerFixtures.ts`.** Standalone tsx script, same `databaseUrl` resolution as `supabase/seed.ts:11-13`, applied via the same `execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", …])` pattern (`seed.ts:186`). It emits ONE transaction that: takes `pg_advisory_xact_lock(hashtext('show:' || <id>))` for each of the three drive_file_ids FIRST (mirroring `seedSql`, `seed.ts:517-523`), `delete`s any prior rows by those ids (idempotent re-run), then inserts three `shows` rows with `drive_file_id` values `seed-fixture:walker-pending-review` / `seed-fixture:walker-archived` / `seed-fixture:walker-drive-error`, distinct slugs (`walker-pending-review-2026` etc.), titles, and states: `last_sync_status='pending_review'` + `archived=false` + `published=true`; `archived=true`; `last_sync_status='drive_error'` + `archived=false`. **Derive the full column list from `showInsertSql` (`supabase/seed.ts:192-244`)** — copy its INSERT shape and NOT-NULL columns exactly (dates, timestamps, parse payload columns) so the rows satisfy the live schema; do not invent a slimmer insert. Also insert one unresolved `admin_alerts` row targeting the EXISTING rpas fixture show (so row 8's alerts section renders on the per-show walk — column shape: copy an existing `admin_alerts` insert from the codebase, `rg -n "admin_alerts" supabase/ lib/ --type ts | head`). Run it from `help-docs-setup.ts` via `spawnSync("pnpm", ["dlx", "tsx", "supabase/seedWalkerFixtures.ts"], …)` with the same status assertion as the `db:seed` call.
+- [ ] **Step 12.2: Implement `supabase/seedWalkerFixtures.ts`.** Standalone tsx script, same `databaseUrl` resolution as `supabase/seed.ts:11-13`, applied via the same `execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", …])` pattern (`seed.ts:186`). It emits ONE transaction that: takes `pg_advisory_xact_lock(hashtext('show:' || <id>))` for each of the three drive_file_ids FIRST, **in `drive_file_id`-sorted (ascending) order** — the same order the prefix-wide sweep in Step 12.3 produces, so the two transactions can never acquire overlapping lock sets in opposite orders (R7 deadlock fix) — then `delete`s any prior rows by those ids (idempotent re-run), then inserts three `shows` rows with `drive_file_id` values `seed-fixture:walker-pending-review` / `seed-fixture:walker-archived` / `seed-fixture:walker-drive-error`, distinct slugs (`walker-pending-review-2026` etc.), titles, and states: `last_sync_status='pending_review'` + `archived=false` + `published=true`; `archived=true`; `last_sync_status='drive_error'` + `archived=false`. **Derive the full column list from `showInsertSql` (`supabase/seed.ts:192-244`)** — copy its INSERT shape and NOT-NULL columns exactly (dates, timestamps, parse payload columns) so the rows satisfy the live schema; do not invent a slimmer insert. Also insert one unresolved `admin_alerts` row targeting the EXISTING rpas fixture show (so row 8's alerts section renders on the per-show walk — column shape: copy an existing `admin_alerts` insert from the codebase, `rg -n "admin_alerts" supabase/ lib/ --type ts | head`). Run it from `help-docs-setup.ts` via `spawnSync("pnpm", ["dlx", "tsx", "supabase/seedWalkerFixtures.ts"], …)` with the same status assertion as the `db:seed` call.
 - [ ] **Step 12.3: Lock the base cleanup (spec §6.3 R6 CRITICAL — do this BEFORE the isolation check).** `seed.ts`'s `seedSql` deletes `shows` by `like 'seed-fixture:%'` (`seed.ts:530-537`) while locking only the enumerated base fixture ids (`:517-523`) — with walker rows present that wildcard delete mutates `shows` rows whose locks it does not hold (invariant 2 P0). In `seedSql`, IMMEDIATELY after the enumerated lock block and before any delete, add:
 
 ```sql
 select pg_advisory_xact_lock(hashtext('show:' || drive_file_id))
   from public.shows
- where drive_file_id like 'seed-fixture:%';
+ where drive_file_id like 'seed-fixture:%'
+ order by drive_file_id;
 ```
 
-(one transaction, single-holder — it locks every row the wildcard can touch, including future prefix-named fixtures). Add a DB-free structural pin to `tests/db/seed-restage-fixture.test.ts` (the existing source-level seed.ts test): the seed source must contain a prefix-wide `pg_advisory_xact_lock` select that textually precedes the `like 'seed-fixture:%'` delete. Concrete failure mode: someone removes the sweep or reorders it after the delete.
+(one transaction, single-holder — it locks every row the wildcard can touch, including future prefix-named fixtures; `order by drive_file_id` makes the acquisition order deterministic, matching the extension's sorted order — two transactions taking overlapping lock sets in different orders is the advisory-lock deadlock class, R7 CRITICAL). Add a DB-free structural pin to `tests/db/seed-restage-fixture.test.ts` (the existing source-level seed.ts test): (a) the seed source contains a prefix-wide `pg_advisory_xact_lock` select WITH `order by drive_file_id` that textually precedes the `like 'seed-fixture:%'` delete; (b) `supabase/seedWalkerFixtures.ts`'s lock statements appear in sorted `drive_file_id` order (parse its three lock lines, assert sorted). Concrete failure modes: sweep removed, reordered after the delete, ORDER BY dropped, or extension lock order drifting from sorted.
 
 - [ ] **Step 12.4:** `pnpm test:e2e --project=help-docs-setup` → PASS. Verify capture isolation: run `pnpm db:seed` alone and assert the walker rows are GONE (`psql … -c "select count(*) from shows where drive_file_id like 'seed-fixture:walker-%'"` → 0). If db:seed's cleanup does NOT remove them (prefix scope narrower than assumed), extend the extension script with a self-cleanup preamble AND add the locked delete to `seed.ts`'s cleanup — do not ship without this property.
 - [ ] **Step 12.5:** Commit: `test(e2e): walker-only locked seed extension + prefix-wide cleanup lock (invariant 2)`
@@ -701,7 +708,7 @@ jobs:
 ## Plan self-review record
 
 - **Spec coverage:** §3 → T1; §4.1 → T2; §4.2 → T3–T7; §4.3 → T3; §5 → T8; §6 → T11–T13; §7 → T9; §8 → T10; §9 → T15; §10 → T14; §11 (regen) → T16; §12–13 → throughout + T17. No uncovered spec section.
-- **Type consistency:** `visibleAt` union, `DEFERRED_TESTIDS: ReadonlySet<string>`, `rootTestId`/`learnMore` prop names, `walkerRoutes` export names (`rowsForViewport`/`routeForPure`/`prepKindFor`) used identically across T1/T2/T9/T11.
+- **Type consistency:** `visibleAt` union, `DEFERRED_TESTIDS: ReadonlySet<string>`, `rootTestId`/`learnMore` prop names, `walkerRoutes` export names (`allWalkableRows`/`walksAt`/`routeForPure`/`prepKindFor`) used identically across T1/T2/T9/T11.
 - **Known sequencing constraint:** T9's meta-test intentionally red between T9 and T10 (dead carriers) — commits note it; if executing with per-task CI, reorder T10 before T9's commit or squash their commits.
 - **Layout-dimensions task:** none required — no fixed-dimension parent/child relationships introduced (legend is normal flow; popovers absolute overlays). Declared per writing-plans rule.
 - **Transition audit:** folded into T3 (legend = the only new visual-state element; declared instant; compound case stated). No `AnimatePresence` introduced anywhere in the milestone.
