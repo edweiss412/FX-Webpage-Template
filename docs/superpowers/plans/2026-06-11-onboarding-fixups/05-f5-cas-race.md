@@ -325,14 +325,14 @@ test("alert-writer failure does not mask the 409 (alert is best-effort, the refu
   1. **Master spec §12.4 row** — insert directly under the `WIZARD_SESSION_SUPERSEDED` row (line 2796), same five-column shape:
 
      ```
-     | `WIZARD_SESSION_SUPERSEDED_RACE` | admin alert written after the wizard defer/ignore route aborts a stale-session mutation post-rollback (a newer wizard superseded the session mid-request) | "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled. Nothing was changed — continue in the active wizard tab." | — | Doug → continue in the active wizard tab |
+     | `WIZARD_SESSION_SUPERSEDED_RACE` | admin alert written after a wizard action route (retry, defer, or ignore) aborts a stale-session mutation post-rollback (a newer wizard superseded the session mid-request) | "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab." | — | Doug → continue in the active wizard tab |
      ```
 
   2. **helpfulContext YAML appendix** (block opening at line 3031, `<!-- §12.4 helpfulContext appendix — machine-parseable -->`; existing `WIZARD_SESSION_SUPERSEDED:` entry at `:3056` is the neighbor):
 
      ```yaml
      WIZARD_SESSION_SUPERSEDED_RACE: "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, or ignore) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab."
-  // R33-1 copy-honesty test: assert the catalog/§12.4 copy for WIZARD_SESSION_SUPERSEDED_RACE contains NEITHER "rolled back in full" NOR "Nothing was lost"/"Nothing was changed" — retry residue is accepted+swept, so absolute-rollback claims are false for retry.
+  // R33-1 copy-honesty test: assert the catalog/§12.4 copy for WIZARD_SESSION_SUPERSEDED_RACE contains NEITHER "rolled back in full" NOR "Nothing was lost"/"Nothing was changed" — scanned across ALL Doug-reaching fields (§12.4 cell, dougFacing, helpfulContext, longExplanation, title) — retry residue is accepted+swept, so absolute-rollback claims are false for retry.
      ```
 
   3. `pnpm gen:spec-codes` → regenerated `lib/messages/__generated__/spec-codes.ts` staged in the same commit. (`CODE_SCENARIOS` in `tests/cross-cutting/code-scenarios.ts` derives automatically from `SPEC_CODES` keys — no manual scenario row.)
@@ -341,7 +341,7 @@ test("alert-writer failure does not mask the 409 (alert is best-effort, the refu
      ```ts
        WIZARD_SESSION_SUPERSEDED_RACE: {
          code: "WIZARD_SESSION_SUPERSEDED_RACE",
-         dougFacing: "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled. Nothing was changed — continue in the active wizard tab.",
+         dougFacing: "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
          crewFacing: null,
          followUp: "Doug → continue in the active wizard tab",
          helpfulContext: "<same string as the YAML appendix, verbatim — x1 deep-compares field-by-field>",
