@@ -642,18 +642,21 @@ Add the `help-docs-desktop` project: same `testMatch`/`dependencies`/`baseURL`/`
 - [ ] **Step 12.3: Lock the base cleanup (spec §6.3 R6 CRITICAL — do this BEFORE the isolation check).** `seed.ts`'s `seedSql` deletes `shows` by `like 'seed-fixture:%'` (`seed.ts:530-537`) while locking only the enumerated base fixture ids (`:517-523`) — with walker rows present that wildcard delete mutates `shows` rows whose locks it does not hold (invariant 2 P0). In `seedSql`, IMMEDIATELY after the enumerated lock block and before any delete, add:
 
 ```sql
-select pg_advisory_xact_lock(hashtext('show:' || drive_file_id))
-  from (
+create temporary table _locked_seed_ids on commit drop as
+  select drive_file_id from (
     select drive_file_id from public.shows where drive_file_id like 'seed-fixture:%'
     union
     select drive_file_id from public.pending_syncs where drive_file_id like 'seed-fixture:%'
     union
     select drive_file_id from public.pending_ingestions where drive_file_id like 'seed-fixture:%'
-    order by drive_file_id
   ) ids;
+
+select pg_advisory_xact_lock(hashtext('show:' || drive_file_id))
+  from _locked_seed_ids
+ order by drive_file_id;
 ```
 
-(one transaction, single-holder — the UNION covers every locked table the cleanup prefix-deletes, because a `pending_syncs`-only fixture like `seed-fixture:walker-first-seen` has no `shows` row and a shows-only sweep would miss it, R11 CRITICAL; `sync_audit` is prefix-deleted too but is not an invariant-2 locked table; `order by drive_file_id` makes the acquisition order deterministic, matching the extension's sorted order — two transactions taking overlapping lock sets in different orders is the advisory-lock deadlock class, R7). Add a DB-free structural pin to `tests/db/seed-restage-fixture.test.ts` (the existing source-level seed.ts test): (a) the seed source contains a prefix-wide `pg_advisory_xact_lock` select WITH `order by drive_file_id` AND union arms for `shows`, `pending_syncs`, `pending_ingestions`, textually preceding the first `like 'seed-fixture:%'` delete; (b) `supabase/seedWalkerFixtures.ts` acquires exactly FOUR locks — the three show fixture ids plus `seed-fixture:walker-first-seen` — in sorted `drive_file_id` order (parse the lock lines, assert the set and the order). Concrete failure modes: sweep removed, reordered after the delete, ORDER BY dropped, a union arm dropped, the pending_syncs-only id missing from the extension's lock set, or extension lock order drifting from sorted.
+…and the three LOCKED-table deletes (`pending_syncs`, `pending_ingestions`, `shows` — `seed.ts:529-537`) change their predicates from `like 'seed-fixture:%'` to `in (select drive_file_id from _locked_seed_ids)` (R15: under READ COMMITTED, a row committed by a concurrent extension run between the sweep and a wildcard DELETE would be deleted without its lock; deleting by the locked snapshot means such a row simply survives this cleanup — correct, since the extension's own idempotent delete owns it. The non-locked `sync_audit` delete stays a plain wildcard). The UNION covers every locked table the cleanup touches because a `pending_syncs`-only fixture like `seed-fixture:walker-first-seen` has no `shows` row (R11); `order by drive_file_id` keeps acquisition order deterministic, matching the extension's sorted order (R7 deadlock class). Add a DB-free structural pin to `tests/db/seed-restage-fixture.test.ts` (the existing source-level seed.ts test): (a) the seed source materializes `_locked_seed_ids` with union arms for `shows`, `pending_syncs`, `pending_ingestions`, acquires `pg_advisory_xact_lock` over it WITH `order by drive_file_id`, all textually preceding the first locked-table delete; (b) NO locked-table delete uses a naked `like 'seed-fixture:%'` predicate — each must reference `_locked_seed_ids` (the `sync_audit` wildcard is the sole allowed exception); (c) `supabase/seedWalkerFixtures.ts` acquires exactly FOUR locks — the three show fixture ids plus `seed-fixture:walker-first-seen` — in sorted `drive_file_id` order (parse the lock lines, assert the set and the order). Concrete failure modes: sweep removed or reordered after a delete, ORDER BY dropped, a union arm dropped, a locked-table delete reverting to the naked wildcard (the R15 race), the pending_syncs-only id missing from the extension's lock set, or extension lock order drifting from sorted.
 
 - [ ] **Step 12.4:** `pnpm test:e2e --project=help-docs-setup` → PASS. Verify capture isolation: run `pnpm db:seed` alone and assert the walker rows are GONE (`psql … -c "select count(*) from shows where drive_file_id like 'seed-fixture:walker-%'"` → 0). If db:seed's cleanup does NOT remove them (prefix scope narrower than assumed), extend the extension script with a self-cleanup preamble AND add the locked delete to `seed.ts`'s cleanup — do not ship without this property.
 - [ ] **Step 12.5:** Commit: `test(e2e): walker-only locked seed extension + prefix-wide cleanup lock (invariant 2)`
