@@ -35,4 +35,4 @@ External attestors (fresh subagents, not the implementing session); v3 preflight
 - **Spec:** Codex R1-R4 → APPROVED R4 (R1 discriminated observable probe; R2 `isAuthSessionMissingError` returned-error classification; R3 sign-in §4.1.5 alignment closing the outage-visibility chain).
 - **Plan:** Codex R1-R2 → APPROVED R2 (R1 behavioral registry rows in the meta-test itself; crew-facing catalog copy in the sign-in regression test).
 - **Per-task:** two-stage subagent reviews; substantive catches: T3 focus-ring offset (`56422413`), T4 stranded-hop-2 substring false-pass (`a36389c4`).
-- **Whole-milestone:** (filled at convergence)
+- **Whole-milestone:** Codex fresh-eyes, branch vs origin/main → **APPROVE R1**, no material findings (auth semantics, redirect-loop, caching, degradation all probed). Gate fixpoint holds: no UI mutations after the 8531c8c9 re-attestations.
