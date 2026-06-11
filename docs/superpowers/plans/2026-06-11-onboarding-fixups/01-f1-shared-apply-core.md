@@ -1011,11 +1011,15 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
   3. **DELETE** `insertShadowAudit` (`:308-336`) — the core writes the audit — and the bespoke UPDATE inside the old `applyShadow`.
   4. Narrow `publishAppliedWizardShows` (`:338-356`):
      ```sql
-     update public.shows
+     update public.shows s
         set published = true
-      where id in (select created_show_id from public.onboarding_scan_manifest
-                    where wizard_session_id = $1::uuid and status = 'applied'
-                      and created_show_id is not null)
+       from public.onboarding_scan_manifest m
+      where m.wizard_session_id = $1::uuid
+        and m.status = 'applied'
+        and m.created_show_id = s.id
+        and m.drive_file_id = s.drive_file_id   -- R48-1: provenance binding — never trust created_show_id bare
+     -- R48-1 regression (Task 1.5 RED list): seed a manifest row whose created_show_id points at an
+     -- UNRELATED unpublished show (mismatched drive_file_id) → that show stays unpublished.
      ```
      Existing-show shadow applies PRESERVE the live `published` value automatically — the payload never carries `published` and `applyShowSnapshot`'s UPDATE arm (`runScheduledCronSync.ts:1018-1072`) never writes it.
   5. Update `tests/onboarding/finalize-cas.test.ts` fakes: shadow fixture payloads gain `triggered_review_items`/`base_modified_time`; `withRowTx` passes a spy `pipelineTx`; the fake-DB CAS-fail classifier keys on the equality predicate now.
