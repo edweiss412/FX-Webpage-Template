@@ -643,12 +643,29 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     const parsed = parseShadowPayloadForApply(rest);
     expect(parsed).toEqual({ ok: false, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" });
   });
+
+  test("MISSING/corrupt parse_result is REFUSED, never consumed-as-OK (the legacy branch's silent-success bug)", () => {
+    // Concrete failure mode: the legacy applyShadow consumed a parse_result-less shadow
+    // (deleteAppliedShadowRow + OK) — the damaged shadow DISAPPEARS during finalize-cas,
+    // leaving stale live data with no retry surface and a success report.
+    const { parse_result: _omit, ...rest } = payload();
+    expect(parseShadowPayloadForApply(rest)).toEqual({ ok: false, code: "STAGED_PARSE_RESULT_CORRUPT" });
+    expect(parseShadowPayloadForApply(payload({ parse_result: "not-decodable-{{{" })))
+      .toEqual({ ok: false, code: "STAGED_PARSE_RESULT_CORRUPT" });
+  });
+
+  test("missing staged_id or staged_modified_time is REFUSED (audit row + holds binding require both)", () => {
+    const { staged_id: _a, ...noId } = payload();
+    expect(parseShadowPayloadForApply(noId)).toEqual({ ok: false, code: "STAGED_PARSE_RESULT_CORRUPT" });
+    const { staged_modified_time: _b, ...noStaged } = payload();
+    expect(parseShadowPayloadForApply(noStaged)).toEqual({ ok: false, code: "STAGED_PARSE_RESULT_CORRUPT" });
+  });
 });
 ```
 
 - [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/shadowPayload.test.ts` — expected: module not found.
 - [ ] **Implementation:**
-  1. `lib/onboarding/shadowPayload.ts`: `parseShadowPayloadForApply(payload: Record<string, unknown>)` → `{ ok: true; triggeredReviewItems: TriggeredReviewItem[]; mi11Items: Mi11Item[]; reviewerChoices: ReviewerChoice[]; baseModifiedTime: string | null /* ISO or null only for explicit jsonb null */; … } | { ok: false; code: "STAGED_REVIEW_ITEMS_CORRUPT" | "STAGED_PARSE_OUTDATED_AT_PHASE_D" }`. Rules: `triggered_review_items` key ABSENT → refuse `STAGED_REVIEW_ITEMS_CORRUPT`; present → `parseTriggeredReviewItems` (`lib/staging/triggeredReviewItems.ts`), `!ok` → refuse; `mi11Items = items.filter((i) => i.invariant === "MI-11")`; `base_modified_time` key ABSENT → refuse `STAGED_PARSE_OUTDATED_AT_PHASE_D` (a `null` value is legal — show had a null watermark at staging); `reviewer_choices` via `coerceJsonbArray`. Both refusal codes are already §12.4-cataloged (`catalog.ts:1252`, `:1910`) — no three-lockstep change.
+  1. `lib/onboarding/shadowPayload.ts`: `parseShadowPayloadForApply(payload: Record<string, unknown>)` → `{ ok: true; parseResult: ParseResult; stagedId: string; stagedModifiedTime: string; triggeredReviewItems: TriggeredReviewItem[]; mi11Items: Mi11Item[]; reviewerChoices: ReviewerChoice[]; baseModifiedTime: string | null /* ISO or null only for explicit jsonb null */ } | { ok: false; code: "STAGED_REVIEW_ITEMS_CORRUPT" | "STAGED_PARSE_RESULT_CORRUPT" | "STAGED_PARSE_OUTDATED_AT_PHASE_D" }`. Rules: `parse_result` key ABSENT/null → refuse `STAGED_PARSE_RESULT_CORRUPT` (NEVER consume-and-OK); present → `asParseResult` in try/catch, `JsonbCoercionError` → refuse `STAGED_PARSE_RESULT_CORRUPT`; `staged_id` ABSENT/non-string or `staged_modified_time` ABSENT/unparseable → refuse `STAGED_PARSE_RESULT_CORRUPT` (the apply core requires both for the audit row and the holds binding); `triggered_review_items` key ABSENT → refuse `STAGED_REVIEW_ITEMS_CORRUPT`; present → `parseTriggeredReviewItems` (`lib/staging/triggeredReviewItems.ts`), `!ok` → refuse; `mi11Items = items.filter((i) => i.invariant === "MI-11")`; `base_modified_time` key ABSENT → refuse `STAGED_PARSE_OUTDATED_AT_PHASE_D` (a `null` value is legal — show had a null watermark at staging); `reviewer_choices` via `coerceJsonbArray`. All three refusal codes are already §12.4-cataloged (`catalog.ts:1252`, `:1265`, `:1910`) — no three-lockstep change.
   2. `stageExistingShowShadow` (`finalize/route.ts:410-450`): payload `jsonb_build_object` gains `'triggered_review_items', $8::jsonb` and `'base_modified_time', $9::timestamptz` (both copied from the pending row BEFORE `deleteApprovedPending` runs — they come from the Task-1.3-widened `selectApprovedRows`); `applied_at_intent` changes from `now()` to `$10::timestamptz` = `wizard_approved_at` (R8-1: `applied_at_intent` snapshots the Apply click).
   3. Extend the Phase-B fake-DB test in `tests/onboarding/finalize.test.ts`: the existing-show path now asserts the recorded shadow payload (spy capture) contains `triggered_review_items` (deep-equal to the seeded row's items) and `base_modified_time`, and that `applied_at_intent` equals the seeded `wizard_approved_at` — NOT a `now()`-window assertion (anti-tautology: compare to the fixture instant).
 - [ ] **Run to pass:** `pnpm vitest run tests/onboarding/shadowPayload.test.ts tests/onboarding/finalize.test.ts`
@@ -664,7 +681,7 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
 - Create: `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` (real DB — moved here from Task 1.2 so it is written failing at this task's START and green by its END; no intentionally-red commit)
 - Modify: `tests/onboarding/finalize-cas.test.ts` (fake rows/withRowTx plumbing)
 
-**Concrete failure modes caught:** (a) the `<=` gate (`finalize-cas/route.ts:277`) applies from a baseline the reviewer never saw — live row advanced after staging but still `<= staged_modified_time` (spec §3.2 R21-1); (b) Phase D routes through the legacy whole-parse path and either throws P2-F7 (wedging finalize) or — worse — applies an MI-11 email ungated (spec §3.2 R4-2); (c) the bulk publish flip force-publishes a pre-existing `published=false` (archived/unpublished) show approved into a shadow — crew-visibility data exposure (spec §3.4 R18-1); (d) Phase D audit lacks `base_modified_time` / real provenance, breaking F2 Arm B's broken-writer-shape detection; (e) **mid-loop session-currency race** — Phase D today reads `app_settings` WITHOUT `FOR UPDATE` (`readSession`, `finalize-cas/route.ts:129-142`), applies each shadow in separately-COMMITTED row transactions (`:449-451`), and only detects supersession when `promoteSettings` returns null at the tail (`:460-461`): a scan/cleanup superseding the session mid-loop lets old-session shadow applies (children, feed, audit, shadow deletion, publish flip, deferral cleanup, `markFinalCasDone` is the only thing skipped) COMMIT before the 409 — durable old-session writes the operator believes were refused.
+**Concrete failure modes caught:** (a) the `<=` gate (`finalize-cas/route.ts:277`) applies from a baseline the reviewer never saw — live row advanced after staging but still `<= staged_modified_time` (spec §3.2 R21-1); (b) Phase D routes through the legacy whole-parse path and either throws P2-F7 (wedging finalize) or — worse — applies an MI-11 email ungated (spec §3.2 R4-2); (c) the bulk publish flip force-publishes a pre-existing `published=false` (archived/unpublished) show approved into a shadow — crew-visibility data exposure (spec §3.4 R18-1); (d) Phase D audit lacks `base_modified_time` / real provenance, breaking F2 Arm B's broken-writer-shape detection; (e) **mid-loop session-currency race** — Phase D today reads `app_settings` WITHOUT `FOR UPDATE` (`readSession`, `finalize-cas/route.ts:129-142`), applies each shadow in separately-COMMITTED row transactions (`:449-451`), and only detects supersession when `promoteSettings` returns null at the tail (`:460-461`): a scan/cleanup superseding the session mid-loop lets old-session shadow applies (children, feed, audit, shadow deletion, publish flip, deferral cleanup, `markFinalCasDone` is the only thing skipped) COMMIT before the 409 — durable old-session writes the operator believes were refused; (f) **damaged-shadow silent consumption** — the legacy `if (!row.payload.parse_result) { deleteAppliedShadowRow; return OK }` branch (`finalize-cas/route.ts:249-252`) CONSUMES a corrupt/incomplete shadow and reports it successful: no children applied, no audit, no operator-recovery state — the damaged shadow disappears during finalize-cas leaving stale live data with no retry surface, contradicting the fail-closed posture for corrupt Phase D payloads (spec §3.2 R2-1).
 
 - [ ] **Write failing test** `tests/onboarding/finalizeCasFullApply.db.test.ts` (real DB; drives `handleOnboardingFinalizeCas` with default `withTx`/`withRowTx`; seeds `shows_pending_changes` rows with the Task-1.4 payload shape; all expectations derived from the seeded payload fixtures):
 
@@ -729,6 +746,28 @@ test("(c) corrupt/missing items payload is REFUSED per-row, siblings continue (f
   expect((await sql`select 1 from public.shows_pending_changes where drive_file_id = 'drive-cas-3'`).length).toBe(1);
 });
 
+test("(c2) parse_result-less shadow is REFUSED per-row and RETAINED — never consumed-as-OK", async () => {
+  // Concrete failure mode: the legacy branch (finalize-cas/route.ts:249-252) deleted the shadow
+  // and reported OK — the damaged shadow disappears during finalize-cas, leaving stale live data
+  // with NO retry surface and a green finalize. Seed: shadow for drive-cas-6 whose payload lacks
+  // parse_result (items/base/staged_id present); a sibling complete benign shadow for drive-cas-7.
+  const res = await handleOnboardingFinalizeCas(request(), deps);
+  expect(res.status).toBe(409);                                       // route's blocked contract
+  const rows = ((await res.json()) as { per_row: Array<{ drive_file_id: string; code: string }> }).per_row;
+  expect(rows.find((r) => r.drive_file_id === "drive-cas-6")!.code).toBe("STAGED_PARSE_RESULT_CORRUPT");
+  expect(rows.find((r) => r.drive_file_id === "drive-cas-7")!.code).toBe("OK"); // sibling continued
+  // Shadow RETAINED (the operator-recovery surface), and NOTHING persisted for that show:
+  expect((await sql`select 1 from public.shows_pending_changes where drive_file_id = 'drive-cas-6'`).length).toBe(1);
+  const show6 = one(await sql`select id, published from public.shows where drive_file_id = 'drive-cas-6'`);
+  expect((await sql`select name from public.crew_members where show_id = ${show6.id}`).map((r) => r.name).sort())
+    .toEqual(SEEDED_CAS6_LIVE_CREW.map((m) => m.name).sort());        // children untouched
+  expect((await sql`select 1 from public.sync_audit where drive_file_id = 'drive-cas-6'`).length).toBe(0);
+  expect(show6.published).toBe(SEEDED_CAS6_PUBLISHED);                // no publish flip
+  // Deferral cleanup did NOT run (blocked batch never reaches deleteWizardDeferrals, :459):
+  expect((await sql`select 1 from public.deferred_ingestions where wizard_session_id = ${SESSION}`).length)
+    .toBe(SEEDED_SESSION_DEFERRAL_COUNT);
+});
+
 test("(d) publish flip is narrowed to session-CREATED rows: pre-existing published=false show stays unpublished", async () => {
   // Seed: manifest row A applied with created_show_id = first-seen show (published=false from Phase B);
   // manifest row B applied with created_show_id NULL whose show is a pre-existing published=false
@@ -776,17 +815,20 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
   - Seed: a live show `drive-coexist-1` (synced, watermark T0); a LIVE `pending_ingestions` row for `drive-coexist-1` (`wizard_session_id null`, `last_error_code 'PARSE_ERROR'`); a LIVE `pending_syncs` staged row for `drive-coexist-1` (`wizard_session_id null`, `base_modified_time` = T0); a wizard session with an approved existing-show row for the SAME `drive_file_id` (Phase B path) staged at T1.
   - Drive Phase B (`handleOnboardingFinalize` with injected `fetchDriveFileMetadata` returning T1) then Phase D (`handleOnboardingFinalizeCas`).
   - Assert AFTER Phase D: the live `pending_ingestions` row still exists (`select … where drive_file_id='drive-coexist-1' and wizard_session_id is null` → 1 row); the live `pending_syncs` row still exists (same predicate → 1 row); AND `crew_members` rows exist matching the shadow's parse (the apply actually ran — anti-tautology: without this, the pre-rewire bespoke UPDATE would pass the survival assertions trivially). **Concrete failure mode:** the unconditional `deleteLivePendingIngestion` / 6L delete reached the live partition from a wizard action.
-- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — expected failures: (a) crew assertion 0 rows + no feed row + `base_modified_time` null in audit; (b) 200 instead of 409 (the `<=` gate applies it); (c) `OK` for the corrupt row and Ada's email CHANGED (fail-open reproduced); (d) pre-existing show force-published; (e2) fails with order `["flip", "finalize"]` — against the current no-FOR-UPDATE `readSession`, the mid-loop flip does NOT block, S1's shadow applies commit, and the tail CAS 409s after the fact (the durable-old-session-writes bug demonstrated live; e1 alone is NOT a sufficient red signal — current code also refuses a pre-flip read at `readSession` time); coexistence test fails on its crew-count assertion (bespoke writers drop children — the origin incident reproduced).
+- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — expected failures: (a) crew assertion 0 rows + no feed row + `base_modified_time` null in audit; (b) 200 instead of 409 (the `<=` gate applies it); (c) `OK` for the corrupt row and Ada's email CHANGED (fail-open reproduced); (c2) fails with `OK` for drive-cas-6 AND the shadow-retained assertion at 0 rows (the legacy branch consumed it — silent-success bug reproduced); (d) pre-existing show force-published; (e2) fails with order `["flip", "finalize"]` — against the current no-FOR-UPDATE `readSession`, the mid-loop flip does NOT block, S1's shadow applies commit, and the tail CAS 409s after the fact (the durable-old-session-writes bug demonstrated live; e1 alone is NOT a sufficient red signal — current code also refuses a pre-flip read at `readSession` time); coexistence test fails on its crew-count assertion (bespoke writers drop children — the origin incident reproduced).
 - [ ] **Implementation:**
   0. **Session-currency lock UP FRONT (spec §7 global lock-order rule: `app_settings` is acquired BEFORE any per-show advisory lock; the inverse never happens).** `readSession` (`finalize-cas/route.ts:129-142`) gains `for update` on its `app_settings` SELECT — making it the authoritative, serializing currency check, taken in `runFinalizeCas` BEFORE any per-row shadow apply and held by the outer `withTx` transaction through the tail `promoteSettings` CAS (`:367-393`, which already UPDATEs the same row). A pre-superseded read (null / no matching checkpoint) hits the EXISTING typed aborts (`WIZARD_FINALIZE_CHECKPOINT_MISSING` / `WIZARD_FINALIZE_BATCHES_PENDING`) before any row transaction starts; a MID-flight supersession attempt now BLOCKS on the row lock until Phase D commits or aborts — the old detect-at-tail-only window (`promoteSettings` null at `:460-461`) is closed. Lock-order consistency: the per-row `withRowTx` connections take per-show advisory locks WHILE the outer connection holds `app_settings` — that is the sanctioned `app_settings → per-show` order (`sessionLifecycle.ts:331-374` precedent); no path here takes `app_settings` while holding a per-show lock, so the R4-1 deadlock inversion cannot occur. Mirrors `readActiveSession`'s existing FOR UPDATE on the Phase B side (`finalize/route.ts:171-181`).
   1. `FinalizeCasRouteDeps.withRowTx` gains the `pipelineTx` second argument exactly as Task 1.3 step 6 (factory `makeSyncPipelineTx` over the same raw tx that took the lock at `:103`).
   2. Rewrite `applyShadow` (`:241-306`):
      ```ts
      async function applyShadow(tx, pipelineTx, row): Promise<ShadowApplyResult> {
-       if (!row.payload.parse_result) { await deleteAppliedShadowRow(tx, row); return ok; } // unchanged legacy no-op
+       // NO legacy `!parse_result → deleteAppliedShadowRow + OK` branch (R8 finding 1): a
+       // parse_result-less shadow used to be CONSUMED and reported successful — the damaged
+       // shadow disappeared during finalize-cas leaving stale live data with no retry surface.
+       // The parser fails it closed instead (shadow RETAINED, typed per-row code, siblings continue):
        const parsed = parseShadowPayloadForApply(row.payload);
        if (!parsed.ok) return { drive_file_id: row.drive_file_id, code: parsed.code };       // shadow retained
-       const parseResult = asParseResult(row.payload.parse_result);
+       const parseResult = parsed.parseResult;
        const live = one(await tx.query(`select id, last_seen_modified_time, diagrams
                                           from public.shows where drive_file_id = $1`, [row.drive_file_id]));
        if (!live) return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
@@ -803,8 +845,8 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
          parseResult,
          triggeredReviewItems: parsed.triggeredReviewItems,
          reviewerChoices: parsed.reviewerChoices,
-         stagedId: row.payload.staged_id!,
-         stagedModifiedTime: normalizeTimestamptz(row.payload.staged_modified_time)!, // holds baseModifiedTime analogue (spec §3.2)
+         stagedId: parsed.stagedId,
+         stagedModifiedTime: parsed.stagedModifiedTime,                               // holds baseModifiedTime analogue (spec §3.2)
          baseModifiedTime: parsed.baseModifiedTime,                                   // → sync_audit.base_modified_time
          appliedByEmail: row.applied_by_email,
          appliedAt: normalizeTimestamptz(row.applied_at_intent),                      // = wizard_approved_at snapshot (T1.4)
@@ -820,7 +862,7 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
        return { drive_file_id: row.drive_file_id, code: OK_CODE };
      }
      ```
-     `ShadowApplyResult` code union widens to include `"STAGED_REVIEW_ITEMS_CORRUPT"`. The per-row loop (`:449-456`) and best-effort posture are UNCHANGED (ratified, spec §3.2 R6-1 — do not relitigate); the blocked→409 top-level code stays `STAGED_PARSE_OUTDATED_AT_PHASE_D` with the typed `per_row` array as the precise surface (no new §12.4 code).
+     `ShadowApplyResult` code union widens to include `"STAGED_REVIEW_ITEMS_CORRUPT"` and `"STAGED_PARSE_RESULT_CORRUPT"` (both §12.4-cataloged, `catalog.ts:1252`/`:1265`). The per-row loop (`:449-456`) and best-effort posture are UNCHANGED (ratified, spec §3.2 R6-1 — do not relitigate); the blocked→409 top-level code stays `STAGED_PARSE_OUTDATED_AT_PHASE_D` with the typed `per_row` array as the precise surface (no new §12.4 code).
   3. **DELETE** `insertShadowAudit` (`:308-336`) — the core writes the audit — and the bespoke UPDATE inside the old `applyShadow`.
   4. Narrow `publishAppliedWizardShows` (`:338-356`):
      ```sql
