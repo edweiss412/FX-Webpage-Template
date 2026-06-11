@@ -68,6 +68,12 @@ const infraMock = vi.hoisted(() => ({
   throwOnGetUser: false,
   throwOnRpc: false,
   throwOnFrom: false,
+  // When non-null, the returned client's auth.getUser RESOLVES with
+  // { data: { user: null }, error: <this object> } — exercises the
+  // returned-error (not thrown) Supabase boundary so behavioral rows
+  // can pin returned-missing vs returned-non-missing classification
+  // (root-landing spec §4.1.3).
+  getUserReturnedError: null as null | Record<string, unknown>,
 }));
 
 function makeThrowingClient() {
@@ -76,6 +82,9 @@ function makeThrowingClient() {
       getUser: async () => {
         if (infraMock.throwOnGetUser) {
           throw new Error("META: simulated getUser infrastructure fault");
+        }
+        if (infraMock.getUserReturnedError !== null) {
+          return { data: { user: null }, error: infraMock.getUserReturnedError };
         }
         return { data: { user: null }, error: null };
       },
@@ -127,6 +136,7 @@ beforeEach(() => {
   infraMock.throwOnGetUser = false;
   infraMock.throwOnRpc = false;
   infraMock.throwOnFrom = false;
+  infraMock.getUserReturnedError = null;
 });
 
 const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
@@ -138,6 +148,7 @@ const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "lib/auth/picker/resetPickerEpoch.ts",
   "lib/auth/picker/rotateShareToken.ts",
   "lib/auth/picker/selectIdentity.ts",
+  "lib/auth/rootSessionProbe.ts",
 ] as const;
 
 const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE =
@@ -196,6 +207,14 @@ describe("META infra-failure contract", () => {
       const source = readFileSync("lib/auth/picker/resolvePickerSelection.ts", "utf8");
       expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+authClient\.rpc\("auth_email_canonical"\)/);
       expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("crew_members"\)[\s\S]*?\.select\("email"\)/);
+    });
+
+    test("rootSessionProbe destructures getUser and classifies via isAuthSessionMissingError", () => {
+      const source = readFileSync("lib/auth/rootSessionProbe.ts", "utf8");
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+supabase\.auth\.getUser\(\)/,
+      );
+      expect(source).toMatch(/isAuthSessionMissingError\(error\)/);
     });
 
     test("registered Supabase client constructors are inside try blocks", () => {
@@ -363,4 +382,41 @@ describe("META infra-failure contract", () => {
     });
   });
 
+  // Root-landing spec §4.1.3 — the public `/` landing's session probe.
+  // Four behavioral rows pinned HERE (not only in the helper's unit
+  // file, tests/auth/rootSessionProbe.test.ts) BY DESIGN: the registry
+  // gate must fail on a collapse regression even if the unit file is
+  // renamed or skipped (root-landing plan R1-P-F1).
+  describe("rootSessionProbe behavioral contract", () => {
+    test("server-client construction throw → infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { rootSessionProbe } = await import("@/lib/auth/rootSessionProbe");
+      await expect(rootSessionProbe()).resolves.toMatchObject({ kind: "infra_error" });
+    });
+
+    test("getUser throw → infra_error", async () => {
+      infraMock.throwOnGetUser = true;
+      const { rootSessionProbe } = await import("@/lib/auth/rootSessionProbe");
+      await expect(rootSessionProbe()).resolves.toMatchObject({ kind: "infra_error" });
+    });
+
+    test("returned AuthSessionMissingError → anonymous (NOT infra)", async () => {
+      infraMock.getUserReturnedError = {
+        name: "AuthSessionMissingError",
+        message: "META: simulated missing session",
+      };
+      const { rootSessionProbe } = await import("@/lib/auth/rootSessionProbe");
+      await expect(rootSessionProbe()).resolves.toEqual({ kind: "anonymous" });
+    });
+
+    test("returned NON-missing error → infra_error (never collapsed to anonymous)", async () => {
+      infraMock.getUserReturnedError = {
+        name: "AuthApiError",
+        message: "META: simulated auth-server fault",
+        status: 500,
+      };
+      const { rootSessionProbe } = await import("@/lib/auth/rootSessionProbe");
+      await expect(rootSessionProbe()).resolves.toMatchObject({ kind: "infra_error" });
+    });
+  });
 });

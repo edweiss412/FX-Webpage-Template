@@ -37,6 +37,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { isAdminSession } from "@/lib/auth/isAdminSession";
+import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { validateNextParam } from "@/lib/auth/validateNextParam";
 import type { MessageCode } from "@/lib/messages/catalog";
@@ -90,9 +91,11 @@ export default async function SignInPage({
   // block, escaping into Next's generic error surface. Wrap both.
   // Treat any throw as infra: render the sign-in page with the
   // ADMIN_SESSION_LOOKUP_FAILED block via forcedErrorCode below.
-  // Returned errors retain the existing graceful-degradation behavior
-  // (fall through to render CTA) since those represent transient
-  // unauthenticated states more than "infra is broken."
+  // Returned MISSING-SESSION errors retain the existing
+  // graceful-degradation behavior (fall through to render CTA) since
+  // those represent transient unauthenticated states; returned
+  // NON-missing errors are forced to the cataloged block below
+  // (root-landing spec §4.1.5).
   type GetUserResult = Awaited<
     ReturnType<Awaited<ReturnType<typeof createSupabaseServerClient>>["auth"]["getUser"]>
   >;
@@ -113,6 +116,14 @@ export default async function SignInPage({
   }
   const data = getUserResult?.data;
   const error = getUserResult?.error;
+  // Spec §4.1.5 (root-landing R3): a RETURNED non-missing getUser error is
+  // auth infrastructure failing, not "no session" — surface the same
+  // cataloged block the thrown path gets (isAdminSession discipline,
+  // lib/auth/isAdminSession.ts:30-35). Missing-session returned errors
+  // keep the existing fall-through-to-CTA behavior.
+  if (!infraThrew && error && !isAuthSessionMissingError(error)) {
+    forcedErrorCode = "ADMIN_SESSION_LOOKUP_FAILED";
+  }
   if (!infraThrew && !error && data?.user) {
     let redirectPath: string | null = validatedNext;
     if (isAdminPath(redirectPath)) {
