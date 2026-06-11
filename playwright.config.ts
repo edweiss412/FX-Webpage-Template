@@ -167,6 +167,27 @@ export default defineConfig({
         viewport: { width: 390, height: 844 },
       },
     },
+    {
+      // M12.12 Task 11: desktop pass of the deep-link affordance walker.
+      // Same server/setup as help-docs but a 1280x800 desktop viewport (no
+      // iPhone device spread) so desktop-only matrix rows (visibleAt:
+      // "desktop", e.g. the dashboard needs-attention inbox tooltip) are
+      // actually exercised — the walker skips rows per walksAt() at runtime.
+      // ONLY the walker spec runs here: the help-auth / help-mobile specs in
+      // the shared help-docs testMatch are mobile-shaped.
+      name: "help-docs-desktop",
+      testMatch: /deep-link-walker\.spec\.ts/,
+      dependencies: ["help-docs-setup"],
+      use: {
+        baseURL: "http://localhost:3004",
+        contextOptions: {
+          reducedMotion: "reduce",
+        },
+        locale: "en-US",
+        timezoneId: "America/New_York",
+        viewport: { width: 1280, height: 800 },
+      },
+    },
   ],
   webServer: [
     {

@@ -1,37 +1,24 @@
 import { expect, test, type Page } from "@playwright/test";
-import { AFFORDANCE_MATRIX, type ConcreteRow } from "@/app/help/_affordanceMatrix";
+import { type ConcreteRow } from "@/app/help/_affordanceMatrix";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
+import { allWalkableRows, prepKindFor, routeForPure, walksAt } from "./helpers/walkerRoutes";
 
 const BASE_URL = "http://localhost:3004";
 const HELP_DOCS_WIZARD_SESSION_ID = "22222222-2222-4222-8222-222222222222";
 
-// SKIP set for matrix concrete rows whose host UI is deferred to a follow-up
-// admin-UX milestone (per M11 Phase G hybrid disposition + DEFERRED.md
-// entries M11-G-D-1/D-2/D-3). The HelpTooltip / inline-tooltip surface for
-// each of these is NOT shipped at v1; the matrix row stays canonical so
-// future re-enable is a single-commit removal of its testid from this set +
-// shipping the affordance. Filing pattern matches Phase F's M11-F-D1 and
-// Phase E's M11-E-D5 — concrete re-open triggers documented in DEFERRED.md.
-const DEFERRED_TESTIDS = new Set<string>([
-  // SKIP: M11-G-D-1 — re-enable when ActiveShowsPanel row badge gains a
-  // HoverCard-pattern tooltip surface (admin-UX polish milestone OR
-  // operator feedback flags missing context on the staged-changes badge).
-  "help-affordance--dashboard-restage-badge--tooltip",
-  // SKIP: M11-G-D-2 — re-enable when StagedReviewCard gains a card-level
-  // header tooltip (multi-instance positioning + per-card affordance UX
-  // pass needed; not a single-line addition).
-  "help-affordance--per-show-restage-card--tooltip",
-  // SKIP: M11-G-D-3 — re-enable when PreviewBanner gains an inline
-  // tooltip (sticky-banner placement + dismissal UX + mobile flow design
-  // needed; non-trivial; admin-UX polish milestone).
-  "help-affordance--preview-banner--tooltip",
-]);
+// Fixed staged_id of the locked-seed first-seen fixture row. The walker is
+// READ-ONLY on locked tables (plan-wide invariant 2): the pending_syncs row
+// is seeded by the locked seed extension with
+// drive_file_id = "seed-fixture:walker-first-seen" — never written here.
+const FIRST_SEEN_STAGED_ID = "11111111-1111-4111-8111-111111111111";
 
-const concreteRows = AFFORDANCE_MATRIX.filter((row): row is ConcreteRow =>
-  row.kind === "concrete" && !DEFERRED_TESTIDS.has(row.testid),
-);
+// Base-seed RPAS fixture slug (scripts/help-screenshots.manifest.ts:26). The
+// matrix's `rpas-central-2026` sourceRoute segment is only a placeholder
+// TOKEN; the real seeded slug is looked up — pinned, not latest-by-sync —
+// so an unrelated newer show can't hijack the walker's fixture routes.
+const FIXTURE_SHOW_SLUG = "2026-03-retirement-plan-advisor-institute-central-2026";
 
 type FixtureShow = {
   id: string;
@@ -45,10 +32,6 @@ type FixtureCrew = {
 
 let fixtureShowPromise: Promise<FixtureShow> | null = null;
 let fixtureCrewPromise: Promise<FixtureCrew> | null = null;
-
-function isWizardRow(row: ConcreteRow): boolean {
-  return row.testid.startsWith("help-affordance--wizard-step");
-}
 
 async function setDashboardAdminState(): Promise<void> {
   const { error } = await admin
@@ -89,12 +72,15 @@ async function setWizardAdminState(): Promise<void> {
 }
 
 async function prepareAdminState(row: ConcreteRow): Promise<void> {
-  if (isWizardRow(row)) {
-    await setWizardAdminState();
-    return;
-  }
-  if (row.sourceRoute === "/admin") {
-    await setDashboardAdminState();
+  switch (prepKindFor(row.sourceRoute, row.testid)) {
+    case "wizard":
+      await setWizardAdminState();
+      return;
+    case "dashboard":
+      await setDashboardAdminState();
+      return;
+    case "none":
+      return;
   }
 }
 
@@ -103,12 +89,14 @@ async function fixtureShow(): Promise<FixtureShow> {
     const { data, error } = await admin
       .from("shows")
       .select("id, slug, drive_file_id")
-      .order("last_synced_at", { ascending: false })
+      .eq("slug", FIXTURE_SHOW_SLUG)
       .limit(1);
     if (error) throw new Error(`fixture show lookup failed: ${error.message}`);
     const row = data?.[0];
     if (!row?.id || !row.slug || !row.drive_file_id) {
-      throw new Error("No seeded show found for deep-link walker fixture routes");
+      throw new Error(
+        `Seeded show ${FIXTURE_SHOW_SLUG} not found for deep-link walker fixture routes — re-run \`pnpm db:seed\``,
+      );
     }
     return row;
   })();
@@ -133,86 +121,51 @@ async function fixtureCrew(showId: string): Promise<FixtureCrew> {
   return fixtureCrewPromise;
 }
 
+// Pure READ-ONLY lookup of the locked-seed first-seen staged row. Loud-throws
+// when the seeded row (fixed staged_id, invariant FIRST_SEEN_REVIEW,
+// wizard_session_id null) is absent — the walker never writes pending_syncs
+// (structural pin: tests/help/walker-routes.test.ts).
 async function firstSeenStagedId(): Promise<string> {
-  const stagedId = "11111111-1111-4111-8111-111111111111";
-  const driveFileId = "g5-first-seen-fixture";
-  const { error: deleteError } = await admin
-    .from("pending_syncs")
-    .delete()
-    .eq("drive_file_id", driveFileId);
-  if (deleteError) {
-    throw new Error(`pending_syncs first-seen cleanup failed: ${deleteError.message}`);
-  }
-
-  const { error: insertError } = await admin.from("pending_syncs").insert({
-    drive_file_id: driveFileId,
-    staged_id: stagedId,
-    staged_modified_time: "2026-03-24T15:00:00.000Z",
-    base_modified_time: null,
-    parse_result: {
-      show: {
-        title: "G.5 First-seen affordance fixture",
-      },
-    },
-    triggered_review_items: [
-      {
-        id: "g5-first-seen",
-        invariant: "FIRST_SEEN_REVIEW",
-      },
-    ],
-    source_kind: "cron",
-    warning_summary: "First-seen review fixture for deep-link affordance walker",
-  });
-  if (insertError) {
-    throw new Error(`pending_syncs first-seen insert failed: ${insertError.message}`);
-  }
-
   const { data, error } = await admin
     .from("pending_syncs")
     .select("staged_id, triggered_review_items")
+    .eq("staged_id", FIRST_SEEN_STAGED_ID)
     .is("wizard_session_id", null);
-  if (error) throw new Error(`pending_syncs lookup failed: ${error.message}`);
+  if (error) throw new Error(`pending_syncs first-seen lookup failed: ${error.message}`);
 
-  const row = (data ?? []).find((candidate) => {
-    const items = candidate.triggered_review_items;
-    return (
-      Array.isArray(items) &&
-      items.some((item) => {
-        if (item === null || typeof item !== "object") return false;
-        const invariant = (item as { invariant?: unknown }).invariant;
-        return invariant === "FIRST_SEEN_REVIEW" || invariant === "ONBOARDING_SCAN_REVIEW";
-      })
+  const row = data?.[0];
+  const items = row?.triggered_review_items;
+  const hasFirstSeenInvariant =
+    Array.isArray(items) &&
+    items.some((item) => {
+      if (item === null || typeof item !== "object") return false;
+      return (item as { invariant?: unknown }).invariant === "FIRST_SEEN_REVIEW";
+    });
+
+  if (!row?.staged_id || !hasFirstSeenInvariant) {
+    throw new Error(
+      `Seeded first-seen pending_syncs row absent (staged_id ${FIRST_SEEN_STAGED_ID}, ` +
+        `invariant FIRST_SEEN_REVIEW, wizard_session_id null). The locked seed extension ` +
+        `(drive_file_id "seed-fixture:walker-first-seen") must land before the walker runs — ` +
+        `re-run \`pnpm db:seed\``,
     );
-  });
-
-  if (!row?.staged_id) {
-    throw new Error("No first-seen staged_id found in seeded pending_syncs fixture");
   }
   return row.staged_id;
 }
 
+// Thin async wrapper: resolve real fixture values for the placeholder TOKENS
+// a row actually uses, then delegate to the pure substitution in
+// helpers/walkerRoutes.ts (the Vitest-pinned derivation).
 async function routeFor(row: ConcreteRow): Promise<string> {
-  if (row.testid === "help-affordance--wizard-step2--tooltip") {
-    return "/admin?step=2";
-  }
-  if (row.testid === "help-affordance--wizard-step3--tooltip") {
-    return "/admin?step=3";
-  }
-
-  if (row.sourceRoute.includes("STAGED_ID_PLACEHOLDER")) {
-    return row.sourceRoute.replace("STAGED_ID_PLACEHOLDER", await firstSeenStagedId());
-  }
-
-  const show = await fixtureShow();
-  if (row.sourceRoute === "/admin/show/rpas-central-2026") {
-    return `/admin/show/${show.slug}`;
-  }
-  if (row.sourceRoute === "/admin/show/rpas-central-2026/preview/eric-weiss") {
-    const crew = await fixtureCrew(show.id);
-    return `/admin/show/${show.slug}/preview/${crew.id}`;
-  }
-
-  return row.sourceRoute;
+  const needsShow = row.sourceRoute.includes("rpas-central-2026");
+  const needsCrew = row.sourceRoute.includes("eric-weiss");
+  const needsStaged = row.sourceRoute.includes("STAGED_ID_PLACEHOLDER");
+  const show = needsShow ? await fixtureShow() : null;
+  return routeForPure(row, {
+    slug: show?.slug ?? "",
+    crewId: needsCrew && show ? (await fixtureCrew(show.id)).id : "",
+    stagedId: needsStaged ? await firstSeenStagedId() : "",
+  });
 }
 
 async function assertTarget(root: ReturnType<Page["getByTestId"]>, row: ConcreteRow) {
@@ -223,12 +176,23 @@ async function assertTarget(root: ReturnType<Page["getByTestId"]>, row: Concrete
     return;
   }
 
+  // HoverHelp arm: a tooltip whose disclosure is a button[aria-expanded]
+  // trigger (HoverHelp pattern). Click reveals the panel so the nested
+  // Learn-more link below becomes resolvable.
+  const hoverTrigger = root.locator("button[aria-expanded]").first();
+  if ((await hoverTrigger.count()) > 0) {
+    await hoverTrigger.click();
+  }
+
   const summary = root.locator("summary").first();
   if ((await summary.count()) > 0) {
     await summary.click();
   }
 
-  const nested = root.locator("a").filter({ hasText: /Learn more|Take the tour/i }).first();
+  const nested = root
+    .locator("a")
+    .filter({ hasText: /Learn more|Take the tour/i })
+    .first();
   await expect(nested, `${row.testid} nested link`).toBeVisible();
   const nestedHref = await nested.getAttribute("href");
   expect(nestedHref, `${row.testid} nested href`).not.toBeNull();
@@ -236,15 +200,18 @@ async function assertTarget(root: ReturnType<Page["getByTestId"]>, row: Concrete
   expect(`${url.pathname}${url.hash}`, `${row.testid} nested href`).toBe(row.target);
 }
 
-test("AFFORDANCE_MATRIX has concrete rows including the first-seen staged route", () => {
-  expect(concreteRows.length).toBeGreaterThan(0);
-  expect(
-    concreteRows.some((row) => row.sourceRoute.includes("STAGED_ID_PLACEHOLDER")),
-  ).toBe(true);
+test("AFFORDANCE_MATRIX has walkable rows including the first-seen staged route", () => {
+  expect(allWalkableRows.length).toBeGreaterThan(0);
+  expect(allWalkableRows.some((row) => row.sourceRoute.includes("STAGED_ID_PLACEHOLDER"))).toBe(
+    true,
+  );
 });
 
-for (const row of concreteRows) {
+for (const row of allWalkableRows) {
   test(`${row.testid} resolves on ${row.sourceRoute}`, async ({ page }) => {
+    const vp = test.info().project.name === "help-docs-desktop" ? "desktop" : "mobile";
+    test.skip(!walksAt(row, vp), `visibleAt=${row.visibleAt} — not walked at ${vp}`);
+
     await prepareAdminState(row);
     await signInAs(page, ADMIN_FIXTURE, { baseUrl: BASE_URL });
     const sourceRoute = await routeFor(row);
