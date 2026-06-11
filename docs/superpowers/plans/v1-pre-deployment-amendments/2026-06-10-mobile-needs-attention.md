@@ -18,28 +18,28 @@
 
 ## File structure
 
-| File | Action | Responsibility |
-|---|---|---|
-| `lib/admin/needsAttention.ts` | Modify | `cap` threading + `ingestionTotal`/`syncTotal` output fields + `PAGE_RENDER_CAP` |
-| `lib/admin/loadNeedsAttention.ts` | Create | Bounded query assembly (moved from `Dashboard.tsx:326-460`), typed `infra_error`, internal client construction |
-| `lib/admin/needsAttentionCount.ts` | Create | Head-counts-only badge helper (mirrors `lib/admin/alertCount.ts`) |
-| `app/api/admin/needs-attention-count/route.ts` | Create | Admin-gated GET returning `{ count }` |
-| `components/admin/nav/useNeedsAttentionBadge.ts` | Create | Client badge state: prop sync + pathname refetch + token/abort |
-| `components/admin/nav/navConfig.ts` | Modify | `attention` item (`mobileOnly`), 3-way `isNavItemActive` |
-| `components/admin/nav/AdminNav.tsx` | Modify | Desktop filter, badge chip, `initialBadgeCount` prop |
-| `app/admin/layout.tsx` | Modify | Fetch + thread `initialBadgeCount` |
-| `app/admin/needs-attention/page.tsx` | Create | The page (header + alerts + inbox) |
-| `app/admin/needs-attention/loading.tsx` | Create | Skeleton |
-| `components/admin/NeedsAttentionSummaryCard.tsx` | Create | Mobile dashboard summary card |
-| `components/admin/Dashboard.tsx` | Modify | Use loader; dual render in inbox col |
-| `lib/audit/trustDomains.ts` | Modify | 2 `PROTECTED_ROUTES` rows |
-| `tests/admin/_metaInfraContract.test.ts` | Modify | 2 registry rows |
-| `app/admin/page.tsx`, `app/admin/show/[slug]/page.tsx` | Modify | Banner-placement contract comments |
-| `tests/e2e/admin-banner.spec.ts` | Modify | Amend dashboard-only contract test (`:386`) |
-| `tests/e2e/admin-nav-layout-dimensions.spec.ts` | Modify | 3rd tab + badge + summary/wrapper invariants |
-| `tests/e2e/needs-attention-page.spec.ts` | Create | Nav flow + badge freshness (soft-nav + same-route) |
-| `scripts/help-screenshots.manifest.ts` | Modify | `needs-attention-mobile` entry |
-| `app/help/admin/review-queues/page.mdx` | Modify | "On your phone" section + screenshot |
+| File                                                   | Action | Responsibility                                                                                                 |
+| ------------------------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------- |
+| `lib/admin/needsAttention.ts`                          | Modify | `cap` threading + `ingestionTotal`/`syncTotal` output fields + `PAGE_RENDER_CAP`                               |
+| `lib/admin/loadNeedsAttention.ts`                      | Create | Bounded query assembly (moved from `Dashboard.tsx:326-460`), typed `infra_error`, internal client construction |
+| `lib/admin/needsAttentionCount.ts`                     | Create | Head-counts-only badge helper (mirrors `lib/admin/alertCount.ts`)                                              |
+| `app/api/admin/needs-attention-count/route.ts`         | Create | Admin-gated GET returning `{ count }`                                                                          |
+| `components/admin/nav/useNeedsAttentionBadge.ts`       | Create | Client badge state: prop sync + pathname refetch + token/abort                                                 |
+| `components/admin/nav/navConfig.ts`                    | Modify | `attention` item (`mobileOnly`), 3-way `isNavItemActive`                                                       |
+| `components/admin/nav/AdminNav.tsx`                    | Modify | Desktop filter, badge chip, `initialBadgeCount` prop                                                           |
+| `app/admin/layout.tsx`                                 | Modify | Fetch + thread `initialBadgeCount`                                                                             |
+| `app/admin/needs-attention/page.tsx`                   | Create | The page (header + alerts + inbox)                                                                             |
+| `app/admin/needs-attention/loading.tsx`                | Create | Skeleton                                                                                                       |
+| `components/admin/NeedsAttentionSummaryCard.tsx`       | Create | Mobile dashboard summary card                                                                                  |
+| `components/admin/Dashboard.tsx`                       | Modify | Use loader; dual render in inbox col                                                                           |
+| `lib/audit/trustDomains.ts`                            | Modify | 2 `PROTECTED_ROUTES` rows                                                                                      |
+| `tests/admin/_metaInfraContract.test.ts`               | Modify | 2 registry rows                                                                                                |
+| `app/admin/page.tsx`, `app/admin/show/[slug]/page.tsx` | Modify | Banner-placement contract comments                                                                             |
+| `tests/e2e/admin-banner.spec.ts`                       | Modify | Amend dashboard-only contract test (`:386`)                                                                    |
+| `tests/e2e/admin-nav-layout-dimensions.spec.ts`        | Modify | 3rd tab + badge + summary/wrapper invariants                                                                   |
+| `tests/e2e/needs-attention-page.spec.ts`               | Create | Nav flow + badge freshness (soft-nav + same-route)                                                             |
+| `scripts/help-screenshots.manifest.ts`                 | Modify | `needs-attention-mobile` entry                                                                                 |
+| `app/help/admin/review-queues/page.mdx`                | Modify | "On your phone" section + screenshot                                                                           |
 
 Structural-registry inventory (spec §9, mandatory, same-commit as the surface): `PROTECTED_ROUTES` rows (Task 5/6), `_metaInfraContract` rows (Tasks 1/2). Declared not-touched: sentinel-hiding, alert-catalog, advisory-lock, DML-lockdown registries.
 
@@ -48,6 +48,7 @@ Structural-registry inventory (spec §9, mandatory, same-commit as the surface):
 ### Task 1: Loader extraction — `loadNeedsAttention`
 
 **Files:**
+
 - Modify: `lib/admin/needsAttention.ts` (RENDER_CAP at `:16`, `NeedsAttention` type at `:84-89`, `buildNeedsAttention` at `:131`)
 - Create: `lib/admin/loadNeedsAttention.ts`
 - Modify: `components/admin/Dashboard.tsx:326-460` (replace block with loader call)
@@ -100,7 +101,7 @@ describe("loadNeedsAttention", () => {
   1. `lib/admin/needsAttention.ts`: add `cap?: number` to `BuildNeedsAttentionInput`; the merge slice uses `input.cap ?? RENDER_CAP`; add to the `NeedsAttention` type and return value: `ingestionTotal: number; syncTotal: number;` (= `totalCounts.ingestions` / `totalCounts.syncs`); export `const PAGE_RENDER_CAP = 100;` next to `RENDER_CAP` with a one-line comment ("page-variant cap, spec §4.1; single source — no other literal 100").
   2. `lib/admin/loadNeedsAttention.ts`: move `Dashboard.tsx:326-460` (the two bounded queries + two head-counts + existence lookup + `buildNeedsAttention` call) **verbatim**, with exactly these deltas:
      - signature `export async function loadNeedsAttention(opts: { cap: number; supabase?: SupabaseLike }): Promise<LoadNeedsAttentionResult>` where `LoadNeedsAttentionResult = NeedsAttention | { kind: "infra_error"; message: string }`. `SupabaseLike` = the same client type `fetchDashboardData` uses (grep its current annotation; do not invent a new one).
-     - when `opts.supabase` is omitted: `let supabase; try { supabase = await createSupabaseServerClient(); } catch (err) { return { kind: "infra_error", message: \`client construction failed: ...\` }; }` (the `lib/admin/alertCount.ts:11-17` pattern).
+     - when `opts.supabase` is omitted: `let supabase; try { supabase = await createSupabaseServerClient(); } catch (err) { return { kind: "infra_error", message: \`client construction failed: ...\` }; }`(the`lib/admin/alertCount.ts:11-17` pattern).
      - `RENDER_CAP` literals in `.limit(...)` become `opts.cap + 1`; `buildNeedsAttention` receives `cap: opts.cap`.
      - **count integrity (R2-F3):** after each head-count query, replace the `q.count ?? rows.length` fallback with `if (typeof q.count !== "number") return { kind: "infra_error", message: "<table> head-count returned non-number" };`
      - keep every existing `{ data, error }` destructure + try/catch + typed `infra_error` return (invariant 9); file header comment cites AGENTS.md invariant 9 like `Dashboard.tsx:15` does.
@@ -119,7 +120,7 @@ describe("loadNeedsAttention", () => {
 },
 ```
 
-  2. **Bounded-read guard:** `tests/admin/_metaBoundedReads.test.ts` currently scans `components/admin/Dashboard.tsx` for the `.limit(cap+1)` / head-count / existence-`.in()` shapes — after the extraction those reads live in the loader, so extend the guard's scanned-module list (`READ_MODULES` or equivalent — read the file for the exact registry name) with `lib/admin/loadNeedsAttention.ts` in the SAME commit, and verify the Dashboard-side scan doesn't silently become a no-op (if the guard's Dashboard assertions now match nothing, retarget them at the loader rather than deleting them).
+2. **Bounded-read guard:** `tests/admin/_metaBoundedReads.test.ts` currently scans `components/admin/Dashboard.tsx` for the `.limit(cap+1)` / head-count / existence-`.in()` shapes — after the extraction those reads live in the loader, so extend the guard's scanned-module list (`READ_MODULES` or equivalent — read the file for the exact registry name) with `lib/admin/loadNeedsAttention.ts` in the SAME commit, and verify the Dashboard-side scan doesn't silently become a no-op (if the guard's Dashboard assertions now match nothing, retarget them at the loader rather than deleting them).
 
 Follow each file's existing assertion pattern. The meta-test's BEHAVIORAL assertions for the loader must use `throwOnFromTable` per table (`pending_ingestions`, `pending_syncs`, `shows`) with `dataByTable` seeding pending rows so the shows branch is reached (the harness supports both — `tests/admin/_metaInfraContract.test.ts:46-61`) — not just the global first-`from()` throw. Run `pnpm vitest run tests/admin/_metaInfraContract.test.ts tests/admin/_metaBoundedReads.test.ts` → PASS.
 
@@ -134,6 +135,7 @@ git commit -m "feat(admin): extract loadNeedsAttention loader with cap threading
 ### Task 2: Badge count helper — `loadNeedsAttentionCount`
 
 **Files:**
+
 - Create: `lib/admin/needsAttentionCount.ts`
 - Test: `tests/admin/needsAttentionCount.test.ts` (create)
 - Modify: `tests/admin/_metaInfraContract.test.ts` (registry row)
@@ -148,9 +150,7 @@ git commit -m "feat(admin): extract loadNeedsAttention loader with cap threading
 // lib/admin/needsAttentionCount.ts
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export type NeedsAttentionCountResult =
-  | { kind: "ok"; count: number }
-  | { kind: "infra_error" };
+export type NeedsAttentionCountResult = { kind: "ok"; count: number } | { kind: "infra_error" };
 
 export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResult> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -161,14 +161,22 @@ export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResu
   }
   try {
     // invariant 9: destructure { data, error } (alertCount.ts:26 pattern), never a bare result object
-    const { data: _ingestionData, count: ingestionCount, error: ingestionError } = await supabase
+    const {
+      data: _ingestionData,
+      count: ingestionCount,
+      error: ingestionError,
+    } = await supabase
       .from("pending_ingestions")
       .select("id", { count: "exact", head: true })
       .is("wizard_session_id", null);
     void _ingestionData;
     if (ingestionError) return { kind: "infra_error" };
     if (typeof ingestionCount !== "number") return { kind: "infra_error" };
-    const { data: _syncData, count: syncCount, error: syncError } = await supabase
+    const {
+      data: _syncData,
+      count: syncCount,
+      error: syncError,
+    } = await supabase
       .from("pending_syncs")
       .select("staged_id", { count: "exact", head: true })
       .is("wizard_session_id", null);
@@ -191,6 +199,7 @@ export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResu
 ### Task 3: Count route handler
 
 **Files:**
+
 - Create: `app/api/admin/needs-attention-count/route.ts`
 - Modify: `lib/audit/trustDomains.ts:31` (`PROTECTED_ROUTES` row — same commit, R3-F1)
 - Test: `tests/app/api/needsAttentionCountRoute.test.ts` (create)
@@ -222,10 +231,7 @@ export async function GET() {
   if (result.kind === "infra_error") {
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
-  return NextResponse.json(
-    { count: result.count },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  return NextResponse.json({ count: result.count }, { headers: { "Cache-Control": "no-store" } });
 }
 ```
 
@@ -235,6 +241,7 @@ export async function GET() {
 ### Task 4: Nav config + AdminNav badge + freshness hook
 
 **Files:**
+
 - Modify: `components/admin/nav/navConfig.ts` (full file is 24 lines)
 - Create: `components/admin/nav/useNeedsAttentionBadge.ts`
 - Modify: `components/admin/nav/AdminNav.tsx` (desktop filter `:64-83`, mobile tabs `:95-125`, props `:31`)
@@ -246,12 +253,14 @@ export async function GET() {
 `navConfig.test.ts` — active-state matrix (spec test 5): for each of `/admin`, `/admin/needs-attention`, `/admin/needs-attention/x`, `/admin/settings`, `/admin/settings/admins`, `/admin/show/abc` assert exactly ONE of the three ids is active, with `attention` active only on the needs-attention paths and `dashboard` NOT active there. Also: `NAV.length === 3`, `shouldRenderOverflow(NAV.length) === false`, the attention item is `mobileOnly === true`, href `/admin/needs-attention`.
 
 `AdminNav.test.tsx` additions (existing harness mocks `usePathname`, `tests/components/admin/nav/AdminNav.test.tsx:7`) — make the pathname mock variable; scope queries (anti-tautology) to `admin-nav-topbar` / `admin-bottom-tabs` containers:
+
 - desktop bar contains exactly Dashboard + Settings links, NO "Needs attention" link (`within(topbar)`)
 - bottom bar renders `admin-bottom-tab-attention` between dashboard and settings tabs
 - badge matrix (spec test 4): `initialBadgeCount` of `null` / `0` / `NaN` / `-1` → no `admin-attention-badge` node; `3` → "3"; `10` → "9+"; attention tab `aria-label` = "Needs attention, 3 items" when badged, "Needs attention" otherwise
 - badge does not render on dashboard/settings tabs even when count > 0
 
 `useNeedsAttentionBadge.test.tsx` (renderHook) — spec tests 4 + 4c:
+
 - returns the initial prop value; prop change (rerender with new value) commits immediately
 - pathname change (mutable `usePathname` mock + rerender) fetches `/api/admin/needs-attention-count`; ok body `{count: 7}` commits 7; non-OK / rejected / `{count: "x"}` → commits `null`
 - initial mount does NOT fetch (fetch spy not called before any pathname change)
@@ -277,7 +286,14 @@ export type NavItem = {
 
 export const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", short: "Home", href: "/admin", Icon: LayoutGrid },
-  { id: "attention", label: "Needs attention", short: "Attention", href: "/admin/needs-attention", Icon: Inbox, mobileOnly: true },
+  {
+    id: "attention",
+    label: "Needs attention",
+    short: "Attention",
+    href: "/admin/needs-attention",
+    Icon: Inbox,
+    mobileOnly: true,
+  },
   { id: "settings", label: "Settings", short: "Settings", href: "/admin/settings", Icon: Settings },
 ];
 
@@ -292,7 +308,8 @@ export function shouldRenderOverflow(destinationCount: number): boolean {
 // Dashboard owns /admin and everything else under /admin (incl. /admin/show/*).
 export function isNavItemActive(id: NavItem["id"], pathname: string): boolean {
   const inSettings = pathname === "/admin/settings" || pathname.startsWith("/admin/settings/");
-  const inAttention = pathname === "/admin/needs-attention" || pathname.startsWith("/admin/needs-attention/");
+  const inAttention =
+    pathname === "/admin/needs-attention" || pathname.startsWith("/admin/needs-attention/");
   if (id === "settings") return inSettings;
   if (id === "attention") return inAttention;
   return !inSettings && !inAttention;
@@ -343,7 +360,8 @@ export function useNeedsAttentionBadge(initialBadgeCount: number | null): number
       .then(async (res) => {
         if (!res.ok) throw new Error(`status ${res.status}`);
         const body = (await res.json()) as { count?: unknown };
-        if (typeof body.count !== "number" || !Number.isFinite(body.count)) throw new Error("bad body");
+        if (typeof body.count !== "number" || !Number.isFinite(body.count))
+          throw new Error("bad body");
         if (tokenRef.current === token) setCount(body.count);
       })
       .catch(() => {
@@ -385,7 +403,7 @@ const badgeDisplay = showBadge && badgeCount > 9 ? "9+" : String(badgeCount);
 <span>{item.short}</span>
 ```
 
-  - attention tab Link gets `aria-label={item.id === "attention" ? (showBadge ? `Needs attention, ${badgeCount} item${badgeCount === 1 ? "" : "s"}` : "Needs attention") : undefined}`
+- attention tab Link gets `aria-label={item.id === "attention" ? (showBadge ? `Needs attention, ${badgeCount} item${badgeCount === 1 ? "" : "s"}` : "Needs attention") : undefined}`
 
 - [ ] **Step 4.6: Thread from layout** — `app/admin/layout.tsx`: after the `fetchUnresolvedAlertCount` call (`:84`), add `const needsAttentionCount = await loadNeedsAttentionCount();` and pass `initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}` at the `<AdminNav>` mount (`:100`). Import from `@/lib/admin/needsAttentionCount`.
 
@@ -395,6 +413,7 @@ const badgeDisplay = showBadge && badgeCount > 9 ? "9+" : String(badgeCount);
 ### Task 5: The page + loading skeleton
 
 **Files:**
+
 - Create: `app/admin/needs-attention/page.tsx`, `app/admin/needs-attention/loading.tsx`
 - Modify: `lib/audit/trustDomains.ts` (page row — same commit, R3-F1)
 - Modify: `app/admin/page.tsx:90-96` + `app/admin/show/[slug]/page.tsx:13` (contract comments)
@@ -467,6 +486,7 @@ export default async function NeedsAttentionPage() {
 ### Task 7: Summary card + dashboard dual render
 
 **Files:**
+
 - Create: `components/admin/NeedsAttentionSummaryCard.tsx`
 - Modify: `components/admin/Dashboard.tsx:627-654` (inbox col section)
 - Test: `tests/components/admin/NeedsAttentionSummaryCard.test.tsx` (create), Dashboard component test extension
@@ -543,9 +563,11 @@ export function NeedsAttentionSummaryCard({
 ### Task 8: Layout-dimensions e2e (band sweep) — MANDATORY real-browser task
 
 **Files:**
+
 - Modify: `tests/e2e/admin-nav-layout-dimensions.spec.ts` (harness: `WIDTHS` at `:38`, `rect()` helper, `signInAs(page, ADMIN_FIXTURE)`)
 
 Dimensional invariants from spec §4.8 — assert ALL of these (verbatim list):
+
 1. each of the THREE tabs spans full bar height (`self-stretch`) and equal widths (`flex-1`); bar full-viewport-width, bottom-anchored
 2. badge must NOT change tab height: tab heights with badge present == without (±0.5px)
 3. summary card ≥44px (`min-h-tap-min`) at all mobile widths; chevron vertically centered within card rect ±1px
@@ -558,6 +580,7 @@ Dimensional invariants from spec §4.8 — assert ALL of these (verbatim list):
 ### Task 9: Navigation-flow + badge-freshness e2e
 
 **Files:**
+
 - Create: `tests/e2e/needs-attention-page.spec.ts` (use the `signInAs`/fixture harness from `admin-banner.spec.ts` / `admin-nav-layout-dimensions.spec.ts`; seed pending rows the way existing e2e fixtures seed `pending_ingestions`/`pending_syncs` — grep `tests/e2e/helpers/fixtures` for the seeding helpers)
 
 - [ ] **Step 9.1: Write the flows** (mobile viewport 390×844):
@@ -572,19 +595,20 @@ Dimensional invariants from spec §4.8 — assert ALL of these (verbatim list):
 ### Task 10: Transition audit — MANDATORY
 
 **Files:**
+
 - Verify (no expected changes): `components/admin/nav/AdminNav.tsx`, `components/admin/NeedsAttentionSummaryCard.tsx`, `app/admin/needs-attention/page.tsx`, `components/layout/PageTransition.tsx`
 
 Spec §4.9 transition inventory (verbatim — every pair instant by design, route-level animation owned by the existing PageTransition):
 
-| Transition | Treatment |
-|---|---|
-| badge hidden ↔ shown | instant |
-| badge n ↔ 9+ | instant |
-| summary card items ↔ all-caught-up | instant |
-| page alerts present ↔ absent | instant |
-| page list ↔ empty state | instant |
-| dashboard ↔ page route change | PageTransition (existing) |
-| any × reduced-motion | PageTransition disables motion; rest instant |
+| Transition                         | Treatment                                    |
+| ---------------------------------- | -------------------------------------------- |
+| badge hidden ↔ shown               | instant                                      |
+| badge n ↔ 9+                       | instant                                      |
+| summary card items ↔ all-caught-up | instant                                      |
+| page alerts present ↔ absent       | instant                                      |
+| page list ↔ empty state            | instant                                      |
+| dashboard ↔ page route change      | PageTransition (existing)                    |
+| any × reduced-motion               | PageTransition disables motion; rest instant |
 
 - [ ] **Step 10.1: Audit** — grep the four files for `AnimatePresence`, `motion.`, ternary renders, and `&&` conditional blocks; confirm NO new framer-motion usage was introduced and every conditional render in the new components is a server-rendered/instant swap per the table. Confirm `PageTransition` is untouched (`git diff main -- components/layout/PageTransition.tsx` is empty). Compound transitions: none possible (no two client-animated states co-exist) — confirm the only client state is the badge count value.
 - [ ] **Step 10.2: Record** the audit result in the commit message of the next task (no code change expected; if a violation IS found, fix to instant + retest).
@@ -592,6 +616,7 @@ Spec §4.9 transition inventory (verbatim — every pair instant by design, rout
 ### Task 11: Screenshot manifest + help page
 
 **Files:**
+
 - Modify: `scripts/help-screenshots.manifest.ts:48-79`, `app/help/admin/review-queues/page.mdx`
 - Test: `tests/help/page-review-queues.test.tsx` (extend)
 
