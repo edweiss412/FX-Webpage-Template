@@ -65,8 +65,7 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
   {
     id: "copy-each-crew-members-link",
     pattern: /copy each crew member['']s link/i,
-    rationale:
-      "Paraphrase variant of copy-each-persons-link. Same shipped-state reasoning.",
+    rationale: "Paraphrase variant of copy-each-persons-link. Same shipped-state reasoning.",
   },
   {
     id: "dashboard-row-action",
@@ -76,7 +75,8 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
   },
   {
     id: "active-shows-row-actions-column",
-    pattern: /\b(?:Active\s+shows[^.]{0,120}\bActions\b|\bActions\b\s+column\b)[^.]{0,120}\b(?:Open|Preview as|Re-sync|Archive)\b/i,
+    pattern:
+      /\b(?:Active\s+shows[^.]{0,120}\bActions\b|\bActions\b\s+column\b)[^.]{0,120}\b(?:Open|Preview as|Re-sync|Archive)\b/i,
     rationale:
       "R13 finding 2 (dashboard.mdx). The dashboard shows table (live ShowsTable — previously the deleted ActiveShowsPanel) does not render an Actions column. Pattern requires the column/Active-shows context so legitimate prose mentioning admin write actions (like FINALIZE_OWNED_SHOW.helpfulContext) does not false-positive.",
   },
@@ -94,9 +94,10 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
   },
   {
     id: "24-hour-undo-email",
-    pattern: /(?:24[- ]hour|24h)[^.]{0,80}(?:undo|unpublish)/i,
+    pattern:
+      /(?:24[- ]hour|24h)[^.]{0,80}(?:undo|unpublish)|(?:undo|unpublish)[^.]{0,80}(?:24[- ]hour|24h|24\s+hours)/i,
     rationale:
-      "R15 finding 1 (catalog SHOW_FIRST_PUBLISHED + getting-started/dashboard/review-queues/tour). Auto-publish emits an admin_alert with severity=info that AlertBanner filters out, and no email-send infrastructure ships in v1. The unpublish endpoint + token exist server-side but Doug has no in-app delivery surface for the link. Until the safety-net surface ships, help must not promise the email/undo.",
+      "R15 finding 1 (catalog SHOW_FIRST_PUBLISHED + getting-started/dashboard/review-queues/tour). Auto-publish emits an admin_alert with severity=info that AlertBanner filters out, and no email-send infrastructure ships in v1. The unpublish endpoint + token exist server-side but Doug has no in-app delivery surface for the link. Until the safety-net surface ships, help must not promise the email/undo. Pattern catches both orders ('24-hour … undo' and 'undo … within 24 hours') — the reversed phrasing evaded the original regex (M12.12 cluster-1 finding 1).",
   },
   {
     id: "confirmation-email",

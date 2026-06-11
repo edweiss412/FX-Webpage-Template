@@ -66,11 +66,11 @@ const M115_RETIRED_CATALOG_CODES = new Set([
 const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {
   SHOW_FIRST_PUBLISHED: {
     dougFacing:
-      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](share-token-url) within 24h.",
+      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Archive the show from its page — its crew link switches off until you unarchive and republish.",
     crewFacing: null,
     followUp: null,
     helpfulContext:
-      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and stop the share-token URL from resolving.",
+      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, archive the show from its per-show page — that stops the share-token URL from resolving until you unarchive and republish.",
   },
   SHOW_UNPUBLISHED: {
     dougFacing:
@@ -174,9 +174,7 @@ function codeFromCell(raw: string): string | null {
 function retiredCodeFromCell(raw: string): { key: string; variant: string | null } | null {
   const cleaned = cleanCodeCell(raw);
   if (!cleaned) return null;
-  const match = cleaned.match(
-    /^([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*)(?:\s+\(([^)]+)\))?$/,
-  );
+  const match = cleaned.match(/^([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*)(?:\s+\(([^)]+)\))?$/);
   if (!match?.[1]) return null;
   return {
     key: match[1],
@@ -204,11 +202,7 @@ function findCatalogSection(markdown: string): string {
 function parseYamlString(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed
-      .slice(1, -1)
-      .replace(/\\"/g, '"')
-      .replace(/\\n/g, "\n")
-      .replace(/\\\\/g, "\\");
+    return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
   }
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
     return trimmed.slice(1, -1).replace(/''/g, "'");
@@ -419,7 +413,8 @@ function stableObjectLiteral(value: unknown, indent = 0): string {
   return [
     "{",
     ...entries.map(
-      ([key, entry]) => `${childPad}${JSON.stringify(key)}: ${stableObjectLiteral(entry, indent + 2)},`,
+      ([key, entry]) =>
+        `${childPad}${JSON.stringify(key)}: ${stableObjectLiteral(entry, indent + 2)},`,
     ),
     `${pad}}`,
   ].join("\n");
