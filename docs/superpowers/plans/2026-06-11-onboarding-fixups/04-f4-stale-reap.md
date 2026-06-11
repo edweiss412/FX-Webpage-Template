@@ -723,6 +723,13 @@ export async function reapStaleOnboardingSessions(
     // R28-1: bounded rollback-and-retry OUTSIDE the per-session transaction. A
     // ReapLockSetExpandedError aborts that session's tx (locks released); we retry from a
     // clean sorted lock set; budget exhausted -> skipped_unstable (no deletes, no sync_log).
+    // R38-1: defaultWithTx wraps every error EXCEPT CleanupRequiresStaleSessionError in
+    // OnboardingSessionInfraError (sessionLifecycle.ts:102-110) — ReapLockSetExpandedError MUST be
+    // added to that pass-through allowlist in the same commit, or the retry loop below never sees
+    // it and the route 500s REAP_STALE_SESSIONS_FAILED instead of returning skipped_unstable.
+    // Regression (Task 4.4): force lock-set expansion through the REAL defaultWithTx (not the fake)
+    // and assert skipped_unstable is returned with zero deletes/log rows — the fake withTx rethrows
+    // raw errors and cannot catch this production-only mismatch.
     let outcome: ReapedSession | null = null;
     for (let attempt = 0; attempt < 3 && outcome === null; attempt++) {
       try {
