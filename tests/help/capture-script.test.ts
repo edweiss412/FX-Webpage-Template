@@ -80,13 +80,21 @@ describe("help screenshot capture script (Task F.3)", () => {
     );
   });
 
-  it("both screenshots-config Playwright projects consume the shared determinism args", () => {
-    const config = readFileSync(join(process.cwd(), "playwright.screenshots.config.ts"), "utf8");
-    expect(config).toContain("CAPTURE_LAUNCH_ARGS");
-    expect(config, "no hand-rolled launch args left in the config").not.toContain(
-      "--font-render-hinting",
-    );
-  });
+  // Codex R3 (PR #22): the DEFAULT config's screenshots-help project also ran
+  // a hand-rolled two-flag list, so the same clock-pipeline spec executed with
+  // a different raster path under `pnpm test:e2e` vs `pnpm screenshot:help`.
+  // Every Playwright config that launches a screenshot-verification browser
+  // consumes the one shared constant.
+  it.each(["playwright.screenshots.config.ts", "playwright.config.ts"])(
+    "%s consumes the shared determinism args (no hand-rolled lists)",
+    (configFile) => {
+      const config = readFileSync(join(process.cwd(), configFile), "utf8");
+      expect(config).toContain("CAPTURE_LAUNCH_ARGS");
+      expect(config, "no hand-rolled launch args left in the config").not.toContain(
+        "--font-render-hinting",
+      );
+    },
+  );
 
   // Capture-determinism hardening (M11-A-D5 recipe, applied to the capture
   // script after needs-attention-mobile-dark proved environment-bimodal on
