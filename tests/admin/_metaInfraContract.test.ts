@@ -210,6 +210,11 @@ const infraRegistry = [
     path: "lib/admin/loadNeedsAttention.ts",
     contract: "pending_ingestions/pending_syncs/shows await throws + construction throw → infra_error",
   },
+  {
+    helper: "loadNeedsAttentionCount",
+    path: "lib/admin/needsAttentionCount.ts",
+    contract: "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error",
+  },
   { helper: "fetchUnresolvedAlertCount", path: "lib/admin/alertCount.ts", contract: "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)" },
   { helper: "getActiveWatchedFolder", path: "lib/appSettings/getWatchedFolderId.ts", contract: "app_settings { watched_folder_id, watched_folder_name } maybeSingle; client construction (createClientResult) + returned-error + thrown await → { kind:'infra_error' }; destructures { data, error }" },
   { helper: "fetchDriveConnectionHealth", path: "lib/admin/driveConnectionHealth.ts", contract: "watch-status row + per-predicate active-shows head:true counts + max last_synced_at; client construction + any await/throw → { kind:'infra_error' } (never a false Healthy)" },
@@ -529,6 +534,37 @@ describe("META §B Supabase call-boundary contract", () => {
         /existence query threw/,
       );
     });
+  });
+
+  // Badge-count helper (mobile needs-attention Task 2, spec §4.2) — the
+  // head-counts-only sibling of loadNeedsAttention. No message field (the
+  // badge collapses any infra failure into the no-badge degraded state),
+  // so assertions pin the exact { kind: 'infra_error' } shape. The mock's
+  // healthy head-count resolves to a NUMBER (0), so the per-table
+  // pending_syncs throw is reached past the ingestion count-integrity
+  // guard.
+  describe("loadNeedsAttentionCount", () => {
+    test("server-client construction throw → { kind: 'infra_error' } (never rejects)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadNeedsAttentionCount } = await import(
+        "@/lib/admin/needsAttentionCount"
+      );
+      await expect(loadNeedsAttentionCount()).resolves.toEqual({
+        kind: "infra_error",
+      });
+    });
+
+    test.each([["pending_ingestions"], ["pending_syncs"]])(
+      "from('%s') throw → { kind: 'infra_error' }",
+      async (table) => {
+        infraMock.throwOnFromTable = table;
+        const { loadNeedsAttentionCount } = await import(
+          "@/lib/admin/needsAttentionCount"
+        );
+        const result = await loadNeedsAttentionCount();
+        expect(result).toEqual({ kind: "infra_error" });
+      },
+    );
   });
 
   describe("fetchLiveFirstSeenRow", () => {
