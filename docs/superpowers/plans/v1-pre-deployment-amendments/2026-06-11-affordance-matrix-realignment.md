@@ -729,7 +729,14 @@ jobs:
 
 (Mirror the pnpm/node versions and any Supabase env exports — local-stack URL/service-role values consumed by `tests/e2e/helpers/supabaseAdmin.ts` — from the screenshot workflows EXACTLY; read them before writing. The Playwright webServer builds the app itself; CI=true makes it use `pnpm build && pnpm start` per `playwright.config.ts:199-205`.)
 
-- [ ] **Step 14.3:** `x-audits.yml`: append job `affordance-matrix-parity` cloned from the `postgrest-dml-lockdown` job shape (`:307-341`) minus the psql/DB env (this meta-test is DB-free): checkout → pnpm → node 20 → install → `pnpm vitest run tests/help/_metaAffordanceMatrixParity.test.ts tests/help/_affordance-matrix-shape.test.ts tests/help/deep-link-walker-reverse.test.ts 2>&1 | tee affordance-matrix-parity.log`.
+- [ ] **Step 14.3:** `x-audits.yml`: append job `affordance-matrix-parity` cloned from the `postgrest-dml-lockdown` job shape (`:307-341`) minus the psql/DB env (this meta-test is DB-free): checkout → pnpm → node 20 → install → run step with `shell: bash` and:
+
+```bash
+set -o pipefail
+pnpm vitest run tests/help/_metaAffordanceMatrixParity.test.ts tests/help/_affordance-matrix-shape.test.ts tests/help/deep-link-walker-reverse.test.ts 2>&1 | tee affordance-matrix-parity.log
+```
+
+(`set -o pipefail` is MANDATORY — without it `tee` exits 0 and a failing Vitest run merges green, R16; the existing jobs carry it at `x-audits.yml:340`. Upload `affordance-matrix-parity.log` as an artifact if the sibling jobs do.)
 - [ ] **Step 14.4:** `actionlint` on all touched workflows (or `gh workflow view` post-push); commit: `infra: shared supabase bootstrap + help-affordances walker workflow + affordance-matrix-parity audit job`
 - [ ] **Step 14.5 (post-push):** `gh workflow run help-affordances.yml --ref <branch>` → real-CI green is a close-out gate (AGENTS.md local-passes-CI-fails discipline). Budget ≥2 rounds for environment gaps.
 
