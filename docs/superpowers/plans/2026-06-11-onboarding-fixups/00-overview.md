@@ -22,7 +22,7 @@
 | F4 stale-session reap | `04-f4-stale-reap.md` | F1 (`created_show_id` provenance) |
 | F5 wizard-session CAS race | `05-f5-cas-race.md` | — (independent; F4's reap sweeps its residue — coordinate the two-half guarantee test after F4) |
 
-Execution order: F1 → F2 → F5 → F4 → F3 (F3 anytime; F4 after F1; the F5 two-half test's reap assertion lands with F4).
+Execution order (plan R22-1 split): F1 → F2 → **F5a (Tasks 5.1–5.3, 5.5, 5.6)** → **F4** → **F5b (Task 5.4 — the two-half weakened-guarantee test, which depends on F4's reap)** → F3 (F3 anytime after F1). Close-out gate: the F5b half-(ii) residue-sweep test MUST run after F4 lands; F5 is not complete until it passes.
 
 ## Plan-wide invariants (from AGENTS.md — apply to every task)
 
