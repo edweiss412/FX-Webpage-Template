@@ -87,7 +87,7 @@ export type ApplyStagedCoreArgs = {
   auditSource: "staged_apply" | "onboarding_finalize" | "onboarding_finalize_cas";
   fileMeta: DriveListedFile;
   mi11Items: Mi11Item[];                   // wizard Phase D extracts from payload items; live legacy passes []
-  feedPolicy: { kind: "none" } | { kind: "choice_aware" };  // R35-1: REQUIRED, no default. "none" = no show_change_log rows (Phase B first-seen — feed documents changes to LIVE shows). "choice_aware" = the core derives notableItems INTERNALLY post-validation via choiceAwareFeedItems(items, validatedChoices) and forwards them to runPhase2 (Phase D existing-show + dashboard-equivalent semantics). The old optional notableItems argument is REMOVED from the public core API — callers cannot inject raw items. Regressions: Phase D emits correct choice-aware rows (g2); Phase B first-seen apply emits ZERO show_change_log rows (new assertion in the first-seen DB test).
+  feedPolicy: { kind: "none" } | { kind: "choice_aware" }; /* R37-1: a unit test asserts the core THROWS (or fails typecheck via a @ts-expect-error probe) when feedPolicy is absent — no silent default may be introduced */  // R35-1: REQUIRED, no default. "none" = no show_change_log rows (Phase B first-seen — feed documents changes to LIVE shows). "choice_aware" = the core derives notableItems INTERNALLY post-validation via choiceAwareFeedItems(items, validatedChoices) and forwards them to runPhase2 (Phase D existing-show + dashboard-equivalent semantics). The old optional notableItems argument is REMOVED from the public core API — callers cannot inject raw items. Regressions: Phase D emits correct choice-aware rows (g2); Phase B first-seen apply emits ZERO show_change_log rows (new assertion in the first-seen DB test).
   skipDiagramsWrite: boolean;
   snapshotAssetsForApply?: Phase2Args["snapshotAssetsForApply"];
   autoPublishFirstSeen?: Phase2Args["autoPublishFirstSeen"];
@@ -286,6 +286,7 @@ function coreArgs(tx: SpyTx, overrides: Partial<ApplyStagedCoreArgs> = {}): Appl
     fileMeta: fileMeta(),
     mi11Items: [],
     skipDiagramsWrite: false,
+    feedPolicy: { kind: "none" },   // R37-1: required field, no API default — choice_aware cases override explicitly
     ...overrides,
   };
 }
@@ -622,7 +623,7 @@ test("lock-topology proof: the app_settings FOR UPDATE serializes supersession a
      const pipelineTx = input.pipelineTx;                       // new withRowTx 2nd arg (step 6)
      const lockedTx = await adoptShowLockHeld(pipelineTx, row.drive_file_id);
      const core = await applyStagedCore(lockedTx, {
-       feedPolicy: { kind: "none" },
+       feedPolicy: { kind: "none" },  // first-seen writes NO feed rows (spec §3.1); first-seen DB test asserts ZERO show_change_log rows
        sourceScope: "wizard",
        driveFileId: row.drive_file_id,
        show: null,                                              // first-seen: gated by !showExists above
@@ -637,7 +638,6 @@ test("lock-topology proof: the app_settings FOR UPDATE serializes supersession a
        auditSource: "onboarding_finalize",
        fileMeta: metadata,
        mi11Items: [],                                           // first-seen: no prior crew → MI-11 impossible
-       feedPolicy: { kind: "none" },  // R36-1: first-seen writes NO feed rows (spec §3.1 last bullet); the first-seen DB test asserts ZERO show_change_log rows for the show
        skipDiagramsWrite: false,                                // payload diagrams already canonical (spec §3.4)
        firstSeenPublished: false,
      });

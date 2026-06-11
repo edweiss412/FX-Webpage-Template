@@ -1166,8 +1166,14 @@ export async function POST(request: Request): Promise<Response> {
     postBody: {
       wizard_session_id: "00000000-0000-0000-0000-000000000000",
       drive_file_id: "postgrest-dml-lockdown-test",
+      show_id: "00000000-0000-0000-0000-000000000001",          // R37-2: NOT NULL in live DDL
       payload: {},
+      applied_by_email: "lockdown-probe@example.com",           // R37-2: NOT NULL
+      applied_at_intent: "2026-06-11T00:00:00Z",                // R37-2: NOT NULL
     },
+    // R37-2: body is structurally valid so a regressed grant fails on PERMISSION (42501), never on
+    // column validation — the probe must prove the lockdown, not a 400.
+
     rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-no-such-row",
   },
 ```
