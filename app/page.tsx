@@ -40,7 +40,7 @@ export default async function Home() {
           // (minus the disabled: utilities — Links don't disable). The
           // focus-visible:ring-[#1a73e8] arbitrary value is the shipped
           // pre-existing Google interaction-blue ring from that button.
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
