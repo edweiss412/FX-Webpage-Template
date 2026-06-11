@@ -1,0 +1,37 @@
+# Settings
+
+`/admin/settings` holds the account-wide stuff: who can sign in as an admin, the Drive folder the app watches, and how it notifies you. Nothing here changes day to day — you'll set it up once and come back only when something needs reconnecting or you want different emails.
+
+<h2 id="administrators">Administrators</h2>
+
+The **Administrators** list is the set of Google accounts that can sign in to the admin side of the app. Everyone on the list sees the same dashboard and can do the same things. Crew members never appear here — they don't sign in at all; they get to their page through the show link you share.
+
+**Add admin** adds another email to the list. A Revoke button next to each of the other admins removes their access — your own row doesn't have one, so the list can never lock everyone out. Revoked admins stay visible in a separate **Revoked** list so you can see who used to have access and when it ended.
+
+<h2 id="drive-connection">Drive connection</h2>
+
+The app watches exactly one Google Drive folder. Any show sheet shared into that folder gets picked up automatically on the next poll — that's the whole pipeline, and this card is where you see it. The card names the folder, gives you an **Open folder** button that jumps straight to it in Drive, and shows a status line: when everything is fine it reads "Connected", says how many shows are syncing, and tells you when the app last read the folder.
+
+Need to point the app at a different folder? **Re-run setup**. Your current shows keep syncing the whole time, so there's no risk in re-running it.
+
+<h2 id="drive-health">The health badge</h2>
+
+The badge next to the **Drive connection** heading is a one-word answer to "is the pipeline working?" It shows **Healthy** when the connection is good, and **Needs attention** when something wants a look. In plain terms, the status line underneath tells you which situation you're in:
+
+- **Connected.** The folder is being read and shows are syncing. Nothing to do.
+- **"Connection not set up."** You haven't pointed the app at a Drive folder yet. Run setup to choose one.
+- **"Connection needs attention."** The app's link to your folder lapsed or stopped, so new edits may not be syncing. Tap **Re-run setup** to reconnect — your existing shows keep all their data.
+- **"Syncing, but … shows need attention."** The folder connection itself is fine; some individual shows are failing to sync. Head to the dashboard and open the failing shows from the [Needs attention inbox](/help/admin/dashboard#pending-ingestion) — the fix is per-show, not here.
+- **"Not synced yet."** The app hasn't read the folder yet — normal right after setup, before the first poll.
+
+If the status line says it couldn't read the connection status just now, that's a hiccup on our side, not your folder: refresh the page, and if it keeps happening, send the page link to Eric.
+
+<h2 id="preferences">Preferences</h2>
+
+Three switches that control how the app behaves when you're not looking at it:
+
+- **Alert me about sync problems.** Emails you when a sheet stops syncing or fails to parse for more than an hour. With this off, problems still show up on the dashboard — you just won't get the email nudge.
+- **Daily review digest.** A once-a-day email summarizing sheets that are waiting for your review, grouped by show. If nothing is waiting, no email goes out.
+- **Auto-publish clean new shows.** When on, a brand-new sheet that parses with no warnings publishes on its own — you can still undo within 24 hours. When off, every new show waits in the [Needs attention inbox](/help/admin/dashboard#pending-ingestion) for your explicit approval before going live.
+
+If a switch says it couldn't read the setting just now, refresh the page — that's a temporary read problem, not a changed preference.

@@ -133,11 +133,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     file: "app/help/admin/dashboard/page.mdx",
     note: "Pending-panel discard action — components/admin/PendingPanelDiscardButtons.tsx:96.",
   },
-  {
-    label: "Review and apply",
-    file: "app/help/admin/dashboard/page.mdx",
-    note: "Onboarding wizard step-3 first-seen action — components/admin/wizard/Step3Review.tsx:262 rendered link text. (Previously also the dead PendingPanel's row action; that component was deleted in M12.12 Task 10 — the live inbox row action is 'Review →'.)",
-  },
+  // (M12.12 Task 8: the dashboard MDX was rewritten to the live inbox model —
+  // its first-seen action is now "Review", so the old "Review and apply"
+  // declaration for this file was removed as stale.)
 
   // ─── app/help/admin/onboarding-wizard/page.mdx ───
   // Three-step wizard. Prose-only references to wizard controls.

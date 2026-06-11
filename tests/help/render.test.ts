@@ -45,7 +45,7 @@ async function importPage(file: string): Promise<ComponentType> {
 describe("MDX smoke renderer (test #4)", () => {
   const pages = discoverPages();
 
-  it(`discovers all 13 v1 pages (found ${pages.length})`, () => {
+  it(`discovers all 14 v1 pages (found ${pages.length})`, () => {
     expect(pages.map((page) => page.route)).toEqual([
       "/help",
       "/help/admin/dashboard",
@@ -54,6 +54,7 @@ describe("MDX smoke renderer (test #4)", () => {
       "/help/admin/per-show-panel",
       "/help/admin/preview-as-crew",
       "/help/admin/review-queues",
+      "/help/admin/settings",
       "/help/admin/sharing-links",
       "/help/daily-rhythm",
       "/help/errors",
