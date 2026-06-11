@@ -494,6 +494,13 @@ describe("applyStagedCore live-partition source scoping", () => {
 
 **Phase B lock order (plan R25-1 — same inversion R16 fixed for Phase D, pre-existing in live code):** `handleOnboardingFinalize` currently calls `readActiveSession()` (app_settings `FOR UPDATE`, `finalize/route.ts:171-181`) BEFORE `tryFinalizeLock()` (`:626-633`), while `cleanupAbandonedFinalize` takes `finalize:` then `app_settings FOR UPDATE` (`sessionLifecycle.ts:328-339`) — an AB-BA deadlock under admin cleanup/finalize overlap. This task ALSO reorders Phase B to the global total order: discover the candidate session WITHOUT a row lock → acquire `finalize:<session>` → `SELECT … FOR UPDATE` re-check of the active session → per-row processing. Required regressions: (a) real-DB overlap `handleOnboardingFinalize` vs `cleanupAbandonedFinalize` for the same session → both settle, no SQLSTATE 40P01, one winner; (b) structural lock-order test pinning finalize-before-app_settings for BOTH finalize routes (extend the advisory-lock topology test to cover app_settings row-lock ordering, not just show-lock holders). Concrete failure mode: cleanup clicked while a finalize batch is mid-flight deadlocks both, stranding the wizard at the exact moment the operator is trying to recover it.
 
+**Executable steps for the Phase B reorder (plan R29-1 — RED/GREEN, part of Task 1.3's checklist, not prose):**
+- [ ] **RED (structural order):** add to the lock-order structural test a Phase B assertion that FAILS against the live route: parse `handleOnboardingFinalize`'s body and assert the index of the `pg_try_advisory_xact_lock(hashtext('finalize:'` call site precedes the index of the `for update` `app_settings` SELECT call site (today `readActiveSession` at `finalize/route.ts:171-181` is invoked at `:626` BEFORE `tryFinalizeLock` at `:633` — the test must be red on main).
+- [ ] **RED (overlap DB):** real-DB regression `Promise.all([handleOnboardingFinalize(...), cleanupAbandonedFinalize(sameSession)])` with seeded approved rows: on the live order this can 40P01 under the interleaving harness; assert both settle without SQLSTATE 40P01 and exactly one wins the session.
+- [ ] **GREEN:** split `readActiveSession` into (a) `readCandidateSessionId` (plain SELECT, no lock) used for discovery, and (b) the existing FOR-UPDATE read, now invoked AFTER `tryFinalizeLock` succeeds; the FOR-UPDATE read re-checks the candidate is still the active session (mismatch → existing typed 409). Update both call sites and the deps type.
+- [ ] **Run both tests → green; commit** `fix(onboarding): finalize Phase B acquires finalize lock before app_settings row lock (AB-BA vs cleanup)`.
+
+
 
 **Files:**
 - Create: `supabase/migrations/20260611000000_onboarding_manifest_created_show_id.sql`

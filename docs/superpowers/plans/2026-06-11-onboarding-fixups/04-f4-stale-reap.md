@@ -733,11 +733,14 @@ export async function reapStaleOnboardingSessions(
     }
     sessions.push(outcome ?? { wizardSessionId: candidate.wizard_session_id, outcome: "skipped_unstable" });
   }
-  return { sessions: sessions.filter((s) => s.outcome.startsWith("reaped")) };
+  // R29-2: skipped_unstable MUST be visible to the admin caller — silently dropping it lets an
+  // operator believe the sweep completed while debris remains. Return reaped + skipped_unstable;
+  // the quiet skips (active/fresh/recent/no_residue) stay filtered (intentional, covered by tests).
+  return { sessions: sessions.filter((s) => s.outcome.startsWith("reaped") || s.outcome === "skipped_unstable") };
 }
 ```
 
-  Adjust the candidate-enumeration SQL / fake-classifier pairing as needed — the fake must classify EXACTLY the SQL the implementation issues (the fake throws on anything unclassified, which is the structural no-purge/no-rotate guarantee).
+  Route/UI note (R29-2): the reap route response and the admin affordance surface `skipped_unstable` sessions distinctly from successful reaps (copy: "1 session couldn't be cleaned this run — try again"); add a route test asserting the outcome appears in the JSON body. Adjust the candidate-enumeration SQL / fake-classifier pairing as needed — the fake must classify EXACTLY the SQL the implementation issues (the fake throws on anything unclassified, which is the structural no-purge/no-rotate guarantee).
 - [ ] **VERIFY (GREEN).** `pnpm vitest run tests/onboarding/reapStaleSessions.test.ts tests/onboarding/sessionLifecycle.test.ts` → all pass.
 - [ ] **COMMIT.** `feat(onboarding): session-scoped stale-debris reap (never purges, never rotates)`
 
