@@ -515,7 +515,7 @@ describe("applyStagedCore live-partition source scoping", () => {
 
 
 **Files:**
-- Create: `supabase/migrations/20260611000000_onboarding_manifest_created_show_id.sql`
+- Create: `supabase/migrations/20260611000000_onboarding_manifest_created_show_id.sql` (R57-2: this migration adds BOTH `onboarding_scan_manifest.created_show_id uuid references public.shows(id) on delete set null` AND `public.shows.wizard_created_session_id uuid` — nullable, no default, written only by the F1 first-seen INSERT; apply-twice idempotent `add column if not exists`)
 - Create: `supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql` (R56-2: MOVED from F4 Task 4.7 — REVOKE anon/authenticated DML on onboarding_scan_manifest + wizard_finalize_checkpoints + shows_pending_changes, service_role grant; lands in THIS task's commit BEFORE any created_show_id consumer)
 - Modify: `tests/db/postgrest-dml-lockdown.test.ts` (3 RPC_GATED_TABLES rows, same commit as the REVOKE per the lockdown discipline)
 - Modify: `app/api/admin/onboarding/finalize/route.ts`
@@ -634,6 +634,9 @@ test("lock-topology proof: the app_settings FOR UPDATE serializes supersession a
      const pipelineTx = input.pipelineTx;                       // new withRowTx 2nd arg (step 6)
      const lockedTx = await adoptShowLockHeld(pipelineTx, row.drive_file_id);
      const core = await applyStagedCore(lockedTx, {
+       // R57-2: the first-seen INSERT sets shows.wizard_created_session_id = wizardSessionId in the
+       // SAME statement (thread the session id through the core args for wizard first-seen applies);
+       // the first-seen DB test asserts the column equals the session id.
        feedPolicy: { kind: "none" },  // first-seen writes NO feed rows (spec §3.1); first-seen DB test asserts ZERO show_change_log rows
        sourceScope: "wizard",
        driveFileId: row.drive_file_id,
