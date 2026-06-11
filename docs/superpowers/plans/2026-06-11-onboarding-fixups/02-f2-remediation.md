@@ -559,6 +559,7 @@ Expected: `beforeAll` throws `ENOENT ... 20260611000001_onboarding_fixups_remedi
 - [ ] **4. Minimal implementation — write the migration** — `supabase/migrations/20260611000001_onboarding_fixups_remediation.sql`. Sections 1–2 are the spec §4 block **VERBATIM** (spec lines 104–177 — copy, don't retype). Sections 3–4 are plan-level additions (lockdown + F4 purge) explicitly sanctioned by spec §4 ("marker table … IS a schema change") and §6 ("one-time purge … rides the F2 migration"):
 
 ```sql
+begin;  -- R59-2: explicit transaction — psql -f autocommits per statement; the purge RAISE must roll back the marker insert + watermark resets too.
 -- M-onboarding-fixups F2 — windowed watermark reset for wizard-damaged shows
 -- + F4 one-time purge of the 18 synthetic validation wizard sessions.
 --
@@ -748,6 +749,8 @@ begin
     raise exception 'onboarding_fixups purge: residue outside locked drive-id set — re-run the migration';
   end if;
 end $$;
+commit;  -- R59-2
+
 ```
 
 **Lockdown registry lockstep (plan R20-1, prose moved OUTSIDE the SQL fence per R21-1):** same commit as this migration, add a `RPC_GATED_TABLES` row for `data_migration_markers` in `tests/db/postgrest-dml-lockdown.test.ts` (`selectAnon`/`selectAuthenticated` false, minimal valid `postBody` e.g. `{ key: "lockdown-probe" }`). Add `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` to this task's verification commands; the ON_ERROR_STOP expected output now includes `GRANT`. The phase header's earlier "lockdown N/A for this table" claim is REVERSED.

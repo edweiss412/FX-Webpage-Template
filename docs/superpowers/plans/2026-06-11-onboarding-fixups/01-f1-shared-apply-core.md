@@ -637,6 +637,11 @@ test("lock-topology proof: the app_settings FOR UPDATE serializes supersession a
      const pipelineTx = input.pipelineTx;                       // new withRowTx 2nd arg (step 6)
      const lockedTx = await adoptShowLockHeld(pipelineTx, row.drive_file_id);
      const core = await applyStagedCore(lockedTx, {
+       wizardCreatedSessionId: row.wizard_session_id,  // R59-1: threaded through ApplyStagedCoreArgs →
+       // Phase2Args → Phase2Tx.applyShowSnapshot → the first-seen INSERT SQL (column wizard_created_session_id);
+       // absent for live/dashboard/Phase-D callers (existing-show applies never write it). Unit checks:
+       // SQL string includes the column when set, byte-identical when absent; first-seen DB regression
+       // asserts shows.wizard_created_session_id = SESSION.
        // R57-2: the first-seen INSERT sets shows.wizard_created_session_id = wizardSessionId in the
        // SAME statement (thread the session id through the core args for wizard first-seen applies);
        // the first-seen DB test asserts the column equals the session id.
