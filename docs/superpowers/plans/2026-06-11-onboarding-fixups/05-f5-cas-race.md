@@ -13,7 +13,7 @@
 - The route's abort mechanism is broken-by-shape (spec §7 R9-1): `errorResponse(...)` returned from inside the transaction callback is a normal return value, and `withPostgresSyncPipelineLock` (`lib/sync/runScheduledCronSync.ts:1314-1343`) COMMITS on normal return (`sql.begin` at `:1326`). A post-manifest-UPDATE "409" returned this way commits the manifest transition while reporting refusal.
 - Entry: `defaultWithRowTx` → `withPostgresSyncPipelineLock(driveFileId, fn, { tryOnly: false })` at `retry/route.ts:73`. **F5 adds NO locks** (spec §3.3): no `app_settings` row lock from this per-show-locked path (R4-1 deadlock inversion vs `cleanupAbandonedFinalize`'s `finalize:` → `app_settings FOR UPDATE` → show-locks order at `sessionLifecycle.ts:329-374`).
 - Live-sync inertness anchor: `readLiveDeferral` (`lib/sync/perFileProcessor.ts:103-122`) filters `.is("wizard_session_id", null)` (`:112`); gate consumed at `:175-183`.
-- Class-sweep targets named by the route comment (`retry/route.ts:292-296`): `requireCurrentWizardRow` (`retry/route.ts:157-175`) and `lib/sync/discardStaged.ts`. **Pre-draft sweep findings are recorded in Task 5.5** — sweep DONE, fix shape decided.
+- Class-sweep targets: the route comment names `requireCurrentWizardRow` (`retry/route.ts:157-175`) and `lib/sync/discardStaged.ts`; review R12 added `lib/sync/retrySingleFile.ts` (post-read unguarded `pending_ingestions` delete at `:155` — S5). **Pre-draft sweep findings are recorded in Task 5.5** — sweep DONE (re-run R12), fix shapes decided.
 
 **⚠️ Citation correction (live-code pass finding):** the spec (§7) and AGENTS.md cite the x1 parity gate as `tests/messages/codes.test.ts:92`. In the live repo the gate is `tests/cross-cutting/codes.test.ts` (describe `"AC-X.1 §12.4 catalog parity"` at `:79`), run via `pnpm test:audit:x1-catalog-parity` (`package.json:29`, which chains `pnpm gen:spec-codes`). All verification commands below use the real path. (The contract is identical; only the path drifted.)
 
@@ -484,11 +484,15 @@ test("a wizard-scoped deferral residue row can NEVER suppress live sync (F5 iner
 
 **Files:**
 - `lib/sync/discardStaged.ts` (fix)
+- `lib/sync/retrySingleFile.ts` (fix — S5, R12 HIGH)
+- `lib/sync/wizardSessionRollback.ts` (extend `attemptedAction` union with `"retry"`)
 - `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts` (catch + map; the handler is `handleWizardStagedDiscard`, verified at route.ts:86)
-- `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts` (comment only)
+- `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts` (comment only — its Task-5.1 catch already handles the S5 throw)
 - `tests/sync/discardStaged.test.ts` (extend — wizard-branch unit tests with injected fakes)
+- `tests/sync/retrySingleFile.test.ts` (extend — S5 unit: 0-row delete throws)
 - `tests/onboarding/wizardScopedReapply.test.ts` (extend — the existing `handleWizardStagedDiscard` route-test surface; route-level catch/map unit)
 - `tests/onboarding/discardStagedCasRaceDb.test.ts` (new, real-Postgres — R6 HIGH)
+- `tests/onboarding/wizardSessionCasRaceDb.test.ts` (extend — S5 real-DB retry race regression)
 
 **Sweep findings (pre-verified against the live tree — this is the "report" half; each gets fix-or-file):**
 
@@ -499,7 +503,9 @@ test("a wizard-scoped deferral residue row can NEVER suppress live sync (F5 iner
 | S3 | `discardStaged.ts` `defaultMarkWizardManifestDiscarded` 0-row AFTER the deferral wrote (`:435-443`; statement order deferral `:422` → manifest `:435` → delete `:444`) | **Same bug class as the retry route:** the function RETURNS `{ outcome: "wizard_superseded" }`, the enclosing per-show-locked tx COMMITS, and the stale-session deferral row written at `:422` PERSISTS. Partial commit. | **Fix now (mechanical, same shape as 5.1):** throw `WizardSessionSupersededRollbackError` instead of returning, for the post-first-mutation misses. |
 | S4 | `discardStaged.ts` `defaultDeleteWizardPendingSync` (`:354-370`) | NO currency predicate at all — a supersession visible at its statement time still deletes the wizard `pending_syncs` row. | **Fix now:** add the same `and exists (select 1 from public.app_settings where id = 'default' and pending_wizard_session_id = $2::uuid)` clause + `returning`; 0-row (post-mutation position) throws. |
 
-  Out-of-scope note: `retrySingleFile_unlocked`'s `wizard_superseded` outcome (`retry/route.ts:283-285`) is a pre-mutation refusal inside its own helper (S1-class); swept, no finding. No other `pending_wizard_session_id` consumers exist under `app/` + `lib/` (`rg "pending_wizard_session_id" app lib`) beyond `sessionLifecycle.ts` (lock-ordered, Phase 4) and the surfaces above.
+| S5 | `lib/sync/retrySingleFile.ts` `retrySingleFile_unlocked` (`:116-158`) — **R12 HIGH: an earlier sweep round wrongly cleared this surface as "pre-mutation refusal only"** | Reads `app_settings` ONCE up front (`readWizardSettings`, plain read at `:124`), then performs Drive I/O (`fetchDriveFileMetadata`, `:142`) + `runOnboardingScan` (`:146`) — a LONG window — and finally deletes `public.pending_ingestions` (`deletePendingIngestion` `:74-88`, called at `:155`) with NO currency predicate (only `drive_file_id` + `wizard_session_id` equality). A supersession committing between `:124` and `:155` lets the stale-session delete COMMIT and the route return `{status:"staged"}` 200 — success reported to a retired wizard tab while it mutates the wizard partition post-supersession. (The scan's OWN writes are per-statement CAS-gated by design, master spec line 2589, so a supersession visible DURING the scan yields `superseded`; the unguarded statement is the delete.) | **Fix now (same shape as S4 / Task 5.1):** add the EXISTS currency clause + `returning true as deleted` to `deletePendingIngestion`; 0-row → throw `WizardSessionSupersededRollbackError` with `attemptedAction: "retry"` (extend the `WizardSessionRollbackContext.attemptedAction` union in `lib/sync/wizardSessionRollback.ts` with `"retry"`). The retry route's Task-5.1 catch already maps the throw to the typed 409 + Task-5.3 alert — no new route code. |
+
+  Sweep completeness (re-run with `retrySingleFile.ts` INCLUDED — the earlier "no other consumers" claim is retracted): `rg "pending_wizard_session_id" app lib --type ts` → consumers are `sessionLifecycle.ts` (lock-ordered, Phase 4), the retry route (S1 + Task 5.1), `discardStaged.ts` (S2–S4), `retrySingleFile.ts` (S5), and `runOnboardingScan.ts` (every write per-statement CAS-gated per master spec 2589; its commit-window residue is the accepted, F4-swept class). No other post-read stale-session mutators remain.
 
 - [ ] **RED.** In the `discardStaged` wizard-branch test file, add (fake-tx, mirroring the file's existing dep-injection style):
 
@@ -603,10 +609,55 @@ test("handleWizardStagedDiscard maps the typed rollback to 409 WIZARD_SESSION_SU
 });
 ```
 
-- [ ] **GREEN.** (1) `defaultDeleteWizardPendingSync`: add the EXISTS clause + `returning true as deleted`, change signature to return `Promise<boolean>` (update the `DiscardStagedDeps` type member at `:77+`); export the three wizard-branch default SQL helpers (`defaultUpsertWizardDeferral`, `defaultMarkWizardManifestDiscarded`, `defaultDeleteWizardPendingSync`) for the real-DB race test. (2) In `discardStaged_unlocked`'s wizard branch: `markWizardManifestDiscarded === false` after a successful deferral write (or after `try_again`'s no-deferral path? — NO: `try_again` writes no deferral first, so a manifest miss there is pre-mutation → keep the returned outcome for `try_again`, throw only when `variant !== "try_again"`), and `deleteWizardPendingSync === false`, throw `new WizardSessionSupersededRollbackError({ attemptedAction: "discard", supersededSessionId: args.wizardSessionId, driveFileId: args.driveFileId })`. (3) The onboarding discard route catches the typed error after its tx aborts and maps to the existing 409 `WIZARD_SESSION_SUPERSEDED` (no alert — the spec mandates the `WIZARD_SESSION_SUPERSEDED_RACE` alert for the retry route's defer/ignore path; extending the producer to discard is a separate decision — file to BACKLOG.md if wanted, do not silently widen the meta-test write-site). (4) S1 comment in the retry route.
-- [ ] **VERIFY.** `pnpm vitest run tests/sync --silent` (full sync suite — `discardStaged` has live-branch consumers at `app/api/admin/show/staged/[stagedId]/discard/route.ts` and `app/api/admin/staged/[fileId]/discard/route.ts` whose live branch is untouched but shares the file) + `pnpm vitest run tests/onboarding/discardStagedCasRaceDb.test.ts tests/onboarding/wizardScopedReapply.test.ts tests/onboarding` → all pass (the db file skips cleanly without local Postgres; CI/local with the stack up runs it for real).
+- [ ] **RED (S5 unit).** Extend `tests/sync/retrySingleFile.test.ts`: drive `retrySingleFile_unlocked` with a fake tx whose `app_settings` read returns W1, whose scan stub returns `{ outcome: "completed", processed: [{ driveFileId: FILE, outcome: "staged" }] }` (literal verified at `lib/sync/runOnboardingScan.ts:73-80`), and whose pending-ingestion DELETE returns NULL (predicate miss). Assert the call rejects with `WizardSessionSupersededRollbackError` carrying `attemptedAction: "retry"`. **Concrete failure mode:** without the throw, the function returns `{ outcome: "retried", status: "staged" }` and the route 200s a retired tab.
+- [ ] **RED (S5 real-DB race).** Extend `tests/onboarding/wizardSessionCasRaceDb.test.ts` (same harness/fixtures as Task 5.2):
+
+```ts
+test.skipIf(!dbUp)(
+  "retry race: supersession lands between the app_settings read and the pending-ingestion delete → typed rollback, row survives, route 409s",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    // The natural window is INSIDE the scan (Drive I/O + staging, retrySingleFile.ts:142-152):
+    // inject a runOnboardingScan stub that performs the committed flip mid-window, then
+    // reports the file staged — exactly the sequence a real takeover produces.
+    const response = await handleWizardPendingIngestionAction(
+      new Request("http://test", { method: "POST" }),
+      { params: Promise.resolve({ id: pendingIngestionId }) },
+      {
+        requireAdminIdentity: async () => ({ email: "admin@example.com" }), // real withRowTx + real DB
+        retrySingleFileUnlocked: async (tx, driveFileId, wizardSessionId) =>
+          (await import("@/lib/sync/retrySingleFile")).retrySingleFile_unlocked(
+            tx as never,
+            driveFileId,
+            wizardSessionId,
+            {
+              fetchDriveFileMetadata: async () => fixtureMetadata(FILE),
+              runOnboardingScan: async () => {
+                await superseder.unsafe(
+                  `update public.app_settings set pending_wizard_session_id = $1::uuid where id = 'default'`,
+                  [W2],
+                );
+                return { outcome: "completed", processed: [{ driveFileId: FILE, outcome: "staged" }] };
+              },
+            },
+          ),
+      },
+      "retry",
+    );
+    // Concrete failure mode: pre-fix this is 200 {status:"staged"} — success reported to a
+    // RETIRED wizard tab — and the W1-scoped pending_ingestions row is deleted by a stale
+    // session AFTER the supersession committed (the same statement-vs-commit class as S4).
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull(); // delete rolled back
+  },
+);
+```
+
+- [ ] **GREEN.** (1) `defaultDeleteWizardPendingSync`: add the EXISTS clause + `returning true as deleted`, change signature to return `Promise<boolean>` (update the `DiscardStagedDeps` type member at `:77+`); export the three wizard-branch default SQL helpers (`defaultUpsertWizardDeferral`, `defaultMarkWizardManifestDiscarded`, `defaultDeleteWizardPendingSync`) for the real-DB race test. (2) In `discardStaged_unlocked`'s wizard branch: `markWizardManifestDiscarded === false` after a successful deferral write (or after `try_again`'s no-deferral path? — NO: `try_again` writes no deferral first, so a manifest miss there is pre-mutation → keep the returned outcome for `try_again`, throw only when `variant !== "try_again"`), and `deleteWizardPendingSync === false`, throw `new WizardSessionSupersededRollbackError({ attemptedAction: "discard", supersededSessionId: args.wizardSessionId, driveFileId: args.driveFileId })`. (3) The onboarding discard route catches the typed error after its tx aborts and maps to the existing 409 `WIZARD_SESSION_SUPERSEDED` (no alert — the spec mandates the `WIZARD_SESSION_SUPERSEDED_RACE` alert for the retry route's defer/ignore path; extending the producer to discard is a separate decision — file to BACKLOG.md if wanted, do not silently widen the meta-test write-site). (4) S1 comment in the retry route. (5) S5: `retrySingleFile.ts` `deletePendingIngestion` gains the EXISTS currency clause + `returning true as deleted`; a 0-row outcome at `:155` throws `WizardSessionSupersededRollbackError({ attemptedAction: "retry", supersededSessionId: wizardSessionId, driveFileId })`; add `"retry"` to the `attemptedAction` union in `wizardSessionRollback.ts`. No retry-route change needed — the Task-5.1 catch maps the throw (and Task 5.3's alert fires with the retry context).
+- [ ] **VERIFY.** `pnpm vitest run tests/sync --silent` (full sync suite — `discardStaged` has live-branch consumers at `app/api/admin/show/staged/[stagedId]/discard/route.ts` and `app/api/admin/staged/[fileId]/discard/route.ts` whose live branch is untouched but shares the file; covers `retrySingleFile.test.ts` too) + `pnpm vitest run tests/onboarding/discardStagedCasRaceDb.test.ts tests/onboarding/wizardSessionCasRaceDb.test.ts tests/onboarding/wizardScopedReapply.test.ts tests/onboarding` → all pass (db files skip cleanly without local Postgres; CI/local with the stack up runs them for real).
 - [ ] **Negative-regression check (real-DB half):** stash the `defaultDeleteWizardPendingSync` EXISTS-clause hunk, re-run `tests/onboarding/discardStagedCasRaceDb.test.ts` → the race test FAILS (delete succeeds, no throw, rows mutated); unstash. Proves the DB test pins the production SQL, not the mocks.
-- [ ] **COMMIT.** `fix(sync): class-sweep discardStaged wizard branch — currency predicate on pending-sync delete + typed rollback after first mutation`
+- [ ] **COMMIT.** `fix(sync): class-sweep discardStaged + retrySingleFile — currency predicates on wizard deletes + typed rollback after first mutation`
 
 ---
 
