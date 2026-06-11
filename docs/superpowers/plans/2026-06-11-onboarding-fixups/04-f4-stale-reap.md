@@ -272,21 +272,29 @@ export class FakeReapTx implements OnboardingSessionTx {
           .filter((r) => r.wizard_session_id === params[0] && r.created_show_id != null)
           .map((r) => r.created_show_id),
       );
+      const before = this.tables.shows.length;
       this.tables.shows = this.tables.shows.filter(
         (r) => !(created.has(r.id) && r.published === false),
       );
-      return { rows: [] as T[], rowCount: 0 };
+      const count = before - this.tables.shows.length;
+      // Mirror the adapter contract (sessionLifecycle.ts:93-99): rowCount derives from
+      // `returning` rows — the R4 idempotency fix depends on real counts here.
+      return { rows: Array.from({ length: count }, () => ({ deleted: 1 })) as T[], rowCount: count };
     }
-    const scopedDelete = q.match(/^delete from public\.([a-z_]+) where wizard_session_id = \$1::uuid$/);
+    const scopedDelete = q.match(
+      /^delete from public\.([a-z_]+) where wizard_session_id = \$1::uuid returning 1 as deleted$/,
+    );
     if (scopedDelete) {
       this.operations.push(`delete:${scopedDelete[1]}:${String(params[0])}`);
+      const before = this.tables[scopedDelete[1]!]!.length;
       this.tables[scopedDelete[1]!] = this.tables[scopedDelete[1]!]!.filter(
         (r) => r.wizard_session_id !== params[0],
       );
-      return { rows: [] as T[], rowCount: 0 };
+      const count = before - this.tables[scopedDelete[1]!]!.length;
+      return { rows: Array.from({ length: count }, () => ({ deleted: 1 })) as T[], rowCount: count };
     }
     if (/insert into public\.sync_log/.test(q)) {
-      this.operations.push(`sync-log:${String(params[1] ?? params[0])}`);
+      this.operations.push(`sync-log:${String(params[0])}`); // params: [sessionId, adminEmail, deletedCount]
       this.tables.sync_log.push({ params: [...params] });
       return { rows: [] as T[], rowCount: 1 };
     }
@@ -379,6 +387,39 @@ describe("reapStaleOnboardingSessions — session-scoped reap (F4)", () => {
     expect(tx.tables.shows_pending_changes).toHaveLength(1);
   });
 
+  test("a terminal session with ONLY preserved surfaces is NOT reaped: no result entry, no sync_log row", async () => {
+    // Concrete failure mode (R4 HIGH): preserved checkpoint + shadows keep the session in the
+    // candidate query forever; without the zero-delete guard every run returns it as
+    // "reaped_orphan_rows" and writes a sync_log row — inflated success counts + log spam
+    // while deleting nothing, on every reap, indefinitely.
+    const tx = new FakeReapTx();
+    tx.tables.wizard_finalize_checkpoints.push({ wizard_session_id: TERMINAL, status: "final_cas_done", recent: false });
+    tx.tables.shows_pending_changes.push({ wizard_session_id: TERMINAL, drive_file_id: "drive-t2" });
+    const result = await reapStaleOnboardingSessions(deps(tx));
+    expect(result.sessions).toEqual([]); // skipped_no_residue filtered from reaped output
+    expect(tx.operations.filter((op) => op.startsWith("sync-log"))).toEqual([]);
+    expect(tx.tables.wizard_finalize_checkpoints).toHaveLength(1);
+    expect(tx.tables.shows_pending_changes).toHaveLength(1);
+  });
+
+  test("two-run idempotency: run 1 sweeps the terminal session's residue; run 2 reaps nothing and logs nothing", async () => {
+    const tx = new FakeReapTx();
+    tx.tables.wizard_finalize_checkpoints.push({ wizard_session_id: TERMINAL, status: "final_cas_done", recent: false });
+    tx.tables.shows_pending_changes.push({ wizard_session_id: TERMINAL, drive_file_id: "drive-t2" });
+    tx.tables.deferred_ingestions.push({ wizard_session_id: TERMINAL, drive_file_id: "drive-t1" });
+
+    const run1 = await reapStaleOnboardingSessions(deps(tx));
+    expect(run1.sessions).toEqual([{ wizardSessionId: TERMINAL, outcome: "reaped_orphan_rows" }]);
+    expect(tx.tables.deferred_ingestions).toEqual([]);
+    expect(tx.operations.filter((op) => op.startsWith("sync-log"))).toHaveLength(1);
+
+    const run2 = await reapStaleOnboardingSessions(deps(tx));
+    expect(run2.sessions).toEqual([]); // session still a candidate (preserved rows), but zero deletes → skipped
+    expect(tx.operations.filter((op) => op.startsWith("sync-log"))).toHaveLength(1); // STILL exactly one
+    expect(tx.tables.wizard_finalize_checkpoints).toHaveLength(1); // preserved surfaces untouched by run 2
+    expect(tx.tables.shows_pending_changes).toHaveLength(1);
+  });
+
   test("a checkpoint-less session with orphan staging rows is fully reaped", async () => {
     const tx = new FakeReapTx();
     tx.tables.pending_ingestions.push({ wizard_session_id: STALE, drive_file_id: "drive-x1" });
@@ -408,7 +449,8 @@ export type ReapedSession = {
     | "reaped_orphan_rows"
     | "skipped_active"
     | "skipped_recent_finalize"
-    | "skipped_fresh_activity";
+    | "skipped_fresh_activity"
+    | "skipped_no_residue";
 };
 
 export type ReapStaleSessionsResult = { sessions: ReapedSession[] };
@@ -519,23 +561,54 @@ async function reapOneSession(
   );
   const terminal = checkpoint.rows.some((row) => row.status === "final_cas_done");
 
+  // (5) Deletes, COUNTED. Terminal-session idempotency (R4 HIGH): a final_cas_done session's
+  //     checkpoint + retained CAS-failure shadows are PRESERVED surfaces, so a completed
+  //     session with nothing else would otherwise stay a candidate forever — every reap run
+  //     would re-"reap" it, inflate the success count, and spam sync_log while deleting
+  //     nothing. Every DELETE therefore carries `returning 1 as deleted` (the postgres tx
+  //     adapter derives rowCount from returned rows, sessionLifecycle.ts:93-99 — a bare
+  //     DELETE reports 0), counts are summed, and a zero-delete run exits as
+  //     skipped_no_residue with NO sync_log row.
+  let deleted = 0;
   if (!terminal) {
     // First-seen interim rows: provenance-keyed (created_show_id), NEVER the published=false proxy.
-    await tx.query(
-      `
-        delete from public.shows s
-         using public.onboarding_scan_manifest m
-         where m.wizard_session_id = $1::uuid
-           and m.created_show_id = s.id
-           and s.published = false
-      `,
-      [sessionId],
-    );
-    await tx.query(`delete from public.shows_pending_changes where wizard_session_id = $1::uuid`, [sessionId]);
-    await tx.query(`delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`, [sessionId]);
+    deleted += (
+      await tx.query(
+        `
+          delete from public.shows s
+           using public.onboarding_scan_manifest m
+           where m.wizard_session_id = $1::uuid
+             and m.created_show_id = s.id
+             and s.published = false
+          returning 1 as deleted
+        `,
+        [sessionId],
+      )
+    ).rowCount;
+    deleted += (
+      await tx.query(
+        `delete from public.shows_pending_changes where wizard_session_id = $1::uuid returning 1 as deleted`,
+        [sessionId],
+      )
+    ).rowCount;
+    deleted += (
+      await tx.query(
+        `delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid returning 1 as deleted`,
+        [sessionId],
+      )
+    ).rowCount;
   }
   for (const table of REAP_STAGING_TABLES) {
-    await tx.query(`delete from public.${table} where wizard_session_id = $1::uuid`, [sessionId]);
+    deleted += (
+      await tx.query(
+        `delete from public.${table} where wizard_session_id = $1::uuid returning 1 as deleted`,
+        [sessionId],
+      )
+    ).rowCount;
+  }
+  if (deleted === 0) {
+    // Nothing but preserved surfaces (terminal checkpoint / retained shadows): not a reap.
+    return { wizardSessionId: sessionId, outcome: "skipped_no_residue" };
   }
   await tx.query(
     `
@@ -543,10 +616,10 @@ async function reapOneSession(
       values (
         'reap_stale_session',
         'stale onboarding session debris reaped by an admin',
-        jsonb_build_array(jsonb_build_object('wizard_session_id', $1::uuid, 'admin_email', $2))
+        jsonb_build_array(jsonb_build_object('wizard_session_id', $1::uuid, 'admin_email', $2, 'deleted_rows', $3::int))
       )
     `,
-    [sessionId, adminEmail],
+    [sessionId, adminEmail, deleted],
   );
   return { wizardSessionId: sessionId, outcome: terminal ? "reaped_orphan_rows" : "reaped_full" };
 }
@@ -755,7 +828,7 @@ describe("reap preservation (F4 §6 required tests)", () => {
 });
 ```
 
-- [ ] **RED (real DB).** Add `tests/onboarding/reapStaleSessionsDb.test.ts` (same probe + `test.skipIf(!dbUp)` harness as Task 4.1). Seed: active session A (in `app_settings`, with one manifest + one pending_syncs row), stale session B (`in_progress` checkpoint with `last_processed_at = now() - interval '25 hours'`, one manifest row with `created_show_id` → an interim `published=false` show, one shadow, one pending_syncs, one pending_ingestions, one deferred_ingestions — **every B row's activity columns backdated past 24h**: `staged_at` / `parsed_at` / `wizard_approved_at` / `observed_at` / `transitioned_at` / `first_seen_at` / `last_attempt_at` / `deferred_at` all set to `now() - interval '25 hours'`, since most default to `now()` on insert), stale session C whose ONLY row is a `deferred_ingestions` row with `deferred_at = now() - interval '25 hours'`, **FRESH non-active session D** (rotated minutes ago: checkpoint row with `last_processed_at` NULL, one manifest + one pending_syncs + one shadow row inserted with DEFAULT timestamps, i.e. `now()`), and one pre-existing `published=false` show whose `drive_file_id` matches a B manifest row with `created_show_id IS NULL`. Run `reapStaleOnboardingSessions({ requireAdminIdentity: async () => ({ email: "admin@example.com" }) })` against `TEST_DATABASE_URL`. Assert: every B/C-scoped row across all six tables is gone; B's interim show is gone; the pre-existing show, EVERY A-scoped row, AND **every D-scoped row including D's checkpoint** survive (concrete failure mode: without the 24h activity guard, D — non-active, no recent `last_processed_at` — is reaped and a newly-superseded session's staging is destroyed); a `sync_log` row with status `reap_stale_session` exists per reaped session; result lists B (`reaped_full`) and C (`reaped_full`) and does NOT list D. Derive all expected survivor sets from the seeded fixtures (anti-tautology: build the expected arrays from the seed constants, not literals repeated inline).
+- [ ] **RED (real DB).** Add `tests/onboarding/reapStaleSessionsDb.test.ts` (same probe + `test.skipIf(!dbUp)` harness as Task 4.1). Seed: active session A (in `app_settings`, with one manifest + one pending_syncs row), stale session B (`in_progress` checkpoint with `last_processed_at = now() - interval '25 hours'`, one manifest row with `created_show_id` → an interim `published=false` show, one shadow, one pending_syncs, one pending_ingestions, one deferred_ingestions — **every B row's activity columns backdated past 24h**: `staged_at` / `parsed_at` / `wizard_approved_at` / `observed_at` / `transitioned_at` / `first_seen_at` / `last_attempt_at` / `deferred_at` all set to `now() - interval '25 hours'`, since most default to `now()` on insert), stale session C whose ONLY row is a `deferred_ingestions` row with `deferred_at = now() - interval '25 hours'`, **FRESH non-active session D** (rotated minutes ago: checkpoint row with `last_processed_at` NULL, one manifest + one pending_syncs + one shadow row inserted with DEFAULT timestamps, i.e. `now()`), and one pre-existing `published=false` show whose `drive_file_id` matches a B manifest row with `created_show_id IS NULL`. Run `reapStaleOnboardingSessions({ requireAdminIdentity: async () => ({ email: "admin@example.com" }) })` against `TEST_DATABASE_URL`. Assert: every B/C-scoped row across all six tables is gone; B's interim show is gone; the pre-existing show, EVERY A-scoped row, AND **every D-scoped row including D's checkpoint** survive (concrete failure mode: without the 24h activity guard, D — non-active, no recent `last_processed_at` — is reaped and a newly-superseded session's staging is destroyed); a `sync_log` row with status `reap_stale_session` exists per reaped session; result lists B (`reaped_full`) and C (`reaped_full`) and does NOT list D. Derive all expected survivor sets from the seeded fixtures (anti-tautology: build the expected arrays from the seed constants, not literals repeated inline). **Two-run idempotency (R4 HIGH):** also seed terminal session E (`final_cas_done` checkpoint + one retained shadow + one `deferred_ingestions` residue row, all activity columns backdated 25h). Run the reap TWICE: run 1 lists E as `reaped_orphan_rows`, deletes only E's deferral, preserves E's checkpoint + shadow, and writes exactly one `reap_stale_session` `sync_log` row for E; run 2 lists NO sessions, leaves every surviving row byte-identical, and adds ZERO new `sync_log` rows (count `sync_log` before/after). Concrete failure mode: E's preserved checkpoint/shadow keep it a candidate forever — without the zero-delete guard, every scheduled/operator reap re-reports it as reaped and appends a log row, inflating counts and spamming cleanup logs indefinitely.
 - [ ] **VERIFY.** `pnpm vitest run tests/onboarding/reapStaleSessions.test.ts tests/onboarding/reapStaleSessionsDb.test.ts` → all pass (db file skips cleanly when Postgres is down; runs in CI/local with the stack up). Any failure here is a Task 4.2 implementation gap — fix in `sessionLifecycle.ts`, not in the tests.
 - [ ] **COMMIT.** `test(onboarding): reap preservation regressions (active/fresh sessions, deferred-only, pre-existing unpublished show) + real-DB integration`
 
