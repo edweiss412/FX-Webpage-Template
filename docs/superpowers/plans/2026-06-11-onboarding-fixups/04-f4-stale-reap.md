@@ -23,7 +23,7 @@
 | Hashkey | Existing holders | This phase |
 |---|---|---|
 | `finalize:<session_id>` | finalize routes via `pg_try_advisory_xact_lock` (pinned at `tests/auth/advisoryLockRpcDeadlock.test.ts:185-195`); `cleanupAbandonedFinalize` via `pg_advisory_xact_lock` (`sessionLifecycle.ts:329`) | reap acquires `pg_advisory_xact_lock` once per eligible session, FIRST, inside that session's **own dedicated transaction** — same layer as cleanup (JS-side SQL), single holder |
-| `show:<drive_file_id>` | cron/manual/push (`withPostgresSyncPipelineLock`), finalize per-row txs, cleanup via `lockCleanupDriveFiles` (`sessionLifecycle.ts:154-184`, call at `:374`) | reap acquires per affected file in deterministic alphabetical order AFTER the session's finalize lock, before any DELETE — same layer, single holder. **Per-session tx boundary (R5 HIGH):** one outer transaction spanning all candidates would still HOLD session A's `show:` locks while acquiring session B's `finalize:` lock — a show→finalize ordering that deadlocks against a concurrent `cleanupAbandonedFinalize(B)` holding `finalize:B` and waiting on an overlapping `show:` lock (finalize→show, `:329`→`:374`). Each candidate session therefore runs in its OWN transaction (finalize lock → re-checks → drive-id collection → show locks → deletes → COMMIT), releasing ALL its advisory locks before the next session's finalize lock is requested. Candidate enumeration is a separate read-only step that takes no locks. |
+| `show:<drive_file_id>` | cron/manual/push (`withPostgresSyncPipelineLock`), finalize per-row txs, cleanup via `lockCleanupDriveFiles` (`sessionLifecycle.ts:154-184`, call at `:374`) | reap acquires per affected file in deterministic alphabetical order AFTER the session's finalize lock, before any DELETE — same layer, single holder. **Per-session tx boundary (R5 HIGH):** one outer transaction spanning all candidates would still HOLD session A's `show:` locks while acquiring session B's `finalize:` lock — a show→finalize ordering that deadlocks against a concurrent `cleanupAbandonedFinalize(B)` holding `finalize:B` and waiting on an overlapping `show:` lock (finalize→show, `:329`→`:374`). Each candidate session therefore runs in its OWN transaction (finalize lock → re-checks → drive-id collection → show locks → deletes → COMMIT), releasing ALL its advisory locks before the next session's finalize lock is requested. Candidate enumeration is a separate read-only step that takes no locks. **Advisory-before-row (R15 HIGH):** drive-id collection takes NO `FOR UPDATE` row locks — pending-ingestion actions hold the show ADVISORY lock first (`withPostgresSyncPipelineLock`, retry/route.ts:73) and row-lock second (`readLockedPendingIngestion`, retry/route.ts:114-128); a reap that row-locked before its advisory locks would deadlock AB-BA against a concurrent stale-tab retry. Collection is a plain SELECT; the union is RE-COLLECTED under the advisory locks (the re-check replaces the row-lock guarantee). |
 | `app_settings` row lock | `cleanupAbandonedFinalize` `FOR UPDATE` (`:331-341`) — order is finalize-lock → app_settings → show locks | **reap takes NO `app_settings` row lock** (plain read only). Rationale: even with per-session transactions, holding it alongside show locks adds a third lock class for no benefit. A plain read is sufficient because rotation (`purgeAndRotateOnboardingSession` `:227`, cleanup `:408`) always mints a FRESH `randomUUID()` — a candidate stale session can never become active again, and rows of the new active session are never touched because every DELETE is `wizard_session_id`-scoped to the candidate. Document this in the reap's source comment. |
 
 ---
@@ -487,27 +487,57 @@ async function readActiveSessionId(tx: OnboardingSessionTx): Promise<string | nu
   return rows[0]?.pending_wizard_session_id ?? null;
 }
 
-async function lockReapDriveFiles(tx: OnboardingSessionTx, sessionId: string): Promise<void> {
+const REAP_DRIVE_ID_TABLES = [
+  "onboarding_scan_manifest",
+  "shows_pending_changes",
+  "pending_syncs",
+  "pending_ingestions",
+  "deferred_ingestions",
+] as const;
+
+async function collectReapDriveFileIds(
+  tx: OnboardingSessionTx,
+  sessionId: string,
+): Promise<string[]> {
   // Union across ALL FIVE session-scoped surfaces (lockCleanupDriveFiles at :154-184 only
   // covers applied-manifest + shadows; spec §6 R5-1 requires pending_syncs,
   // pending_ingestions AND deferred_ingestions too — a stale session can hold ONLY a
   // deferred row, the F5 commit-window residue shape).
+  //
+  // PLAIN SELECT — deliberately NO `for update` (R15 HIGH). Taking row locks BEFORE the
+  // show: advisory locks inverts the order every pending-ingestion action uses:
+  // withPostgresSyncPipelineLock takes the show ADVISORY lock first (retry/route.ts:73),
+  // THEN readLockedPendingIngestion row-locks FOR UPDATE (retry/route.ts:114-128). A
+  // concurrent stale-tab retry holding the advisory lock and waiting on our row lock,
+  // while we hold the row lock and wait on its advisory lock, is an AB-BA deadlock —
+  // the same advisory-before-row rule the PF11 lock-order test pins for RPCs.
   const driveFileIds = new Set<string>();
-  for (const table of [
-    "onboarding_scan_manifest",
-    "shows_pending_changes",
-    "pending_syncs",
-    "pending_ingestions",
-    "deferred_ingestions",
-  ]) {
+  for (const table of REAP_DRIVE_ID_TABLES) {
     const { rows } = await tx.query<DriveFileIdRow>(
-      `select drive_file_id from public.${table} where wizard_session_id = $1::uuid for update`,
+      `select drive_file_id from public.${table} where wizard_session_id = $1::uuid`,
       [sessionId],
     );
     for (const row of rows) driveFileIds.add(row.drive_file_id);
   }
-  for (const driveFileId of [...driveFileIds].sort((a, b) => a.localeCompare(b))) {
-    await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+  return [...driveFileIds].sort((a, b) => a.localeCompare(b));
+}
+
+async function lockReapDriveFiles(tx: OnboardingSessionTx, sessionId: string): Promise<void> {
+  // Collect WITHOUT row locks → advisory-lock in deterministic order → RE-COLLECT under
+  // the locks. The re-check replaces the row-lock guarantee: any drive id added between
+  // the first collection and the advisory locks (e.g. a concurrent retry staging a row
+  // for this session in its last pre-supersession moments) is caught by the second pass
+  // and locked too (new keys, still sorted — no inversion risk since we hold no row
+  // locks). The session-scoped DELETEs then run entirely under the advisory locks.
+  const locked = new Set<string>();
+  let pending = await collectReapDriveFileIds(tx, sessionId);
+  while (pending.length > 0) {
+    for (const driveFileId of pending) {
+      await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+      locked.add(driveFileId);
+    }
+    const recheck = await collectReapDriveFileIds(tx, sessionId);
+    pending = recheck.filter((id) => !locked.has(id));
   }
 }
 
@@ -819,6 +849,15 @@ describe("reap lock topology (F4 / spec §3.3 + §6)", () => {
     // and never touches app_settings beyond the plain read.
     expect(reapBody).not.toMatch(/update\s+public\.app_settings/i);
     expect(reapBody).not.toMatch(/for update[\s\S]*?app_settings|app_settings[\s\S]{0,200}for update/i);
+    // R15 HIGH — advisory-before-row: drive-id collection must take NO row locks. A
+    // FOR UPDATE before the show: advisory locks inverts the order pending-ingestion
+    // actions use (advisory via withPostgresSyncPipelineLock first, retry/route.ts:73;
+    // FOR UPDATE second, retry/route.ts:114-128) — AB-BA deadlock with a stale-tab retry.
+    const collectBody = source.slice(
+      source.indexOf("async function collectReapDriveFileIds"),
+      source.indexOf("async function lockReapDriveFiles"),
+    );
+    expect(collectBody).not.toMatch(/for\s+update/i);
   });
 ```
 
@@ -893,7 +932,7 @@ describe("reap preservation (F4 §6 required tests)", () => {
 });
 ```
 
-- [ ] **RED (real DB).** Add `tests/onboarding/reapStaleSessionsDb.test.ts` (same probe + `test.skipIf(!dbUp)` harness as Task 4.1). Seed: active session A (in `app_settings`, with one manifest + one pending_syncs row), stale session B (`in_progress` checkpoint with `last_processed_at = now() - interval '25 hours'`, one manifest row with `created_show_id` → an interim `published=false` show, one shadow, one pending_syncs, one pending_ingestions, one deferred_ingestions — **every B row's activity columns backdated past 24h**: `staged_at` / `parsed_at` / `wizard_approved_at` / `observed_at` / `transitioned_at` / `first_seen_at` / `last_attempt_at` / `deferred_at` all set to `now() - interval '25 hours'`, since most default to `now()` on insert), stale session C whose ONLY row is a `deferred_ingestions` row with `deferred_at = now() - interval '25 hours'`, **FRESH non-active session D** (rotated minutes ago: checkpoint row with `last_processed_at` NULL, one manifest + one pending_syncs + one shadow row inserted with DEFAULT timestamps, i.e. `now()`), and one pre-existing `published=false` show whose `drive_file_id` matches a B manifest row with `created_show_id IS NULL`. Run `reapStaleOnboardingSessions({ requireAdminIdentity: async () => ({ email: "admin@example.com" }) })` against the loopback-guarded `LOCAL_TEST_DATABASE_URL` harness (and pin `process.env.TEST_DATABASE_URL` to undefined for the test process so route/lib defaults that prefer it cannot escape to validation). Assert: every B/C-scoped row across all six tables is gone; B's interim show is gone; the pre-existing show, EVERY A-scoped row, AND **every D-scoped row including D's checkpoint** survive (concrete failure mode: without the 24h activity guard, D — non-active, no recent `last_processed_at` — is reaped and a newly-superseded session's staging is destroyed); a `sync_log` row with status `reap_stale_session` exists per reaped session; result lists B (`reaped_full`) and C (`reaped_full`) and does NOT list D. Derive all expected survivor sets from the seeded fixtures (anti-tautology: build the expected arrays from the seed constants, not literals repeated inline). **Two-run idempotency (R4 HIGH):** also seed terminal session E (`final_cas_done` checkpoint + one retained shadow + one `deferred_ingestions` residue row, all activity columns backdated 25h). Run the reap TWICE: run 1 lists E as `reaped_orphan_rows`, deletes only E's deferral, preserves E's checkpoint + shadow, and writes exactly one `reap_stale_session` `sync_log` row for E; run 2 lists NO sessions, leaves every surviving row byte-identical, and adds ZERO new `sync_log` rows (count `sync_log` before/after). Concrete failure mode: E's preserved checkpoint/shadow keep it a candidate forever — without the zero-delete guard, every scheduled/operator reap re-reports it as reaped and appends a log row, inflating counts and spamming cleanup logs indefinitely. **Concurrent-cleanup overlap (R5 HIGH, real-DB half):** seed two stale sessions sharing a `drive_file_id` (B above plus a second stale session whose rows reference one of B's drive ids), then run `Promise.all([reapStaleOnboardingSessions(...), cleanupAbandonedFinalize(<second session>, ...)])` and assert BOTH settle (wrap in a 30s timeout — a deadlock manifests as the test hanging until Postgres's `deadlock_timeout` aborts one party with SQLSTATE 40P01; assert neither promise rejects with 40P01). The per-session tx boundary is what makes this pass: each reap session commits — releasing its `show:` locks — before the next `finalize:` lock is requested.
+- [ ] **RED (real DB).** Add `tests/onboarding/reapStaleSessionsDb.test.ts` (same probe + `test.skipIf(!dbUp)` harness as Task 4.1). Seed: active session A (in `app_settings`, with one manifest + one pending_syncs row), stale session B (`in_progress` checkpoint with `last_processed_at = now() - interval '25 hours'`, one manifest row with `created_show_id` → an interim `published=false` show, one shadow, one pending_syncs, one pending_ingestions, one deferred_ingestions — **every B row's activity columns backdated past 24h**: `staged_at` / `parsed_at` / `wizard_approved_at` / `observed_at` / `transitioned_at` / `first_seen_at` / `last_attempt_at` / `deferred_at` all set to `now() - interval '25 hours'`, since most default to `now()` on insert), stale session C whose ONLY row is a `deferred_ingestions` row with `deferred_at = now() - interval '25 hours'`, **FRESH non-active session D** (rotated minutes ago: checkpoint row with `last_processed_at` NULL, one manifest + one pending_syncs + one shadow row inserted with DEFAULT timestamps, i.e. `now()`), and one pre-existing `published=false` show whose `drive_file_id` matches a B manifest row with `created_show_id IS NULL`. Run `reapStaleOnboardingSessions({ requireAdminIdentity: async () => ({ email: "admin@example.com" }) })` against the loopback-guarded `LOCAL_TEST_DATABASE_URL` harness (and pin `process.env.TEST_DATABASE_URL` to undefined for the test process so route/lib defaults that prefer it cannot escape to validation). Assert: every B/C-scoped row across all six tables is gone; B's interim show is gone; the pre-existing show, EVERY A-scoped row, AND **every D-scoped row including D's checkpoint** survive (concrete failure mode: without the 24h activity guard, D — non-active, no recent `last_processed_at` — is reaped and a newly-superseded session's staging is destroyed); a `sync_log` row with status `reap_stale_session` exists per reaped session; result lists B (`reaped_full`) and C (`reaped_full`) and does NOT list D. Derive all expected survivor sets from the seeded fixtures (anti-tautology: build the expected arrays from the seed constants, not literals repeated inline). **Two-run idempotency (R4 HIGH):** also seed terminal session E (`final_cas_done` checkpoint + one retained shadow + one `deferred_ingestions` residue row, all activity columns backdated 25h). Run the reap TWICE: run 1 lists E as `reaped_orphan_rows`, deletes only E's deferral, preserves E's checkpoint + shadow, and writes exactly one `reap_stale_session` `sync_log` row for E; run 2 lists NO sessions, leaves every surviving row byte-identical, and adds ZERO new `sync_log` rows (count `sync_log` before/after). Concrete failure mode: E's preserved checkpoint/shadow keep it a candidate forever — without the zero-delete guard, every scheduled/operator reap re-reports it as reaped and appends a log row, inflating counts and spamming cleanup logs indefinitely. **Concurrent-cleanup overlap (R5 HIGH, real-DB half):** seed two stale sessions sharing a `drive_file_id` (B above plus a second stale session whose rows reference one of B's drive ids), then run `Promise.all([reapStaleOnboardingSessions(...), cleanupAbandonedFinalize(<second session>, ...)])` and assert BOTH settle (wrap in a 30s timeout — a deadlock manifests as the test hanging until Postgres's `deadlock_timeout` aborts one party with SQLSTATE 40P01; assert neither promise rejects with 40P01). The per-session tx boundary is what makes this pass: each reap session commits — releasing its `show:` locks — before the next `finalize:` lock is requested. **Retry-route overlap (R15 HIGH, real-DB half):** while a retry/defer route transaction HOLDS the `show:` advisory lock for one of B's drive ids (start `withPostgresSyncPipelineLock(driveFileId, fn, { tryOnly: false })` whose `fn` row-locks the pending_ingestions row FOR UPDATE — the retry route's exact sequence, retry/route.ts:73 + :114-128 — then parks on a deferred promise), run `reapStaleOnboardingSessions(...)` concurrently; release the route tx after a beat; assert BOTH settle with no SQLSTATE 40P01. Concrete failure mode: a reap that row-locked B's rows during collection (FOR UPDATE) while the route holds the advisory lock and waits on the same row is an AB-BA deadlock — plain-SELECT collection + advisory-first ordering is what makes this pass.
 - [ ] **VERIFY.** `pnpm vitest run tests/onboarding/reapStaleSessions.test.ts tests/onboarding/reapStaleSessionsDb.test.ts` → all pass (db file skips cleanly when Postgres is down; runs in CI/local with the stack up). Any failure here is a Task 4.2 implementation gap — fix in `sessionLifecycle.ts`, not in the tests.
 - [ ] **COMMIT.** `test(onboarding): reap preservation regressions (active/fresh sessions, deferred-only, pre-existing unpublished show) + real-DB integration`
 
@@ -1130,7 +1169,7 @@ NOTIFY pgrst, 'reload schema';
 ```
 
   Fill the three `closed_at` line references with the actual REVOKE line numbers.
-- [ ] **VERIFY.** Apply locally (`psql "$TEST_DATABASE_URL" -f supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql`, twice — apply-twice idempotency), then `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` → all four layers pass; `pnpm vitest run tests/onboarding tests/sync --silent` → no regression (server-side SQL paths and service-role access are untouched; the two SELECT-only client reads still work).
+- [ ] **VERIFY.** Apply LOCALLY (⚠️ NOT `TEST_DATABASE_URL` — that is the VALIDATION project in this repo's `.env.local`; validation gets its labeled surgical apply in the close-out checklist): `psql -v ON_ERROR_STOP=1 "${LOCAL_TEST_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}" -f supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql`, run TWICE (apply-twice idempotency; the loopback default matches the Task 4.1/4.4 harness convention — refuse non-loopback values per `tests/db/_remediationHelpers.ts`). Then `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` → all four layers pass; `pnpm vitest run tests/onboarding tests/sync --silent` → no regression (server-side SQL paths and service-role access are untouched; the two SELECT-only client reads still work).
 - [ ] **Post-migration checklist (same PR):** `pnpm gen:schema-manifest` + commit the regenerated manifest; surgical apply to the validation project (`supabase db query --linked` or psql) + `notify pgrst, 'reload schema'` — recorded in the close-out checklist below.
 - [ ] **COMMIT.** `fix(db): revoke PostgREST DML on wizard staging tables (onboarding_scan_manifest, wizard_finalize_checkpoints, shows_pending_changes)` — migration + registry rows + manifest regen in ONE commit.
 
