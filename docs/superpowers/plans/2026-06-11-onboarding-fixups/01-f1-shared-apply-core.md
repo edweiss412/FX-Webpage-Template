@@ -492,6 +492,9 @@ describe("applyStagedCore live-partition source scoping", () => {
 
 ### Task 1.3 — Phase B first-seen branch → full apply (children + `shows_internal` + auth contract), `published=false`, `created_show_id` provenance, real audit provenance
 
+**Phase B lock order (plan R25-1 — same inversion R16 fixed for Phase D, pre-existing in live code):** `handleOnboardingFinalize` currently calls `readActiveSession()` (app_settings `FOR UPDATE`, `finalize/route.ts:171-181`) BEFORE `tryFinalizeLock()` (`:626-633`), while `cleanupAbandonedFinalize` takes `finalize:` then `app_settings FOR UPDATE` (`sessionLifecycle.ts:328-339`) — an AB-BA deadlock under admin cleanup/finalize overlap. This task ALSO reorders Phase B to the global total order: discover the candidate session WITHOUT a row lock → acquire `finalize:<session>` → `SELECT … FOR UPDATE` re-check of the active session → per-row processing. Required regressions: (a) real-DB overlap `handleOnboardingFinalize` vs `cleanupAbandonedFinalize` for the same session → both settle, no SQLSTATE 40P01, one winner; (b) structural lock-order test pinning finalize-before-app_settings for BOTH finalize routes (extend the advisory-lock topology test to cover app_settings row-lock ordering, not just show-lock holders). Concrete failure mode: cleanup clicked while a finalize batch is mid-flight deadlocks both, stranding the wizard at the exact moment the operator is trying to recover it.
+
+
 **Files:**
 - Create: `supabase/migrations/20260611000000_onboarding_manifest_created_show_id.sql`
 - Modify: `app/api/admin/onboarding/finalize/route.ts`
