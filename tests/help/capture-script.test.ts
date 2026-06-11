@@ -54,12 +54,14 @@ describe("help screenshot capture script (Task F.3)", () => {
   // no-ops). These flags pin the raster path; --disable-lcd-text is
   // deliberately NOT pinned (it would re-rasterize all text and churn every
   // committed baseline).
-  it("capture project pins raster-path determinism launch flags", () => {
-    const config = readFileSync(join(process.cwd(), "playwright.screenshots.config.ts"), "utf8");
-    const captureProject = config.match(
-      /name: "screenshots-help-capture"[\s\S]*?launchOptions[\s\S]*?\]/,
-    )?.[0];
-    expect(captureProject, "screenshots-help-capture project should exist").toBeTruthy();
+  // Codex R2 (PR #22) caught the original version of this pin checking the
+  // WRONG surface: captureAll() launches Chromium ITSELF — Playwright
+  // `use.launchOptions` only reaches Playwright-managed fixtures, so flags
+  // added only to playwright.screenshots.config.ts never touch the browser
+  // that produces the drift-gated WebPs. The pin therefore asserts the SHARED
+  // constant's contents AND that the script's own chromium.launch consumes it.
+  it("capture script's own chromium.launch consumes the shared determinism args", async () => {
+    const { CAPTURE_LAUNCH_ARGS } = await import("@/scripts/capture-launch-args");
     for (const flag of [
       "--font-render-hinting=none",
       "--disable-skia-runtime-opts",
@@ -67,8 +69,23 @@ describe("help screenshot capture script (Task F.3)", () => {
       "--disable-partial-raster",
       "--force-color-profile=srgb",
     ]) {
-      expect(captureProject).toContain(flag);
+      expect(CAPTURE_LAUNCH_ARGS).toContain(flag);
     }
+    const source = readFileSync(scriptPath, "utf8");
+    const launchSite = source.match(/chromium\.launch\(\{[\s\S]*?\}\)/)?.[0];
+    expect(launchSite, "captureAll should launch chromium").toBeTruthy();
+    expect(launchSite).toContain("CAPTURE_LAUNCH_ARGS");
+    expect(launchSite, "no hand-rolled arg list at the launch site").not.toContain(
+      "--font-render-hinting",
+    );
+  });
+
+  it("both screenshots-config Playwright projects consume the shared determinism args", () => {
+    const config = readFileSync(join(process.cwd(), "playwright.screenshots.config.ts"), "utf8");
+    expect(config).toContain("CAPTURE_LAUNCH_ARGS");
+    expect(config, "no hand-rolled launch args left in the config").not.toContain(
+      "--font-render-hinting",
+    );
   });
 
   // Capture-determinism hardening (M11-A-D5 recipe, applied to the capture

@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import sharp from "sharp";
+import { CAPTURE_LAUNCH_ARGS } from "./capture-launch-args";
 import { MANIFEST, type ManifestEntry, type ScreenshotTheme } from "./help-screenshots.manifest";
 import { parseFixtureDateRangeFromPath } from "./help-screenshots-fixture-range";
 import { ADMIN_FIXTURE } from "@/tests/e2e/helpers/fixtures";
@@ -217,8 +218,11 @@ export async function captureAll(): Promise<void> {
     validateFrozenClockInstant(entry);
   }
 
+  // This launch produces the drift-gated WebPs — Playwright config
+  // launchOptions do NOT reach it, so the determinism args must be consumed
+  // here directly (shared constant; Codex R2 finding on PR #22).
   const browser = await chromium.launch({
-    args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+    args: CAPTURE_LAUNCH_ARGS,
   });
 
   try {

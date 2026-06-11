@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { CAPTURE_LAUNCH_ARGS } from "./scripts/capture-launch-args";
 
 process.env.ENABLE_TEST_AUTH ??= "true";
 process.env.TEST_AUTH_SECRET ??= "test-secret-fixture";
@@ -32,7 +33,7 @@ export default defineConfig({
           reducedMotion: "reduce",
         },
         launchOptions: {
-          args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+          args: CAPTURE_LAUNCH_ARGS,
         },
         locale: "en-US",
         timezoneId: "America/New_York",
@@ -61,23 +62,11 @@ export default defineConfig({
           reducedMotion: "reduce",
         },
         launchOptions: {
-          // Raster-path determinism (PR #22): the pinned Docker image pins the
-          // BINARY, but Chromium picks raster paths (GPU/SwiftShader vs CPU,
-          // partial-raster tiling) by environment at runtime — loaded
-          // pull_request runners produced ±6/255 pixel jitter vs idle dispatch
-          // runners on identical content, and the lossy WebP encoder amplified
-          // it into drift-gate byte failures. --disable-gpu +
-          // --disable-partial-raster + --force-color-profile=srgb pin the
-          // path; --disable-lcd-text is deliberately omitted (would churn
-          // every committed text baseline). Pinned by
-          // tests/help/capture-script.test.ts.
-          args: [
-            "--font-render-hinting=none",
-            "--disable-skia-runtime-opts",
-            "--disable-gpu",
-            "--disable-partial-raster",
-            "--force-color-profile=srgb",
-          ],
+          // NOTE: captureAll() (scripts/help-screenshots.ts) launches its OWN
+          // Chromium — these launchOptions do not reach it. The shared
+          // CAPTURE_LAUNCH_ARGS constant is the single source of truth for
+          // both paths; rationale lives in scripts/capture-launch-args.ts.
+          args: CAPTURE_LAUNCH_ARGS,
         },
         locale: "en-US",
         timezoneId: "America/New_York",
