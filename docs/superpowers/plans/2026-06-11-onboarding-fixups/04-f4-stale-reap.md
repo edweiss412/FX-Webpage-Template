@@ -1064,9 +1064,12 @@ export async function handleReapStaleSessions(
   try {
     const result = await reap({ requireAdminIdentity: async () => admin });
     return NextResponse.json({ status: "reaped", sessions: result.sessions });
-  } catch {
+  } catch (error) {
     // Plan-R1 finding 1: a thrown infra error from the reap transaction must surface as a
     // cataloged JSON code, never a raw 500 — the UI does a catalog lookup on `code`.
+    // Plan R31-2: LOG the cause before returning the cataloged response — this route performs
+    // advisory-locked deletes; losing the DB/lock/permission context makes failures unrecoverable.
+    console.error("reap-stale-sessions failed", error);
     return errorResponse(500, "REAP_STALE_SESSIONS_FAILED");
   }
 }
@@ -1075,7 +1078,7 @@ export async function handleReapStaleSessions(
 
 **Plan-R1 finding 1 additions (route infra-error contract):**
 
-- [ ] **Extra failing test (write BEFORE the handler):** inject a `reapStaleOnboardingSessions` that throws (`async () => { throw new Error("connection reset"); }`); assert the response is `500` with JSON body `{ ok: false, code: "REAP_STALE_SESSIONS_FAILED" }` — NOT an unhandled rejection / opaque 500. Concrete failure mode caught: an `OnboardingSessionInfraError` thrown mid-reap escaping the route so the operator sees an unparseable error exactly when destructive cleanup fails.
+- [ ] **Extra failing test (write BEFORE the handler):** inject a `reapStaleOnboardingSessions` that throws (`async () => { throw new Error("connection reset"); }`); assert the response is `500` with JSON body `{ ok: false, code: "REAP_STALE_SESSIONS_FAILED" }` AND (plan R31-2) spy on `console.error` asserting the original error object was logged with the route's context prefix — NOT an unhandled rejection / opaque 500. Concrete failure mode caught: an `OnboardingSessionInfraError` thrown mid-reap escaping the route so the operator sees an unparseable error exactly when destructive cleanup fails.
 - [ ] **Catalog lockstep, same commit:** `REAP_STALE_SESSIONS_FAILED` is a NEW user-visible code → master spec §12.4 row + `pnpm gen:spec-codes` + `lib/messages/catalog.ts` row (title/longExplanation/helpHref per the docs-validator predicate) + run `pnpm test:audit:x1-catalog-parity`. Mirror the copy register of the existing cleanup-abandoned-finalize route's failure rows.
 - [ ] **Task 4.6 UI consumes the code** through `lib/messages/lookup.ts` (invariant 5) — assert the rendered copy contains no raw code string.
 
