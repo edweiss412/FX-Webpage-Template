@@ -44,4 +44,8 @@ Both gates run by EXTERNAL attestors (fresh Opus subagents; not the implementing
 
 ## 13. Adversarial review record
 
-(filled at convergence — rounds, findings, dispositions)
+- **Spec:** Codex, 7 rounds → APPROVED R7 (R1 client-construction containment; R2 layout-staleness badge redesign + call-form + count-fallback; R3 PROTECTED_ROUTES + meta-test mandatory; R4 same-route refresh + wrapper parity; R5 stale-fetch token/abort; R6 loader-boundary totals pinning).
+- **Plan:** Codex, 4 rounds → APPROVED R4 (R1 same-commit banner contract + \_metaBoundedReads + empty-state selectors + destructuring snippet; R2 per-table invariant-9 matrix + handoff §12 step; R3 impeccable/adversarial fixpoint guard).
+- **Per-task:** every implementation task passed two-stage review (spec-compliance then code-quality) by fresh subagents; one quality nit fixed (parity assertions for the additive total fields, `87f020ce`).
+- **Whole-milestone (Codex, fresh-eyes, branch vs main):** R1 → one MEDIUM (loader kept the pre-extraction `q.`-style reads; invariant-9 destructuring unpinned) → FIXED @ `fc4ac83e` (all 5 reads destructured + source-level structural pin with negative-regression proof + class-sweep clean). R2 → **APPROVE**, no material findings.
+- **Gate fixpoint (plan 14.3):** post-attestation commits touch only `docs/`, `lib/admin/`, `tests/` — zero invariant-8 UI surfaces after the audit attestation at `c1f2df58`. Both gates + adversarial APPROVE hold simultaneously on the final diff.
