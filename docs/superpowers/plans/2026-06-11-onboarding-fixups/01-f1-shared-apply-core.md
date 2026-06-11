@@ -625,6 +625,9 @@ test("lock-topology proof: the app_settings FOR UPDATE serializes supersession a
      ```sql
      alter table public.onboarding_scan_manifest
        add column if not exists created_show_id uuid references public.shows(id) on delete set null;
+     -- R58-1: show-side provenance discriminator, written ONLY by the F1 first-seen INSERT.
+     alter table public.shows
+       add column if not exists wizard_created_session_id uuid;
      ```
      Apply locally — **NEVER via `TEST_DATABASE_URL`, which is the VALIDATION project in this repo** (validation receives this migration only at the labeled close-out step below): `psql "${LOCAL_TEST_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}" -v ON_ERROR_STOP=1 -f supabase/migrations/20260611000000_onboarding_manifest_created_show_id.sql` (the F2 local-loopback convention; guard: confirm the resolved host is `127.0.0.1`/`localhost` before running).
   2. **`firstSeenPublished` threading — IMPLEMENTED IN TASK 1.1 (R30-1); this task only consumes it.** Original spec for reference: `Phase2Args` (`phase2.ts:58-89`) and `Phase2Tx.applyShowSnapshot` args (`:33-54`) gain `firstSeenPublished?: false`; `runPhase2` forwards it in the `applyShowSnapshot` call (`:253-263`). `PostgresPipelineTx.applyShowSnapshot` first-seen arm (`runScheduledCronSync.ts:1074-1097`): when `args.firstSeenPublished === false`, use an INSERT variant adding the `published` column with literal `false`; when absent, the existing SQL stays **byte-identical** (cron/dashboard untouched — flag lifecycle: storage `shows.published`; writers = wizard Phase B (`false`) + DDL default (`true`); readers = crew-page gating + Phase D flip; no zombie flag).
