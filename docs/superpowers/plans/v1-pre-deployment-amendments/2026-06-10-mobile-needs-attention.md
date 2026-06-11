@@ -75,9 +75,24 @@ describe("loadNeedsAttention", () => {
   });
   test("null head-count integrity (R2-F3): count: null, error: null with rows present → { kind: 'infra_error' }", async () => {});
   test("construction throw containment (R1): createSupabaseServerClient throws, no injected client → resolves { kind: 'infra_error' }, never rejects", async () => {});
-  test("query throw containment: .from('pending_syncs') throws mid-helper → infra_error", async () => {});
+
+  // Invariant-9 matrix (R2-P2-F1): EVERY query surface × BOTH failure modes.
+  // Fixtures seed pending rows with drive_file_ids so the shows existence
+  // lookup branch is REACHED (it only runs when there are candidate ids).
+  describe.each([
+    ["pending_ingestions rows"],
+    ["pending_ingestions head-count"],
+    ["pending_syncs rows"],
+    ["pending_syncs head-count"],
+    ["shows existence lookup"],
+  ])("%s failure paths", (surface) => {
+    test("returned .error → { kind: 'infra_error' } with a message naming the query", async () => {});
+    test("thrown .from()/awaited rejection → { kind: 'infra_error' }, never rejects", async () => {});
+  });
 });
 ```
+
+(The fake-client factory must support per-CALL targeting — e.g. an ordinal or per-table+options matcher — so the head-count failure cases hit the count query while the row query succeeds, and vice versa.)
 
 - [ ] **Step 1.2: Run tests, verify they fail** — `pnpm vitest run tests/admin/loadNeedsAttention.test.ts` → FAIL ("Cannot find module … loadNeedsAttention").
 
@@ -106,7 +121,7 @@ describe("loadNeedsAttention", () => {
 
   2. **Bounded-read guard:** `tests/admin/_metaBoundedReads.test.ts` currently scans `components/admin/Dashboard.tsx` for the `.limit(cap+1)` / head-count / existence-`.in()` shapes — after the extraction those reads live in the loader, so extend the guard's scanned-module list (`READ_MODULES` or equivalent — read the file for the exact registry name) with `lib/admin/loadNeedsAttention.ts` in the SAME commit, and verify the Dashboard-side scan doesn't silently become a no-op (if the guard's Dashboard assertions now match nothing, retarget them at the loader rather than deleting them).
 
-Follow each file's existing assertion pattern; run `pnpm vitest run tests/admin/_metaInfraContract.test.ts tests/admin/_metaBoundedReads.test.ts` → PASS.
+Follow each file's existing assertion pattern. The meta-test's BEHAVIORAL assertions for the loader must use `throwOnFromTable` per table (`pending_ingestions`, `pending_syncs`, `shows`) with `dataByTable` seeding pending rows so the shows branch is reached (the harness supports both — `tests/admin/_metaInfraContract.test.ts:46-61`) — not just the global first-`from()` throw. Run `pnpm vitest run tests/admin/_metaInfraContract.test.ts tests/admin/_metaBoundedReads.test.ts` → PASS.
 
 - [ ] **Step 1.6: Typecheck + commit**
 
@@ -609,6 +624,7 @@ Spec §4.9 transition inventory (verbatim — every pair instant by design, rout
 - [ ] **Step 13.1:** Dispatch a FRESH external session/subagent (never the session that wrote the UI) to run `/impeccable critique` on the milestone diff (canonical v3 preflight: PRODUCT.md → DESIGN.md → register → preflight signal).
 - [ ] **Step 13.2:** Same for `/impeccable audit`.
 - [ ] **Step 13.3:** Fix or explicitly defer (DEFERRED.md entry) every HIGH/CRITICAL finding; LOWs may go to BACKLOG. Spec-check any copy rewrites against the spec before shipping (critique knows UX, not product contracts). Re-run the dual gate after fix commits (it fires on every UI mutation).
+- [ ] **Step 13.4: Handoff doc §12 (invariant 8 — R2-P2-F2):** create `docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-handoff.md` (follow `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/HANDOFF-TEMPLATE.md` section numbering) with **§12 "Impeccable findings + dispositions"** recording: the critique + audit invocations (external attestor identity), every finding with severity, and its disposition (fixed @ commit / deferred @ DEFERRED.md entry / rejected with spec citation). Commit it BEFORE launching Task 14's adversarial review so the reviewer sees the disposition trail — `git commit -m "docs(handoff): mobile needs-attention close-out + impeccable dispositions (§12)"`.
 
 ### Task 14: Adversarial review (cross-model) — MANDATORY before close-out
 
