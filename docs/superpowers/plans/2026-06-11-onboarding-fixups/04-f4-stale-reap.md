@@ -467,7 +467,8 @@ export type ReapedSession = {
     | "skipped_active"
     | "skipped_recent_finalize"
     | "skipped_fresh_activity"
-    | "skipped_no_residue";
+    | "skipped_no_residue"
+    | "skipped_unstable";  // R27/R28: lock-set expanded on every retry (budget 3) — no deletes, no sync_log
 };
 
 export type ReapStaleSessionsResult = { sessions: ReapedSession[] };
@@ -719,9 +720,18 @@ export async function reapStaleOnboardingSessions(
   // reaped (each internally atomic), mirroring Phase D's ratified per-row independence.
   const sessions: ReapedSession[] = [];
   for (const candidate of candidates) {
-    sessions.push(
-      await runtime.withTx((tx) => reapOneSession(tx, candidate.wizard_session_id, admin.email)),
-    );
+    // R28-1: bounded rollback-and-retry OUTSIDE the per-session transaction. A
+    // ReapLockSetExpandedError aborts that session's tx (locks released); we retry from a
+    // clean sorted lock set; budget exhausted -> skipped_unstable (no deletes, no sync_log).
+    let outcome: ReapedSession | null = null;
+    for (let attempt = 0; attempt < 3 && outcome === null; attempt++) {
+      try {
+        outcome = await runtime.withTx((tx) => reapOneSession(tx, candidate.wizard_session_id, admin.email));
+      } catch (error) {
+        if (!(error instanceof ReapLockSetExpandedError)) throw error;
+      }
+    }
+    sessions.push(outcome ?? { wizardSessionId: candidate.wizard_session_id, outcome: "skipped_unstable" });
   }
   return { sessions: sessions.filter((s) => s.outcome.startsWith("reaped")) };
 }
