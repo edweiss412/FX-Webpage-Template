@@ -108,11 +108,22 @@ begin
     select s.id, s.drive_file_id
       from public.shows s
      where s.last_seen_modified_time is not null
-       and not exists (select 1 from public.crew_members cm where cm.show_id = s.id)
-       and exists (select 1 from public.sync_audit sa
-                    where sa.show_id = s.id
-                      and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas')
-                      and sa.staged_modified_time >= s.last_seen_modified_time)
+       and (
+         -- Arm A (first-seen damage): zero children, wizard was last content writer.
+         (not exists (select 1 from public.crew_members cm where cm.show_id = s.id)
+          and exists (select 1 from public.sync_audit sa
+                       where sa.show_id = s.id
+                         and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas')
+                         and sa.staged_modified_time >= s.last_seen_modified_time))
+         or
+         -- Arm B (existing-show damage): a pre-F1 CAS shadow apply advanced the watermark
+         -- while leaving STALE (possibly nonzero) children. Bounded to pre-F1 audits.
+         exists (select 1 from public.sync_audit sa
+                  where sa.show_id = s.id
+                    and sa.parse_result_summary->>'source' = 'onboarding_finalize_cas'
+                    and sa.staged_modified_time >= s.last_seen_modified_time
+                    and sa.applied_at < '2026-06-12T00:00:00Z')  -- F1-ship cutoff; post-F1 CAS applies are healthy
+       )
      order by s.drive_file_id   -- deterministic lock order (deadlock prevention)
   loop
     perform pg_advisory_xact_lock(hashtext('show:' || r.drive_file_id));
@@ -122,17 +133,26 @@ begin
        set last_seen_modified_time = null
      where s.id = r.id
        and s.last_seen_modified_time is not null
-       and not exists (select 1 from public.crew_members cm where cm.show_id = s.id)
-       and exists (select 1 from public.sync_audit sa
-                    where sa.show_id = s.id
-                      and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas')
-                      and sa.staged_modified_time >= s.last_seen_modified_time);
+       and (
+         (not exists (select 1 from public.crew_members cm where cm.show_id = s.id)
+          and exists (select 1 from public.sync_audit sa
+                       where sa.show_id = s.id
+                         and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas')
+                         and sa.staged_modified_time >= s.last_seen_modified_time))
+         or
+         exists (select 1 from public.sync_audit sa
+                  where sa.show_id = s.id
+                    and sa.parse_result_summary->>'source' = 'onboarding_finalize_cas'
+                    and sa.staged_modified_time >= s.last_seen_modified_time
+                    and sa.applied_at < '2026-06-12T00:00:00Z')
+       );
   end loop;
 end $$;
 ```
 
 - **Advisory-lock compliance (R1 finding 2):** every `shows` mutation runs inside the per-show `show:<drive_file_id>` advisory lock (plan-wide invariant 2), including this migration — the loop acquires the lock per candidate in deterministic `drive_file_id` order before the UPDATE, so a concurrent cron/manual/push apply for the same file serializes rather than interleaving. The migration is a one-shot single-transaction holder; no other layer acquires within it (single-holder rule preserved). The F2 plan task inherits the §3.3 lock-topology test requirement, not just F1/F5.
 - **Locked re-check (R12 finding 2):** the UPDATE carries the full eligibility predicate so a show healed by a concurrent sync between the candidate SELECT and lock acquisition is left untouched. Required regression: concurrent sync heals the show before the migration obtains the lock → watermark NOT reset.
+- **Existing-show damage arm (R13 finding 1).** Arm A's zero-crew predicate only catches first-seen damage; an existing live show hit by a pre-F1 `onboarding_finalize_cas` shadow apply keeps its OLD (nonzero) children while the watermark advances — stale data invisible to Arm A. Arm B resets any show whose last content writer was a CAS apply, regardless of crew count, bounded by a fixed F1-ship cutoff timestamp (`applied_at < 2026-06-12T00:00:00Z`; post-F1 CAS applies write children and must never match). Re-running the migration after a heal can re-trigger one redundant re-sync for Arm-B shows (the audit row persists); that re-sync re-applies the same revision and converges — harmless, and stated here so apply-twice behavior is explicit. Required regression: a pre-existing show with nonzero-but-stale children after a pre-cutoff `onboarding_finalize_cas` audit IS reset; the same show with a post-cutoff CAS audit is NOT.
 - **Eligibility = corrupted state, not audit purity (R7 finding 1).** Condition: zero `crew_members` AND a wizard-finalize audit row whose `staged_modified_time` is at-or-after the current watermark — i.e., the wizard was the LAST content writer. An earlier "no non-wizard audit rows exist" condition was rejected: any later non-wizard audit row (asset-recovery write, partial probe) would permanently exclude a still-damaged show, leaving it watermarked-as-current forever. A show whose watermark advanced past every wizard audit was re-applied by a real sync (which writes children), so exclusion is then correct; a zero-crew show in that state has a genuinely crew-less sheet. Idempotent: after backfill, crew exists → no-op; watermark-nulled rows fail the `is not null` guard → no-op. Required regression: a damaged wizard show WITH a later non-wizard audit row (not advancing the watermark) is still reset; a show whose watermark advanced past the wizard audit is untouched.
 - Effect: next cron pass fails the watermark gate (`last_seen_modified_time is null` branch, `runScheduledCronSync.ts:950-955` / `perFileProcessor.ts:214`) and runs the full pipeline; backfilled crew lands in the Changes feed as additions (already-shipped feed semantics).
 - Applies to the six validation shows; in production (no wizard-onboarded shows yet) it is a no-op.
