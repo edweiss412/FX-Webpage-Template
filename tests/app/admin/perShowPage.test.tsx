@@ -5,7 +5,7 @@
 // quiet sync footer. Full async-page render with mocked data layer.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 const state = vi.hoisted(() => ({
   show: {} as Record<string, unknown>,
@@ -399,6 +399,31 @@ describe("per-show page (§6)", () => {
     await renderPage();
     expect(screen.getByTestId("admin-resync-button")).toBeInTheDocument();
     expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
+  });
+
+  // M12.12 matrix row 7 — failure mode caught: a footer redesign drops the
+  // HoverHelp (or its learnMore deep link) → the matrix root testid or the
+  // hidden help-link href vanishes; the drift surfaces at unit speed instead
+  // of via the e2e affordance walker.
+  it("sync footer help carries matrix root testid + sync-health deep link (row 7)", async () => {
+    await renderPage();
+    const footer = screen.getByTestId("admin-show-sync-footer");
+    const root = within(footer).getByTestId("help-affordance--per-show-sync-footer--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/per-show-panel#sync-health",
+    );
+  });
+
+  // M12.12 matrix row 9 — same drift class, Crew section header.
+  it("Crew header help carries matrix root testid + preview-as-crew link (row 9)", async () => {
+    await renderPage();
+    const crewCol = screen.getByTestId("per-show-crew-col");
+    const root = within(crewCol).getByTestId("help-affordance--per-show-crew--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/preview-as-crew",
+    );
   });
 
   it("sync footer keeps plain 'Last synced {rel}' for ok status (no redundant label)", async () => {

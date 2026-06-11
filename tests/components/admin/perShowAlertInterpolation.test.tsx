@@ -6,7 +6,7 @@
 // the pre-fix safeDougFacing(code) called messageFor with no params.)
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 const SHEET = "Validation — Normal day (R1)";
 
@@ -55,5 +55,31 @@ describe("PerShowAlertSection <sheet-name> interpolation (§7)", () => {
     const section = screen.getByTestId("per-show-alert-section");
     expect(section.textContent).toContain(SHEET);
     expect(section.textContent).not.toContain("<sheet-name>");
+  });
+
+  // M12.12 matrix row 8 — failure mode caught: the alerts-header HelpTooltip
+  // loses its matrix root testid or its parse-warnings deep link → the e2e
+  // affordance walker's hook vanishes; this pins it at unit speed.
+  // Anti-tautology: the link query is scoped to the tooltip BODY testid, NOT
+  // the section — each alert row's own HelpAffordance "Learn more →" link
+  // (→ /help/errors#<code>) would otherwise satisfy a section-wide scan.
+  it("alerts header help carries matrix root testid + parse-warnings link in its body (row 8)", async () => {
+    rows.value = [
+      {
+        id: "a1",
+        code: "SHEET_UNAVAILABLE",
+        context: { sheet_name: SHEET },
+        raised_at: "2026-06-03T10:00:00.000Z",
+      },
+    ];
+    const { PerShowAlertSection } = await import("@/components/admin/PerShowAlertSection");
+    render(await PerShowAlertSection({ showId: "s1", slug: "x" }));
+    const root = screen.getByTestId("help-affordance--per-show-alerts--tooltip");
+    expect(root.tagName).toBe("DETAILS");
+    const body = screen.getByTestId("help-affordance--per-show-alerts--tooltip-body");
+    expect(within(body).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/parse-warnings",
+    );
   });
 });
