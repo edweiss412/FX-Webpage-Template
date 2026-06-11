@@ -111,7 +111,9 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ## Phase F close-out (2026-05-22) — adversarial review LOW residuals
 
-### M11-F-D1: Animation suppression injected post-navigation via `addStyleTag` rather than pre-navigation via `addInitScript`
+### M11-F-D1: Animation suppression injected post-navigation via `addStyleTag` rather than pre-navigation via `addInitScript` — **RESOLVED 2026-06-10**
+
+**Status:** **Resolved** in the 2026-06-10 deferred-residue sweep (commit `b4ed8b19`). Re-open trigger (a) had fired: M12.11 put framer-motion route transitions on captured admin routes (at rest under the capture config's `reducedMotion: "reduce"`, so defense-in-depth rather than a live bug). `disableAnimations()` now registers a pre-navigation `addInitScript` that attaches the suppression `<style>` the moment `documentElement` exists (MutationObserver fallback), called before `page.goto` in `captureEntryTheme`. Structural pin in `tests/help/capture-script.test.ts` (no post-navigation style-tag API anywhere in the script + registration precedes goto). Byte-stability of the committed x64-Linux WebP baselines verified by the screenshots-drift PR gate (pinned amd64 image + `git diff --exit-code`) per the byte-comparison-gate discipline — no local capture was run. Original entry preserved below.
 
 - **Severity:** LOW (theoretical timing concern; empirically determined to be a non-issue at current manifest scope)
 - **File:line:** `scripts/help-screenshots.ts` — the `page.addStyleTag` call that injects `animation-duration: 0s !important; transition-duration: 0s !important;` runs AFTER `page.goto(..., waitUntil: "domcontentloaded")`, but BEFORE the quiescence wait + screenshot capture.
@@ -275,7 +277,9 @@ Phase E docs at `app/help/admin/sharing-links/page.mdx` continue to document the
 - **Why not BACKLOG.md:** Real e2e infrastructure work needed before this surface ships to production CI gates; not speculative.
 - **Re-open trigger:** any commit that touches `components/show/`, `components/atoms/`, or related M3/M4 surfaces; OR project-infra cleanup session.
 
-### M11-A-D2: No skip-link to main content from `/help` chrome
+### M11-A-D2: No skip-link to main content from `/help` chrome — **RESOLVED 2026-06-10**
+
+**Status:** **Resolved** in the 2026-06-10 deferred-residue sweep (commit `d8e48798`). Visually-hidden `Skip to content` anchor (`sr-only focus:not-sr-only` + focus-visible ring, token-only classes) as the layout wrapper's first focusable child, `id="main"` on `<main>`. Pinned by `tests/help/skip-link.test.tsx` (presence, DOM order vs Header, fragment resolution, sr-only pattern). Original entry preserved below.
 
 - **Severity:** P3 polish (impeccable audit)
 - **File:line:** `app/help/layout.tsx:46-57` (the chrome composition wrapper)
