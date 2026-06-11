@@ -50,6 +50,7 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/show/[slug]/unpublish/route.ts", chain: "public" },
   { path: "app/api/report/route.ts", chain: CREW_SESSION_CHAINS },
   { path: "app/api/admin/admin-alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
+  { path: "app/api/admin/needs-attention-count/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/apply/[applyId]/status/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/staged/[stagedId]/apply/route.ts", chain: ["requireAdmin"] },
