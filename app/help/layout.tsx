@@ -53,7 +53,9 @@ export default async function HelpLayout({ children }: { children: ReactNode }) 
       <Header />
       <div className="md:flex md:gap-6">
         <Sidebar />
-        <main id="main" className="min-w-0 flex-1">
+        {/* tabIndex={-1}: older Safari/VoiceOver combos don't move focus on
+            fragment navigation without it (impeccable dual-gate LOW). */}
+        <main id="main" tabIndex={-1} className="min-w-0 flex-1 focus-visible:outline-none">
           <Breadcrumb />
           {children}
         </main>

@@ -57,11 +57,14 @@ describe("M11-A-D2: /help skip-link (WCAG 2.4.1)", () => {
     expect(skip.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("<main> carries id='main' so the fragment resolves", async () => {
+  it("<main> carries id='main' + tabIndex=-1 so the fragment resolves and focus moves", async () => {
     const { container } = await renderLayout();
     const main = container.querySelector("main");
     expect(main).not.toBeNull();
     expect(main!.id).toBe("main");
+    // Older Safari/VoiceOver combos don't move focus on fragment navigation
+    // without an explicit tabindex (impeccable dual-gate hardening).
+    expect(main!.getAttribute("tabindex")).toBe("-1");
   });
 
   it("skip link is visually hidden until focused (sr-only pattern)", async () => {
