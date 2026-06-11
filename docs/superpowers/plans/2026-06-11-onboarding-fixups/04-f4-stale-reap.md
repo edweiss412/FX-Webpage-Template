@@ -1157,6 +1157,8 @@ export async function POST(request: Request): Promise<Response> {
 
 ## Task 4.7 — PostgREST DML lockdown for the wizard staging tables (R14 HIGH)
 
+> **R56-2 ownership change:** the lockdown migration `20260611000002_lockdown_wizard_staging_tables.sql` + `RPC_GATED_TABLES` rows now LAND IN F1 Task 1.3 (before any `created_show_id` consumer). This task is VERIFICATION-ONLY: re-run `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` and confirm the three tables reject anon/authenticated DML with 42501; no new migration or registry edits here.
+
 **Files:**
 - `supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql` (new — next free timestamp after this plan's F1 `20260611000000` and F2 `20260611000001`)
 - `tests/db/postgrest-dml-lockdown.test.ts` (extend — 3 registry rows; **same commit as the migration**, Layer 4 fails otherwise)

@@ -18,6 +18,8 @@ The parity contract is wizard-vs-LIVE-apply (cron auto-apply via the hold-aware 
 
 **Lockdown ordering (plan R55-1 — closes the same-drive forge vector):** the drive_file_id join blocks mismatched-drive forgeries but NOT a same-drive forge (admin-authed PostgREST UPDATE setting created_show_id on an existing-show manifest row to that show's own id → the publish flip would publish a deliberately-unpublished show). Therefore the wizard-staging-table DML REVOKE migration (`20260611000002_lockdown_wizard_staging_tables.sql`, drafted as F4 Task 4.7) MOVES INTO F1 Task 1.3's commit — it ships BEFORE any created_show_id consumer exists. The F4 file's Task 4.7 becomes a verification/registry-only task referencing the F1-landed migration (RPC_GATED_TABLES rows + probes land with the migration in F1; F4 re-verifies). Required regression: an existing unpublished same-drive shadow row with created_show_id forged to its own show id → publish flip does NOT publish it (post-lockdown the forge itself is impossible via PostgREST; the regression seeds the forged row via service-role SQL to prove the flip ALSO requires manifest rows written by the finalize path — bind the flip to rows whose created_show_id was set by the F1 writer, i.e., add `and m.status = 'applied'` plus the lockdown; defense-in-depth).
 
+**Show-side provenance discriminator (plan R56-1 — makes the same-drive forge regression implementable):** Task 1.3's migration ALSO adds `shows.wizard_created_session_id uuid` (nullable, no default), written ONLY by the F1 first-seen INSERT (same statement). Every created_show_id consumer adds the join `s.wizard_created_session_id = m.wizard_session_id`: the publish flip and cleanup/reap deletes therefore require the SHOW itself to carry matching session provenance — a pre-existing show has NULL there and no manifest forge can change it (forging `shows` directly via PostgREST is equivalent to setting `published=true` directly, i.e., the pre-existing shows-table exposure already backlogged as BL-ADMIN-POSTGREST-DML-LOCKDOWN, out of this milestone's threat model). The same-drive forged-row regression now passes against the final SQL: forged manifest row (status='applied', created_show_id=own show id, same drive) → flip skips it because `wizard_created_session_id` is NULL/mismatched. Schema-manifest regen covers both new columns.
+
 
 **Scope boundary:** This phase does NOT touch the F2 remediation migration, the F3 re-apply page, the F4 reap, or F5. It does not change cron/push/manual sync semantics (§3.4). The only schema change is the `onboarding_scan_manifest.created_show_id` provenance column (Task 1.3).
 
@@ -500,6 +502,8 @@ describe("applyStagedCore live-partition source scoping", () => {
 
 ### Task 1.3 — Phase B first-seen branch → full apply (children + `shows_internal` + auth contract), `published=false`, `created_show_id` provenance, real audit provenance
 
+**Lockdown steps (R56-2, part of THIS task's RED/GREEN):** write the REVOKE migration + registry rows; RED = live PostgREST probes still granted; GREEN = 42501 on all three tables; apply locally (loopback) + schema-manifest regen + validation surgical apply listed in the close-out. F4 Task 4.7 is verification-only (re-run the lockdown suite; no new migration).
+
 **Phase B lock order (plan R25-1 — same inversion R16 fixed for Phase D, pre-existing in live code):** `handleOnboardingFinalize` currently calls `readActiveSession()` (app_settings `FOR UPDATE`, `finalize/route.ts:171-181`) BEFORE `tryFinalizeLock()` (`:626-633`), while `cleanupAbandonedFinalize` takes `finalize:` then `app_settings FOR UPDATE` (`sessionLifecycle.ts:328-339`) — an AB-BA deadlock under admin cleanup/finalize overlap. This task ALSO reorders Phase B to the global total order: discover the candidate session WITHOUT a row lock → acquire `finalize:<session>` → `SELECT … FOR UPDATE` re-check of the active session → per-row processing. Required regressions: (a) real-DB overlap `handleOnboardingFinalize` vs `cleanupAbandonedFinalize` for the same session → both settle, no SQLSTATE 40P01, one winner; (b) structural lock-order test pinning finalize-before-app_settings for BOTH finalize routes (extend the advisory-lock topology test to cover app_settings row-lock ordering, not just show-lock holders). Concrete failure mode: cleanup clicked while a finalize batch is mid-flight deadlocks both, stranding the wizard at the exact moment the operator is trying to recover it.
 
 **Executable steps for the Phase B reorder (plan R29-1 — RED/GREEN, part of Task 1.3's checklist, not prose):**
@@ -512,6 +516,8 @@ describe("applyStagedCore live-partition source scoping", () => {
 
 **Files:**
 - Create: `supabase/migrations/20260611000000_onboarding_manifest_created_show_id.sql`
+- Create: `supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql` (R56-2: MOVED from F4 Task 4.7 — REVOKE anon/authenticated DML on onboarding_scan_manifest + wizard_finalize_checkpoints + shows_pending_changes, service_role grant; lands in THIS task's commit BEFORE any created_show_id consumer)
+- Modify: `tests/db/postgrest-dml-lockdown.test.ts` (3 RPC_GATED_TABLES rows, same commit as the REVOKE per the lockdown discipline)
 - Modify: `app/api/admin/onboarding/finalize/route.ts`
 - Modify: `lib/sync/phase2.ts` + `lib/sync/runScheduledCronSync.ts` (`firstSeenPublished` threading)
 - Create: `tests/onboarding/finalizeFirstSeenFullApply.db.test.ts`
@@ -1020,6 +1026,7 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
         and m.status = 'applied'
         and m.created_show_id = s.id
         and m.drive_file_id = s.drive_file_id   -- R48-1: provenance binding — never trust created_show_id bare
+        and s.wizard_created_session_id = m.wizard_session_id  -- R56-1: show-side discriminator (unforgeable via manifest)
         and m.drive_file_id = any($2::text[])   -- R50-1: bound to the EXACT locked set acquired in this tail
      -- R48-1 regression (Task 1.5 RED list): seed a manifest row whose created_show_id points at an
      -- UNRELATED unpublished show (mismatched drive_file_id) → that show stays unpublished.
