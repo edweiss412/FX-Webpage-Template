@@ -220,8 +220,16 @@ test.skipIf(!dbUp)(
             `update public.app_settings set pending_wizard_session_id = $1::uuid where id = 'default'`,
             [W2],
           );
-          await upsertWizardDeferral(tx as never, row, "defer_until_modified"); // must throw
-          throw new Error("unreachable: deferral upsert should have thrown");
+          // R40-1: helper is BOOLEAN-returning; mirror the route's exact conversion here.
+          const ok = await upsertWizardDeferral(tx as never, row, "defer_until_modified");
+          if (!ok) {
+            throw new WizardSessionSupersededRollbackError({
+              attemptedAction: "defer_until_modified",
+              supersededSessionId: W1,
+              driveFileId: row.drive_file_id,
+            });
+          }
+          throw new Error("unreachable: predicate should have missed (ok === false)");
         },
         { tryOnly: false },
       ),
@@ -335,8 +343,9 @@ test("alert-writer failure does not mask the 409 (alert is best-effort, the refu
 
      ```yaml
      WIZARD_SESSION_SUPERSEDED_RACE: "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, or ignore) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab."
-  // R33-1 copy-honesty test: assert the catalog/§12.4 copy for WIZARD_SESSION_SUPERSEDED_RACE contains NEITHER "rolled back in full" NOR "Nothing was lost"/"Nothing was changed" — scanned across ALL Doug-reaching fields (§12.4 cell, dougFacing, helpfulContext, longExplanation, title) — retry residue is accepted+swept, so absolute-rollback claims are false for retry.
      ```
+
+     (R33-1/R40-2 copy-honesty test, OUTSIDE the YAML fence — the appendix is machine-parsed by `scripts/extract-spec-codes.ts`, which only skips blank/`#` lines, so a `//` line inside the block would fail `CODE_RE` and break `pnpm gen:spec-codes`: assert the catalog/§12.4 copy for WIZARD_SESSION_SUPERSEDED_RACE contains NEITHER "rolled back in full" NOR "Nothing was lost"/"Nothing was changed" — scanned across ALL Doug-reaching fields — retry residue is accepted+swept, so absolute-rollback claims are false for retry.)
 
   3. `pnpm gen:spec-codes` → regenerated `lib/messages/__generated__/spec-codes.ts` staged in the same commit. (`CODE_SCENARIOS` in `tests/cross-cutting/code-scenarios.ts` derives automatically from `SPEC_CODES` keys — no manual scenario row.)
   4. **`lib/messages/catalog.ts`** row adjacent to `WIZARD_SESSION_SUPERSEDED` (`:133-142`). The entry has non-null `dougFacing` and default (warning) severity, so the docs-predicate (`lib/messages/catalogDocsValidator.ts:5-15`) REQUIRES non-null `title`, `longExplanation`, and a `/help/...`-shaped `helpHref`:
