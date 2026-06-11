@@ -679,7 +679,7 @@ async function reapOneSession(
   // intentionally PRESERVE their checkpoint + shows_pending_changes shadows (operator recovery),
   // so scanning shadows there would false-positive every terminal reap into skipped_unstable and
   // roll back the deferral sweep F5 depends on. Non-terminal sessions include shadows.
-  const residueTables = isTerminalSession ? REAP_STAGING_TABLES : [...REAP_STAGING_TABLES, "shows_pending_changes"];
+  const residueTables = terminal ? REAP_STAGING_TABLES : [...REAP_STAGING_TABLES, "shows_pending_changes"];
   for (const table of residueTables) {
     const residue = await tx.query(
       `select 1 from public.${table} where wizard_session_id = $1::uuid limit 1`,
