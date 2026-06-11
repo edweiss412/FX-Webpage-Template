@@ -466,14 +466,21 @@ describe("affordance-matrix ↔ live-surface parity (spec §7)", () => {
     expect(failures, failures.join("\n")).toEqual([]);
   });
 
-  it("every live concrete row's testid occurs in exactly one domain file", () => {
+  it("every live concrete row's testid occurs EXACTLY ONCE across the domain (occurrences, not files — R8)", () => {
     const counts = new Map<string, string[]>();
     for (const id of liveIds) counts.set(id, []);
     for (const f of files) {
-      for (const id of liveIds) if (f.src.includes(id)) counts.get(id)!.push(f.rel);
+      for (const id of liveIds) {
+        let idx = f.src.indexOf(id);
+        while (idx !== -1) {
+          const line = f.src.slice(0, idx).split("\n").length;
+          counts.get(id)!.push(`${f.rel}:${line}`);
+          idx = f.src.indexOf(id, idx + 1);
+        }
+      }
     }
-    const bad = [...counts].filter(([, fs]) => fs.length !== 1);
-    expect(bad, bad.map(([id, fs]) => `${id} → [${fs.join(", ")}]`).join("\n")).toEqual([]);
+    const bad = [...counts].filter(([, hits]) => hits.length !== 1);
+    expect(bad, bad.map(([id, hits]) => `${id} → [${hits.join(", ")}]`).join("\n")).toEqual([]);
   });
 
   it("no deferred testid appears in any domain file; deferred ids are matrix rows", () => {
@@ -596,7 +603,7 @@ Add the `help-docs-desktop` project: same `testMatch`/`dependencies`/`baseURL`/`
 - Modify: `tests/e2e/help-docs-setup.ts` (after the `pnpm db:seed` spawnSync, `:16-19`)
 
 - [ ] **Step 12.1: Failing check:** add to `help-docs-setup.ts` (it is itself a Playwright setup "test") after seeding: query `shows` for `drive_file_id like 'seed-fixture:walker-%'` expecting 3 rows — run `pnpm test:e2e --project=help-docs-setup` → FAIL (0 rows).
-- [ ] **Step 12.2: Implement `supabase/seedWalkerFixtures.ts`.** Standalone tsx script, same `databaseUrl` resolution as `supabase/seed.ts:11-13`, applied via the same `execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", …])` pattern (`seed.ts:186`). It emits ONE transaction that: takes `pg_advisory_xact_lock(hashtext('show:' || <id>))` for each of the three drive_file_ids FIRST, **in `drive_file_id`-sorted (ascending) order** — the same order the prefix-wide sweep in Step 12.3 produces, so the two transactions can never acquire overlapping lock sets in opposite orders (R7 deadlock fix) — then `delete`s any prior rows by those ids (idempotent re-run), then inserts three `shows` rows with `drive_file_id` values `seed-fixture:walker-pending-review` / `seed-fixture:walker-archived` / `seed-fixture:walker-drive-error`, distinct slugs (`walker-pending-review-2026` etc.), titles, and states: `last_sync_status='pending_review'` + `archived=false` + `published=true`; `archived=true`; `last_sync_status='drive_error'` + `archived=false`. **Derive the full column list from `showInsertSql` (`supabase/seed.ts:192-244`)** — copy its INSERT shape and NOT-NULL columns exactly (dates, timestamps, parse payload columns) so the rows satisfy the live schema; do not invent a slimmer insert. Also insert one unresolved `admin_alerts` row targeting the EXISTING rpas fixture show (so row 8's alerts section renders on the per-show walk — column shape: copy an existing `admin_alerts` insert from the codebase, `rg -n "admin_alerts" supabase/ lib/ --type ts | head`). Run it from `help-docs-setup.ts` via `spawnSync("pnpm", ["dlx", "tsx", "supabase/seedWalkerFixtures.ts"], …)` with the same status assertion as the `db:seed` call.
+- [ ] **Step 12.2: Implement `supabase/seedWalkerFixtures.ts`.** Standalone tsx script, same `databaseUrl` resolution as `supabase/seed.ts:11-13`, applied via the same `execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", …])` pattern (`seed.ts:186`). It emits ONE transaction that: takes `pg_advisory_xact_lock(hashtext('show:' || <id>))` for each of the three drive_file_ids FIRST, **in `drive_file_id`-sorted (ascending) order** — the same order the prefix-wide sweep in Step 12.3 produces, so the two transactions can never acquire overlapping lock sets in opposite orders (R7 deadlock fix) — then `delete`s any prior rows by those ids (idempotent re-run), then inserts three `shows` rows with `drive_file_id` values `seed-fixture:walker-pending-review` / `seed-fixture:walker-archived` / `seed-fixture:walker-drive-error`, distinct slugs (`walker-pending-review-2026` etc.), titles, and states: `last_sync_status='pending_review'` + `archived=false` + `published=true`; `archived=true`; `last_sync_status='drive_error'` + `archived=false`. **Derive the full column list from `showInsertSql` (`supabase/seed.ts:192-244`)** — copy its INSERT shape and NOT-NULL columns exactly (dates, timestamps, parse payload columns) so the rows satisfy the live schema; do not invent a slimmer insert. Also insert one unresolved `admin_alerts` row whose `show_id` is selected IN SQL from the show the walker will actually navigate (R8 fixture-binding fix — see the `fixtureShow` change in this step's companion edit below; column shape: copy an existing `admin_alerts` insert from the codebase, `rg -n "admin_alerts" supabase/ lib/ --type ts | head`). **Companion edit — pin the walker's fixture show:** the current `fixtureShow()` selects the LATEST show by `last_synced_at` (`deep-link-walker.spec.ts:101-116`), which after this task can resolve to a walker-created show that has no alert. Change it to resolve deterministically by the base-seed fixture identity: `.eq("slug", "2026-03-retirement-plan-advisor-institute-central-2026")` (the value of `RPAS_CENTRAL_2026_SLUG`, `scripts/help-screenshots.manifest.ts:26` — note the matrix's `rpas-central-2026` is only a placeholder TOKEN for `routeForPure`, not the real slug; loud-throw if the show is absent), and have the extension's alert insert select `show_id` via the same identifier: `(select id from public.shows where slug = '2026-03-retirement-plan-advisor-institute-central-2026')`. Add to the `help-docs-setup` assertions: the seeded alert's `show_id` equals the show resolved by that slug — pinning route↔fixture binding end-to-end. Run it from `help-docs-setup.ts` via `spawnSync("pnpm", ["dlx", "tsx", "supabase/seedWalkerFixtures.ts"], …)` with the same status assertion as the `db:seed` call.
 - [ ] **Step 12.3: Lock the base cleanup (spec §6.3 R6 CRITICAL — do this BEFORE the isolation check).** `seed.ts`'s `seedSql` deletes `shows` by `like 'seed-fixture:%'` (`seed.ts:530-537`) while locking only the enumerated base fixture ids (`:517-523`) — with walker rows present that wildcard delete mutates `shows` rows whose locks it does not hold (invariant 2 P0). In `seedSql`, IMMEDIATELY after the enumerated lock block and before any delete, add:
 
 ```sql
