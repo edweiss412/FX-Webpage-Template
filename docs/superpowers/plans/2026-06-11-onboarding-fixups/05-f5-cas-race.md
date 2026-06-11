@@ -380,7 +380,7 @@ test("alert-writer failure does not mask the 409 (alert is best-effort, the refu
 - `tests/onboarding/wizardSessionCasRaceDb.test.ts` (extend — residue + reap sweep; **depends on Phase 4's `reapStaleOnboardingSessions`**)
 - `tests/sync/perFileProcessor.test.ts` (extend — inertness)
 
-**Failure mode caught:** the explicitly-weakened guarantee (spec §7 R5-2, ratified §8 — do NOT "fix" by adding locks/SERIALIZABLE) depends on three facts that nothing currently pins: (a) a commit-window supersession really does leave a stale deferral row (the residue exists — if a future refactor "closes" the window by accident we want to KNOW, because the spec contract changes); (b) the residue can never suppress live sync — `readLiveDeferral` reads ONLY `wizard_session_id IS NULL` rows (`perFileProcessor.ts:112`); a refactor dropping that filter would let wizard debris permanently skip a live show's sync; (c) the F4 reap actually removes the residue (orphan-row eligibility, regardless of the superseding session reaching `final_cas_done`).
+**Failure mode caught:** the explicitly-weakened guarantee (spec §7 R5-2, ratified §8 — do NOT "fix" by adding locks/SERIALIZABLE) depends on three facts that nothing currently pins: (a) a commit-window supersession really does leave a stale deferral row (the residue exists — if a future refactor "closes" the window by accident we want to KNOW, because the spec contract changes); (b) the residue can never suppress live sync — `readLiveDeferral` reads ONLY `wizard_session_id IS NULL` rows (`perFileProcessor.ts:112`); a refactor dropping that filter would let wizard debris permanently skip a live show's sync; (c) the F4 reap actually removes the residue (orphan-row eligibility, regardless of the superseding session reaching `final_cas_done`) — **respecting F4's 24-hour activity-freshness guard**: fresh residue (just-written `deferred_at`/`transitioned_at` = `now()`) must NOT be reaped; the sweep test therefore first asserts the fresh-skip, then backdates EVERY W1 activity column the F4 `GREATEST` window reads (`deferred_ingestions.deferred_at` AND the committed manifest row's `observed_at`/`transitioned_at`) past 24h, and only then asserts removal. A sweep test that reaps fresh residue would fail against a correct F4 implementation — or worse, pressure weakening the freshness guard.
 
 - [ ] **RED (residue exists + reap sweeps, real DB).** Extend `tests/onboarding/wizardSessionCasRaceDb.test.ts`:
 
@@ -416,12 +416,36 @@ test.skipIf(!dbUp)(
     expect(residue).toHaveLength(1);
     expect(residue[0]!.wizard_session_id).toBe(W1); // non-NULL: invisible to readLiveDeferral by shape
 
-    // (c) The F4 reap's orphan-row eligibility sweeps it (W1 is non-active, deferred-only, checkpoint-less).
+    // (c-1) FRESH residue is NOT reaped — F4's 24-hour activity guard working as intended
+    // (the rows were just written: deferred_at / transitioned_at default to now()). This
+    // assertion protects the guard from being weakened to make sweep tests pass.
     const { reapStaleOnboardingSessions } = await import("@/lib/onboarding/sessionLifecycle");
-    const result = await reapStaleOnboardingSessions({
-      requireAdminIdentity: async () => ({ email: "admin@example.com" }),
-    });
-    expect(result.sessions.map((s) => s.wizardSessionId)).toContain(W1);
+    const adminDeps = { requireAdminIdentity: async () => ({ email: "admin@example.com" }) };
+    const freshRun = await reapStaleOnboardingSessions(adminDeps);
+    expect(freshRun.sessions.map((s) => s.wizardSessionId)).not.toContain(W1);
+    expect(await readDeferralRows(FILE)).toHaveLength(1); // residue untouched while fresh
+
+    // (c-2) Backdate EVERY W1 activity timestamp the F4 GREATEST window reads past 24h.
+    // W1's committed surfaces after this test's tx: the deferral row (deferred_at) AND the
+    // transitioned manifest row (observed_at, transitioned_at) — the manifest UPDATE
+    // committed too; backdating only deferred_at would leave the session "fresh" via the
+    // manifest columns. (No checkpoints / shadows / pending rows exist for W1 here.)
+    await superseder.unsafe(
+      `update public.deferred_ingestions set deferred_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+    await superseder.unsafe(
+      `update public.onboarding_scan_manifest
+          set observed_at = now() - interval '25 hours',
+              transitioned_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+
+    // (c-3) NOW the F4 reap's orphan-row eligibility sweeps it (W1 non-active, stale, checkpoint-less).
+    const staleRun = await reapStaleOnboardingSessions(adminDeps);
+    expect(staleRun.sessions.map((s) => s.wizardSessionId)).toContain(W1);
     expect(await readDeferralRows(FILE)).toEqual([]);
   },
 );
