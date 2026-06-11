@@ -207,6 +207,12 @@ export default async function SignInPage({
         <p className="mt-3 text-base text-text-subtle">
           Use the Google account on your show&rsquo;s crew sheet to continue.
         </p>
+        {/* Root-collapse C-2: the crew lost-link line absorbed from the
+            deleted root landing card. True for every `next` value, so it
+            renders universally. Same subtle register as the subtitle. */}
+        <p className="mt-2 text-base text-text-subtle">
+          On a crew? The link Doug sent goes straight to your show.
+        </p>
       </header>
 
       <div className="flex flex-col items-center">
