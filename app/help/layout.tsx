@@ -1,9 +1,6 @@
 // app/help/layout.tsx
 import type { ReactNode } from "react";
-import {
-  AdminInfraError,
-  requireAdmin,
-} from "@/lib/auth/requireAdmin";
+import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { messageFor } from "@/lib/messages/lookup";
 import { Header } from "./_components/Header";
 import { Sidebar } from "./_components/Sidebar";
@@ -45,10 +42,18 @@ export default async function HelpLayout({ children }: { children: ReactNode }) 
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:py-8">
+      {/* M11-A-D2 — WCAG 2.4.1: first focusable element jumps keyboard users
+          past the Header + Sidebar chrome. Visually hidden until focused. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:inline-flex focus:min-h-tap-min focus:items-center focus:rounded-md focus:border focus:border-border-strong focus:bg-surface-raised focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-text-strong focus:shadow-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+      >
+        Skip to content
+      </a>
       <Header />
       <div className="md:flex md:gap-6">
         <Sidebar />
-        <main className="min-w-0 flex-1">
+        <main id="main" className="min-w-0 flex-1">
           <Breadcrumb />
           {children}
         </main>
