@@ -1,5 +1,15 @@
 # Phase 5 — F5 wizard-session CAS turnover race (BL-WIZARD-SESSION-CAS-TURNOVER-RACE)
 
+## DB-connection convention for EVERY `*.db.test.ts` in this phase (plan R16-2)
+
+All F5 real-DB tests mutate `app_settings` / `pending_ingestions` / manifest rows / deferrals / alerts and therefore MUST use the local-only convention shared with F1/F2/F4:
+
+- Connection: `process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres"`, passed through `assertLocalDbUrl(...)` (the F2 helper) which THROWS on any non-loopback host BEFORE a connection is attempted.
+- Env pinning: set `process.env.TEST_DATABASE_URL = undefined` (delete it) in the suite's setup so route/lib defaults that prefer it cannot escape to validation.
+- `TEST_DATABASE_URL` (the validation project) appears in this phase ONLY inside explicitly labeled validation close-out commands — never in a test harness.
+- Concrete failure mode this prevents: a routine `pnpm vitest` run with `.env.local` loaded mutating validation onboarding state outside the controlled close-out path.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development (or superpowers:executing-plans). TDD per task: failing test → minimal impl → passing test → commit. Conventional-commits per AGENTS.md invariant 6.
 
 **Spec:** `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-onboarding-fixups-design.md` §7 (F5), §3.3 (lock matrix row "F5 retry-route hardening"), §8 (do-not-relitigate: "F5's commit-window residue is accepted, not closed"), §9.
@@ -173,7 +183,7 @@ export class WizardSessionSupersededRollbackError extends Error {
 
 **Failure mode caught:** the unit fakes prove the throw-vs-return shape but cannot prove Postgres semantics — that (a) the EXISTS subquery re-reads `app_settings` at STATEMENT time under READ COMMITTED (a mid-transaction committed flip IS visible to the next statement), and (b) the thrown error actually aborts the `sql.begin` transaction so the already-executed manifest UPDATE does not persist. A mocked test passing while the real path partial-commits is exactly the "mocked-only tests invite tautological APPROVE" class.
 
-- [ ] **RED.** Add `tests/onboarding/wizardSessionCasRaceDb.test.ts` (probe + `test.skipIf(!dbUp)` harness per `tests/onboarding/onboardingApplyRevisionRaceDb.test.ts:38-72`; a SECOND `postgres()` connection plays the superseder; `afterAll` restores the original `app_settings.pending_wizard_session_id` and deletes fixture rows):
+- [ ] **RED.** Add `tests/onboarding/wizardSessionCasRaceDb.test.ts` (probe + `test.skipIf(!dbUp)` harness per `tests/onboarding/onboardingApplyRevisionRaceDb.test.ts (mirror its CONCURRENCY harness shape ONLY — NOT its env fallback: that harness prefers TEST_DATABASE_URL, which is the VALIDATION project):38-72`; a SECOND `postgres()` connection plays the superseder; `afterAll` restores the original `app_settings.pending_wizard_session_id` and deletes fixture rows):
 
 ```ts
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
