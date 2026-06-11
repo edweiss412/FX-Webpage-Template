@@ -187,7 +187,9 @@ Phase E docs at `app/help/admin/sharing-links/page.mdx` continue to document the
 
 ---
 
-### M11-E-D2: `/help/getting-started` walkthrough is a SHORT-NARRATIVE summary of the full §9.0 wizard documented in detail at `/help/admin/onboarding-wizard`
+### M11-E-D2: `/help/getting-started` walkthrough is a SHORT-NARRATIVE summary of the full §9.0 wizard documented in detail at `/help/admin/onboarding-wizard` — **RESOLVED 2026-05-20 (closed-out 2026-06-10)**
+
+**Status:** **Resolved.** The recommended cross-link landed at SHA `bbbf1abc` (`fix(help): dispose Codex R3 findings per spec-canonical rule + cross-link`, 2026-05-20) — `app/help/getting-started/page.mdx:3` now reads "…the full step-by-step wizard reference is at [Onboarding wizard](/help/admin/onboarding-wizard), including the folder-URL verification and the **Finalize** step that activates sync." — exactly the disposition's 1-line addition, including the Finalize mention that addressed R3's "operator could stop after Step 1" concern. The fix shipped the same week the entry was filed; this entry was never suffixed. Closed-out during the 2026-06-10 deferred-residue sweep (no code change).
 
 - **Severity:** HIGH (Codex R3 adversarial finding — flagged as "skips required onboarding steps")
 - **File:line:** `app/help/getting-started/page.mdx:9-14`
