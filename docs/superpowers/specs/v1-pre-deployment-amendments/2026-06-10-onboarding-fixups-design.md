@@ -54,7 +54,9 @@ Replace `applyFirstSeenDraft`'s bespoke INSERT with the shared apply pipeline, i
 
 Replace the `shows`-only UPDATE with the same hold-aware apply core the dashboard staged-Apply uses (`applyStaged` → `phase2.ts:328-335` `applyParseResult` with `holds: { port, baseModifiedTime }`, MI-11 holds written before the apply at `phase2.ts:297-335`, `writeAutoApplyChanges` feed rows at `phase2.ts:337-350`):
 
-- **Unit boundary:** extract the "apply a staged parse_result with reviewer choices under an already-held per-show lock" core so that `applyStaged` (dashboard) and Phase D (wizard) are two thin callers of one function. The shadow payload already carries everything the core needs: `parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices` (`stageExistingShowShadow`, finalize/route.ts:412-450).
+- **Unit boundary:** extract the "apply a staged parse_result with reviewer choices under an already-held per-show lock" core so that `applyStaged` (dashboard) and Phase D (wizard) are two thin callers of one function.
+- **Shadow payload completeness (R1 finding 1).** The payload today carries only `parse_result`, `staged_modified_time`, `staged_id`, `reviewer_choices` (`stageExistingShowShadow`, finalize/route.ts:412-450) — and Phase B then DELETEs the `pending_syncs` row (`deleteApprovedPending`, finalize/route.ts:452-470), so `triggered_review_items` no longer exist by Phase D. The dashboard apply contract needs them: `validateReviewerChoices` checks choices against items, `deriveAuthSideEffects` derives revocations from items+choices, and MI-11 detection keys off items (`lib/sync/applyStaged.ts`). Phase B therefore MUST extend the shadow payload with `triggered_review_items` (copied from the `pending_syncs` row before deletion), and Phase D MUST run the same choice-validation + side-effect derivation the dashboard runs. Malformed/legacy payloads without the key coerce to `[]` via the established `parseTriggeredReviewItems` boundary coercion (`applyStaged.ts` mapping semantics) — same degraded-but-typed posture as the dashboard read path.
+- **Required test (R1 finding 1):** an existing-show wizard apply with an MI-11-triggering row proving reviewer-choice validation, hold creation, audit payload, and feed behavior are identical to dashboard Apply for the same inputs.
 - `baseModifiedTime` for the holds context = the payload's `staged_modified_time` (the wizard analogue of `args.binding.modifiedTime` in phase2).
 - The existing CAS gate stays exactly where it is: `last_seen_modified_time IS NULL OR <= staged_modified_time`, failure code `STAGED_PARSE_OUTDATED_AT_PHASE_D`, per-row rollback, shadow row retained (finalize-cas/route.ts:276-305 semantics preserved).
 - Feed + MI-11 behavior follows D-2: notable auto-applied changes land in `show_change_log`; MI-11-eligible items (existing-crew email change) behave exactly as a dashboard Apply with choices — the wizard's `reviewer_choices` are passed as the choices payload per master spec line 1673.
@@ -85,17 +87,28 @@ Single-holder rule (AGENTS.md invariant 2) is preserved: the shared apply core n
 One-shot **data-only** migration (no schema change; `pnpm gen:schema-manifest` will be a no-op but is still run + committed per the post-migration checklist):
 
 ```sql
-update public.shows s
-   set last_seen_modified_time = null
- where not exists (select 1 from public.crew_members cm where cm.show_id = s.id)
-   and exists (select 1 from public.sync_audit sa
-                where sa.show_id = s.id
-                  and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas'))
-   and not exists (select 1 from public.sync_audit sa2
-                where sa2.show_id = s.id
-                  and coalesce(sa2.parse_result_summary->>'source', 'sync') not in ('onboarding_finalize', 'onboarding_finalize_cas'));
+do $$
+declare r record;
+begin
+  for r in
+    select s.id, s.drive_file_id
+      from public.shows s
+     where not exists (select 1 from public.crew_members cm where cm.show_id = s.id)
+       and exists (select 1 from public.sync_audit sa
+                    where sa.show_id = s.id
+                      and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas'))
+       and not exists (select 1 from public.sync_audit sa2
+                    where sa2.show_id = s.id
+                      and coalesce(sa2.parse_result_summary->>'source', 'sync') not in ('onboarding_finalize', 'onboarding_finalize_cas'))
+     order by s.drive_file_id   -- deterministic lock order (deadlock prevention)
+  loop
+    perform pg_advisory_xact_lock(hashtext('show:' || r.drive_file_id));
+    update public.shows set last_seen_modified_time = null where id = r.id;
+  end loop;
+end $$;
 ```
 
+- **Advisory-lock compliance (R1 finding 2):** every `shows` mutation runs inside the per-show `show:<drive_file_id>` advisory lock (plan-wide invariant 2), including this migration — the loop acquires the lock per candidate in deterministic `drive_file_id` order before the UPDATE, so a concurrent cron/manual/push apply for the same file serializes rather than interleaving. The migration is a one-shot single-transaction holder; no other layer acquires within it (single-holder rule preserved). The F2 plan task inherits the §3.3 lock-topology test requirement, not just F1/F5.
 - Condition = "every audit writer was wizard finalize" AND "zero crew" — matches exactly the damage signature; idempotent (after backfill, crew exists → no-op on re-apply).
 - Effect: next cron pass fails the watermark gate (`last_seen_modified_time is null` branch, `runScheduledCronSync.ts:950-955` / `perFileProcessor.ts:214`) and runs the full pipeline; backfilled crew lands in the Changes feed as additions (already-shipped feed semantics).
 - Applies to the six validation shows; in production (no wizard-onboarded shows yet) it is a no-op.
