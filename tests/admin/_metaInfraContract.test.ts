@@ -95,9 +95,14 @@ function makeThrowingClient() {
         typeof table === "string" && table in infraMock.dataByTable
           ? (infraMock.dataByTable[table] as unknown)
           : null;
-      const result = { data: seededData, error: null } as {
+      // `count` mirrors a healthy head:true response (seeded rows' length,
+      // else 0) so helpers with a count-integrity guard (loadNeedsAttention:
+      // non-number head-count → infra_error, R2-F3) proceed past earlier
+      // head-counts and reach the table under test in per-table throw cases.
+      const result = { data: seededData, error: null, count: Array.isArray(seededData) ? seededData.length : 0 } as {
         data: unknown;
         error: null;
+        count: number;
       };
       const builder: Partial<AwaitableQuery> = {};
       const passthrough = () => builder as AwaitableQuery;
@@ -199,6 +204,11 @@ const infraRegistry = [
     helper: "lookupCrewMember",
     path: "app/admin/show/[slug]/preview/[crewId]/page.tsx",
     contract: "crew_members lookup throws → { kind: 'infra_error' }",
+  },
+  {
+    helper: "loadNeedsAttention",
+    path: "lib/admin/loadNeedsAttention.ts",
+    contract: "pending_ingestions/pending_syncs/shows await throws + construction throw → infra_error",
   },
   { helper: "fetchUnresolvedAlertCount", path: "lib/admin/alertCount.ts", contract: "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)" },
   { helper: "getActiveWatchedFolder", path: "lib/appSettings/getWatchedFolderId.ts", contract: "app_settings { watched_folder_id, watched_folder_name } maybeSingle; client construction (createClientResult) + returned-error + thrown await → { kind:'infra_error' }; destructures { data, error }" },
@@ -463,6 +473,60 @@ describe("META §B Supabase call-boundary contract", () => {
       expect(result).toMatchObject({ kind: "infra_error" });
       expect((result as { kind: string; message: string }).message).toMatch(
         /crew_members.*threw/,
+      );
+    });
+  });
+
+  // Needs-attention loader (mobile needs-attention Task 1, spec §4.1) —
+  // extracted from fetchDashboardData; the same per-table throw matrix
+  // applies. The shows existence branch only fires when the pending reads
+  // surfaced candidate drive_file_ids, so that case seeds a pending row.
+  describe("loadNeedsAttention", () => {
+    test("server-client construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadNeedsAttention } = await import("@/lib/admin/loadNeedsAttention");
+      const result = await loadNeedsAttention({ cap: 20 });
+      expect(result).toMatchObject({ kind: "infra_error" });
+    });
+
+    test.each([
+      ["pending_ingestions", /pending_ingestions.*threw/],
+      ["pending_syncs", /pending_syncs.*threw/],
+    ])(
+      "from('%s') throw → typed infra_error with table-specific message",
+      async (table, messageRe) => {
+        infraMock.throwOnFromTable = table;
+        const { loadNeedsAttention } = await import("@/lib/admin/loadNeedsAttention");
+        const result = await loadNeedsAttention({ cap: 20 });
+        expect(result).toMatchObject({ kind: "infra_error" });
+        expect((result as { kind: string; message: string }).message).toMatch(
+          messageRe,
+        );
+      },
+    );
+
+    test("from('shows') throw (with seeded pending_ingestions row) → typed infra_error", async () => {
+      // The existence lookup only fires when the pending rows carried
+      // drive_file_ids. Seed one pending_ingestions row so the loader
+      // proceeds past the empty-id short-circuit into the shows lookup,
+      // then throw.
+      infraMock.dataByTable = {
+        pending_ingestions: [
+          {
+            id: "ing-1",
+            drive_file_id: "df-1",
+            drive_file_name: null,
+            last_attempt_at: null,
+            last_error_code: null,
+          },
+        ],
+      };
+      infraMock.throwOnFromTable = "shows";
+      const { loadNeedsAttention } = await import("@/lib/admin/loadNeedsAttention");
+      const result = await loadNeedsAttention({ cap: 20 });
+      expect(result).toMatchObject({ kind: "infra_error" });
+      expect((result as { kind: string; message: string }).message).toMatch(
+        /existence query threw/,
       );
     });
   });

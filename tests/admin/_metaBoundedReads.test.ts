@@ -23,7 +23,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // Phase-A admin read modules whose multi-row Supabase reads must be bounded.
-const READ_MODULES = ["components/admin/Dashboard.tsx"];
+// lib/admin/loadNeedsAttention.ts added with the Task-1 extraction (mobile
+// needs-attention, spec §4.1): the pending-stream .limit(cap+1) reads, the
+// head:true exact counts, and the existence .in("drive_file_id") lookup moved
+// there from Dashboard.tsx; Dashboard keeps its shows/crew reads.
+const READ_MODULES = ["components/admin/Dashboard.tsx", "lib/admin/loadNeedsAttention.ts"];
 
 const UNBOUNDED_TABLES = ["shows", "crew_members", "pending_ingestions", "pending_syncs"];
 
@@ -82,10 +86,22 @@ describe("META bounded-read enumeration (§3.4 row-cap truncation class)", () =>
   }
 
   it("the scan actually found Supabase reads to check (guards against a no-op scan)", () => {
-    const total = READ_MODULES.reduce((acc, rel) => {
+    // PER-MODULE floor: after the Task-1 extraction, BOTH Dashboard (shows +
+    // crew reads stay) AND the loader (pending streams + counts + existence)
+    // must each still match — a module whose scan silently matches nothing
+    // is a no-op guard, not a passing one.
+    let total = 0;
+    for (const rel of READ_MODULES) {
       const src = readFileSync(join(process.cwd(), rel), "utf8");
-      return acc + statements(src).filter((s) => /\.from\(/.test(s) && /\.select\(/.test(s)).length;
-    }, 0);
+      const count = statements(src).filter(
+        (s) => /\.from\(/.test(s) && /\.select\(/.test(s),
+      ).length;
+      expect(
+        count,
+        `${rel}: bounded-read scan matched no Supabase reads (no-op scan)`,
+      ).toBeGreaterThanOrEqual(1);
+      total += count;
+    }
     expect(total).toBeGreaterThanOrEqual(5);
   });
 });

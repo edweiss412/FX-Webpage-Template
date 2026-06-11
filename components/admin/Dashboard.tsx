@@ -30,12 +30,8 @@ import { HoverHelp } from "@/components/admin/HoverHelp";
 import { formatIsoForTimezone } from "@/lib/time/rightNow";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
 import { isShowLiveOnDate } from "@/lib/time/showSpan";
-import {
-  RENDER_CAP,
-  buildNeedsAttention,
-  type NeedsAttention,
-  type ShowExistence,
-} from "@/lib/admin/needsAttention";
+import { RENDER_CAP, type NeedsAttention } from "@/lib/admin/needsAttention";
+import { loadNeedsAttention } from "@/lib/admin/loadNeedsAttention";
 
 // V7 — pinned literals, chosen ≫ FXAV scale and < PostgREST's ~1000 row cap.
 export const ACTIVE_SHOWS_CAP = 500;
@@ -322,142 +318,10 @@ export async function fetchDashboardData(
     };
   });
 
-  // ── Needs-attention: two bounded pending streams + exact counts ──
-  let ingestionRows: ReadonlyArray<Record<string, unknown>>;
-  try {
-    const q = await supabase
-      .from("pending_ingestions")
-      .select("id, drive_file_id, drive_file_name, last_attempt_at, last_error_code")
-      .is("wizard_session_id", null)
-      .order("last_attempt_at", { ascending: false, nullsFirst: false })
-      .limit(RENDER_CAP + 1);
-    if (q.error) {
-      return { kind: "infra_error", message: `pending_ingestions query failed: ${q.error.message}` };
-    }
-    ingestionRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
-  } catch (err) {
-    return {
-      kind: "infra_error",
-      message: `pending_ingestions query threw: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  let ingestionCount: number;
-  try {
-    const q = await supabase
-      .from("pending_ingestions")
-      .select("id", { count: "exact", head: true })
-      .is("wizard_session_id", null);
-    if (q.error) {
-      return { kind: "infra_error", message: `pending_ingestions count query failed: ${q.error.message}` };
-    }
-    ingestionCount = q.count ?? ingestionRows.length;
-  } catch (err) {
-    return {
-      kind: "infra_error",
-      message: `pending_ingestions count query threw: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  let syncRows: ReadonlyArray<Record<string, unknown>>;
-  try {
-    const q = await supabase
-      .from("pending_syncs")
-      .select(
-        "staged_id, drive_file_id, staged_modified_time, parse_result, triggered_review_items",
-      )
-      .is("wizard_session_id", null)
-      .order("staged_modified_time", { ascending: false })
-      .limit(RENDER_CAP + 1);
-    if (q.error) {
-      return { kind: "infra_error", message: `pending_syncs query failed: ${q.error.message}` };
-    }
-    syncRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
-  } catch (err) {
-    return {
-      kind: "infra_error",
-      message: `pending_syncs query threw: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  let syncCount: number;
-  try {
-    const q = await supabase
-      .from("pending_syncs")
-      .select("staged_id", { count: "exact", head: true })
-      .is("wizard_session_id", null);
-    if (q.error) {
-      return { kind: "infra_error", message: `pending_syncs count query failed: ${q.error.message}` };
-    }
-    syncCount = q.count ?? syncRows.length;
-  } catch (err) {
-    return {
-      kind: "infra_error",
-      message: `pending_syncs count query threw: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  // Existence lookup keyed FROM the pending rows' drive_file_ids (bounded by the
-  // capped pending reads, §3.3) — spans ALL shows (no published/archived
-  // filter) so an archived/unpublished existing show classifies as
-  // existing_staged, not first_seen. Short-circuit on empty id set (R28).
-  const pendingDriveFileIds = Array.from(
-    new Set(
-      [
-        ...ingestionRows.map((r) => r.drive_file_id as string),
-        ...syncRows.map((r) => r.drive_file_id as string),
-      ].filter((id): id is string => typeof id === "string" && id.length > 0),
-    ),
-  );
-  const existence: Record<string, ShowExistence> = {};
-  if (pendingDriveFileIds.length > 0) {
-    try {
-      const q = await supabase
-        .from("shows")
-        .select("drive_file_id, slug, title, archived, published")
-        .in("drive_file_id", pendingDriveFileIds);
-      if (q.error) {
-        return { kind: "infra_error", message: `existence query failed: ${q.error.message}` };
-      }
-      const existenceRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
-      for (const row of existenceRows) {
-        const id = row.drive_file_id as string | undefined;
-        if (!id) continue;
-        existence[id] = {
-          slug: row.slug as string,
-          title: (row.title as string | null) ?? null,
-          published: Boolean(row.published),
-          archived: Boolean(row.archived),
-        };
-      }
-    } catch (err) {
-      return {
-        kind: "infra_error",
-        message: `existence query threw: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-  }
-
-  const needsAttention = buildNeedsAttention({
-    ingestions: ingestionRows.map((r) => ({
-      id: r.id as string,
-      driveFileId: r.drive_file_id as string,
-      driveFileName: (r.drive_file_name as string | null) ?? null,
-      lastErrorCode: (r.last_error_code as string | null) ?? null,
-      lastAttemptAt: (r.last_attempt_at as string | null) ?? null,
-    })),
-    syncs: syncRows.map((r) => {
-      const parseResult = r.parse_result as { show?: { title?: string | null } } | null;
-      return {
-        stagedId: r.staged_id as string,
-        driveFileId: r.drive_file_id as string,
-        candidateTitle: parseResult?.show?.title ?? null,
-        stagedModifiedTime: (r.staged_modified_time as string | null) ?? null,
-      };
-    }),
-    existence,
-    totalCounts: { ingestions: ingestionCount, syncs: syncCount },
-  });
+  // ── Needs-attention: extracted to lib/admin/loadNeedsAttention.ts (Task 1,
+  // spec §4.1). The client constructed above is INJECTED; cap = RENDER_CAP.
+  const na = await loadNeedsAttention({ cap: RENDER_CAP, supabase });
+  if ("kind" in na) return na;
 
   return {
     rows,
@@ -465,11 +329,11 @@ export async function fetchDashboardData(
     activeCount,
     archivedCount,
     liveCount,
-    needReviewCount: needsAttention.totalCount,
+    needReviewCount: na.totalCount,
     crewTotal,
     statsScope,
     overflowCount,
-    needsAttention,
+    needsAttention: na,
   };
 }
 
