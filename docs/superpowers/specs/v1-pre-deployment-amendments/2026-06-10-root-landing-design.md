@@ -39,9 +39,21 @@ Ratified; do not relitigate.
 
 ### 4.1 `app/page.tsx` (full replacement, server component)
 
-1. **Session probe (redirect-only concern):** construct `createSupabaseServerClient()` and call `auth.getUser()` with BOTH wrapped in try/catch — the `app/auth/sign-in/page.tsx:74-116` pattern, but with the OPPOSITE degraded posture: any throw OR returned error OR no user ⇒ **fall through and render the landing** (the page is public; rendering it can never be wrong). A validated user ⇒ `redirect("/auth/sign-in?next=/admin")` — the sign-in page's session-present branch immediately resolves admin → `/admin`, non-admin → `/me` (D-2; one extra 302 for this rare path, zero duplicated logic).
-2. **Invariant 9:** the probe is a Supabase call boundary — destructure `{ data, error }`; the deliberate render-on-fault posture gets an inline `// not-subject-to-meta: public landing fails open to its own anonymous render; no degraded state exists` comment OR a registry row, decided at plan time per the meta-test inventory rule (the helper is page-local, not a shared `lib/` helper, so the inline comment is the expected outcome).
-3. `redirect()` must be called OUTSIDE the try/catch (Next's redirect throws `NEXT_REDIRECT` control flow; catching it would break the redirect — read the user-presence result into a local first, exactly as sign-in does).
+1. **Session probe — discriminated, observable (R1 amendment):** a small shared helper `lib/auth/rootSessionProbe.ts`:
+
+```ts
+export type RootSessionProbeResult =
+  | { kind: "authenticated" }
+  | { kind: "anonymous" }                       // includes getUser RETURNED error (stale/absent session)
+  | { kind: "infra_error"; message: string };   // construction throw or getUser THROW
+
+export async function rootSessionProbe(): Promise<RootSessionProbeResult>;
+```
+
+   Construction + `auth.getUser()` both inside try/catch (`app/auth/sign-in/page.tsx:74-116` pattern); `const { data, error } = await supabase.auth.getUser()` destructured (invariant 9); returned `error` or no user ⇒ `anonymous` (matching sign-in's reading of returned errors as transient-unauthenticated, `:93-95` comment); any THROW ⇒ `infra_error` with a descriptive message. The three states are never collapsed inside the helper.
+2. **Page consumption:** `authenticated` ⇒ `redirect("/auth/sign-in?next=/admin")` — the sign-in page's session-present branch resolves admin → `/admin`, non-admin → `/me` (D-2; one extra 302 on a rare path, zero duplicated logic). `anonymous` ⇒ render the landing. `infra_error` ⇒ `console.error("[root-landing] session probe infra fault:", message)` **then render the landing** — the ratified fail-open UI (D-1/§7.3) with an operator-observable signal (Vercel function logs); the fault is a discriminable typed result end-to-end and only the RENDER decision converges with anonymous. A signed-in user during an Auth outage sees the landing card whose CTA leads into sign-in, which surfaces its own cataloged `ADMIN_SESSION_LOOKUP_FAILED` block (`app/auth/sign-in/page.tsx:107-112`) — the outage is not hidden from them either.
+3. **Structural pin (no bare exemption):** `rootSessionProbe` registers in the auth boundary registry `tests/auth/_metaInfraContract.test.ts` ("R41 Supabase boundary source registry", `:177+`): a source-regex row pinning the destructured `getUser` boundary + membership in the constructor-inside-try contract list, plus behavioral rows (construction throw ⇒ `infra_error`; getUser throw ⇒ `infra_error`; returned error ⇒ `anonymous`) following the file's existing patterns.
+4. `redirect()` is called OUTSIDE any try/catch (Next's `NEXT_REDIRECT` control flow must propagate — probe first into a local, then branch, exactly as sign-in does).
 
 ### 4.2 The card (D-3)
 
@@ -59,8 +71,8 @@ No headline `<h1>` inside the card beyond the mark row — but the PAGE must sti
 
 | Input/state | Behavior |
 |---|---|
-| No session / `getUser` returned error | render landing |
-| `getUser` or client construction THROWS | render landing (fail-open, §4.1.2 posture) |
+| No session / `getUser` returned error | probe ⇒ `anonymous`; render landing |
+| `getUser` or client construction THROWS | probe ⇒ `infra_error`; `console.error` signal, then render landing (fail-open UI, §4.1.2) |
 | Valid session | `redirect("/auth/sign-in?next=/admin")` (never renders) |
 | Any viewport | same single card, centered; no mode boundaries, no responsive variants beyond padding |
 | Dark mode | token pairs handle it (no raw colors); verify with the theme toggle in e2e spot-check |
@@ -91,7 +103,7 @@ No user-visible failure states exist (§4.3). No catalog rows touched; no §12.4
 
 1. **Two-door CTA is ratified** (D-4, with the rejected one-click alternative documented). Do not propose embedding `SignInButton` on `/`.
 2. **Signed-in `/` visitors take two hops** (`/` → `/auth/sign-in?next=/admin` → destination). Ratified D-2: zero duplicated auth logic beats one saved 302 on a rare path.
-3. **Fail-open render posture** (§4.1) is deliberate and safe — the page is public; there is nothing to fail closed TO.
+3. **Fail-open RENDER posture** (§4.1) is deliberate and safe — the page is public; there is nothing to fail closed TO. The R1 amendment keeps the fault discriminated and observable (`infra_error` + console.error + registry pins); do not relitigate the render decision itself.
 4. **No `PROTECTED_ROUTES` row** — root is public and outside the audit walk (`lib/audit/protectedRoutes.ts:43`). Adding one would make the audit fail (path not in walked trees ⇒ "listed but not live" class).
 5. **No screenshot-manifest entry** — root is not a help-documented surface (YAGNI; can be added if a help page ever references it).
 6. Card visual language intentionally mirrors AdminNav brand row + sign-in button — consistency findings should point THERE, not invent a third vocabulary.
@@ -102,10 +114,10 @@ Marketing content, SEO beyond existing metadata, per-session deep links beyond s
 
 ## 9. Testing
 
-1. **Unit (jsdom)** — anonymous (mocked `getUser` → no user): card renders with exact CTA href `/auth/sign-in?next=/admin`, crew line verbatim, h1 present; *catches: wrong next param silently breaking the admin/crew split*. Mocked valid user: `redirect` called with exactly that path and the card NOT rendered; *catches: landing flashing for signed-in users*. Mocked construction/getUser THROW: renders card, no unhandled rejection; *catches: fail-open regression (R19 F4 class)*. Anti-tautology: href asserted via the link element's attribute, scoped to `root-landing-card`.
+1. **Unit (jsdom)** — probe helper: returned-error ⇒ `{ kind: "anonymous" }`; no-user success ⇒ `anonymous`; valid user ⇒ `authenticated`; construction throw ⇒ `infra_error` (resolves, never rejects); `getUser` throw ⇒ `infra_error` — returned-vs-thrown explicitly distinguished; *catches: states collapsing inside the probe (R1 class)*. Page: `anonymous` ⇒ card renders with exact CTA href `/auth/sign-in?next=/admin`, crew line verbatim, h1 present; *catches: wrong next param silently breaking the admin/crew split*. `authenticated` ⇒ `redirect` called with exactly that path, card NOT rendered; *catches: landing flashing for signed-in users*. `infra_error` ⇒ card renders AND `console.error` spy called with the probe message; *catches: fail-open regression (R19 F4 class) AND silent-outage regression (the spy assertion fails if observability is dropped)*. Anti-tautology: href asserted via the link element's attribute, scoped to `root-landing-card`.
 2. **E2E (Playwright, prod build)** — signed-in admin fixture hits `/` → final URL `/admin`; signed-in non-admin crew fixture → final URL `/me`; anonymous → card visible, CTA tap lands on `/auth/sign-in?next=%2Fadmin` (or unencoded — assert the sign-in page rendered with its headline). *Catches: the full redirect chain breaking at either hop.*
 3. **Layout dimensions (real browser, §4.5 invariants verbatim)** — CTA ≥44px, card centered ±1px, no horizontal overflow, at 390/720/1280.
-4. Meta-test inventory (declared): NONE extended — the page-local probe carries the inline `not-subject-to-meta` comment (§4.1.2); no registries apply (no DB writes, no alerts, no locks, no protected route). If plan-time review concludes the probe should be a shared helper instead, it gets a `_metaInfraContract` row like every `lib/admin` helper.
+4. Meta-test inventory (declared): EXTENDS `tests/auth/_metaInfraContract.test.ts` — R41 source-regex row + constructor-inside-try membership + behavioral throw/returned-error rows for `lib/auth/rootSessionProbe.ts` (§4.1.3). No other registries apply (no DB writes, no alerts, no locks, no protected route).
 
 ## 10. Implementation shape
 
