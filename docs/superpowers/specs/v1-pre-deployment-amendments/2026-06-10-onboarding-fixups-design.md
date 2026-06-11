@@ -98,12 +98,25 @@ Single-holder rule (AGENTS.md invariant 2) is preserved: the shared apply core n
 
 ## 4. F2 — Remediation for already-damaged shows
 
-One-shot **data-only** migration (no schema change; `pnpm gen:schema-manifest` will be a no-op but is still run + committed per the post-migration checklist):
+One-shot migration, hard-guarded against re-execution by a marker table (created in the same file; `pnpm gen:schema-manifest` regen + commit per the post-migration checklist, since the marker table IS a schema change):
 
 ```sql
+create table if not exists public.data_migration_markers (
+  key text primary key,
+  executed_at timestamptz not null default now()
+);
+
 do $$
 declare r record;
 begin
+  -- R15 finding 1: hard one-shot guard. Apply-twice idempotency must not depend on
+  -- audit-shape convergence (a cron heal writes no sync_audit row, so the broken-shape
+  -- CAS audit can remain the newest at-watermark audit forever).
+  if exists (select 1 from public.data_migration_markers where key = 'onboarding_fixups_watermark_reset') then
+    return;
+  end if;
+  insert into public.data_migration_markers (key) values ('onboarding_fixups_watermark_reset');
+
   for r in
     select s.id, s.drive_file_id
       from public.shows s
@@ -116,13 +129,15 @@ begin
                          and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas')
                          and sa.staged_modified_time >= s.last_seen_modified_time))
          or
-         -- Arm B (existing-show damage): a pre-F1 CAS shadow apply advanced the watermark
-         -- while leaving STALE (possibly nonzero) children. Bounded to pre-F1 audits.
-         exists (select 1 from public.sync_audit sa
-                  where sa.show_id = s.id
-                    and sa.parse_result_summary->>'source' = 'onboarding_finalize_cas'
-                    and sa.staged_modified_time >= s.last_seen_modified_time
-                    and not (sa.parse_result_summary ? 'crewCount'))  -- broken-writer audit shape; F1 audits carry crewCount
+         -- Arm B (existing-show damage): the LATEST at-or-after-watermark audit is a
+         -- broken-shape CAS apply (stale children despite advanced watermark).
+         (select not (sa.parse_result_summary ? 'crewCount')
+                 and sa.parse_result_summary->>'source' = 'onboarding_finalize_cas'
+            from public.sync_audit sa
+           where sa.show_id = s.id
+             and sa.staged_modified_time >= s.last_seen_modified_time
+           order by sa.staged_modified_time desc, sa.applied_at desc, sa.id desc
+           limit 1)
        )
      order by s.drive_file_id   -- deterministic lock order (deadlock prevention)
   loop
@@ -140,11 +155,13 @@ begin
                          and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas')
                          and sa.staged_modified_time >= s.last_seen_modified_time))
          or
-         exists (select 1 from public.sync_audit sa
-                  where sa.show_id = s.id
-                    and sa.parse_result_summary->>'source' = 'onboarding_finalize_cas'
-                    and sa.staged_modified_time >= s.last_seen_modified_time
-                    and not (sa.parse_result_summary ? 'crewCount'))
+         (select not (sa.parse_result_summary ? 'crewCount')
+                 and sa.parse_result_summary->>'source' = 'onboarding_finalize_cas'
+            from public.sync_audit sa
+           where sa.show_id = s.id
+             and sa.staged_modified_time >= s.last_seen_modified_time
+           order by sa.staged_modified_time desc, sa.applied_at desc, sa.id desc
+           limit 1)
        );
   end loop;
 end $$;
@@ -152,7 +169,7 @@ end $$;
 
 - **Advisory-lock compliance (R1 finding 2):** every `shows` mutation runs inside the per-show `show:<drive_file_id>` advisory lock (plan-wide invariant 2), including this migration — the loop acquires the lock per candidate in deterministic `drive_file_id` order before the UPDATE, so a concurrent cron/manual/push apply for the same file serializes rather than interleaving. The migration is a one-shot single-transaction holder; no other layer acquires within it (single-holder rule preserved). The F2 plan task inherits the §3.3 lock-topology test requirement, not just F1/F5.
 - **Locked re-check (R12 finding 2):** the UPDATE carries the full eligibility predicate so a show healed by a concurrent sync between the candidate SELECT and lock acquisition is left untouched. Required regression: concurrent sync heals the show before the migration obtains the lock → watermark NOT reset.
-- **Existing-show damage arm (R13 finding 1).** Arm A's zero-crew predicate only catches first-seen damage; an existing live show hit by a pre-F1 `onboarding_finalize_cas` shadow apply keeps its OLD (nonzero) children while the watermark advances — stale data invisible to Arm A. Arm B resets any show whose last content writer was a CAS apply, regardless of crew count, identified by **broken-writer audit shape, not a calendar cutoff (R14 finding 1)**: the current writer's `parse_result_summary` carries only `title` + `source` (finalize-cas/route.ts:311-340 shape), while F1's writer is REQUIRED (per the R8-1 provenance fix) to write the shared `parseResultSummary` shape including `crewCount`/`roomCount` (`lib/sync/applyStaged.ts` `parseResultSummary`). Arm B matches CAS audits lacking the `crewCount` key — a deployment-order-independent marker: damage written by the broken writer at ANY date (including after F1 was authored but before it deployed) still matches, and post-F1 audits never match. Re-running the migration after a heal can re-trigger one redundant re-sync for Arm-B shows whose broken-shape audit remains the newest at-watermark audit; that re-sync re-applies the same revision and converges — harmless, and stated here so apply-twice behavior is explicit. Required regression: a pre-existing show with nonzero-but-stale children after a broken-shape `onboarding_finalize_cas` audit (regardless of its date) IS reset; the same show with an F1-shape (crewCount-bearing) CAS audit is NOT.
+- **Existing-show damage arm (R13 finding 1).** Arm A's zero-crew predicate only catches first-seen damage; an existing live show hit by a pre-F1 `onboarding_finalize_cas` shadow apply keeps its OLD (nonzero) children while the watermark advances — stale data invisible to Arm A. Arm B resets any show whose last content writer was a CAS apply, regardless of crew count, identified by **broken-writer audit shape, not a calendar cutoff (R14 finding 1)**: the current writer's `parse_result_summary` carries only `title` + `source` (finalize-cas/route.ts:311-340 shape), while F1's writer is REQUIRED (per the R8-1 provenance fix) to write the shared `parseResultSummary` shape including `crewCount`/`roomCount` (`lib/sync/applyStaged.ts` `parseResultSummary`). Arm B matches CAS audits lacking the `crewCount` key — a deployment-order-independent marker: damage written by the broken writer at ANY date (including after F1 was authored but before it deployed) still matches, and post-F1 audits never match. **Latest-writer semantics + hard one-shot guard (R15 finding 1):** Arm B evaluates only the LATEST at-or-after-watermark audit (ordered by `staged_modified_time desc, applied_at desc, id desc`) — a healed show whose newest such audit is crewCount-bearing never matches — AND the whole migration body is guarded by a `data_migration_markers` row, because a cron heal writes NO `sync_audit` row, so audit shape alone cannot prove convergence; the marker makes apply-twice a structural no-op regardless of audit history. Required regressions: a pre-existing show with nonzero-but-stale children after a broken-shape `onboarding_finalize_cas` audit (regardless of its date) IS reset; the same show with an F1-shape (crewCount-bearing) CAS audit as the latest writer is NOT; and the post-heal apply-twice case — broken CAS audit, successful same-modified-time backfill, migration re-run — does NOT re-null the watermark (marker guard).
 - **Eligibility = corrupted state, not audit purity (R7 finding 1).** Condition: zero `crew_members` AND a wizard-finalize audit row whose `staged_modified_time` is at-or-after the current watermark — i.e., the wizard was the LAST content writer. An earlier "no non-wizard audit rows exist" condition was rejected: any later non-wizard audit row (asset-recovery write, partial probe) would permanently exclude a still-damaged show, leaving it watermarked-as-current forever. A show whose watermark advanced past every wizard audit was re-applied by a real sync (which writes children), so exclusion is then correct; a zero-crew show in that state has a genuinely crew-less sheet. Idempotent: after backfill, crew exists → no-op; watermark-nulled rows fail the `is not null` guard → no-op. Required regression: a damaged wizard show WITH a later non-wizard audit row (not advancing the watermark) is still reset; a show whose watermark advanced past the wizard audit is untouched.
 - Effect: next cron pass fails the watermark gate (`last_seen_modified_time is null` branch, `runScheduledCronSync.ts:950-955` / `perFileProcessor.ts:214`) and runs the full pipeline; backfilled crew lands in the Changes feed as additions (already-shipped feed semantics).
 - Applies to the six validation shows; in production (no wizard-onboarded shows yet) it is a no-op.
