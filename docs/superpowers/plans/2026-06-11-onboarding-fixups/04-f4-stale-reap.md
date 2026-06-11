@@ -527,6 +527,8 @@ async function collectReapDriveFileIds(
   return [...driveFileIds].sort((a, b) => a.localeCompare(b));
 }
 
+**Lock-acquisition algorithm (plan R24-1 supersedes any incremental-lock phrasing below):** the per-session transaction acquires show locks from a SINGLE globally sorted list, exactly once. Procedure: (1) under the `finalize:<session>` lock, collect candidate drive ids (plain SELECT, no row locks); (2) sort; (3) acquire all `show:` locks in that order; (4) re-collect under the locks; (5) if the re-collection discovers ANY id not already held — regardless of sort position — ROLLBACK this session's transaction and retry the session from step 1 (bounded retries, e.g. 3, then `skipped_unstable` outcome with no deletes). NEVER acquire an additional show lock while already holding higher-sorted ones (AB-BA with any alphabetical-order path). Required regression: a concurrent insert adds a lower-sorted drive id between first collection and re-collection → the reap retries (or skips) without out-of-order acquisition; assert via a paired alphabetical locker that no 40P01 occurs.
+
 async function lockReapDriveFiles(tx: OnboardingSessionTx, sessionId: string): Promise<void> {
   // Collect WITHOUT row locks → advisory-lock in deterministic order → RE-COLLECT under
   // the locks. The re-check replaces the row-lock guarantee: any drive id added between
