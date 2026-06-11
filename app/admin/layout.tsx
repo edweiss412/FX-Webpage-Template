@@ -24,6 +24,7 @@ import { AdminNav } from "@/components/admin/nav/AdminNav";
 import { PageTransition } from "@/components/layout/PageTransition";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
+import { loadNeedsAttentionCount } from "@/lib/admin/needsAttentionCount";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   // Phase 1 helper (already meta-pinned in lib/admin/alertCount.ts).
   // Threaded into <AdminNav> in Phase 3; stored as a local for now.
   const alertCount = await fetchUnresolvedAlertCount();
+  // Mobile "Needs attention" tab badge seed (spec §4.2 commit source 1).
+  // infra_error → null → badge hidden (fail-quiet, ratified D-4).
+  const needsAttentionCount = await loadNeedsAttentionCount();
   const adminEmail = identity.email;
 
   return (
@@ -97,7 +101,11 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       // bottom tab bar is ~58px tall; pb-20 (80px) clears it with margin.
       className="mx-auto max-w-[1600px] px-page-pad-mobile pt-page-pad-mobile pb-20 sm:px-page-pad-desktop sm:pt-page-pad-desktop min-[720px]:pb-page-pad-desktop"
     >
-      <AdminNav email={adminEmail} alertCount={alertCount} />
+      <AdminNav
+        email={adminEmail}
+        alertCount={alertCount}
+        initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}
+      />
 
       {/* M12.3 items 1+2: the global AlertBanner is no longer mounted in the
           layout (it used to ride EVERY admin route, double-rendering on
