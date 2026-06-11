@@ -656,6 +656,13 @@ revoke all on table public.data_migration_markers from anon, authenticated;
 -- registry row for every REVOKEd live table, and Layer-1 asserts service_role keeps full access.
 grant all privileges on table public.data_migration_markers to service_role;
 
+-- R52-1: same locked-set deletion contract as the F4 reap — drive-id-bearing DELETEs carry
+-- `and drive_file_id = any(<locked array>)` (the array captured at lock time inside the DO block),
+-- and a post-delete residue check re-selects each session's drive-id-bearing tables: any row outside
+-- the locked set → RAISE EXCEPTION (aborting the whole migration transaction — safe: marker row rolls
+-- back too, re-run is clean). OPERATIONAL note: the surgical validation apply for THIS migration runs
+-- in a no-writer window (cron paused or off-hours; PostgREST DML on these tables is still open until
+-- Task 4.7's lockdown lands).
 -- ── 4. F4 one-time purge — EXACT 18 synthetic validation wizard sessions ────────
 -- Spec §6 final bullet: keyed to the exact ids captured from the validation DB
 -- (Task 2.1, 2026-06-11; checkpoint-in_progress set ≡ shows_pending_changes set).
