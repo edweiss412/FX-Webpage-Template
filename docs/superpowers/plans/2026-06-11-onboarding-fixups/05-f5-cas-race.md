@@ -484,9 +484,11 @@ test("a wizard-scoped deferral residue row can NEVER suppress live sync (F5 iner
 
 **Files:**
 - `lib/sync/discardStaged.ts` (fix)
-- `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts` (catch + map)
+- `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts` (catch + map; the handler is `handleWizardStagedDiscard`, verified at route.ts:86)
 - `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts` (comment only)
-- `tests/sync/discardStaged` test file (extend whichever file covers `discardStaged_unlocked`'s wizard branch)
+- `tests/sync/discardStaged.test.ts` (extend — wizard-branch unit tests with injected fakes)
+- `tests/onboarding/wizardScopedReapply.test.ts` (extend — the existing `handleWizardStagedDiscard` route-test surface; route-level catch/map unit)
+- `tests/onboarding/discardStagedCasRaceDb.test.ts` (new, real-Postgres — R6 HIGH)
 
 **Sweep findings (pre-verified against the live tree — this is the "report" half; each gets fix-or-file):**
 
@@ -513,9 +515,8 @@ test("S3: manifest miss AFTER the wizard deferral wrote throws the typed rollbac
 });
 
 test("S4: deleteWizardPendingSync carries the currency predicate and throws on a 0-row miss", async () => {
-  // Real-DB variant in wizardSessionCasRaceDb.test.ts: seed wizard pending_syncs row, flip
-  // session via the second connection after the manifest statement, assert the tx rejects
-  // and the pending_syncs row + manifest status are unchanged post-abort.
+  // Real-DB variant lives in tests/onboarding/discardStagedCasRaceDb.test.ts (below) — this
+  // mocked case only pins the control flow; the SQL itself is exercised there.
   const deps = wizardDiscardDeps({
     upsertWizardDeferral: vi.fn(async () => true),
     markWizardManifestDiscarded: vi.fn(async () => true),
@@ -533,8 +534,78 @@ test("S2 unchanged: a deferral-upsert miss BEFORE any mutation still returns wiz
 });
 ```
 
-- [ ] **GREEN.** (1) `defaultDeleteWizardPendingSync`: add the EXISTS clause + `returning true as deleted`, change signature to return `Promise<boolean>` (update the `DiscardStagedDeps` type member at `:77+`). (2) In `discardStaged_unlocked`'s wizard branch: `markWizardManifestDiscarded === false` after a successful deferral write (or after `try_again`'s no-deferral path? — NO: `try_again` writes no deferral first, so a manifest miss there is pre-mutation → keep the returned outcome for `try_again`, throw only when `variant !== "try_again"`), and `deleteWizardPendingSync === false`, throw `new WizardSessionSupersededRollbackError({ attemptedAction: "discard", supersededSessionId: args.wizardSessionId, driveFileId: args.driveFileId })`. (3) The onboarding discard route catches the typed error after its tx aborts and maps to the existing 409 `WIZARD_SESSION_SUPERSEDED` (no alert — the spec mandates the `WIZARD_SESSION_SUPERSEDED_RACE` alert for the retry route's defer/ignore path; extending the producer to discard is a separate decision — file to BACKLOG.md if wanted, do not silently widen the meta-test write-site). (4) S1 comment in the retry route.
-- [ ] **VERIFY.** `pnpm vitest run tests/sync --silent` (full sync suite — `discardStaged` has live-branch consumers at `app/api/admin/show/staged/[stagedId]/discard/route.ts` and `app/api/admin/staged/[fileId]/discard/route.ts` whose live branch is untouched but shares the file) + `pnpm vitest run tests/onboarding` → all pass.
+- [ ] **RED (real DB — R6 HIGH).** Add `tests/onboarding/discardStagedCasRaceDb.test.ts`, mirroring Task 5.2's harness exactly (connection probe + `test.skipIf(!dbUp)` + a SECOND `postgres()` connection as the superseder + `afterAll` restore of `app_settings.pending_wizard_session_id` and fixture cleanup). **Concrete failure mode caught:** the mocked tests above inject `vi.fn(async () => true/false)` for every statement — a transposed parameter (`$2`/`$5` swapped in the EXISTS clause), a predicate written against the wrong column, or an EXISTS subquery that doesn't re-read `app_settings` at statement time would ship GREEN through them; only the real default SQL executing against real Postgres catches it. This is the mocked-only-tests-invite-tautological-APPROVE class.
+
+```ts
+test.skipIf(!dbUp)(
+  "discard race: manifest CAS succeeds, session flips, pending-sync delete predicate misses → typed rollback, ALL rows unchanged",
+  async () => {
+    // Seed: app_settings session = W1; one wizard pending_syncs row (W1, FILE, staged_id SID);
+    // one onboarding_scan_manifest row (W1, FILE, status 'staged'); show row for FILE.
+    await seedDiscardFixture();
+
+    await expect(
+      withPostgresSyncPipelineLock(
+        FILE,
+        async (tx) => {
+          // Drive the REAL default deps (no injection): replicate discardStaged_unlocked's
+          // wizard-branch statement order with the production SQL helpers — deferral upsert
+          // and manifest CAS execute while W1 is current...
+          const wroteDeferral = await defaultsForTest.upsertWizardDeferral(tx, deferralInput());
+          expect(wroteDeferral).toBe(true);
+          const marked = await defaultsForTest.markWizardManifestDiscarded(tx, FILE, W1, "permanent_ignore");
+          expect(marked).toBe(true);
+          // ...then the supersession commits between the manifest statement and the delete:
+          await superseder.unsafe(
+            `update public.app_settings set pending_wizard_session_id = $1::uuid where id = 'default'`,
+            [W2],
+          );
+          await defaultsForTest.deleteWizardPendingSync(tx, FILE, W1, SID); // S4 predicate → 0 rows → throws
+          throw new Error("unreachable: delete should have thrown the typed rollback error");
+        },
+        { tryOnly: false },
+      ),
+    ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+
+    // Post-abort: the WHOLE wizard-branch transaction rolled back — nothing persisted.
+    expect(await readDeferralRows(FILE)).toEqual([]); // deferral write rolled back
+    expect((await readManifestRow(W1, FILE)).status).toBe("staged"); // manifest CAS rolled back
+    expect(await readWizardPendingSync(W1, FILE)).not.toBeNull(); // pending_syncs row survives
+  },
+);
+```
+
+  (Export `defaultUpsertWizardDeferral` / `defaultMarkWizardManifestDiscarded` / `defaultDeleteWizardPendingSync` from `discardStaged.ts` for the test — `defaultsForTest` above — or exercise them through `discardStaged_unlocked` with a hook-style dep that performs the mid-tx flip after the manifest statement; either way the SQL under test is the PRODUCTION default, not a fake.)
+
+- [ ] **RED (route-level catch/map — R6 HIGH).** Extend `tests/onboarding/wizardScopedReapply.test.ts` with a `recordingWithRowTx` (Task 5.1's pattern). **Concrete failure mode caught:** `discardStaged_unlocked` now THROWS where it used to return a result object — a route that doesn't catch `WizardSessionSupersededRollbackError` turns every lost race into an uncataloged 500 (raw error text to the operator, invariant 5 violation) instead of the existing, cataloged 409.
+
+```ts
+test("handleWizardStagedDiscard maps the typed rollback to 409 WIZARD_SESSION_SUPERSEDED after the tx aborts — never an uncataloged 500", async () => {
+  const log = { settled: null as "resolved" | "rejected" | null };
+  const response = await handleWizardStagedDiscard(
+    discardRequest({ stagedId: SID, variant: "permanent_ignore" }),
+    routeContext({ wizardSessionId: W1, driveFileId: FILE }),
+    {
+      ...defaultDiscardTestDeps(),
+      withRowTx: recordingWithRowTx(log),
+      discardStagedUnlocked: async () => {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: "discard",
+          supersededSessionId: W1,
+          driveFileId: FILE,
+        });
+      },
+    },
+  );
+  expect(log.settled).toBe("rejected"); // the error crossed the tx boundary → real abort
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+});
+```
+
+- [ ] **GREEN.** (1) `defaultDeleteWizardPendingSync`: add the EXISTS clause + `returning true as deleted`, change signature to return `Promise<boolean>` (update the `DiscardStagedDeps` type member at `:77+`); export the three wizard-branch default SQL helpers (`defaultUpsertWizardDeferral`, `defaultMarkWizardManifestDiscarded`, `defaultDeleteWizardPendingSync`) for the real-DB race test. (2) In `discardStaged_unlocked`'s wizard branch: `markWizardManifestDiscarded === false` after a successful deferral write (or after `try_again`'s no-deferral path? — NO: `try_again` writes no deferral first, so a manifest miss there is pre-mutation → keep the returned outcome for `try_again`, throw only when `variant !== "try_again"`), and `deleteWizardPendingSync === false`, throw `new WizardSessionSupersededRollbackError({ attemptedAction: "discard", supersededSessionId: args.wizardSessionId, driveFileId: args.driveFileId })`. (3) The onboarding discard route catches the typed error after its tx aborts and maps to the existing 409 `WIZARD_SESSION_SUPERSEDED` (no alert — the spec mandates the `WIZARD_SESSION_SUPERSEDED_RACE` alert for the retry route's defer/ignore path; extending the producer to discard is a separate decision — file to BACKLOG.md if wanted, do not silently widen the meta-test write-site). (4) S1 comment in the retry route.
+- [ ] **VERIFY.** `pnpm vitest run tests/sync --silent` (full sync suite — `discardStaged` has live-branch consumers at `app/api/admin/show/staged/[stagedId]/discard/route.ts` and `app/api/admin/staged/[fileId]/discard/route.ts` whose live branch is untouched but shares the file) + `pnpm vitest run tests/onboarding/discardStagedCasRaceDb.test.ts tests/onboarding/wizardScopedReapply.test.ts tests/onboarding` → all pass (the db file skips cleanly without local Postgres; CI/local with the stack up runs it for real).
+- [ ] **Negative-regression check (real-DB half):** stash the `defaultDeleteWizardPendingSync` EXISTS-clause hunk, re-run `tests/onboarding/discardStagedCasRaceDb.test.ts` → the race test FAILS (delete succeeds, no throw, rows mutated); unstash. Proves the DB test pins the production SQL, not the mocks.
 - [ ] **COMMIT.** `fix(sync): class-sweep discardStaged wizard branch — currency predicate on pending-sync delete + typed rollback after first mutation`
 
 ---
@@ -547,7 +618,7 @@ test("S2 unchanged: a deferral-upsert miss BEFORE any mutation still returns wiz
 - [ ] **Run the full phase verification:**
   - `pnpm vitest run tests/onboarding tests/sync/perFileProcessor.test.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaErrorCatalogDocs.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts tests/db/postgrest-dml-lockdown.test.ts` → all pass.
   - `pnpm test:audit:x1-catalog-parity` → pass.
-  - `rg "errorResponse\(" app/api/admin/onboarding/pending_ingestions` → confirm no remaining `errorResponse` return sits AFTER a mutating statement inside the tx callback (fix-round regression budget: re-grep the class across the patched surface).
+  - `rg "errorResponse\(" app/api/admin/onboarding/pending_ingestions "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard"` → confirm no `errorResponse` return sits AFTER a mutating statement inside a tx callback on EITHER patched surface (fix-round regression budget: re-grep the class across every surface Task 5.1/5.5 touched, including the discard route).
 - [ ] **Handoff notes:** record (a) the §12.4-gate path correction (`tests/cross-cutting/codes.test.ts`, not `tests/messages/codes.test.ts:92`) for the spec's next edit pass; (b) the Task 5.5 sweep table + dispositions; (c) the do-not-relitigate preempts for adversarial review: commit-window residue is ACCEPTED per spec §8 (cite §7 R5-2 + the R4-1 inversion), reviewer must not re-propose `app_settings` locking or SERIALIZABLE.
 - [ ] **COMMIT** (only if files changed): `docs(handoff): F5 lockdown evaluation + sweep dispositions` — otherwise fold the notes into the milestone handoff commit.
 
