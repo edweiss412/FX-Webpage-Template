@@ -35,6 +35,7 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/show/[slug]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/staged/[stagedId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/[slug]/preview/[crewId]/page.tsx", chain: ["requireAdmin"] },
+  { path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/dev/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },

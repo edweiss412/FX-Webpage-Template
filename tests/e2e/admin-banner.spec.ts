@@ -5,12 +5,13 @@
  * project (port 3000), which has ADMIN_DEV_PANEL_ENABLED=true so the
  * /admin/dev route renders for admins.
  *
- * M12.3 items 1+2: the global AlertBanner is DASHBOARD-ONLY — it mounts under
- * the Dashboard header in app/admin/page.tsx and is NO LONGER a persistent
- * admin-layout slot. So the banner render/resolve/cancel/clean-state tests
- * target /admin (the dashboard), NOT /admin/dev. The dedicated dashboard-only
- * contract test asserts the banner is present on /admin and absent on
- * /admin/dev, /admin/settings, and per-show routes.
+ * M12.3 items 1+2 (amended by the needs-attention spec D-5): the global
+ * AlertBanner mounts on the dashboard (app/admin/page.tsx) + on
+ * /admin/needs-attention only — it is NO LONGER a persistent admin-layout
+ * slot. So the banner render/resolve/cancel/clean-state tests target /admin
+ * (the dashboard), NOT /admin/dev. The dedicated banner-placement contract
+ * test asserts the banner is present on /admin + /admin/needs-attention and
+ * absent on /admin/dev, /admin/settings, and per-show routes.
  *
  * Spec §4.6 (admin_alerts) + §12.4 (catalog) + invariant 5 (no raw codes
  * in user-visible UI).
@@ -23,7 +24,8 @@
  *   3. Click Resolve on /admin — banner disappears; row is `resolved_at IS NOT NULL`.
  *   4. Non-admin user → /admin/dev returns 403 (requireAdmin gate; not a
  *      banner test).
- *   5. Dashboard-only contract — banner present on /admin, absent on
+ *   5. Banner-placement contract — banner present on /admin AND
+ *      /admin/needs-attention (needs-attention spec D-5), absent on
  *      /admin/dev, /admin/settings, and a per-show route.
  */
 import { test, expect } from "@playwright/test";
@@ -372,18 +374,19 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
     await expect(page.locator(OUTER_DETAILS)).not.toHaveAttribute("open", /.*/);
   });
 
-  // Step 2b — Dashboard-only contract, explicit negative assertions (M12.3
-  // adversarial R2). The global banner is mounted ONLY on the dashboard page
-  // (app/admin/page.tsx:107). With a single seeded GLOBAL alert present, the
-  // banner MUST be:
-  //   • PRESENT on /admin (the dashboard)
+  // Step 2b — Banner-placement contract, explicit negative assertions (M12.3
+  // adversarial R2, AMENDED by the needs-attention spec D-5). The global banner
+  // is mounted on the dashboard page (app/admin/page.tsx:107) AND on
+  // /admin/needs-attention (app/admin/needs-attention/page.tsx). With a single
+  // seeded GLOBAL alert present, the banner MUST be:
+  //   • PRESENT on /admin (the dashboard) AND /admin/needs-attention
   //   • ABSENT (count 0) on /admin/dev, /admin/settings, and a per-show route
   //     /admin/show/<slug>.
   // The per-show route keeps its OWN "Alerts for this show" surface, which is
   // NOT [data-testid=admin-alert-banner] — so this assertion does not collide
   // with that section. A real seeded slug is read from the DB at runtime
   // (mirrors lib/parser/slug-derived seed slugs, e.g. "slug-xxxxxxxx").
-  test("dashboard-only contract: global banner present on /admin, absent on /admin/dev, /admin/settings, /admin/show/[slug] (M12.3 R2)", async ({
+  test("banner placement contract: present on /admin + /admin/needs-attention, absent elsewhere (M12.3, amended by needs-attention spec D-5)", async ({
     page,
   }) => {
     await signInAs(page, ADMIN_FIXTURE);
@@ -401,10 +404,12 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
 
     const banner = page.locator("[data-testid=admin-alert-banner]");
 
-    // PRESENT on the dashboard.
-    await page.goto("/admin");
-    await expect(banner).toBeVisible();
-    await expect(banner).toHaveCount(1);
+    // PRESENT on the dashboard AND the needs-attention page (spec D-5).
+    for (const route of ["/admin", "/admin/needs-attention"]) {
+      await page.goto(route);
+      await expect(banner, `global banner must mount on ${route}`).toBeVisible();
+      await expect(banner).toHaveCount(1);
+    }
 
     // ABSENT everywhere else the banner used to ride via the old layout slot.
     for (const route of ["/admin/dev", "/admin/settings", `/admin/show/${slug}`]) {
