@@ -8,7 +8,7 @@
 
 **Architecture:** One shared apply core (`lib/sync/applyStagedCore.ts`, extracted from `applyStaged`) consumed by the dashboard Apply, wizard finalize Phase B (first-seen), and wizard finalize-cas Phase D (existing-show shadows). Live-partition cleanup operations become injected + source-scoped. Remediation is a windowed, marker-guarded, advisory-locked data migration. F4 adds a strictly session-scoped stale-debris reap; F5 closes the wizard-session CAS race with per-statement currency predicates and a typed rollback error.
 
-**Tech stack:** Next.js 16 App Router, Supabase/Postgres (postgres.js for pipeline tx), vitest/jest + TEST_DATABASE_URL real-DB regressions, conventional commits.
+**Tech stack:** Next.js 16 App Router, Supabase/Postgres (postgres.js for pipeline tx), vitest/jest + LOCAL_TEST_DATABASE_URL (loopback-guarded local Supabase) real-DB regressions — TEST_DATABASE_URL is the VALIDATION project and appears ONLY in labeled validation close-out steps, conventional commits.
 
 ---
 
