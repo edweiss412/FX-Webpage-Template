@@ -7,10 +7,7 @@ import { join } from "node:path";
 import { MDXProvider } from "@mdx-js/react";
 import { useMDXComponents } from "@/mdx-components";
 
-const src = readFileSync(
-  join(process.cwd(), "app/help/admin/review-queues/page.mdx"),
-  "utf8",
-);
+const src = readFileSync(join(process.cwd(), "app/help/admin/review-queues/page.mdx"), "utf8");
 
 describe("/help/admin/review-queues (E.6)", () => {
   it("renders without throwing through the real MDX pipeline (E.5 precedent — MDXProvider load-bearing for Screenshot / Callout / etc.)", async () => {
@@ -58,10 +55,30 @@ describe("/help/admin/review-queues (E.6)", () => {
   });
 
   it("includes the empty pending-queue Screenshot per Phase F review R2", () => {
-    expect(src).toMatch(
-      /<Screenshot\s+name=["']review-queues-empty-state["']/,
-    );
+    expect(src).toMatch(/<Screenshot\s+name=["']review-queues-empty-state["']/);
     expect(src).toContain("No sheets are waiting in the captured state");
+  });
+
+  it("includes the 'On your phone' section with the needs-attention-mobile Screenshot (mobile needs-attention milestone T11)", () => {
+    expect(src).toMatch(/^## On your phone\b/m);
+    expect(src).toMatch(/<Screenshot\s+name=["']needs-attention-mobile["']/);
+  });
+
+  it("renders the 'On your phone' heading + mobile screenshot through the real MDX pipeline (T11 — catches component-map/compile regression dropping the section)", async () => {
+    const Mod = await import("@/app/help/admin/review-queues/page.mdx");
+    const Page = Mod.default;
+    const components = useMDXComponents({});
+    const { container } = render(
+      <MDXProvider components={components}>
+        <Page />
+      </MDXProvider>,
+    );
+    const h2 = within(container).getByRole("heading", {
+      level: 2,
+      name: "On your phone",
+    });
+    expect(h2).toBeInTheDocument();
+    expect(within(container).getByAltText(/Needs attention page on a phone/i)).toBeInTheDocument();
   });
 
   it("does NOT reference <ScreenshotPlaceholder> (v1 ships real screenshots — Phase H.4 lint enforces)", () => {

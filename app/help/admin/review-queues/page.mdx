@@ -13,6 +13,15 @@ Both queues surface in one place on the dashboard: the **Needs attention** panel
   alt="The Needs attention panel showing its empty state: Nothing waiting on you."
 />
 
+## On your phone
+
+On a phone, the same queues live behind the **Attention** tab in the bottom bar. The badge on the tab shows how many items are waiting for you. Tapping the **Needs attention** card on the dashboard opens the same page.
+
+<Screenshot
+  name="needs-attention-mobile"
+  alt="The Needs attention page on a phone: alerts on top, the full inbox below, with the Attention tab active in the bottom bar."
+/>
+
 <h2 id="first-seen">First-seen review</h2>
 
 A first-seen sheet is one the app has never published. Most first-seen sheets in your watched folder publish on their own, and you see them in the Active shows panel right away. A first-seen sheet only lands in this queue when the parse tripped a review rule (a crew count that shrank unexpectedly, a LEAD status that toggled, an email that moved between rows, a diagram tab that came back empty, and so on), or when you discovered the sheet through the onboarding wizard's scan step (which always routes to you before activating sync).
@@ -25,7 +34,9 @@ Two actions are available:
 - **Discard.** Drops the candidate. No crew link is ever created.
 
 <Callout type="warning">
-Discard is one-way for the staged candidate, but it does not touch your sheet. The sheet in Drive is fine. If you Discard and then change your mind, edit the sheet (even a trivial edit is enough) and the next sync will surface it again as a fresh first-seen candidate.
+  Discard is one-way for the staged candidate, but it does not touch your sheet. The sheet in Drive
+  is fine. If you Discard and then change your mind, edit the sheet (even a trivial edit is enough)
+  and the next sync will surface it again as a fresh first-seen candidate.
 </Callout>
 
 <h2 id="re-stage">Re-stage review</h2>

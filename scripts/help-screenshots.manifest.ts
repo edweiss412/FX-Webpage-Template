@@ -76,4 +76,12 @@ export const MANIFEST: readonly ManifestEntry[] = [
     viewport: MOBILE,
     captureSelector: "[data-testid=admin-preview-banner]",
   },
+  {
+    key: "needs-attention-mobile",
+    route: "/admin/needs-attention",
+    fixture: RPAS_CENTRAL_2026,
+    frozenClockInstant: MID_SHOW_INSTANT,
+    viewport: MOBILE,
+    captureSelector: "[data-testid=admin-needs-attention-page]",
+  },
 ];
