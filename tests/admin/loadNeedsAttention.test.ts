@@ -7,6 +7,7 @@
 // NOT a row-length fallback — ratified R2-F3), internal client construction
 // when no client is injected, and the full invariant-9 matrix: every query
 // surface × both failure modes (returned .error / thrown) → typed infra_error.
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { buildNeedsAttention } from "@/lib/admin/needsAttention";
 
@@ -378,5 +379,47 @@ describe("loadNeedsAttention", () => {
       });
       expect((again as { message: string }).message).toMatch(threwRe);
     });
+  });
+
+  // ── Invariant-9 source pin (WM-R1): all FIVE reads destructure the Supabase
+  // response (`const { data, error } = await ...`, + `count` with a voided
+  // `data: _x` for the head-counts) instead of keeping a whole-response handle
+  // (`const q = await ...; q.error / q.data / q.count`). Mirrors the source-
+  // regex pin in tests/admin/needsAttentionCount.test.ts; `,?` tolerates
+  // prettier trailing-comma wrapping. Fails if ANY read regresses to bare-
+  // result handling: the per-query positive pin stops matching, and the
+  // negative sweep catches any whole-response alias regardless of its name.
+  test("invariant 9: every Supabase read destructures { data, error } (+ count for head-counts) — no whole-response handles", () => {
+    const src = readFileSync("lib/admin/loadNeedsAttention.ts", "utf8");
+    // 1. pending_ingestions rows
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*ingestionData\s*,\s*error:\s*ingestionRowsError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("pending_ingestions"\)/,
+    );
+    // 2. pending_ingestions head-count (canonical alertCount.ts:26 shape: voided data alias)
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*_ingestionCountData\s*,\s*count:\s*ingestionHeadCount\s*,\s*error:\s*ingestionCountError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("pending_ingestions"\)/,
+    );
+    expect(src).toMatch(/void\s+_ingestionCountData;/);
+    // 3. pending_syncs rows
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*syncData\s*,\s*error:\s*syncRowsError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("pending_syncs"\)/,
+    );
+    // 4. pending_syncs head-count
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*_syncCountData\s*,\s*count:\s*syncHeadCount\s*,\s*error:\s*syncCountError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("pending_syncs"\)/,
+    );
+    expect(src).toMatch(/void\s+_syncCountData;/);
+    // 5. shows existence lookup
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*existenceData\s*,\s*error:\s*existenceError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("shows"\)/,
+    );
+    // Negative sweep: NO read keeps a whole-response handle under any name —
+    // `const <ident> = await supabase` (a non-destructured binding) must not
+    // appear anywhere in the helper except the client construction itself.
+    const bareHandles = src.match(/const\s+[A-Za-z_$][\w$]*\s*=\s*await\s+supabase\b/g) ?? [];
+    expect(bareHandles).toEqual([]);
+    // Exactly five destructured awaits — one per query surface.
+    const destructured = src.match(/=\s*await\s+supabase\s*\.from\(/g) ?? [];
+    expect(destructured).toHaveLength(5);
   });
 });

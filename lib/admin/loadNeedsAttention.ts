@@ -43,21 +43,24 @@ export async function loadNeedsAttention(opts: {
   }
 
   // ── Needs-attention: two bounded pending streams + exact counts ──
+  // invariant 9: every read destructures { data, error } (alertCount.ts:26
+  // pattern), never a bare result object — pinned by the source-regex test in
+  // tests/admin/loadNeedsAttention.test.ts.
   let ingestionRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    const { data: ingestionData, error: ingestionRowsError } = await supabase
       .from("pending_ingestions")
       .select("id, drive_file_id, drive_file_name, last_attempt_at, last_error_code")
       .is("wizard_session_id", null)
       .order("last_attempt_at", { ascending: false, nullsFirst: false })
       .limit(opts.cap + 1);
-    if (q.error) {
+    if (ingestionRowsError) {
       return {
         kind: "infra_error",
-        message: `pending_ingestions query failed: ${q.error.message}`,
+        message: `pending_ingestions query failed: ${ingestionRowsError.message}`,
       };
     }
-    ingestionRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    ingestionRows = (ingestionData ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -67,20 +70,25 @@ export async function loadNeedsAttention(opts: {
 
   let ingestionCount: number;
   try {
-    const q = await supabase
+    const {
+      data: _ingestionCountData,
+      count: ingestionHeadCount,
+      error: ingestionCountError,
+    } = await supabase
       .from("pending_ingestions")
       .select("id", { count: "exact", head: true })
       .is("wizard_session_id", null);
-    if (q.error) {
+    void _ingestionCountData;
+    if (ingestionCountError) {
       return {
         kind: "infra_error",
-        message: `pending_ingestions count query failed: ${q.error.message}`,
+        message: `pending_ingestions count query failed: ${ingestionCountError.message}`,
       };
     }
-    if (typeof q.count !== "number") {
+    if (typeof ingestionHeadCount !== "number") {
       return { kind: "infra_error", message: "pending_ingestions head-count returned non-number" };
     }
-    ingestionCount = q.count;
+    ingestionCount = ingestionHeadCount;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -90,7 +98,7 @@ export async function loadNeedsAttention(opts: {
 
   let syncRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    const { data: syncData, error: syncRowsError } = await supabase
       .from("pending_syncs")
       .select(
         "staged_id, drive_file_id, staged_modified_time, parse_result, triggered_review_items",
@@ -98,10 +106,13 @@ export async function loadNeedsAttention(opts: {
       .is("wizard_session_id", null)
       .order("staged_modified_time", { ascending: false })
       .limit(opts.cap + 1);
-    if (q.error) {
-      return { kind: "infra_error", message: `pending_syncs query failed: ${q.error.message}` };
+    if (syncRowsError) {
+      return {
+        kind: "infra_error",
+        message: `pending_syncs query failed: ${syncRowsError.message}`,
+      };
     }
-    syncRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    syncRows = (syncData ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -111,20 +122,25 @@ export async function loadNeedsAttention(opts: {
 
   let syncCount: number;
   try {
-    const q = await supabase
+    const {
+      data: _syncCountData,
+      count: syncHeadCount,
+      error: syncCountError,
+    } = await supabase
       .from("pending_syncs")
       .select("staged_id", { count: "exact", head: true })
       .is("wizard_session_id", null);
-    if (q.error) {
+    void _syncCountData;
+    if (syncCountError) {
       return {
         kind: "infra_error",
-        message: `pending_syncs count query failed: ${q.error.message}`,
+        message: `pending_syncs count query failed: ${syncCountError.message}`,
       };
     }
-    if (typeof q.count !== "number") {
+    if (typeof syncHeadCount !== "number") {
       return { kind: "infra_error", message: "pending_syncs head-count returned non-number" };
     }
-    syncCount = q.count;
+    syncCount = syncHeadCount;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -147,14 +163,17 @@ export async function loadNeedsAttention(opts: {
   const existence: Record<string, ShowExistence> = {};
   if (pendingDriveFileIds.length > 0) {
     try {
-      const q = await supabase
+      const { data: existenceData, error: existenceError } = await supabase
         .from("shows")
         .select("drive_file_id, slug, title, archived, published")
         .in("drive_file_id", pendingDriveFileIds);
-      if (q.error) {
-        return { kind: "infra_error", message: `existence query failed: ${q.error.message}` };
+      if (existenceError) {
+        return {
+          kind: "infra_error",
+          message: `existence query failed: ${existenceError.message}`,
+        };
       }
-      const existenceRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+      const existenceRows = (existenceData ?? []) as ReadonlyArray<Record<string, unknown>>;
       for (const row of existenceRows) {
         const id = row.drive_file_id as string | undefined;
         if (!id) continue;
