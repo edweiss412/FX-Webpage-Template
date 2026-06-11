@@ -107,9 +107,16 @@ async function installDeterminism(page: Page, theme: CaptureTheme): Promise<void
   });
 }
 
+// M11-F-D1: registered PRE-navigation via addInitScript (not a post-navigation
+// style-tag injection) so a captured surface with an entrance animation (framer-motion
+// initial/animate, CSS @keyframes, spinner) can never start animating during
+// the goto→inject gap and hand the drift gate a mid-animation frame. The init
+// script attaches the <style> the moment documentElement exists — before any
+// element renders — falling back to a MutationObserver for documents where
+// the root hasn't been created yet at init-script time.
 async function disableAnimations(page: Page): Promise<void> {
-  await page.addStyleTag({
-    content: `
+  await page.addInitScript(() => {
+    const css = `
       *, *::before, *::after {
         animation-delay: 0s !important;
         animation-duration: 0s !important;
@@ -118,7 +125,23 @@ async function disableAnimations(page: Page): Promise<void> {
         transition-delay: 0s !important;
         transition-duration: 0s !important;
       }
-    `,
+    `;
+    const attach = () => {
+      const style = document.createElement("style");
+      style.setAttribute("data-screenshot-animation-suppression", "");
+      style.textContent = css;
+      (document.head ?? document.documentElement).appendChild(style);
+    };
+    if (document.documentElement) {
+      attach();
+    } else {
+      new MutationObserver((_mutations, observer) => {
+        if (document.documentElement) {
+          attach();
+          observer.disconnect();
+        }
+      }).observe(document, { childList: true });
+    }
   });
 }
 
@@ -159,13 +182,13 @@ async function captureEntryTheme(
   const page = await context.newPage();
   try {
     await installDeterminism(page, theme);
+    await disableAnimations(page);
     await signInAs(page, ADMIN_FIXTURE, { baseUrl });
     await page.setExtraHTTPHeaders({
       "X-Screenshot-Frozen-Now": entry.frozenClockInstant,
       Authorization: `Bearer ${testAuthSecret}`,
     });
     await page.goto(new URL(entry.route, baseUrl).toString(), { waitUntil: "domcontentloaded" });
-    await disableAnimations(page);
     await waitForQuiescence(page, entry);
 
     const pngBuffer = await screenshotPng(page, entry);
