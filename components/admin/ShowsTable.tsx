@@ -397,7 +397,7 @@ export function ShowsTable({
           post-sort array the rows .map over), NEVER the unfiltered `rows` input:
           zero rows → no legend; rows visible but none in the review bucket → no
           legend; a Find query hiding every review row → no legend. Appears and
-          disappears INSTANTLY — no AnimatePresence, no animation classes; a
+          disappears INSTANTLY — no animation wrapper, no animation classes; a
           bucket switch while Find is non-empty recomputes from the new visible
           set, still instant. */}
       {visible.some((r) => syncStatusBucket(r.lastSyncStatus).bucket === "review") ? (
