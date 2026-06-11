@@ -529,24 +529,29 @@ async function collectReapDriveFileIds(
 
 **Lock-acquisition algorithm (plan R24-1 supersedes any incremental-lock phrasing below):** the per-session transaction acquires show locks from a SINGLE globally sorted list, exactly once. Procedure: (1) under the `finalize:<session>` lock, collect candidate drive ids (plain SELECT, no row locks); (2) sort; (3) acquire all `show:` locks in that order; (4) re-collect under the locks; (5) if the re-collection discovers ANY id not already held — regardless of sort position — ROLLBACK this session's transaction and retry the session from step 1 (bounded retries, e.g. 3, then `skipped_unstable` outcome with no deletes). NEVER acquire an additional show lock while already holding higher-sorted ones (AB-BA with any alphabetical-order path). Required regression: a concurrent insert adds a lower-sorted drive id between first collection and re-collection → the reap retries (or skips) without out-of-order acquisition; assert via a paired alphabetical locker that no 40P01 occurs.
 
+class ReapLockSetExpandedError extends Error {}  // R24-1/R27-1: triggers per-session rollback + retry
+
 async function lockReapDriveFiles(tx: OnboardingSessionTx, sessionId: string): Promise<void> {
-  // Collect WITHOUT row locks → advisory-lock in deterministic order → RE-COLLECT under
-  // the locks. The re-check replaces the row-lock guarantee: any drive id added between
-  // the first collection and the advisory locks (e.g. a concurrent retry staging a row
-  // for this session in its last pre-supersession moments) is caught by the second pass
-  // and locked too (new keys, still sorted — no inversion risk since we hold no row
-  // locks). The session-scoped DELETEs then run entirely under the advisory locks.
-  const locked = new Set<string>();
-  let pending = await collectReapDriveFileIds(tx, sessionId);
-  while (pending.length > 0) {
-    for (const driveFileId of pending) {
-      await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
-      locked.add(driveFileId);
-    }
-    const recheck = await collectReapDriveFileIds(tx, sessionId);
-    pending = recheck.filter((id) => !locked.has(id));
+  // R24-1/R27-1 algorithm: collect WITHOUT row locks → acquire ALL show locks from ONE
+  // globally sorted list, exactly once → re-collect under the locks. If the re-collection
+  // discovers ANY id not already held (regardless of sort position), we must NOT acquire it
+  // in-place — acquiring while holding higher-sorted locks is the AB-BA class against any
+  // alphabetical locker. Instead throw; the caller rolls back this session's transaction and
+  // retries the session from a clean lock set (bounded retries, then `skipped_unstable` with
+  // zero deletes and no sync_log row).
+  const initial = await collectReapDriveFileIds(tx, sessionId);   // already sorted
+  for (const driveFileId of initial) {
+    await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+  }
+  const recheck = await collectReapDriveFileIds(tx, sessionId);
+  const held = new Set(initial);
+  if (recheck.some((id) => !held.has(id))) {
+    throw new ReapLockSetExpandedError(`reap lock set expanded for session ${sessionId}`);
   }
 }
+// Caller contract: reapOneSession's per-session transaction catches ReapLockSetExpandedError
+// OUTSIDE the aborted transaction, decrements a per-session retry budget (3), and re-runs the
+// session from step 1; budget exhausted → outcome `skipped_unstable` (no deletes, no sync_log).
 
 async function reapOneSession(
   tx: OnboardingSessionTx,
