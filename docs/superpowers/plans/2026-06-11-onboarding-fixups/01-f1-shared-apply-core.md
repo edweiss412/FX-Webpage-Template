@@ -932,9 +932,17 @@ function walk(dir: string, out: string[] = []): string[] {
 
 const SNAPSHOT_SQL = [
   /insert\s+into\s+public\.shows\b/i,
+  // Plan-R1 finding 2: the ORIGIN bug was a bespoke `UPDATE public.shows SET ...` with no child
+  // writes (finalize-cas applyShadow) — the tripwire must catch shows UPDATEs too, not just inserts.
+  /update\s+public\.shows\b/i,
   /delete\s+from\s+public\.(crew_members|rooms|hotel_reservations|transportation|contacts)\b/i,
   /insert\s+into\s+public\.(crew_members|rooms|hotel_reservations|transportation|contacts|shows_internal)\b/i,
 ];
+
+// NOTE: `update public.shows` has more legitimate writers than the snapshot inserts (lifecycle
+// actions, watermark resets). The allowlist below is therefore PER-PATTERN: shows-UPDATE sites are
+// enumerated explicitly (path + owning function), and the second test pins each to its function
+// body the same way applyShowSnapshot is pinned — file-wide exemptions are NOT allowed.
 
 // Path+symbol allowlist (spec §9, corrected: the canonical first-seen insert + child snapshot SQL
 // live inside PostgresPipelineTx.applyShowSnapshot / its sibling replace* methods — NOT `upsertShow`,
@@ -1017,6 +1025,7 @@ describe("live-partition classification contract (spec §3.2 / §9 R17)", () => 
 ```
 
 - [ ] **Run to verify failure:** `pnpm vitest run tests/sync/_secondCopyApplyTripwire.test.ts tests/sync/_livePartitionClassificationContract.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts` — expected: tripwire/classification fail only if Tasks 1.3/1.5 left bespoke SQL or unclassified statements behind (if they pass first-try, FORCE a red run by temporarily re-adding a one-line `insert into public.shows` stub to `finalize/route.ts` and confirming the tripwire catches it — a structural test that has never been red is unverified); the lock test must be red against a deliberately added `pg_advisory_xact_lock` line in the core, then restored.
+- [ ] **Prove the UPDATE pattern red against the origin bug (Plan-R1 finding 2):** run the tripwire from a temporary checkout state where Task 1.5 has NOT yet removed the bespoke `applyShadow` UPDATE (e.g., `git stash` the Task-1.5 change or run the test against `git show main:app/api/admin/onboarding/finalize-cas/route.ts` content written to a temp file inside the walk root) and confirm the `update public.shows` pattern flags it. This proves the guard catches the EXACT incident writer, not just hypothetical inserts. Record the red output in the task commit message body.
 - [ ] **Implementation:** none beyond annotations — add `// live-partition:live-only — <reason>` comments where the walker needs attribution; fix any genuine offender it finds (class-sweep before patching: if an offender appears, grep for the SHAPE repo-wide before fixing the instance).
 - [ ] **Run to pass:** `pnpm vitest run tests/sync/_secondCopyApplyTripwire.test.ts tests/sync/_livePartitionClassificationContract.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts`
 - [ ] **Commit:** `test(sync): structural guards — acquire-free apply core, second-copy tripwire, live-partition classification`
