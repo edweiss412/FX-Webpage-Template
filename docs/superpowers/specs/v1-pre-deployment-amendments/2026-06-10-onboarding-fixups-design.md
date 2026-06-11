@@ -106,13 +106,12 @@ begin
   for r in
     select s.id, s.drive_file_id
       from public.shows s
-     where not exists (select 1 from public.crew_members cm where cm.show_id = s.id)
+     where s.last_seen_modified_time is not null
+       and not exists (select 1 from public.crew_members cm where cm.show_id = s.id)
        and exists (select 1 from public.sync_audit sa
                     where sa.show_id = s.id
-                      and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas'))
-       and not exists (select 1 from public.sync_audit sa2
-                    where sa2.show_id = s.id
-                      and coalesce(sa2.parse_result_summary->>'source', 'sync') not in ('onboarding_finalize', 'onboarding_finalize_cas'))
+                      and sa.parse_result_summary->>'source' in ('onboarding_finalize', 'onboarding_finalize_cas')
+                      and sa.staged_modified_time >= s.last_seen_modified_time)
      order by s.drive_file_id   -- deterministic lock order (deadlock prevention)
   loop
     perform pg_advisory_xact_lock(hashtext('show:' || r.drive_file_id));
@@ -122,7 +121,7 @@ end $$;
 ```
 
 - **Advisory-lock compliance (R1 finding 2):** every `shows` mutation runs inside the per-show `show:<drive_file_id>` advisory lock (plan-wide invariant 2), including this migration — the loop acquires the lock per candidate in deterministic `drive_file_id` order before the UPDATE, so a concurrent cron/manual/push apply for the same file serializes rather than interleaving. The migration is a one-shot single-transaction holder; no other layer acquires within it (single-holder rule preserved). The F2 plan task inherits the §3.3 lock-topology test requirement, not just F1/F5.
-- Condition = "every audit writer was wizard finalize" AND "zero crew" — matches exactly the damage signature; idempotent (after backfill, crew exists → no-op on re-apply).
+- **Eligibility = corrupted state, not audit purity (R7 finding 1).** Condition: zero `crew_members` AND a wizard-finalize audit row whose `staged_modified_time` is at-or-after the current watermark — i.e., the wizard was the LAST content writer. An earlier "no non-wizard audit rows exist" condition was rejected: any later non-wizard audit row (asset-recovery write, partial probe) would permanently exclude a still-damaged show, leaving it watermarked-as-current forever. A show whose watermark advanced past every wizard audit was re-applied by a real sync (which writes children), so exclusion is then correct; a zero-crew show in that state has a genuinely crew-less sheet. Idempotent: after backfill, crew exists → no-op; watermark-nulled rows fail the `is not null` guard → no-op. Required regression: a damaged wizard show WITH a later non-wizard audit row (not advancing the watermark) is still reset; a show whose watermark advanced past the wizard audit is untouched.
 - Effect: next cron pass fails the watermark gate (`last_seen_modified_time is null` branch, `runScheduledCronSync.ts:950-955` / `perFileProcessor.ts:214`) and runs the full pipeline; backfilled crew lands in the Changes feed as additions (already-shipped feed semantics).
 - Applies to the six validation shows; in production (no wizard-onboarded shows yet) it is a no-op.
 - Migration must be applied to the validation project surgically (`supabase db query --linked` / psql) per the validation-schema-parity discipline; `notify pgrst, 'reload schema'` afterward.
