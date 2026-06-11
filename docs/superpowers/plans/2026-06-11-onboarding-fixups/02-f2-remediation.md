@@ -4,7 +4,7 @@
 
 **Spec:** `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-onboarding-fixups-design.md` §4 (F2) + §6 final bullet (F4 one-time purge rides this migration). The §4 SQL block is copied **verbatim** into the migration — do not "improve" it; every clause is the residue of a numbered adversarial finding (R7/R12/R13/R14/R15/R16/R18-2/R19-2) and each clause has a regression test below.
 
-**Goal:** One migration file — `supabase/migrations/20260611000000_onboarding_fixups_remediation.sql` — containing (1) the `data_migration_markers` table, (2) the windowed two-arm watermark-reset DO block (spec §4, verbatim), (3) the F4 one-time purge of the 18 synthetic validation wizard sessions, plus the full regression suite, the `ON_ERROR_STOP` local-apply verification, the schema-manifest regen commit, and the documented surgical validation apply.
+**Goal:** One migration file — `supabase/migrations/20260611000001_onboarding_fixups_remediation.sql` — containing (1) the `data_migration_markers` table, (2) the windowed two-arm watermark-reset DO block (spec §4, verbatim), (3) the F4 one-time purge of the 18 synthetic validation wizard sessions, plus the full regression suite, the `ON_ERROR_STOP` local-apply verification, the schema-manifest regen commit, and the documented surgical validation apply.
 
 **Depends on:** Phase 1 (F1) only for the *audit-shape contract*: F1's Phase D writer is required (spec §4 R14 bullet, citing R8-1) to emit the shared `parseResultSummary` shape (`lib/sync/applyStaged.ts:505-512` — `{ title, crewCount, roomCount, warningCount }`) **plus** a `'source': 'onboarding_finalize_cas'` key. ⚠️ Pre-draft verification note: the live shared `parseResultSummary` has NO `source` key today — adding it for the wizard writers is a Phase 1 deliverable; this phase's "F1-shape audit" fixtures assume it. The migration itself has no code dependency on Phase 1 and is deployment-order-independent by design (Arm B keys on audit *shape*, not dates — spec §4 R14).
 
@@ -60,7 +60,7 @@ ffda8263-241c-427e-8c04-51dba595ea83
 ## Task 2.2 — Migration + regression suite (TDD, one commit)
 
 **Files:**
-- New: `supabase/migrations/20260611000000_onboarding_fixups_remediation.sql` (latest existing migration is `20260609000000_lockdown_allowed_watermark_columns.sql` — timestamp verified free)
+- New: `supabase/migrations/20260611000001_onboarding_fixups_remediation.sql` (latest existing migration is `20260609000000_lockdown_allowed_watermark_columns.sql` — timestamp verified free)
 - New: `tests/db/_remediationHelpers.ts`
 - New: `tests/db/onboarding-fixups-remediation.test.ts`
 
@@ -92,7 +92,7 @@ export const newConn = (): Sql => postgres(DB_URL, { max: 1, prepare: false });
 
 export const MIGRATION_PATH = join(
   process.cwd(),
-  "supabase/migrations/20260611000000_onboarding_fixups_remediation.sql",
+  "supabase/migrations/20260611000001_onboarding_fixups_remediation.sql",
 );
 export const MARKER_KEY = "onboarding_fixups_watermark_reset";
 
@@ -500,9 +500,9 @@ describe("F4 one-time purge (rides this migration; exact-id keyed)", () => {
 pnpm vitest run tests/db/onboarding-fixups-remediation.test.ts
 ```
 
-Expected: `beforeAll` throws `ENOENT ... 20260611000000_onboarding_fixups_remediation.sql` (the migration file does not exist yet) — every test fails. This is the required negative regression for the file as a whole.
+Expected: `beforeAll` throws `ENOENT ... 20260611000001_onboarding_fixups_remediation.sql` (the migration file does not exist yet) — every test fails. This is the required negative regression for the file as a whole.
 
-- [ ] **4. Minimal implementation — write the migration** — `supabase/migrations/20260611000000_onboarding_fixups_remediation.sql`. Sections 1–2 are the spec §4 block **VERBATIM** (spec lines 104–177 — copy, don't retype). Sections 3–4 are plan-level additions (lockdown + F4 purge) explicitly sanctioned by spec §4 ("marker table … IS a schema change") and §6 ("one-time purge … rides the F2 migration"):
+- [ ] **4. Minimal implementation — write the migration** — `supabase/migrations/20260611000001_onboarding_fixups_remediation.sql`. Sections 1–2 are the spec §4 block **VERBATIM** (spec lines 104–177 — copy, don't retype). Sections 3–4 are plan-level additions (lockdown + F4 purge) explicitly sanctioned by spec §4 ("marker table … IS a schema change") and §6 ("one-time purge … rides the F2 migration"):
 
 ```sql
 -- M-onboarding-fixups F2 — windowed watermark reset for wizard-damaged shows
@@ -701,7 +701,7 @@ The vitest harness swallows multi-statement semantics differences; the deploy pa
 
 ```bash
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/20260611000000_onboarding_fixups_remediation.sql
+  -f supabase/migrations/20260611000001_onboarding_fixups_remediation.sql
 ```
 
 Expected output: `CREATE TABLE` (or no-op notice on re-apply), `DO`, `ALTER TABLE`, `REVOKE`, `DO` — exit code 0.
@@ -753,7 +753,7 @@ chore(db): regen schema manifest for data_migration_markers
 ```bash
 set -a && source .env.local && set +a
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/20260611000000_onboarding_fixups_remediation.sql
+  -f supabase/migrations/20260611000001_onboarding_fixups_remediation.sql
 psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"
 ```
 
