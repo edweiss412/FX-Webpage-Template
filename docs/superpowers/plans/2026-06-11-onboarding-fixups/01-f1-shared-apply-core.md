@@ -98,6 +98,10 @@ export type ApplyStagedCoreArgs = {
   skipDiagramsWrite: boolean;
   snapshotAssetsForApply?: Phase2Args["snapshotAssetsForApply"];
   autoPublishFirstSeen?: Phase2Args["autoPublishFirstSeen"];
+  wizardCreatedSessionId?: string;         // R60-1: wizard Phase B first-seen ONLY — threaded Phase2Args →
+                                           // Phase2Tx.applyShowSnapshot → PostgresPipelineTx INSERT, which writes
+                                           // shows.wizard_created_session_id (the show-side provenance discriminator
+                                           // every created_show_id consumer joins on). Absent for live/Phase-D callers.
   firstSeenPublished?: false;              // wizard Phase B only: first-seen INSERT writes published=false. R30-1: the Phase2Args/Phase2Tx/runPhase2/PostgresPipelineTx threading for this field is implemented IN THIS TASK (1.1) so the core compiles + commits green here — see the threading step below; Task 1.3 merely USES it.
 };
 
@@ -502,6 +506,24 @@ describe("applyStagedCore live-partition source scoping", () => {
 
 ### Task 1.3 — Phase B first-seen branch → full apply (children + `shows_internal` + auth contract), `published=false`, `created_show_id` provenance, real audit provenance
 
+**Lockdown steps (R56-2/R60-2, EXECUTABLE in this task — full SQL inline, no F4 reference):**
+
+```sql
+-- supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql
+begin;
+revoke insert, update, delete on table public.onboarding_scan_manifest  from anon, authenticated;
+revoke insert, update, delete on table public.wizard_finalize_checkpoints from anon, authenticated;
+revoke insert, update, delete on table public.shows_pending_changes    from anon, authenticated;
+grant all privileges on table public.onboarding_scan_manifest   to service_role;
+grant all privileges on table public.wizard_finalize_checkpoints to service_role;
+grant all privileges on table public.shows_pending_changes      to service_role;
+commit;
+```
+
+- [ ] RED: `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` after adding the 3 `RPC_GATED_TABLES` rows — live probes find DML still granted (and Layer 4 flags the missing migration).
+- [ ] GREEN: apply the migration locally (loopback psql, ON_ERROR_STOP) → probes return 42501 on all three tables.
+- [ ] Validation close-out applies BOTH F1 migrations (`...000000` provenance columns AND `...000002` lockdown) + `notify pgrst, 'reload schema'`.
+
 **Lockdown steps (R56-2, part of THIS task's RED/GREEN):** write the REVOKE migration + registry rows; RED = live PostgREST probes still granted; GREEN = 42501 on all three tables; apply locally (loopback) + schema-manifest regen + validation surgical apply listed in the close-out. F4 Task 4.7 is verification-only (re-run the lockdown suite; no new migration).
 
 **Phase B lock order (plan R25-1 — same inversion R16 fixed for Phase D, pre-existing in live code):** `handleOnboardingFinalize` currently calls `readActiveSession()` (app_settings `FOR UPDATE`, `finalize/route.ts:171-181`) BEFORE `tryFinalizeLock()` (`:626-633`), while `cleanupAbandonedFinalize` takes `finalize:` then `app_settings FOR UPDATE` (`sessionLifecycle.ts:328-339`) — an AB-BA deadlock under admin cleanup/finalize overlap. This task ALSO reorders Phase B to the global total order: discover the candidate session WITHOUT a row lock → acquire `finalize:<session>` → `SELECT … FOR UPDATE` re-check of the active session → per-row processing. Required regressions: (a) real-DB overlap `handleOnboardingFinalize` vs `cleanupAbandonedFinalize` for the same session → both settle, no SQLSTATE 40P01, one winner; (b) structural lock-order test pinning finalize-before-app_settings for BOTH finalize routes (extend the advisory-lock topology test to cover app_settings row-lock ordering, not just show-lock holders). Concrete failure mode: cleanup clicked while a finalize batch is mid-flight deadlocks both, stranding the wizard at the exact moment the operator is trying to recover it.
@@ -541,7 +563,7 @@ test("Phase B first-seen finalize persists the FULL parse: children + shows_inte
   const response = await handleOnboardingFinalize(request(), deps);
   expect(((await response.json()) as { per_row: Array<{ code: string }> }).per_row[0]!.code).toBe("OK");
 
-  const show = one(await sql`select id, published, last_seen_modified_time, last_sync_status
+  const show = one(await sql`select id, published, last_seen_modified_time, last_sync_status, wizard_created_session_id
                               from public.shows where drive_file_id = ${DRIVE_FILE_ID}`);
   expect(show.published).toBe(false);                       // interim invisibility preserved
   expect(show.last_sync_status).toBe("ok");
@@ -641,7 +663,7 @@ test("lock-topology proof: the app_settings FOR UPDATE serializes supersession a
        // Phase2Args → Phase2Tx.applyShowSnapshot → the first-seen INSERT SQL (column wizard_created_session_id);
        // absent for live/dashboard/Phase-D callers (existing-show applies never write it). Unit checks:
        // SQL string includes the column when set, byte-identical when absent; first-seen DB regression
-       // asserts shows.wizard_created_session_id = SESSION.
+       // asserts shows.wizard_created_session_id = SESSION. (R60-1: the SELECT above now includes the column; assert strictly equal to the seeded session id, not just non-null.)
        // R57-2: the first-seen INSERT sets shows.wizard_created_session_id = wizardSessionId in the
        // SAME statement (thread the session id through the core args for wizard first-seen applies);
        // the first-seen DB test asserts the column equals the session id.
