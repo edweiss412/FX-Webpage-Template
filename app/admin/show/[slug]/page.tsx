@@ -25,7 +25,7 @@ import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
-import { formatRelative, formatDateRange } from "@/components/admin/ActiveShowsPanel";
+import { formatRelative, formatDateRange } from "@/lib/admin/showDisplay";
 import { syncStatusBucket } from "@/lib/admin/syncStatus";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";

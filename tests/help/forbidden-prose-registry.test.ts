@@ -72,19 +72,19 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
     id: "dashboard-row-action",
     pattern: /(?:via|from|using|through)\s+the\s+dashboard['']?s?\s+row\s+actions?/i,
     rationale:
-      "R14 finding 2 (per-show-panel.mdx:19). ActiveShowsPanel rows are link + dates + crew count + last-sync status, no in-row actions. Help must point Doug to Drive directly or to the per-show panel — never to a phantom dashboard row action.",
+      "R14 finding 2 (per-show-panel.mdx:19). Dashboard show rows (live ShowsTable, components/admin/ShowsTable.tsx — previously the deleted ActiveShowsPanel) are link + dates + crew count + last-sync status, no in-row actions. Help must point Doug to Drive directly or to the per-show panel — never to a phantom dashboard row action.",
   },
   {
     id: "active-shows-row-actions-column",
     pattern: /\b(?:Active\s+shows[^.]{0,120}\bActions\b|\bActions\b\s+column\b)[^.]{0,120}\b(?:Open|Preview as|Re-sync|Archive)\b/i,
     rationale:
-      "R13 finding 2 (dashboard.mdx). ActiveShowsPanel does not render an Actions column. Pattern requires the column/Active-shows context so legitimate prose mentioning admin write actions (like FINALIZE_OWNED_SHOW.helpfulContext) does not false-positive.",
+      "R13 finding 2 (dashboard.mdx). The dashboard shows table (live ShowsTable — previously the deleted ActiveShowsPanel) does not render an Actions column. Pattern requires the column/Active-shows context so legitimate prose mentioning admin write actions (like FINALIZE_OWNED_SHOW.helpfulContext) does not false-positive.",
   },
   {
     id: "yellow-warnings-badge",
     pattern: /\bYellow\s+warnings?\s+badge\b/i,
     rationale:
-      "R13 finding 2 (dashboard.mdx). ActiveShowsPanel.statusGlyph emits only ✓, ⚠ Review staged changes, ✗ Needs attention, Publishing…, or · — there is no separate warnings-count badge in the row.",
+      "R13 finding 2 (dashboard.mdx). The live sync column maps last_sync_status through syncStatusBucket (lib/admin/syncStatus.ts) to one dot+label pill per row — there is no separate warnings-count badge in the row. (Same was true of the deleted ActiveShowsPanel's statusGlyph set.)",
   },
   {
     id: "preview-links-list",

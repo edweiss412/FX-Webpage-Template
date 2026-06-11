@@ -19,11 +19,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronRight, ChevronsUpDown, Search } from "lucide-react";
-import {
-  formatDateRange,
-  formatRelative,
-  type ActiveShowRow,
-} from "@/components/admin/ActiveShowsPanel";
+import { formatDateRange, formatRelative, type ActiveShowRow } from "@/lib/admin/showDisplay";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";

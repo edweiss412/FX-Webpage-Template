@@ -9,7 +9,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
-import type { ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
+import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 
 afterEach(cleanup);
 

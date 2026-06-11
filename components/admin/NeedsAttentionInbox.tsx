@@ -1,7 +1,8 @@
 // M12.2 Phase A Task 6 — NeedsAttentionInbox (spec §5.3). Consumes the pre-built
 // items + exact counts from buildNeedsAttention (Task 3). Per-variant tone pill
 // + action:
-//   - pending_ingestion → existing PendingPanel retry/discard buttons
+//   - pending_ingestion → retry/discard buttons (PendingPanelRetryButton /
+//     PendingPanelDiscardButtons client islands)
 //   - first_seen        → onboarding staged review link (/admin/show/staged/{id})
 //   - existing_staged   → per-show review link (/admin/show/{slug}, archived-safe)
 // "+N more" is driven by the REAL overflowCount (totalCount − renderedCount),
@@ -10,7 +11,7 @@
 import Link from "next/link";
 import type { NeedsAttentionItem } from "@/lib/admin/needsAttention";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
-import { formatRelative } from "@/components/admin/ActiveShowsPanel";
+import { formatRelative } from "@/lib/admin/showDisplay";
 import { PendingPanelRetryButton } from "@/components/admin/PendingPanelRetryButton";
 import { PendingPanelDiscardButtons } from "@/components/admin/PendingPanelDiscardButtons";
 

@@ -18,7 +18,7 @@
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
-import { type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
+import { type ActiveShowRow } from "@/lib/admin/showDisplay";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";

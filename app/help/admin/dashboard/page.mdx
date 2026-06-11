@@ -19,7 +19,7 @@ One row per show. The row is a single line on a wider screen and stacks vertical
 The **status indicator** is the part of the row that matters most. The shipped values are:
 
 - **`✓`** — The sheet polled cleanly and any edits were auto-applied. Nothing for you to do.
-- **`⚠ Review staged changes`** — The sheet has new edits that tripped a review rule, so the app staged them instead of auto-applying. The crew still sees the prior approved version. Tap the row's title to open the per-show panel; the staged-review card sits at the top with Apply + Discard. See [Review queues](/help/admin/review-queues#re-stage) for what to do next.
+- **`⚠ Changes to review`** — The sheet has new edits that tripped a review rule, so the app staged them instead of auto-applying. The crew still sees the prior approved version. Tap the row's title to open the per-show panel; the staged-review card sits at the top with Apply + Discard. See [Review queues](/help/admin/review-queues#re-stage) for what to do next.
 - **`✗ Needs attention`** — The most recent sync hard-failed (parse error, or the sheet was moved or unshared). The crew page still serves the last good version. Tap the title to open the per-show panel, read the error message, fix the sheet, and re-sync from there.
 - **`Publishing…`** — The show is going through its first publish after onboarding. Show up shortly as `✓`.
 - **`·`** — Quiet placeholder when the sync state isn't one of the above (e.g., a never-synced row, or a status string the panel doesn't have a dedicated glyph for).
@@ -39,4 +39,4 @@ A row stays in this panel until you act on it. Nothing here clears itself.
 
 ## Staged-changes review
 
-Edits to an already-live show don't appear here. They show up as a yellow **Review staged changes** badge on the show's row in the Active shows panel above. The handling is the same idea, just in a different place. For the full walkthrough see [Review queues](/help/admin/review-queues#re-stage).
+Edits to an already-live show don't appear here. They show up as a yellow **Changes to review** badge on the show's row in the Active shows panel above. The handling is the same idea, just in a different place. For the full walkthrough see [Review queues](/help/admin/review-queues#re-stage).

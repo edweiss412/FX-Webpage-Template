@@ -74,7 +74,7 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   {
     label: "Review and apply",
     file: "app/help/getting-started/page.mdx",
-    note: "Pending-panel action — components/admin/PendingPanel.tsx:125 rendered button text.",
+    note: "Onboarding wizard step-3 first-seen action — components/admin/wizard/Step3Review.tsx:262 rendered link text. (Previously also the dead PendingPanel's row action; that component was deleted in M12.12 Task 10 — the live inbox row action is 'Review →'.)",
   },
 
   // ─── app/help/daily-rhythm/page.mdx ───
@@ -82,40 +82,41 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   {
     label: "Active shows",
     file: "app/help/daily-rhythm/page.mdx",
-    note: "Dashboard panel section heading — components/admin/ActiveShowsPanel.tsx:103 (shipped via M9 with lowercase 's'). I.2 R13 finding 2 + user direction realigned MDX casing to match shipped.",
+    note: "Dashboard shows-table section title — components/admin/ShowsTable.tsx:162 default + Dashboard.tsx:478 (shipped with lowercase 's'). I.2 R13 finding 2 + user direction realigned MDX casing to match shipped.",
   },
   {
-    label: "Review staged changes",
+    label: "Changes to review",
     file: "app/help/daily-rhythm/page.mdx",
-    note: "Badge label — components/admin/ActiveShowsPanel.tsx:69.",
+    note: "Status pill label — components/admin/NeedsAttentionInbox.tsx:106 (also lib/admin/syncStatus.ts:29 via ShowsTable's sync column). Replaces the dead ActiveShowsPanel's 'Review staged changes' badge (M12.12 Task 10).",
   },
 
   // ─── app/help/whats-different/page.mdx ───
   // No new UI-control labels beyond what other pages declare; prose references
   // only "Apply", "Discard", "Review staged changes" which are covered.
   {
-    label: "Review staged changes",
+    label: "Changes to review",
     file: "app/help/whats-different/page.mdx",
-    note: "Badge label — components/admin/ActiveShowsPanel.tsx:69.",
+    note: "Status pill label — components/admin/NeedsAttentionInbox.tsx:106 (also lib/admin/syncStatus.ts:29 via ShowsTable's sync column).",
   },
 
   // ─── app/help/admin/dashboard/page.mdx ───
-  // The Active shows + Sheets-we-couldn't-auto-apply panels. Per Phase I R13:
-  // the previous "Actions column" claim (Open / Preview as / Re-sync / Archive
-  // in-row buttons) was a phantom — shipped ActiveShowsPanel has no in-row
-  // actions. MDX rewritten to describe shipped behaviour: title link, dates,
-  // crew count, last-sync + status indicator; row-level actions live on the
-  // per-show panel one click deeper. Exempted labels for those phantoms
-  // removed from both registries.
+  // The Active shows table + Needs-attention queues. Per Phase I R13: the
+  // previous "Actions column" claim (Open / Preview as / Re-sync / Archive
+  // in-row buttons) was a phantom — the dashboard show rows have never had
+  // in-row actions (true of the legacy ActiveShowsPanel and of the live
+  // ShowsTable that replaced it). MDX rewritten to describe shipped
+  // behaviour: title link, dates, crew count, last-sync + status indicator;
+  // row-level actions live on the per-show panel one click deeper. Exempted
+  // labels for those phantoms removed from both registries.
   {
     label: "Active shows",
     file: "app/help/admin/dashboard/page.mdx",
-    note: "Panel section heading — components/admin/ActiveShowsPanel.tsx:103.",
+    note: "Shows-table section title — components/admin/ShowsTable.tsx:162 default + Dashboard.tsx:478.",
   },
   {
-    label: "Review staged changes",
+    label: "Changes to review",
     file: "app/help/admin/dashboard/page.mdx",
-    note: "Status indicator string — components/admin/ActiveShowsPanel.tsx:69.",
+    note: "Status pill label — components/admin/NeedsAttentionInbox.tsx:106 (also lib/admin/syncStatus.ts:29 via ShowsTable's sync column).",
   },
   {
     label: "Retry now",
@@ -135,7 +136,7 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   {
     label: "Review and apply",
     file: "app/help/admin/dashboard/page.mdx",
-    note: "Pending-panel action — components/admin/PendingPanel.tsx:125 rendered button text.",
+    note: "Onboarding wizard step-3 first-seen action — components/admin/wizard/Step3Review.tsx:262 rendered link text. (Previously also the dead PendingPanel's row action; that component was deleted in M12.12 Task 10 — the live inbox row action is 'Review →'.)",
   },
 
   // ─── app/help/admin/onboarding-wizard/page.mdx ───
@@ -197,9 +198,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:89.",
   },
   {
-    label: "Review staged changes",
+    label: "Changes to review",
     file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Status indicator string — components/admin/ActiveShowsPanel.tsx:69.",
+    note: "Status pill label — components/admin/NeedsAttentionInbox.tsx:106 (also lib/admin/syncStatus.ts:29 via ShowsTable's sync column).",
   },
   {
     label: "Previewing as",
@@ -223,7 +224,7 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   {
     label: "Review and apply",
     file: "app/help/admin/review-queues/page.mdx",
-    note: "Pending-panel action — components/admin/PendingPanel.tsx:125 rendered button text.",
+    note: "Onboarding wizard step-3 first-seen action — components/admin/wizard/Step3Review.tsx:262 rendered link text. (Previously also the dead PendingPanel's row action; that component was deleted in M12.12 Task 10 — the live inbox row action is 'Review →'.)",
   },
   {
     label: "Discard",
