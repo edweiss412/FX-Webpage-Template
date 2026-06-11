@@ -162,7 +162,20 @@ describe("cleanupAbandonedFinalize first-seen delete is provenance-keyed (F4 / R
 - `lib/onboarding/sessionLifecycle.ts` (new exported `reapStaleOnboardingSessions` + types)
 - `tests/onboarding/reapStaleSessions.test.ts` (new)
 
-**Failure mode caught:** (a) a reap implemented by looping `cleanupAbandonedFinalize` erases the ACTIVE session's staging via `purgeWizardRows`' cross-session deletes + unconditional manifest truncation (`sessionLifecycle.ts:147-152`) and rotates the operator's live session (`:408-419`); (b) a reap whose DELETEs are not `wizard_session_id`-scoped removes another session's rows; (c) sessions in terminal `final_cas_done` state or with no checkpoint at all are skipped, leaving exactly the F5 commit-window residue (a lone `deferred_ingestions` row) unsweepable.
+**Failure mode caught:** (a) a reap implemented by looping `cleanupAbandonedFinalize` erases the ACTIVE session's staging via `purgeWizardRows`' cross-session deletes + unconditional manifest truncation (`sessionLifecycle.ts:147-152`) and rotates the operator's live session (`:408-419`); (b) a reap whose DELETEs are not `wizard_session_id`-scoped removes another session's rows; (c) sessions in terminal `final_cas_done` state or with no checkpoint at all are skipped, leaving exactly the F5 commit-window residue (a lone `deferred_ingestions` row) unsweepable; (d) a NEWLY superseded non-active session (rotated minutes ago, staging rows present, checkpoint `last_processed_at` NULL) is reaped immediately — "not active" + "no in-progress checkpoint in the last hour" alone do NOT make it ineligible, so its staging is deleted in violation of spec §6's fresh-session preservation guarantee (the data-loss class this phase exists to prevent).
+
+**Freshness contract for non-active sessions (adversarial-review R1 HIGH fix).** "Not the active session" is NOT staleness — rotation makes a session non-active instantly. A candidate session is reap-eligible ONLY if its **most-recent activity timestamp** is older than **24 hours** (mirroring `cleanupAbandonedFinalize`'s `pending_wizard_session_at < now() - interval '24 hours'` convention, `sessionLifecycle.ts:337`), evaluated UNDER the `finalize:<session>` advisory lock BEFORE any show locks or deletes. The activity max is `GREATEST` across the per-session `max(...)` of (every column verified `timestamptz` against the live DDL in `supabase/migrations/20260501001000_internal_and_admin.sql` / sibling table files):
+
+| Table | Activity columns |
+|---|---|
+| `wizard_finalize_checkpoints` | `last_processed_at` (nullable) |
+| `shows_pending_changes` | `staged_at` |
+| `pending_syncs` | `parsed_at`, `wizard_approved_at` (nullable) |
+| `onboarding_scan_manifest` | `observed_at`, `transitioned_at` |
+| `pending_ingestions` | `first_seen_at`, `last_attempt_at` |
+| `deferred_ingestions` | `deferred_at` |
+
+**All-NULL case, defined explicitly:** an activity max of NULL means the session has no timestamped rows anywhere — at most a checkpoint row with `last_processed_at IS NULL` and nothing else to preserve (`wizard_finalize_checkpoints` carries no other timestamp column: `batches_completed, id, last_processed_at, last_processed_drive_file_id, status, wizard_session_id`). Treat as **stale**: `coalesce(activity_max < now() - interval '24 hours', true)`. The existing 1-hour `in_progress` checkpoint guard stays as written (spec §6 cites it) but is subsumed by the 24-hour activity window — note the subsumption in the source comment.
 
 - [ ] **RED.** Add `tests/onboarding/reapStaleSessions.test.ts` with a generic fake tx (operations log + in-memory tables, modeled on `FakeLifecycleTx` in `tests/onboarding/sessionLifecycle.test.ts`):
 
@@ -181,6 +194,8 @@ type Row = Record<string, unknown>;
 
 export class FakeReapTx implements OnboardingSessionTx {
   activeSession: string | null = ACTIVE;
+  /** Sessions whose GREATEST activity timestamp is within 24h (freshness contract). */
+  freshSessions = new Set<string>();
   tables: Record<string, Row[]> = {
     wizard_finalize_checkpoints: [],
     onboarding_scan_manifest: [],
@@ -206,6 +221,13 @@ export class FakeReapTx implements OnboardingSessionTx {
     if (/select pending_wizard_session_id from public\.app_settings/.test(q)) {
       this.operations.push("read-active-session");
       return { rows: [{ pending_wizard_session_id: this.activeSession }] as T[], rowCount: 1 };
+    }
+    if (/select coalesce\(.* < now\(\) - interval '24 hours', true\) as stale/.test(q) || /greatest\(/.test(q)) {
+      this.operations.push(`activity-check:${String(params[0])}`);
+      return {
+        rows: [{ stale: !this.freshSessions.has(String(params[0])) }] as T[],
+        rowCount: 1,
+      };
     }
     if (/from public\.wizard_finalize_checkpoints where wizard_session_id = \$1::uuid and status = 'in_progress'/.test(q)) {
       this.operations.push(`recency-check:${String(params[0])}`);
@@ -381,7 +403,12 @@ describe("reapStaleOnboardingSessions — session-scoped reap (F4)", () => {
 ```ts
 export type ReapedSession = {
   wizardSessionId: string;
-  outcome: "reaped_full" | "reaped_orphan_rows" | "skipped_active" | "skipped_recent_finalize";
+  outcome:
+    | "reaped_full"
+    | "reaped_orphan_rows"
+    | "skipped_active"
+    | "skipped_recent_finalize"
+    | "skipped_fresh_activity";
 };
 
 export type ReapStaleSessionsResult = { sessions: ReapedSession[] };
@@ -456,6 +483,28 @@ async function reapOneSession(
   );
   if (recent.rowCount > 0) {
     return { wizardSessionId: sessionId, outcome: "skipped_recent_finalize" };
+  }
+  // (2b) Freshness re-check UNDER the lock (R1 HIGH): a just-rotated non-active session is
+  //      NOT stale. Eligible only if the session's most-recent activity across every
+  //      session-scoped surface is older than 24 hours (cleanup's staleness convention,
+  //      :337). NULL activity max (no timestamped rows anywhere; checkpoint has no other
+  //      timestamp column) ⇒ nothing to preserve ⇒ stale. Note: this subsumes the 1-hour
+  //      in_progress guard above, which is kept because spec §6 names it explicitly.
+  const freshness = await tx.query<{ stale: boolean }>(
+    `
+      select coalesce(greatest(
+        (select max(last_processed_at) from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid),
+        (select max(staged_at) from public.shows_pending_changes where wizard_session_id = $1::uuid),
+        (select greatest(max(parsed_at), max(wizard_approved_at)) from public.pending_syncs where wizard_session_id = $1::uuid),
+        (select greatest(max(observed_at), max(transitioned_at)) from public.onboarding_scan_manifest where wizard_session_id = $1::uuid),
+        (select greatest(max(first_seen_at), max(last_attempt_at)) from public.pending_ingestions where wizard_session_id = $1::uuid),
+        (select max(deferred_at) from public.deferred_ingestions where wizard_session_id = $1::uuid)
+      ) < now() - interval '24 hours', true) as stale
+    `,
+    [sessionId],
+  );
+  if (!freshness.rows[0]?.stale) {
+    return { wizardSessionId: sessionId, outcome: "skipped_fresh_activity" };
   }
 
   // (3) Per-show advisory locks for every affected drive_file_id, deterministic order.
@@ -678,10 +727,35 @@ describe("reap preservation (F4 §6 required tests)", () => {
     expect(tx.tables.shows).toEqual([{ id: "real-show", drive_file_id: "drive-real", published: false }]);
     expect(tx.tables.shows_pending_changes).toEqual([]); // shadow debris itself IS reaped
   });
+
+  test("a FRESH non-active session (just rotated, staging present, checkpoint last_processed_at NULL) survives intact", async () => {
+    // Concrete failure mode (R1 HIGH): a newly-superseded session is non-active the instant
+    // rotation commits and its checkpoint may have last_processed_at NULL — the active-session
+    // and 1-hour-checkpoint guards alone leave it ELIGIBLE, so the reap deletes staging an
+    // operator's stale tab may still legitimately re-attach to. This is the data-loss class
+    // this phase exists to prevent.
+    const FRESH = "dddddddd-0000-4000-8000-dddddddddddd";
+    const tx = new FakeReapTx();
+    tx.freshSessions.add(FRESH); // activity max within 24h → freshness predicate says NOT stale
+    tx.tables.wizard_finalize_checkpoints.push({ wizard_session_id: FRESH, status: "in_progress", recent: false /* last_processed_at NULL */ });
+    tx.tables.onboarding_scan_manifest.push({ wizard_session_id: FRESH, drive_file_id: "drive-f1", status: "staged", created_show_id: null });
+    tx.tables.pending_syncs.push({ wizard_session_id: FRESH, drive_file_id: "drive-f1" });
+    tx.tables.shows_pending_changes.push({ wizard_session_id: FRESH, drive_file_id: "drive-f2" });
+    const result = await reapStaleOnboardingSessions(deps(tx));
+    expect(result.sessions).toEqual([]); // skipped_fresh_activity filtered from reaped output
+    expect(tx.operations).toContain(`activity-check:${FRESH}`); // the guard actually ran, under the finalize lock
+    for (const name of ["wizard_finalize_checkpoints", "onboarding_scan_manifest", "pending_syncs", "shows_pending_changes"]) {
+      expect(
+        tx.tables[name]!.filter((r) => r.wizard_session_id === FRESH),
+        `${name}: fresh session rows must survive`,
+      ).toHaveLength(1);
+    }
+    expect(tx.operations.filter((op) => op.startsWith("delete"))).toEqual([]);
+  });
 });
 ```
 
-- [ ] **RED (real DB).** Add `tests/onboarding/reapStaleSessionsDb.test.ts` (same probe + `test.skipIf(!dbUp)` harness as Task 4.1). Seed: active session A (in `app_settings`, with one manifest + one pending_syncs row), stale session B (`in_progress` checkpoint with `last_processed_at = now() - interval '2 hours'`, one manifest row with `created_show_id` → an interim `published=false` show, one shadow, one pending_syncs, one pending_ingestions, one deferred_ingestions), stale session C whose ONLY row is a `deferred_ingestions` row, and one pre-existing `published=false` show whose `drive_file_id` matches a B manifest row with `created_show_id IS NULL`. Run `reapStaleOnboardingSessions({ requireAdminIdentity: async () => ({ email: "admin@example.com" }) })` against `TEST_DATABASE_URL`. Assert: every B/C-scoped row across all six tables is gone; B's interim show is gone; the pre-existing show and EVERY A-scoped row survive; a `sync_log` row with status `reap_stale_session` exists per reaped session; result lists B (`reaped_full`) and C (`reaped_full`). Derive all expected survivor sets from the seeded fixtures (anti-tautology: build the expected arrays from the seed constants, not literals repeated inline).
+- [ ] **RED (real DB).** Add `tests/onboarding/reapStaleSessionsDb.test.ts` (same probe + `test.skipIf(!dbUp)` harness as Task 4.1). Seed: active session A (in `app_settings`, with one manifest + one pending_syncs row), stale session B (`in_progress` checkpoint with `last_processed_at = now() - interval '25 hours'`, one manifest row with `created_show_id` → an interim `published=false` show, one shadow, one pending_syncs, one pending_ingestions, one deferred_ingestions — **every B row's activity columns backdated past 24h**: `staged_at` / `parsed_at` / `wizard_approved_at` / `observed_at` / `transitioned_at` / `first_seen_at` / `last_attempt_at` / `deferred_at` all set to `now() - interval '25 hours'`, since most default to `now()` on insert), stale session C whose ONLY row is a `deferred_ingestions` row with `deferred_at = now() - interval '25 hours'`, **FRESH non-active session D** (rotated minutes ago: checkpoint row with `last_processed_at` NULL, one manifest + one pending_syncs + one shadow row inserted with DEFAULT timestamps, i.e. `now()`), and one pre-existing `published=false` show whose `drive_file_id` matches a B manifest row with `created_show_id IS NULL`. Run `reapStaleOnboardingSessions({ requireAdminIdentity: async () => ({ email: "admin@example.com" }) })` against `TEST_DATABASE_URL`. Assert: every B/C-scoped row across all six tables is gone; B's interim show is gone; the pre-existing show, EVERY A-scoped row, AND **every D-scoped row including D's checkpoint** survive (concrete failure mode: without the 24h activity guard, D — non-active, no recent `last_processed_at` — is reaped and a newly-superseded session's staging is destroyed); a `sync_log` row with status `reap_stale_session` exists per reaped session; result lists B (`reaped_full`) and C (`reaped_full`) and does NOT list D. Derive all expected survivor sets from the seeded fixtures (anti-tautology: build the expected arrays from the seed constants, not literals repeated inline).
 - [ ] **VERIFY.** `pnpm vitest run tests/onboarding/reapStaleSessions.test.ts tests/onboarding/reapStaleSessionsDb.test.ts` → all pass (db file skips cleanly when Postgres is down; runs in CI/local with the stack up). Any failure here is a Task 4.2 implementation gap — fix in `sessionLifecycle.ts`, not in the tests.
 - [ ] **COMMIT.** `test(onboarding): reap preservation regressions (active/fresh sessions, deferred-only, pre-existing unpublished show) + real-DB integration`
 
@@ -846,4 +920,4 @@ export async function POST(request: Request): Promise<Response> {
 - [ ] `pnpm vitest run tests/onboarding tests/auth/advisoryLockRpcDeadlock.test.ts` green.
 - [ ] Task 4.6's impeccable dual-gate evidence recorded in the milestone handoff §12.
 - [ ] Confirm Phase 3 (F2 migration) carries the one-time 18+18 validation purge — NOT re-implemented here.
-- [ ] F5 dependency note: Phase 5 Task 5.4's "F4 reap removes the residue" test imports `reapStaleOnboardingSessions` — this phase must merge (or be on the shared branch) before that task runs.
+- [ ] F5 dependency note: Phase 5 Task 5.4's "F4 reap removes the residue" test imports `reapStaleOnboardingSessions` — this phase must merge (or be on the shared branch) before that task runs. **Freshness-guard interaction:** that test must backdate the residue's `deferred_at` past 24 hours (the row defaults to `now()`, which the new activity guard correctly treats as fresh → `skipped_fresh_activity`).
