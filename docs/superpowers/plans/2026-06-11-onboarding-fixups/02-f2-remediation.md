@@ -672,9 +672,9 @@ grant all privileges on table public.data_migration_markers to service_role;
 -- finalize:<session> locks first (sorted), then show:<drive_file_id> locks (sorted).
 do $$
 declare
-  synthetic_ids constant uuid[] := array[
   locked_drive_file_ids text[];
   dfid text;
+  synthetic_ids constant uuid[] := array[
     '02304ebb-1d29-4a7e-b042-86b893247240',
     '023ddce3-9d9c-428a-b3bc-59501b73e77b',
     '2123a4d7-2992-4345-bb98-6882b09951e4',
