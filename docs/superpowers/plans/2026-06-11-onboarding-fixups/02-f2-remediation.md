@@ -74,7 +74,7 @@ ffda8263-241c-427e-8c04-51dba595ea83
 
 ### Steps
 
-- [ ] **1. Write the helper** — `tests/db/_remediationHelpers.ts` (pattern: `tests/db/_b2Helpers.ts` — postgres.js, TEST_DATABASE_URL → DATABASE_URL → local-54322 fallback):
+- [ ] **1. Write the helper** — `tests/db/_remediationHelpers.ts` (postgres.js client pattern per `tests/db/_b2Helpers.ts`, but **deliberately NOT its `TEST_DATABASE_URL → DATABASE_URL → local` fallback chain**). ⚠️ **Destructive-suite guard (adversarial R9, HIGH):** in this repo `TEST_DATABASE_URL` is the VALIDATION Supabase project (`.env.local`; Tasks 2.1/2.5). This suite executes the FULL migration — watermark resets + the exact-ID purge of the 18 REAL validation sessions — so the `_b2Helpers` fallback chain would, with `.env.local` loaded, run the purge against validation BEFORE Task 2.5's intended surgical apply. Concrete failure mode: Task 2.5's close-out verification (steps 2–3 expect to observe the migration's first validation pass — ≥6 watermark-nulled shows, 18→0 checkpoint/shadow counts) finds the work already done by an uncontrolled test run, plus test fixtures seeded into validation. The helper therefore reads ONLY an explicit `LOCAL_TEST_DATABASE_URL` (default: the local Supabase literal `postgresql://postgres:postgres@127.0.0.1:54322/postgres` — same final-fallback literal as `tests/db/_b2Helpers.ts:8`, the repo's local convention) and refuses non-loopback hosts BEFORE any connection attempt:
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -82,10 +82,39 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const LOCAL_DEFAULT = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+
+/**
+ * DESTRUCTIVE-SUITE GUARD (adversarial R9 HIGH). This suite applies the full
+ * remediation migration, INCLUDING the F4 purge keyed to 18 REAL validation
+ * wizard-session ids. It must never connect to a remote host:
+ *   - NO TEST_DATABASE_URL / DATABASE_URL fallback — in this repo
+ *     TEST_DATABASE_URL is the validation project (.env.local);
+ *   - the URL host must be loopback, asserted BEFORE postgres() is invoked
+ *     (URL parse only — no connection is ever attempted on refusal).
+ * Validation access for this migration lives ONLY in the plan's Task 2.5
+ * surgical-apply close-out commands — never in any test run.
+ */
+export function assertLocalDbUrl(url: string): string {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    throw new Error(`_remediationHelpers: unparseable database URL (${url})`);
+  }
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]" && host !== "::1") {
+    throw new Error(
+      `_remediationHelpers: REFUSING non-local database host "${host}". ` +
+        "This suite applies the destructive F2/F4 remediation migration and only " +
+        "runs against local Supabase. Set LOCAL_TEST_DATABASE_URL to a " +
+        "127.0.0.1/localhost URL (TEST_DATABASE_URL is the validation project " +
+        "and is intentionally ignored by this helper).",
+    );
+  }
+  return url;
+}
+
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL ?? LOCAL_DEFAULT);
 
 export const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
 export const newConn = (): Sql => postgres(DB_URL, { max: 1, prepare: false });
@@ -192,7 +221,7 @@ import {
   sql, newConn, runRemediationPass, resetPassMarkers, seedPassMarker,
   seedShow, seedCrew, seedAudit, readWatermark, setWatermark,
   BROKEN_FIRST_SEEN, BROKEN_CAS, F1_CAS, NON_WIZARD,
-  PURGED_SESSION_ID, MARKER_KEY,
+  PURGED_SESSION_ID, MARKER_KEY, assertLocalDbUrl,
 } from "@/tests/db/_remediationHelpers";
 import { randomUUID } from "node:crypto";
 
@@ -390,6 +419,31 @@ describe("F2 locked re-check (R12-2) — concurrent heal between SELECT and lock
   });
 });
 
+describe("destructive-suite local-host guard (adversarial R9 HIGH)", () => {
+  it("refuses a non-local database URL BEFORE any connection attempt", () => {
+    // Failure mode: a fallback to TEST_DATABASE_URL (the VALIDATION project in
+    // this repo's .env.local) would let a routine `pnpm vitest run` execute the
+    // watermark resets + the exact-ID purge of the 18 real validation sessions
+    // against validation BEFORE Task 2.5's surgical apply — corrupting the
+    // close-out verification and seeding test fixtures into validation.
+    // assertLocalDbUrl is a pure URL-parse check: the expect().toThrow proves it
+    // rejects synchronously, with no postgres() client ever constructed.
+    expect(() =>
+      assertLocalDbUrl(
+        "postgresql://postgres:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres",
+      ),
+    ).toThrow(/REFUSING non-local database host/);
+    expect(() => assertLocalDbUrl("not a url")).toThrow(/unparseable database URL/);
+    // Loopback forms pass through unchanged.
+    expect(assertLocalDbUrl("postgresql://postgres:postgres@127.0.0.1:54322/postgres")).toBe(
+      "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+    );
+    expect(assertLocalDbUrl("postgresql://postgres:postgres@localhost:54322/postgres")).toBe(
+      "postgresql://postgres:postgres@localhost:54322/postgres",
+    );
+  });
+});
+
 describe("F2 idempotency + marker-table lockdown", () => {
   it("the full file applies twice back-to-back; an already-reset show stays reset and untouched", async () => {
     // Failure mode: non-idempotent DDL (bare CREATE TABLE) or a reset loop that
@@ -494,13 +548,13 @@ describe("F4 one-time purge (rides this migration; exact-id keyed)", () => {
 });
 ```
 
-- [ ] **3. Run it — fails** — prerequisite: local Supabase running with all committed migrations applied (`supabase db reset` if unsure). Then:
+- [ ] **3. Run it — fails** — prerequisite: local Supabase running with all committed migrations applied (`supabase db reset` if unsure). The suite needs NO env vars (the helper defaults to the local 54322 URL and ignores `TEST_DATABASE_URL`/`DATABASE_URL` entirely — do NOT export `LOCAL_TEST_DATABASE_URL` to anything non-local; the guard refuses it). Then:
 
 ```bash
 pnpm vitest run tests/db/onboarding-fixups-remediation.test.ts
 ```
 
-Expected: `beforeAll` throws `ENOENT ... 20260611000001_onboarding_fixups_remediation.sql` (the migration file does not exist yet) — every test fails. This is the required negative regression for the file as a whole.
+Expected: `beforeAll` throws `ENOENT ... 20260611000001_onboarding_fixups_remediation.sql` (the migration file does not exist yet) — every DB test fails; the pure local-host guard test already passes (it needs neither the migration nor a connection). This is the required negative regression for the file as a whole.
 
 - [ ] **4. Minimal implementation — write the migration** — `supabase/migrations/20260611000001_onboarding_fixups_remediation.sql`. Sections 1–2 are the spec §4 block **VERBATIM** (spec lines 104–177 — copy, don't retype). Sections 3–4 are plan-level additions (lockdown + F4 purge) explicitly sanctioned by spec §4 ("marker table … IS a schema change") and §6 ("one-time purge … rides the F2 migration"):
 
@@ -677,7 +731,7 @@ end $$;
 pnpm vitest run tests/db/onboarding-fixups-remediation.test.ts
 ```
 
-Expected: all 11 tests pass (3 Arm A, 4 Arm B, 1 race, 2 idempotency/lockdown, 1 purge).
+Expected: all 12 tests pass (3 Arm A, 4 Arm B, 1 race, 1 local-host guard, 2 idempotency/lockdown, 1 purge). The local-host guard test must appear in the run output — it is the structural defense that keeps this destructive suite off the validation project (validation access happens ONLY in Task 2.5's labeled close-out commands).
 
 - [ ] **6. Negative-regression spot check (pin the windowing clause):** temporarily delete the two `and (prev_pass is null or sa.applied_at > prev_pass - interval '1 hour')` lines from the UPDATE's Arm B predicate, re-run — R15 must fail (`expect(not null)` receives null). Restore verbatim, re-run green. (This proves the test actually exercises the window rather than passing tautologically.)
 
@@ -743,6 +797,8 @@ chore(db): regen schema manifest for data_migration_markers
 ---
 
 ## Task 2.5 — Surgical validation apply + pgrst reload (CLOSE-OUT step, not CI)
+
+> **The ONLY validation-DB WRITE access in this phase** (Task 2.1's id capture is read-only SELECTs). Every test task runs exclusively against local Supabase — the regression helper hard-refuses non-loopback hosts (Task 2.2 step 1, adversarial R9). The commands below are operator-run close-out steps, never part of any test run.
 
 `supabase db push` is BLOCKED on the validation project `vzakgrxqwcalbmagufjh` (Phase-0 history divergence) — per AGENTS.md "Every migration must reach the validation project", each migration is applied surgically. This step runs at milestone close-out, AFTER Phase 1's code has deployed to validation (deployment-ordering note in the header) and BEFORE the PR merges (so the `validation-schema-parity` Layer-2 gate is green on the merge run).
 
