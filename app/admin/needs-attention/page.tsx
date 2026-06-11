@@ -33,7 +33,10 @@ export default async function NeedsAttentionPage() {
     <div data-testid="admin-needs-attention-page" className="flex w-full flex-col gap-section-gap">
       <AdminPageHeader title="Needs attention" sub="Everything waiting on you, across all shows." />
       {/* Banner placement contract: dashboard + THIS page only (spec D-5 amendment). */}
-      <div id="alerts">
+      {/* empty:hidden collapses the slot (and its flex gap) in the common
+          no-alerts state - AlertBanner renders null, leaving the div empty
+          (impeccable critique finding 1). */}
+      <div id="alerts" className="empty:hidden">
         <AlertBanner />
       </div>
       <section aria-label="Needs attention" className="flex w-full max-w-3xl flex-col gap-3">

@@ -118,7 +118,7 @@ export function AdminNav({
             typeof badgeCount === "number" &&
             Number.isFinite(badgeCount) &&
             badgeCount > 0;
-          const badgeDisplay = showBadge && badgeCount > 9 ? "9+" : String(badgeCount);
+          const badgeDisplay = !showBadge ? null : badgeCount > 9 ? "9+" : String(badgeCount);
           return (
             <Link
               key={item.id}
