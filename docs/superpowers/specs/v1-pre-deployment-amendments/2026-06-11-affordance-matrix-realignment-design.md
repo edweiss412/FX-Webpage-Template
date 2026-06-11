@@ -51,7 +51,7 @@ Concrete rows after this milestone — **19** (was 13): 7 unchanged, 6 re-pointe
 | 1 | `help-affordance--dashboard-active-shows--tooltip` | ShowsTable header HoverHelp (`ShowsTable.tsx:236`) | `/help/admin/dashboard#active-shows` | `both` | Re-pointed |
 | 2 | `help-affordance--dashboard-needs-attention--tooltip` | Dashboard desktop "Needs attention" header HoverHelp (`Dashboard.tsx:512`) | `/help/admin/review-queues#first-seen` | `desktop` | Renamed from `dashboard-pending-ingestion`, re-pointed |
 | 3 | `help-affordance--needs-attention-page--tooltip` | NEW "?" HoverHelp in `/admin/needs-attention` page header via `AdminPageHeader` `titleAppendSlot` (`components/admin/nav/AdminPageHeader.tsx:20`; page header at `app/admin/needs-attention/page.tsx:34`) | `/help/admin/review-queues#first-seen` | `both` | New (mobile twin of #2) |
-| 4 | `help-affordance--dashboard-restage--legend` | NEW conditional legend line under ShowsTable (§4.3) | `/help/admin/review-queues#re-stage` | `both` | Replaces `dashboard-restage-badge--tooltip` (leaves `DEFERRED_TESTIDS`) |
+| 4 | `help-affordance--dashboard-restage--legend` | NEW conditional legend line under ShowsTable (§4.3) | `/help/admin/review-queues#re-stage` | `both` | Replaces `dashboard-restage-badge--tooltip`: the old row AND its `DEFERRED_TESTIDS` entry (`deep-link-walker.spec.ts:21`) are **removed**; the new legend row is live (never deferred) |
 | 5 | `help-affordance--dashboard-archived-shows--tooltip` | Archived-bucket header HoverHelp (`Dashboard.tsx:428`) | `/help/admin/dashboard#archived` (new anchor) | `both` | New (renders only at `?bucket=archived`) |
 | 6 | `help-affordance--dashboard-footer--tour` | `components/admin/DashboardFooter.tsx` (unchanged) | `/help/tour` | `both` | Unchanged |
 | 7 | `help-affordance--per-show-sync-footer--tooltip` | NEW "?" HoverHelp beside the StatusIndicator in the quiet sync footer (`app/admin/show/[slug]/page.tsx:616-621`) | `/help/admin/per-show-panel#sync-health` | `both` | Renamed from `per-show-sync-health`, re-pointed |
@@ -131,11 +131,13 @@ Current arms: direct-href (`:219-223`) and `<details>`/summary (`:226-229`) befo
 
 ## 7. Structural meta-test (new, default unit suite)
 
-`tests/help/_metaAffordanceMatrixParity.test.ts` (DB-free, no rendering — static source analysis, registry style per the recurring-bug ladder):
+`tests/help/_metaAffordanceMatrixParity.test.ts` (DB-free, no rendering — static source analysis, registry style per the recurring-bug ladder).
 
-1. **Call-site sweep:** walk `components/**` + `app/**` (file-tree walk, not a named list) for every `<HoverHelp` / `<HelpTooltip` call site and every `help-affordance--` string literal. Each must either (a) reference a non-deferred concrete matrix testid (via `rootTestId`/literal), or (b) carry an inline `// not-a-help-affordance: <reason>` exemption comment.
-2. **Inverse sweep:** every non-deferred concrete row's testid occurs in **exactly one** file under `components/**`/`app/**`.
-3. **Deferred-set consistency:** every `DEFERRED_TESTIDS` entry corresponds to a matrix row, and no deferred testid appears in any component file.
+**Scan domain (precise, R1 fix):** the *component domain* is `components/**` + `app/**` MINUS `app/help/_affordanceMatrix.ts` (the source of truth — its literals are row definitions, not call sites) and MINUS any `*.test.*`/`__generated__` files. Matrix-side facts are read by **importing `AFFORDANCE_MATRIX`**, never by grepping the matrix file.
+
+1. **Call-site sweep:** walk the component domain for every `<HoverHelp` / `<HelpTooltip` call site and every `help-affordance--` string literal. Each must either (a) reference a non-deferred concrete matrix testid (via `rootTestId`/literal), or (b) carry an inline `// not-a-help-affordance: <reason>` exemption comment.
+2. **Inverse sweep:** every non-deferred concrete row's testid (from the imported matrix) occurs in **exactly one** file in the component domain.
+3. **Deferred-set consistency:** `DEFERRED_TESTIDS` (exported from the walker spec or a shared module so the meta-test can import it) contains exactly the still-deferred rows' testids — after this milestone, exactly the two G-D-2/G-D-3 testids — each corresponding to a concrete matrix row, and no deferred testid appears anywhere in the component domain. Matrix row uniqueness (no duplicate testids across rows) is asserted on the imported array itself.
 
 Failure messages name the file and the rule, so a violating PR fails in seconds with a actionable message rather than at the e2e walker. The meta-test is declared in the plan's meta-test inventory (writing-plans rule); it **extends** the §5.6 class-sweep guarantee from prose to CI.
 
@@ -153,7 +155,7 @@ Failure messages name the file and the rule, so a violating PR fails in seconds 
 ## 10. CI (`.github/workflows/help-affordances.yml`, new)
 
 - **Triggers:** `pull_request` filtered to paths `components/admin/**`, `app/admin/**`, `app/help/**`, `lib/messages/**`, `lib/admin/**`, `app/help/_affordanceMatrix.ts`, `tests/e2e/**`, `playwright.config.ts`, the workflow itself; plus `workflow_dispatch`.
-- **Job:** checkout → pnpm install → supabase local stack (`supabase start`) → migrations apply (local stack applies `supabase/migrations/**` natively) → `pnpm build` artifact for the :3004 server → run `help-docs-setup` + both walker projects.
+- **Job (R1 fix — vanilla `supabase start` does NOT work in this repo):** the boot must reuse the guarded-migration bootstrap that `screenshots-drift.yml:25-80` already encodes — two cron migrations (`20260527000003_schedule_cron_jobs.sql`, `20260602000005_b3_schedule_notify_cron.sql`) refuse to apply unless the `app.fxav_vercel_url` GUC is set, and a failed migration during `supabase start` aborts the stack; the working recipe is (1) hold the guarded migrations aside, (2) boot the stack, (3) `alter database` to set the placeholder GUC, (4) restore the migrations, (5) `supabase migration up --include-all`. This milestone **factors that bootstrap into a shared script** (e.g. `scripts/ci/supabase-local-bootstrap.sh`) consumed by BOTH `screenshots-drift.yml`/`screenshots-regen.yml` and the new workflow, so the hold-aside list can never drift between workflows again (the M12.3 stale-regen-hold-aside incident is the precedent). Then: `pnpm db:seed` runs via `help-docs-setup` (`tests/e2e/help-docs-setup.ts:16-19`), the :3004 server is built/started by Playwright's own `webServer` entry (`playwright.config.ts:276-286` — `pnpm build && next start --port 3004`), and the job runs `playwright test --project=help-docs --project=help-docs-desktop` with `ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture` (the values `help-docs-setup.ts:13-14` asserts) plus the Supabase env the seed/admin client needs.
 - The unit meta-test (§7) runs in the existing default test job on **every** PR — the path filter above only bounds the expensive e2e leg.
 - **Close-out gate:** real-CI green via `workflow_dispatch` AND one organic path-matching PR run, per the local-passes-CI-fails discipline (AGENTS.md cross-cutting). Budget ≥2 adversarial rounds for the CI surface (heavy-audit precedent).
 
@@ -178,6 +180,6 @@ Failure messages name the file and the rule, so a violating PR fails in seconds 
 - **Tooltip-with-link a11y:** resolved in §4.1 (disclosure semantics when `learnMore` present). Do not re-flag "link inside role=tooltip" — the role is conditionally dropped.
 - **Legend reads capped/filtered rows by design** (§4.3), consistent with M12.10 capped-list honesty (`project_m12_10` precedent; overflow notice already discloses scope).
 - **Desktop-only needs-attention HoverHelp is legal** under decision 2 (`visibleAt: "desktop"`); mobile coverage comes from row 3, not from forcing the dashboard block visible at 390px.
-- **`DEFERRED_TESTIDS` survives** for G-D-2/G-D-3 — this milestone does not zero the set.
+- **`DEFERRED_TESTIDS` shrinks to exactly two entries** (G-D-2 `per-show-restage-card--tooltip`, G-D-3 `preview-banner--tooltip`); the G-D-1 `dashboard-restage-badge--tooltip` entry is removed along with its row (replaced by the live legend row). The milestone does not zero the set.
 - **Helpers move, not duplicate** (§8): `formatRelative`/`formatDateRange` get ONE new home; no transitional re-export layer is kept after importers re-point (single-commit move).
 - **Hover-only is banned** (PRODUCT.md): all new affordances are HoverHelp/HelpTooltip instances whose click/keyboard paths already passed M12.5's three-round a11y convergence; the legend is a plain link.
