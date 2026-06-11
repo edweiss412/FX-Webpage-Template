@@ -1019,7 +1019,9 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
 - [ ] **Run to pass:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts tests/onboarding/finalize-cas.test.ts`
 - [ ] **Commit:** `feat(onboarding): Phase D applyShadow routes through shared apply core (equality preflight, mi11 holds, coexistence, narrowed publish flip)`
 
----### Task 1.6 — Behavior regressions: multi-shadow best-effort, MI-11 wizard/dashboard parity, legacy P2-F7 preserved
+---
+
+### Task 1.6 — Behavior regressions: multi-shadow best-effort, MI-11 wizard/dashboard parity, legacy P2-F7 preserved
 
 **Files:**
 - Create: `tests/onboarding/finalizeCasMultiShadow.db.test.ts`
@@ -1372,7 +1374,7 @@ test("stage → Doug edit → Phase D applies STAGED content → next cron pass 
   // derived from the fixture diff, and no orphaned open hold exists:
   const feedKinds = await sql`select change_kind from public.show_change_log where show_id = ${show.id}`;
   expect(feedKinds.length).toBeGreaterThan(0);
-  // R39-2: sync_holds has NO released_at column (release = row DELETE; supabase/migrations/20260608000000_sync_holds.sql, lib/sync/holds/holdPort.ts). Open-hold predicate = row EXISTENCE: assert zero rows in public.sync_holds for the show after convergence.
+  // R39-2: sync_holds has NO released_at column (release = row DELETE; supabase/migrations/20260608000000_sync_holds.sql, lib/sync/holds/holdPort.ts). Open-hold predicate = row EXISTENCE: assert zero rows in public.sync_holds for the show after convergence. // R41-2 EXECUTABLE assertion (not prose): `const holds = await db.unsafe("select 1 from public.sync_holds where show_id = $1", [show.id]); expect(holds.length).toBe(0);` placed AFTER the convergence check; negative-regression: seed a leftover open hold and confirm this assertion fails.
 });
 
 test("negative control: a genuinely current show (no Doug edit) is SKIPPED by the next cron pass", async () => {
