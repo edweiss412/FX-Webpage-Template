@@ -172,16 +172,21 @@ it("without learnMore, role=tooltip and describedby semantics are unchanged", ()
   expect(screen.getByTestId("x-help-trigger")).toHaveAttribute("aria-describedby", body.id);
 });
 
-it("body is a div (block children are valid HTML)", () => {
-  render(<HoverHelp label="Help: X" testId="x-help"><p>Body.</p></HoverHelp>);
+it("body AND root wrapper are divs (block children are valid HTML at every level)", () => {
+  render(
+    <HoverHelp label="Help: X" testId="x-help" rootTestId="help-affordance--x--tooltip">
+      <p>Body.</p>
+    </HoverHelp>,
+  );
   expect(screen.getByTestId("x-help-body").tagName).toBe("DIV");
+  expect(screen.getByTestId("help-affordance--x--tooltip").tagName).toBe("DIV"); // span root containing a div body would itself be invalid (spec R6)
 });
 ```
 
 Concrete failure modes: link flattened into the SR description; `aria-controls` missing; `<span><p>` invalid nesting regression; existing no-`learnMore` call sites silently changing semantics.
 
 - [ ] **Step 2.2:** `pnpm vitest run tests/components/admin/HoverHelp.test.tsx` → new tests FAIL.
-- [ ] **Step 2.3: Implement.** In `components/admin/HoverHelp.tsx`: add props `rootTestId?: string` and `learnMore?: { href: string }`. Root span (`:115-119`) gains `data-testid={rootTestId}` (omit attribute when undefined). Body element (`:142-150`) becomes `<div>`; keep all classes/handlers. Add `const descId = useId();`. Body content becomes:
+- [ ] **Step 2.3: Implement.** In `components/admin/HoverHelp.tsx`: add props `rootTestId?: string` and `learnMore?: { href: string }`. The root wrapper (`:115-119`) becomes `<div className="relative inline-flex" …>` (same classes/handlers; `<span>` cannot legally contain the div body — spec §4.1 R6) and gains `data-testid={rootTestId}` (omit attribute when undefined). Body element (`:142-150`) becomes `<div>`; keep all classes/handlers. Add `const descId = useId();`. Body content becomes:
 
 ```tsx
 <div id={descId}>{children}</div>
@@ -586,8 +591,18 @@ Add the `help-docs-desktop` project: same `testMatch`/`dependencies`/`baseURL`/`
 
 - [ ] **Step 12.1: Failing check:** add to `help-docs-setup.ts` (it is itself a Playwright setup "test") after seeding: query `shows` for `drive_file_id like 'seed-fixture:walker-%'` expecting 3 rows — run `pnpm test:e2e --project=help-docs-setup` → FAIL (0 rows).
 - [ ] **Step 12.2: Implement `supabase/seedWalkerFixtures.ts`.** Standalone tsx script, same `databaseUrl` resolution as `supabase/seed.ts:11-13`, applied via the same `execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", …])` pattern (`seed.ts:186`). It emits ONE transaction that: takes `pg_advisory_xact_lock(hashtext('show:' || <id>))` for each of the three drive_file_ids FIRST (mirroring `seedSql`, `seed.ts:517-523`), `delete`s any prior rows by those ids (idempotent re-run), then inserts three `shows` rows with `drive_file_id` values `seed-fixture:walker-pending-review` / `seed-fixture:walker-archived` / `seed-fixture:walker-drive-error`, distinct slugs (`walker-pending-review-2026` etc.), titles, and states: `last_sync_status='pending_review'` + `archived=false` + `published=true`; `archived=true`; `last_sync_status='drive_error'` + `archived=false`. **Derive the full column list from `showInsertSql` (`supabase/seed.ts:192-244`)** — copy its INSERT shape and NOT-NULL columns exactly (dates, timestamps, parse payload columns) so the rows satisfy the live schema; do not invent a slimmer insert. Also insert one unresolved `admin_alerts` row targeting the EXISTING rpas fixture show (so row 8's alerts section renders on the per-show walk — column shape: copy an existing `admin_alerts` insert from the codebase, `rg -n "admin_alerts" supabase/ lib/ --type ts | head`). Run it from `help-docs-setup.ts` via `spawnSync("pnpm", ["dlx", "tsx", "supabase/seedWalkerFixtures.ts"], …)` with the same status assertion as the `db:seed` call.
-- [ ] **Step 12.3:** `pnpm test:e2e --project=help-docs-setup` → PASS. Verify capture isolation: run `pnpm db:seed` alone and assert the walker rows are GONE (`psql … -c "select count(*) from shows where drive_file_id like 'seed-fixture:walker-%'"` → 0) — this proves the `seed-fixture:` prefix cleanup covers them (spec §6.3). If db:seed's cleanup does NOT remove them (prefix scope narrower than assumed), extend the extension script with a self-cleanup preamble AND add the delete to `seed.ts`'s cleanup — do not ship without this property.
-- [ ] **Step 12.4:** Commit: `test(e2e): walker-only locked seed extension (pending_review/archived/drive_error + alert fixture)`
+- [ ] **Step 12.3: Lock the base cleanup (spec §6.3 R6 CRITICAL — do this BEFORE the isolation check).** `seed.ts`'s `seedSql` deletes `shows` by `like 'seed-fixture:%'` (`seed.ts:530-537`) while locking only the enumerated base fixture ids (`:517-523`) — with walker rows present that wildcard delete mutates `shows` rows whose locks it does not hold (invariant 2 P0). In `seedSql`, IMMEDIATELY after the enumerated lock block and before any delete, add:
+
+```sql
+select pg_advisory_xact_lock(hashtext('show:' || drive_file_id))
+  from public.shows
+ where drive_file_id like 'seed-fixture:%';
+```
+
+(one transaction, single-holder — it locks every row the wildcard can touch, including future prefix-named fixtures). Add a DB-free structural pin to `tests/db/seed-restage-fixture.test.ts` (the existing source-level seed.ts test): the seed source must contain a prefix-wide `pg_advisory_xact_lock` select that textually precedes the `like 'seed-fixture:%'` delete. Concrete failure mode: someone removes the sweep or reorders it after the delete.
+
+- [ ] **Step 12.4:** `pnpm test:e2e --project=help-docs-setup` → PASS. Verify capture isolation: run `pnpm db:seed` alone and assert the walker rows are GONE (`psql … -c "select count(*) from shows where drive_file_id like 'seed-fixture:walker-%'"` → 0). If db:seed's cleanup does NOT remove them (prefix scope narrower than assumed), extend the extension script with a self-cleanup preamble AND add the locked delete to `seed.ts`'s cleanup — do not ship without this property.
+- [ ] **Step 12.5:** Commit: `test(e2e): walker-only locked seed extension + prefix-wide cleanup lock (invariant 2)`
 
 ### Task 13: Local two-viewport walker green (gate)
 
@@ -644,10 +659,16 @@ jobs:
         run: bash scripts/ci/supabase-local-bootstrap.sh
       - run: pnpm exec playwright install --with-deps chromium
       - name: Run walker (mobile + desktop)
+        env:
+          # help-docs-setup.ts:11-13 asserts these in the TEST-RUNNER process —
+          # the webServer.env in playwright.config.ts only reaches the Next
+          # server process, NOT the Playwright workers (spec R6).
+          ENABLE_TEST_AUTH: "true"
+          TEST_AUTH_SECRET: "test-secret-fixture"
         run: pnpm exec playwright test --project=help-docs-setup --project=help-docs --project=help-docs-desktop
 ```
 
-(Mirror the pnpm/node versions and any Supabase env exports from the screenshot workflows EXACTLY — read them before writing; the Playwright webServer builds the app itself. CI=true makes the webServer use `pnpm build && pnpm start` per `playwright.config.ts:199-205`.)
+(Mirror the pnpm/node versions and any Supabase env exports — local-stack URL/service-role values consumed by `tests/e2e/helpers/supabaseAdmin.ts` — from the screenshot workflows EXACTLY; read them before writing. The Playwright webServer builds the app itself; CI=true makes it use `pnpm build && pnpm start` per `playwright.config.ts:199-205`.)
 
 - [ ] **Step 14.3:** `x-audits.yml`: append job `affordance-matrix-parity` cloned from the `postgrest-dml-lockdown` job shape (`:307-341`) minus the psql/DB env (this meta-test is DB-free): checkout → pnpm → node 20 → install → `pnpm vitest run tests/help/_metaAffordanceMatrixParity.test.ts tests/help/_affordance-matrix-shape.test.ts tests/help/deep-link-walker-reverse.test.ts 2>&1 | tee affordance-matrix-parity.log`.
 - [ ] **Step 14.4:** `actionlint` on all touched workflows (or `gh workflow view` post-push); commit: `infra: shared supabase bootstrap + help-affordances walker workflow + affordance-matrix-parity audit job`
