@@ -653,6 +653,10 @@ end $$;
 alter table public.data_migration_markers enable row level security;
 revoke all on table public.data_migration_markers from anon, authenticated;
 
+<!-- plan R20-1 -->
+**Lockdown registry lockstep (plan R20-1):** the Layer-4 reconciliation in `tests/db/postgrest-dml-lockdown.test.ts` scans migrations for table-level REVOKEs and REQUIRES a registry row for every REVOKEd live table. Same commit as this migration: add a `RPC_GATED_TABLES` row for `data_migration_markers` (`selectAnon`/`selectAuthenticated` false, minimal valid `postBody` e.g. `{ key: "lockdown-probe", executed_at: "2026-06-11T00:00:00Z" }`), and the migration grants `service_role` ALL PRIVILEGES (Layer-1 asserts service_role retains full access). Add `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` to this task's verification commands. The phase header's earlier "lockdown N/A for this table" claim is REVERSED.
+grant all privileges on table public.data_migration_markers to service_role;
+
 -- ── 4. F4 one-time purge — EXACT 18 synthetic validation wizard sessions ────────
 -- Spec §6 final bullet: keyed to the exact ids captured from the validation DB
 -- (Task 2.1, 2026-06-11; checkpoint-in_progress set ≡ shows_pending_changes set).
