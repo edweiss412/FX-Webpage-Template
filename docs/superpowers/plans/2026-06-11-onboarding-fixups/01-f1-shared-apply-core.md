@@ -87,7 +87,7 @@ export type ApplyStagedCoreArgs = {
   auditSource: "staged_apply" | "onboarding_finalize" | "onboarding_finalize_cas";
   fileMeta: DriveListedFile;
   mi11Items: Mi11Item[];                   // wizard Phase D extracts from payload items; live legacy passes []
-  notableItems?: TriggeredReviewItem[];    // present → feed rows (phase2.ts:340); absent → no feed (Phase B)
+  feedPolicy: { kind: "none" } | { kind: "choice_aware" };  // R35-1: REQUIRED, no default. "none" = no show_change_log rows (Phase B first-seen — feed documents changes to LIVE shows). "choice_aware" = the core derives notableItems INTERNALLY post-validation via choiceAwareFeedItems(items, validatedChoices) and forwards them to runPhase2 (Phase D existing-show + dashboard-equivalent semantics). The old optional notableItems argument is REMOVED from the public core API — callers cannot inject raw items. Regressions: Phase D emits correct choice-aware rows (g2); Phase B first-seen apply emits ZERO show_change_log rows (new assertion in the first-seen DB test).
   skipDiagramsWrite: boolean;
   snapshotAssetsForApply?: Phase2Args["snapshotAssetsForApply"];
   autoPublishFirstSeen?: Phase2Args["autoPublishFirstSeen"];
