@@ -79,15 +79,15 @@ async function seed() {
   );
   // Pre-existing REAL show, legitimately unpublished, approved into this session (manifest applied, NO created_show_id provenance).
   const [preExisting] = (await db.unsafe(
-    `insert into public.shows (drive_file_id, title, slug, published)
-     values ($1, 'Pre-existing unpublished', 'f4-preexisting', false)
+    `insert into public.shows (drive_file_id, title, slug, published, client_label, template_version)
+     values ($1, 'Pre-existing unpublished', 'f4-preexisting', false, 'Fixture Client', 'v2')
      returning id`,
     [PRE_EXISTING_FILE],
   )) as Array<{ id: string }>;
   // Session-CREATED interim show: manifest row records provenance.
   const [created] = (await db.unsafe(
-    `insert into public.shows (drive_file_id, title, slug, published)
-     values ($1, 'Wizard interim', 'f4-interim', false)
+    `insert into public.shows (drive_file_id, title, slug, published, client_label, template_version)
+     values ($1, 'Wizard interim', 'f4-interim', false, 'Fixture Client', 'v2')
      returning id`,
     [SESSION_CREATED_FILE],
   )) as Array<{ id: string }>;
@@ -107,6 +107,11 @@ async function cleanupFixture() {
   await db.unsafe(`delete from public.shows where drive_file_id in ($1, $2)`, [PRE_EXISTING_FILE, SESSION_CREATED_FILE]);
 }
 
+// Plan R18-1: capture the ORIGINAL app_settings row BEFORE mutating the singleton, and restore it
+// in afterEach/afterAll even on failure — cleanupAbandonedFinalize ROTATES pending_wizard_session_id,
+// so without restoration this suite leaks an unexpected active wizard session into later DB tests.
+// const originalSettings = await db.unsafe(`select pending_wizard_session_id, pending_wizard_session_at from public.app_settings where id = 'default'`);
+// ... afterAll: restore those exact values + assert the restore landed.
 afterAll(async () => {
   if (sql) {
     await cleanupFixture().catch(() => {});
