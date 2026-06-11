@@ -349,13 +349,10 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
         data-testid="admin-dashboard-infra-error"
         className="mx-auto flex max-w-4xl flex-col gap-section-gap"
       >
+        {/* B1-D3: no eyebrow here — this branch renders BELOW the shared
+            <AdminPageHeader title="Dashboard"> (app/admin/page.tsx Task 4.1
+            single title source); page-level chrome would double the header. */}
         <header className="flex flex-col gap-2">
-          <p
-            className="text-xs font-medium uppercase text-text-subtle"
-            style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-          >
-            Admin
-          </p>
           <h2 className="text-2xl font-semibold text-text-strong">
             We could not load your dashboard.
           </h2>

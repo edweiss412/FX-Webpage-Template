@@ -201,7 +201,9 @@ The R4 finding is REAL — the drift-detector contract needs an `BRANCH_PROTECTI
 **Description (original, retained for record):** "The `crew_members_show_id_name_key` named unique constraint exists in the migration but is not asserted by name in `tests/db/schema-introspection.test.ts`." The constraint did not in fact exist.
 **Discipline learning:** Captured in memory `feedback_deferral_discipline.md` — six milestones tracked this as Open before the obsolescence was noticed. Future DEFERRED entries that reference a specific code symbol (constraint, function, route) by name MUST be verified against the live codebase at filing time, not accepted on reviewer assertion alone.
 
-### M2-D5 — Seed's hardcoded restage fixture filename
+### M2-D5 — Seed's hardcoded restage fixture filename — **RESOLVED 2026-06-10**
+
+**Status:** **Resolved** in the 2026-06-10 deferred-residue sweep (commit `a5c42cba`). The entry's concern was "if that fixture is renamed or replaced, seed silently breaks" — the seed kept running but the restage scenario silently seeded as `complete`. A glob-derived pick was rejected (any deterministic selection rule changes WHICH fixture gets the restage treatment as fixtures are added — unstable across fixture additions). Landed the loud-failure form instead: `loadFixtures()` throws when `restageRequiredFixture` is absent from `fixtures/shows/raw/`, and `tests/db/seed-restage-fixture.test.ts` pins the contract DB-free (named fixture exists on disk + the throw guard stays in `loadFixtures`), so a rename trips CI before it can degrade the seeded DB.
 
 **Source:** M2 adversarial review, Round 1 advisory note
 **Description:** `supabase/seed.ts` hardcodes a specific raw-fixture filename for the restage scenario rather than deriving it from `fixtures/shows/raw/`. If that fixture is renamed or replaced, seed silently breaks.

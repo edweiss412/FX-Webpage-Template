@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { CAPTURE_LAUNCH_ARGS } from "./scripts/capture-launch-args";
 
 /**
  * Playwright config — three test surfaces:
@@ -130,7 +131,11 @@ export default defineConfig({
           reducedMotion: "reduce",
         },
         launchOptions: {
-          args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+          // Shared with captureAll() + playwright.screenshots.config.ts so
+          // the clock-pipeline spec runs the same raster path under
+          // `pnpm test:e2e` as under `pnpm screenshot:help` (Codex R3, PR #22).
+          // Rationale for each flag: scripts/capture-launch-args.ts.
+          args: CAPTURE_LAUNCH_ARGS,
         },
         locale: "en-US",
         timezoneId: "America/New_York",

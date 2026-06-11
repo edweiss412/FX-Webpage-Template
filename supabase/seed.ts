@@ -136,6 +136,15 @@ function loadFixtures(): FixtureSeed[] {
   const fixtureFiles = readdirSync(fixtureDir)
     .filter((fileName) => fileName.endsWith(".md"))
     .sort();
+  // M2-D5: the restage scenario must fail LOUD, not silently seed as
+  // `complete`, when the named fixture is renamed/replaced. Pinned by
+  // tests/db/seed-restage-fixture.test.ts.
+  if (!fixtureFiles.includes(restageRequiredFixture)) {
+    throw new Error(
+      `Restage fixture ${restageRequiredFixture} not found in ${fixtureDir} — ` +
+        `update restageRequiredFixture in supabase/seed.ts alongside the fixture rename.`,
+    );
+  }
   const existingSlugs = loadExistingNonSeedSlugs();
 
   return fixtureFiles.map((fileName, index) => {

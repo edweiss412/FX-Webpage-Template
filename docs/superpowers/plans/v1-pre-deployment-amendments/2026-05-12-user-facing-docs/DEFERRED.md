@@ -38,7 +38,21 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ## Phase G §B close-out (2026-05-22) — hybrid disposition + impeccable v3 round-1 dispositions
 
-### M11-G-D-1: §5.6 matrix row `help-affordance--dashboard-restage-badge--tooltip` defers UI delivery
+### M11-G-D-6: M12.2 dashboard redesign orphaned two §5.6 matrix testids + the deep-link walker is not in CI (filed 2026-06-10)
+
+- **Severity:** MEDIUM (latent contract breakage — the §5.6 affordance matrix and the live dashboard have diverged, and no gate noticed)
+- **Discovery context:** 2026-06-10 deferred-residue sweep. M11-G-D-1's re-open trigger (c) fired — M12.5 shipped the HoverCard primitive (`components/admin/HoverHelp.tsx`) — but scoping the retrofit surfaced that the M12.2 dashboard redesign (ShowsTable/NeedsAttentionInbox replacing ActiveShowsPanel/PendingPanel) broke two SIBLING matrix rows that were never deferred:
+  - `help-affordance--dashboard-active-shows--tooltip` — carried ONLY by legacy `components/admin/ActiveShowsPanel.tsx:131-133`, which is **no longer rendered anywhere** (its only remaining imports are the `formatRelative`/`formatDateRange` helpers + the `ActiveShowRow` type — `components/admin/ShowsTable.tsx:26`, `components/admin/NeedsAttentionInbox.tsx:14`, `app/admin/show/[slug]/page.tsx:28`, `components/admin/ChangeFeedTime.tsx:11`). The live equivalent — ShowsTable's header `<HoverHelp testId="shows-help">` at `components/admin/ShowsTable.tsx:236` — carries a non-matrix testid and no Learn-more link.
+  - `help-affordance--dashboard-pending-ingestion--tooltip` — carried ONLY by `components/admin/PendingPanel.tsx`, also **no longer rendered** (only its Retry/Discard button children are reused by NeedsAttentionInbox). The live analog — the "Needs attention" header `<HoverHelp testId="needs-attention-help">` at `components/admin/Dashboard.tsx:515` — sits inside the desktop-only block (`hidden min-[720px]:flex`, `Dashboard.tsx:505`), so it is INVISIBLE at the walker's iPhone 14 viewport; the mobile analog is the `NeedsAttentionSummaryCard` → `/admin/needs-attention` page shipped by the mobile needs-attention milestone (PR #20).
+  - The walker (`tests/e2e/deep-link-walker.spec.ts`, `help-docs` Playwright project at `playwright.config.ts:151-152`) would therefore FAIL both rows at HEAD — but **no CI workflow runs any Playwright project except screenshots-drift**, so the divergence has been silent since M12.2 merged.
+- **Why this is one cluster, not three fixes:** retrofitting all three rows (these two + G-D-1's restage badge) onto the redesigned dashboard requires the same design decisions: (a) where a tappable `?` lives at 390px for surfaces that are desktop-only or inside a whole-row `<Link>`; (b) whether §5.6 matrix rows' `sourceSurface`/`sourceRoute` move to the live surface names (e.g., `/admin/needs-attention` for mobile) — a spec-§5.6 alignment, not a code-only patch; (c) the walker's `assertTarget` (`tests/e2e/deep-link-walker.spec.ts:219-237`) only handles direct-href and `<details>`/summary affordances — it needs a button-trigger HoverHelp arm (click `button[aria-expanded]`, then assert the now-visible nested Learn-more link); (d) walker fixtures must seed the states that make conditional badges render (e.g., a `pending_review` show row). Per invariant 7 (spec canonical) and the deferral discipline, this is a small design pass + spec-alignment milestone-let, not a land-now mechanical fix.
+- **Concrete fix path (single dispatch):** (1) `/impeccable shape` pass on dashboard help-affordance placement at mobile + desktop; (2) ratify §5.6 matrix row updates (sourceSurface/sourceRoute against the live redesign); (3) re-point the two orphaned testids to the live HoverHelp instances + add nested Learn-more links (`/help/admin/dashboard#active-shows`, `/help/admin/review-queues#first-seen`); (4) land G-D-1's restage-badge affordance per the shaped placement; (5) extend walker `assertTarget` with the HoverHelp arm + fixture seeding; (6) delete the dead `ActiveShowsPanel`/`PendingPanel` component bodies (keep the exported helpers) or move the helpers out; (7) wire the `help-docs` Playwright project into CI (`workflow_dispatch` + PR) so the matrix↔live-surface contract cannot silently drift again.
+- **Why not BACKLOG.md:** the §5.6 matrix is a ratified M11 contract and the walker is its enforcement gate; a silently-red gate is debt with a concrete home (next admin-UX milestone), not speculative work.
+- **Re-open trigger:** next admin-UX milestone, OR the M12 UX-validation walk flagging missing dashboard help affordances, OR any milestone that touches the affordance matrix.
+
+### M11-G-D-1: §5.6 matrix row `help-affordance--dashboard-restage-badge--tooltip` defers UI delivery — **UPDATED 2026-06-10: folded into M11-G-D-6 cluster**
+
+**Status update (2026-06-10):** re-open trigger (c) FIRED — M12.5 shipped the HoverCard primitive (`components/admin/HoverHelp.tsx`). However, the 2026-06-10 retrofit attempt found the original fix path ("~30 lines around the badge text") is obsolete: the M12.2 redesign moved the staged-changes signal into ShowsTable's `SyncCell` ("Changes to review", `lib/admin/syncStatus.ts:29`), which renders INSIDE the whole-row `<Link>` (`components/admin/ShowsTable.tsx:334-338`) — a `<button>`-based HoverHelp cannot legally nest there — and the desktop sync cell is hidden below 720px while the walker runs at iPhone 14 width. Placement now needs the same design pass as the two sibling rows orphaned by the redesign. **Superseded by the [M11-G-D-6](#m11-g-d-6-m122-dashboard-redesign-orphaned-two-56-matrix-testids--the-deep-link-walker-is-not-in-ci-filed-2026-06-10) cluster** — original entry preserved below.
 
 - **Severity:** LOW (single-row affordance, not a blocker for v1 admin workflow)
 - **Matrix row:** `app/help/_affordanceMatrix.ts` row 3 (`Dashboard - Review staged changes badge`)
@@ -97,7 +111,11 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ## Phase F close-out (2026-05-22) — adversarial review LOW residuals
 
-### M11-F-D1: Animation suppression injected post-navigation via `addStyleTag` rather than pre-navigation via `addInitScript`
+### M11-F-D1: Animation suppression injected post-navigation via `addStyleTag` rather than pre-navigation via `addInitScript` — **RESOLVED 2026-06-10**
+
+**Status:** **Resolved** in the 2026-06-10 deferred-residue sweep (commit `b4ed8b19`). Re-open trigger (a) had fired: M12.11 put framer-motion route transitions on captured admin routes (at rest under the capture config's `reducedMotion: "reduce"`, so defense-in-depth rather than a live bug). `disableAnimations()` now registers a pre-navigation `addInitScript` that attaches the suppression `<style>` the moment `documentElement` exists (MutationObserver fallback), called before `page.goto` in `captureEntryTheme`. Structural pin in `tests/help/capture-script.test.ts` (no post-navigation style-tag API anywhere in the script + registration precedes goto). Byte-stability verified by the screenshots-drift PR gate. Original entry preserved below.
+
+**Close-out addendum (2026-06-11, PR #22 drift-gate saga):** the PR gate exposed a SIBLING determinism gap this entry's timing concern didn't cover — `needs-attention-mobile-dark.webp` was **environment-bimodal**: identical content captured ±6/255-channel jitter (253 px, full-width band y136-254) on loaded `pull_request` runners vs idle `workflow_dispatch` runners (3/3 PR fails vs 2/2 regen "no changes" on the same content; PR #21 hit the same coin pre-batch with the OLD script). The pinned Docker image pins the *binary*, not the runtime raster path. Landed alongside this entry's fix: (a) `waitForQuiescence` gains the M11-A-D5 barrier (`networkidle → document.fonts.ready → double-rAF settle`, `892dafb1`); (b) drift gate uploads captured bytes as an artifact on failure (`892dafb1`); (c) raster-path pin `--disable-gpu --disable-partial-raster --force-color-profile=srgb` via shared `scripts/capture-launch-args.ts`, consumed by `captureAll()`'s **own** `chromium.launch` AND both Playwright configs — Codex R2 caught that config-only `launchOptions` never reach the script's manual launch; R3 caught the default config's hand-rolled sibling (`31972413`, `d8326e33`, `8ac6ca91`); (d) one-file re-baseline under the pinned environment via the sanctioned `screenshots-regen` dispatch (`683df34a`, measured sub-perceptual maxΔ 6/255). `--disable-lcd-text` deliberately omitted (would churn every committed text baseline).
 
 - **Severity:** LOW (theoretical timing concern; empirically determined to be a non-issue at current manifest scope)
 - **File:line:** `scripts/help-screenshots.ts` — the `page.addStyleTag` call that injects `animation-duration: 0s !important; transition-duration: 0s !important;` runs AFTER `page.goto(..., waitUntil: "domcontentloaded")`, but BEFORE the quiescence wait + screenshot capture.
@@ -187,7 +205,9 @@ Phase E docs at `app/help/admin/sharing-links/page.mdx` continue to document the
 
 ---
 
-### M11-E-D2: `/help/getting-started` walkthrough is a SHORT-NARRATIVE summary of the full §9.0 wizard documented in detail at `/help/admin/onboarding-wizard`
+### M11-E-D2: `/help/getting-started` walkthrough is a SHORT-NARRATIVE summary of the full §9.0 wizard documented in detail at `/help/admin/onboarding-wizard` — **RESOLVED 2026-05-20 (closed-out 2026-06-10)**
+
+**Status:** **Resolved.** The recommended cross-link landed at SHA `bbbf1abc` (`fix(help): dispose Codex R3 findings per spec-canonical rule + cross-link`, 2026-05-20) — `app/help/getting-started/page.mdx:3` now reads "…the full step-by-step wizard reference is at [Onboarding wizard](/help/admin/onboarding-wizard), including the folder-URL verification and the **Finalize** step that activates sync." — exactly the disposition's 1-line addition, including the Finalize mention that addressed R3's "operator could stop after Step 1" concern. The fix shipped the same week the entry was filed; this entry was never suffixed. Closed-out during the 2026-06-10 deferred-residue sweep (no code change).
 
 - **Severity:** HIGH (Codex R3 adversarial finding — flagged as "skips required onboarding steps")
 - **File:line:** `app/help/getting-started/page.mdx:9-14`
@@ -259,7 +279,9 @@ Phase E docs at `app/help/admin/sharing-links/page.mdx` continue to document the
 - **Why not BACKLOG.md:** Real e2e infrastructure work needed before this surface ships to production CI gates; not speculative.
 - **Re-open trigger:** any commit that touches `components/show/`, `components/atoms/`, or related M3/M4 surfaces; OR project-infra cleanup session.
 
-### M11-A-D2: No skip-link to main content from `/help` chrome
+### M11-A-D2: No skip-link to main content from `/help` chrome — **RESOLVED 2026-06-10**
+
+**Status:** **Resolved** in the 2026-06-10 deferred-residue sweep (commit `d8e48798`). Visually-hidden `Skip to content` anchor (`sr-only focus:not-sr-only` + focus-visible ring, token-only classes) as the layout wrapper's first focusable child, `id="main"` on `<main>`. Pinned by `tests/help/skip-link.test.tsx` (presence, DOM order vs Header, fragment resolution, sr-only pattern). Original entry preserved below.
 
 - **Severity:** P3 polish (impeccable audit)
 - **File:line:** `app/help/layout.tsx:46-57` (the chrome composition wrapper)
