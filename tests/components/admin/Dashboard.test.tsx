@@ -8,6 +8,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
 const state = vi.hoisted(() => ({ throwOnConstruct: false }));
+// Mobile needs-attention Task 7 (R6-F1) — when set, loadNeedsAttention returns
+// this instead of running against the (empty) mocked client, so the summary
+// card can be fed stream totals that EXCEED every rendered row-array length.
+const naState = vi.hoisted(() => ({
+  override: null as null | import("@/lib/admin/needsAttention").NeedsAttention,
+}));
+
+vi.mock("@/lib/admin/loadNeedsAttention", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/admin/loadNeedsAttention")>();
+  return {
+    ...actual,
+    loadNeedsAttention: async (opts: Parameters<typeof actual.loadNeedsAttention>[0]) =>
+      naState.override ?? actual.loadNeedsAttention(opts),
+  };
+});
 
 function emptyClient() {
   return {
@@ -45,6 +60,7 @@ vi.mock("next/navigation", () => ({
 
 beforeEach(() => {
   state.throwOnConstruct = false;
+  naState.override = null;
 });
 afterEach(() => {
   cleanup();
@@ -83,6 +99,66 @@ describe("Dashboard composition", () => {
     await renderDashboard();
     expect(screen.getByTestId("needs-attention-count-chip")).toBeInTheDocument();
     expect(screen.getByTestId("needs-attention-help-trigger")).toBeInTheDocument();
+  });
+
+  it("summary card renders loader-derived stream totals, not the rendered subset (R6-F1)", async () => {
+    // Totals (31/47) exceed EVERY row-array length: only 2 items rendered
+    // (1 per stream). A broken implementation that counts rendered rows would
+    // show 1/1 (or 2) — the card must show the loader's exact head-counts.
+    naState.override = {
+      items: [
+        {
+          variant: "pending_ingestion",
+          key: "pi:00000000-0000-0000-0000-000000000001",
+          id: "00000000-0000-0000-0000-000000000001",
+          driveFileId: "drive-file-ingest-1",
+          driveFileName: "RPAS Central.xlsx",
+          copy: "We couldn't process this sheet.",
+          activityAt: "2026-06-01T10:00:00.000Z",
+        },
+        {
+          variant: "existing_staged",
+          key: "ps:00000000-0000-0000-0000-000000000002",
+          stagedId: "00000000-0000-0000-0000-000000000002",
+          driveFileId: "drive-file-sync-1",
+          slug: "rpas-central",
+          title: "RPAS Central",
+          activityAt: "2026-06-02T10:00:00.000Z",
+        },
+      ],
+      renderedCount: 2,
+      totalCount: 78,
+      overflowCount: 76,
+      ingestionTotal: 31,
+      syncTotal: 47,
+    };
+    await renderDashboard();
+
+    // Anti-tautology: the full inbox (inside dashboard-inbox-desktop) renders
+    // overlapping counts/labels. Clone the inbox column and REMOVE the desktop
+    // node before asserting any summary-card text.
+    const col = screen.getByTestId("dashboard-inbox-col");
+    const desktop = col.querySelector('[data-testid="dashboard-inbox-desktop"]');
+    expect(desktop).not.toBeNull();
+    const clone = col.cloneNode(true) as HTMLElement;
+    clone.querySelector('[data-testid="dashboard-inbox-desktop"]')?.remove();
+
+    const card = clone.querySelector<HTMLElement>('[data-testid="needs-attention-summary-card"]');
+    expect(card).not.toBeNull();
+    expect(card!.textContent).toContain("Needs attention · 78");
+    expect(card!.querySelector('[data-testid="summary-chip-ingestions"]')?.textContent).toContain(
+      "31 couldn't process",
+    );
+    expect(card!.querySelector('[data-testid="summary-chip-syncs"]')?.textContent).toContain(
+      "47 to review",
+    );
+
+    // Dual-render structure (spec §4.6): card is mobile-only, the existing
+    // header row + inbox live inside the desktop-only wrapper.
+    expect(card!.className).toMatch(/min-\[720px\]:hidden/);
+    expect((desktop as HTMLElement).className).toMatch(/\bhidden\b/);
+    expect((desktop as HTMLElement).className).toMatch(/min-\[720px\]:flex/);
+    expect(desktop!.querySelector('[data-testid="needs-attention-count-chip"]')).not.toBeNull();
   });
 
   it("infra_error path renders the existing error main", async () => {

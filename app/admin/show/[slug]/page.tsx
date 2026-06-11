@@ -10,7 +10,8 @@
  * when published && !archived && token; preview-as links + the preview route
  * gate on published && !archived; an archived show's ParsePanel is read-only.
  *
- * The GLOBAL AlertBanner is dashboard-only (M12.3) — it is NOT mounted here;
+ * The GLOBAL AlertBanner is dashboard + /admin/needs-attention only (M12.3,
+ * amended by the needs-attention spec D-5) — it is NOT mounted here;
  * per-show alerts surface via this page's own "Alerts for this show" section.
  * requireAdmin() runs here as defense-in-depth. Every Supabase await wraps in
  * try/catch (AGENTS.md §1.9).

@@ -87,8 +87,9 @@ function CheckpointInfraErrorPlaceholder() {
  * return sites (settled steady-state + the defensive final_cas_done branch)
  * route through this wrapper so the header is the one canonical heading.
  *
- * M12.3 items 1+2: the global AlertBanner is now DASHBOARD-ONLY (removed from
- * app/admin/layout.tsx). It mounts here, BETWEEN the page header and the
+ * M12.3 items 1+2 (amended by the needs-attention spec D-5): the global
+ * AlertBanner mounts on the dashboard + /admin/needs-attention only (removed
+ * from app/admin/layout.tsx). Here it mounts BETWEEN the page header and the
  * dashboard stat cards (calm strip under the "Dashboard" title, matching the
  * prototype). Putting it in this wrapper means BOTH Dashboard return sites
  * (settled steady-state + the defensive final_cas_done branch) get it. The

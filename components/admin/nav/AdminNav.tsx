@@ -26,10 +26,20 @@ import type { AlertCountResult } from "@/lib/admin/alertCount";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { NAV, isNavItemActive, shouldRenderOverflow } from "./navConfig";
 import { NotifBell } from "./NotifBell";
+import { useNeedsAttentionBadge } from "./useNeedsAttentionBadge";
 import { UserMenu } from "./UserMenu";
 
-export function AdminNav({ email, alertCount }: { email: string; alertCount: AlertCountResult }) {
+export function AdminNav({
+  email,
+  alertCount,
+  initialBadgeCount = null,
+}: {
+  email: string;
+  alertCount: AlertCountResult;
+  initialBadgeCount?: number | null;
+}) {
   const pathname = usePathname();
+  const badgeCount = useNeedsAttentionBadge(initialBadgeCount);
   const overflow = shouldRenderOverflow(NAV.length);
 
   return (
@@ -60,9 +70,11 @@ export function AdminNav({ email, alertCount }: { email: string; alertCount: Ale
           </span>
         </Link>
 
-        {/* Inline desktop nav links (hidden on mobile). */}
+        {/* Inline desktop nav links (hidden on mobile). mobileOnly items
+            (the Needs-attention tab) are excluded — spec D-2: desktop nav
+            unchanged. */}
         <div className="hidden items-center gap-1 min-[720px]:flex">
-          {NAV.map((item) => {
+          {NAV.filter((item) => !item.mobileOnly).map((item) => {
             const active = isNavItemActive(item.id, pathname);
             return (
               <Link
@@ -99,17 +111,43 @@ export function AdminNav({ email, alertCount }: { email: string; alertCount: Ale
       >
         {NAV.map((item) => {
           const active = isNavItemActive(item.id, pathname);
+          // Badge only on the attention tab, only for a finite positive count
+          // (null/0/NaN/negative → hidden; spec §4.2 guard conditions).
+          const showBadge =
+            item.id === "attention" &&
+            typeof badgeCount === "number" &&
+            Number.isFinite(badgeCount) &&
+            badgeCount > 0;
+          const badgeDisplay = !showBadge ? null : badgeCount > 9 ? "9+" : String(badgeCount);
           return (
             <Link
               key={item.id}
               href={item.href}
               data-testid={`admin-bottom-tab-${item.id}`}
               aria-current={active ? "page" : undefined}
+              aria-label={
+                item.id === "attention"
+                  ? showBadge
+                    ? `Needs attention, ${badgeCount} item${badgeCount === 1 ? "" : "s"}`
+                    : "Needs attention"
+                  : undefined
+              }
               className={`flex flex-1 flex-col items-center justify-center gap-1 self-stretch py-2 text-xs font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${
                 active ? "text-accent-on-bg" : "text-text-subtle"
               }`}
             >
-              <item.Icon className="size-5" />
+              <span className="relative">
+                <item.Icon className="size-5" />
+                {showBadge && (
+                  <span
+                    data-testid="admin-attention-badge"
+                    aria-hidden="true"
+                    className="absolute -right-2.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-pill bg-accent px-1 text-xs font-semibold tabular-nums text-accent-text"
+                  >
+                    {badgeDisplay}
+                  </span>
+                )}
+              </span>
               <span>{item.short}</span>
             </Link>
           );

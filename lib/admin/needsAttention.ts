@@ -14,6 +14,8 @@ import { MESSAGE_CATALOG, messageFor, type MessageCode } from "@/lib/messages/lo
 
 // V4/V7 — pin the inbox max-render cap. Chosen >> FXAV scale, < PostgREST cap.
 export const RENDER_CAP = 20;
+// Page-variant cap, spec §4.1; single source — no other literal 100.
+export const PAGE_RENDER_CAP = 100;
 
 // Fixed catalog-backed generic Doug-facing fallback (spec §7/V8, Task 2.5).
 const GENERIC_INGESTION_COPY = MESSAGE_CATALOG.SHEET_PROCESS_FAILED.dougFacing as string;
@@ -47,6 +49,9 @@ export type BuildNeedsAttentionInput = {
   // keyed by drive_file_id; spans ALL shows (published/unpublished/archived)
   existence: Record<string, ShowExistence>;
   totalCounts: { ingestions: number; syncs: number };
+  // Render cap for the merged slice; defaults to RENDER_CAP (dashboard inbox).
+  // The needs-attention page threads PAGE_RENDER_CAP (spec §4.1).
+  cap?: number;
 };
 
 // `activityAt` = the ISO activity time the card was sorted by (pending_ingestion
@@ -86,6 +91,10 @@ export type NeedsAttention = {
   renderedCount: number;
   totalCount: number;
   overflowCount: number;
+  // Exact per-stream totals (R6-F1) — from the head-counts, NOT the capped
+  // row arrays; underivable from `items` once either stream exceeds the cap.
+  ingestionTotal: number;
+  syncTotal: number;
 };
 
 /**
@@ -159,7 +168,7 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
 
   // Slice ONCE across the merged list (no stream's older rows bury the other's
   // newer rows), THEN classify the sliced sync items.
-  const sliced = merged.slice(0, RENDER_CAP);
+  const sliced = merged.slice(0, input.cap ?? RENDER_CAP);
 
   const items: NeedsAttentionItem[] = sliced.map((entry) => {
     // sortKey is the ISO activity time (or "" when the source row had none).
@@ -204,5 +213,7 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
     renderedCount,
     totalCount,
     overflowCount: Math.max(0, totalCount - renderedCount),
+    ingestionTotal: input.totalCounts.ingestions,
+    syncTotal: input.totalCounts.syncs,
   };
 }
