@@ -532,7 +532,7 @@ async function collectReapDriveFileIds(
 
 class ReapLockSetExpandedError extends Error {}  // R24-1/R27-1: triggers per-session rollback + retry
 
-async function lockReapDriveFiles(tx: OnboardingSessionTx, sessionId: string): Promise<void> {
+async function lockReapDriveFiles(tx: OnboardingSessionTx, sessionId: string): Promise<string[]> {
   // R24-1/R27-1 algorithm: collect WITHOUT row locks → acquire ALL show locks from ONE
   // globally sorted list, exactly once → re-collect under the locks. If the re-collection
   // discovers ANY id not already held (regardless of sort position), we must NOT acquire it
@@ -549,6 +549,7 @@ async function lockReapDriveFiles(tx: OnboardingSessionTx, sessionId: string): P
   if (recheck.some((id) => !held.has(id))) {
     throw new ReapLockSetExpandedError(`reap lock set expanded for session ${sessionId}`);
   }
+  return initial;  // R43-1: the LOCKED set — every drive-id-bearing DELETE + residue check uses exactly this array
 }
 // Caller contract: reapOneSession's per-session transaction catches ReapLockSetExpandedError
 // OUTSIDE the aborted transaction, decrements a per-session retry budget (3), and re-runs the
@@ -605,7 +606,7 @@ async function reapOneSession(
   }
 
   // (3) Per-show advisory locks for every affected drive_file_id, deterministic order.
-  await lockReapDriveFiles(tx, sessionId);
+  const lockedDriveFileIds = await lockReapDriveFiles(tx, sessionId);
 
   // (4) Terminal sessions (final_cas_done) get the orphan-row sweep ONLY (spec §6 R5-2):
   //     staging tables are reapable, but the terminal checkpoint row and any retained
@@ -764,7 +765,7 @@ export async function reapStaleOnboardingSessions(
 }
 ```
 
-  Route/UI note (R29-2): the reap route response and the admin affordance surface `skipped_unstable` sessions distinctly from successful reaps (copy: "1 session couldn't be cleaned this run — try again"); add a route test asserting the outcome appears in the JSON body. R42-1 regressions: (a) real-DB race — a stale action inserts a new-drive residue row after the reap's recheck; assert the reap does NOT delete it in that transaction and instead retries (fresh lock set covering the new id) or returns skipped_unstable; (b) structural test — every reap staging DELETE must filter BOTH wizard_session_id AND the locked drive-id set (reject session-only DELETEs by SQL-shape scan of the reap module). Adjust the candidate-enumeration SQL / fake-classifier pairing as needed — the fake must classify EXACTLY the SQL the implementation issues (the fake throws on anything unclassified, which is the structural no-purge/no-rotate guarantee).
+  Route/UI note (R29-2): the reap route response and the admin affordance surface `skipped_unstable` sessions distinctly from successful reaps (copy: "1 session couldn't be cleaned this run — try again"); add a route test asserting the outcome appears in the JSON body. R43-1 RED/GREEN checklist item (explicit): the SQL-shape structural test is written FIRST and must be RED against any session-only DELETE for the staging tables (temporarily revert the `and drive_file_id = any($2)` clause to confirm red), then GREEN with the locked-set contract. R42-1 regressions: (a) real-DB race — a stale action inserts a new-drive residue row after the reap's recheck; assert the reap does NOT delete it in that transaction and instead retries (fresh lock set covering the new id) or returns skipped_unstable; (b) structural test — every reap staging DELETE must filter BOTH wizard_session_id AND the locked drive-id set (reject session-only DELETEs by SQL-shape scan of the reap module). Adjust the candidate-enumeration SQL / fake-classifier pairing as needed — the fake must classify EXACTLY the SQL the implementation issues (the fake throws on anything unclassified, which is the structural no-purge/no-rotate guarantee).
 - [ ] **VERIFY (GREEN).** `pnpm vitest run tests/onboarding/reapStaleSessions.test.ts tests/onboarding/sessionLifecycle.test.ts` → all pass.
 - [ ] **COMMIT.** `feat(onboarding): session-scoped stale-debris reap (never purges, never rotates)`
 
