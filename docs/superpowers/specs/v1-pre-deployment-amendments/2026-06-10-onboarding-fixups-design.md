@@ -108,8 +108,9 @@ create table if not exists public.data_migration_markers (
 );
 
 do $$
-declare r record;
-declare prev_pass timestamptz;
+declare
+  r record;
+  prev_pass timestamptz;
 begin
   -- R15/R16: per-pass WINDOWING, not a global one-shot. Each execution records a pass row.
   -- Arm B on a re-run considers only broken-shape audits NEWER than the previous pass:
@@ -182,6 +183,7 @@ end $$;
 - **Eligibility = corrupted state, not audit purity (R7 finding 1).** Condition: zero `crew_members` AND a wizard-finalize audit row whose `staged_modified_time` is at-or-after the current watermark — i.e., the wizard was the LAST content writer. An earlier "no non-wizard audit rows exist" condition was rejected: any later non-wizard audit row (asset-recovery write, partial probe) would permanently exclude a still-damaged show, leaving it watermarked-as-current forever. A show whose watermark advanced past every wizard audit was re-applied by a real sync (which writes children), so exclusion is then correct; a zero-crew show in that state has a genuinely crew-less sheet. Idempotent: after backfill, crew exists → no-op; watermark-nulled rows fail the `is not null` guard → no-op. Required regression: a damaged wizard show WITH a later non-wizard audit row (not advancing the watermark) is still reset; a show whose watermark advanced past the wizard audit is untouched.
 - Effect: next cron pass fails the watermark gate (`last_seen_modified_time is null` branch, `runScheduledCronSync.ts:950-955` / `perFileProcessor.ts:214`) and runs the full pipeline; backfilled crew lands in the Changes feed as additions (already-shipped feed semantics).
 - Applies to the six validation shows; in production (no wizard-onboarded shows yet) it is a no-op.
+- The F2 plan task verifies the migration applies cleanly via the local Supabase apply path with `psql -v ON_ERROR_STOP=1` (R24 finding 1) before sign-off.
 - Migration must be applied to the validation project surgically (`supabase db query --linked` / psql) per the validation-schema-parity discipline; `notify pgrst, 'reload schema'` afterward.
 
 ## 5. F3 — Re-apply page "already resolved" state
