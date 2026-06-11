@@ -36,3 +36,11 @@ External attestors (fresh subagents, not the implementing session); v3 preflight
 - **Plan:** Codex R1-R2 → APPROVED R2 (R1 behavioral registry rows in the meta-test itself; crew-facing catalog copy in the sign-in regression test).
 - **Per-task:** two-stage subagent reviews; substantive catches: T3 focus-ring offset (`56422413`), T4 stranded-hop-2 substring false-pass (`a36389c4`).
 - **Whole-milestone:** Codex fresh-eyes, branch vs origin/main → **APPROVE R1**, no material findings (auth semantics, redirect-loop, caching, degradation all probed). Gate fixpoint holds: no UI mutations after the 8531c8c9 re-attestations.
+
+## 14. Collapse amendment (2026-06-11)
+
+Owner relitigated D-1/D-4 after comparing both pages on the live validation deploy: the landing card duplicated the sign-in page (~80% same surface). Superseding spec: `2026-06-11-root-collapse-design.md` (APPROVED R3; R1 = page-level `redirect()` emits a meta-tag 200, so the collapse uses a `next.config.ts` `redirects()` entry — true first-hop 307 + `Location`, pinned by a config structural test and an e2e `maxRedirects: 0` contract). Shipped: `/` 307s to `/auth/sign-in?next=/admin`; the sign-in page absorbed the crew lost-link line verbatim; `app/page.tsx`, `rootSessionProbe`, its tests and all three meta-registry rows removed (registry hygiene). The §4.1.5 sign-in returned-error hardening from this milestone survives unchanged.
+
+**Impeccable (external, dual-gate on the one-paragraph UI mutation): critique PASS (0 HIGH/CRITICAL; 2 LOW advisory — header-paragraph hierarchy is spec-ratified C-2; recovery-path gap owner-declared out of scope), audit PASS 20/20 (contrast measured live 7.8:1/6.4:1; 390px clean both modes).** No post-attestation UI mutations — fixpoint trivial.
+
+Triage note (pre-existing, surfaced during regression run): `tests/e2e/sign-in-page.spec.ts` non-admin-crew `next=/show/<slug>` case fails on main too (redirects to /me) — environment/fixture-dependent; not introduced here; investigate separately.

@@ -147,6 +147,32 @@ describe("M9 C5 / M5-D4 — Sign-in page sources the FXAV wordmark above the hea
   });
 });
 
+describe("root-collapse C-2 — sign-in header absorbs the crew lost-link line", () => {
+  // The root landing card was collapsed into the sign-in page
+  // (root-collapse spec §4.2); its one piece of unique content — the
+  // crew lost-link line — now renders as a second paragraph under the
+  // existing subtitle, same text-text-subtle register. Source-grep
+  // (matching this file's existing async-Server-Component pattern).
+  // Catches: the absorbed content silently dropped.
+  test("source: the verbatim crew line renders under the subtitle inside the <header>", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("app/auth/sign-in/page.tsx", "utf8");
+    // Verbatim copy (C-2, no em-dash) in the subtitle's register with
+    // mt-2 stacking under the mt-3 subtitle.
+    expect(source).toMatch(
+      /<p className="mt-2 text-base text-text-subtle">\s*On a crew\? The link Doug sent goes straight to your show\.\s*<\/p>/,
+    );
+    // Order: subtitle → crew line → </header> (structural order = DOM
+    // order for static JSX).
+    const subtitleIdx = source.indexOf("Use the Google account on your show");
+    const crewIdx = source.indexOf("On a crew? The link Doug sent goes straight to your show.");
+    const headerCloseIdx = source.indexOf("</header>");
+    expect(subtitleIdx).toBeGreaterThan(0);
+    expect(crewIdx).toBeGreaterThan(subtitleIdx);
+    expect(headerCloseIdx).toBeGreaterThan(crewIdx);
+  });
+});
+
 describe("M9 C5 / M5-D4 — Brand assets exist on disk", () => {
   test("public/brand/fxav-wordmark.png exists and is a PNG", async () => {
     const { readFileSync, statSync } = await import("node:fs");
