@@ -673,6 +673,8 @@ grant all privileges on table public.data_migration_markers to service_role;
 do $$
 declare
   synthetic_ids constant uuid[] := array[
+  locked_drive_file_ids text[];
+  dfid text;
     '02304ebb-1d29-4a7e-b042-86b893247240',
     '023ddce3-9d9c-428a-b3bc-59501b73e77b',
     '2123a4d7-2992-4345-bb98-6882b09951e4',
@@ -705,8 +707,8 @@ begin
     perform pg_advisory_xact_lock(hashtext('finalize:' || sid::text));
   end loop;
 
-  for r in
-    select distinct drive_file_id from (
+  -- R53-1: capture the locked drive ids into an array; deletes are bound to EXACTLY this set.
+  select coalesce(array_agg(drive_file_id order by drive_file_id), '{}') into locked_drive_file_ids from (
       select drive_file_id from public.shows_pending_changes      where wizard_session_id = any (synthetic_ids)
       union
       select drive_file_id from public.onboarding_scan_manifest   where wizard_session_id = any (synthetic_ids)
@@ -716,20 +718,35 @@ begin
       select drive_file_id from public.pending_ingestions         where wizard_session_id = any (synthetic_ids)
       union
       select drive_file_id from public.deferred_ingestions        where wizard_session_id = any (synthetic_ids)
-    ) ids
-    order by drive_file_id   -- deterministic lock order
-  loop
-    perform pg_advisory_xact_lock(hashtext('show:' || r.drive_file_id));
+    ) ids;
+  foreach dfid in array locked_drive_file_ids loop
+    perform pg_advisory_xact_lock(hashtext('show:' || dfid));
   end loop;
 
-  -- Session-scoped deletes ONLY (every predicate carries wizard_session_id);
-  -- live-partition rows (wizard_session_id IS NULL) are untouchable by construction.
-  delete from public.pending_syncs              where wizard_session_id = any (synthetic_ids) and (active_sid is null or wizard_session_id <> active_sid);
-  delete from public.pending_ingestions         where wizard_session_id = any (synthetic_ids) and (active_sid is null or wizard_session_id <> active_sid);
-  delete from public.deferred_ingestions        where wizard_session_id = any (synthetic_ids) and (active_sid is null or wizard_session_id <> active_sid);
-  delete from public.onboarding_scan_manifest   where wizard_session_id = any (synthetic_ids) and (active_sid is null or wizard_session_id <> active_sid);
-  delete from public.shows_pending_changes      where wizard_session_id = any (synthetic_ids) and (active_sid is null or wizard_session_id <> active_sid);
-  delete from public.wizard_finalize_checkpoints where wizard_session_id = any (synthetic_ids) and (active_sid is null or wizard_session_id <> active_sid);
+  -- R53-1: session-scoped AND locked-set-bound deletes (live-partition rows wizard_session_id IS NULL
+  -- untouchable by construction; drive-id-bearing tables additionally bound to locked_drive_file_ids).
+  delete from public.pending_syncs              where wizard_session_id = any (synthetic_ids) and drive_file_id = any (locked_drive_file_ids) and (active_sid is null or wizard_session_id <> active_sid);
+  delete from public.pending_ingestions         where wizard_session_id = any (synthetic_ids) and drive_file_id = any (locked_drive_file_ids) and (active_sid is null or wizard_session_id <> active_sid);
+  delete from public.deferred_ingestions        where wizard_session_id = any (synthetic_ids) and drive_file_id = any (locked_drive_file_ids) and (active_sid is null or wizard_session_id <> active_sid);
+  delete from public.onboarding_scan_manifest   where wizard_session_id = any (synthetic_ids) and drive_file_id = any (locked_drive_file_ids) and (active_sid is null or wizard_session_id <> active_sid);
+  delete from public.shows_pending_changes      where wizard_session_id = any (synthetic_ids) and drive_file_id = any (locked_drive_file_ids) and (active_sid is null or wizard_session_id <> active_sid);
+  delete from public.wizard_finalize_checkpoints where wizard_session_id = any (synthetic_ids) and (active_sid is null or wizard_session_id <> active_sid);  -- no drive id column
+
+  -- R53-1: post-delete residue check — a late row (stale tab / PostgREST writer pre-Task-4.7) outside
+  -- the locked set aborts the WHOLE migration transaction (marker row rolls back; re-run is clean).
+  if exists (
+    select 1 from public.pending_syncs       where wizard_session_id = any (synthetic_ids)
+    union all
+    select 1 from public.pending_ingestions  where wizard_session_id = any (synthetic_ids)
+    union all
+    select 1 from public.deferred_ingestions where wizard_session_id = any (synthetic_ids)
+    union all
+    select 1 from public.onboarding_scan_manifest where wizard_session_id = any (synthetic_ids)
+    union all
+    select 1 from public.shows_pending_changes    where wizard_session_id = any (synthetic_ids)
+  ) then
+    raise exception 'onboarding_fixups purge: residue outside locked drive-id set — re-run the migration';
+  end if;
 end $$;
 ```
 
