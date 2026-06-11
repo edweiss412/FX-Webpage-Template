@@ -630,7 +630,8 @@ Spec §4.9 transition inventory (verbatim — every pair instant by design, rout
 
 - [ ] **Step 14.1:** Per-milestone code review: `codex-companion adversarial-review --background --fresh --base main --scope branch` with REVIEWER-ONLY framing, fresh-eyes posture, and the spec §7 do-not-relitigate list (D-1..D-5, chips, dual-render, badge mechanism + fail-quiet, null-count behavior change, registry rows, wrapper parity).
 - [ ] **Step 14.2:** Iterate fix → re-review (`--resume-last`) until APPROVE, no round budget. Class-sweep every finding before patching the named instance; verify each fix-subagent's commit landed on THIS branch (`git merge-base --is-ancestor <sha> HEAD`).
-- [ ] **Step 14.3:** Whole-milestone fresh-eyes pass is the FINAL review round (small milestone: the branch-scope review at convergence covers it; confirm the last round ran with fresh-eyes posture over the entire diff).
+- [ ] **Step 14.3: Gate-ordering guard (R3-P3-F1):** after adversarial review converges, check whether ANY fix commit landed after Task 13's attestation touched an invariant-8 UI surface (`git diff <impeccable-attested-sha>..HEAD --name-only` ∩ {`app/**` minus `app/api/**`, `components/**`, `app/globals.css`, `tailwind.config.*`, `DESIGN.md`}). If yes: re-run the EXTERNAL `/impeccable critique` + `/impeccable audit` on the latest diff, fix/defer HIGH+CRITICAL, append the new findings + dispositions to handoff §12 — and then run ONE more fresh-eyes adversarial round over the entire final diff. Repeat until a fixpoint: the final diff is simultaneously impeccable-attested AND adversarial-APPROVED with no UI mutations after either gate.
+- [ ] **Step 14.4:** Whole-milestone fresh-eyes pass is the FINAL review round (small milestone: the branch-scope review at convergence covers it; confirm the last round ran with fresh-eyes posture over the entire diff — which step 14.3's fixpoint guarantees).
 
 ### Task 15: CI + merge
 
