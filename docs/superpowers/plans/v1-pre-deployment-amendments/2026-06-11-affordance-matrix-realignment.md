@@ -69,6 +69,10 @@ No JS-side wrapper, no RPC, no nested SECURITY DEFINER — `tests/auth/advisoryL
 
 Tests named per task below. Baseline note: the worktree baseline is 3 failed files / 5 failed tests (`test-auth-gate` Layer 2, `layoutIdentityFault`, `revokeHang`) — pre-existing environmental, CI-green on main. Any OTHER failure is yours.
 
+## Execution order (R18 — every commit lands green on the default suite)
+
+**T10 → T8 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T9 → T11 → T12 → T13 → T14 → T15 → T16 → T17.** Task 10 (dead-component deletion) EXECUTES FIRST: the dead components carry `help-affordance--` literals for rows Task 1 renames/removes, and `tests/help/deep-link-walker-reverse.test.ts` (default suite) fails on any literal without a matrix row — deleting the carriers first keeps it green through the matrix rewrite (the reverse test checks literal→row only, so rows without carriers don't fail it). Task 8 (help content) runs SECOND, before the matrix rewrite and all wiring: the reverse test also resolves help targets to files, so every `/help/admin/settings#…` / `#archived` target must exist before any matrix row or component literal references it. The e2e walker (`pnpm test:e2e`, NOT in the default unit suite and not yet in any CI) is ALREADY red at HEAD — that pre-existing red is the bug this milestone fixes and is not newly introduced by any commit here; it goes green at T13 before T14 wires it into CI. Task numbering below is by THEME, not order — each task header notes nothing; follow this order list.
+
 ---
 
 ### Task 1: Matrix schema — `visibleAt`, `DEFERRED_TESTIDS`, 19 rows
@@ -128,7 +132,7 @@ export const DEFERRED_TESTIDS: ReadonlySet<string> = new Set([
 ]);
 ```
 
-- [ ] **Step 1.4:** `pnpm vitest run tests/help/_affordance-matrix-shape.test.ts` → PASS. Note: `tests/help/deep-link-walker-reverse.test.ts` and the walker now FAIL (orphaned literals/old testids) — expected until Tasks 4–11 land; do NOT patch them here.
+- [ ] **Step 1.4:** `pnpm vitest run tests/help/_affordance-matrix-shape.test.ts` → PASS. Then `pnpm vitest run tests/help/deep-link-walker-reverse.test.ts` → STILL PASS (R18 ordering: Task 10 already deleted the dead carriers, so no literal references a renamed/removed row; the reverse test checks literal→row only). If it fails here, a stale literal survived Task 10 — fix THAT, do not patch the test.
 - [ ] **Step 1.5:** Commit: `feat(help): matrix visibleAt + DEFERRED_TESTIDS + 19-row §5.6 realignment table`
 
 ### Task 2: `HoverHelp` — `rootTestId` + `learnMore` (disclosure semantics)
@@ -208,7 +212,7 @@ Concrete failure modes: link flattened into the SR description; `aria-controls` 
 Body element: `role={learnMore ? undefined : "tooltip"}`. Trigger props: `"aria-describedby": learnMore ? descId : bodyId` (no-`learnMore` instances byte-identical to today — Step 2.1's third test pins that; `learnMore` instances describe ONLY the children wrapper, excluding the link) and `"aria-controls": learnMore ? bodyId : undefined`. Keep `bodyId` on the body element itself.
 
 - [ ] **Step 2.4:** `pnpm vitest run tests/components/admin/HoverHelp.test.tsx` → PASS (all, incl. pre-existing).
-- [ ] **Step 2.5:** `pnpm vitest run tests/components` → no regressions beyond the Task-1-expected reverse/walker-adjacent failures.
+- [ ] **Step 2.5:** `pnpm vitest run tests/components` → green minus baseline (R18 ordering keeps the suite green at every commit).
 - [ ] **Step 2.6:** Commit: `feat(admin): HoverHelp rootTestId + learnMore disclosure variant (div body)`
 
 ### Task 3: ShowsTable — row 1 wiring + row 4 restage legend
@@ -381,7 +385,7 @@ titleAppendSlot={
 
 (HelpTooltip puts `testId` on the `<details>` root — `components/admin/HelpTooltip.tsx:58-60` — so the walker's existing summary arm works without component changes; the derived `-trigger`/`-body` ids shift with it, hence the test updates.)
 
-- [ ] **Step 6.4:** Run → PASS; run `pnpm vitest run tests/components/admin tests/app/admin` → only Task-1-expected failures remain. **Step 6.5:** Commit: `feat(admin): per-show sync-footer/crew/alerts matrix wiring (rows 7-9)`
+- [ ] **Step 6.4:** Run → PASS; run `pnpm vitest run tests/components/admin tests/app/admin` → green minus baseline. **Step 6.5:** Commit: `feat(admin): per-show sync-footer/crew/alerts matrix wiring (rows 7-9)`
 
 ### Task 7: Settings — rows 11–14
 
@@ -402,9 +406,9 @@ titleAppendSlot={
 - Modify: `app/help/admin/dashboard/page.mdx`
 - Tests: `tests/help/_metaNavSync.test.ts` (auto-covers nav↔page parity), `tests/help/anchor-resolver.test.ts`, `tests/help/deep-link-walker-reverse.test.ts` (target-file existence)
 
-- [ ] **Step 8.1:** `pnpm vitest run tests/help/deep-link-walker-reverse.test.ts` → currently FAILS on the four `/help/admin/settings#…` + `#archived` targets (missing files/anchors). That IS the failing test for this task.
+- [ ] **Step 8.1 (failing test):** this task runs BEFORE the matrix rewrite (R18 order), so the reverse test cannot be its red signal. Use the nav meta-test instead: add the `{ slug: "/help/admin/settings", … }` NAV entry FIRST, run `pnpm vitest run tests/help/_metaNavSync.test.ts` → FAIL (nav entry without a page). The page + anchors in Step 8.2 turn it green.
 - [ ] **Step 8.2: Write the content.** `app/help/admin/settings/page.mdx`: follow the voice/structure of `app/help/admin/dashboard/page.mdx` (front-matter/title convention identical to siblings); `<h2 id="administrators">`, `<h2 id="drive-connection">`, `<h2 id="drive-health">`, `<h2 id="preferences">` — one short plain-language section each (who can sign in; what the watched-folder connection is; what the health badge states mean — mirror `deriveStatusLine` reasons in `DriveConnectionPanel.tsx:35-60` in prose, NO raw codes per invariant 5; what the notification toggles do). Dashboard page: add `<h2 id="archived">Archived shows</h2>` section (archive = crew links off until unarchive + republish — mirror the `archived-help` popover copy, `Dashboard.tsx:429-432`); rewrite the `#active-shows` section prose to describe the shows TABLE (sortable headers, Find, count chip) and the `#pending-ingestion` section to describe the Needs-attention inbox/page model (anchor id KEPT — spec §5). Add the NAV entry.
-- [ ] **Step 8.3:** `pnpm vitest run tests/help` → reverse-test target-existence + nav meta-test PASS (call-site sweep failures from Task 1 resolve fully after Task 10).
+- [ ] **Step 8.3:** `pnpm vitest run tests/help` → reverse-test target-existence + nav meta-test PASS; suite green minus baseline.
 - [ ] **Step 8.4:** Commit: `feat(help): settings help page + archived anchor + live-UI dashboard prose`
 
 ### Task 9: Structural meta-test
@@ -535,11 +539,11 @@ describe("affordance-matrix ↔ live-surface parity (spec §7)", () => {
 
 Concrete failure modes: a new HoverHelp without a matrix row (call-site rule); a matrix testid in dead code AND live code (uniqueness = 2 files); a deferred testid shipped by accident. The 12-line window + exemption rules are the inline-literal contract from spec §7 — a variable-valued `rootTestId` resolves no literal and fails.
 
-- [ ] **Step 9.2:** `pnpm vitest run tests/help/_metaAffordanceMatrixParity.test.ts` → expected FAILURES: orphaned literals still in `ActiveShowsPanel.tsx`/`PendingPanel.tsx` (uniqueness rule: 2 files; dead `dashboard-active-shows` etc.) and the M11-G-D-2/D-3 `HelpTooltip`-less surfaces are absent (fine — deferred ids aren't asserted present). Record which assertions fail — they must be EXACTLY the dead-component ones.
-- [ ] **Step 9.3:** Extend `deep-link-walker-reverse.test.ts:11`: `HELP_AFFORDANCE_RE = /(?:data-testid|rootTestId)=["'](help-affordance--[^"']+)["']/g;`
-- [ ] **Step 9.4:** Commit: `test(help): affordance-matrix parity meta-test (call-site sweep, inverse uniqueness, deferred-set)` — note in the body that it intentionally fails until Task 10 deletes the dead carriers.
+- [ ] **Step 9.2 (lands GREEN; failing-first via negative verification):** under the R18 execution order, Tasks 10 + 1–8 have already landed, so `pnpm vitest run tests/help/_metaAffordanceMatrixParity.test.ts` → PASS on first real run. Prove the test is not tautological the established way (negative-regression verification): temporarily remove `rootTestId` from the ShowsTable header HoverHelp → call-site rule AND inverse-uniqueness must both FAIL with file:line output → restore. Record the negative run in the commit body.
+- [ ] **Step 9.3:** Extend `deep-link-walker-reverse.test.ts:11`: `HELP_AFFORDANCE_RE = /(?:data-testid|rootTestId)=["'](help-affordance--[^"']+)["']/g;` → suite stays green.
+- [ ] **Step 9.4:** Commit: `test(help): affordance-matrix parity meta-test (call-site sweep, occurrence uniqueness, deferred-set)` — negative-verification evidence in the body.
 
-### Task 10: Delete dead components, relocate helpers
+### Task 10: Delete dead components, relocate helpers — **EXECUTES FIRST (R18 execution order; see the list after the file-structure table).** Own TDD cycle, own green commit: the default suite (including `deep-link-walker-reverse`) passes after deletion because every surviving literal still maps to a not-yet-renamed matrix row.
 
 **Files:**
 - Create: `lib/admin/showDisplay.ts`
@@ -548,9 +552,9 @@ Concrete failure modes: a new HoverHelp without a matrix row (call-site rule); a
 - Tests: relocate `tests/components/admin/formatDateRange.test.ts` + `class-sweep-now-utility.test.ts` imports; DELETE `tests/components/admin/PendingPanel-awaiting-approval.test.tsx` and the `ActiveShowsPanel`/`PendingPanel` render cases in `DashboardPanels.test.tsx` + `section-header-affordance.test.tsx` (grep `rg -ln "ActiveShowsPanel|PendingPanel" tests/` and disposition EVERY hit: relocate import, delete dead-component case, or migrate the assertion to the live equivalent — state the disposition per file in the commit body); update `tests/help/_uiLabelExceptions.ts` + `forbidden-prose-registry.test.ts` entries that name the dead files.
 
 - [ ] **Step 10.1:** Create `lib/admin/showDisplay.ts`: move `ActiveShowRow` (type), `formatDateRange`, `formatRelative` VERBATIM from `ActiveShowsPanel.tsx:12-115` (one home, no transitional re-export — spec §13). Re-point all six importers. Grep first for PendingPanel type consumers: `rg -n "PendingIngestionRow|FirstSeenStagedRow" --type ts --type tsx -g '!components/admin/PendingPanel.tsx'` — relocate any live consumer's type alongside (expected: none outside tests).
-- [ ] **Step 10.2:** Delete both component files. `pnpm vitest run tests/` → the Task-9 meta-test now PASSES (uniqueness = exactly one file per live id); fix any straggler imports the run surfaces.
+- [ ] **Step 10.2:** Delete both component files. `pnpm vitest run tests/` → green minus baseline (this task runs FIRST, before the matrix rewrite — `deep-link-walker-reverse` stays green because every surviving `help-affordance--` literal still maps to a current matrix row); fix any straggler imports the run surfaces.
 - [ ] **Step 10.3:** `pnpm build` → compiles clean (catches `page.tsx`-level imports vitest misses).
-- [ ] **Step 10.4:** Commit: `refactor(admin): delete dead ActiveShowsPanel/PendingPanel, relocate show display helpers`
+- [ ] **Step 10.4:** Commit: `refactor(admin): delete dead ActiveShowsPanel/PendingPanel, relocate show display helpers (pre-matrix-rewrite per R18 execution order)`
 
 ### Task 11: Walker rework — helpers module, two viewports, HoverHelp arm
 
@@ -768,6 +772,6 @@ pnpm vitest run tests/help/_metaAffordanceMatrixParity.test.ts tests/help/_affor
 
 - **Spec coverage:** §3 → T1; §4.1 → T2; §4.2 → T3–T7; §4.3 → T3; §5 → T8; §6 → T11–T13; §7 → T9; §8 → T10; §9 → T15; §10 → T14; §11 (regen) → T16; §12–13 → throughout + T17. No uncovered spec section.
 - **Type consistency:** `visibleAt` union, `DEFERRED_TESTIDS: ReadonlySet<string>`, `rootTestId`/`learnMore` prop names, `walkerRoutes` export names (`allWalkableRows`/`walksAt`/`routeForPure`/`prepKindFor`) used identically across T1/T2/T9/T11.
-- **Known sequencing constraint:** T9's meta-test intentionally red between T9 and T10 (dead carriers) — commits note it; if executing with per-task CI, reorder T10 before T9's commit or squash their commits.
+- **Sequencing (R18):** execution order T10 → T1 → T2…T8 → T9 → T11… (declared after the file-structure table). Deleting the dead carriers FIRST keeps `deep-link-walker-reverse` green through the matrix rewrite; the meta-test then lands green at T9 with stash-based negative verification as its failing-first evidence. No commit anywhere in the plan lands with a known-red default-suite test (invariant 1); the e2e walker's red-at-HEAD state is pre-existing and goes green at T13.
 - **Layout-dimensions task:** none required — no fixed-dimension parent/child relationships introduced (legend is normal flow; popovers absolute overlays). Declared per writing-plans rule.
 - **Transition audit:** folded into T3 (legend = the only new visual-state element; declared instant; compound case stated). No `AnimatePresence` introduced anywhere in the milestone.
