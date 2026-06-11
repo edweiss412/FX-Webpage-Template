@@ -1254,13 +1254,20 @@ import { join } from "node:path";
 import { LIVE_PARTITION_CLASSIFICATION } from "@/lib/sync/applyStagedCore";
 
 const ROOT = process.cwd();
-// The core's reachable apply surface (module + transitive tx/composition files):
+// The core's reachable apply surface — module + transitive tx/composition files INCLUDING the
+// PostgresPipelineTx method bodies, where live-only mutations like deleteLivePendingIngestion
+// actually live (plan R23-1: omitting the tx file left the exact class unguarded — a future tx
+// method could add a live-partition mutation reachable from wizard applies without failing this test):
 const SURFACE = [
   "lib/sync/applyStagedCore.ts",
   "lib/sync/applyParseResult.ts",
   "lib/sync/phase2.ts",
+  "lib/sync/runScheduledCronSync.ts",
 ];
 
+// Wizard-scope completeness (plan R23-1): the second test must NOT hard-code deleteLivePendingIngestion —
+// iterate EVERY LIVE_PARTITION_CLASSIFICATION row classified "live-only" and prove each resolves to a
+// no-op (or is structurally unreachable) when the core runs with sourceScope: "wizard".
 describe("live-partition classification contract (spec §3.2 / §9 R17)", () => {
   test("every partition-discriminated statement on the core surface has a classification row", () => {
     const partitionTables = /(pending_syncs|pending_ingestions|deferred_ingestions|admin_alerts)/g;
