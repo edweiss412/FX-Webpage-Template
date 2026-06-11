@@ -966,7 +966,7 @@ test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes 
          auditSource: "onboarding_finalize_cas",
          fileMeta: syntheticFileMeta(row, parsed),                                    // Phase D is SQL-only (spec §3.4): name/modifiedTime from payload, no Drive I/O
          mi11Items: parsed.mi11Items,                                                 // → runPhase2 writes sync_holds BEFORE the hold-aware apply (phase2.ts:300-335)
-         notableItems: parsed.triggeredReviewItems,                                   // → writeAutoApplyChanges feed rows (phase2.ts:340-372), D-2
+         notableItems: choiceAwareFeedItems(parsed.triggeredReviewItems, validation.choices), // plan R24-2/R26-1: NEVER the raw items — reject-resolved items excluded; independent-resolved items in remove+add form (or extended feed API) so writeAutoApplyChanges (phase2.ts:340-372) cannot derive crew_renamed for a choice the operator declined; D-2
          skipDiagramsWrite: false,                                                    // payload diagrams already canonical (spec §3.4)
        });
        if (core.outcome === "invalid_request") return { drive_file_id: row.drive_file_id, code: "STAGED_REVIEW_ITEMS_CORRUPT" };
