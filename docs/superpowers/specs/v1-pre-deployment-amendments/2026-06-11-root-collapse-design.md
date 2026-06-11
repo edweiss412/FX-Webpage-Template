@@ -22,7 +22,8 @@
 
 ## 3. Current state (verified, 2026-06-11 @ `main` `16199d7a`)
 
-- `app/page.tsx` — the landing card + probe consumption (shipped yesterday, PR #21).
+- `app/page.tsx` — the landing card + probe consumption (shipped yesterday, PR #21); DELETED by this milestone.
+- `next.config.ts` exists (no `redirects()` today — grep verified); gains the entry in §4.1.
 - `lib/auth/rootSessionProbe.ts` — used ONLY by `app/page.tsx` (verify with `rg -l rootSessionProbe` before deleting; if any other consumer appeared, stop and reassess).
 - Sign-in page: session guard + admin/crew `next` resolution (`app/auth/sign-in/page.tsx:74-140` region incl. the §4.1.5 branch); header block with subtitle "Use the Google account on your show's crew sheet to continue." (`:203-205` region); `SignInButton`; OR divider + View show list; error block; help line.
 - Tests touching the removed surfaces: `tests/auth/rootSessionProbe.test.ts` (delete), `tests/app/rootLanding.test.tsx` (rewrite), `tests/e2e/root-landing.spec.ts` (rewrite), `tests/auth/_metaInfraContract.test.ts` (remove the three probe registrations), `playwright.config.ts` testMatch (keep — the e2e file persists under the same name).
@@ -30,21 +31,23 @@
 
 ## 4. Design
 
-1. **`app/page.tsx`** (full replacement):
+1. **Route-level redirect (R1 amendment — first-hop HTTP 3xx, not a page):** `redirect()` inside a Server Component page emits a META-TAG redirect in a 200 HTML response (Next 16.2.4, `node_modules/next/dist/esm/client/components/redirect.js` comments) — wrong mechanism for an unconditional route alias. Instead:
+   - **DELETE `app/page.tsx` entirely** (no root page surface exists).
+   - Add to `next.config.ts`:
 
-```tsx
-import { redirect } from "next/navigation";
-
-// The sign-in page is the front door (owner decision C-1, 2026-06-11,
-// superseding the short-lived landing card from PR #21). Its session
-// guard resolves signed-in visitors (admin → /admin, crew → /me) and
-// its CTA + crew guidance serve everyone else.
-export default function Home() {
-  redirect("/auth/sign-in?next=/admin");
-}
+```ts
+async redirects() {
+  return [
+    {
+      source: "/",
+      destination: "/auth/sign-in?next=/admin",
+      permanent: false, // 307 — keep reversible while the front-door shape is young
+    },
+  ];
+},
 ```
 
-   No `dynamic` export needed — an unconditional `redirect()` is honored for statically optimized pages (Next emits the redirect for the route); the e2e pins observed behavior either way.
+   Config redirects run before the filesystem, emit a true first-hop 307 with a `Location` header, and behave identically for crawlers, no-JS clients, and monitors.
 2. **Sign-in page:** add under the existing subtitle paragraph, inside the same `<header>`: `<p className="mt-2 text-base text-text-subtle">On a crew? The link Doug sent goes straight to your show.</p>` (exact placement/classes verified against the live header block at implementation time; copy verbatim from C-2; no em-dash).
 3. **Deletions per C-3.** Registry hygiene: after removal, `pnpm vitest run tests/auth/_metaInfraContract.test.ts` green with zero references to the probe.
 4. **Guard conditions / transitions:** none — `/` has no states; the sign-in page's states are unchanged except one added static paragraph. **Dimensional invariants:** none new (no fixed-dimension parents touched).
@@ -62,8 +65,8 @@ export default function Home() {
 
 ## 7. Testing
 
-1. **Unit:** `tests/app/rootLanding.test.tsx` → rewritten: rendering `Home` calls `redirect` with exactly `/auth/sign-in?next=/admin` (throwing-sentinel mock); no other render output. *Catches: path/param drift breaking the admin/crew split.* Sign-in header test (extend whichever unit file covers the header, or `SignInBrand.test.tsx`): the crew line renders verbatim. *Catches: the absorbed content silently dropped.*
-2. **E2E:** `tests/e2e/root-landing.spec.ts` → rewritten: anonymous `/` → final pathname `/auth/sign-in` with `next=/admin`, `sign-in-headline` AND the crew line visible; signed-in admin `/` → final pathname `/admin` (pathname-exact); signed-in `NON_ADMIN_CREW_FIXTURE` `/` → `/me`. *Catches: either hop breaking; the redirect emitting a render instead.*
+1. **Unit:** `tests/app/rootLanding.test.tsx` → DELETED (no page to test). New structural pin `tests/config/rootRedirect.test.ts`: imports `next.config.ts`, awaits `redirects()`, asserts an entry with `source: "/"`, `destination: "/auth/sign-in?next=/admin"`, `permanent: false`. *Catches: the redirect entry being dropped or retargeted.* Sign-in header test (extend whichever unit file covers the header, or `SignInBrand.test.tsx`): the crew line renders verbatim. *Catches: the absorbed content silently dropped.*
+2. **E2E:** `tests/e2e/root-landing.spec.ts` → rewritten: (a) **first-hop contract (R1):** `page.request.get("/", { maxRedirects: 0 })` → status 307 AND `Location` header `/auth/sign-in?next=/admin` — a 200-with-meta-tag response FAILS this; (b) anonymous `/` (browser) → final pathname `/auth/sign-in` with `next=/admin`, `sign-in-headline` AND the crew line visible; (c) signed-in admin `/` → final pathname `/admin` (pathname-exact); (d) signed-in `NON_ADMIN_CREW_FIXTURE` `/` → `/me`. *Catches: either hop breaking; the redirect silently degrading to a rendered page.*
 3. Full suite + typecheck + prettier; impeccable dual-gate (external) on the sign-in copy addition (UI mutation, invariant 8) with handoff §12 appended to the landing handoff doc (new §14 "Collapse amendment"); whole-milestone adversarial review; real CI; merge.
 
 ## 8. Meta-test inventory
