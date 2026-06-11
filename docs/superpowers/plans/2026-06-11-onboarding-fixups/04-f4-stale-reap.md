@@ -654,12 +654,29 @@ async function reapOneSession(
     ).rowCount;
   }
   for (const table of REAP_STAGING_TABLES) {
+    // R42-1: deletes are constrained to the LOCKED drive-id set, never wizard_session_id alone —
+    // a stale-tab action committing a NEW-drive row after the recheck must not be swept without
+    // holding show:<new_drive_id>. Rows with NULL drive_file_id (none exist in these tables' DDL,
+    // verify at implementation) would otherwise escape the lock contract.
     deleted += (
       await tx.query(
-        `delete from public.${table} where wizard_session_id = $1::uuid returning 1 as deleted`,
-        [sessionId],
+        `delete from public.${table}
+          where wizard_session_id = $1::uuid
+            and drive_file_id = any($2)
+          returning 1 as deleted`,
+        [sessionId, lockedDriveFileIds],
       )
     ).rowCount;
+  }
+  // R42-1: post-delete residue check — if any session-scoped row remains in a staging table
+  // (i.e., a row outside the locked set appeared mid-transaction), throw ReapLockSetExpandedError
+  // so the bounded retry re-runs the session with a fresh lock set (or skipped_unstable).
+  for (const table of REAP_STAGING_TABLES) {
+    const residue = await tx.query(
+      `select 1 from public.${table} where wizard_session_id = $1::uuid limit 1`,
+      [sessionId],
+    );
+    if (residue.rowCount > 0) throw new ReapLockSetExpandedError(`post-delete residue in ${table}`);
   }
   if (deleted === 0) {
     // Nothing but preserved surfaces (terminal checkpoint / retained shadows): not a reap.
@@ -747,7 +764,7 @@ export async function reapStaleOnboardingSessions(
 }
 ```
 
-  Route/UI note (R29-2): the reap route response and the admin affordance surface `skipped_unstable` sessions distinctly from successful reaps (copy: "1 session couldn't be cleaned this run — try again"); add a route test asserting the outcome appears in the JSON body. Adjust the candidate-enumeration SQL / fake-classifier pairing as needed — the fake must classify EXACTLY the SQL the implementation issues (the fake throws on anything unclassified, which is the structural no-purge/no-rotate guarantee).
+  Route/UI note (R29-2): the reap route response and the admin affordance surface `skipped_unstable` sessions distinctly from successful reaps (copy: "1 session couldn't be cleaned this run — try again"); add a route test asserting the outcome appears in the JSON body. R42-1 regressions: (a) real-DB race — a stale action inserts a new-drive residue row after the reap's recheck; assert the reap does NOT delete it in that transaction and instead retries (fresh lock set covering the new id) or returns skipped_unstable; (b) structural test — every reap staging DELETE must filter BOTH wizard_session_id AND the locked drive-id set (reject session-only DELETEs by SQL-shape scan of the reap module). Adjust the candidate-enumeration SQL / fake-classifier pairing as needed — the fake must classify EXACTLY the SQL the implementation issues (the fake throws on anything unclassified, which is the structural no-purge/no-rotate guarantee).
 - [ ] **VERIFY (GREEN).** `pnpm vitest run tests/onboarding/reapStaleSessions.test.ts tests/onboarding/sessionLifecycle.test.ts` → all pass.
 - [ ] **COMMIT.** `feat(onboarding): session-scoped stale-debris reap (never purges, never rotates)`
 
