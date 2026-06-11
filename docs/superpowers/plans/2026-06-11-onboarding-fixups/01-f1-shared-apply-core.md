@@ -436,7 +436,7 @@ describe("applyStagedCore live-partition source scoping", () => {
 - Modify: `tests/onboarding/finalize.test.ts` (fake-tx rows gain the new SELECT columns)
 - Modify: `supabase/__generated__/schema-manifest.json` (regen)
 
-**Concrete failure modes caught:** (a) THE origin incident — first-seen finalize persists only `shows` columns, 0 crew / 0 rooms / empty `shows_internal` with `last_sync_status='ok'`; (b) the wizard interim row becomes crew-visible early (`published` defaults `true` through the shared insert) — spec §3.1 flag lifecycle; (c) audit provenance stubs — `triggered_review_items='[]'`, `applied_at` = finalize-click time, actor ≠ approving admin (spec §3.1 R8-1); (d) F4's data-loss class — no `created_show_id` provenance means the reap must fall back to the `published=false` proxy; (e) **provenance-race orphan** — a wizard-session supersession committing between the core apply and the provenance UPDATE makes the UPDATE's active-session EXISTS predicate match 0 rows; without a row-count check the per-row transaction still COMMITS an unpublished show with NO `created_show_id` recorded, and `deleteApprovedPending` consumes the staging row — a permanent invisible orphan: the F4 reap can never identify the show as session-created, Phase D's narrowed flip never publishes it, and the operator has no pending row left to re-apply.
+**Concrete failure modes caught:** (a) THE origin incident — first-seen finalize persists only `shows` columns, 0 crew / 0 rooms / empty `shows_internal` with `last_sync_status='ok'`; (b) the wizard interim row becomes crew-visible early (`published` defaults `true` through the shared insert) — spec §3.1 flag lifecycle; (c) audit provenance stubs — `triggered_review_items='[]'`, `applied_at` = finalize-click time, actor ≠ approving admin (spec §3.1 R8-1); (d) F4's data-loss class — no `created_show_id` provenance means the reap must fall back to the `published=false` proxy; (e) **provenance-race orphan (defense-in-depth)** — if a wizard-session supersession ever committed between the core apply and the provenance UPDATE, the UPDATE's active-session EXISTS predicate would match 0 rows; without a row-count check the per-row transaction would still COMMIT an unpublished show with NO `created_show_id` recorded, and `deleteApprovedPending` would consume the staging row — a permanent invisible orphan: the F4 reap could never identify the show as session-created, Phase D's narrowed flip would never publish it, and the operator would have no pending row left to re-apply. TODAY this interleaving is unreachable: `readActiveSession` holds `SELECT … FOR UPDATE` on `app_settings` (`finalize/route.ts:171-181`) for the whole outer batch, so a concurrent flip blocks until finalize commits. The returning-check guards future lock refactors; the lock-topology DB test pins the serialization that currently makes the race moot.
 
 - [ ] **Write failing test** `tests/onboarding/finalizeFirstSeenFullApply.db.test.ts` (real DB; harness per `onboardingFinalizePublishDb.test.ts` — real `handleOnboardingFinalize` with default `withTx`/`withRowTx`, injected `requireAdminIdentity` (finalizing admin `finalizer@fxav.com`) and `fetchDriveFileMetadata` pinned to the staged instant; seed via the REAL wizard-staging writer so the parse_result jsonb shape is production-true):
 
@@ -503,32 +503,35 @@ test("pending_syncs row is consumed and the wizard row never touched the live pa
   expect((await sql`select 1 from public.pending_syncs where drive_file_id = ${DRIVE_FILE_ID}`).length).toBe(0);
 });
 
-test("provenance race: session superseded between core apply and provenance UPDATE → per-row tx ROLLS BACK, staging row stays recoverable", async () => {
-  // Concrete failure mode: without the returning-check, this race COMMITS an orphan unpublished
-  // show (no created_show_id) while deleteApprovedPending consumes the pending row — unrecoverable.
-  // Injection: wrap deps.withRowTx so the FinalizeRouteTx it hands to processApprovedRow is a
-  // proxy whose query() detects the `set created_show_id` UPDATE and, BEFORE forwarding it,
-  // commits a session flip on a SEPARATE postgres connection (READ COMMITTED makes the flip
-  // visible to the EXISTS predicate):
-  //   await sideSql`update public.app_settings set pending_wizard_session_id = ${OTHER_SESSION}::uuid where id = 'default'`;
-  const response = await handleOnboardingFinalize(request(), depsWithProvenanceRaceFlip);
-  const row = ((await response.json()) as { per_row: Array<{ code: string }> }).per_row[0]!;
-  expect(row.code).toBe("WIZARD_SESSION_SUPERSEDED");
-  // Rolled back: no show, no children, no audit, no provenance:
-  expect((await sql`select 1 from public.shows where drive_file_id = ${RACE_FILE_ID}`).length).toBe(0);
-  expect((await sql`select 1 from public.sync_audit where drive_file_id = ${RACE_FILE_ID}`).length).toBe(0);
-  // Staging row RECOVERABLE: rollback preserved it; the per-row abort follow-up demoted it
-  // (wizard_approved reverted, manifest back to 'staged' — the existing demote contract):
-  const pending = one(await sql`select wizard_approved, last_finalize_failure_code
-                                 from public.pending_syncs where drive_file_id = ${RACE_FILE_ID}`);
-  expect(pending.wizard_approved).toBe(false);
-  expect(pending.last_finalize_failure_code).toBe("WIZARD_SESSION_SUPERSEDED");
-  expect(one(await sql`select status from public.onboarding_scan_manifest
-                        where drive_file_id = ${RACE_FILE_ID}`).status).toBe("staged");
+test("lock-topology proof: the app_settings FOR UPDATE serializes supersession against the Phase B loop", async () => {
+  // The live topology makes the in-loop provenance race UNREACHABLE: handleOnboardingFinalize's
+  // readActiveSession takes SELECT ... FOR UPDATE on app_settings (finalize/route.ts:171-181) and
+  // the outer withTx holds that row lock for the WHOLE batch — so a concurrent supersession
+  // (scan/cleanup flipping pending_wizard_session_id) BLOCKS until finalize commits. This test
+  // proves the serialization rather than simulating an impossible interleaving:
+  //   1. Start handleOnboardingFinalize with a withRowTx wrapper that delays 300ms inside the
+  //      first per-row apply (the outer app_settings row lock is held throughout).
+  //   2. While it is in flight, fire on a SIDE connection (no transaction reuse):
+  //        sideFlip = sideSql`update public.app_settings
+  //                              set pending_wizard_session_id = ${OTHER_SESSION}::uuid
+  //                            where id = 'default'`;
+  //   3. Record completion order with timestamps.
+  const order: string[] = [];
+  const finalize = handleOnboardingFinalize(request(), depsWithSlowFirstRow)
+    .then((r) => { order.push("finalize"); return r; });
+  await delay(50); // finalize is inside the batch, holding the app_settings row lock
+  const flip = sideFlip().then(() => { order.push("flip"); });
+  await Promise.all([finalize, flip]);
+  expect(order).toEqual(["finalize", "flip"]);   // the flip BLOCKED until finalize committed
+  // And the finalize batch completed normally — provenance recorded, nothing demoted:
+  expect(one(await sql`select created_show_id from public.onboarding_scan_manifest
+                        where drive_file_id = ${DRIVE_FILE_ID}`).created_show_id).not.toBeNull();
 });
 ```
 
-- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeFirstSeenFullApply.db.test.ts` — expected failure: crew/rooms/internal selects return 0 rows (negative regression against the live bespoke INSERT — testing-spine item 2), `created_show_id` column does not exist (SQL error), `applied_by` = finalizer; the race test fails because no provenance UPDATE exists yet to intercept (the proxy's trigger never fires — assert the proxy recorded an interception so the race test cannot pass vacuously).
+  Plus a **unit/fake-tx defense-in-depth test** appended to `tests/onboarding/finalize.test.ts` (fake harness, no real lock): seed the fake DB so the provenance UPDATE returns 0 rows (fake reports no `recorded` row — simulating a future refactor that drops the FOR UPDATE); assert `processApprovedRow` THROWS `FirstSeenProvenanceRaceError` BEFORE any `deleteApprovedPending` query is issued (spy op-order), and that the per-row loop's catch demotes the row (`demotePending` called with `WIZARD_SESSION_SUPERSEDED`) and returns the typed `PerRowResult`. **Documented contract:** the live `readActiveSession` FOR UPDATE makes this race unreachable TODAY; the returning-check + typed rollback error is defense-in-depth protecting against future lock refactors (e.g. weakening the outer FOR UPDATE for batch concurrency) — the unit test pins the guard, the DB test pins the lock topology that currently makes it moot.
+
+- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeFirstSeenFullApply.db.test.ts tests/onboarding/finalize.test.ts` — expected failure: crew/rooms/internal selects return 0 rows (negative regression against the live bespoke INSERT — testing-spine item 2), `created_show_id` column does not exist (SQL error), `applied_by` = finalizer; the lock-topology test fails on the `created_show_id` assertion (column/UPDATE absent); the fake-tx test fails because `FirstSeenProvenanceRaceError` does not exist yet.
 - [ ] **Implementation:**
   1. **Migration** `supabase/migrations/20260611000000_onboarding_manifest_created_show_id.sql`:
      ```sql
@@ -661,7 +664,7 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
 - Create: `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` (real DB — moved here from Task 1.2 so it is written failing at this task's START and green by its END; no intentionally-red commit)
 - Modify: `tests/onboarding/finalize-cas.test.ts` (fake rows/withRowTx plumbing)
 
-**Concrete failure modes caught:** (a) the `<=` gate (`finalize-cas/route.ts:277`) applies from a baseline the reviewer never saw — live row advanced after staging but still `<= staged_modified_time` (spec §3.2 R21-1); (b) Phase D routes through the legacy whole-parse path and either throws P2-F7 (wedging finalize) or — worse — applies an MI-11 email ungated (spec §3.2 R4-2); (c) the bulk publish flip force-publishes a pre-existing `published=false` (archived/unpublished) show approved into a shadow — crew-visibility data exposure (spec §3.4 R18-1); (d) Phase D audit lacks `base_modified_time` / real provenance, breaking F2 Arm B's broken-writer-shape detection.
+**Concrete failure modes caught:** (a) the `<=` gate (`finalize-cas/route.ts:277`) applies from a baseline the reviewer never saw — live row advanced after staging but still `<= staged_modified_time` (spec §3.2 R21-1); (b) Phase D routes through the legacy whole-parse path and either throws P2-F7 (wedging finalize) or — worse — applies an MI-11 email ungated (spec §3.2 R4-2); (c) the bulk publish flip force-publishes a pre-existing `published=false` (archived/unpublished) show approved into a shadow — crew-visibility data exposure (spec §3.4 R18-1); (d) Phase D audit lacks `base_modified_time` / real provenance, breaking F2 Arm B's broken-writer-shape detection; (e) **mid-loop session-currency race** — Phase D today reads `app_settings` WITHOUT `FOR UPDATE` (`readSession`, `finalize-cas/route.ts:129-142`), applies each shadow in separately-COMMITTED row transactions (`:449-451`), and only detects supersession when `promoteSettings` returns null at the tail (`:460-461`): a scan/cleanup superseding the session mid-loop lets old-session shadow applies (children, feed, audit, shadow deletion, publish flip, deferral cleanup, `markFinalCasDone` is the only thing skipped) COMMIT before the 409 — durable old-session writes the operator believes were refused.
 
 - [ ] **Write failing test** `tests/onboarding/finalizeCasFullApply.db.test.ts` (real DB; drives `handleOnboardingFinalizeCas` with default `withTx`/`withRowTx`; seeds `shows_pending_changes` rows with the Task-1.4 payload shape; all expectations derived from the seeded payload fixtures):
 
@@ -734,14 +737,48 @@ test("(d) publish flip is narrowed to session-CREATED rows: pre-existing publish
   expect(one(await sql`select published from public.shows where id = ${CREATED_SHOW_ID}`).published).toBe(true);
   expect(one(await sql`select published from public.shows where id = ${PREEXISTING_UNPUBLISHED_ID}`).published).toBe(false);
 });
+
+test("(e1) PRE-superseded session: typed abort BEFORE any row transaction — zero shadow applies persisted", async () => {
+  // Concrete failure mode: without the up-front FOR UPDATE session-currency check, Phase D reads
+  // S1, a supersession lands, and S1's shadows still apply row-by-row in committed transactions
+  // before the tail CAS 409s — durable old-session children/feed/audit/publish writes.
+  // Seed: full S1 state (checkpoint all_batches_complete + one shadow for drive-cas-5), then flip:
+  await sql`update public.app_settings set pending_wizard_session_id = ${OTHER_SESSION}::uuid where id = 'default'`;
+  const res = await handleOnboardingFinalizeCas(request(), deps);
+  expect(res.status).toBe(409);
+  expect(((await res.json()) as { code: string }).code).toBe("WIZARD_FINALIZE_CHECKPOINT_MISSING"); // existing typed abort (no checkpoint for OTHER_SESSION)
+  // ZERO row transactions ran: live crew untouched, shadow retained, no audit:
+  const show = one(await sql`select id from public.shows where drive_file_id = 'drive-cas-5'`);
+  expect((await sql`select name from public.crew_members where show_id = ${show.id}`).map((r) => r.name).sort())
+    .toEqual(SEEDED_CAS5_LIVE_CREW.map((m) => m.name).sort());
+  expect((await sql`select 1 from public.shows_pending_changes where drive_file_id = 'drive-cas-5'`).length).toBe(1);
+  expect((await sql`select 1 from public.sync_audit where drive_file_id = 'drive-cas-5'`).length).toBe(0);
+});
+
+test("(e2) lock-topology proof: the up-front app_settings FOR UPDATE serializes a MID-LOOP supersession attempt", async () => {
+  // A concurrent flip can no longer interleave with the shadow loop — it BLOCKS on the
+  // app_settings row lock (held from the up-front currency check through the promoteSettings
+  // tail CAS) until Phase D commits. Mirrors the Task-1.3 lock-topology proof.
+  const order: string[] = [];
+  const finalize = handleOnboardingFinalizeCas(request(), depsWithSlowFirstShadow)
+    .then((r) => { order.push("finalize"); return r; });
+  await delay(50);                                       // Phase D is mid-loop, holding the row lock
+  const flip = sideSql`update public.app_settings
+                          set pending_wizard_session_id = ${OTHER_SESSION}::uuid
+                        where id = 'default'`.then(() => { order.push("flip"); });
+  const [res] = await Promise.all([finalize, flip]);
+  expect(order).toEqual(["finalize", "flip"]);           // the flip waited for Phase D's commit
+  expect(res.status).toBe(200);                          // S1 finalized consistently (flip applied after)
+});
 ```
 
 - [ ] **Write failing DB regression** `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` (real local Supabase, gated on `TEST_DATABASE_URL` reachability per `tests/onboarding/onboardingFinalizePublishDb.test.ts` pattern) — the end-to-end half of Task 1.2's class (unit pins landed there; this exercises the real finalize writers):
   - Seed: a live show `drive-coexist-1` (synced, watermark T0); a LIVE `pending_ingestions` row for `drive-coexist-1` (`wizard_session_id null`, `last_error_code 'PARSE_ERROR'`); a LIVE `pending_syncs` staged row for `drive-coexist-1` (`wizard_session_id null`, `base_modified_time` = T0); a wizard session with an approved existing-show row for the SAME `drive_file_id` (Phase B path) staged at T1.
   - Drive Phase B (`handleOnboardingFinalize` with injected `fetchDriveFileMetadata` returning T1) then Phase D (`handleOnboardingFinalizeCas`).
   - Assert AFTER Phase D: the live `pending_ingestions` row still exists (`select … where drive_file_id='drive-coexist-1' and wizard_session_id is null` → 1 row); the live `pending_syncs` row still exists (same predicate → 1 row); AND `crew_members` rows exist matching the shadow's parse (the apply actually ran — anti-tautology: without this, the pre-rewire bespoke UPDATE would pass the survival assertions trivially). **Concrete failure mode:** the unconditional `deleteLivePendingIngestion` / 6L delete reached the live partition from a wizard action.
-- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — expected failures: (a) crew assertion 0 rows + no feed row + `base_modified_time` null in audit; (b) 200 instead of 409 (the `<=` gate applies it); (c) `OK` for the corrupt row and Ada's email CHANGED (fail-open reproduced); (d) pre-existing show force-published; coexistence test fails on its crew-count assertion (bespoke writers drop children — the origin incident reproduced).
+- [ ] **Run to verify failure:** `pnpm vitest run tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — expected failures: (a) crew assertion 0 rows + no feed row + `base_modified_time` null in audit; (b) 200 instead of 409 (the `<=` gate applies it); (c) `OK` for the corrupt row and Ada's email CHANGED (fail-open reproduced); (d) pre-existing show force-published; (e2) fails with order `["flip", "finalize"]` — against the current no-FOR-UPDATE `readSession`, the mid-loop flip does NOT block, S1's shadow applies commit, and the tail CAS 409s after the fact (the durable-old-session-writes bug demonstrated live; e1 alone is NOT a sufficient red signal — current code also refuses a pre-flip read at `readSession` time); coexistence test fails on its crew-count assertion (bespoke writers drop children — the origin incident reproduced).
 - [ ] **Implementation:**
+  0. **Session-currency lock UP FRONT (spec §7 global lock-order rule: `app_settings` is acquired BEFORE any per-show advisory lock; the inverse never happens).** `readSession` (`finalize-cas/route.ts:129-142`) gains `for update` on its `app_settings` SELECT — making it the authoritative, serializing currency check, taken in `runFinalizeCas` BEFORE any per-row shadow apply and held by the outer `withTx` transaction through the tail `promoteSettings` CAS (`:367-393`, which already UPDATEs the same row). A pre-superseded read (null / no matching checkpoint) hits the EXISTING typed aborts (`WIZARD_FINALIZE_CHECKPOINT_MISSING` / `WIZARD_FINALIZE_BATCHES_PENDING`) before any row transaction starts; a MID-flight supersession attempt now BLOCKS on the row lock until Phase D commits or aborts — the old detect-at-tail-only window (`promoteSettings` null at `:460-461`) is closed. Lock-order consistency: the per-row `withRowTx` connections take per-show advisory locks WHILE the outer connection holds `app_settings` — that is the sanctioned `app_settings → per-show` order (`sessionLifecycle.ts:331-374` precedent); no path here takes `app_settings` while holding a per-show lock, so the R4-1 deadlock inversion cannot occur. Mirrors `readActiveSession`'s existing FOR UPDATE on the Phase B side (`finalize/route.ts:171-181`).
   1. `FinalizeCasRouteDeps.withRowTx` gains the `pipelineTx` second argument exactly as Task 1.3 step 6 (factory `makeSyncPipelineTx` over the same raw tx that took the lock at `:103`).
   2. Rewrite `applyShadow` (`:241-306`):
      ```ts
