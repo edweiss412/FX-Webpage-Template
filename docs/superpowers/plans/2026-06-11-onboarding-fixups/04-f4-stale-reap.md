@@ -636,10 +636,12 @@ async function reapOneSession(
            using public.onboarding_scan_manifest m
            where m.wizard_session_id = $1::uuid
              and m.created_show_id = s.id
+             and m.drive_file_id = s.drive_file_id    -- R49-1: provenance binding
+             and m.drive_file_id = any($2)            -- R49-1: locked-set membership
              and s.published = false
           returning 1 as deleted
         `,
-        [sessionId],
+        [sessionId, lockedDriveFileIds],
       )
     ).rowCount;
     deleted += (
