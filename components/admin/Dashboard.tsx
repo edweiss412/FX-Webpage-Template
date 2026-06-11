@@ -425,7 +425,12 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
                   >
                     {result.archivedCount}
                   </span>
-                  <HoverHelp label="Help: Archived shows" testId="archived-help">
+                  <HoverHelp
+                    label="Help: Archived shows"
+                    testId="archived-help"
+                    rootTestId="help-affordance--dashboard-archived-shows--tooltip"
+                    learnMore={{ href: "/help/admin/dashboard#archived" }}
+                  >
                     <p>
                       Shows you&apos;ve archived. Their crew links stay off until you unarchive and
                       republish.
@@ -509,7 +514,12 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
               >
                 {result.needsAttention.totalCount}
               </span>
-              <HoverHelp label="Help: Needs attention" testId="needs-attention-help">
+              <HoverHelp
+                label="Help: Needs attention"
+                testId="needs-attention-help"
+                rootTestId="help-affordance--dashboard-needs-attention--tooltip"
+                learnMore={{ href: "/help/admin/review-queues#first-seen" }}
+              >
                 <p>
                   Sheets and changes waiting on you: new shows to review, staged edits to approve,
                   or sheets that couldn&apos;t be processed.
