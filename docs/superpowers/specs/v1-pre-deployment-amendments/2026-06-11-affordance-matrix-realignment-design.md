@@ -46,7 +46,7 @@ Note: the DEFERRED entry filed 2026-06-10 recorded only the two dashboard rows; 
 
 Concrete rows after this milestone — **19** (was 13): 7 unchanged, 6 re-pointed/renamed, 6 new. Plus the template-family row and the crew negative row, both unchanged (21 total).
 
-`sourceRoute` values use the existing matrix placeholder conventions (`rpas-central-2026`/`eric-weiss`/`STAGED_ID_PLACEHOLDER` are rewritten to seeded fixtures by `routeFor` — `deep-link-walker.spec.ts:194-216`; wizard steps 2/3 get `?step=N` the same way, `:195-200`). `routeFor` derives from this column — an implementation may not point the walker at a route other than the row's (R3 fix).
+`sourceRoute` values use the existing matrix placeholder conventions (`rpas-central-2026`/`eric-weiss`/`STAGED_ID_PLACEHOLDER` are rewritten to seeded fixtures by `routeFor` — `deep-link-walker.spec.ts:202-216`). **`routeFor` performs ONLY placeholder substitution (R4 fix):** the per-testid wizard special case (`deep-link-walker.spec.ts:195-200`) is deleted — wizard steps 2/3 carry their `?step=N` query in `sourceRoute` itself (matching how the wizard actually deep-links, `components/admin/OnboardingWizard.tsx:62-65`, `:337-340`) — and a walker unit assertion pins that every non-placeholder `sourceRoute` passes through `routeFor` unchanged.
 
 | # | testid (after) | `sourceRoute` | Host surface (after) | Target | `visibleAt` | Disposition |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -64,7 +64,9 @@ Concrete rows after this milestone — **19** (was 13): 7 unchanged, 6 re-pointe
 | 12 | `help-affordance--settings-drive-connection--tooltip` | `/admin/settings` | `DriveConnectionPanel.tsx:133` HoverHelp | `/help/admin/settings#drive-connection` (new page) | `both` | New |
 | 13 | `help-affordance--settings-drive-health-badge--tooltip` | `/admin/settings` | `DriveConnectionPanel.tsx:176` HoverHelp (badge trigger) | `/help/admin/settings#drive-health` (new page) | `both` | New (renders only when Drive health ≠ healthy — fixture, §6.3) |
 | 14 | `help-affordance--settings-preferences--tooltip` | `/admin/settings` | `app/admin/settings/page.tsx:124` HoverHelp | `/help/admin/settings#preferences` (new page) | `both` | New |
-| 15–17 | `help-affordance--wizard-step{1,2,3}--tooltip` | `/admin` (steps 2/3 via `routeFor` `?step=N`) | `components/admin/wizard/Step{1Share,2Verify,3Review}.tsx` (unchanged) | `/help/admin/onboarding-wizard#…` | `both` | Unchanged |
+| 15 | `help-affordance--wizard-step1--tooltip` | `/admin` | `components/admin/wizard/Step1Share.tsx` (unchanged) | `/help/admin/onboarding-wizard#service-account` | `both` | `sourceRoute` unchanged |
+| 16 | `help-affordance--wizard-step2--tooltip` | `/admin?step=2` | `components/admin/wizard/Step2Verify.tsx` (unchanged) | `/help/admin/onboarding-wizard#step-2` | `both` | `sourceRoute` gains `?step=2` (was a `routeFor` special case — R4 fix) |
+| 17 | `help-affordance--wizard-step3--tooltip` | `/admin?step=3` | `components/admin/wizard/Step3Review.tsx` (unchanged) | `/help/admin/onboarding-wizard#step-3` | `both` | `sourceRoute` gains `?step=3` (was a `routeFor` special case — R4 fix) |
 | 18 | `help-affordance--per-show-restage-card--tooltip` | `/admin/show/rpas-central-2026` | (not shipped) | `/help/admin/review-queues#re-stage` | `both` | Stays in `DEFERRED_TESTIDS` (M11-G-D-2) |
 | 19 | `help-affordance--preview-banner--tooltip` | `/admin/show/rpas-central-2026/preview/eric-weiss` | (not shipped) | `/help/admin/preview-as-crew#impersonation-banner` | `both` | Stays in `DEFERRED_TESTIDS` (M11-G-D-3) |
 
@@ -130,6 +132,7 @@ Current arms: direct-href (`:219-223`) and `<details>`/summary (`:226-229`) befo
 - **Row 13 (drive-health badge):** seed the non-healthy Drive state the badge requires (exact column set verified at plan time against `DriveConnectionPanel`'s data source; expected to be `app_settings`-adjacent, not a locked table).
 - **Row 5 (archived):** `routeFor` returns `/admin?bucket=archived`; seed (via `seed.ts`) ≥1 archived show.
 - All per-test seeding follows the existing loud-failure pattern (`deep-link-walker.spec.ts:53-99`: destructure `{ error }`, throw with message — invariant 9).
+- **`prepareAdminState` keys on parsed pathname, not exact string (R4 fix):** the current branch `if (row.sourceRoute === "/admin")` (`deep-link-walker.spec.ts:96-98`) would skip `/admin?bucket=archived` and `/admin?step=N`, leaving the dashboard in whatever state the previous row (or `help-docs-setup`'s wizard-active default, `pending_wizard_session_id` non-null) left it — making row 5's archived header unreachable behind the wizard. The rewrite parses `sourceRoute` with `new URL(..., BASE_URL)` and selects wizard-state prep for wizard rows vs dashboard-state prep for every other `pathname === "/admin"` row, query string notwithstanding. A dedicated walker unit test pins the row-5 prep path (wizard state set → prepare → dashboard renderable at `?bucket=archived`).
 - The walker keeps its matrix-shape sanity test (`:239-244`).
 
 ## 7. Structural meta-test (new, default unit suite)
