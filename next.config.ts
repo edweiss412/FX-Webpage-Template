@@ -23,6 +23,23 @@ const nextConfig: NextConfig = {
     authInterrupts: true,
   },
   pageExtensions: ["ts", "tsx", "mdx"],
+  // Root-collapse spec §4.1 (C-1): `/` is an unconditional alias for the
+  // sign-in front door. A config redirect runs before the filesystem and
+  // emits a true first-hop 307 with a `Location` header — identical for
+  // crawlers, no-JS clients, and monitors (unlike `redirect()` inside a
+  // Server Component, which meta-tag-redirects in a 200 response). The
+  // sign-in page's session guard resolves signed-in visitors from there
+  // (admin → /admin, non-admin → /me). Pinned by
+  // tests/config/rootRedirect.test.ts.
+  async redirects() {
+    return [
+      {
+        source: "/",
+        destination: "/auth/sign-in?next=/admin",
+        permanent: false, // 307 — keep reversible while the front-door shape is young
+      },
+    ];
+  },
 };
 
 export default withMDX(nextConfig);
