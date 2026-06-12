@@ -7,6 +7,7 @@ import {
   type RetrySingleFileResult,
 } from "@/lib/sync/retrySingleFile";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 export type WizardPendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -174,18 +175,27 @@ async function requireCurrentWizardRow(
   return { ok: true, row };
 }
 
+// F5 Task 5.1: per-statement currency predicate (the exact precedent is
+// defaultUpsertWizardDeferral in lib/sync/discardStaged.ts — `select ... where
+// exists (...)` instead of `values (...)`). Boolean-returning; the caller
+// (handleAction) converts a 0-row outcome into the typed rollback throw.
 async function upsertWizardDeferral(
   tx: WizardPendingIngestionRouteTx,
   row: PendingIngestionRow & { wizard_session_id: string },
   kind: "defer_until_modified" | "permanent_ignore",
-): Promise<void> {
-  await tx.queryOne<{ upserted: boolean } | null>(
+): Promise<boolean> {
+  const written = await tx.queryOne<{ upserted: boolean } | null>(
     `
       insert into public.deferred_ingestions (
         drive_file_id, deferred_kind, deferred_at_modified_time,
         deferred_by_email, reason, wizard_session_id
       )
-      values ($1, $2, $3::timestamptz, null, $4, $5::uuid)
+      select $1, $2, $3::timestamptz, null, $4, $5::uuid
+      where exists (
+        select 1 from public.app_settings
+         where id = 'default'
+           and pending_wizard_session_id = $5::uuid
+      )
       on conflict (drive_file_id, wizard_session_id) where wizard_session_id is not null
       do update set
         deferred_kind = excluded.deferred_kind,
@@ -202,16 +212,31 @@ async function upsertWizardDeferral(
       row.wizard_session_id,
     ],
   );
+  return Boolean(written?.upserted);
 }
 
+// F5 Task 5.1: same currency predicate on the delete. A 0-row outcome is
+// unambiguous: requireCurrentWizardRow holds the row FOR UPDATE, so within
+// this tx the row cannot vanish — a 0-row delete can only be a predicate miss.
 async function deletePendingIngestion(
   tx: WizardPendingIngestionRouteTx,
   id: string,
-): Promise<void> {
-  await tx.queryOne<{ deleted: boolean } | null>(
-    `delete from public.pending_ingestions where id = $1::uuid returning true as deleted`,
-    [id],
+  wizardSessionId: string,
+): Promise<boolean> {
+  const deleted = await tx.queryOne<{ deleted: boolean } | null>(
+    `
+      delete from public.pending_ingestions
+       where id = $1::uuid
+         and exists (
+           select 1 from public.app_settings
+            where id = 'default'
+              and pending_wizard_session_id = $2::uuid
+         )
+      returning true as deleted
+    `,
+    [id, wizardSessionId],
   );
+  return Boolean(deleted?.deleted);
 }
 
 // I.2 R20 F1 (2026-05-23): defer/ignore must transition the manifest row
@@ -267,43 +292,81 @@ async function handleAction(
   const driveFileId = await deps.readDriveFileIdForPendingIngestion(id);
   if (!driveFileId) return errorResponse(404, "PENDING_INGESTION_NOT_FOUND");
 
-  return await deps.withRowTx(driveFileId, async (tx) => {
-    const current = await requireCurrentWizardRow(tx, id);
-    if (!current.ok) return current.response;
-    if (current.row.drive_file_id !== driveFileId) {
-      return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
-    }
-    if (action === "retry") {
-      const result = await deps.retrySingleFileUnlocked(
-        tx,
-        current.row.drive_file_id,
-        current.row.wizard_session_id,
-        {},
-      );
-      if (result.outcome === "wizard_superseded") {
-        return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+  try {
+    return await deps.withRowTx(driveFileId, async (tx) => {
+      const current = await requireCurrentWizardRow(tx, id);
+      if (!current.ok) return current.response;
+      if (current.row.drive_file_id !== driveFileId) {
+        return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
       }
-      if (result.outcome === "not_found") {
-        return errorResponse(404, result.code);
+      if (action === "retry") {
+        const result = await deps.retrySingleFileUnlocked(
+          tx,
+          current.row.drive_file_id,
+          current.row.wizard_session_id,
+          {},
+        );
+        if (result.outcome === "wizard_superseded") {
+          return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+        }
+        if (result.outcome === "not_found") {
+          return errorResponse(404, result.code);
+        }
+        return retryResponse(result);
       }
-      return retryResponse(result);
-    }
 
-    // M12 R41-R9/R11/R16: run the manifest CAS UPDATE first so a wizard
-    // supersession (or any 0-row outcome) aborts before we write a deferral
-    // for a stale session or delete the pending_ingestions row. If the CAS
-    // misses, surface WIZARD_SESSION_SUPERSEDED (409) per the same contract
-    // used by requireCurrentWizardRow and lib/sync/discardStaged.ts.
-    const manifestTransitioned = await transitionManifestRow(tx, current.row, action);
-    if (!manifestTransitioned) {
+      // M12 R41-R9/R11/R16: run the manifest CAS UPDATE first so a wizard
+      // supersession (or any 0-row outcome) aborts before we write a deferral
+      // for a stale session or delete the pending_ingestions row.
+      //
+      // F5 Task 5.1 (spec §7 R9-1): every 0-row outcome on a mutating
+      // statement THROWS the typed rollback error so the per-show-locked
+      // transaction ABORTS — withPostgresSyncPipelineLock COMMITS on normal
+      // return (runScheduledCronSync.ts sql.begin), so returning a 409
+      // Response from in here would commit the statements that already ran.
+      const rollbackContext = {
+        supersededSessionId: current.row.wizard_session_id,
+        pendingIngestionId: id,
+        driveFileId: current.row.drive_file_id,
+      };
+      const manifestTransitioned = await transitionManifestRow(tx, current.row, action);
+      if (!manifestTransitioned) {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: action,
+          ...rollbackContext,
+        });
+      }
+      const wroteDeferral = await upsertWizardDeferral(tx, current.row, action);
+      if (!wroteDeferral) {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: action,
+          ...rollbackContext,
+        });
+      }
+      const deletedPendingIngestion = await deletePendingIngestion(
+        tx,
+        id,
+        current.row.wizard_session_id,
+      );
+      if (!deletedPendingIngestion) {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: action,
+          ...rollbackContext,
+        });
+      }
+      return NextResponse.json({
+        status: action === "defer_until_modified" ? "deferred" : "ignored",
+      });
+    });
+  } catch (error) {
+    if (error instanceof WizardSessionSupersededRollbackError) {
+      // Transaction is already aborted here. Task 5.3 adds the post-rollback
+      // alert write (its own follow-up transaction — never inside the
+      // aborted one).
       return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
     }
-    await upsertWizardDeferral(tx, current.row, action);
-    await deletePendingIngestion(tx, id);
-    return NextResponse.json({
-      status: action === "defer_until_modified" ? "deferred" : "ignored",
-    });
-  });
+    throw error;
+  }
 }
 
 export async function handleWizardPendingIngestionRetry(

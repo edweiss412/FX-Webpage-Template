@@ -3,7 +3,11 @@ import type {
   WizardPendingIngestionRouteDeps,
   WizardPendingIngestionRouteTx,
 } from "@/app/api/admin/onboarding/pending_ingestions/[id]/retry/route";
-import { handleWizardPendingIngestionRetry } from "@/app/api/admin/onboarding/pending_ingestions/[id]/retry/route";
+import {
+  handleWizardPendingIngestionAction,
+  handleWizardPendingIngestionRetry,
+} from "@/app/api/admin/onboarding/pending_ingestions/[id]/retry/route";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 import { handleWizardPendingIngestionDeferUntilModified } from "@/app/api/admin/onboarding/pending_ingestions/[id]/defer_until_modified/route";
 import { handleWizardPendingIngestionPermanentIgnore } from "@/app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route";
 
@@ -14,6 +18,8 @@ class FakeWizardPendingTx {
   activeWizardSessionId: string | null = W1;
   pendingFolderId: string | null = "folder-1";
   manifestUpdateAffectsRow = true;
+  deferralUpsertAffectsRow = true;
+  deleteAffectsRow = true;
   row = {
     id: ID1,
     drive_file_id: "file-1",
@@ -43,6 +49,7 @@ class FakeWizardPendingTx {
       } as T;
     }
     if (normalized.startsWith("insert into public.deferred_ingestions")) {
+      if (!this.deferralUpsertAffectsRow) return null as T;
       this.deferrals.push({ kind: params[1] as string, driveFileId: params[0] as string });
       return { upserted: true } as T;
     }
@@ -58,6 +65,7 @@ class FakeWizardPendingTx {
       return { updated: true } as T;
     }
     if (normalized.startsWith("delete from public.pending_ingestions")) {
+      if (!this.deleteAffectsRow) return null as T;
       this.deleted = true;
       return { deleted: true } as T;
     }
@@ -211,5 +219,89 @@ describe("wizard pending_ingestions actions", () => {
     ]);
     expect(tx.manifestUpdates).toEqual([]);
     expect(tx.deleted).toBe(false);
+  });
+
+  // F5 Task 5.1 (spec §7 R9-1): refusals AFTER a mutating statement must THROW
+  // a typed error that crosses the transaction boundary (→ real rollback), never
+  // return a Response from inside the tx callback — withPostgresSyncPipelineLock
+  // COMMITS on normal return (runScheduledCronSync.ts sql.begin), so a returned
+  // 409 would silently commit the already-executed manifest UPDATE.
+  function recordingWithRowTx(
+    tx: FakeWizardPendingTx,
+    log: { settled: "resolved" | "rejected" | null },
+  ) {
+    return async <R>(
+      _driveFileId: string,
+      fn: (t: WizardPendingIngestionRouteTx) => Promise<R> | R,
+    ): Promise<R> => {
+      try {
+        const result = await fn(tx as unknown as WizardPendingIngestionRouteTx);
+        log.settled = "resolved"; // a real tx COMMITS here
+        return result;
+      } catch (error) {
+        log.settled = "rejected"; // a real tx ROLLS BACK here
+        throw error;
+      }
+    };
+  }
+
+  test("deferral-upsert predicate miss after a successful manifest UPDATE rejects the tx callback (rollback), then maps to 409", async () => {
+    const log = { settled: null as "resolved" | "rejected" | null };
+    const tx = new FakeWizardPendingTx();
+    tx.deferralUpsertAffectsRow = false;
+    const response = await handleWizardPendingIngestionAction(
+      context,
+      { ...deps(tx), withRowTx: recordingWithRowTx(tx, log) },
+      "defer_until_modified",
+    );
+    expect(response.status).toBe(409);
+    expect(await json(response)).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    // THE assertion that kills the R9-1 shape: the callback must REJECT (typed
+    // error crossing the tx boundary → abort), never resolve a Response from
+    // inside the transaction.
+    expect(log.settled).toBe("rejected");
+    expect(tx.deleted).toBe(false);
+  });
+
+  test("pending-ingestion delete predicate miss also rejects the tx callback and maps to 409", async () => {
+    const log = { settled: null as "resolved" | "rejected" | null };
+    const tx = new FakeWizardPendingTx();
+    tx.deleteAffectsRow = false;
+    const response = await handleWizardPendingIngestionAction(
+      context,
+      { ...deps(tx), withRowTx: recordingWithRowTx(tx, log) },
+      "permanent_ignore",
+    );
+    expect(response.status).toBe(409);
+    expect(await json(response)).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(log.settled).toBe("rejected");
+  });
+
+  test("manifest CAS miss STILL maps to 409 — but now via the typed rollback error, not a returned Response", async () => {
+    const log = { settled: null as "resolved" | "rejected" | null };
+    const tx = new FakeWizardPendingTx();
+    tx.manifestUpdateAffectsRow = false;
+    const response = await handleWizardPendingIngestionAction(
+      context,
+      { ...deps(tx), withRowTx: recordingWithRowTx(tx, log) },
+      "defer_until_modified",
+    );
+    expect(response.status).toBe(409);
+    expect(await json(response)).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(log.settled).toBe("rejected");
+    expect(tx.deferrals).toEqual([]);
+    expect(tx.deleted).toBe(false);
+  });
+
+  test("the typed error carries the race context for the Task-5.3 alert payload", () => {
+    const error = new WizardSessionSupersededRollbackError({
+      attemptedAction: "defer_until_modified",
+      supersededSessionId: "w1",
+      pendingIngestionId: "pi-1",
+      driveFileId: "drive-1",
+    });
+    expect(error.code).toBe("WIZARD_SESSION_SUPERSEDED");
+    expect(error.context.attemptedAction).toBe("defer_until_modified");
+    expect(error.context.driveFileId).toBe("drive-1");
   });
 });
