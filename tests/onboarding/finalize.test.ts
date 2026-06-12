@@ -812,6 +812,111 @@ describe("POST /api/admin/onboarding/finalize", () => {
     ]);
   });
 
+  // WM-R6 — third instance of the malformed-ELEMENT class (WM-R4/WM-R5 covered the shadow
+  // payload gate). Phase B's checks were array-only: a stored `[null]` element passed them
+  // and threw inside validateReviewerChoices (`choice.item_id`) / the items `.map`, which the
+  // route wrapper turned into ONBOARDING_FINALIZE_INTERNAL_ERROR — wedging the WHOLE batch
+  // with no per-row recovery. These pin the per-row demote posture instead: typed
+  // STAGED_REVIEW_ITEMS_CORRUPT, re_apply_url, siblings continue, row re-applyable.
+  test("demotes a first-seen row whose wizard_reviewer_choices contain a malformed element; siblings continue; row is re-applyable", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [
+      pending("corrupt-choice-1", { wizard_reviewer_choices: [null] }),
+      pending("healthy-1"),
+    ];
+
+    const first = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(first.status).toBe(200);
+    expect(await json(first)).toMatchObject({
+      status: "batch_complete",
+      per_row: [
+        {
+          drive_file_id: "corrupt-choice-1",
+          wizard_session_id: W1,
+          code: "STAGED_REVIEW_ITEMS_CORRUPT",
+          re_apply_url:
+            "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/corrupt-choice-1",
+        },
+        { drive_file_id: "healthy-1", code: "OK" },
+      ],
+    });
+    expect(db.demoted).toEqual([
+      { driveFileId: "corrupt-choice-1", code: "STAGED_REVIEW_ITEMS_CORRUPT" },
+    ]);
+    // The sibling finished its first-seen apply; the corrupt row applied NOTHING.
+    expect(db.firstSeenApplied).toEqual(["healthy-1"]);
+    expect(db.deletedPending).toEqual(["healthy-1"]);
+    expect(db.manifestStatuses.get("corrupt-choice-1")).toBe("staged");
+
+    // Recovery: re-apply through the staged review page (writes fresh validated choices) …
+    const reapply = await reapplyDemotedRow(db, "corrupt-choice-1");
+    expect(reapply.status).toBe(200);
+
+    // … then the next finalize batch processes the row cleanly.
+    const second = await handleOnboardingFinalize(request(), deps(db));
+    expect(second.status).toBe(200);
+    expect(await json(second)).toMatchObject({
+      status: "all_batches_complete",
+      per_row: [{ drive_file_id: "corrupt-choice-1", code: "OK" }],
+    });
+  });
+
+  test("demotes a first-seen row whose triggered_review_items contain a malformed element instead of 500ing the batch", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [
+      pending("corrupt-items-1", { triggered_review_items: [null] }),
+      pending("healthy-2"),
+    ];
+
+    const response = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      status: "batch_complete",
+      per_row: [
+        {
+          drive_file_id: "corrupt-items-1",
+          wizard_session_id: W1,
+          code: "STAGED_REVIEW_ITEMS_CORRUPT",
+          re_apply_url:
+            "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/corrupt-items-1",
+        },
+        { drive_file_id: "healthy-2", code: "OK" },
+      ],
+    });
+    expect(db.demoted).toEqual([
+      { driveFileId: "corrupt-items-1", code: "STAGED_REVIEW_ITEMS_CORRUPT" },
+    ]);
+    expect(db.firstSeenApplied).toEqual(["healthy-2"]);
+    expect(db.deletedPending).toEqual(["healthy-2"]);
+    expect(db.approved.find((row) => row.drive_file_id === "corrupt-items-1")).toMatchObject({
+      wizard_approved: false,
+      wizard_approved_by_email: null,
+    });
+  });
+
+  test("an existing-show row with a malformed review-item element demotes at Phase B and stages NO shadow", async () => {
+    const db = new FakeFinalizeDb();
+    db.existingShows.add("corrupt-existing-1");
+    db.approved = [
+      pending("corrupt-existing-1", {
+        triggered_review_items: [{ id: "i1", invariant: "MI-12" }], // missing removed_name/added_name
+      }),
+    ];
+
+    const response = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      per_row: [{ drive_file_id: "corrupt-existing-1", code: "STAGED_REVIEW_ITEMS_CORRUPT" }],
+    });
+    expect(db.stagedShadows).toEqual([]);
+    expect(db.demoted).toEqual([
+      { driveFileId: "corrupt-existing-1", code: "STAGED_REVIEW_ITEMS_CORRUPT" },
+    ]);
+  });
+
   test("provenance UPDATE matching 0 rows throws FirstSeenProvenanceRaceError BEFORE deleteApprovedPending; the loop demotes with WIZARD_SESSION_SUPERSEDED", async () => {
     // Defense-in-depth (F1 Task 1.3): if a wizard-session supersession ever committed between
     // the core apply and the provenance UPDATE, the UPDATE's active-session EXISTS predicate

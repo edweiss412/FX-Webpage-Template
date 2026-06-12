@@ -4,7 +4,8 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
-import { revisionTimesMatch } from "@/lib/sync/applyStaged";
+import { revisionTimesMatch, STAGED_REVIEW_ITEMS_CORRUPT } from "@/lib/sync/applyStaged";
+import { isReviewerChoice, isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 import {
   applyStagedCore,
   normalizeTimestamptz,
@@ -110,6 +111,7 @@ type PerRowResult =
         | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE
         | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
         | typeof WIZARD_SESSION_SUPERSEDED
+        | typeof STAGED_REVIEW_ITEMS_CORRUPT
         | "DRIVE_FETCH_FAILED";
       re_apply_url: string;
     };
@@ -339,6 +341,7 @@ async function demotePending(
     | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE
     | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
     | typeof WIZARD_SESSION_SUPERSEDED
+    | typeof STAGED_REVIEW_ITEMS_CORRUPT
     | "DRIVE_FETCH_FAILED",
 ): Promise<void> {
   await tx.query<{ demoted: boolean }>(
@@ -624,6 +627,30 @@ async function processApprovedRow(input: {
     // Approved rows are parseable BY CONSTRUCTION (the wizard approve branch refuses corrupt
     // items before approval) — reaching this is data corruption → the route's typed-500 wrapper.
     throw new Error("approved onboarding row has corrupt triggered_review_items");
+  }
+
+  // WM-R6 — third instance of the malformed-ELEMENT class (WM-R4 choices on shadows,
+  // WM-R5 items on shadows; shared guards live in lib/staging/reviewPayloadGuards.ts).
+  // parseTriggeredReviewItems and coerceJsonbArray are array-only checks: a stored
+  // `[null]` / invalid object would reach the apply core and throw inside
+  // validateReviewerChoices (`choice.item_id`, `items.map((item) => item.id)`) or
+  // deriveAuthSideEffects' per-invariant name derefs — surfacing as a route-level
+  // ONBOARDING_FINALIZE_INTERNAL_ERROR that wedges the WHOLE batch with no per-row
+  // recovery. Instead, demote the one row to the existing per-row recovery path
+  // (approval revert + manifest → 'staged' + §12.4-cataloged code, re-applyable via
+  // the staged review page) and let batch siblings continue. Guarded BEFORE the
+  // branch so a malformed existing-show row is caught here too, not at Phase D.
+  if (
+    !parsedItems.items.every(isStructurallyValidReviewItem) ||
+    !coercedRow.wizard_reviewer_choices.every(isReviewerChoice)
+  ) {
+    await demotePending(tx, wizardSessionId, row.drive_file_id, STAGED_REVIEW_ITEMS_CORRUPT);
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: STAGED_REVIEW_ITEMS_CORRUPT,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
   }
 
   if (await showExists(tx, row.drive_file_id)) {
