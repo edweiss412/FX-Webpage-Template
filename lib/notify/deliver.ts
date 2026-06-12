@@ -82,7 +82,10 @@ function contextFor(candidate: RealtimeCandidate): Record<string, unknown> {
   };
 }
 
-async function isCandidateCurrent(candidate: RealtimeCandidate, sql: DeliverySql): Promise<boolean> {
+async function isCandidateCurrent(
+  candidate: RealtimeCandidate,
+  sql: DeliverySql,
+): Promise<boolean> {
   const epoch = epochFromDedupKey(candidate.dedupKey);
   if (candidate.kind === "show") {
     const rows = await sql`
@@ -165,7 +168,9 @@ async function upsertSent(
   messageId: string,
   now: Date,
 ): Promise<void> {
-  const context = JSON.stringify(input.context);
+  // Raw object, NOT JSON.stringify: postgres.js serializes a `::jsonb` param
+  // itself; a pre-stringified value double-encodes into a jsonb string scalar.
+  const context = input.context;
   await sql`
     insert into public.email_deliveries (
       kind, channel, dedup_key, show_id, recipient, triggered_codes, context,
@@ -180,7 +185,12 @@ async function upsertSent(
       set status = 'sent',
           provider_message_id = excluded.provider_message_id,
           error = null,
-          sent_at = excluded.sent_at
+          sent_at = excluded.sent_at,
+          -- Self-repair (Codex adversarial R1): a row written by the old
+          -- double-encoding code during the migration→deploy skew window
+          -- holds a jsonb string scalar; refresh context from the candidate
+          -- so the corruption cannot survive a later status flip.
+          context = excluded.context
     returning id
   `;
 }
@@ -197,7 +207,8 @@ async function upsertFailed(
   recipient: string,
   error: string,
 ): Promise<boolean> {
-  const context = JSON.stringify(input.context);
+  // Raw object, NOT JSON.stringify — see upsertSent.
+  const context = input.context;
   const rows = await sql`
     insert into public.email_deliveries (
       kind, channel, dedup_key, show_id, recipient, triggered_codes, context,
@@ -211,7 +222,9 @@ async function upsertFailed(
     on conflict (kind, dedup_key, recipient) do update
       set status = 'failed',
           error = excluded.error,
-          attempt_count = public.email_deliveries.attempt_count + 1
+          attempt_count = public.email_deliveries.attempt_count + 1,
+          -- Self-repair on retry — see upsertSent's conflict branch.
+          context = excluded.context
       where public.email_deliveries.status <> 'sent'
     returning id
   `;
@@ -260,7 +273,10 @@ async function deliverOneRecipient(input: {
   }
 
   const ledger = await existingLedger(input.sql, input.kind, input.dedupKey, recipient);
-  if (ledger?.status === "sent" || (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)) {
+  if (
+    ledger?.status === "sent" ||
+    (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)
+  ) {
     input.counts.skipped += 1;
     return;
   }

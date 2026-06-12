@@ -211,7 +211,7 @@ export const MESSAGE_CATALOG = {
   WATCH_CHANNEL_ORPHANED: {
     code: "WATCH_CHANNEL_ORPHANED",
     dougFacing:
-      "(admin_alerts banner) \"A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.\"",
+      "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",
     crewFacing: null,
     followUp: "Eric → reconcile / retry",
     helpfulContext:
@@ -224,7 +224,7 @@ export const MESSAGE_CATALOG = {
   WEBHOOK_TOKEN_INVALID: {
     code: "WEBHOOK_TOKEN_INVALID",
     dougFacing:
-      '"A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified." (admin_alerts top-bar banner)',
+      "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.",
     crewFacing: null,
     followUp: "Eric → investigate",
     helpfulContext:
@@ -602,7 +602,7 @@ export const MESSAGE_CATALOG = {
   "MI-5b_DUPLICATE_CREW_EMAIL": {
     code: "MI-5b_DUPLICATE_CREW_EMAIL",
     dougFacing:
-      "Two crew rows share the same email in _<sheet-name>*. Each crew member needs their own email.",
+      "Two crew rows share the same email in _<sheet-name>_. Each crew member needs their own email.",
     crewFacing: null,
     followUp: "Doug → fix sheet",
     helpfulContext:
@@ -978,7 +978,7 @@ export const MESSAGE_CATALOG = {
   UNKNOWN_FIELD: {
     code: "UNKNOWN_FIELD",
     dougFacing:
-      "We saw a row called _<key>_ in _<sheet-name>\\* that we don't know how to handle. It's not breaking anything; want to flag it to the developer?",
+      "We saw a row called _<key>_ in _<sheet-name>_ that we don't know how to handle. It's not breaking anything; want to flag it to the developer?",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
@@ -1185,7 +1185,7 @@ export const MESSAGE_CATALOG = {
   REPORT_RATE_LIMITED_ADMIN: {
     code: "REPORT_RATE_LIMITED_ADMIN",
     dougFacing:
-      "You've reported a lot already this hour — give the developer a beat to catch up. Try again in *<minutes>_ min, or message Eric directly.",
+      "You've reported a lot already this hour — give the developer a beat to catch up. Try again in a little while, or message Eric directly.",
     crewFacing: null,
     followUp: "Doug → wait or message",
     helpfulContext:

@@ -436,7 +436,7 @@ export const SPEC_CODES = {
   },
   "MI-5b_DUPLICATE_CREW_EMAIL": {
     "crewFacing": null,
-    "dougFacing": "Two crew rows share the same email in _<sheet-name>*. Each crew member needs their own email.",
+    "dougFacing": "Two crew rows share the same email in _<sheet-name>_. Each crew member needs their own email.",
     "followUp": "Doug → fix sheet",
     "helpfulContext": "Two rows in the CREW block share the same email address. Email is how we identify a crew member across shows, so duplicates would let one person see another's view. Each crew row needs a distinct email — fix the typo or paste mistake and re-save.",
   },
@@ -838,7 +838,7 @@ export const SPEC_CODES = {
   },
   "REPORT_RATE_LIMITED_ADMIN": {
     "crewFacing": null,
-    "dougFacing": "You've reported a lot already this hour — give the developer a beat to catch up. Try again in *<minutes>_ min, or message Eric directly.",
+    "dougFacing": "You've reported a lot already this hour — give the developer a beat to catch up. Try again in a little while, or message Eric directly.",
     "followUp": "Doug → wait or message",
     "helpfulContext": "To keep the developer's inbox under control, the admin report endpoint is capped at 10 reports per hour. The window resets on a rolling basis. Wait the indicated time, or message Eric directly if it's urgent.",
   },
@@ -1192,7 +1192,7 @@ export const SPEC_CODES = {
   },
   "UNKNOWN_FIELD": {
     "crewFacing": null,
-    "dougFacing": "We saw a row called _<key>_ in _<sheet-name>\\* that we don't know how to handle. It's not breaking anything; want to flag it to the developer?",
+    "dougFacing": "We saw a row called _<key>_ in _<sheet-name>_ that we don't know how to handle. It's not breaking anything; want to flag it to the developer?",
     "followUp": "Doug → optional Report",
     "helpfulContext": "The parser scans every row of your sheet and matches each label against the canonical block list (CLIENT, DATES, CREW, MAIN/SECONDARY, etc.). Anything that doesn't match is captured into the show's `raw_unrecognized` map and surfaced here so you can decide whether it's noise (a typo, a one-off note) or a sign that your template is drifting. Nothing is broken either way — the row is preserved verbatim. If you'd like the developer to handle the row going forward, click Report; if it's intentional one-off content, ignore the warning.",
   },
@@ -1216,7 +1216,7 @@ export const SPEC_CODES = {
   },
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
-    "dougFacing": "(admin_alerts banner) \"A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.\"",
+    "dougFacing": "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",
     "followUp": "Eric → reconcile / retry",
     "helpfulContext": "We tried to register a real-time push subscription with Google Drive and didn't get a confirmation back. The cron job will keep this show in sync on its normal schedule; this just means edits won't appear instantly until the developer reconciles the subscription.",
   },
@@ -1234,7 +1234,7 @@ export const SPEC_CODES = {
   },
   "WEBHOOK_TOKEN_INVALID": {
     "crewFacing": null,
-    "dougFacing": "\"A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.\" (admin_alerts top-bar banner)",
+    "dougFacing": "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.",
     "followUp": "Eric → investigate",
     "helpfulContext": "A push notification arrived from Google Drive carrying the wrong verification token. This usually means a stale subscription is still firing or someone's spoofing the endpoint. The developer has been notified and will rotate the token if needed.",
   },
