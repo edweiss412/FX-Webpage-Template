@@ -34,6 +34,10 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/dev/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },
+  // Onboarding-fixups F3 — /admin/onboarding is a redirect-only alias for the
+  // wizard dispatcher at /admin; admin-gated by app/admin/layout.tsx like
+  // every sibling (no sinks of its own).
+  { path: "app/admin/onboarding/page.tsx", chain: ["requireAdmin"] },
   {
     path: "app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx",
     chain: ["requireAdmin"],
@@ -66,6 +70,12 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/admin/onboarding/finalize-cas/route.ts", chain: ["requireAdmin"] },
   {
     path: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
+    chain: ["requireAdmin"],
+  },
+  // Onboarding-fixups F4 (Task 4.5) — session-scoped stale-debris reap, slim
+  // sibling of the cleanup route's admin gate.
+  {
+    path: "app/api/admin/onboarding/reap-stale-sessions/route.ts",
     chain: ["requireAdmin"],
   },
   { path: "app/api/admin/onboarding/scan/route.ts", chain: ["requireAdmin"] },

@@ -144,3 +144,19 @@ export async function assertShowLockHeld<T extends LockableSyncTx>(
     throw new LockOwnershipAssertionError(driveFileId);
   }
 }
+
+/**
+ * Adopt an advisory lock some OUTER layer already holds on this transaction
+ * (finalize per-row `pg_advisory_xact_lock`, the JS-side pipeline wrapper, …).
+ * Asserts ownership via the pg_locks probe and brands the tx — it NEVER
+ * acquires (single-holder rule, spec §3.3). Throws LockOwnershipAssertionError
+ * when no current transaction holds the show lock.
+ */
+export async function adoptShowLockHeld<T extends LockableSyncTx>(
+  tx: T,
+  driveFileId: string,
+): Promise<LockedShowTx<T>> {
+  const locked = tx as LockedShowTx<T>;
+  await assertShowLockHeld(locked, driveFileId); // throws LockOwnershipAssertionError if not held
+  return locked;
+}

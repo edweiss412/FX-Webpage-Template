@@ -1,10 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import type {
-  FinalizeRouteDeps,
-  FinalizeRouteTx,
-} from "@/app/api/admin/onboarding/finalize/route";
+import type { FinalizeRouteDeps, FinalizeRouteTx } from "@/app/api/admin/onboarding/finalize/route";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
+import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 
@@ -23,6 +21,9 @@ type PendingRow = {
   wizard_reviewer_choices_version: number | null;
   wizard_approved: boolean;
   wizard_approved_by_email: string | null;
+  wizard_approved_at: string | null;
+  triggered_review_items: unknown;
+  base_modified_time: string | null;
 };
 
 type ManifestStatus =
@@ -81,10 +82,18 @@ class FakeFinalizeDb implements FinalizeRouteTx {
   manifestStatuses = new Map<string, ManifestStatus>();
   demoted: Array<{ driveFileId: string; code: string }> = [];
   stagedShadows: string[] = [];
+  // F1 Task 1.4: full param capture for the shadow INSERT so the payload-shape assertions
+  // compare against seeded fixture instants (anti-tautology: never a now()-window check).
+  stagedShadowParams: Array<readonly unknown[]> = [];
   firstSeenApplied: string[] = [];
   auditRows: string[] = [];
   deletedPending: string[] = [];
   operations: string[] = [];
+  // F1 Task 1.3: created_show_id provenance UPDATE behavior. `false` simulates a wizard-session
+  // supersession committing between the core apply and the provenance UPDATE (returning 0 rows)
+  // — unreachable today behind the outer app_settings FOR UPDATE, pinned as defense-in-depth.
+  provenanceRecordSucceeds = true;
+  provenanceRecorded: string[] = [];
 
   async query<T>(sql: string, params: readonly unknown[] = []) {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -120,7 +129,10 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     }
 
     if (normalized.startsWith("select status, batches_completed")) {
-      return { rows: this.checkpoint ? [this.checkpoint as T] : [], rowCount: this.checkpoint ? 1 : 0 };
+      return {
+        rows: this.checkpoint ? [this.checkpoint as T] : [],
+        rowCount: this.checkpoint ? 1 : 0,
+      };
     }
 
     if (normalized.startsWith("select count(*)::int as unresolved_count")) {
@@ -167,6 +179,12 @@ class FakeFinalizeDb implements FinalizeRouteTx {
       return { rows: [{ demoted: true } as T], rowCount: 1 };
     }
 
+    if (normalized.startsWith("update public.onboarding_scan_manifest set created_show_id")) {
+      if (!this.provenanceRecordSucceeds) return { rows: [], rowCount: 0 };
+      this.provenanceRecorded.push(params[0] as string);
+      return { rows: [{ recorded: true } as T], rowCount: 1 };
+    }
+
     if (normalized.startsWith("update public.onboarding_scan_manifest")) {
       this.manifestStatuses.set(params[0] as string, "staged");
       return { rows: [{ updated: true } as T], rowCount: 1 };
@@ -174,6 +192,7 @@ class FakeFinalizeDb implements FinalizeRouteTx {
 
     if (normalized.startsWith("insert into public.shows_pending_changes")) {
       this.stagedShadows.push(params[0] as string);
+      this.stagedShadowParams.push(params);
       return { rows: [{ show_id: "show-1" } as T], rowCount: 1 };
     }
 
@@ -207,15 +226,62 @@ class FakeFinalizeDb implements FinalizeRouteTx {
   private classify(sql: string): string {
     if (sql.includes("pg_try_advisory_xact_lock(hashtext('finalize:'")) return "try-finalize-lock";
     if (sql.startsWith("select pending_wizard_session_id")) return "read-session";
-    if (sql.startsWith("insert into public.wizard_finalize_checkpoints")) return "ensure-checkpoint";
+    if (sql.startsWith("insert into public.wizard_finalize_checkpoints"))
+      return "ensure-checkpoint";
     if (sql.startsWith("select drive_file_id, staged_id")) return "select-approved";
     if (sql.startsWith("update public.pending_syncs")) return "demote-pending";
     if (sql.startsWith("insert into public.shows_pending_changes")) return "stage-shadow";
     if (sql.startsWith("insert into public.shows")) return "apply-first-seen";
+    if (sql.startsWith("update public.onboarding_scan_manifest set created_show_id")) {
+      return "record-provenance";
+    }
     if (sql.startsWith("delete from public.pending_syncs")) return "delete-pending";
     if (sql.startsWith("update public.wizard_finalize_checkpoints")) return "advance-checkpoint";
     return "other";
   }
+}
+
+/**
+ * Minimal spy SyncPipelineTx — only the methods the shared apply core touches on the first-seen
+ * path. The fake-DB suites assert routing/demote behavior, not apply internals (those are
+ * covered by tests/onboarding/finalizeFirstSeenFullApply.db.test.ts against the real DB).
+ * deleteLivePendingIngestion THROWS: the wizard-scoped core must never reach it (spec §3.2).
+ */
+function fakePipelineTx(db: FakeFinalizeDb): SyncPipelineTx {
+  return {
+    async queryOne(sqlText: string, params: unknown[]) {
+      const normalized = sqlText.replace(/\s+/g, " ").trim();
+      if (/pg_locks/i.test(normalized)) return { held: true };
+      if (normalized.startsWith("insert into public.sync_audit")) {
+        db.auditRows.push(params[1] as string);
+        return { id: "audit-1" };
+      }
+      throw new Error(`Unhandled SQL in fake pipeline tx: ${normalized}`);
+    },
+    async applyShowSnapshot(args: { driveFileId: string }) {
+      db.firstSeenApplied.push(args.driveFileId);
+      return {
+        outcome: "updated" as const,
+        showId: "show-first-seen",
+        previousCrewNames: [],
+        previousCrewMembers: [],
+      };
+    },
+    async deleteCrewMembersNotIn() {},
+    async upsertCrewMembers() {},
+    async provisionAddedCrewAuth() {},
+    async revokeRemovedCrewAuth() {},
+    async replaceHotelReservations() {},
+    async replaceRooms() {},
+    async replaceTransportation() {},
+    async replaceContacts() {},
+    async upsertShowsInternal() {},
+    async deleteLivePendingIngestion() {
+      throw new Error(
+        "live partition touched from a wizard finalize (deleteLivePendingIngestion) — spec §3.2",
+      );
+    },
+  } as unknown as SyncPipelineTx;
 }
 
 function pending(driveFileId: string, overrides: Partial<PendingRow> = {}): PendingRow {
@@ -228,6 +294,9 @@ function pending(driveFileId: string, overrides: Partial<PendingRow> = {}): Pend
     wizard_reviewer_choices_version: 1,
     wizard_approved: true,
     wizard_approved_by_email: "doug@example.com",
+    wizard_approved_at: "2026-05-08T12:30:00.000Z",
+    triggered_review_items: [],
+    base_modified_time: null,
     ...overrides,
   };
 }
@@ -236,7 +305,7 @@ function deps(db: FakeFinalizeDb, overrides: Partial<FinalizeRouteDeps> = {}): F
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     withTx: async (fn) => fn(db),
-    withRowTx: async (_driveFileId, fn) => fn(db),
+    withRowTx: async (_driveFileId, fn) => fn(db, fakePipelineTx(db)),
     fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
       driveFileId,
       name: `${driveFileId}.xlsx`,
@@ -375,8 +444,29 @@ describe("POST /api/admin/onboarding/finalize", () => {
   });
 
   test("processes one batch: first-seen rows apply as unpublished drafts and existing rows stage shadow changes", async () => {
+    // F1 Task 1.4 fixture instants — the shadow payload must carry these VERBATIM from the
+    // pending row (it is deleted right after staging, so Phase D has no other source).
+    const EXISTING_ITEMS = [
+      {
+        id: "i-mi11",
+        invariant: "MI-11",
+        crew_name: "Ada",
+        prior_email: "ada@old.com",
+        new_email: "ada@new.com",
+      },
+    ];
+    const EXISTING_BASE = "2026-05-06T00:00:00.000Z";
+    const EXISTING_APPROVED_AT = "2026-05-08T12:34:56.789Z";
+
     const db = new FakeFinalizeDb();
-    db.approved = [pending("first-seen-1"), pending("existing-1")];
+    db.approved = [
+      pending("first-seen-1"),
+      pending("existing-1", {
+        triggered_review_items: EXISTING_ITEMS,
+        base_modified_time: EXISTING_BASE,
+        wizard_approved_at: EXISTING_APPROVED_AT,
+      }),
+    ];
     db.existingShows.add("existing-1");
 
     const response = await handleOnboardingFinalize(request(), deps(db));
@@ -396,6 +486,15 @@ describe("POST /api/admin/onboarding/finalize", () => {
     expect(db.auditRows).toEqual(["first-seen-1"]);
     expect(db.stagedShadows).toEqual(["existing-1"]);
     expect(db.deletedPending).toEqual(["first-seen-1", "existing-1"]);
+
+    // F1 Task 1.4: the shadow payload carries triggered_review_items + base_modified_time
+    // copied from pending_syncs BEFORE deleteApprovedPending, and applied_at_intent is the
+    // seeded Apply-click instant (wizard_approved_at), NOT a now() window (spec §3.1 R8-1).
+    expect(db.stagedShadowParams).toHaveLength(1);
+    const shadowParams = db.stagedShadowParams[0]!;
+    expect(shadowParams[7]).toEqual(EXISTING_ITEMS); // $8::jsonb triggered_review_items
+    expect(shadowParams[8]).toBe(EXISTING_BASE); // $9::timestamptz base_modified_time
+    expect(shadowParams[9]).toBe(EXISTING_APPROVED_AT); // $10::timestamptz applied_at_intent
   });
 
   test("returns all_batches_complete only after approved rows and unresolved manifest rows are gone", async () => {
@@ -497,7 +596,8 @@ describe("POST /api/admin/onboarding/finalize", () => {
         {
           drive_file_id: "failure-last-3",
           code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
-          re_apply_url: "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/failure-last-3",
+          re_apply_url:
+            "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/failure-last-3",
         },
       ],
     });
@@ -684,7 +784,9 @@ describe("POST /api/admin/onboarding/finalize", () => {
         },
       ],
     });
-    expect(db.demoted).toEqual([{ driveFileId: "moved-1", code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" }]);
+    expect(db.demoted).toEqual([
+      { driveFileId: "moved-1", code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" },
+    ]);
     expect(db.deletedPending).toEqual([]);
   });
 
@@ -708,6 +810,154 @@ describe("POST /api/admin/onboarding/finalize", () => {
     expect(db.demoted).toEqual([
       { driveFileId: "version-1", code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED" },
     ]);
+  });
+
+  // WM-R6 — third instance of the malformed-ELEMENT class (WM-R4/WM-R5 covered the shadow
+  // payload gate). Phase B's checks were array-only: a stored `[null]` element passed them
+  // and threw inside validateReviewerChoices (`choice.item_id`) / the items `.map`, which the
+  // route wrapper turned into ONBOARDING_FINALIZE_INTERNAL_ERROR — wedging the WHOLE batch
+  // with no per-row recovery. These pin the per-row demote posture instead: typed
+  // STAGED_REVIEW_ITEMS_CORRUPT, re_apply_url, siblings continue, row re-applyable.
+  test("demotes a first-seen row whose wizard_reviewer_choices contain a malformed element; siblings continue; row is re-applyable", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [
+      pending("corrupt-choice-1", { wizard_reviewer_choices: [null] }),
+      pending("healthy-1"),
+    ];
+
+    const first = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(first.status).toBe(200);
+    expect(await json(first)).toMatchObject({
+      status: "batch_complete",
+      per_row: [
+        {
+          drive_file_id: "corrupt-choice-1",
+          wizard_session_id: W1,
+          code: "STAGED_REVIEW_ITEMS_CORRUPT",
+          re_apply_url:
+            "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/corrupt-choice-1",
+        },
+        { drive_file_id: "healthy-1", code: "OK" },
+      ],
+    });
+    expect(db.demoted).toEqual([
+      { driveFileId: "corrupt-choice-1", code: "STAGED_REVIEW_ITEMS_CORRUPT" },
+    ]);
+    // The sibling finished its first-seen apply; the corrupt row applied NOTHING.
+    expect(db.firstSeenApplied).toEqual(["healthy-1"]);
+    expect(db.deletedPending).toEqual(["healthy-1"]);
+    expect(db.manifestStatuses.get("corrupt-choice-1")).toBe("staged");
+
+    // Recovery: re-apply through the staged review page (writes fresh validated choices) …
+    const reapply = await reapplyDemotedRow(db, "corrupt-choice-1");
+    expect(reapply.status).toBe(200);
+
+    // … then the next finalize batch processes the row cleanly.
+    const second = await handleOnboardingFinalize(request(), deps(db));
+    expect(second.status).toBe(200);
+    expect(await json(second)).toMatchObject({
+      status: "all_batches_complete",
+      per_row: [{ drive_file_id: "corrupt-choice-1", code: "OK" }],
+    });
+  });
+
+  test("demotes a first-seen row whose triggered_review_items contain a malformed element instead of 500ing the batch", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [
+      pending("corrupt-items-1", { triggered_review_items: [null] }),
+      pending("healthy-2"),
+    ];
+
+    const response = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      status: "batch_complete",
+      per_row: [
+        {
+          drive_file_id: "corrupt-items-1",
+          wizard_session_id: W1,
+          code: "STAGED_REVIEW_ITEMS_CORRUPT",
+          re_apply_url:
+            "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/corrupt-items-1",
+        },
+        { drive_file_id: "healthy-2", code: "OK" },
+      ],
+    });
+    expect(db.demoted).toEqual([
+      { driveFileId: "corrupt-items-1", code: "STAGED_REVIEW_ITEMS_CORRUPT" },
+    ]);
+    expect(db.firstSeenApplied).toEqual(["healthy-2"]);
+    expect(db.deletedPending).toEqual(["healthy-2"]);
+    expect(db.approved.find((row) => row.drive_file_id === "corrupt-items-1")).toMatchObject({
+      wizard_approved: false,
+      wizard_approved_by_email: null,
+    });
+  });
+
+  test("an existing-show row with a malformed review-item element demotes at Phase B and stages NO shadow", async () => {
+    const db = new FakeFinalizeDb();
+    db.existingShows.add("corrupt-existing-1");
+    db.approved = [
+      pending("corrupt-existing-1", {
+        triggered_review_items: [{ id: "i1", invariant: "MI-12" }], // missing removed_name/added_name
+      }),
+    ];
+
+    const response = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      per_row: [{ drive_file_id: "corrupt-existing-1", code: "STAGED_REVIEW_ITEMS_CORRUPT" }],
+    });
+    expect(db.stagedShadows).toEqual([]);
+    expect(db.demoted).toEqual([
+      { driveFileId: "corrupt-existing-1", code: "STAGED_REVIEW_ITEMS_CORRUPT" },
+    ]);
+  });
+
+  test("provenance UPDATE matching 0 rows throws FirstSeenProvenanceRaceError BEFORE deleteApprovedPending; the loop demotes with WIZARD_SESSION_SUPERSEDED", async () => {
+    // Defense-in-depth (F1 Task 1.3): if a wizard-session supersession ever committed between
+    // the core apply and the provenance UPDATE, the UPDATE's active-session EXISTS predicate
+    // matches 0 rows. Without the returning-check, the per-row tx would still COMMIT an
+    // unpublished show with NO created_show_id recorded AND consume the staging row — a
+    // permanent invisible orphan (F4's reap can't identify it; Phase D's narrowed flip never
+    // publishes it; no pending row left to re-apply). TODAY this interleaving is unreachable —
+    // readActiveSessionForUpdate holds app_settings FOR UPDATE for the whole outer batch (the
+    // lock-topology DB test pins that serialization); this unit test pins the guard against
+    // future lock refactors.
+    const db = new FakeFinalizeDb();
+    db.approved = [pending("provenance-race-1")];
+    db.provenanceRecordSucceeds = false; // simulate the FOR UPDATE being weakened/removed
+
+    const response = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      per_row: [
+        {
+          drive_file_id: "provenance-race-1",
+          wizard_session_id: W1,
+          code: "WIZARD_SESSION_SUPERSEDED",
+          re_apply_url:
+            "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/provenance-race-1",
+        },
+      ],
+    });
+    // The throw aborts the per-row transaction BEFORE the staged row is consumed — the
+    // pending_syncs row survives for re-apply (spy op-order, not just absence):
+    expect(db.operations).toContain("record-provenance");
+    expect(db.operations).not.toContain("delete-pending");
+    expect(db.deletedPending).toEqual([]);
+    // …and the loop's catch demotes the row in a FRESH per-row tx with the cataloged code:
+    expect(db.demoted).toEqual([
+      { driveFileId: "provenance-race-1", code: "WIZARD_SESSION_SUPERSEDED" },
+    ]);
+    expect(db.approved.find((row) => row.drive_file_id === "provenance-race-1")).toMatchObject({
+      wizard_approved: false,
+      wizard_approved_by_email: null,
+    });
   });
 
   test("never returns an empty 500 — an unexpected throw becomes a typed JSON error + console.error", async () => {

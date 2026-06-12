@@ -12,6 +12,7 @@ import {
   type ApplyStagedDeps,
   type PendingSyncForApply,
 } from "@/lib/sync/applyStaged";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const STAGED = "22222222-2222-4222-8222-222222222222";
@@ -203,6 +204,60 @@ describe("wizard-scoped staged apply/discard routes", () => {
       },
       expect.any(Object),
     );
+  });
+
+  // F5 Task 5.5 (R6 HIGH): discardStaged_unlocked now THROWS the typed
+  // rollback error where it used to return a result object. A route that
+  // doesn't catch it turns every lost race into an uncataloged 500 (raw error
+  // text — invariant 5 violation) instead of the existing cataloged 409.
+  test("handleWizardStagedDiscard maps the typed rollback to 409 WIZARD_SESSION_SUPERSEDED after the tx aborts — never an uncataloged 500", async () => {
+    const log = { settled: null as "resolved" | "rejected" | null };
+    const tx = new FakeWizardStagedTx();
+    const recordingWithRowTx = async <R>(
+      _driveFileId: string,
+      fn: (t: WizardStagedRouteTx) => Promise<R> | R,
+    ): Promise<R> => {
+      try {
+        const r = await fn(tx as unknown as WizardStagedRouteTx);
+        log.settled = "resolved";
+        return r;
+      } catch (e) {
+        log.settled = "rejected";
+        throw e;
+      }
+    };
+    const upsertAlert = vi.fn(async () => "alert-id");
+    const response = await handleWizardStagedDiscard(
+      discardRequest({ kind: "permanent_ignore" }),
+      context,
+      {
+        ...deps(tx),
+        withRowTx: recordingWithRowTx,
+        upsertAdminAlert: upsertAlert,
+        readCurrentWizardSessionId: vi.fn(async () => W1),
+        discardStagedUnlocked: async () => {
+          throw new WizardSessionSupersededRollbackError({
+            attemptedAction: "discard",
+            supersededSessionId: W1,
+            driveFileId: "file-1",
+          });
+        },
+      },
+    );
+    expect(log.settled).toBe("rejected"); // the error crossed the tx boundary → real abort
+    expect(response.status).toBe(409);
+    expect(await json(response)).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    // R51-1: the alert contract is route-consistent — the discard route fires
+    // the SAME post-rollback producer with attempted_action "discard".
+    expect(upsertAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "WIZARD_SESSION_SUPERSEDED_RACE",
+      context: expect.objectContaining({
+        attempted_action: "discard",
+        superseded_session_id: W1,
+        drive_file_id: "file-1",
+      }),
+    });
   });
 
   test("modtime mismatch inline rescan upserts pending_syncs for the same wizard session", async () => {

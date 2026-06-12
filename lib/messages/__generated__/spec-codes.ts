@@ -572,6 +572,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → fix Drive share",
     "helpfulContext": "We tried to read your folder using the service account but Drive returned an access-denied response. Open the folder's share dialog and add the service-account email shown in the wizard. Once it's shared, click 'Try again'.",
   },
+  "ONBOARDING_LEGACY_ROW_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
+    "followUp": "Doug → re-run setup; Eric if it persists",
+    "helpfulContext": "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets — or contact the developer if this keeps happening.",
+  },
   "ONBOARDING_NOT_RESOLVED": {
     "crewFacing": null,
     "dougFacing": "Some sheets in your folder still need review before we can finish setup. Resolve them and try again.",
@@ -781,6 +787,12 @@ export const SPEC_CODES = {
     "dougFacing": "_<sheet-name>_'s PULL SHEET has rows we can read, but the packed-column layout isn't one we recognize. We're using the default layout; tell the developer if the packing list looks wrong.",
     "followUp": "Doug → optional Report",
     "helpfulContext": "A pull-sheet case had data rows, but none of them exposed a TRUE/FALSE packed flag in the supported Variant A or Variant B positions. The parser defaults to Variant A so crew still see the list, but Doug should report it if quantities or packing columns look wrong.",
+  },
+  "REAP_STALE_SESSIONS_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't clean up the old setup leftovers. Refresh and try again, or contact the developer if this keeps happening.",
+    "followUp": "Doug → retry; if persistent, Eric",
+    "helpfulContext": "The clean-up-old-setup-leftovers action failed partway, usually a database or lock fault. Each old setup session is cleaned in its own transaction, so anything already cleaned stayed cleaned and nothing was left half-removed. Running it again is safe; if it keeps failing, contact the developer.",
   },
   "REEL_ASSET_LOOKUP_FAILED": {
     "crewFacing": "This video could not be loaded. Ask Doug if it keeps happening.",
@@ -1030,7 +1042,7 @@ export const SPEC_CODES = {
   },
   "STAGED_PARSE_RESULT_CORRUPT": {
     "crewFacing": null,
-    "dougFacing": "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it.",
+    "dougFacing": "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     "followUp": "Doug → discard + re-sync the sheet",
     "helpfulContext": "The saved data for this staged sheet is stored in a format we can't read — it should be the parsed sheet but isn't. Rather than apply something we can't interpret, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds it cleanly. This usually only affects rows left over from an earlier app issue.",
   },
@@ -1072,7 +1084,7 @@ export const SPEC_CODES = {
   },
   "STAGED_REVIEW_ITEMS_CORRUPT": {
     "crewFacing": null,
-    "dougFacing": "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review.",
+    "dougFacing": "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     "followUp": "Doug → discard + re-sync the sheet",
     "helpfulContext": "The saved list of changes that need your review for this staged sheet is stored in a format we can't read — it should be a list of review items but isn't. Rather than risk applying changes you never got to see, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds a clean review checklist. This usually only affects rows left over from an earlier app issue.",
   },
@@ -1279,6 +1291,12 @@ export const SPEC_CODES = {
     "dougFacing": null,
     "followUp": "Doug → use the active wizard tab",
     "helpfulContext": null,
+  },
+  "WIZARD_SESSION_SUPERSEDED_RACE": {
+    "crewFacing": null,
+    "dougFacing": "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
+    "followUp": "Doug → continue in the active wizard tab",
+    "helpfulContext": "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab.",
   },
 } as const satisfies Record<string, SpecCodePayload>;
 

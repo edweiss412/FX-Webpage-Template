@@ -159,6 +159,41 @@ export const MESSAGE_CATALOG = {
       "Setup wizards run one at a time. Another wizard was started (probably from a different tab or device) and your session was retired. Refresh and start setup over in a single tab.",
     helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED",
   },
+  // F5 Task 5.3: durable operator signal for the wizard-session CAS turnover
+  // race. Copy is action-GENERIC ("retry, defer, ignore, or discard") and
+  // deliberately avoids absolute-rollback claims — retry's commit-window scan
+  // residue is ACCEPTED + swept (spec §7 R5-2 / §8), so "rolled back in full"
+  // would be false for retry. defer/ignore/discard DO roll back fully; the
+  // copy says the action was cancelled without asserting zero residue.
+  WIZARD_SESSION_SUPERSEDED_RACE: {
+    code: "WIZARD_SESSION_SUPERSEDED_RACE",
+    dougFacing:
+      "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
+    crewFacing: null,
+    followUp: "Doug → continue in the active wizard tab",
+    helpfulContext:
+      "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab.",
+    title: "Stale wizard action cancelled",
+    longExplanation:
+      "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over; the older action was cancelled before it could change the new wizard's state, and any setup-scan leftovers from the old tab are inert and cleaned up automatically. Continue working in the active wizard tab.",
+    helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED_RACE",
+  },
+  // Onboarding-fixups F4 (Task 4.5) — the admin clean-up-old-setup-leftovers
+  // action threw an unexpected infra error mid-reap. Per-session transactions:
+  // already-reaped sessions stay reaped; the failing session rolled back.
+  REAP_STALE_SESSIONS_FAILED: {
+    code: "REAP_STALE_SESSIONS_FAILED",
+    dougFacing:
+      "We couldn't clean up the old setup leftovers. Refresh and try again, or contact the developer if this keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → retry; if persistent, Eric",
+    helpfulContext:
+      "The clean-up-old-setup-leftovers action failed partway, usually a database or lock fault. Each old setup session is cleaned in its own transaction, so anything already cleaned stayed cleaned and nothing was left half-removed. Running it again is safe; if it keeps failing, contact the developer.",
+    title: "Setup-leftovers cleanup failed",
+    longExplanation:
+      "We couldn't finish cleaning up leftovers from old setup sessions. Each old session is cleaned in its own transaction, so anything already cleaned stayed cleaned and nothing was left half-removed. Refresh and run it again; if it keeps failing, the developer needs to investigate.",
+    helpHref: "/help/errors#REAP_STALE_SESSIONS_FAILED",
+  },
   WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
     code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
     dougFacing:
@@ -1244,6 +1279,19 @@ export const MESSAGE_CATALOG = {
       "Something on our end (not your sheet, not your folder) failed during the wizard. The developer has been notified and will fix the underlying issue. Try again in a few minutes.",
     helpHref: "/help/errors#ONBOARDING_OPERATOR_ERROR",
   },
+  ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
+    code: "ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+    dougFacing:
+      "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
+    crewFacing: null,
+    followUp: "Doug → re-run setup; Eric if it persists",
+    helpfulContext:
+      "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets — or contact the developer if this keeps happening.",
+    title: "Sheets from an older setup run",
+    longExplanation:
+      "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets. If this keeps happening, contact the developer.",
+    helpHref: "/help/errors#ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+  },
   ONBOARDING_NOT_RESOLVED: {
     code: "ONBOARDING_NOT_RESOLVED",
     dougFacing:
@@ -1496,7 +1544,7 @@ export const MESSAGE_CATALOG = {
   STAGED_REVIEW_ITEMS_CORRUPT: {
     code: "STAGED_REVIEW_ITEMS_CORRUPT",
     dougFacing:
-      "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review.",
+      "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     crewFacing: null,
     followUp: "Doug → discard + re-sync the sheet",
     helpfulContext:
@@ -1509,7 +1557,7 @@ export const MESSAGE_CATALOG = {
   STAGED_PARSE_RESULT_CORRUPT: {
     code: "STAGED_PARSE_RESULT_CORRUPT",
     dougFacing:
-      "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it.",
+      "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     crewFacing: null,
     followUp: "Doug → discard + re-sync the sheet",
     helpfulContext:

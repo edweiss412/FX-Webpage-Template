@@ -56,6 +56,7 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
         "help-affordance--settings-administrators--tooltip",
         "help-affordance--settings-drive-connection--tooltip",
         "help-affordance--settings-drive-health-badge--tooltip",
+        "help-affordance--settings-maintenance--tooltip",
         "help-affordance--settings-preferences--tooltip",
         "help-affordance--wizard-step1--tooltip",
         "help-affordance--wizard-step2--tooltip",
@@ -82,10 +83,11 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     }
   });
 
-  it("pins the 19 concrete rows incl. renames and the legend row", () => {
+  it("pins the 20 concrete rows incl. renames and the legend row", () => {
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
-    expect(concrete).toHaveLength(19);
+    expect(concrete).toHaveLength(20);
     const ids = concrete.map((r) => r.testid);
+    expect(ids).toContain("help-affordance--settings-maintenance--tooltip");
     expect(ids).toContain("help-affordance--dashboard-restage--legend");
     expect(ids).toContain("help-affordance--dashboard-needs-attention--tooltip");
     expect(ids).not.toContain("help-affordance--dashboard-pending-ingestion--tooltip");

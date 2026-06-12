@@ -41,7 +41,8 @@ import {
 import { NotifyToggle, type NotifyToggleInitial } from "@/components/admin/settings/NotifyToggle";
 import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
 import { HoverHelp } from "@/components/admin/HoverHelp";
-import { Bell, Sparkles, ShieldCheck } from "lucide-react";
+import { ReapStaleSessionsButton } from "@/components/admin/ReapStaleSessionsButton";
+import { Bell, Sparkles, ShieldCheck, Trash2 } from "lucide-react";
 import { getAutoPublishCleanFirstSeen } from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
 import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
 import { getDailyReviewDigest } from "@/lib/appSettings/getDailyReviewDigest";
@@ -172,6 +173,59 @@ export default async function AdminSettingsPage() {
             />
 
             <DevToolsRow icon={<ShieldCheck aria-hidden />} />
+          </div>
+        </section>
+
+        {/* Onboarding-fixups F4 (Task 4.6): maintenance affordance for the
+          session-scoped stale-debris reap. Lives here (not on the wizard
+          re-entry surfaces) because stale-session leftovers exist regardless
+          of the CURRENT wizard state — the reap only ever touches sessions
+          that are not the active one. */}
+        <section
+          data-testid="admin-settings-maintenance-section"
+          aria-labelledby="admin-settings-maintenance-heading"
+          className="flex flex-col gap-3"
+        >
+          <div className="flex items-center gap-2">
+            <h2
+              id="admin-settings-maintenance-heading"
+              className="text-lg font-semibold text-text-strong"
+            >
+              Maintenance
+            </h2>
+            <HoverHelp
+              label="Help: Maintenance"
+              testId="maintenance-help"
+              rootTestId="help-affordance--settings-maintenance--tooltip"
+              learnMore={{ href: "/help/admin/settings#maintenance" }}
+            >
+              <p>
+                Housekeeping actions. Cleaning up old setup leftovers removes staging data from
+                setup sessions abandoned more than a day ago. It never touches your current setup or
+                live shows.
+              </p>
+            </HoverHelp>
+          </div>
+
+          <div
+            data-testid="admin-settings-maintenance-card"
+            className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+          >
+            <div className="flex items-start gap-3">
+              {/* Icon box matches the sibling Preferences rows
+                (NotifyToggle.tsx:74): 20px lucide glyph, not 16px. */}
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
+                <Trash2 aria-hidden />
+              </span>
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-text-strong">Old setup leftovers</p>
+                <p className="text-sm text-text-subtle">
+                  If a setup run was abandoned partway, its staging data can linger. This sweeps
+                  anything older than a day from sessions that are no longer active.
+                </p>
+              </div>
+            </div>
+            <ReapStaleSessionsButton />
           </div>
         </section>
       </div>

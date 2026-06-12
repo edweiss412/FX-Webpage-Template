@@ -1,0 +1,706 @@
+# Phase 5 — F5 wizard-session CAS turnover race (BL-WIZARD-SESSION-CAS-TURNOVER-RACE)
+
+## DB-connection convention for EVERY `*.db.test.ts` in this phase (plan R16-2)
+
+All F5 real-DB tests mutate `app_settings` / `pending_ingestions` / manifest rows / deferrals / alerts and therefore MUST use the local-only convention shared with F1/F2/F4:
+
+- Connection: `process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres"`, passed through `assertLocalDbUrl(...)` (the F2 helper) which THROWS on any non-loopback host BEFORE a connection is attempted.
+- Env pinning (plan R19-1): route/lib default openers resolve `process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL` (e.g., the retry route's `databaseUrl` helper, retry/route.ts:47-49) — deleting only TEST_DATABASE_URL leaves DATABASE_URL live. For every suite that invokes a default route/lib opener: set BOTH `process.env.TEST_DATABASE_URL` AND `process.env.DATABASE_URL` to the `assertLocalDbUrl`-validated loopback URL in suite setup (restore originals in teardown), and add an explicit guard assertion that the resolved opener URL is loopback before the first route call. Where the task injects `withTx`/`withRowTx` deps instead, construct them from the validated loopback URL.
+- `TEST_DATABASE_URL` (the validation project) appears in this phase ONLY inside explicitly labeled validation close-out commands — never in a test harness.
+- Concrete failure mode this prevents: a routine `pnpm vitest` run with `.env.local` loaded mutating validation onboarding state outside the controlled close-out path.
+
+
+> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development (or superpowers:executing-plans). TDD per task: failing test → minimal impl → passing test → commit. Conventional-commits per AGENTS.md invariant 6.
+
+**Spec:** `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-onboarding-fixups-design.md` §7 (F5), §3.3 (lock matrix row "F5 retry-route hardening"), §8 (do-not-relitigate: "F5's commit-window residue is accepted, not closed"), §9.
+
+**Depends on:** Phase 4 (`04-f4-stale-reap.md`) — Task 5.4's residue-sweep test imports `reapStaleOnboardingSessions`. Tasks 5.1–5.3 have no F4 dependency and may run first.
+
+**Current state (verified against the live repo 2026-06-11):**
+
+- `transitionManifestRow` (`app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts:229-250`) runs FIRST and already carries the currency predicate `exists (select 1 from public.app_settings where id = 'default' and pending_wizard_session_id = $2::uuid)`; a 0-row outcome returns 409 `WIZARD_SESSION_SUPERSEDED` (`:297-300`). Code already cataloged at `lib/messages/catalog.ts:133-142` — no new §12.4 row for IT.
+- `upsertWizardDeferral` (`retry/route.ts:177-205`) and `deletePendingIngestion` (`retry/route.ts:207-215`) carry NO currency predicate — the remaining statement-time window.
+- The route's abort mechanism is broken-by-shape (spec §7 R9-1): `errorResponse(...)` returned from inside the transaction callback is a normal return value, and `withPostgresSyncPipelineLock` (`lib/sync/runScheduledCronSync.ts:1314-1343`) COMMITS on normal return (`sql.begin` at `:1326`). A post-manifest-UPDATE "409" returned this way commits the manifest transition while reporting refusal.
+- Entry: `defaultWithRowTx` → `withPostgresSyncPipelineLock(driveFileId, fn, { tryOnly: false })` at `retry/route.ts:73`. **F5 adds NO locks** (spec §3.3): no `app_settings` row lock from this per-show-locked path (R4-1 deadlock inversion vs `cleanupAbandonedFinalize`'s `finalize:` → `app_settings FOR UPDATE` → show-locks order at `sessionLifecycle.ts:329-374`).
+- Live-sync inertness anchor: `readLiveDeferral` (`lib/sync/perFileProcessor.ts:103-122`) filters `.is("wizard_session_id", null)` (`:112`); gate consumed at `:175-183`.
+- Class-sweep targets: the route comment names `requireCurrentWizardRow` (`retry/route.ts:157-175`) and `lib/sync/discardStaged.ts`; review R12 added `lib/sync/retrySingleFile.ts` (post-read unguarded `pending_ingestions` delete at `:155` — S5). **Pre-draft sweep findings are recorded in Task 5.5** — sweep DONE (re-run R12), fix shapes decided.
+
+**⚠️ Citation correction (live-code pass finding):** the spec (§7) and AGENTS.md cite the x1 parity gate as `tests/messages/codes.test.ts:92`. In the live repo the gate is `tests/cross-cutting/codes.test.ts` (describe `"AC-X.1 §12.4 catalog parity"` at `:79`), run via `pnpm test:audit:x1-catalog-parity` (`package.json:29`, which chains `pnpm gen:spec-codes`). All verification commands below use the real path. (The contract is identical; only the path drifted.)
+
+**Meta-test inventory (declared):**
+
+- `tests/messages/_metaAdminAlertCatalog.test.ts` — EXTEND (Task 5.3): `WIZARD_SESSION_SUPERSEDED_RACE` (singular SESSION — spell-check every layer) registry row in `ADMIN_ALERTS_CODES` (`:57-98`) + write-site entry in `ADMIN_ALERTS_WRITE_SITES` (`:100-264`).
+- `tests/auth/advisoryLockRpcDeadlock.test.ts` — **no extension:** F5 acquires no advisory locks (per-statement predicates instead, spec §3.3). Declared explicitly.
+- `tests/auth/_metaInfraContract.test.ts` — **no extension:** the alert producer reuses `lib/adminAlerts/upsertAdminAlert.ts` (existing registered Supabase boundary, destructures `{ data, error }` at `:44-52`); the route's SQL flows through the `postgres.js` tx adapter, not Supabase clients.
+- `tests/db/postgrest-dml-lockdown.test.ts` — **no extension** (Task 5.6 records the evaluation): F5 adds no RPC and no table; all three mutated tables are ALREADY in `RPC_GATED_TABLES` (`pending_syncs` `:193`, `pending_ingestions` `:208`, `deferred_ingestions` `:222`).
+
+---
+
+## Task 5.1 — Typed rollback error + per-statement currency predicates on deferral upsert and pending-ingestion delete
+
+**Files:**
+- `lib/sync/wizardSessionRollback.ts` (new — shared typed error; Task 5.5 reuses it from `discardStaged.ts`)
+- `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts` (modify `upsertWizardDeferral`, `deletePendingIngestion`, `transitionManifestRow` 0-row handling, `handleAction`)
+- `tests/onboarding/pendingIngestionsWizardActions.test.ts` (extend)
+
+**Failure mode caught:** a wizard supersession committing between `requireCurrentWizardRow`'s read and a later statement (a) writes a deferral row for a retired session, (b) deletes a `pending_ingestions` row the superseding session may still need, or (c) — the R9-1 shape — "refuses" with a returned 409 while the already-executed manifest UPDATE silently COMMITS (because `withPostgresSyncPipelineLock` commits on normal return, `runScheduledCronSync.ts:1326`).
+
+- [ ] **RED.** Extend `tests/onboarding/pendingIngestionsWizardActions.test.ts`. The existing fake-tx harness already covers the manifest-CAS 0-row 409s (tests at `:186` and `:201`); add cases where the LATER statements miss, and pin the throw-not-return abort mechanism by recording whether the route callback resolved or rejected:
+
+```ts
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
+
+// Extend the file's fake tx so each mutating statement's row-count is scriptable:
+//   fake.manifestCasHits = true | false      (transitionManifestRow returning row)
+//   fake.deferralCasHits = true | false      (upsertWizardDeferral returning row)
+//   fake.deleteCasHits   = true | false      (deletePendingIngestion returning row)
+// and make the injected withRowTx record the callback's settlement:
+function recordingWithRowTx(tx: FakeTx, log: { settled: "resolved" | "rejected" | null }) {
+  return async <R>(_driveFileId: string, fn: (t: FakeTx) => Promise<R> | R): Promise<R> => {
+    try {
+      const result = await fn(tx);
+      log.settled = "resolved"; // a real tx COMMITS here (runScheduledCronSync.ts:1326)
+      return result;
+    } catch (error) {
+      log.settled = "rejected"; // a real tx ROLLS BACK here
+      throw error;
+    }
+  };
+}
+
+test("deferral-upsert predicate miss after a successful manifest UPDATE rejects the tx callback (rollback), then maps to 409", async () => {
+  const log = { settled: null as "resolved" | "rejected" | null };
+  const tx = makeFakeTx({ manifestCasHits: true, deferralCasHits: false });
+  const response = await handleWizardPendingIngestionAction(
+    new Request("http://test", { method: "POST" }),
+    routeContext("pi-1"),
+    { ...defaultTestDeps(tx), withRowTx: recordingWithRowTx(tx, log) },
+    "defer_until_modified",
+  );
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+  // THE assertion that kills the R9-1 shape: the callback must REJECT (typed error crossing
+  // the tx boundary → abort), never resolve a Response from inside the transaction.
+  expect(log.settled).toBe("rejected");
+});
+
+test("pending-ingestion delete predicate miss also rejects the tx callback and maps to 409", async () => {
+  const log = { settled: null as "resolved" | "rejected" | null };
+  const tx = makeFakeTx({ manifestCasHits: true, deferralCasHits: true, deleteCasHits: false });
+  const response = await handleWizardPendingIngestionAction(
+    new Request("http://test", { method: "POST" }),
+    routeContext("pi-1"),
+    { ...defaultTestDeps(tx), withRowTx: recordingWithRowTx(tx, log) },
+    "permanent_ignore",
+  );
+  expect(response.status).toBe(409);
+  expect(log.settled).toBe("rejected");
+});
+
+test("manifest CAS miss STILL maps to 409 — but now via the typed rollback error, not a returned Response", async () => {
+  const log = { settled: null as "resolved" | "rejected" | null };
+  const tx = makeFakeTx({ manifestCasHits: false });
+  const response = await handleWizardPendingIngestionAction(
+    new Request("http://test", { method: "POST" }),
+    routeContext("pi-1"),
+    { ...defaultTestDeps(tx), withRowTx: recordingWithRowTx(tx, log) },
+    "defer_until_modified",
+  );
+  expect(response.status).toBe(409);
+  expect(log.settled).toBe("rejected");
+});
+
+test("the typed error carries the race context for the Task-5.3 alert payload", () => {
+  const error = new WizardSessionSupersededRollbackError({
+    attemptedAction: "defer_until_modified",
+    supersededSessionId: "w1",
+    pendingIngestionId: "pi-1",
+    driveFileId: "drive-1",
+  });
+  expect(error.code).toBe("WIZARD_SESSION_SUPERSEDED");
+  expect(error.context.attemptedAction).toBe("defer_until_modified");
+});
+```
+
+  Also update the two existing manifest-CAS tests (`:186`, `:201`) if their fake `withRowTx` swallows throws — they must keep passing with the new mechanism (same 409 surface).
+- [ ] **VERIFY (RED).** `pnpm vitest run tests/onboarding/pendingIngestionsWizardActions.test.ts` → new tests fail (`WizardSessionSupersededRollbackError` module missing; `log.settled === "resolved"` for the manifest case).
+- [ ] **GREEN.** (1) New `lib/sync/wizardSessionRollback.ts`:
+
+```ts
+export type WizardSessionRollbackContext = {
+  attemptedAction: "defer_until_modified" | "permanent_ignore" | "discard";
+  supersededSessionId: string;
+  pendingIngestionId?: string;
+  driveFileId: string;
+};
+
+/**
+ * Thrown INSIDE a per-show-locked transaction when a wizard-session currency
+ * predicate matches 0 rows. Throwing (not returning a Response) is load-bearing:
+ * withPostgresSyncPipelineLock COMMITS on normal return (runScheduledCronSync.ts:1326),
+ * so a returned 409 would commit every statement that already executed (spec §7 R9-1).
+ * Callers catch this AFTER the transaction aborts and map it to the existing
+ * WIZARD_SESSION_SUPERSEDED 409 (catalog.ts:133).
+ */
+export class WizardSessionSupersededRollbackError extends Error {
+  readonly code = "WIZARD_SESSION_SUPERSEDED";
+
+  constructor(readonly context: WizardSessionRollbackContext) {
+    super("wizard session superseded at statement time; transaction rolled back");
+    this.name = "WizardSessionSupersededRollbackError";
+  }
+}
+```
+
+  (2) In the retry route: give `upsertWizardDeferral` the currency-predicated INSERT (the exact precedent is `defaultUpsertWizardDeferral` in `lib/sync/discardStaged.ts:297-327` — `select ... where exists (...)` instead of `values (...)`) and return the row count; add the same `and exists (select 1 from public.app_settings where id = 'default' and pending_wizard_session_id = $2::uuid)` clause to `deletePendingIngestion` (pass the session id) and return the row count. (3) In `handleAction`, all three 0-row outcomes THROW `WizardSessionSupersededRollbackError` with the row's context; wrap the `deps.withRowTx(...)` call:
+
+```ts
+  try {
+    return await deps.withRowTx(driveFileId, async (tx) => {
+      // ... unchanged body, except transitionManifestRow/upsertWizardDeferral/
+      // deletePendingIngestion 0-row outcomes now throw the typed error ...
+    });
+  } catch (error) {
+    if (error instanceof WizardSessionSupersededRollbackError) {
+      // Transaction is already aborted here. Task 5.3 adds the post-rollback alert write.
+      return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+    }
+    throw error;
+  }
+```
+
+  Note `deletePendingIngestion`'s 0-row is unambiguous: `requireCurrentWizardRow` holds the row `FOR UPDATE` (`retry/route.ts:114-128`), so within this tx the row cannot vanish — a 0-row delete can only be a predicate miss.
+- [ ] **VERIFY (GREEN).** `pnpm vitest run tests/onboarding/pendingIngestionsWizardActions.test.ts` → all pass (old + new).
+- [ ] **COMMIT.** `fix(onboarding): per-statement wizard-session currency predicates + typed rollback on defer/ignore`
+
+---
+
+## Task 5.2 — Real-DB partial-commit regression + half (i) of the two-half guarantee
+
+**Contract alignment (plan R39-1):** ONE throw contract across Task 5.1 and 5.2 — helpers stay boolean-returning (`returning true as ...`; the ROUTE/handleAction layer converts 0-row to `WizardSessionSupersededRollbackError`). The real-DB race test therefore does NOT call the exported SQL helper bare and expect a throw: inside its test transaction it executes the helper AND the same `if (!ok) throw new WizardSessionSupersededRollbackError(...)` conversion the route performs (import the error class; mirror the route's exact conversion), then asserts the transaction aborts with the typed error and all rows are unchanged. This proves the rollback semantics, not a harness artifact.
+
+
+**Files:**
+- `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts` (export the three statement helpers for the DB test: `transitionManifestRow`, `upsertWizardDeferral`, `deletePendingIngestion`)
+- `tests/onboarding/wizardSessionCasRaceDb.test.ts` (new, real-Postgres)
+
+**Failure mode caught:** the unit fakes prove the throw-vs-return shape but cannot prove Postgres semantics — that (a) the EXISTS subquery re-reads `app_settings` at STATEMENT time under READ COMMITTED (a mid-transaction committed flip IS visible to the next statement), and (b) the thrown error actually aborts the `sql.begin` transaction so the already-executed manifest UPDATE does not persist. A mocked test passing while the real path partial-commits is exactly the "mocked-only tests invite tautological APPROVE" class.
+
+- [ ] **RED.** Add `tests/onboarding/wizardSessionCasRaceDb.test.ts` (probe + `test.skipIf(!dbUp)` harness per `tests/onboarding/onboardingApplyRevisionRaceDb.test.ts (mirror its CONCURRENCY harness shape ONLY — NOT its env fallback: that harness prefers TEST_DATABASE_URL, which is the VALIDATION project):38-72`; a SECOND `postgres()` connection plays the superseder; `afterAll` restores the original `app_settings.pending_wizard_session_id` and deletes fixture rows):
+
+```ts
+import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import {
+  transitionManifestRow,
+  upsertWizardDeferral,
+} from "@/app/api/admin/onboarding/pending_ingestions/[id]/retry/route";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
+
+const W1 = "f5f5f5f5-0001-4001-8001-f5f5f5f5f5f5";
+const W2 = "f5f5f5f5-0002-4002-8002-f5f5f5f5f5f5";
+const FILE = "f5-cas-race-file";
+
+// seed(): app_settings.pending_wizard_session_id = W1; one onboarding_scan_manifest row
+// (W1, FILE, status 'hard_failed'); one pending_ingestions row (W1, FILE) — capture its id.
+
+test.skipIf(!dbUp)(
+  "manifest UPDATE succeeds, session flips, deferral predicate misses → ALL THREE rows unchanged after the abort",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    const row = await readPendingIngestionRow(pendingIngestionId); // shape of PendingIngestionRow
+
+    await expect(
+      withPostgresSyncPipelineLock(
+        FILE,
+        async (tx) => {
+          const manifestTransitioned = await transitionManifestRow(tx as never, row, "defer_until_modified");
+          expect(manifestTransitioned).toBe(true); // statement 1 really executed in-tx
+          // The race: a committed supersession lands between statement 1 and statement 2.
+          await superseder.unsafe(
+            `update public.app_settings set pending_wizard_session_id = $1::uuid where id = 'default'`,
+            [W2],
+          );
+          // R40-1: helper is BOOLEAN-returning; mirror the route's exact conversion here.
+          const ok = await upsertWizardDeferral(tx as never, row, "defer_until_modified");
+          if (!ok) {
+            throw new WizardSessionSupersededRollbackError({
+              attemptedAction: "defer_until_modified",
+              supersededSessionId: W1,
+              driveFileId: row.drive_file_id,
+            });
+          }
+          throw new Error("unreachable: predicate should have missed (ok === false)");
+        },
+        { tryOnly: false },
+      ),
+    ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+
+    // Post-abort state: NOTHING committed.
+    const manifest = await readManifestRow(W1, FILE);
+    expect(manifest.status).toBe("hard_failed"); // statement-1's transition rolled back
+    expect(await readDeferralRows(FILE)).toEqual([]); // no stale-session deferral
+    expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull(); // row not deleted
+  },
+);
+
+test.skipIf(!dbUp)(
+  "half (i): a supersession visible BEFORE any mutating statement → typed 409, nothing commits (route-level)",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    await superseder.unsafe(
+      `update public.app_settings set pending_wizard_session_id = $1::uuid where id = 'default'`,
+      [W2],
+    );
+    const response = await handleWizardPendingIngestionAction(
+      new Request("http://test", { method: "POST" }),
+      { params: Promise.resolve({ id: pendingIngestionId }) },
+      { requireAdminIdentity: async () => ({ email: "admin@example.com" }) }, // real withRowTx + real DB
+      "defer_until_modified",
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "WIZARD_SESSION_SUPERSEDED" });
+    expect((await readManifestRow(W1, FILE)).status).toBe("hard_failed");
+    expect(await readDeferralRows(FILE)).toEqual([]);
+    expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull();
+  },
+);
+```
+
+- [ ] **GREEN.** Export the three statement helpers from the route module (named exports; no behavior change — Task 5.1 already made them predicate-carrying). If the RED run exposes a real partial commit (it will against a pre-5.1 tree; it must NOT against the 5.1 tree), the fix belongs in Task 5.1's surface.
+- [ ] **Negative-regression check:** stash the Task 5.1 route hunk (restore the `values (...)` deferral INSERT), re-run → the partial-commit test FAILS with `manifest.status === "defer_until_modified"` and a stale deferral row present. Unstash. This proves the test pins the contract rather than passing vacuously.
+- [ ] **VERIFY.** `pnpm vitest run tests/onboarding/wizardSessionCasRaceDb.test.ts` → 2 pass (local Supabase up).
+- [ ] **COMMIT.** `test(onboarding): real-DB partial-commit regression — mid-tx supersession rolls back all three mutations`
+
+---
+
+## Task 5.3 — `WIZARD_SESSION_SUPERSEDED_RACE` admin alert: full §12.4 three-lockstep + producer + durability
+
+**Files (ALL in ONE commit — the three-lockstep rule):**
+- `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 table row + helpfulContext YAML appendix entry)
+- `lib/messages/__generated__/spec-codes.ts` (regenerated — `pnpm gen:spec-codes`)
+- `lib/messages/catalog.ts` (new row)
+- `lib/adminAlerts/upsertAdminAlert.ts` (`AdminAlertCode` union member, `:3-34`)
+- `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts` (producer: post-rollback alert write in the Task-5.1 catch block)
+- `tests/messages/_metaAdminAlertCatalog.test.ts` (registry row `:57-98` + write-site entry `:100-264`)
+- `tests/onboarding/pendingIngestionsWizardActions.test.ts` + `tests/onboarding/wizardSessionCasRaceDb.test.ts` (durability tests)
+
+**Failure mode caught:** (a) the race fires and leaves NO durable operator signal (the backlog's original complaint); (b) the alert is written INSIDE the protected transaction and vanishes with the rollback it reports; (c) catalog drift — code present in the union but absent from §12.4/catalog (x1 gate) or with `dougFacing: null` (AlertBanner renders an empty shell — the `_metaAdminAlertCatalog` contract).
+
+- [ ] **RED (unit).** Extend `tests/onboarding/pendingIngestionsWizardActions.test.ts`:
+
+```ts
+test("the 0-row supersession path writes WIZARD_SESSION_SUPERSEDED_RACE only AFTER the tx rejected, with the race context", async () => {
+  const order: string[] = [];
+  const upsertAlert = vi.fn(async () => { order.push("alert"); return "alert-id"; });
+  const log = { settled: null as "resolved" | "rejected" | null };
+  const tx = makeFakeTx({ manifestCasHits: true, deferralCasHits: false });
+  const wrappedWithRowTx = async <R>(d: string, fn: (t: FakeTx) => Promise<R> | R): Promise<R> => {
+    try { const r = await fn(tx); log.settled = "resolved"; return r; }
+    catch (e) { log.settled = "rejected"; order.push("aborted"); throw e; }
+  };
+  const response = await handleWizardPendingIngestionAction(
+    new Request("http://test", { method: "POST" }),
+    routeContext("pi-1"),
+    { ...defaultTestDeps(tx), withRowTx: wrappedWithRowTx, upsertAdminAlert: upsertAlert },
+    "defer_until_modified",
+  );
+  expect(response.status).toBe(409);
+  expect(order).toEqual(["aborted", "alert"]); // persistence boundary: alert strictly post-abort
+  expect(upsertAlert).toHaveBeenCalledWith({
+    showId: null,
+    code: "WIZARD_SESSION_SUPERSEDED_RACE",
+    context: expect.objectContaining({
+      attempted_action: "defer_until_modified",
+      superseded_session_id: expect.any(String),
+      pending_ingestion_id: "pi-1",
+      drive_file_id: expect.any(String),
+    }),
+  });
+});
+
+test("alert-writer failure does not mask the 409 (alert is best-effort, the refusal is the contract)", async () => {
+  const tx = makeFakeTx({ manifestCasHits: false });
+  const response = await handleWizardPendingIngestionAction(
+    new Request("http://test", { method: "POST" }),
+    routeContext("pi-1"),
+    { ...defaultTestDeps(tx), upsertAdminAlert: vi.fn(async () => { throw new Error("alert infra down"); }) },
+    "permanent_ignore",
+  );
+  expect(response.status).toBe(409); // typed refusal survives; the writer error is logged, not thrown
+});
+```
+
+- [ ] **RED (durability, real DB).** Extend `tests/onboarding/wizardSessionCasRaceDb.test.ts`: rerun the half-(i) route-level case with the DEFAULT alert writer path stubbed to a direct-SQL writer (`insert ... via select public.upsert_admin_alert(null, 'WIZARD_SESSION_SUPERSEDED_RACE', $1::jsonb)` on a fresh connection — the same RPC `lib/adminAlerts/upsertAdminAlert.ts:44-48` calls), then assert: the `admin_alerts` row with `code = 'WIZARD_SESSION_SUPERSEDED_RACE'` EXISTS and is committed (visible from a third connection), while the manifest/deferral/pending-ingestion assertions from Task 5.2 all still hold (none of the three protected mutations persisted). Clean the alert row in `afterAll`.
+- [ ] **VERIFY (RED).** `pnpm vitest run tests/onboarding/pendingIngestionsWizardActions.test.ts tests/onboarding/wizardSessionCasRaceDb.test.ts` → new tests fail (no `upsertAdminAlert` dep, code not in union). Also `pnpm test:audit:x1-catalog-parity` still green at this point (no spec/catalog edits yet).
+- [ ] **GREEN (one commit, six lockstep layers).**
+  1. **Master spec §12.4 row** — insert directly under the `WIZARD_SESSION_SUPERSEDED` row (line 2796), same five-column shape:
+
+     ```
+     | `WIZARD_SESSION_SUPERSEDED_RACE` | admin alert written after a wizard action route (retry, defer, ignore, or discard) aborts a stale-session mutation post-rollback (a newer wizard superseded the session mid-request) | "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab." | — | Doug → continue in the active wizard tab |
+     ```
+
+  2. **helpfulContext YAML appendix** (block opening at line 3031, `<!-- §12.4 helpfulContext appendix — machine-parseable -->`; existing `WIZARD_SESSION_SUPERSEDED:` entry at `:3056` is the neighbor):
+
+     ```yaml
+     WIZARD_SESSION_SUPERSEDED_RACE: "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab."
+     ```
+
+     (R33-1/R40-2 copy-honesty test, OUTSIDE the YAML fence — the appendix is machine-parsed by `scripts/extract-spec-codes.ts`, which only skips blank/`#` lines, so a `//` line inside the block would fail `CODE_RE` and break `pnpm gen:spec-codes`: assert the catalog/§12.4 copy for WIZARD_SESSION_SUPERSEDED_RACE contains NEITHER "rolled back in full" NOR "Nothing was lost"/"Nothing was changed" — scanned across ALL Doug-reaching fields — retry residue is accepted+swept, so absolute-rollback claims are false for retry.)
+
+  3. `pnpm gen:spec-codes` → regenerated `lib/messages/__generated__/spec-codes.ts` staged in the same commit. (`CODE_SCENARIOS` in `tests/cross-cutting/code-scenarios.ts` derives automatically from `SPEC_CODES` keys — no manual scenario row.)
+  4. **`lib/messages/catalog.ts`** row adjacent to `WIZARD_SESSION_SUPERSEDED` (`:133-142`). The entry has non-null `dougFacing` and default (warning) severity, so the docs-predicate (`lib/messages/catalogDocsValidator.ts:5-15`) REQUIRES non-null `title`, `longExplanation`, and a `/help/...`-shaped `helpHref`:
+
+     ```ts
+       WIZARD_SESSION_SUPERSEDED_RACE: {
+         code: "WIZARD_SESSION_SUPERSEDED_RACE",
+         dougFacing: "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
+         crewFacing: null,
+         followUp: "Doug → continue in the active wizard tab",
+         helpfulContext: "<same string as the YAML appendix, verbatim — x1 deep-compares field-by-field>",
+         title: "Stale wizard action cancelled",
+         longExplanation: "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over; the older action was cancelled before it could change the new wizard's state, and any setup-scan leftovers from the old tab are inert and cleaned up automatically. Continue working in the active wizard tab.",
+         helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED_RACE",
+       },
+     ```
+
+     (`dougFacing`/`crewFacing`/`followUp` must match the §12.4 table cells verbatim and `helpfulContext` the YAML entry verbatim — the x1 parity test deep-compares all four.)
+  5. **`AdminAlertCode` union** member in `lib/adminAlerts/upsertAdminAlert.ts:3-34` + **producer** in the route's catch block (alert writer injectable, defaulting to `upsertAdminAlert`; failures caught-and-logged so the 409 survives):
+
+     ```ts
+     if (error instanceof WizardSessionSupersededRollbackError) {
+       try {
+         await (routeDeps.upsertAdminAlert ?? upsertAdminAlert)({
+           showId: null,
+           code: "WIZARD_SESSION_SUPERSEDED_RACE",
+           context: {
+             attempted_action: error.context.attemptedAction,
+             superseded_session_id: error.context.supersededSessionId,
+             current_session_id: await readCurrentSessionIdBestEffort(),
+             pending_ingestion_id: error.context.pendingIngestionId ?? null,
+             drive_file_id: error.context.driveFileId,
+           },
+         });
+       } catch (alertError) {
+         console.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", alertError);
+       }
+       return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+     }
+     ```
+
+     (The alert write runs on the Supabase service-role RPC — its own transaction, the established post-rollback follow-up pattern; it is NEVER inside the aborted tx.)
+  6. **Meta-test registry**: append `"WIZARD_SESSION_SUPERSEDED_RACE"` to `ADMIN_ALERTS_CODES` and a write-site entry `{ path: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts", pattern: /code:\s*"WIZARD_SESSION_SUPERSEDED_RACE"/ }` to `ADMIN_ALERTS_WRITE_SITES`.
+- [ ] **VERIFY (GREEN).**
+  - `pnpm test:audit:x1-catalog-parity` → pass (this IS the x1 gate: regen + `tests/cross-cutting/codes.test.ts` + `tests/cross-cutting/extract-spec-codes.test.ts`).
+  - `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaErrorCatalogDocs.test.ts tests/onboarding/pendingIngestionsWizardActions.test.ts tests/onboarding/wizardSessionCasRaceDb.test.ts` → all pass.
+  - `git status` — confirm ALL six layers staged together before committing (the x1 gate fails the PR otherwise; this is the M12.1 fix-1/fix-2 lesson).
+- [ ] **COMMIT.** `feat(onboarding): WIZARD_SESSION_SUPERSEDED_RACE admin alert with §12.4 three-lockstep + post-rollback producer`
+
+---
+
+## Task 5.4 — Half (ii): commit-window residue is inert and swept
+
+**Files:**
+- `tests/onboarding/wizardSessionCasRaceDb.test.ts` (extend — residue + reap sweep; **depends on Phase 4's `reapStaleOnboardingSessions`**)
+- `tests/sync/perFileProcessor.test.ts` (extend — inertness)
+
+**Failure mode caught:** the explicitly-weakened guarantee (spec §7 R5-2, ratified §8 — do NOT "fix" by adding locks/SERIALIZABLE) depends on three facts that nothing currently pins: (a) a commit-window supersession really does leave a stale deferral row (the residue exists — if a future refactor "closes" the window by accident we want to KNOW, because the spec contract changes); (b) the residue can never suppress live sync — `readLiveDeferral` reads ONLY `wizard_session_id IS NULL` rows (`perFileProcessor.ts:112`); a refactor dropping that filter would let wizard debris permanently skip a live show's sync; (c) the F4 reap actually removes the residue (orphan-row eligibility, regardless of the superseding session reaching `final_cas_done`) — **respecting F4's 24-hour activity-freshness guard**: fresh residue (just-written `deferred_at`/`transitioned_at` = `now()`) must NOT be reaped; the sweep test therefore first asserts the fresh-skip, then backdates EVERY W1 activity column the F4 `GREATEST` window reads (`deferred_ingestions.deferred_at` AND the committed manifest row's `observed_at`/`transitioned_at`) past 24h, and only then asserts removal. A sweep test that reaps fresh residue would fail against a correct F4 implementation — or worse, pressure weakening the freshness guard.
+
+- [ ] **RED (residue exists + reap sweeps, real DB).** Extend `tests/onboarding/wizardSessionCasRaceDb.test.ts`:
+
+```ts
+test.skipIf(!dbUp)(
+  "half (ii): a flip INSIDE the commit window leaves residue; the residue is wizard-scoped and the F4 reap removes it",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    const row = await readPendingIngestionRow(pendingIngestionId);
+
+    // All three statements succeed while W1 is still current; the supersession commits
+    // AFTER the last predicate check and BEFORE this tx's commit — the unclosable window.
+    await withPostgresSyncPipelineLock(
+      FILE,
+      async (tx) => {
+        expect(await transitionManifestRow(tx as never, row, "defer_until_modified")).toBe(true);
+        await upsertWizardDeferral(tx as never, row, "defer_until_modified");
+        await deletePendingIngestion(tx as never, pendingIngestionId, row.wizard_session_id);
+        // Commit-window flip: a bare rotation lands now (no purge — purgeWizardRows would
+        // block on this tx's FOR UPDATE row and serialize after our commit; the residue
+        // class exists precisely when the superseding purge ran first or never saw us).
+        await superseder.unsafe(
+          `update public.app_settings set pending_wizard_session_id = $1::uuid where id = 'default'`,
+          [W2],
+        );
+        return null; // normal return → COMMIT (this is the documented residue path)
+      },
+      { tryOnly: false },
+    );
+
+    // (a) Residue exists, and it is wizard-scoped — NOT a live deferral.
+    const residue = await readDeferralRows(FILE);
+    expect(residue).toHaveLength(1);
+    expect(residue[0]!.wizard_session_id).toBe(W1); // non-NULL: invisible to readLiveDeferral by shape
+
+    // (c-1) FRESH residue is NOT reaped — F4's 24-hour activity guard working as intended
+    // (the rows were just written: deferred_at / transitioned_at default to now()). This
+    // assertion protects the guard from being weakened to make sweep tests pass.
+    const { reapStaleOnboardingSessions } = await import("@/lib/onboarding/sessionLifecycle");
+    const adminDeps = { requireAdminIdentity: async () => ({ email: "admin@example.com" }) };
+    const freshRun = await reapStaleOnboardingSessions(adminDeps);
+    expect(freshRun.sessions.map((s) => s.wizardSessionId)).not.toContain(W1);
+    expect(await readDeferralRows(FILE)).toHaveLength(1); // residue untouched while fresh
+
+    // (c-2) Backdate EVERY W1 activity timestamp the F4 GREATEST window reads past 24h.
+    // W1's committed surfaces after this test's tx: the deferral row (deferred_at) AND the
+    // transitioned manifest row (observed_at, transitioned_at) — the manifest UPDATE
+    // committed too; backdating only deferred_at would leave the session "fresh" via the
+    // manifest columns. (No checkpoints / shadows / pending rows exist for W1 here.)
+    await superseder.unsafe(
+      `update public.deferred_ingestions set deferred_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+    await superseder.unsafe(
+      `update public.onboarding_scan_manifest
+          set observed_at = now() - interval '25 hours',
+              transitioned_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+
+    // (c-3) NOW the F4 reap's orphan-row eligibility sweeps it (W1 non-active, stale, checkpoint-less).
+    const staleRun = await reapStaleOnboardingSessions(adminDeps);
+    expect(staleRun.sessions.map((s) => s.wizardSessionId)).toContain(W1);
+    expect(await readDeferralRows(FILE)).toEqual([]);
+  },
+);
+```
+
+- [ ] **RED (inertness, unit on the REAL filter calls).** Extend `tests/sync/perFileProcessor.test.ts` — its fake honors `.is("wizard_session_id", null)` filtering (`matches()` at `:38-44`), so this is a faithful pin of the production query, not a tautology:
+
+```ts
+test("a wizard-scoped deferral residue row can NEVER suppress live sync (F5 inertness proof)", async () => {
+  // Residue shape from the F5 commit window: deferral row with NON-NULL wizard_session_id.
+  supabaseMock.client = createFakeSupabase({
+    deferred_ingestions: [
+      {
+        drive_file_id: "file-1",
+        wizard_session_id: "f5f5f5f5-0001-4001-8001-f5f5f5f5f5f5",
+        deferred_kind: "permanent_ignore",
+        deferred_at_modified_time: null,
+      },
+    ],
+  }).client;
+  const result = await perFileProcessor("file-1", "cron", fileMeta("2026-06-11T00:00:00.000Z"));
+  // Concrete failure mode: if readLiveDeferral (perFileProcessor.ts:103-122) ever drops its
+  // .is("wizard_session_id", null) filter (:112), the residue matches deferred_kind
+  // "permanent_ignore" and this returns { outcome: "skip", reason: "deferred_permanent" } —
+  // a live show permanently un-syncable because of wizard debris.
+  expect(result).toEqual({ outcome: "proceed", mode: "cron" });
+});
+```
+
+- [ ] **VERIFY.** `pnpm vitest run tests/onboarding/wizardSessionCasRaceDb.test.ts tests/sync/perFileProcessor.test.ts` → all pass. The residue test goes GREEN immediately on a correct 5.1–5.3 tree (it pins existing semantics); the inertness test must FAIL if `:112`'s filter is removed — verify by temporarily deleting `.is("wizard_session_id", null)` locally (negative regression), then restoring.
+- [ ] **COMMIT.** `test(sync): pin F5 commit-window residue as inert (readLiveDeferral) and reapable (F4 sweep)`
+
+---
+
+## Task 5.5 — Class-sweep: `requireCurrentWizardRow` + `discardStaged` (same statement-vs-commit window)
+
+**Files:**
+- `lib/sync/discardStaged.ts` (fix)
+- `lib/sync/retrySingleFile.ts` (fix — S5, R12 HIGH)
+- `lib/sync/wizardSessionRollback.ts` (extend `attemptedAction` union with `"retry"`)
+- `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts` (catch + map; the handler is `handleWizardStagedDiscard`, verified at route.ts:86)
+- `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts` (comment only — its Task-5.1 catch already handles the S5 throw)
+- `tests/sync/discardStaged.test.ts` (extend — wizard-branch unit tests with injected fakes)
+- `tests/sync/retrySingleFile.test.ts` (extend — S5 unit: 0-row delete throws)
+- `tests/onboarding/wizardScopedReapply.test.ts` (extend — the existing `handleWizardStagedDiscard` route-test surface; route-level catch/map unit)
+- `tests/onboarding/discardStagedCasRaceDb.test.ts` (new, real-Postgres — R6 HIGH)
+- `tests/onboarding/wizardSessionCasRaceDb.test.ts` (extend — S5 real-DB retry race regression)
+
+**Sweep findings (pre-verified against the live tree — this is the "report" half; each gets fix-or-file):**
+
+| # | Surface | Finding | Disposition |
+|---|---|---|---|
+| S1 | `requireCurrentWizardRow` (`retry/route.ts:157-175`) | Returns `errorResponse` from inside the tx (the R9-1 shape) — but it runs BEFORE any mutating statement, so the committed transaction is EMPTY. No partial-commit possible. | **Report only.** Add a source comment: "safe to return (commits an empty tx) ONLY because no mutation precedes; mutating-statement misses must throw `WizardSessionSupersededRollbackError`." No code change. |
+| S2 | `discardStaged.ts` `defaultUpsertWizardDeferral` (`:293-327`) | Already currency-predicated (`where exists`, `:304-308`) — this was the pattern Task 5.1 copied. Its 0-row miss returns `wizard_superseded` at `:431-433` BEFORE any other mutation → empty-tx commit, benign (S1 reasoning). | **Report only.** |
+| S3 | `discardStaged.ts` `defaultMarkWizardManifestDiscarded` 0-row AFTER the deferral wrote (`:435-443`; statement order deferral `:422` → manifest `:435` → delete `:444`) | **Same bug class as the retry route:** the function RETURNS `{ outcome: "wizard_superseded" }`, the enclosing per-show-locked tx COMMITS, and the stale-session deferral row written at `:422` PERSISTS. Partial commit. | **Fix now (mechanical, same shape as 5.1):** throw `WizardSessionSupersededRollbackError` instead of returning, for the post-first-mutation misses. |
+| S4 | `discardStaged.ts` `defaultDeleteWizardPendingSync` (`:354-370`) | NO currency predicate at all — a supersession visible at its statement time still deletes the wizard `pending_syncs` row. | **Fix now:** add the same `and exists (select 1 from public.app_settings where id = 'default' and pending_wizard_session_id = $2::uuid)` clause + `returning`; 0-row (post-mutation position) throws. |
+
+| S5 | `lib/sync/retrySingleFile.ts` `retrySingleFile_unlocked` (`:116-158`) — **R12 HIGH: an earlier sweep round wrongly cleared this surface as "pre-mutation refusal only"** | Reads `app_settings` ONCE up front (`readWizardSettings`, plain read at `:124`), then performs Drive I/O (`fetchDriveFileMetadata`, `:142`) + `runOnboardingScan` (`:146`) — a LONG window — and finally deletes `public.pending_ingestions` (`deletePendingIngestion` `:74-88`, called at `:155`) with NO currency predicate (only `drive_file_id` + `wizard_session_id` equality). A supersession committing between `:124` and `:155` lets the stale-session delete COMMIT and the route return `{status:"staged"}` 200 — success reported to a retired wizard tab while it mutates the wizard partition post-supersession. (The scan's OWN writes are per-statement CAS-gated by design, master spec line 2589, so a supersession visible DURING the scan yields `superseded`; the unguarded statement is the delete.) | **Fix now (same shape as S4 / Task 5.1):** add the EXISTS currency clause + `returning true as deleted` to `deletePendingIngestion`; 0-row → throw `WizardSessionSupersededRollbackError` with `attemptedAction: "retry"` (extend the `WizardSessionRollbackContext.attemptedAction` union in `lib/sync/wizardSessionRollback.ts` with `"retry"`). The retry route's Task-5.1 catch already maps the throw to the typed 409 + Task-5.3 alert — no new route code. |
+
+  Sweep completeness (re-run with `retrySingleFile.ts` INCLUDED — the earlier "no other consumers" claim is retracted): `rg "pending_wizard_session_id" app lib --type ts` → consumers are `sessionLifecycle.ts` (lock-ordered, Phase 4), the retry route (S1 + Task 5.1), `discardStaged.ts` (S2–S4), `retrySingleFile.ts` (S5), and `runOnboardingScan.ts` (every write per-statement CAS-gated per master spec 2589; its commit-window residue is the accepted, F4-swept class). No other post-read stale-session mutators remain.
+
+- [ ] **RED.** In the `discardStaged` wizard-branch test file, add (fake-tx, mirroring the file's existing dep-injection style):
+
+```ts
+test("S3: manifest miss AFTER the wizard deferral wrote throws the typed rollback error (no partial commit)", async () => {
+  const deps = wizardDiscardDeps({
+    upsertWizardDeferral: vi.fn(async () => true),       // first mutation succeeded
+    markWizardManifestDiscarded: vi.fn(async () => false), // supersession became visible
+  });
+  await expect(
+    discardStaged_unlocked(fakeLockedTx(), wizardArgs({ variant: "permanent_ignore" }), deps),
+  ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+});
+
+test("S4: deleteWizardPendingSync carries the currency predicate and throws on a 0-row miss", async () => {
+  // Real-DB variant lives in tests/onboarding/discardStagedCasRaceDb.test.ts (below) — this
+  // mocked case only pins the control flow; the SQL itself is exercised there.
+  const deps = wizardDiscardDeps({
+    upsertWizardDeferral: vi.fn(async () => true),
+    markWizardManifestDiscarded: vi.fn(async () => true),
+    deleteWizardPendingSync: vi.fn(async () => false), // predicate miss
+  });
+  await expect(
+    discardStaged_unlocked(fakeLockedTx(), wizardArgs({ variant: "permanent_ignore" }), deps),
+  ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+});
+
+test("S2 unchanged: a deferral-upsert miss BEFORE any mutation still returns wizard_superseded (no throw)", async () => {
+  const deps = wizardDiscardDeps({ upsertWizardDeferral: vi.fn(async () => false) });
+  const result = await discardStaged_unlocked(fakeLockedTx(), wizardArgs({ variant: "defer_until_modified" }), deps);
+  expect(result).toEqual({ outcome: "wizard_superseded", code: "WIZARD_SESSION_SUPERSEDED" });
+});
+```
+
+- [ ] **RED (real DB — R6 HIGH).** Add `tests/onboarding/discardStagedCasRaceDb.test.ts`, mirroring Task 5.2's harness exactly (connection probe + `test.skipIf(!dbUp)` + a SECOND `postgres()` connection as the superseder + `afterAll` restore of `app_settings.pending_wizard_session_id` and fixture cleanup). **Concrete failure mode caught:** the mocked tests above inject `vi.fn(async () => true/false)` for every statement — a transposed parameter (`$2`/`$5` swapped in the EXISTS clause), a predicate written against the wrong column, or an EXISTS subquery that doesn't re-read `app_settings` at statement time would ship GREEN through them; only the real default SQL executing against real Postgres catches it. This is the mocked-only-tests-invite-tautological-APPROVE class.
+
+```ts
+test.skipIf(!dbUp)(
+  "discard race: manifest CAS succeeds, session flips, pending-sync delete predicate misses → typed rollback, ALL rows unchanged",
+  async () => {
+    // Seed: app_settings session = W1; one wizard pending_syncs row (W1, FILE, staged_id SID);
+    // one onboarding_scan_manifest row (W1, FILE, status 'staged'); show row for FILE.
+    await seedDiscardFixture();
+
+    await expect(
+      withPostgresSyncPipelineLock(
+        FILE,
+        async (tx) => {
+          // Drive the REAL default deps (no injection): replicate discardStaged_unlocked's
+          // wizard-branch statement order with the production SQL helpers — deferral upsert
+          // and manifest CAS execute while W1 is current...
+          const wroteDeferral = await defaultsForTest.upsertWizardDeferral(tx, deferralInput());
+          expect(wroteDeferral).toBe(true);
+          const marked = await defaultsForTest.markWizardManifestDiscarded(tx, FILE, W1, "permanent_ignore");
+          expect(marked).toBe(true);
+          // ...then the supersession commits between the manifest statement and the delete:
+          await superseder.unsafe(
+            `update public.app_settings set pending_wizard_session_id = $1::uuid where id = 'default'`,
+            [W2],
+          );
+          await defaultsForTest.deleteWizardPendingSync(tx, FILE, W1, SID); // S4 predicate → 0 rows → throws
+          throw new Error("unreachable: delete should have thrown the typed rollback error");
+        },
+        { tryOnly: false },
+      ),
+    ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+
+    // Post-abort: the WHOLE wizard-branch transaction rolled back — nothing persisted.
+    expect(await readDeferralRows(FILE)).toEqual([]); // deferral write rolled back
+    expect((await readManifestRow(W1, FILE)).status).toBe("staged"); // manifest CAS rolled back
+    expect(await readWizardPendingSync(W1, FILE)).not.toBeNull(); // pending_syncs row survives
+  },
+);
+```
+
+  (Export `defaultUpsertWizardDeferral` / `defaultMarkWizardManifestDiscarded` / `defaultDeleteWizardPendingSync` from `discardStaged.ts` for the test — `defaultsForTest` above — or exercise them through `discardStaged_unlocked` with a hook-style dep that performs the mid-tx flip after the manifest statement; either way the SQL under test is the PRODUCTION default, not a fake.)
+
+- [ ] **RED (route-level catch/map — R6 HIGH).** Extend `tests/onboarding/wizardScopedReapply.test.ts` with a `recordingWithRowTx` (Task 5.1's pattern). **Concrete failure mode caught:** `discardStaged_unlocked` now THROWS where it used to return a result object — a route that doesn't catch `WizardSessionSupersededRollbackError` turns every lost race into an uncataloged 500 (raw error text to the operator, invariant 5 violation) instead of the existing, cataloged 409.
+
+```ts
+test("handleWizardStagedDiscard maps the typed rollback to 409 WIZARD_SESSION_SUPERSEDED after the tx aborts — never an uncataloged 500", async () => {
+  const log = { settled: null as "resolved" | "rejected" | null };
+  const response = await handleWizardStagedDiscard(
+    discardRequest({ stagedId: SID, variant: "permanent_ignore" }),
+    routeContext({ wizardSessionId: W1, driveFileId: FILE }),
+    {
+      ...defaultDiscardTestDeps(),
+      withRowTx: recordingWithRowTx(log),
+      discardStagedUnlocked: async () => {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: "discard",
+          supersededSessionId: W1,
+          driveFileId: FILE,
+        });
+      },
+    },
+  );
+  expect(log.settled).toBe("rejected"); // the error crossed the tx boundary → real abort
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+});
+```
+
+- [ ] **RED (S5 unit).** Extend `tests/sync/retrySingleFile.test.ts`: drive `retrySingleFile_unlocked` with a fake tx whose `app_settings` read returns W1, whose scan stub returns `{ outcome: "completed", processed: [{ driveFileId: FILE, outcome: "staged" }] }` (literal verified at `lib/sync/runOnboardingScan.ts:73-80`), and whose pending-ingestion DELETE returns NULL (predicate miss). Assert the call rejects with `WizardSessionSupersededRollbackError` carrying `attemptedAction: "retry"`. **Concrete failure mode:** without the throw, the function returns `{ outcome: "retried", status: "staged" }` and the route 200s a retired tab.
+- [ ] **RED (S5 real-DB race).** Extend `tests/onboarding/wizardSessionCasRaceDb.test.ts` (same harness/fixtures as Task 5.2):
+
+```ts
+test.skipIf(!dbUp)(
+  "retry race: supersession lands between the app_settings read and the pending-ingestion delete → typed rollback, row survives, route 409s",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    // The natural window is INSIDE the scan (Drive I/O + staging, retrySingleFile.ts:142-152):
+    // inject a runOnboardingScan stub that performs the committed flip mid-window, then
+    // reports the file staged — exactly the sequence a real takeover produces.
+    const response = await handleWizardPendingIngestionAction(
+      new Request("http://test", { method: "POST" }),
+      { params: Promise.resolve({ id: pendingIngestionId }) },
+      {
+        requireAdminIdentity: async () => ({ email: "admin@example.com" }), // real withRowTx + real DB
+        retrySingleFileUnlocked: async (tx, driveFileId, wizardSessionId) =>
+          (await import("@/lib/sync/retrySingleFile")).retrySingleFile_unlocked(
+            tx as never,
+            driveFileId,
+            wizardSessionId,
+            {
+              fetchDriveFileMetadata: async () => fixtureMetadata(FILE),
+              runOnboardingScan: async () => {
+                await superseder.unsafe(
+                  `update public.app_settings set pending_wizard_session_id = $1::uuid where id = 'default'`,
+                  [W2],
+                );
+                return { outcome: "completed", processed: [{ driveFileId: FILE, outcome: "staged" }] };
+              },
+            },
+          ),
+      },
+      "retry",
+    );
+    // Concrete failure mode: pre-fix this is 200 {status:"staged"} — success reported to a
+    // RETIRED wizard tab — and the W1-scoped pending_ingestions row is deleted by a stale
+    // session AFTER the supersession committed (the same statement-vs-commit class as S4).
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull(); // delete rolled back
+  },
+);
+```
+
+- [ ] **GREEN.** (1) `defaultDeleteWizardPendingSync`: add the EXISTS clause + `returning true as deleted`, change signature to return `Promise<boolean>` (update the `DiscardStagedDeps` type member at `:77+`); export the three wizard-branch default SQL helpers (`defaultUpsertWizardDeferral`, `defaultMarkWizardManifestDiscarded`, `defaultDeleteWizardPendingSync`) for the real-DB race test. (2) In `discardStaged_unlocked`'s wizard branch: `markWizardManifestDiscarded === false` after a successful deferral write (or after `try_again`'s no-deferral path? — NO: `try_again` writes no deferral first, so a manifest miss there is pre-mutation → keep the returned outcome for `try_again`, throw only when `variant !== "try_again"`), and `deleteWizardPendingSync === false`, throw `new WizardSessionSupersededRollbackError({ attemptedAction: "discard", supersededSessionId: args.wizardSessionId, driveFileId: args.driveFileId })`. (3) The onboarding discard route catches the typed error after its tx aborts, maps to the existing 409 `WIZARD_SESSION_SUPERSEDED`, AND (R51-1 — the alert contract is route-consistent, not retry-only) fires the SAME post-rollback `WIZARD_SESSION_SUPERSEDED_RACE` producer in its own follow-up transaction with `attempted_action: "discard"`: add `"discard"` handling to the alert payload, register the discard route as a producer write-site in `tests/messages/_metaAdminAlertCatalog.test.ts`, extend the catalog copy's action enumeration to "retry, defer, ignore, or discard" (sweep all Doug-reaching fields), and add the durability test (alert persists while the protected mutations roll back). Concrete failure mode: a stale staged-page discard race rolls back safely but leaves no durable operator signal, contradicting the alert contract the milestone introduces. (4) S1 comment in the retry route. (5) S5: `retrySingleFile.ts` `deletePendingIngestion` gains the EXISTS currency clause + `returning true as deleted`; a 0-row outcome at `:155` throws `WizardSessionSupersededRollbackError({ attemptedAction: "retry", supersededSessionId: wizardSessionId, driveFileId })`; add `"retry"` to the `attemptedAction` union in `wizardSessionRollback.ts`. No retry-route change needed — the Task-5.1 catch maps the throw (and Task 5.3's alert fires with the retry context). **(6) Retry-alert copy parity (plan R17-1):** Task 5.3's §12.4 row / YAML helpfulContext / catalog copy are action-GENERIC ("retry, defer, ignore, or discard") — verify the generic copy landed in all three layers (the Task 5.3 strings in this file already read action-generic; if any layer still says "defer-or-ignore", fix it in the same commit). Add a retry-specific alert regression: drive the retry route's S5 race; assert the persisted alert row carries code WIZARD_SESSION_SUPERSEDED_RACE with payload `attempted_action: "retry"` AND that the catalog copy rendered for the code contains no action-specific text contradicting a retry (scan the copy for "defer" appearing WITHOUT the generic "retry, defer, ignore, or discard" phrasing). Concrete failure mode: a retry-tab race persists an operator alert whose help text describes a defer/ignore click — the only durable signal for the race misleads the operator. **(R32-1 — partial-commit residue is ACCEPTED + SWEPT, not rolled back, and the copy must say so):** `runOnboardingScan` runs its own transaction unless handed the caller tx, so a retry whose scan commits W1-scoped `pending_syncs`/`onboarding_scan_manifest` rows BEFORE the supersession (delete predicate then misses → throw → 409) leaves those scan rows COMMITTED. They are session-scoped (W1) wizard-partition rows — inert to live sync (readLiveDeferral/live gates filter wizard rows) and exactly the orphan class F4's reap sweeps. Required: (a) the S5 real-DB test seeds the scan to actually WRITE W1 staging rows (not a pure stub), asserts the 409 AND that the W1 scan rows remain committed (documented residue), AND that the F4 reap removes them (or defers that half to F5b alongside Task 5.4's residue assertions); (b) the WIZARD_SESSION_SUPERSEDED_RACE copy must NOT claim full rollback for retry — reword the §12.4/YAML/catalog copy to "we cancelled the older action before it could change the new wizard's state; any setup-scan leftovers from the old tab are inert and cleaned up automatically" (action-generic, accurate for all three actions since defer/ignore DO roll back fully — the copy may say the action was cancelled without asserting zero residue); (c) concrete failure mode: operator reads "rolled back in full," later sees W1 manifest rows in a debugging session, and concludes the race guard is broken.
+- [ ] **VERIFY.** `pnpm vitest run tests/sync --silent` (full sync suite — `discardStaged` has live-branch consumers at `app/api/admin/show/staged/[stagedId]/discard/route.ts` and `app/api/admin/staged/[fileId]/discard/route.ts` whose live branch is untouched but shares the file; covers `retrySingleFile.test.ts` too) + `pnpm vitest run tests/onboarding/discardStagedCasRaceDb.test.ts tests/onboarding/wizardSessionCasRaceDb.test.ts tests/onboarding/wizardScopedReapply.test.ts tests/onboarding` → all pass (db files skip cleanly without local Postgres; CI/local with the stack up runs them for real).
+- [ ] **Negative-regression check (real-DB half):** stash the `defaultDeleteWizardPendingSync` EXISTS-clause hunk, re-run `tests/onboarding/discardStagedCasRaceDb.test.ts` → the race test FAILS (delete succeeds, no throw, rows mutated); unstash. Proves the DB test pins the production SQL, not the mocks.
+- [ ] **COMMIT.** `fix(sync): class-sweep discardStaged + retrySingleFile — currency predicates on wizard deletes + typed rollback after first mutation`
+
+---
+
+## Task 5.6 — PostgREST DML lockdown evaluation + phase verification
+
+**Files:** none (verification + handoff-note task), or `tests/db/postgrest-dml-lockdown.test.ts` only if the evaluation below is wrong at execution time.
+
+- [ ] **Lockdown checklist evaluation (record verbatim in the milestone handoff):** F5 introduces NO new RPC and NO new table. The three mutated tables are already registered in `RPC_GATED_TABLES` with REVOKEs: `pending_syncs` (`tests/db/postgrest-dml-lockdown.test.ts:193`), `pending_ingestions` (`:208`), `deferred_ingestions` (`:222`). `onboarding_scan_manifest` is mutated by this route via direct server-side `postgres.js` SQL (not PostgREST); its PostgREST DML lockdown (together with `wizard_finalize_checkpoints` + `shows_pending_changes`) ships in **Phase 4 F1 Task 1.3 (lockdown owner; F4 Task 4.7 verifies)** (`20260611000002_lockdown_wizard_staging_tables.sql` + registry rows, R14). → **No F5-side extension needed**, but confirm F1 Task 1.3 (lockdown owner; F4 Task 4.7 verifies) landed before milestone close-out. If execution finds any of these three rows missing, STOP and add the registry row + REVOKE in the same commit per the class-wide pattern.
+- [ ] **Run the full phase verification:**
+  - `pnpm vitest run tests/onboarding tests/sync/perFileProcessor.test.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaErrorCatalogDocs.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts tests/db/postgrest-dml-lockdown.test.ts` → all pass.
+  - `pnpm test:audit:x1-catalog-parity` → pass.
+  - `rg "errorResponse\(" app/api/admin/onboarding/pending_ingestions "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard"` → confirm no `errorResponse` return sits AFTER a mutating statement inside a tx callback on EITHER patched surface (fix-round regression budget: re-grep the class across every surface Task 5.1/5.5 touched, including the discard route).
+- [ ] **Handoff notes:** record (a) the §12.4-gate path correction (`tests/cross-cutting/codes.test.ts`, not `tests/messages/codes.test.ts:92`) for the spec's next edit pass; (b) the Task 5.5 sweep table + dispositions; (c) the do-not-relitigate preempts for adversarial review: commit-window residue is ACCEPTED per spec §8 (cite §7 R5-2 + the R4-1 inversion), reviewer must not re-propose `app_settings` locking or SERIALIZABLE.
+- [ ] **COMMIT** (only if files changed): `docs(handoff): F5 lockdown evaluation + sweep dispositions` — otherwise fold the notes into the milestone handoff commit.
+
+---
+
+## Phase close-out checklist
+
+- [ ] All tasks committed individually (invariant 6); the Task 5.3 commit contains ALL six lockstep layers (spec row, YAML appendix, regenerated spec-codes, catalog row, union+producer, meta-test rows) — `git show --stat` to confirm.
+- [ ] Two-half guarantee fully pinned: half (i) Tasks 5.1/5.2; half (ii) Task 5.4 (residue + inertness + reap sweep).
+- [ ] No new advisory-lock holders introduced (spec §3.3: "F5 adds NO locks at all") — `rg "pg_advisory" app/api/admin/onboarding/pending_ingestions lib/sync/wizardSessionRollback.ts` returns nothing new.
+- [ ] Adversarial-review brief carries the §8 preempts (residue accepted; no SERIALIZABLE; no app_settings lock from per-show-locked paths) with `file:line` citations, and the REVIEWER ONLY framing.

@@ -280,6 +280,70 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?summary=eq.postgrest-dml-lockdown-test-no-such-row",
   },
   {
+    // F1 Task 1.3 (onboarding-fixups R55-1/R56-2): wizard staging surface. The manifest's new
+    // created_show_id provenance column drives the Phase D publish flip + F4 cleanup/reap —
+    // a PostgREST-forged row could publish or delete an unrelated unpublished show. DML flows
+    // ONLY through the finalize/scan service-role SQL paths. SELECT retained (admin UI reads).
+    table: "onboarding_scan_manifest",
+    closed_at: "supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql:14",
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: {
+      folder_id: "lockdown-test",
+      wizard_session_id: "00000000-0000-0000-0000-000000000000",
+      drive_file_id: "lockdown-test",
+      mime_type: "application/vnd.google-apps.spreadsheet",
+      name: "postgrest-dml-lockdown-test",
+      status: "staged",
+    },
+    rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
+    // F1 Task 1.3: finalize checkpoint state machine — a forged status='final_cas_done' or
+    // batches_completed mutation corrupts the finalize resume contract.
+    table: "wizard_finalize_checkpoints",
+    closed_at: "supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql:15",
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: {
+      wizard_session_id: "00000000-0000-0000-0000-000000000000",
+    },
+    rowFilter: "?wizard_session_id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    // F1 Task 1.3: Phase D shadow rows — a forged payload would be applied verbatim to a LIVE
+    // show by finalize-cas (parse_result → shows columns + children via the shared core).
+    table: "shows_pending_changes",
+    closed_at: "supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql:16",
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: {
+      wizard_session_id: "00000000-0000-0000-0000-000000000000",
+      drive_file_id: "lockdown-test",
+      show_id: "00000000-0000-0000-0000-000000000000",
+      payload: {},
+      applied_by_email: "postgrest-dml-lockdown-test@example.invalid",
+      applied_at_intent: "2026-01-01T00:00:00Z",
+    },
+    rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
+    // F2 remediation (onboarding-fixups R64-2): pass-marker table for the windowed
+    // watermark-reset migration. A PostgREST-forged pass row would shrink the Arm B
+    // window and mask broken-CAS damage. Internal-only — no RPC entry point; written
+    // exclusively by the migration's own DO block (service_role/postgres). No
+    // PostgREST SELECT either (selectAnon/Authenticated both false).
+    table: "data_migration_markers",
+    closed_at:
+      "supabase/migrations/20260611000001_onboarding_fixups_remediation.sql:94",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      key: "lockdown-probe",
+    },
+    rowFilter: "?key=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
     // Internal allowlist for the no-global-cursor DDL event trigger (20260501004000).
     // NOT RPC-gated — it has no RPC entry point and no app PostgREST access at all:
     // the reject_global_watermark_columns() event trigger reads it in-DB (bypasses RLS)

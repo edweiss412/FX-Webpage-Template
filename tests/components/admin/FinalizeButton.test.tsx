@@ -50,18 +50,14 @@ afterEach(() => cleanup());
 
 describe("FinalizeButton", () => {
   test("renders the Finalize button enabled by default", () => {
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
     const btn = getByTestId("wizard-finalize-button") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     expect(btn.textContent ?? "").toMatch(/Publish|Finalize|setup/i);
   });
 
   test("respects disabled prop (resolution gate not met)", () => {
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} disabled />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} disabled />);
     const btn = getByTestId("wizard-finalize-button") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
@@ -84,9 +80,7 @@ describe("FinalizeButton", () => {
           watched_folder_id: "folder-xyz",
         }),
       );
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
     await act(async () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
@@ -133,9 +127,7 @@ describe("FinalizeButton", () => {
           watched_folder_id: "folder-xyz",
         }),
       );
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
     await act(async () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
@@ -174,19 +166,13 @@ describe("FinalizeButton", () => {
         ],
       }),
     );
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
     await act(async () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     // Re-apply link present from the FIRST batch (no looping past the failure).
-    expect(
-      getByTestId("wizard-finalize-reapply-drive-failed-mid-batch").getAttribute(
-        "href",
-      ),
-    ).toBe(
+    expect(getByTestId("wizard-finalize-reapply-drive-failed-mid-batch").getAttribute("href")).toBe(
       `/admin/onboarding/staged/${WIZARD_SESSION_ID}/drive-failed-mid-batch`,
     );
     // No second /finalize call, no /finalize-cas.
@@ -217,22 +203,16 @@ describe("FinalizeButton", () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(fetchMock.mock.calls[0]![0]).toBe(
-      "/api/admin/onboarding/finalize",
-    );
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/admin/onboarding/finalize");
     // Race-row failures rendered with re-apply link from the response's
     // pre-built re_apply_url (the client renders it verbatim, never composes).
-    const failureLink = getByTestId(
-      "wizard-finalize-reapply-drive-failed-1",
-    ) as HTMLAnchorElement;
+    const failureLink = getByTestId("wizard-finalize-reapply-drive-failed-1") as HTMLAnchorElement;
     expect(failureLink.getAttribute("href")).toBe(
       `/admin/onboarding/staged/${WIZARD_SESSION_ID}/drive-failed-1`,
     );
     // /finalize-cas was NOT called.
     expect(
-      fetchMock.mock.calls.filter(
-        (c) => (c[0] as string).includes("finalize-cas"),
-      ),
+      fetchMock.mock.calls.filter((c) => (c[0] as string).includes("finalize-cas")),
     ).toHaveLength(0);
     // Auto-refresh not fired in this race state — the operator must re-apply.
     expect(queryByTestId("wizard-finalize-publish-complete")).toBeNull();
@@ -240,10 +220,7 @@ describe("FinalizeButton", () => {
 
   test("on 409 ONBOARDING_NOT_RESOLVED renders Doug-facing copy via messageFor", async () => {
     fetchMock.mockResolvedValueOnce(
-      mockJsonResponse(
-        { ok: false, code: "ONBOARDING_NOT_RESOLVED" },
-        { status: 409 },
-      ),
+      mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }),
     );
     const { getByTestId, container } = render(
       <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
@@ -261,14 +238,9 @@ describe("FinalizeButton", () => {
 
   test("on 409 CONCURRENT_FINALIZE_IN_FLIGHT renders Doug-facing copy", async () => {
     fetchMock.mockResolvedValueOnce(
-      mockJsonResponse(
-        { ok: false, code: "CONCURRENT_FINALIZE_IN_FLIGHT" },
-        { status: 409 },
-      ),
+      mockJsonResponse({ ok: false, code: "CONCURRENT_FINALIZE_IN_FLIGHT" }, { status: 409 }),
     );
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
     await act(async () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
@@ -296,9 +268,7 @@ describe("FinalizeButton", () => {
           { status: 409 },
         ),
       );
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
     await act(async () => {
       fireEvent.click(getByTestId("wizard-finalize-button"));
     });
@@ -309,6 +279,133 @@ describe("FinalizeButton", () => {
     });
   });
 
+  test("WM-R3: finalize-cas 409 per_row corrupt row renders per-entry catalog copy with the developer escape, not the generic line", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(
+          {
+            ok: false,
+            code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+            per_row: [
+              // OK rows ride along in the 409 per_row (route returns ALL
+              // shadowResults); the UI must filter them out.
+              { drive_file_id: "drive-ok-1", code: "OK" },
+              { drive_file_id: "drive-corrupt-1", code: "STAGED_PARSE_RESULT_CORRUPT" },
+            ],
+          },
+          { status: 409 },
+        ),
+      );
+    const { getByTestId, queryByTestId, container } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => {
+      expect(queryByTestId("wizard-finalize-cas-per-row")).not.toBeNull();
+    });
+    const panel = getByTestId("wizard-finalize-cas-per-row");
+    const text = panel.textContent ?? "";
+    // Per-entry catalog copy with the file's drive_file_id as context.
+    expect(text).toContain("drive-corrupt-1");
+    expect(text).toContain(MESSAGE_CATALOG.STAGED_PARSE_RESULT_CORRUPT.dougFacing!);
+    // Corrupt-row recovery uses the developer-escape register (no per-row
+    // discard affordance exists on this surface, and cleanup is 409-refused
+    // for fresh sessions) — never promise a button that isn't reachable.
+    expect(MESSAGE_CATALOG.STAGED_PARSE_RESULT_CORRUPT.dougFacing!).toContain(
+      "contact the developer",
+    );
+    expect(text).toContain("contact the developer");
+    expect(text).not.toContain("Discard this setup and start over");
+    // OK rows are filtered out.
+    expect(text).not.toContain("drive-ok-1");
+    // No raw §12.4 code leaks (invariant 5).
+    expect(container.textContent ?? "").not.toContain("STAGED_PARSE_RESULT_CORRUPT");
+    expect(container.textContent ?? "").not.toContain("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+    // Renders INSTEAD OF (not in addition to) the generic error line.
+    expect(queryByTestId("wizard-finalize-error")).toBeNull();
+  });
+
+  test("WM-R3: finalize-cas 409 per_row outdated row renders the outdated catalog copy (self-heals on retry)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(
+          {
+            ok: false,
+            code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+            per_row: [
+              {
+                drive_file_id: "drive-outdated-1",
+                code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+              },
+            ],
+          },
+          { status: 409 },
+        ),
+      );
+    const { getByTestId, queryByTestId, container } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => {
+      expect(queryByTestId("wizard-finalize-cas-per-row")).not.toBeNull();
+    });
+    const text = getByTestId("wizard-finalize-cas-per-row").textContent ?? "";
+    expect(text).toContain("drive-outdated-1");
+    expect(text).toContain(MESSAGE_CATALOG.STAGED_PARSE_OUTDATED_AT_PHASE_D.dougFacing!);
+    expect(container.textContent ?? "").not.toContain("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+    expect(queryByTestId("wizard-finalize-error")).toBeNull();
+  });
+
+  test("WM-R3: finalize-cas 409 WITHOUT per_row keeps the existing top-level copy path", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" }, { status: 409 }),
+      );
+    const { getByTestId, queryByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => {
+      expect(getByTestId("wizard-finalize-error").textContent ?? "").toContain(
+        MESSAGE_CATALOG.WIZARD_SESSION_SUPERSEDED.dougFacing!,
+      );
+    });
+    expect(queryByTestId("wizard-finalize-cas-per-row")).toBeNull();
+  });
+
   test("clicking while a request is in flight does not double-fire", async () => {
     let resolveFirst!: (value: Response) => void;
     fetchMock.mockImplementation(
@@ -317,9 +414,7 @@ describe("FinalizeButton", () => {
           resolveFirst = resolve;
         }),
     );
-    const { getByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
-    );
+    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
     fireEvent.click(getByTestId("wizard-finalize-button"));
     fireEvent.click(getByTestId("wizard-finalize-button"));
     fireEvent.click(getByTestId("wizard-finalize-button"));

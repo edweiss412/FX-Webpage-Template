@@ -202,6 +202,7 @@ export type CronLiveShowRow = {
   /**
    * Show title (sheet name) — projected so SHEET_UNAVAILABLE admin
    * alerts can supply `sheet_name` in admin_alerts.context for the
+   * (live-partition:n/a — doc reference, no statement)
    * §12.4 `<sheet-name>` placeholder interpolation (M9 C0 round-7 fix).
    * Nullable for shows that haven't successfully parsed yet, or for
    * legacy rows that pre-date title population.
@@ -594,6 +595,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
         select drive_file_id, wizard_session_id, base_modified_time, staged_modified_time,
                parse_result, triggered_review_items, prior_last_sync_status,
                prior_last_sync_error, staged_id, source_kind, warning_summary
+          -- live-partition:live-only — live pending_syncs read (wizard_session_id is null);
+          -- cron surface, not reachable from the wizard apply core (F1 Task 1.2/1.7)
           from public.pending_syncs
          where drive_file_id = $1
            and wizard_session_id is null
@@ -620,6 +623,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async upsertLivePendingIngestion(row: Parameters<Phase1Tx["upsertLivePendingIngestion"]>[0]) {
     await this.rows(
       `
+        -- live-partition:live-only — live pending_ingestions upsert (wizard_session_id null)
         insert into public.pending_ingestions (
           drive_file_id, drive_file_name, last_error_code, last_error_message,
           last_warnings, wizard_session_id, last_seen_modified_time
@@ -629,6 +633,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         do update set
           drive_file_name = excluded.drive_file_name,
           last_attempt_at = now(),
+          -- live-partition:live-only — live-row on-conflict arm (F1 Task 1.2/1.7)
           attempt_count = public.pending_ingestions.attempt_count + 1,
           last_error_code = excluded.last_error_code,
           last_error_message = excluded.last_error_message,
@@ -660,6 +665,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async upsertLivePendingSync(row: Parameters<Phase1Tx["upsertLivePendingSync"]>[0]) {
     const upserted = await this.one<{ staged_id: string }>(
       `
+        -- live-partition:live-only — live pending_syncs stage write (wizard_session_id null)
         insert into public.pending_syncs (
           drive_file_id, base_modified_time, staged_modified_time, parse_result,
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
@@ -746,6 +752,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       showId: row?.id ?? null,
       lastSeenModifiedTime: row?.last_seen_modified_time ?? null,
       // Returned so admin_alerts producers can supply `sheet_name` in
+      // (live-partition:n/a — doc reference, no statement)
       // context for the §12.4 SHEET_UNAVAILABLE placeholder (M9 C0 R7).
       title: row?.title ?? null,
     };
@@ -882,6 +889,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async readLiveDeferral(driveFileId: string): Promise<DeferredIngestionRow | null> {
     const row = await this.one<DeferredIngestionRow>(
       `
+        -- live-partition:live-only — live deferred_ingestions read (wizard_session_id is null)
         select deferred_kind, deferred_at_modified_time
           from public.deferred_ingestions
          where drive_file_id = $1
@@ -896,6 +904,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async deleteLiveDeferral(driveFileId: string): Promise<void> {
     await this.rows(
       `
+        -- live-partition:live-only — live deferred_ingestions delete (wizard_session_id is null)
         delete from public.deferred_ingestions
          where drive_file_id = $1
            and wizard_session_id is null
@@ -907,6 +916,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async deleteWizardPendingSyncsExcept(wizardSessionId: string) {
     await this.rows(
       `
+        -- live-partition:wizard-only — wizard pending_syncs supersession cleanup
         delete from public.pending_syncs
          where wizard_session_id is not null
            and wizard_session_id <> $1::uuid
@@ -953,6 +963,12 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.staleGuard === "strict_less_than"
         ? "(last_seen_modified_time is null or last_seen_modified_time < $14::timestamptz)"
         : "(last_seen_modified_time is null or last_seen_modified_time <= $14::timestamptz)";
+    // NO autoPublish token entries in updateParams: the UPDATE arm references $1-$17 only (the
+    // tokens are first-seen INSERT columns). postgres.js sends every array entry as a wire
+    // parameter and real Postgres rejects an unreferenced one with 42P18 "could not determine
+    // data type of parameter $18" — latent since Amendment 9 (fda81c4d) because every prior
+    // suite faked this tx; surfaced by the first real-DB execution of the UPDATE arm (F1 Task
+    // 1.5 Phase D). Pinned by tests/sync/_insertParamsArityContract.test.ts (update-arm cases).
     const updateParams = [
       args.driveFileId,
       args.parseResult.show.title,
@@ -971,8 +987,6 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
-      args.autoPublishFirstSeen?.unpublishToken ?? null,
-      args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
     ];
     const skipDiagramsParams = [
       args.driveFileId,
@@ -1071,11 +1085,25 @@ class PostgresPipelineTx implements SyncPipelineTx {
           `,
           args.skipDiagramsWrite ? skipDiagramsParams : updateParams,
         )
-      : await insertFirstSeenShowWithSlugRetry({
-          baseSlug: args.slug,
-          insert: async (slug) =>
-            await this.one<{ id: string }>(
-              `
+      : await (() => {
+          // R30-1 + R65-1 (F1): wizard Phase B first-seen INSERT variants. When
+          // firstSeenPublished === false the column list gains `published` with literal false
+          // (overriding the DDL default true); when wizardCreatedSessionId is set the column
+          // list gains `wizard_created_session_id` ($21::uuid) — the show-side provenance
+          // discriminator every created_show_id consumer joins on. Both absent → the SQL is
+          // byte-identical to the pre-F1 statement.
+          const extraColumns =
+            (args.firstSeenPublished === false ? ", published" : "") +
+            (args.wizardCreatedSessionId ? ", wizard_created_session_id" : "");
+          const extraValues =
+            (args.firstSeenPublished === false ? ", false" : "") +
+            (args.wizardCreatedSessionId ? ", $21::uuid" : "");
+          const extraParams = args.wizardCreatedSessionId ? [args.wizardCreatedSessionId] : [];
+          return insertFirstSeenShowWithSlugRetry({
+            baseSlug: args.slug,
+            insert: async (slug) =>
+              await this.one<{ id: string }>(
+                `
                 insert into public.shows (
                   drive_file_id, slug, title, client_label, client_contact, template_version,
                   venue, dates, event_details, agenda_links, diagrams,
@@ -1083,18 +1111,19 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
                   unpublish_token, unpublish_token_expires_at,
-                  last_synced_at, last_sync_status, last_sync_error
+                  last_synced_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, now(), 'ok', null)
+                        $19::uuid, $20::timestamptz, now(), 'ok', null${extraValues})
                 on conflict (drive_file_id) do nothing
                 returning id
               `,
-              insertParamsForSlug(slug),
-            ),
-        });
+                [...insertParamsForSlug(slug), ...extraParams],
+              ),
+          });
+        })();
 
     if (!updated) return { outcome: "stale" as const };
     return {
@@ -1291,6 +1320,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
       ],
     );
   }
+}
+
+/**
+ * F1 (shared apply core): expose the canonical pipeline tx over an EXISTING raw
+ * postgres.js transaction handle — the finalize routes' per-row transactions
+ * already hold the per-show advisory lock, and the shared apply core must run
+ * on the holder's transaction (acquire-free; single-holder rule, spec §3.3).
+ */
+export function makeSyncPipelineTx(tx: PostgresTransaction): SyncPipelineTx {
+  return new PostgresPipelineTx(tx);
 }
 
 class DriveMetadataMissingError extends Error {
@@ -1948,7 +1987,8 @@ async function handleFetchFailure_unlocked(
       });
     } else {
       // B3 §4.1: show-level DRIVE_FETCH_FAILED producer. Realtime email
-      // consumes admin_alerts, while `code` here is the raw drive failure.
+      // consumes admin_alerts (live-partition:n/a — doc reference, no statement),
+      // while `code` here is the raw drive failure.
       await recoveryTx.upsertAdminAlert({
         showId,
         code: "DRIVE_FETCH_FAILED",

@@ -72,4 +72,43 @@ describe("SQL insert param arity contract", () => {
       placeholderArity,
     });
   });
+
+  // F1 Task 1.5: postgres.js sends EVERY params-array entry as a wire parameter, and real
+  // Postgres rejects an unreferenced one with 42P18 ("could not determine data type of
+  // parameter $N"). The UPDATE arm carried two trailing autoPublish entries ($18/$19) that its
+  // SQL never references — latent since Amendment 9 because every prior suite faked the tx;
+  // the first real-DB execution (Phase D via the shared apply core) hard-failed every
+  // existing-show apply. Concrete failure mode pinned: params arity drifting above the SQL's
+  // max placeholder on either UPDATE variant.
+  test("PostgresPipelineTx.applyShowSnapshot updateParams matches the existing-show UPDATE placeholder count", () => {
+    const src = readFileSync(join(root, "lib/sync/runScheduledCronSync.ts"), "utf8");
+
+    // Anchor past the unrelated earlier `update public.shows` statements: the two
+    // applyShowSnapshot variants are the first two AFTER the updateParams array. The
+    // skipDiagrams variant appears first in the ternary, the full variant second.
+    const anchored = src.slice(src.indexOf("const updateParams = ["));
+    const firstUpdateAt = anchored.indexOf("update public.shows");
+    const skipVariantBlock = extractBlock(
+      anchored.slice(firstUpdateAt),
+      "update public.shows",
+      "returning id",
+    );
+    const fullVariantBlock = extractBlock(
+      anchored.slice(firstUpdateAt + skipVariantBlock.length),
+      "update public.shows",
+      "returning id",
+    );
+    // Sanity: the variants are the ones we think they are (diagrams only in the full variant).
+    expect(skipVariantBlock).not.toContain("diagrams = ");
+    expect(fullVariantBlock).toContain("diagrams = ");
+    // Placeholder maxima ignore the interpolated stale predicates ($14/$15 — below the maxima).
+    const fullArity = maxPlaceholder(fullVariantBlock);
+    const skipArity = maxPlaceholder(skipVariantBlock);
+
+    const updateParamsBlock = extractBlock(src, "const updateParams = [", "];");
+    const skipParamsBlock = extractBlock(src, "const skipDiagramsParams = [", "];");
+
+    expect(countArrayLiteralEntries(updateParamsBlock)).toBe(fullArity);
+    expect(countArrayLiteralEntries(skipParamsBlock)).toBe(skipArity);
+  });
 });
