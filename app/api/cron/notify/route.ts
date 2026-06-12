@@ -12,10 +12,24 @@ import { runDigestNotify, runRealtimeNotify, type NotifyRunResult } from "@/lib/
  * fault as a 5xx (the recorded-not-swallowed §4.4 intent) while keeping the full
  * result in the body. Deliberate skips (toggle off, config invalid, outside the
  * digest window) are NOT faults and stay 200.
+ *
+ * M12.13 §4.2 R27/R28: a PARTIAL per-kind toggle fault recorded inside an
+ * otherwise-ok result — `toggleFaults` on the delivery summary (R27) or on a
+ * maintenance step result (R28) — is ALSO a 5xx: bearer-token undo emails (or
+ * their failure reconciliation) were silently dropped fail-closed, and the
+ * scheduler must see that degradation. Deliberate toggle-OFF skips never carry
+ * `toggleFaults` and remain 200.
  */
+function recordsToggleFault(result: { toggleFaults?: string[] }): boolean {
+  return (result.toggleFaults?.length ?? 0) > 0;
+}
+
 function statusFor(result: NotifyRunResult): number {
-  const deliveryFault = result.delivery.kind === "infra_error";
-  const maintenanceFault = result.maintenance.some((step) => step.result.kind === "infra_error");
+  const deliveryFault =
+    result.delivery.kind === "infra_error" || recordsToggleFault(result.delivery);
+  const maintenanceFault = result.maintenance.some(
+    (step) => step.result.kind === "infra_error" || recordsToggleFault(step.result),
+  );
   return deliveryFault || maintenanceFault ? 500 : 200;
 }
 

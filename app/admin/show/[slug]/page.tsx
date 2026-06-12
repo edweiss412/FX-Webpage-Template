@@ -38,6 +38,7 @@ import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { PublishShowButton } from "@/components/admin/PublishShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
+import { UndoAutoPublishButton } from "@/components/admin/UndoAutoPublishButton";
 import {
   archiveShowAction,
   publishShowAction,
@@ -45,6 +46,7 @@ import {
   mi11ApproveAction,
   mi11RejectAction,
   undoChangeAction,
+  undoAutoPublishAction,
 } from "./_actions";
 import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
@@ -70,6 +72,10 @@ type ShowLookupRow = {
   archived: boolean;
   last_synced_at: string | null;
   last_sync_status: string | null;
+  // M12.13 §6.1: the EXPIRY only (never the token itself — the secret stays
+  // server-side; the undo action re-reads the token by slug). Drives
+  // `undoWindowOpen = expires_at != null && expires_at > now`.
+  unpublish_token_expires_at: string | null;
 };
 
 type CrewMemberRow = {
@@ -143,7 +149,7 @@ export default async function AdminShowPage({
     const { data, error: showError } = await supabase
       .from("shows")
       .select(
-        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status",
+        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status, unpublish_token_expires_at",
       )
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
@@ -231,6 +237,15 @@ export default async function AdminShowPage({
   // reads "Archived", never "Published".
   const archived = Boolean(show.archived);
   const published = show.published;
+
+  // M12.13 §6.1 — the auto-publish undo safety net is OPEN iff a live token mint
+  // exists and hasn't expired. The page never sees the token (secret stays
+  // server-side); the expiry alone gates both in-app affordances (the footer
+  // button and the SHOW_FIRST_PUBLISHED alert-row action). A manual publish mints
+  // no token (B2), so its expiry is null → window closed → no affordance.
+  const undoExpiresAt = show.unpublish_token_expires_at;
+  const undoExpiresMs = undoExpiresAt ? Date.parse(undoExpiresAt) : NaN;
+  const undoWindowOpen = Number.isFinite(undoExpiresMs) && undoExpiresMs > now.getTime();
 
   // §3.2 finalize-owned ("Publishing…") vs Held discriminator. Same
   // authoritative source as the dashboard (components/admin/Dashboard.tsx:287):
@@ -374,6 +389,11 @@ export default async function AdminShowPage({
         showId={show.id}
         slug={show.slug}
         highlightAlertId={sp.alert_id ?? null}
+        /* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows render the shared undo action
+           iff the token window is still open. The bound action is passed down so
+           the section reuses the SAME server action as the footer button. */
+        undoWindowOpen={undoWindowOpen}
+        undoAutoPublishAction={undoAutoPublishAction.bind(null, show.slug)}
       />
 
       {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
@@ -665,6 +685,17 @@ export default async function AdminShowPage({
             Archive shows ONLY for a Live show (published && !archived); Held
             keeps Archive grouped with Publish above, Archived shows Unarchive. */}
         <div className="flex flex-wrap items-center gap-3">
+          {/* M12.13 §6.2/§6.4 — the in-app undo, beside Archive/Re-sync, rendered
+              iff the token window is open AND the show is Live (published &&
+              !archived). Post-undo the show is archived → this disappears and the
+              Re-sync-paused note + archived affordances take over. */}
+          {undoWindowOpen && published && !archived ? (
+            <UndoAutoPublishButton
+              slug={show.slug}
+              undoAction={undoAutoPublishAction.bind(null, show.slug)}
+              testId="undo-auto-publish-footer"
+            />
+          ) : null}
           {isShowEligibleForCrewLink ? (
             <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
           ) : null}

@@ -24,6 +24,7 @@
   ],
   "app_settings": [
     "active_signing_key_id",
+    "alert_on_auto_publish",
     "alert_on_sync_problems",
     "auto_publish_clean_first_seen",
     "daily_review_digest",
@@ -63,6 +64,10 @@
     "role_flags",
     "show_id",
     "stage_restriction"
+  ],
+  "data_migration_markers": [
+    "executed_at",
+    "key"
   ],
   "deferred_ingestions": [
     "deferred_at",
@@ -115,6 +120,7 @@
     "show_id"
   ],
   "onboarding_scan_manifest": [
+    "created_show_id",
     "drive_file_id",
     "folder_id",
     "id",
@@ -280,7 +286,8 @@
     "title",
     "unpublish_token",
     "unpublish_token_expires_at",
-    "venue"
+    "venue",
+    "wizard_created_session_id"
   ],
   "shows_internal": [
     "financials",

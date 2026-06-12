@@ -40,6 +40,26 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // M12.13 secret-hygiene (HIGH finding): the unpublish confirm route is reached
+  // at a URL carrying a single-use bearer token (`?token=…&r=…`). With the
+  // browser default Referrer-Policy that full URL can leak into the `Referer`
+  // header on same-origin subresource requests / later navigation — landing the
+  // unconsumed token in app/proxy/access logs. `Referrer-Policy: no-referrer`
+  // strips the Referer; `Cache-Control: no-store` keeps the token-bearing
+  // response out of shared/browser caches. Scoped PRECISELY to the confirm page
+  // (`/show/:slug/unpublish`) and its consume API (`/api/show/:slug/unpublish`)
+  // — the crew page `/show/:slug/:shareToken` keeps its normal headers. Pinned
+  // by tests/config/unpublishSecurityHeaders.test.ts.
+  async headers() {
+    const noLeak = [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "Cache-Control", value: "no-store" },
+    ];
+    return [
+      { source: "/show/:slug/unpublish", headers: noLeak },
+      { source: "/api/show/:slug/unpublish", headers: noLeak },
+    ];
+  },
 };
 
 export default withMDX(nextConfig);

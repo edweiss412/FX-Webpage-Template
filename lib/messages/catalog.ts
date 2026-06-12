@@ -914,11 +914,11 @@ export const MESSAGE_CATALOG = {
     code: "SHOW_FIRST_PUBLISHED",
     severity: "info",
     dougFacing:
-      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Archive the show from its page — its crew link switches off until you unarchive and republish.",
+      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Use Undo auto-publish — the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; after that, archive the show from its page instead. Either way its crew link switches off until you republish.",
     crewFacing: null,
     followUp: null,
     helpfulContext:
-      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, archive the show from its per-show page — that stops the share-token URL from resolving until you unarchive and republish.",
+      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, use Undo auto-publish — the button appears on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; once it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
     title: null,
     longExplanation: null,
     helpHref: null,
@@ -939,14 +939,14 @@ export const MESSAGE_CATALOG = {
   UNPUBLISH_TOKEN_CONSUMED: {
     code: "UNPUBLISH_TOKEN_CONSUMED",
     dougFacing:
-      "This unpublish link has already been used. The show is already unpublished, or someone else (or another tab) clicked it before you.",
+      "This undo has already been used. The show is already unpublished, or someone else (or another tab) got there first.",
     crewFacing: null,
     followUp: "Doug → check show status in admin",
     helpfulContext:
-      "The auto-publish unpublish link is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already clicked it. Check the admin dashboard to confirm the current state.",
-    title: "Unpublish link already used",
+      "The auto-publish undo is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already triggered it. You'll only ever see this message inside the admin — a spent emailed link shows a generic not-found page instead. Check the show's page to confirm the current state.",
+    title: "Undo already used",
     longExplanation:
-      "The auto-publish unpublish link is single-use and has already been used. Either the show is already unpublished, or another tab clicked it before you. Check the admin dashboard to confirm.",
+      "The auto-publish undo is single-use and has already been used. Either the show is already unpublished, or another tab or admin got there first. This message renders only inside the admin — spent emailed links show a generic not-found page. Check the show's page to confirm the current state.",
     helpHref: "/help/errors#UNPUBLISH_TOKEN_CONSUMED",
   },
   UNPUBLISH_TOKEN_EXPIRED: {
@@ -1677,14 +1677,14 @@ export const MESSAGE_CATALOG = {
     code: "EMAIL_NOT_CONFIGURED",
     severity: "warning",
     dougFacing:
-      "Email notifications aren't set up yet, so alerts won't be emailed. Check that the email provider key, the sending address, and the site address are all configured.",
+      "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. Check that the email provider key, the sending address, and the site address are all configured.",
     crewFacing: null,
     followUp: "Doug → check email provider key, sending address, and site address",
     helpfulContext:
-      "Outbound email isn't fully configured, so sync-problem alerts and the daily digest won't be emailed. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts still work; set whichever is missing to enable email.",
+      "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and the in-app undo button still work; set whichever is missing to enable email.",
     title: "Email notifications not set up",
     longExplanation:
-      "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. You'll still see alerts in the dashboard, but they won't be emailed until all three are set.",
+      "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. Sync-problem alerts, the daily digest, and auto-publish undo emails all wait on the same three settings. You'll still see alerts — and the in-app undo button — in the dashboard.",
     helpHref: "/help/errors#EMAIL_NOT_CONFIGURED",
   },
   TILE_SERVER_RENDER_FAILED: {

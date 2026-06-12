@@ -1,13 +1,11 @@
 import postgres from "postgres";
-import {
-  upsertAdminAlert,
-  type UpsertAdminAlertInput,
-} from "@/lib/adminAlerts/upsertAdminAlert";
+import { upsertAdminAlert, type UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import {
   resolveAdminAlert,
   type ResolveAdminAlertInput,
 } from "@/lib/adminAlerts/resolveAdminAlert";
 import { DIGEST_TIMEZONE } from "@/lib/notify/constants";
+import { mintIdFor } from "@/lib/sync/unpublishBinding";
 
 export type EmailDeliveryFailedSql = {
   <T extends Record<string, unknown> = Record<string, unknown>>(
@@ -17,9 +15,23 @@ export type EmailDeliveryFailedSql = {
   end?: (options?: { timeout?: number }) => Promise<void>;
 };
 
+/**
+ * M12.13 §4.3b R21 — channel toggle states are TRI-STATE. A faulted toggle
+ * read must survive the type system as `unknown` (optionally carrying the
+ * faulted getter's name): coercing it to `false` would incorrectly resolve
+ * shared alerts / suppress EMAIL_NOT_CONFIGURED; coercing to `true` would pin
+ * stale alerts open. Callers (`runMaintenance`) pass faults through as
+ * `unknown` — no coercion.
+ */
+export type ChannelToggleState =
+  | { kind: "enabled" }
+  | { kind: "disabled" }
+  | { kind: "unknown"; source?: string };
+
 export type EmailDeliveryStateInput = {
-  alertOnSyncProblems: boolean;
-  dailyReviewDigest: boolean;
+  alertOnSyncProblems: ChannelToggleState;
+  dailyReviewDigest: ChannelToggleState;
+  alertOnAutoPublish: ChannelToggleState;
   configValid: boolean;
   todayET?: string;
   now?: Date;
@@ -76,14 +88,38 @@ async function listScopes(sql: EmailDeliveryFailedSql): Promise<ScopeRow[]> {
   `;
 }
 
+/**
+ * Boolean channel flags for ONE evaluation pass. The reconciler evaluates
+ * each scope pessimistically (unknown → disabled: only KNOWN-current rows
+ * open/keep the alert) and — when any channel is unknown — optimistically
+ * (unknown → enabled: rows that MAY be current under the unknown channel
+ * block resolution, leaving the shared alert untouched per R11).
+ */
+type ChannelFlags = { sync: boolean; digest: boolean; undo: boolean };
+
+function channelFlags(
+  input: EmailDeliveryStateInput,
+  treatUnknownAsEnabled: boolean,
+): ChannelFlags {
+  const on = (channel: ChannelToggleState) =>
+    channel.kind === "enabled" || (channel.kind === "unknown" && treatUnknownAsEnabled);
+  return {
+    sync: on(input.alertOnSyncProblems),
+    digest: on(input.dailyReviewDigest),
+    undo: on(input.alertOnAutoPublish),
+  };
+}
+
 async function hasCurrentFailed(
   sql: EmailDeliveryFailedSql,
   showId: string | null,
-  input: Required<Pick<EmailDeliveryStateInput, "alertOnSyncProblems" | "dailyReviewDigest">> & {
-    todayET: string;
-  },
+  flags: ChannelFlags,
+  todayET: string,
 ): Promise<boolean> {
-  const digestKey = `digest:${input.todayET}`;
+  if (flags.undo && (await hasCurrentFailedUndo(sql, showId))) return true;
+  if (!flags.sync && !flags.digest) return false;
+  const input = { alertOnSyncProblems: flags.sync, dailyReviewDigest: flags.digest };
+  const digestKey = `digest:${todayET}`;
   const rows = await sql`
     select 1
       from public.email_deliveries e
@@ -170,6 +206,51 @@ async function hasCurrentFailed(
   return rows.length > 0;
 }
 
+/**
+ * M12.13 §4.3b — a failed `auto_publish_undo` row is CURRENT while the row's
+ * OWN recipient is still an active admin (the same per-row strictness as the
+ * other kinds — R4), the row carries `context.mintId` (rows without it are
+ * non-current by construction), the context window is unexpired, the show is
+ * still published+unarchived with a live token, AND sha256(live token) prefix
+ * equals `context.mintId` — exact mint identity, hashed IN MEMORY so the
+ * bearer secret never persists (`expires_at` is only the window timestamp,
+ * never an identity key: same-ms re-mints share it).
+ */
+async function hasCurrentFailedUndo(
+  sql: EmailDeliveryFailedSql,
+  showId: string | null,
+): Promise<boolean> {
+  const rows = await sql<{ mint_id: string | null; live_token: string | null }>`
+    select e.context->>'mintId' as mint_id,
+           s.unpublish_token::text as live_token
+      from public.email_deliveries e
+      join public.shows s on s.id = e.show_id
+     where e.status = 'failed'
+       and e.kind = 'auto_publish_undo'
+       and (
+         (${showId}::uuid is null and e.show_id is null)
+         or e.show_id = ${showId}::uuid
+       )
+       and exists (
+         select 1
+           from public.admin_emails ae
+          where ae.email = e.recipient
+            and ae.revoked_at is null
+       )
+       and e.context ? 'mintId'
+       and (e.context->>'expires_at')::timestamptz > now()
+       and s.unpublish_token is not null
+       and s.published is true
+       and s.archived is false
+  `;
+  return rows.some(
+    (row) =>
+      typeof row.live_token === "string" &&
+      typeof row.mint_id === "string" &&
+      mintIdFor(row.live_token) === row.mint_id,
+  );
+}
+
 export async function reconcileEmailDeliveryState(
   input: EmailDeliveryStateInput,
   deps: Deps = {},
@@ -188,25 +269,40 @@ export async function reconcileEmailDeliveryState(
   let opened = 0;
   let resolved = 0;
 
+  const pessimistic = channelFlags(input, false);
+  const optimistic = channelFlags(input, true);
+  const channels = [input.alertOnSyncProblems, input.dailyReviewDigest, input.alertOnAutoPublish];
+  const anyUnknown = channels.some((channel) => channel.kind === "unknown");
+
   try {
     const scopes = await listScopes(sql);
     for (const scope of scopes) {
-      if (
-        await hasCurrentFailed(sql, scope.show_id, {
-          alertOnSyncProblems: input.alertOnSyncProblems,
-          dailyReviewDigest: input.dailyReviewDigest,
-          todayET,
-        })
-      ) {
+      if (await hasCurrentFailed(sql, scope.show_id, pessimistic, todayET)) {
+        // KNOWN current under known-enabled channels → open/keep open.
         await upsert({ showId: scope.show_id, code: "EMAIL_DELIVERY_FAILED", context: {} });
         opened += 1;
-      } else {
-        await resolve({ showId: scope.show_id, code: "EMAIL_DELIVERY_FAILED" });
-        resolved += 1;
+        continue;
       }
+      if (anyUnknown && (await hasCurrentFailed(sql, scope.show_id, optimistic, todayET))) {
+        // R11 — the shared per-scope alert may RESOLVE only when EVERY channel
+        // contributing to the scope is KNOWN non-current. A row that may be
+        // current under an unknown channel leaves the alert UNTOUCHED (open
+        // stays open; closed stays closed). Rows whose NON-toggle conditions
+        // fail (expiry, consumption, revoked recipient, later success) are
+        // known non-current regardless of the unknown toggle and never reach
+        // this branch.
+        continue;
+      }
+      await resolve({ showId: scope.show_id, code: "EMAIL_DELIVERY_FAILED" });
+      resolved += 1;
     }
 
-    if (!input.configValid && (input.alertOnSyncProblems || input.dailyReviewDigest)) {
+    // R16 — EMAIL_NOT_CONFIGURED opens while config is invalid and any channel
+    // is known-enabled OR unknown (a broken channel must not be hidden by its
+    // own toggle's read fault); it resolves only on valid config or when every
+    // channel is KNOWN disabled.
+    const anyEnabledOrUnknown = channels.some((channel) => channel.kind !== "disabled");
+    if (!input.configValid && anyEnabledOrUnknown) {
       await upsert({ showId: null, code: "EMAIL_NOT_CONFIGURED", context: {} });
       opened += 1;
     } else {

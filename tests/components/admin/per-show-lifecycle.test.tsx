@@ -48,6 +48,8 @@ vi.mock("@/app/admin/show/[slug]/_actions", () => ({
   archiveShowAction: async () => ({ ok: true }),
   publishShowAction: async () => ({ ok: true }),
   unarchiveShowAction: async () => undefined,
+  // M12.13 — the page binds undoAutoPublishAction for the footer + alert section.
+  undoAutoPublishAction: async () => ({ outcome: "success" }),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -64,7 +66,8 @@ vi.mock("@/lib/supabase/server", () => ({
         data: table === "shows" ? state.show : null,
         error: null,
       });
-      (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) => onf({ data: [], error: null });
+      (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) =>
+        onf({ data: [], error: null });
       return builder;
     },
     rpc: async (fn: string) =>
