@@ -91,12 +91,17 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
             without splitting the text run (inline-flex drops the space
             between split items — byte-level screenshot drift). Row-specific
             per WCAG 2.4.4 (Codex R2): a repeated list must not announce N
-            identical "Review" links — suffix the same field the card title
-            renders (candidateTitle ?? driveFileId). */}
+            identical "Review" links. The unique driveFileId discriminator
+            is UNCONDITIONAL when a title is present (Codex R4) — duplicate
+            parsed titles must not re-collapse the names. */}
         <Link
           data-testid={`needs-attention-link-first-seen-${item.stagedId}`}
           href={`/admin/show/staged/${encodeURIComponent(item.stagedId)}`}
-          aria-label={`Review ${item.candidateTitle ?? item.driveFileId}`}
+          aria-label={
+            item.candidateTitle
+              ? `Review ${item.candidateTitle} (${item.driveFileId})`
+              : `Review ${item.driveFileId}`
+          }
           className={reviewLinkClass}
         >
           Review →
@@ -114,12 +119,15 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
       <CardHeader item={item} now={now} status="review" label="Changes to review" />
       <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
       {/* aria-label — same decorative-arrow + row-specific (WCAG 2.4.4)
-          rationale as Review above; suffix matches the card title's
-          title ?? slug. */}
+          rationale as Review above; the unique slug discriminator is
+          UNCONDITIONAL when a title is present (Codex R4) — two staged
+          shows can share a title but never a slug. */}
       <Link
         data-testid={`needs-attention-link-${item.slug}`}
         href={`/admin/show/${encodeURIComponent(item.slug)}`}
-        aria-label={`Open show ${item.title ?? item.slug}`}
+        aria-label={
+          item.title ? `Open show ${item.title} (${item.slug})` : `Open show ${item.slug}`
+        }
         className={reviewLinkClass}
       >
         Open show →

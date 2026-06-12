@@ -56,8 +56,16 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
   // regex: the M11.5 G3 cutover removed it (tests/db/cutover-drop-m9-5
   // pins the absence), a write would fail at the catalog, and the
   // cross-cutting no-m9-5-surfaces sweep bans spelling its name here.
+  // Codex R4: the matcher accepts all THREE literal quote forms (double,
+  // single, backtick) so quote style can't bypass the count pins. HONEST
+  // LIMITATION: a table name reaching from() through a constant or
+  // variable (`from(TABLE_NAME)`) is out of reasonable regex reach —
+  // lexical scanning can't resolve identifiers. Prettier normalizes the
+  // repo to double quotes, so literal-quote variants are the realistic
+  // accidental bypass; identifier indirection would be deliberate and is
+  // a review-time concern.
   const LOCKED_TABLE_FROM_RE =
-    /from\(\s*"(shows|crew_members|pending_syncs|pending_ingestions)"\s*\)/;
+    /from\(\s*["'`](shows|crew_members|pending_syncs|pending_ingestions)["'`]\s*\)/;
   const MUTATION_RE = /\.(insert|update|delete)\(/;
 
   // Pre-existing M4/M5-era fixture-DML debt, frozen by the Codex R2 sweep
@@ -142,6 +150,22 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
         `${name} has a frozen count of ${count} — a zero/negative pin is a stale entry; remove it`,
       ).toBeGreaterThan(0);
     }
+  });
+
+  // Codex R4 — prove the scanner catches the non-double-quote literal
+  // forms (the bypass vector the original "-only regex left open). These
+  // fixture strings exercise lockedTableMutationLines directly; if the
+  // matcher regresses to a single quote form, these fail.
+  it("scanner catches single-quote, template-literal, and double-quote from() forms", () => {
+    const singleQuote = `await admin.from('crew_members')\n  .update({ date_restriction: null })\n  .eq('id', x);`;
+    const templateLiteral =
+      "await admin.from(`pending_syncs`)\n  .delete()\n  .eq(`drive_file_id`, x);";
+    const doubleQuote = `await admin.from("shows")\n  .insert({ slug: "x" });`;
+    expect(lockedTableMutationLines(singleQuote)).toEqual([1]);
+    expect(lockedTableMutationLines(templateLiteral)).toEqual([1]);
+    expect(lockedTableMutationLines(doubleQuote)).toEqual([1]);
+    // Reads stay unflagged regardless of quote form.
+    expect(lockedTableMutationLines(`await admin.from('shows').select('id');`)).toEqual([]);
   });
 
   // M12.12-DEF-2 follow-up (Codex MEDIUM): the shared locked psql UPDATE

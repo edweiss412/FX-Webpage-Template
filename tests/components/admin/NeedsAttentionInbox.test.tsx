@@ -56,20 +56,20 @@ describe("NeedsAttentionInbox", () => {
   // name (text runs stay UNSPLIT — splitting them drops the inline-flex
   // inter-item space / shifts text-decoration paint, byte-level screenshot
   // drift). Names are ROW-SPECIFIC per WCAG 2.4.4 (a repeated list — incl.
-  // the 100-item page — must not announce N identical "Review" links),
-  // built from the same field the card title renders: candidateTitle ??
-  // driveFileId for first_seen, title ?? slug for existing_staged.
+  // the 100-item page — must not announce N identical "Review" links).
+  // Codex R4: the UNIQUE discriminator (driveFileId / slug) is suffixed
+  // unconditionally when a title is present — titles alone can collide.
   it("Review/Open-show accessible names are row-specific (aria-label), visible text keeps →", () => {
     const items: NeedsAttentionItem[] = [
       { variant: "first_seen", key: "sync:s1", stagedId: "s1", driveFileId: "d2", candidateTitle: "New Show", activityAt: ONE_HR_AGO },
       { variant: "existing_staged", key: "sync:s2", stagedId: "s2", driveFileId: "d3", slug: "known-show", title: "Known Show", activityAt: ONE_HR_AGO },
     ];
     render(<NeedsAttentionInbox items={items} totalCount={2} renderedCount={2} overflowCount={0} now={NOW} />);
-    const review = screen.getByRole("link", { name: "Review New Show" });
+    const review = screen.getByRole("link", { name: "Review New Show (d2)" });
     expect(review).toHaveAttribute("data-testid", "needs-attention-link-first-seen-s1");
     expect(review.textContent).toBe("Review →");
     expect(review.firstElementChild).toBeNull();
-    const openShow = screen.getByRole("link", { name: "Open show Known Show" });
+    const openShow = screen.getByRole("link", { name: "Open show Known Show (known-show)" });
     expect(openShow).toHaveAttribute("data-testid", "needs-attention-link-known-show");
     expect(openShow.textContent).toBe("Open show →");
     expect(openShow.firstElementChild).toBeNull();
@@ -86,11 +86,31 @@ describe("NeedsAttentionInbox", () => {
       { variant: "existing_staged", key: "sync:e2", stagedId: "e2", driveFileId: "d-e2", slug: "gamma-show", title: null, activityAt: ONE_HR_AGO },
     ];
     render(<NeedsAttentionInbox items={items} totalCount={4} renderedCount={4} overflowCount={0} now={NOW} />);
-    expect(screen.getByRole("link", { name: "Review Alpha Gala" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Review drive-b" })).toBeInTheDocument(); // candidateTitle null → driveFileId
-    expect(screen.getByRole("link", { name: "Open show Beta Show" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open show gamma-show" })).toBeInTheDocument(); // title null → slug
+    expect(screen.getByRole("link", { name: "Review Alpha Gala (drive-a)" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review drive-b" })).toBeInTheDocument(); // candidateTitle null → driveFileId alone
+    expect(screen.getByRole("link", { name: "Open show Beta Show (beta-show)" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open show gamma-show" })).toBeInTheDocument(); // title null → slug alone
     // No two links share an accessible name (the WCAG 2.4.4 failure mode).
+    const names = screen.getAllByRole("link").map((l) => l.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  // Codex R4 MEDIUM — DUPLICATE titles are the residual collapse vector:
+  // two first-seen sheets can parse the same title, and two staged shows
+  // can share a title with different slugs. The unconditional unique-id
+  // suffix keeps the names distinct.
+  it("two same-TITLE rows still expose distinct accessible names (unconditional discriminator)", () => {
+    const items: NeedsAttentionItem[] = [
+      { variant: "first_seen", key: "sync:f1", stagedId: "f1", driveFileId: "drive-a", candidateTitle: "Spring Gala", activityAt: ONE_HR_AGO },
+      { variant: "first_seen", key: "sync:f2", stagedId: "f2", driveFileId: "drive-b", candidateTitle: "Spring Gala", activityAt: ONE_HR_AGO },
+      { variant: "existing_staged", key: "sync:e1", stagedId: "e1", driveFileId: "d-e1", slug: "gala-2026-east", title: "Gala", activityAt: ONE_HR_AGO },
+      { variant: "existing_staged", key: "sync:e2", stagedId: "e2", driveFileId: "d-e2", slug: "gala-2026-west", title: "Gala", activityAt: ONE_HR_AGO },
+    ];
+    render(<NeedsAttentionInbox items={items} totalCount={4} renderedCount={4} overflowCount={0} now={NOW} />);
+    expect(screen.getByRole("link", { name: "Review Spring Gala (drive-a)" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review Spring Gala (drive-b)" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open show Gala (gala-2026-east)" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open show Gala (gala-2026-west)" })).toBeInTheDocument();
     const names = screen.getAllByRole("link").map((l) => l.getAttribute("aria-label"));
     expect(new Set(names).size).toBe(names.length);
   });
