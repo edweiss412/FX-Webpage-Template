@@ -56,6 +56,11 @@ jobs:
           # locally .env.local supplies the rest; bare CI runners must get
           # it here so every child build inherits it (real-CI round 2).
           HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
+          # Boot ONLY the :3004 webServer (the walker projects' sole target).
+          # Without this, playwright cold-builds all five servers in parallel
+          # and the with-admin-dev-flag wrapper's hold-aside window races the
+          # other builds' type-checks (real-CI round 3).
+          HELP_DOCS_WALKER_ONLY: "1"
         run: pnpm exec playwright test --project=help-docs-setup --project=help-docs --project=help-docs-desktop
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()

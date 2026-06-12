@@ -189,6 +189,14 @@ export default defineConfig({
       },
     },
   ],
+  // In CI the help-affordances walker boots ONLY the :3004 server: the five
+  // entries below share one source tree, and scripts/with-admin-dev-flag.mjs
+  // physically holds app/admin/dev aside during flag-UNSET builds — parallel
+  // cold builds race that window (real-CI round 3: the :3000 type-check died
+  // on a missing app/admin/dev/page.js mid-hold). The help-docs-setup /
+  // help-docs / help-docs-desktop projects all target :3004 exclusively
+  // (project baseURL), so HELP_DOCS_WALKER_ONLY=1 keeps CI to one build.
+  // Local runs without the flag boot everything, unchanged.
   webServer: [
     {
       // M0 baseline server — widened in M5 §B to support the auth-chain
@@ -344,5 +352,7 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
     },
-  ],
+  ].filter(
+    (server) => !process.env.HELP_DOCS_WALKER_ONLY || server.url === "http://localhost:3004",
+  ),
 });
