@@ -3,6 +3,7 @@ import type { Mi11Item } from "@/lib/sync/holds/writeMi11Holds";
 import type { ReviewerChoice } from "@/lib/sync/applyStagedCore";
 import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { isReviewerChoice, isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 
 /**
  * F1 Task 1.4 — the single typed, FAIL-CLOSED interpretation boundary for
@@ -64,59 +65,12 @@ function toIsoOrNull(value: unknown): string | null {
   return new Date(ms).toISOString();
 }
 
-/**
- * WM-R4: mirrors `validateReviewerChoices`' dereference expectations
- * (lib/sync/applyStagedCore.ts — `choice.item_id`, the action union, the
- * rename-only `rename_value`). Anything passing this guard cannot make the
- * apply core throw; element corruption refuses with the same posture as the
- * items field (STAGED_REVIEW_ITEMS_CORRUPT) instead of surfacing as a
- * route-level ONBOARDING_FINALIZE_INTERNAL_ERROR that blocks the whole batch.
- */
-const REVIEWER_CHOICE_ACTIONS: ReadonlySet<ReviewerChoice["action"]> = new Set([
-  "apply",
-  "reject",
-  "rename",
-  "independent",
-]);
-
-function isReviewerChoice(value: unknown): value is ReviewerChoice {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const choice = value as Record<string, unknown>;
-  if (typeof choice.item_id !== "string") return false;
-  if (
-    typeof choice.action !== "string" ||
-    !REVIEWER_CHOICE_ACTIONS.has(choice.action as ReviewerChoice["action"])
-  ) {
-    return false;
-  }
-  if (choice.rename_value !== undefined && typeof choice.rename_value !== "string") return false;
-  return true;
-}
-
-
-// WM-R5: per-invariant structural validation for review-item elements at this gate
-// boundary. Guarantees: string `id` + string `invariant` on every element, plus the
-// per-invariant string fields the apply core dereferences (deriveAuthSideEffects name
-// pushes + expectedRenameValue). Asset/unknown invariants deref nothing beyond id/invariant.
-const REVIEW_ITEM_REQUIRED_STRING_FIELDS: Record<string, readonly string[]> = {
-  "MI-11": ["crew_name"],
-  "MI-12": ["removed_name", "added_name"],
-  "MI-13": ["removed_name", "added_name"],
-  "MI-14": ["removed_name", "added_name"],
-  "MI-13-orphan-remove": ["removed_name"],
-  "MI-14-orphan-remove": ["removed_name"],
-  "MI-13-orphan-add": ["added_name"],
-  "MI-14-orphan-add": ["added_name"],
-};
-
-function isStructurallyValidReviewItem(item: unknown): boolean {
-  if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
-  const rec = item as Record<string, unknown>;
-  if (typeof rec.id !== "string" || rec.id.length === 0) return false;
-  if (typeof rec.invariant !== "string" || rec.invariant.length === 0) return false;
-  const required = REVIEW_ITEM_REQUIRED_STRING_FIELDS[rec.invariant] ?? [];
-  return required.every((field) => typeof rec[field] === "string");
-}
+// WM-R4 (isReviewerChoice) + WM-R5 (isStructurallyValidReviewItem) element guards
+// moved to lib/staging/reviewPayloadGuards.ts (WM-R6 closed the class — the
+// finalize Phase B + dashboard apply read boundaries share them). At THIS gate,
+// element corruption refuses with the same posture as the items field
+// (STAGED_REVIEW_ITEMS_CORRUPT) instead of surfacing as a route-level
+// ONBOARDING_FINALIZE_INTERNAL_ERROR that blocks the whole batch.
 
 export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloadForApply {
   // Non-null plain-object guard: jsonb permits top-level null / string / number /
