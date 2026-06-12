@@ -1071,11 +1071,25 @@ class PostgresPipelineTx implements SyncPipelineTx {
           `,
           args.skipDiagramsWrite ? skipDiagramsParams : updateParams,
         )
-      : await insertFirstSeenShowWithSlugRetry({
-          baseSlug: args.slug,
-          insert: async (slug) =>
-            await this.one<{ id: string }>(
-              `
+      : await (() => {
+          // R30-1 + R65-1 (F1): wizard Phase B first-seen INSERT variants. When
+          // firstSeenPublished === false the column list gains `published` with literal false
+          // (overriding the DDL default true); when wizardCreatedSessionId is set the column
+          // list gains `wizard_created_session_id` ($21::uuid) — the show-side provenance
+          // discriminator every created_show_id consumer joins on. Both absent → the SQL is
+          // byte-identical to the pre-F1 statement.
+          const extraColumns =
+            (args.firstSeenPublished === false ? ", published" : "") +
+            (args.wizardCreatedSessionId ? ", wizard_created_session_id" : "");
+          const extraValues =
+            (args.firstSeenPublished === false ? ", false" : "") +
+            (args.wizardCreatedSessionId ? ", $21::uuid" : "");
+          const extraParams = args.wizardCreatedSessionId ? [args.wizardCreatedSessionId] : [];
+          return insertFirstSeenShowWithSlugRetry({
+            baseSlug: args.slug,
+            insert: async (slug) =>
+              await this.one<{ id: string }>(
+                `
                 insert into public.shows (
                   drive_file_id, slug, title, client_label, client_contact, template_version,
                   venue, dates, event_details, agenda_links, diagrams,
@@ -1083,18 +1097,19 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
                   unpublish_token, unpublish_token_expires_at,
-                  last_synced_at, last_sync_status, last_sync_error
+                  last_synced_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, now(), 'ok', null)
+                        $19::uuid, $20::timestamptz, now(), 'ok', null${extraValues})
                 on conflict (drive_file_id) do nothing
                 returning id
               `,
-              insertParamsForSlug(slug),
-            ),
-        });
+                [...insertParamsForSlug(slug), ...extraParams],
+              ),
+          });
+        })();
 
     if (!updated) return { outcome: "stale" as const };
     return {
@@ -1291,6 +1306,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
       ],
     );
   }
+}
+
+/**
+ * F1 (shared apply core): expose the canonical pipeline tx over an EXISTING raw
+ * postgres.js transaction handle — the finalize routes' per-row transactions
+ * already hold the per-show advisory lock, and the shared apply core must run
+ * on the holder's transaction (acquire-free; single-holder rule, spec §3.3).
+ */
+export function makeSyncPipelineTx(tx: PostgresTransaction): SyncPipelineTx {
+  return new PostgresPipelineTx(tx);
 }
 
 class DriveMetadataMissingError extends Error {

@@ -57,7 +57,9 @@ describe("timestamp instant-comparison Date-safety (structural defense)", () => 
   // Files that define a local `timestampMs` helper used by a revision/deferral
   // guard AND read timestamptz columns via postgres.js.
   const FILES_WITH_TIMESTAMP_MS = [
-    "lib/sync/applyStaged.ts",
+    // F1 Task 1.1: timestampMs/sameTimestamp moved from applyStaged.ts to the shared
+    // applyStagedCore.ts (applyStaged.ts now imports them — no local helper remains there).
+    "lib/sync/applyStagedCore.ts",
     "lib/sync/runScheduledCronSync.ts",
   ];
 

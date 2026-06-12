@@ -37,27 +37,47 @@ import {
   type RunOnboardingScanDeps,
 } from "@/lib/sync/runOnboardingScan";
 
+// F1: the shared staged-apply core (extracted Task 1.1). The moved symbols are re-exported below
+// so existing import sites (routes, tests) are untouched.
+import {
+  applyStagedCore,
+  defaultBumpReviewerAuthFloors,
+  defaultDeleteLivePendingSync,
+  defaultInsertSyncAudit,
+  normalizeTimestamptz,
+  sameTimestamp,
+  timestampMs,
+  validateReviewerChoices,
+  DUPLICATE_REVIEWER_CHOICE,
+  EXTRA_REVIEWER_CHOICE,
+  INVALID_REVIEWER_ACTION,
+  MISSING_REVIEWER_CHOICE,
+  type ReviewerChoice,
+  type ShowForApply,
+  type Timestampish,
+} from "@/lib/sync/applyStagedCore";
+
+export {
+  DUPLICATE_REVIEWER_CHOICE,
+  EXTRA_REVIEWER_CHOICE,
+  INVALID_REVIEWER_ACTION,
+  MISSING_REVIEWER_CHOICE,
+  validateReviewerChoices,
+  type ReviewerChoice,
+  type ShowForApply,
+};
+
 export const PENDING_SYNC_NOT_FOUND = "PENDING_SYNC_NOT_FOUND" as const;
 export const STAGED_PARSE_SUPERSEDED = "STAGED_PARSE_SUPERSEDED" as const;
 export const STAGED_PARSE_SOURCE_GONE = "STAGED_PARSE_SOURCE_GONE" as const;
 export const STAGED_PARSE_SOURCE_OUT_OF_SCOPE = "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" as const;
 export const STAGED_PARSE_OUTDATED = "STAGED_PARSE_OUTDATED" as const;
-export const MISSING_REVIEWER_CHOICE = "MISSING_REVIEWER_CHOICE" as const;
-export const EXTRA_REVIEWER_CHOICE = "EXTRA_REVIEWER_CHOICE" as const;
-export const DUPLICATE_REVIEWER_CHOICE = "DUPLICATE_REVIEWER_CHOICE" as const;
-export const INVALID_REVIEWER_ACTION = "INVALID_REVIEWER_ACTION" as const;
 export const WIZARD_SESSION_SUPERSEDED = "WIZARD_SESSION_SUPERSEDED" as const;
 export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" as const;
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
 export const STAGED_PARSE_RESTAGED_INLINE = "STAGED_PARSE_RESTAGED_INLINE" as const;
 export const STAGED_REVIEW_ITEMS_CORRUPT = "STAGED_REVIEW_ITEMS_CORRUPT" as const;
 export const STAGED_PARSE_RESULT_CORRUPT = "STAGED_PARSE_RESULT_CORRUPT" as const;
-
-export type ReviewerChoice = {
-  item_id: string;
-  action: "apply" | "reject" | "rename" | "independent";
-  rename_value?: string;
-};
 
 export type PendingSyncForApply = {
   driveFileId: string;
@@ -89,12 +109,6 @@ export type PendingSyncForApply = {
   priorLastSyncStatus: string | null;
   priorLastSyncError: string | null;
   warningSummary: string;
-};
-
-type ShowForApply = {
-  showId: string | null;
-  lastSeenModifiedTime: string | null;
-  diagrams: unknown;
 };
 
 type LivePendingIngestionInput = {
@@ -302,6 +316,9 @@ export type ApplyStagedDeps = {
       parseResultSummary: Record<string, unknown>;
       baseModifiedTime: string | null;
       stagedModifiedTime: string;
+      // F1 Task 1.1 (additive bridge): the shared core always provides applied_at provenance
+      // (null → DB default now()); optional here so injected fakes keep compiling.
+      appliedAt?: string | null;
     },
   ) => Promise<string | null>;
   deleteLivePendingSync?: (
@@ -339,39 +356,9 @@ export type ApplyStagedDeps = {
   runOnboardingScan?: typeof runOnboardingScan;
 };
 
-/**
- * A `Timestampish` is whatever a timestamp value can be at the read boundary.
- * The DB layer is postgres.js, which parses `timestamptz` columns into JS
- * `Date` objects, NOT ISO strings — even though the row types here say
- * `string`. Drive metadata, by contrast, arrives as ISO strings. Comparison
- * helpers must accept both without losing precision.
- *
- * The original `timestampMs` only accepted strings and ran `Date.parse(value)`.
- * When fed a `Date` (a postgres.js timestamptz), `Date.parse` coerces it via
- * `toString()` — which DROPS the milliseconds — so a Date staged time
- * ".040" became ".000" and never equalled the millisecond-exact Drive ISO
- * string. That mis-compare produced a deterministic false revision race on
- * unedited sheets (M12 Phase 0.F smoke 3, 4th onboarding defect). Handling
- * `Date` via `getTime()` preserves the milliseconds.
- */
-type Timestampish = string | Date | null | undefined;
-
-function timestampMs(value: Timestampish): number | null {
-  if (value === null || value === undefined) return null;
-  if (value instanceof Date) {
-    const ms = value.getTime();
-    return Number.isFinite(ms) ? ms : null;
-  }
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function sameTimestamp(left: Timestampish, right: Timestampish): boolean {
-  const leftMs = timestampMs(left);
-  const rightMs = timestampMs(right);
-  if (leftMs === null && rightMs === null) return true;
-  return leftMs === rightMs;
-}
+// `Timestampish`/`timestampMs`/`sameTimestamp`/`normalizeTimestamptz` moved to
+// lib/sync/applyStagedCore.ts (F1 Task 1.1) and are imported above; the revision-guard
+// predicates below stay here (live-caller-level semantics).
 
 /**
  * Exported revision-guard time equality. The Apply revision guard
@@ -396,120 +383,9 @@ function isValidTimestamp(value: Timestampish): boolean {
   return timestampMs(value) !== null;
 }
 
-/**
- * Normalize a timestamptz value read from the DB (postgres.js `Date`) to a
- * full-precision ISO string at the read boundary, so the `string` row/field
- * types are honest and every downstream consumer (millisecond-exact revision
- * comparison, the `bindingToken`/`modifiedTime` string passed to the live
- * reverify, the value echoed back to the client) gets a real string. A value
- * that is already a string is returned unchanged; `null` stays `null`.
- */
-function normalizeTimestamptz(value: string | Date | null): string | null {
-  if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
-  return value;
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-
-const ASSET_REVIEW_INVARIANTS = new Set<TriggeredReviewItem["invariant"]>([
-  "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
-  "DIAGRAMS_EMBEDDED_NONE_FOUND",
-  "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING",
-  "REEL_DRIFT_PENDING",
-]);
-
-function allowedActions(item: TriggeredReviewItem): Set<ReviewerChoice["action"]> {
-  if (ASSET_REVIEW_INVARIANTS.has(item.invariant)) return new Set(["apply"]);
-  if (item.invariant === "MI-12") return new Set(["rename", "reject"]);
-  if (item.invariant === "MI-13" || item.invariant === "MI-14") {
-    return new Set(["rename", "independent"]);
-  }
-  return new Set(["apply"]);
-}
-
-function expectedRenameValue(item: TriggeredReviewItem): string | null {
-  if (item.invariant === "MI-12" || item.invariant === "MI-13" || item.invariant === "MI-14") {
-    return item.added_name;
-  }
-  return null;
-}
-
-function validateReviewerChoices(
-  items: TriggeredReviewItem[],
-  choices: ReviewerChoice[],
-): { ok: true; choices: ReviewerChoice[] } | ApplyStagedResult {
-  const itemIds = new Set(items.map((item) => item.id));
-  const byId = new Map<string, ReviewerChoice>();
-  for (const choice of choices) {
-    if (byId.has(choice.item_id)) {
-      return { outcome: "invalid_request", code: DUPLICATE_REVIEWER_CHOICE };
-    }
-    if (!itemIds.has(choice.item_id)) {
-      return { outcome: "invalid_request", code: EXTRA_REVIEWER_CHOICE };
-    }
-    byId.set(choice.item_id, choice);
-  }
-
-  for (const item of items) {
-    const choice = byId.get(item.id);
-    if (!choice) {
-      return { outcome: "invalid_request", code: MISSING_REVIEWER_CHOICE };
-    }
-    if (!allowedActions(item).has(choice.action)) {
-      return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
-    }
-    if (choice.action !== "rename" && choice.rename_value !== undefined) {
-      return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
-    }
-    if (choice.action === "rename" && choice.rename_value !== expectedRenameValue(item)) {
-      return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
-    }
-  }
-
-  return { ok: true, choices };
-}
-
-function deriveAuthSideEffects(
-  items: TriggeredReviewItem[],
-  choices: ReviewerChoice[],
-): { revokeFloorForNames: string[] } {
-  const choiceById = new Map(choices.map((choice) => [choice.item_id, choice]));
-  const names: string[] = [];
-
-  for (const item of items) {
-    const action = choiceById.get(item.id)?.action;
-    if (item.invariant === "MI-11" && action === "apply") {
-      names.push(item.crew_name);
-    }
-    if (item.invariant === "MI-12" && action === "rename") {
-      names.push(item.removed_name, item.added_name);
-    }
-    if (item.invariant === "MI-13" || item.invariant === "MI-14") {
-      if (action === "rename") names.push(item.removed_name, item.added_name);
-      if (action === "independent") names.push(item.removed_name);
-    }
-    if (
-      (item.invariant === "MI-13-orphan-remove" || item.invariant === "MI-14-orphan-remove") &&
-      action === "apply"
-    ) {
-      names.push(item.removed_name);
-    }
-  }
-
-  return { revokeFloorForNames: uniqueSorted(names) };
-}
-
-function parseResultSummary(parseResult: Phase2Args["parseResult"]): Record<string, unknown> {
-  return {
-    title: parseResult.show.title,
-    crewCount: parseResult.crewMembers.length,
-    roomCount: parseResult.rooms.length,
-    warningCount: parseResult.warnings.length,
-  };
-}
+// `validateReviewerChoices` / `deriveAuthSideEffects` / `parseResultSummary` /
+// `ASSET_REVIEW_INVARIANTS` / `allowedActions` / `expectedRenameValue` moved to
+// lib/sync/applyStagedCore.ts (F1 Task 1.1).
 
 export type PendingSyncForApplyRow = {
   drive_file_id: string;
@@ -803,22 +679,7 @@ async function defaultReadPendingFolderId(
   return row?.pending_folder_id ?? null;
 }
 
-async function defaultDeleteLivePendingSync(
-  tx: LockedShowTx<SyncPipelineTx>,
-  driveFileId: string,
-  stagedId: string,
-): Promise<void> {
-  await tx.queryOne<{ deleted: boolean }>(
-    `
-      delete from public.pending_syncs
-       where drive_file_id = $1
-         and staged_id = $2::uuid
-         and wizard_session_id is null
-      returning true as deleted
-    `,
-    [driveFileId, stagedId],
-  );
-}
+// `defaultDeleteLivePendingSync` moved to lib/sync/applyStagedCore.ts (F1 Task 1.1).
 
 async function defaultRestoreShowStatus(
   tx: LockedShowTx<SyncPipelineTx>,
@@ -871,48 +732,8 @@ async function defaultUpsertLivePendingIngestion(
   );
 }
 
-async function defaultInsertSyncAudit(
-  tx: LockedShowTx<SyncPipelineTx>,
-  row: Parameters<NonNullable<ApplyStagedDeps["insertSyncAudit"]>>[1],
-): Promise<string | null> {
-  const appliedBy = canonicalize(row.appliedBy);
-  if (!appliedBy) throw new Error("applyStaged: sync audit appliedBy must be canonicalizable");
-  const inserted = await tx.queryOne<{ id: string } | null>(
-    `
-      insert into public.sync_audit (
-        show_id, drive_file_id, applied_by, staged_id, triggered_review_items,
-        reviewer_choices, derived_side_effects, parse_result_summary,
-        base_modified_time, staged_modified_time
-      )
-      values ($1::uuid, $2, $3, $4::uuid, $5::jsonb, $6::jsonb, $7::jsonb,
-              $8::jsonb, $9::timestamptz, $10::timestamptz)
-      returning id
-    `,
-    [
-      row.showId,
-      row.driveFileId,
-      appliedBy,
-      row.stagedId,
-      row.triggeredReviewItems,
-      row.reviewerChoices,
-      row.derivedSideEffects,
-      row.parseResultSummary,
-      row.baseModifiedTime,
-      row.stagedModifiedTime,
-    ],
-  );
-  return inserted?.id ?? null;
-}
-
-async function defaultBumpReviewerAuthFloors(
-  tx: LockedShowTx<SyncPipelineTx>,
-  showId: string,
-  names: string[],
-): Promise<void> {
-  void tx;
-  void showId;
-  void names;
-}
+// `defaultInsertSyncAudit` (now with `applied_at = coalesce($11::timestamptz, now())`) and
+// `defaultBumpReviewerAuthFloors` moved to lib/sync/applyStagedCore.ts (F1 Task 1.1).
 
 function isGone(metadata: DriveListedFile & { trashed?: boolean }): boolean {
   return metadata.trashed === true;
@@ -1337,10 +1158,6 @@ export async function applyStaged_unlocked(
     await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
     return { outcome: "discarded", variant: "try_again" };
   }
-  const derivedSideEffects = deriveAuthSideEffects(
-    pending.triggeredReviewItems,
-    validation.choices,
-  );
 
   // P2-F7 — FAIL CLOSED (peer of P2-F6): a LIVE staged parse carrying an MI-11 item must NEVER be
   // applied via this legacy whole-parse path. It would call runPhase2 with NO mi11Items → no
@@ -1381,50 +1198,75 @@ export async function applyStaged_unlocked(
       }
     : undefined;
 
-  const phase2 = await deps.runPhase2(tx, {
-    driveFileId: pending.driveFileId,
-    mode: "manual",
-    fileMeta: metadata,
-    parseResult: assetAdjusted.parseResult,
-    skipDiagramsWrite: assetAdjusted.skipDiagramsWrite,
-    ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
-    ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
-    verifyReelOnApply: false,
-    binding: {
-      bindingToken: pending.stagedModifiedTime,
-      modifiedTime: pending.stagedModifiedTime,
+  // F1 Task 1.1: the dashboard staged Apply is a THIN CALLER of the shared core — the Phase-2
+  // apply, floors, audit (with source provenance), and live staged-row delete all run inside
+  // applyStagedCore. Caller-level semantics (preflights, reject branch, P2-F7, asset effects,
+  // first-published tail) stay here unchanged.
+  const coreResult = await applyStagedCore(
+    tx,
+    {
+      sourceScope: "live",
+      driveFileId: pending.driveFileId,
+      show,
+      parseResult: assetAdjusted.parseResult,
+      triggeredReviewItems: pending.triggeredReviewItems,
+      reviewerChoices: args.reviewerChoices,
+      stagedId: pending.stagedId,
+      stagedModifiedTime: pending.stagedModifiedTime,
+      baseModifiedTime: pending.baseModifiedTime,
+      appliedByEmail: args.appliedByEmail,
+      appliedAt: null,
+      auditSource: "staged_apply",
+      fileMeta: metadata,
+      mi11Items: [],
+      skipDiagramsWrite: assetAdjusted.skipDiagramsWrite,
+      // R36-1: today's dashboard apply passes no notableItems → no feed write; parity preserved
+      // (D-2 feed semantics for the dashboard staged path are out of F1 scope).
+      feedPolicy: { kind: "none" },
+      ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
+      ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
     },
-  });
-  if (phase2.outcome === "stale") {
+    {
+      runPhase2: deps.runPhase2,
+      insertSyncAudit: deps.insertSyncAudit,
+      bumpReviewerAuthFloors: deps.bumpReviewerAuthFloors,
+      deleteLivePendingSync: deps.deleteLivePendingSync,
+    },
+  );
+
+  if (coreResult.outcome === "invalid_request") return coreResult;
+  if (coreResult.outcome === "discarded_by_choice") {
+    // Defensive second mapping — the verbatim reject branch above fires first; byte-equal
+    // semantics to that branch.
+    await deps.restoreShowStatus(
+      tx,
+      pending.driveFileId,
+      pending.priorLastSyncStatus,
+      pending.priorLastSyncError,
+    );
+    await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
+    return { outcome: "discarded", variant: "try_again" };
+  }
+  if (coreResult.outcome === "stale_baseline") {
+    // Unreachable in practice behind the early baseline check above; kept for parity.
+    await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
+    return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
+  }
+  if (coreResult.outcome === "stale_write") {
     await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SUPERSEDED, deps);
     return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
   }
 
-  await deps.bumpReviewerAuthFloors(tx, phase2.showId, derivedSideEffects.revokeFloorForNames);
-  const syncAuditId = await deps.insertSyncAudit(tx, {
-    showId: phase2.showId,
-    driveFileId: pending.driveFileId,
-    appliedBy: args.appliedByEmail,
-    stagedId: pending.stagedId,
-    triggeredReviewItems: pending.triggeredReviewItems,
-    reviewerChoices: validation.choices,
-    derivedSideEffects,
-    parseResultSummary: parseResultSummary(assetAdjusted.parseResult),
-    baseModifiedTime: pending.baseModifiedTime,
-    stagedModifiedTime: pending.stagedModifiedTime,
-  });
-  await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
-
   const applied: ApplyStagedResult = {
     outcome: "applied",
-    showId: phase2.showId,
-    syncAuditId,
-    derivedSideEffects,
+    showId: coreResult.showId,
+    syncAuditId: coreResult.syncAuditId,
+    derivedSideEffects: coreResult.derivedSideEffects,
     adminAlertCode: assetAdjusted.adminAlertCode,
     adminAlertCodes: assetAdjusted.adminAlertCodes,
   };
-  if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
-  if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
+  if (coreResult.roleFlagsNotice) applied.roleFlagsNotice = coreResult.roleFlagsNotice;
+  if (coreResult.snapshotRevisionId) applied.snapshotRevisionId = coreResult.snapshotRevisionId;
 
   // Task 4.4: emit SHOW_FIRST_PUBLISHED + reach first-published parity through the shared tail, using the
   // SAME autoPublishFirstSeen token that runPhase2 just PERSISTED to shows.unpublish_token above — so the
@@ -1433,7 +1275,7 @@ export async function applyStaged_unlocked(
     const tail = deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail;
     await tail({
       tx,
-      result: { outcome: "applied", showId: phase2.showId },
+      result: { outcome: "applied", showId: coreResult.showId },
       // R3 fix: write SHOW_FIRST_PUBLISHED through THIS apply tx (via tx.queryOne → upsert_admin_alert
       // RPC) so the alert lands in the SAME transaction as the just-created show. The standalone
       // service-role writer runs on a separate connection and FK-fails on the uncommitted shows.id
