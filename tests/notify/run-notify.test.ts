@@ -6,6 +6,7 @@ import {
   type NotifyDeps,
 } from "@/lib/notify/runNotify";
 import type { DigestModel } from "@/lib/notify/digest";
+import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
 
 function baseDeps(events: string[] = []): NotifyDeps {
   return {
@@ -19,6 +20,10 @@ function baseDeps(events: string[] = []): NotifyDeps {
     },
     getAlertOnSyncProblems: async () => {
       events.push("alert-toggle");
+      return { kind: "value", enabled: true };
+    },
+    getAlertOnAutoPublish: async () => {
+      events.push("undo-toggle");
       return { kind: "value", enabled: true };
     },
     getDailyReviewDigest: async () => {
@@ -118,7 +123,14 @@ describe("runRealtimeNotify", () => {
     const result = await runRealtimeNotify({ deps: baseDeps(events) });
 
     expect(result.kind).toBe("ok");
-    expect(events).toEqual(["maintenance", "config", "alert-toggle", "recipients", "candidates"]);
+    expect(events).toEqual([
+      "maintenance",
+      "config",
+      "alert-toggle",
+      "undo-toggle",
+      "recipients",
+      "candidates",
+    ]);
   });
 
   test("maintenance infra errors do not abort gated delivery", async () => {
@@ -178,6 +190,256 @@ describe("runRealtimeNotify", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// M12.13 spec §4.2 — per-kind tri-state toggle gating. The four-row fault
+// table verbatim (ok/ok, fault/ok, ok/fault, fault/fault) plus the
+// only-one-kind-present variants and the deliberate-OFF vs infra-fault
+// distinction (OFF → skip reason, NO toggleFaults, scheduler sees 200;
+// fault → toggleFaults recorded, scheduler sees 5xx via statusFor).
+// ---------------------------------------------------------------------------
+
+function syncCandidate(): RealtimeCandidate {
+  return {
+    kind: "show",
+    dedupKey: "00000000-0000-4000-8000-000000000011:SHEET_UNAVAILABLE:1780000000123000",
+    alertId: "00000000-0000-4000-8000-000000000012",
+    showId: "00000000-0000-4000-8000-000000000011",
+    code: "SHEET_UNAVAILABLE",
+    raisedAt: new Date("2026-06-02T12:00:00.123Z"),
+    slug: "show-sync",
+    showTitle: "Sync Show",
+    contextSheetName: null,
+  };
+}
+
+function undoCandidate(): RealtimeCandidate {
+  return {
+    kind: "auto_publish_undo",
+    dedupKey: "00000000-0000-4000-8000-000000000021:abcdef0123456789",
+    showId: "00000000-0000-4000-8000-000000000021",
+    slug: "show-undo",
+    showTitle: "Undo Show",
+    token: "tok-undo-fixture",
+    mintId: "abcdef0123456789",
+    expiresAt: new Date("2026-06-13T12:00:00.000Z"),
+  };
+}
+
+type GateToggle =
+  | { kind: "value"; enabled: boolean }
+  | { kind: "infra_error" }
+  | { kind: "throws" };
+
+async function runGated(opts: {
+  sync: GateToggle;
+  undo: GateToggle;
+  candidates: RealtimeCandidate[];
+}) {
+  const events: string[] = [];
+  const delivered: RealtimeCandidate[][] = [];
+  const deps = baseDeps(events);
+  deps.getAlertOnSyncProblems = async () => {
+    if (opts.sync.kind === "throws") throw new Error("sync toggle query fault");
+    return opts.sync;
+  };
+  deps.getAlertOnAutoPublish = async () => {
+    if (opts.undo.kind === "throws") throw new Error("undo toggle query fault");
+    return opts.undo;
+  };
+  deps.listRealtimeCandidates = async () => {
+    events.push("candidates");
+    return { kind: "ok", candidates: opts.candidates };
+  };
+  deps.deliverRealtimeCandidates = async (input) => {
+    events.push("deliver-realtime");
+    delivered.push(input.candidates);
+    return { kind: "ok", sent: input.candidates.length, failed: 0, skipped: 0, retryLater: 0 };
+  };
+  const result = await runRealtimeNotify({ deps });
+  return { result, events, delivered };
+}
+
+describe("runRealtimeNotify per-kind toggle gating (M12.13 §4.2)", () => {
+  test("row 1 ok/ok both ON: every kind delivers", async () => {
+    const { result, delivered } = await runGated({
+      sync: { kind: "value", enabled: true },
+      undo: { kind: "value", enabled: true },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(result.delivery).toEqual({ kind: "ok", sent: 2, detail: expect.anything() });
+    expect(delivered[0]?.map((c) => c.kind)).toEqual(["show", "auto_publish_undo"]);
+  });
+
+  test("row 1 ok/ok, sync ON + undo OFF: undo candidates dropped deliberately, sync delivers, no faults", async () => {
+    const { result, delivered } = await runGated({
+      sync: { kind: "value", enabled: true },
+      undo: { kind: "value", enabled: false },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(delivered[0]?.map((c) => c.kind)).toEqual(["show"]);
+    expect(result.delivery.kind).toBe("ok");
+    expect(result.delivery).not.toHaveProperty("toggleFaults");
+  });
+
+  test("row 1 ok/ok, sync OFF + undo ON: sync candidates dropped deliberately, undo delivers, no faults", async () => {
+    const { result, delivered } = await runGated({
+      sync: { kind: "value", enabled: false },
+      undo: { kind: "value", enabled: true },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(delivered[0]?.map((c) => c.kind)).toEqual(["auto_publish_undo"]);
+    expect(result.delivery.kind).toBe("ok");
+    expect(result.delivery).not.toHaveProperty("toggleFaults");
+  });
+
+  test("sync OFF + undo ON with only sync candidates: the EXISTING skip reason fires (dropped + nothing remained)", async () => {
+    const { result, events } = await runGated({
+      sync: { kind: "value", enabled: false },
+      undo: { kind: "value", enabled: true },
+      candidates: [syncCandidate()],
+    });
+
+    expect(result.delivery).toEqual({ kind: "skipped", reason: "alert_on_sync_problems_off" });
+    expect(events).not.toContain("deliver-realtime");
+  });
+
+  test("sync ON + undo OFF with only undo candidates: the undo skip reason fires, no faults", async () => {
+    const { result, events } = await runGated({
+      sync: { kind: "value", enabled: true },
+      undo: { kind: "value", enabled: false },
+      candidates: [undoCandidate()],
+    });
+
+    expect(result.delivery).toEqual({ kind: "skipped", reason: "alert_on_auto_publish_off" });
+    expect(events).not.toContain("deliver-realtime");
+  });
+
+  test("both toggles OFF: combined skip reason, no candidate/recipient work, 200-class result", async () => {
+    const { result, events } = await runGated({
+      sync: { kind: "value", enabled: false },
+      undo: { kind: "value", enabled: false },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(result.delivery).toEqual({
+      kind: "skipped",
+      reason: "alert_on_sync_problems_off+alert_on_auto_publish_off",
+    });
+    expect(events).not.toContain("recipients");
+    expect(events).not.toContain("candidates");
+    expect(events).not.toContain("deliver-realtime");
+  });
+
+  test("row 2 sync FAULT / undo ok: sync kinds dropped with typed source, undo still delivers", async () => {
+    const { result, delivered } = await runGated({
+      sync: { kind: "infra_error" },
+      undo: { kind: "value", enabled: true },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(delivered[0]?.map((c) => c.kind)).toEqual(["auto_publish_undo"]);
+    expect(result.delivery).toMatchObject({
+      kind: "ok",
+      sent: 1,
+      toggleFaults: ["getAlertOnSyncProblems"],
+    });
+  });
+
+  test("row 2 variant, only sync candidates present: nothing delivers, fault still recorded (not a clean no-work)", async () => {
+    const { result, events } = await runGated({
+      sync: { kind: "infra_error" },
+      undo: { kind: "value", enabled: true },
+      candidates: [syncCandidate()],
+    });
+
+    expect(events).not.toContain("deliver-realtime");
+    expect(result.delivery).toMatchObject({
+      kind: "ok",
+      sent: 0,
+      toggleFaults: ["getAlertOnSyncProblems"],
+    });
+  });
+
+  test("row 3 sync ok / undo FAULT: undo dropped FAIL-CLOSED with typed source, sync delivers", async () => {
+    const { result, delivered } = await runGated({
+      sync: { kind: "value", enabled: true },
+      undo: { kind: "infra_error" },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(delivered[0]?.map((c) => c.kind)).toEqual(["show"]);
+    expect(result.delivery).toMatchObject({
+      kind: "ok",
+      sent: 1,
+      toggleFaults: ["getAlertOnAutoPublish"],
+    });
+  });
+
+  test("row 3 variant, only undo candidates present: bearer emails dropped fail-closed, fault recorded", async () => {
+    const { result, events } = await runGated({
+      sync: { kind: "value", enabled: true },
+      undo: { kind: "infra_error" },
+      candidates: [undoCandidate()],
+    });
+
+    expect(events).not.toContain("deliver-realtime");
+    expect(result.delivery).toMatchObject({
+      kind: "ok",
+      sent: 0,
+      toggleFaults: ["getAlertOnAutoPublish"],
+    });
+  });
+
+  test("row 4 both FAULT: both kinds dropped, result carries BOTH sources, no delivery work attempted", async () => {
+    const { result, events } = await runGated({
+      sync: { kind: "infra_error" },
+      undo: { kind: "infra_error" },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(result.delivery).toEqual({
+      kind: "infra_error",
+      source: "getAlertOnSyncProblems+getAlertOnAutoPublish",
+      toggleFaults: ["getAlertOnSyncProblems", "getAlertOnAutoPublish"],
+    });
+    expect(events).not.toContain("recipients");
+    expect(events).not.toContain("candidates");
+    expect(events).not.toContain("deliver-realtime");
+  });
+
+  test("THROWN getter faults gate per-kind (never the whole-pass infra_error)", async () => {
+    const { result, delivered } = await runGated({
+      sync: { kind: "throws" },
+      undo: { kind: "value", enabled: true },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(delivered[0]?.map((c) => c.kind)).toEqual(["auto_publish_undo"]);
+    expect(result.delivery).toMatchObject({
+      kind: "ok",
+      toggleFaults: ["getAlertOnSyncProblems"],
+    });
+  });
+
+  test("sync OFF + undo FAULT: nothing can deliver and the bearer-channel fault stays 5xx-visible", async () => {
+    const { result, events } = await runGated({
+      sync: { kind: "value", enabled: false },
+      undo: { kind: "infra_error" },
+      candidates: [syncCandidate(), undoCandidate()],
+    });
+
+    expect(result.delivery).toEqual({
+      kind: "infra_error",
+      source: "getAlertOnAutoPublish",
+      toggleFaults: ["getAlertOnAutoPublish"],
+    });
+    expect(events).not.toContain("deliver-realtime");
+  });
+});
+
 describe("runDigestNotify", () => {
   test("runs maintenance before the ET-hour gate and all later gates", async () => {
     const events: string[] = [];
@@ -187,7 +449,10 @@ describe("runDigestNotify", () => {
       deps: baseDeps(events),
     });
 
-    expect(result).toMatchObject({ kind: "ok", delivery: { kind: "skipped", reason: "outside_digest_window" } });
+    expect(result).toMatchObject({
+      kind: "ok",
+      delivery: { kind: "skipped", reason: "outside_digest_window" },
+    });
     expect(events).toEqual(["maintenance"]);
   });
 
@@ -200,7 +465,13 @@ describe("runDigestNotify", () => {
     });
 
     expect(result.kind).toBe("ok");
-    expect(events).toEqual(["maintenance", "config", "digest-toggle", "recipients", "build-digest"]);
+    expect(events).toEqual([
+      "maintenance",
+      "config",
+      "digest-toggle",
+      "recipients",
+      "build-digest",
+    ]);
   });
 
   test("delivers non-empty digest models through the ledger delivery contract and sums sent counts", async () => {
@@ -211,7 +482,10 @@ describe("runDigestNotify", () => {
       now: new Date("2026-06-02T12:00:00.000Z"),
       deps: {
         ...baseDeps(events),
-        activeRecipients: async () => ({ kind: "ok", recipients: ["doug@fxav.net", "ops@fxav.net"] }),
+        activeRecipients: async () => ({
+          kind: "ok",
+          recipients: ["doug@fxav.net", "ops@fxav.net"],
+        }),
         buildDigestModel: async (recipient) => {
           events.push(`build-digest:${recipient}`);
           return { kind: "ok", model: digestModel(recipient) };
