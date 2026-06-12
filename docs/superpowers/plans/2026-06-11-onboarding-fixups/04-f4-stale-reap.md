@@ -1159,95 +1159,19 @@ export async function POST(request: Request): Promise<Response> {
 
 ## Task 4.7 — PostgREST DML lockdown for the wizard staging tables (R14 HIGH)
 
-> **R56-2 ownership change:** the lockdown migration `20260611000002_lockdown_wizard_staging_tables.sql` + `RPC_GATED_TABLES` rows now LAND IN F1 Task 1.3 (before any `created_show_id` consumer). This task is VERIFICATION-ONLY: re-run `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` and confirm the three tables reject anon/authenticated DML with 42501; no new migration or registry edits here.
+> **R62-1: VERIFICATION-ONLY — single executable owner is F1 Task 1.3.** The migration
+> `20260611000002_lockdown_wizard_staging_tables.sql`, the three `RPC_GATED_TABLES` registry rows,
+> the local + validation applies, and the schema-manifest regen are ALL F1 Task 1.3 deliverables
+> and land before any `created_show_id` consumer. This task creates and modifies NOTHING.
 
-**Files:**
-- `supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql` (new — next free timestamp after this plan's F1 `20260611000000` and F2 `20260611000001`)
-- `tests/db/postgrest-dml-lockdown.test.ts` (extend — 3 registry rows; **same commit as the migration**, Layer 4 fails otherwise)
+**Files:** none (verification only).
 
-**Concrete failure mode:** every F4/F5 invariant lives in server-side SQL paths, NOT in the schema. With `insert, update, delete` granted to `anon, authenticated` under the `is_admin()` RLS policy (`20260501002000_rls_policies.sql:179/:203/:211`), any admin-authenticated browser session (devtools, a stale tab, or future buggy client code) can `from("onboarding_scan_manifest").update(...)` / `.delete()` directly via PostgREST — deleting manifest rows without the `finalize:` lock, flipping a checkpoint's `status` mid-finalize, forging `created_show_id` provenance (turning Task 4.1's data-loss fix back ON), or resurrecting the F5 race by mutating rows with no currency predicate. RLS gates WHO; it does not gate WHICH CODE PATH — that is exactly the M9.5 R5+R6 lockdown class (AGENTS.md cross-cutting discipline: "RPC body checks … are bypassable if the caller hits the table directly").
+- [ ] Verify the F1-created migration exists: `test -f supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql`.
+- [ ] Verify the registry rows exist: `rg -n "onboarding_scan_manifest|wizard_finalize_checkpoints|shows_pending_changes" tests/db/postgrest-dml-lockdown.test.ts` shows all three in `RPC_GATED_TABLES`.
+- [ ] Run `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` (local Supabase) → green, 42501 on all three tables.
+- [ ] Run the same suite pointed at validation (the suite's validation mode) → green.
+- [ ] If ANY check fails, STOP and fix in F1's surface (do not create migrations here); failure indicates F1 Task 1.3 was not completed as specified.
 
-- [ ] **Client-DML sweep FIRST (step 1 — done at plan time, re-verify at execution):** `rg -n '\.from\("(onboarding_scan_manifest|wizard_finalize_checkpoints|shows_pending_changes)"' app components lib middleware.ts` → exactly TWO call sites, both SELECT-only and thus unaffected by a DML-only REVOKE: `components/admin/OnboardingWizard.tsx:142` (`.select("drive_file_id, name, status")`) and `app/admin/_finalizeCheckpoint.ts:55` (`.select("status, batches_completed, last_processed_drive_file_id, last_processed_at")`). All mutations of these 3 tables flow through server-side `postgres.js` SQL (`sessionLifecycle.ts`, finalize routes, `runOnboardingScan.ts`, `discardStaged.ts`, retry route) or the service-role client, which the REVOKE does not touch. Document the sweep output in the commit message body.
-- [ ] **RED.** Add the three registry rows to `RPC_GATED_TABLES` in `tests/db/postgrest-dml-lockdown.test.ts` (describe.each pattern; `selectAnon`/`selectAuthenticated: true` — SELECT stays per the existing RLS posture, matching the read-only call sites above):
-
-```ts
-  {
-    table: "onboarding_scan_manifest",
-    closed_at: "supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql:<line>",
-    selectAnon: true,
-    selectAuthenticated: true,
-    postBody: {
-      wizard_session_id: "00000000-0000-0000-0000-000000000000",
-      drive_file_id: "postgrest-dml-lockdown-test",
-      folder_id: "lockdown-test",
-      name: "lockdown-test",
-      mime_type: "application/vnd.google-apps.spreadsheet",
-      status: "staged",
-    },
-    rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-no-such-row",
-  },
-  {
-    table: "wizard_finalize_checkpoints",
-    closed_at: "supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql:<line>",
-    selectAnon: true,
-    selectAuthenticated: true,
-    postBody: {
-      wizard_session_id: "00000000-0000-0000-0000-000000000000",
-      status: "in_progress",
-      batches_completed: 0,
-    },
-    rowFilter: "?wizard_session_id=eq.00000000-0000-0000-0000-000000000000",
-  },
-  {
-    table: "shows_pending_changes",
-    closed_at: "supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql:<line>",
-    selectAnon: true,
-    selectAuthenticated: true,
-    postBody: {
-      wizard_session_id: "00000000-0000-0000-0000-000000000000",
-      drive_file_id: "postgrest-dml-lockdown-test",
-      show_id: "00000000-0000-0000-0000-000000000001",          // R37-2: NOT NULL in live DDL
-      payload: {},
-      applied_by_email: "lockdown-probe@example.com",           // R37-2: NOT NULL
-      applied_at_intent: "2026-06-11T00:00:00Z",                // R37-2: NOT NULL
-    },
-    // R37-2: body is structurally valid so a regressed grant fails on PERMISSION (42501), never on
-    // column validation — the probe must prove the lockdown, not a 400.
-
-    rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-no-such-row",
-  },
-```
-
-  (Verify each `postBody` against the live NOT NULL set before landing — the probe must fail on PERMISSION, not on a missing column; the suite's live PostgREST probes distinguish 401/403 from 400.) Run `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` → RED: the live probes find INSERT/UPDATE/DELETE still granted, and Layer 4 flags registry rows whose `closed_at` migration doesn't exist yet.
-- [ ] **GREEN.** New migration `20260611000002_lockdown_wizard_staging_tables.sql`, mirroring the established DML-only REVOKE shape (cf. `20260609000000_lockdown_allowed_watermark_columns.sql` for idempotency conventions — REVOKE/GRANT are no-ops when already in effect, so apply-twice safe):
-
-```sql
--- PostgREST DML lockdown for the wizard staging tables (M-onboarding-fixups Task 4.7).
--- F4/F5 invariants (finalize/show lock ordering, 24h freshness, created_show_id
--- provenance, wizard-session currency predicates) live in server-side SQL paths;
--- table-level DML grants let an admin-authed PostgREST call bypass all of them
--- (AGENTS.md PostgREST-DML-lockdown discipline; M9.5 R5+R6 class).
--- SELECT stays: components/admin/OnboardingWizard.tsx:142 and
--- app/admin/_finalizeCheckpoint.ts:55 read these tables via PostgREST (read-only).
--- Idempotent: REVOKE is a no-op when the privilege is already absent.
-
-REVOKE INSERT, UPDATE, DELETE ON TABLE public.onboarding_scan_manifest FROM anon, authenticated;
-REVOKE INSERT, UPDATE, DELETE ON TABLE public.wizard_finalize_checkpoints FROM anon, authenticated;
-REVOKE INSERT, UPDATE, DELETE ON TABLE public.shows_pending_changes FROM anon, authenticated;
-
-GRANT ALL PRIVILEGES ON TABLE public.onboarding_scan_manifest TO service_role;
-GRANT ALL PRIVILEGES ON TABLE public.wizard_finalize_checkpoints TO service_role;
-GRANT ALL PRIVILEGES ON TABLE public.shows_pending_changes TO service_role;
-
-NOTIFY pgrst, 'reload schema';
-```
-
-  Fill the three `closed_at` line references with the actual REVOKE line numbers.
-- [ ] **VERIFY.** Apply LOCALLY (⚠️ NOT `TEST_DATABASE_URL` — that is the VALIDATION project in this repo's `.env.local`; validation gets its labeled surgical apply in the close-out checklist): `psql -v ON_ERROR_STOP=1 "${LOCAL_TEST_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}" -f supabase/migrations/20260611000002_lockdown_wizard_staging_tables.sql`, run TWICE (apply-twice idempotency; the loopback default matches the Task 4.1/4.4 harness convention — refuse non-loopback values per `tests/db/_remediationHelpers.ts`). Then `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` → all four layers pass; `pnpm vitest run tests/onboarding tests/sync --silent` → no regression (server-side SQL paths and service-role access are untouched; the two SELECT-only client reads still work).
-- [ ] **Post-migration checklist (same PR):** `pnpm gen:schema-manifest` + commit the regenerated manifest; surgical apply to the validation project (`supabase db query --linked` or psql) + `notify pgrst, 'reload schema'` — recorded in the close-out checklist below.
-- [ ] **COMMIT.** `fix(db): revoke PostgREST DML on wizard staging tables (onboarding_scan_manifest, wizard_finalize_checkpoints, shows_pending_changes)` — migration + registry rows + manifest regen in ONE commit.
-
----
 
 ## Phase close-out checklist
 
