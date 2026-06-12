@@ -382,3 +382,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
 }
 
 export { handleAction as handleWizardPendingIngestionAction };
+
+// F5 Task 5.2: the three statement helpers are exported (no behavior change)
+// so the real-Postgres race regression (tests/onboarding/
+// wizardSessionCasRaceDb.test.ts) can exercise the PRODUCTION SQL — a fake
+// could pass while a transposed parameter or non-re-reading EXISTS shipped.
+export { transitionManifestRow, upsertWizardDeferral, deletePendingIngestion };
