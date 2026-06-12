@@ -1471,7 +1471,7 @@ async function defaultCaptureBinding(
   };
 }
 
-function defaultDriveClient(): DriveClient {
+export function defaultDriveClient(): DriveClient {
   return {
     async getFile(fileId) {
       return toDriveFileMeta(await fetchDriveFileMetadata(fileId));
