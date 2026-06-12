@@ -64,6 +64,35 @@ function toIsoOrNull(value: unknown): string | null {
   return new Date(ms).toISOString();
 }
 
+/**
+ * WM-R4: mirrors `validateReviewerChoices`' dereference expectations
+ * (lib/sync/applyStagedCore.ts — `choice.item_id`, the action union, the
+ * rename-only `rename_value`). Anything passing this guard cannot make the
+ * apply core throw; element corruption refuses with the same posture as the
+ * items field (STAGED_REVIEW_ITEMS_CORRUPT) instead of surfacing as a
+ * route-level ONBOARDING_FINALIZE_INTERNAL_ERROR that blocks the whole batch.
+ */
+const REVIEWER_CHOICE_ACTIONS: ReadonlySet<ReviewerChoice["action"]> = new Set([
+  "apply",
+  "reject",
+  "rename",
+  "independent",
+]);
+
+function isReviewerChoice(value: unknown): value is ReviewerChoice {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const choice = value as Record<string, unknown>;
+  if (typeof choice.item_id !== "string") return false;
+  if (
+    typeof choice.action !== "string" ||
+    !REVIEWER_CHOICE_ACTIONS.has(choice.action as ReviewerChoice["action"])
+  ) {
+    return false;
+  }
+  if (choice.rename_value !== undefined && typeof choice.rename_value !== "string") return false;
+  return true;
+}
+
 export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloadForApply {
   // Non-null plain-object guard: jsonb permits top-level null / string / number /
   // boolean / array; none of those carries an interpretable apply payload.
@@ -131,15 +160,21 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
   }
 
   // reviewer_choices: absent/null is legitimately empty; a non-array value is a
-  // corrupt payload (never re-stored raw into a $::jsonb audit param).
-  let reviewerChoices: ReviewerChoice[];
+  // corrupt payload (never re-stored raw into a $::jsonb audit param). Array
+  // ELEMENTS are validated against the full ReviewerChoice shape (WM-R4) — a
+  // bare cast let `[null]` / `['x']` / `[{}]` reach validateReviewerChoices'
+  // `choice.item_id` deref, turning one malformed retained shadow into a
+  // batch-blocking internal error instead of a per-row refusal.
+  let rawChoices: unknown[];
   try {
-    reviewerChoices = coerceJsonbArray<ReviewerChoice>(
-      obj.reviewer_choices,
-      "shadow payload reviewer_choices",
-    );
+    rawChoices = coerceJsonbArray(obj.reviewer_choices, "shadow payload reviewer_choices");
   } catch {
     return refuse("STAGED_PARSE_RESULT_CORRUPT");
+  }
+  const reviewerChoices: ReviewerChoice[] = [];
+  for (const candidate of rawChoices) {
+    if (!isReviewerChoice(candidate)) return refuse("STAGED_REVIEW_ITEMS_CORRUPT");
+    reviewerChoices.push(candidate);
   }
 
   return {

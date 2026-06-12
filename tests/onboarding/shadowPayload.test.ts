@@ -154,4 +154,44 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
       code: "STAGED_PARSE_RESULT_CORRUPT",
     });
   });
+
+  // WM-R4: an array-shaped reviewer_choices with malformed ELEMENTS used to pass the parser
+  // (cast after only an is-array check) and reach applyStagedCore.validateReviewerChoices,
+  // which dereferences choice.item_id → uncaught TypeError → route-level
+  // ONBOARDING_FINALIZE_INTERNAL_ERROR — one malformed retained shadow blocked publish and
+  // bypassed the per-row recovery contract. Element corruption refuses with the same posture
+  // as the items field (STAGED_REVIEW_ITEMS_CORRUPT): nothing passing this parser may throw
+  // inside validateReviewerChoices.
+  test.each([
+    ["null element", [null]],
+    ["string element", ["x"]],
+    ["empty object element (no item_id)", [{}]],
+    ["missing item_id", [{ action: "apply" }]],
+    ["non-string item_id", [{ item_id: 42, action: "apply" }]],
+    ["action outside the ReviewerChoice union", [{ item_id: "i-mi11", action: "promote" }]],
+    ["non-string action", [{ item_id: "i-mi11", action: null }]],
+    ["non-string rename_value", [{ item_id: "i-mi11", action: "rename", rename_value: 42 }]],
+    ["one bad element among valid ones", [{ item_id: "i-mi11", action: "apply" }, null]],
+  ])(
+    "reviewer_choices element corruption (%s) yields the typed REVIEW_ITEMS_CORRUPT refusal, never a throw",
+    (_label, reviewerChoices) => {
+      expect(parseShadowPayloadForApply(payload({ reviewer_choices: reviewerChoices }))).toEqual({
+        ok: false,
+        code: "STAGED_REVIEW_ITEMS_CORRUPT",
+      });
+    },
+  );
+
+  test("valid reviewer_choices shapes still parse: every action in the union, rename with string rename_value", () => {
+    for (const choices of [
+      [{ item_id: "i-mi11", action: "apply" }],
+      [{ item_id: "i-mi11", action: "reject" }],
+      [{ item_id: "i-mi11", action: "independent" }],
+      [{ item_id: "i-mi11", action: "rename", rename_value: "Ada B" }],
+    ]) {
+      const parsed = parseShadowPayloadForApply(payload({ reviewer_choices: choices }));
+      expect(parsed).toMatchObject({ ok: true });
+      if (parsed.ok) expect(parsed.reviewerChoices).toEqual(choices);
+    }
+  });
 });

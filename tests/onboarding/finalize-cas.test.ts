@@ -501,6 +501,52 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     expect(db.checkpoint?.status).toBe("all_batches_complete");
   });
 
+  test("malformed reviewer_choices ELEMENT shadow gets the typed per-row refusal; shadow retained; siblings continue (WM-R4)", async () => {
+    // Concrete failure mode (whole-milestone WM-R4 HIGH): parseShadowPayloadForApply cast
+    // reviewer_choices after only an is-array check, so `[null]` reached
+    // applyStagedCore.validateReviewerChoices which dereferences choice.item_id →
+    // uncaught TypeError → route-level 500 ONBOARDING_FINALIZE_INTERNAL_ERROR with NO
+    // per_row, NO retained-row recovery path — one malformed retained shadow blocked
+    // publish and the healthy sibling never applied.
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-corrupt-choices",
+        show_id: "22222222-2222-4222-8222-222222222220",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload({ reviewer_choices: [null] }),
+      },
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-2",
+        show_id: "22222222-2222-4222-8222-222222222221",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload(),
+      },
+    ];
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(db));
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+      per_row: [
+        { drive_file_id: "existing-corrupt-choices", code: "STAGED_REVIEW_ITEMS_CORRUPT" },
+        { drive_file_id: "existing-2", code: "OK" },
+      ],
+    });
+    // The corrupt shadow is RETAINED for operator recovery; the sibling applied.
+    expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-corrupt-choices"]);
+    expect(db.appliedShadows).toEqual(["existing-2"]);
+    expect(db.published).toBe(false);
+    expect(db.deletedWizardDeferrals).toBe(false);
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
+  });
+
   test("is idempotent after settings were already promoted", async () => {
     const db = new FakeFinalizeCasDb();
     db.activeSessionId = null;
