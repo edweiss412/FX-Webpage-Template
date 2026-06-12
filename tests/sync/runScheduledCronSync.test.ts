@@ -749,7 +749,7 @@ describe("processOneFile", () => {
         sheet_name: "file-1 Sheet",
         crew_count: 1,
         show_date: "2026-05-09",
-        unpublish_token: "11111111-1111-4111-8111-111111111111",
+        // M12.13: the raw bearer secret no longer persists in alert context; expiry stays.
         unpublish_token_expires_at: "2026-05-09T12:00:00.000Z",
       },
     });
