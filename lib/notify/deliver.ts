@@ -53,12 +53,14 @@ function epochFromDedupKey(dedupKey: string): string {
 }
 
 function showIdFor(candidate: RealtimeCandidate): string | null {
-  return candidate.kind === "show" ? candidate.showId : null;
+  if (candidate.kind === "show" || candidate.kind === "auto_publish_undo") return candidate.showId;
+  return null;
 }
 
 function triggeredCode(candidate: RealtimeCandidate): string {
   if (candidate.kind === "show") return candidate.code;
   if (candidate.kind === "global") return "SYNC_STALLED";
+  if (candidate.kind === "auto_publish_undo") return "SHOW_FIRST_PUBLISHED";
   return candidate.lastErrorCode;
 }
 
@@ -73,6 +75,17 @@ function contextFor(candidate: RealtimeCandidate): Record<string, unknown> {
   }
   if (candidate.kind === "global") {
     return { alert_id: candidate.alertId, code: "SYNC_STALLED", dedup_key: candidate.dedupKey };
+  }
+  if (candidate.kind === "auto_publish_undo") {
+    // §4.1 context recipe (mintId, NO raw token at rest). The full per-recipient
+    // delivery branch lands in Task 8; until then undo candidates are skipped in
+    // the delivery loop (isCandidateCurrent → false), so this never persists yet.
+    return {
+      slug: candidate.slug,
+      title: candidate.showTitle,
+      expires_at: candidate.expiresAt.toISOString(),
+      mintId: candidate.mintId,
+    };
   }
   return {
     drive_file_id: candidate.driveFileId,
@@ -115,6 +128,13 @@ async function isCandidateCurrent(
        limit 1
     `;
     return rows.length > 0;
+  }
+  if (candidate.kind === "auto_publish_undo") {
+    // Task 8 implements the deliver-time currentness guard (re-read show: same
+    // token + expiry, unexpired, published, !archived) and the per-recipient
+    // rendering branch. Until then, undo candidates are intentionally NOT
+    // delivered — returning false skips them cleanly (no malformed send, no row).
+    return false;
   }
   const rows = await sql`
     select 1
@@ -243,12 +263,18 @@ function rendered(candidate: RealtimeCandidate, origin: string) {
     });
   }
   if (candidate.kind === "global") return renderRealtimeProblem({ kind: "global", origin });
-  return renderRealtimeProblem({
-    kind: "ingestion",
-    origin,
-    driveFileName: candidate.driveFileName,
-    lastErrorCode: candidate.lastErrorCode,
-  });
+  if (candidate.kind === "ingestion") {
+    return renderRealtimeProblem({
+      kind: "ingestion",
+      origin,
+      driveFileName: candidate.driveFileName,
+      lastErrorCode: candidate.lastErrorCode,
+    });
+  }
+  // auto_publish_undo has its own per-recipient template + rendering seam (Task 8).
+  // It is never rendered through this candidate-level path: the delivery loop
+  // skips undo candidates (isCandidateCurrent → false) until Task 8 lands.
+  throw new Error("auto_publish_undo rendering is per-recipient (Task 8); not reachable here");
 }
 
 async function deliverOneRecipient(input: {

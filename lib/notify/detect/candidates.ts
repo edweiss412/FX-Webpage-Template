@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
+import { mintIdFor } from "@/lib/sync/unpublishBinding";
 
 export type CandidateSql = {
   <T extends Record<string, unknown> = Record<string, unknown>>(
@@ -38,10 +39,25 @@ export type IngestionRealtimeCandidate = {
   lastErrorCode: string;
 };
 
+export type AutoPublishUndoCandidate = {
+  kind: "auto_publish_undo";
+  dedupKey: string;
+  showId: string;
+  slug: string;
+  showTitle: string;
+  // The raw bearer token — carried in-memory ONLY (renders into the per-recipient
+  // email link; the deliver-time currentness guard checks full token equality).
+  // NEVER persisted: email_deliveries stores the one-way mintId instead (§4.1).
+  token: string;
+  mintId: string;
+  expiresAt: Date;
+};
+
 export type RealtimeCandidate =
   | ShowRealtimeCandidate
   | GlobalRealtimeCandidate
-  | IngestionRealtimeCandidate;
+  | IngestionRealtimeCandidate
+  | AutoPublishUndoCandidate;
 
 export type CandidateResult =
   | { kind: "ok"; candidates: RealtimeCandidate[] }
@@ -71,6 +87,14 @@ type IngestionRow = {
   first_seen_at: Date | string;
   last_error_code: string;
   dedup_key: string;
+};
+
+type UndoRow = {
+  show_id: string;
+  slug: string;
+  title: string;
+  token: string;
+  expires_at: Date | string;
 };
 
 function databaseUrl(): string {
@@ -160,35 +184,72 @@ export async function listRealtimeCandidates(sql?: CandidateSql): Promise<Candid
       order by first_seen_at asc, drive_file_id asc
     `;
 
+    // Auto-publish-undo candidates (§4.1): shows still inside their 24h undo
+    // window (live token + unexpired). Read-only — no locked-table writes
+    // (invariant 2 untouched). The mint identity + dedupKey are derived app-side
+    // from the token hash (mintIdFor), so a same-ms re-mint can never collide.
+    const undoRows = await db<UndoRow>`
+      select
+        s.id::text as show_id,
+        s.slug,
+        s.title,
+        s.unpublish_token::text as token,
+        s.unpublish_token_expires_at as expires_at
+      from public.shows s
+      where s.unpublish_token is not null
+        and s.unpublish_token_expires_at > now()
+      order by s.unpublish_token_expires_at asc, s.id asc
+    `;
+
     return {
       kind: "ok",
       candidates: [
-        ...showRows.map((row): ShowRealtimeCandidate => ({
-          kind: "show",
-          dedupKey: row.dedup_key,
-          alertId: row.alert_id,
-          showId: row.show_id,
-          code: row.code,
-          raisedAt: asDate(row.raised_at),
-          slug: row.slug,
-          showTitle: row.title,
-          contextSheetName: contextSheetName(row.context),
-        })),
-        ...globalRows.map((row): GlobalRealtimeCandidate => ({
-          kind: "global",
-          dedupKey: row.dedup_key,
-          alertId: row.alert_id,
-          code: row.code,
-          raisedAt: asDate(row.raised_at),
-        })),
-        ...ingestionRows.map((row): IngestionRealtimeCandidate => ({
-          kind: "ingestion",
-          dedupKey: row.dedup_key,
-          driveFileId: row.drive_file_id,
-          driveFileName: row.drive_file_name,
-          firstSeenAt: asDate(row.first_seen_at),
-          lastErrorCode: row.last_error_code,
-        })),
+        ...showRows.map(
+          (row): ShowRealtimeCandidate => ({
+            kind: "show",
+            dedupKey: row.dedup_key,
+            alertId: row.alert_id,
+            showId: row.show_id,
+            code: row.code,
+            raisedAt: asDate(row.raised_at),
+            slug: row.slug,
+            showTitle: row.title,
+            contextSheetName: contextSheetName(row.context),
+          }),
+        ),
+        ...globalRows.map(
+          (row): GlobalRealtimeCandidate => ({
+            kind: "global",
+            dedupKey: row.dedup_key,
+            alertId: row.alert_id,
+            code: row.code,
+            raisedAt: asDate(row.raised_at),
+          }),
+        ),
+        ...ingestionRows.map(
+          (row): IngestionRealtimeCandidate => ({
+            kind: "ingestion",
+            dedupKey: row.dedup_key,
+            driveFileId: row.drive_file_id,
+            driveFileName: row.drive_file_name,
+            firstSeenAt: asDate(row.first_seen_at),
+            lastErrorCode: row.last_error_code,
+          }),
+        ),
+        ...undoRows.map((row): AutoPublishUndoCandidate => {
+          const mintId = mintIdFor(row.token);
+          return {
+            kind: "auto_publish_undo",
+            // colon-free mintId keeps deliver.ts's split(":").at(-1) intact (§4.1 R4).
+            dedupKey: `${row.show_id}:${mintId}`,
+            showId: row.show_id,
+            slug: row.slug,
+            showTitle: row.title,
+            token: row.token,
+            mintId,
+            expiresAt: asDate(row.expires_at),
+          };
+        }),
       ],
     };
   } catch {
