@@ -525,16 +525,39 @@ function seedSql(seeds: FixtureSeed[]): string {
   return `
     begin;
 
+    -- M12.12 Task 12 (invariant 2): the prefix-wide deletes below also sweep
+    -- EXTENSION-seeded rows (e.g. supabase/seedWalkerFixtures.ts walker
+    -- fixtures) whose drive_file_ids are NOT in this run's enumerated
+    -- \${locks} list. Materialize the full seed-prefix id set FIRST and take
+    -- the per-show advisory lock for every one of them — in drive_file_id
+    -- order, the same deterministic order the extension uses — so the
+    -- cleanup never mutates a locked table without holding the show lock.
+    -- A row committed concurrently AFTER this snapshot simply survives this
+    -- delete pass; its lock isn't held here and the extension's own
+    -- delete-then-insert owns it.
+    create temporary table _locked_seed_ids on commit drop as
+      select drive_file_id from (
+        select drive_file_id from public.shows where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)}
+        union
+        select drive_file_id from public.pending_syncs where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)}
+        union
+        select drive_file_id from public.pending_ingestions where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)}
+      ) ids;
+
+    select pg_advisory_xact_lock(hashtext('show:' || drive_file_id))
+      from _locked_seed_ids
+     order by drive_file_id;
+
     ${locks}
 
     delete from public.pending_syncs
-     where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)};
+     where drive_file_id in (select drive_file_id from _locked_seed_ids);
     delete from public.pending_ingestions
-     where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)};
+     where drive_file_id in (select drive_file_id from _locked_seed_ids);
     delete from public.sync_audit
      where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)};
     delete from public.shows
-     where drive_file_id like ${sqlString(`${seedDrivePrefix}%`)};
+     where drive_file_id in (select drive_file_id from _locked_seed_ids);
 
     ${appSettingsSeedSql()}
 
