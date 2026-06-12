@@ -32,9 +32,7 @@ const routeMock = vi.hoisted(() => ({
   google: { kind: "continue" } as { kind: string },
   linkCalls: 0,
   googleCalls: 0,
-  peek: { kind: "none" } as
-    | { kind: "none" }
-    | { kind: "envelope"; showId: string },
+  peek: { kind: "none" } as { kind: "none" } | { kind: "envelope"; showId: string },
   show: {
     published: true,
     opening_reel_drive_file_id: "reel-file-1",
@@ -171,9 +169,12 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/drive/client", () => ({
   getDriveClient: () => ({
     files: {
-      get: async (
-        args: { fileId: string; fields?: string; alt?: string; supportsAllDrives?: boolean },
-      ) => {
+      get: async (args: {
+        fileId: string;
+        fields?: string;
+        alt?: string;
+        supportsAllDrives?: boolean;
+      }) => {
         routeMock.driveCalls.push(args.alt === "media" ? "files.media" : "files.metadata");
         routeMock.lastDriveArgs = args;
         if (args.alt === "media") return { data: routeMock.fallbackBytes };
@@ -199,7 +200,7 @@ vi.mock("@/lib/drive/client", () => ({
           const total =
             routeMock.reel206TotalOverride !== null
               ? routeMock.reel206TotalOverride
-              : routeMock.revisionBytes?.byteLength ?? 0;
+              : (routeMock.revisionBytes?.byteLength ?? 0);
           const headers: Record<string, string> = {
             "content-length": String(routeMock.revisionBytes?.byteLength ?? 0),
           };
@@ -212,7 +213,12 @@ vi.mock("@/lib/drive/client", () => ({
               headers["content-range"] = `bytes 0-9/${total}`;
             }
           }
-          return { data: routeMock.revisionBytes, status: 206, headers };
+          // Gaxios 7.x (googleapis dep) returns `response.headers` as a
+          // WHATWG `Headers` instance, NOT a plain object. The mock
+          // mirrors the live shape so plain index access on headers can
+          // never regress silently again (live-reproduced agenda-route
+          // bug, 2026-06-12; reel route shared the same class).
+          return { data: routeMock.revisionBytes, status: 206, headers: new Headers(headers) };
         }
         return { data: routeMock.revisionBytes, status: 200 };
       },
@@ -435,6 +441,17 @@ describe("/api/asset/reel/[show]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
+  test("gaxios 7.x regression: 206 whose headers are a WHATWG Headers instance forwards Content-Range/Content-Length (was 410 on every valid slice)", async () => {
+    // Same class as the live-reproduced agenda bug: plain index access on
+    // a Headers instance read null, so the R22/R23 fail-closed total-size
+    // guard 410'd every valid Range slice. The mock above now returns
+    // `new Headers(...)`; this test pins the end-to-end contract.
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toMatch(/^bytes 0-9\/\d+$/);
+    expect(res.headers.get("content-length")).not.toBeNull();
+  });
+
   test("Codex R19 P1: Drive metadata 404 → 410 (drift contract — not REEL_ASSET_LOOKUP_FAILED 500)", async () => {
     // Reel pinned to a now-deleted Drive file. Metadata `files.get`
     // throws { code: 404 }. Per AC-7.24's single-410 drift contract,
@@ -462,10 +479,9 @@ describe("/api/asset/reel/[show]", () => {
       configurable: true,
     });
     try {
-      const res = await GET(
-        new NextRequest(`https://crew.fxav.test/api/asset/reel/${showId}`),
-        { params: Promise.resolve({ show: showId }) },
-      );
+      const res = await GET(new NextRequest(`https://crew.fxav.test/api/asset/reel/${showId}`), {
+        params: Promise.resolve({ show: showId }),
+      });
       expect(res.status).toBe(410);
       // The metadata path WAS attempted (counted), then the error
       // surfaced from the route — not the fallback flow.
@@ -827,9 +843,10 @@ describe("/api/asset/reel/[show]", () => {
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
     // TS narrows lastRevisionsOptions to `null` after the reset above; widen on read.
-    const postGetOptionsA = routeMock.lastRevisionsOptions as
-      | { responseType: "stream"; headers?: Record<string, string> }
-      | null;
+    const postGetOptionsA = routeMock.lastRevisionsOptions as {
+      responseType: "stream";
+      headers?: Record<string, string>;
+    } | null;
     expect(postGetOptionsA?.headers).toBeUndefined();
     await expect(get.text()).resolves.toBe("reel-bytes");
   });
@@ -853,9 +870,10 @@ describe("/api/asset/reel/[show]", () => {
     expect(get.status).toBe(200);
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
-    const postGetOptionsB = routeMock.lastRevisionsOptions as
-      | { responseType: "stream"; headers?: Record<string, string> }
-      | null;
+    const postGetOptionsB = routeMock.lastRevisionsOptions as {
+      responseType: "stream";
+      headers?: Record<string, string>;
+    } | null;
     expect(postGetOptionsB?.headers).toBeUndefined();
     await expect(get.text()).resolves.toBe("reel-bytes");
   });

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDriveClient } from "@/lib/drive/client";
+import { pickStringHeader, type GaxiosResponseHeaders } from "@/lib/drive/responseHeaders";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validatePickerAssetSession } from "@/lib/auth/picker/validatePickerAssetSession";
 import { isAllowedReelMime } from "@/lib/data/openingReel";
@@ -59,7 +60,9 @@ type ReelDriveOptions = {
 type ReelDriveResponse = {
   data: unknown;
   status?: number;
-  headers?: Record<string, string | string[] | undefined>;
+  // Gaxios 7.x returns a WHATWG Headers instance; older shapes are
+  // plain objects. Read ONLY via pickStringHeader.
+  headers?: GaxiosResponseHeaders;
 };
 
 type ReelDriveClient = {
@@ -138,14 +141,6 @@ function sliceChunks(chunks: Uint8Array[], start: number, end: number): Uint8Arr
     }
   }
   return result;
-}
-
-function pickStringHeader(headers: ReelDriveResponse["headers"], name: string): string | null {
-  if (!headers) return null;
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  if (typeof value === "string") return value;
-  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
-  return null;
 }
 
 function gone(): Response {
@@ -397,7 +392,8 @@ export async function HEAD(request: NextRequest, context: RouteContext): Promise
   if (satisfiableRange && Number.isFinite(authz.reportedSize)) {
     const sliceLen = satisfiableRange.end - satisfiableRange.start + 1;
     headers["Content-Length"] = String(sliceLen);
-    headers["Content-Range"] = `bytes ${satisfiableRange.start}-${satisfiableRange.end}/${authz.reportedSize}`;
+    headers["Content-Range"] =
+      `bytes ${satisfiableRange.start}-${satisfiableRange.end}/${authz.reportedSize}`;
     return new Response(null, { status: 206, headers });
   }
   if (Number.isFinite(authz.reportedSize)) {
@@ -453,7 +449,6 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
   }
 
   try {
-
     const drive = getDriveClient() as unknown as ReelDriveClient;
     // Codex R14 P1: `supportsAllDrives: true` so reels in Shared
     // Drives resolve instead of 404ing on the metadata + media calls.
