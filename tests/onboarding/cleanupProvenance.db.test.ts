@@ -86,7 +86,9 @@ async function cleanupFixture() {
   );
   await db.unsafe(`delete from public.shows where drive_file_id = any($1)`, [FIXTURE_FILES]);
   await db.unsafe(`delete from public.sync_log where parse_warnings @> $1::jsonb`, [
-    JSON.stringify([{ wizard_session_id: SESSION }]),
+    // postgres.js serializes a $N::jsonb param itself — pass the raw value via
+    // sql.json, never JSON.stringify (double-encode → jsonb string scalar).
+    db.json([{ wizard_session_id: SESSION }] as never) as never,
   ]);
 }
 

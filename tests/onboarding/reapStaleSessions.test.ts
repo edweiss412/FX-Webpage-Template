@@ -648,3 +648,123 @@ describe("reap lock topology (F4 / spec §3.3 + §6)", () => {
     );
   });
 });
+
+describe("reap preservation (F4 §6 required tests)", () => {
+  test("active session retains ALL pending/manifest/shadow rows while a stale session's debris is removed in the same run", async () => {
+    const tx = new FakeReapTx();
+    staleSessionFixture(tx); // seeds BOTH active-session rows and stale-session rows
+    await reapStaleOnboardingSessions(deps(tx));
+    for (const name of ["onboarding_scan_manifest", "shows_pending_changes", "pending_syncs"]) {
+      expect(
+        tx.tables[name]!.filter((r) => r.wizard_session_id === ACTIVE),
+        `${name}: active session row must survive`,
+      ).toHaveLength(1);
+      expect(tx.tables[name]!.filter((r) => r.wizard_session_id === STALE)).toEqual([]);
+    }
+  });
+
+  test("a pre-existing published=false show approved into a shadow SURVIVES the reap", async () => {
+    const tx = new FakeReapTx();
+    // Shadow for a REAL existing show: manifest row applied but created_show_id
+    // is NULL (not session-created).
+    tx.tables.onboarding_scan_manifest!.push({
+      wizard_session_id: STALE,
+      drive_file_id: "drive-real",
+      status: "applied",
+      created_show_id: null,
+    });
+    tx.tables.shows_pending_changes!.push({
+      wizard_session_id: STALE,
+      drive_file_id: "drive-real",
+    });
+    tx.tables.shows!.push({ id: "real-show", drive_file_id: "drive-real", published: false });
+    await reapStaleOnboardingSessions(deps(tx));
+    // Concrete failure mode: a published=false-proxy delete removes "real-show";
+    // provenance keeps it.
+    expect(tx.tables.shows).toEqual([
+      { id: "real-show", drive_file_id: "drive-real", published: false },
+    ]);
+    expect(tx.tables.shows_pending_changes).toEqual([]); // shadow debris itself IS reaped
+  });
+
+  test("R67-1 forged provenance: a manifest row pointing created_show_id at a pre-existing show (same drive, NULL discriminator) cannot delete it", async () => {
+    const tx = new FakeReapTx();
+    // SAME-DRIVE forged row: created_show_id = the pre-existing show's own id,
+    // drive ids matching — only the show-side discriminator (NULL here) blocks
+    // the delete (R57-1).
+    tx.tables.onboarding_scan_manifest!.push({
+      wizard_session_id: STALE,
+      drive_file_id: "drive-forged",
+      status: "applied",
+      created_show_id: "victim-show",
+    });
+    tx.tables.shows!.push({
+      id: "victim-show",
+      drive_file_id: "drive-forged",
+      published: false,
+      wizard_created_session_id: null,
+    });
+    await reapStaleOnboardingSessions(deps(tx));
+    expect(tx.tables.shows).toHaveLength(1); // victim survives
+    expect(tx.tables.onboarding_scan_manifest).toEqual([]); // the forged manifest row is swept
+  });
+
+  test("R67-1 forged provenance: a mismatched wizard_created_session_id (another session's interim show) survives", async () => {
+    const tx = new FakeReapTx();
+    const OTHER = "dddddddd-0000-4000-8000-dddddddddddd";
+    tx.tables.onboarding_scan_manifest!.push({
+      wizard_session_id: STALE,
+      drive_file_id: "drive-mismatch",
+      status: "applied",
+      created_show_id: "other-interim",
+    });
+    tx.tables.shows!.push({
+      id: "other-interim",
+      drive_file_id: "drive-mismatch",
+      published: false,
+      wizard_created_session_id: OTHER,
+    });
+    await reapStaleOnboardingSessions(deps(tx));
+    expect(tx.tables.shows).toHaveLength(1); // other session's interim survives
+  });
+
+  test("a FRESH non-active session (just rotated, staging present, checkpoint last_processed_at NULL) survives intact", async () => {
+    // Concrete failure mode (R1 HIGH): a newly-superseded session is non-active
+    // the instant rotation commits and its checkpoint may have
+    // last_processed_at NULL — the active-session and 1-hour-checkpoint guards
+    // alone leave it ELIGIBLE, so the reap deletes staging an operator's stale
+    // tab may still legitimately re-attach to. This is the data-loss class
+    // this phase exists to prevent.
+    const FRESH = "dddddddd-0000-4000-8000-dddddddddddd";
+    const tx = new FakeReapTx();
+    tx.freshSessions.add(FRESH); // activity max within 24h → freshness predicate says NOT stale
+    tx.tables.wizard_finalize_checkpoints!.push({
+      wizard_session_id: FRESH,
+      status: "in_progress",
+      recent: false /* last_processed_at NULL */,
+    });
+    tx.tables.onboarding_scan_manifest!.push({
+      wizard_session_id: FRESH,
+      drive_file_id: "drive-f1",
+      status: "staged",
+      created_show_id: null,
+    });
+    tx.tables.pending_syncs!.push({ wizard_session_id: FRESH, drive_file_id: "drive-f1" });
+    tx.tables.shows_pending_changes!.push({ wizard_session_id: FRESH, drive_file_id: "drive-f2" });
+    const result = await reapStaleOnboardingSessions(deps(tx));
+    expect(result.sessions).toEqual([]); // skipped_fresh_activity filtered from reaped output
+    expect(tx.operations).toContain(`activity-check:${FRESH}`); // the guard actually ran, under the finalize lock
+    for (const name of [
+      "wizard_finalize_checkpoints",
+      "onboarding_scan_manifest",
+      "pending_syncs",
+      "shows_pending_changes",
+    ]) {
+      expect(
+        tx.tables[name]!.filter((r) => r.wizard_session_id === FRESH),
+        `${name}: fresh session rows must survive`,
+      ).toHaveLength(1);
+    }
+    expect(tx.operations.filter((op) => op.startsWith("delete"))).toEqual([]);
+  });
+});
