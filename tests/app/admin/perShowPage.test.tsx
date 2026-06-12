@@ -452,9 +452,11 @@ describe("per-show page (§6)", () => {
     const crewCol = screen.getByTestId("per-show-crew-col");
     // No per-row Preview as link in this state (live gate at page.tsx)…
     expect(within(crewCol).queryByTestId("admin-show-preview-as-link-c1")).toBeNull();
-    // …so the help copy must scope the promise to the published state.
+    // …so the help copy must scope the promise to the published state —
+    // including published-then-archived (published stays true after archive;
+    // the render gate is published && !archived).
     const body = within(crewCol).getByTestId("per-show-crew-help-body");
-    expect(body.textContent).toMatch(/once the show is published/i);
+    expect(body.textContent).toMatch(/once the show is published \(and not archived\)/i);
     expect(body.textContent).not.toMatch(/use a row/i);
   });
 

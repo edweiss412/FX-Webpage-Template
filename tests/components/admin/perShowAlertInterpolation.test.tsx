@@ -101,8 +101,8 @@ describe("PerShowAlertSection <sheet-name> interpolation (§7)", () => {
     const { PerShowAlertSection } = await import("@/components/admin/PerShowAlertSection");
     render(await PerShowAlertSection({ showId: "s1", slug: "x" }));
     const body = screen.getByTestId("help-affordance--per-show-alerts--tooltip-body");
-    const link = within(body).getByRole("link", { name: "Learn more", hidden: true });
-    expect(link).toHaveAttribute("aria-label", "Learn more");
+    const link = within(body).getByRole("link", { name: "Learn more about alerts", hidden: true });
+    expect(link).toHaveAttribute("aria-label", "Learn more about alerts");
     expect(link.textContent).toBe("Learn more →");
     expect(link.firstElementChild).toBeNull();
   });

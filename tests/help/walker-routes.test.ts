@@ -105,4 +105,16 @@ describe("walker is read-only on locked tables (structural pin)", () => {
       ).toBeGreaterThan(0);
     }
   });
+
+  // M12.12-DEF-2 follow-up (Codex MEDIUM): rightNow.ts's locked psql UPDATE
+  // must stay scoped to the show whose advisory lock it holds — an id-only
+  // WHERE would let a stale/cross-show crew id mutate a row the held lock
+  // doesn't cover. Lexical pin; the behavioral proof is the helper's no-row
+  // RETURNING guard (cross-show ids throw — verified by live psql smoke).
+  it("rightNow.ts scopes its crew_members UPDATE to the advisory-locked show", () => {
+    const src = readFileSync(join(helpersDir, "rightNow.ts"), "utf8");
+    expect(src).toMatch(
+      /update public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(SEED_DRIVE_FILE_ID\)\}\)/,
+    );
+  });
 });

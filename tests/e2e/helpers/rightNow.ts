@@ -133,9 +133,11 @@ function sqlString(value: string): string {
  * code path — no JS-side wrapper or RPC wraps the call, so nothing nests.
  *
  * `leadCrewId` always comes from lookupSeededShow(), i.e. a crew row of
- * the SEED_DRIVE_FILE_ID show — the lock key therefore covers the row
- * being mutated. `restriction === null/undefined` writes SQL NULL,
- * matching the prior PostgREST `.update({ date_restriction: null })`
+ * the SEED_DRIVE_FILE_ID show — and the UPDATE is additionally scoped to
+ * that show's show_id, so a stale/cross-show crew id can never mutate a
+ * row the held lock doesn't cover (the no-row RETURNING guard makes any
+ * mismatch THROW instead). `restriction === null/undefined` writes SQL
+ * NULL, matching the prior PostgREST `.update({ date_restriction: null })`
  * semantics; objects are written as jsonb.
  */
 export async function setDateRestriction(leadCrewId: string, restriction: unknown): Promise<void> {
@@ -147,6 +149,7 @@ export async function setDateRestriction(leadCrewId: string, restriction: unknow
     update public.crew_members
        set date_restriction = ${restrictionSql}
      where id = ${sqlString(leadCrewId)}::uuid
+       and show_id = (select id from public.shows where drive_file_id = ${sqlString(SEED_DRIVE_FILE_ID)})
     returning id;
     commit;
   `;

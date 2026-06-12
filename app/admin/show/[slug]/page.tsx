@@ -455,8 +455,9 @@ export default async function AdminShowPage({
                     the promise to the published state instead of describing a
                     link an unpublished/archived render doesn't contain. */}
                 <p>
-                  Everyone on this show&apos;s crew, one row per person. Once the show is published,
-                  each row gets a Preview as link to see their page exactly as they do.
+                  Everyone on this show&apos;s crew, one row per person. Once the show is published
+                  (and not archived), each row gets a Preview as link to see their page exactly as
+                  they do.
                 </p>
               </HoverHelp>
             </div>

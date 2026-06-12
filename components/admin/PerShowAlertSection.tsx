@@ -171,7 +171,7 @@ export async function PerShowAlertSection({
                 text-decoration paint — byte-level screenshot drift). */}
             <a
               href="/help/admin/parse-warnings"
-              aria-label="Learn more"
+              aria-label="Learn more about alerts"
               className="font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
             >
               Learn more →
