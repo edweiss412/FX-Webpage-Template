@@ -174,6 +174,12 @@ const infraRegistry = [
       "unpublish route uses explicit Postgres transaction boundary; helper faults propagate to route caller",
   },
   {
+    helper: "unpublishShowViaEmailedLink",
+    path: "lib/sync/unpublishShow.ts",
+    contract:
+      "emailed-link wrapper re-validates the recipient binding FOR SHARE inside the locked transaction before any token-state branch; Postgres faults propagate to the route caller",
+  },
+  {
     helper: "POST",
     path: "app/api/show/[slug]/unpublish/route.ts",
     contract:
