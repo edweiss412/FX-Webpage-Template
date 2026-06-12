@@ -192,7 +192,7 @@ end $$;
 
 Replace with a rendered state page (same layout shell as the page's existing infra-error state, page.tsx:104-121):
 
-- Heading: "This sheet is already taken care of." Body: "It was applied or set aside — possibly from another tab. Nothing else is needed here." Two links: "Back to setup" (`/admin/onboarding`) and "Go to dashboard" (`/admin`).
+- Heading: "This sheet is already taken care of." Body: "It was applied or set aside, possibly from another tab. Nothing else is needed here." Two links: "Back to setup" (`/admin/onboarding`) and "Go to dashboard" (`/admin`).
 - Guard conditions: `wizardSessionId` or `driveFileId` malformed/unknown → same state page (it is indistinguishable from "consumed" without leaking row existence; copy stays generic). Infra error path unchanged.
 - No new §12.4 code: this is a state page, not an error-code rendering; no raw codes appear (invariant 5 satisfied vacuously). If adversarial review prefers a cataloged code, that is a §12.4 three-lockstep change and must be costed explicitly — do not relitigate silently (§8).
 

@@ -74,7 +74,7 @@ function AlreadyResolvedState() {
           This sheet is already taken care of.
         </h2>
         <p className="max-w-prose text-base text-text-subtle">
-          It was applied or set aside — possibly from another tab. Nothing else
+          It was applied or set aside, possibly from another tab. Nothing else
           is needed here.
         </p>
       </header>

@@ -88,7 +88,7 @@ describe("F3 — already-resolved state (spec §5)", () => {
     ).toBeTruthy();
     expect(
       resolved.getByText(
-        "It was applied or set aside — possibly from another tab. Nothing else is needed here.",
+        "It was applied or set aside, possibly from another tab. Nothing else is needed here.",
       ),
     ).toBeTruthy();
     expect(

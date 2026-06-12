@@ -12,7 +12,7 @@
 
 **Exact spec copy (verbatim — do not edit during implementation):**
 - Heading: `This sheet is already taken care of.`
-- Body: `It was applied or set aside — possibly from another tab. Nothing else is needed here.`
+- Body: `It was applied or set aside, possibly from another tab. Nothing else is needed here.`
 - Links: `Back to setup` → `/admin/onboarding` · `Go to dashboard` → `/admin`
 
 **Pre-draft verification findings (live-code citation pass, 2026-06-11):**
@@ -125,7 +125,7 @@ describe("F3 — already-resolved state (spec §5)", () => {
     ).toBeTruthy();
     expect(
       resolved.getByText(
-        "It was applied or set aside — possibly from another tab. Nothing else is needed here.",
+        "It was applied or set aside, possibly from another tab. Nothing else is needed here.",
       ),
     ).toBeTruthy();
     expect(
@@ -229,7 +229,7 @@ function AlreadyResolvedState() {
           This sheet is already taken care of.
         </h2>
         <p className="max-w-prose text-base text-text-subtle">
-          It was applied or set aside — possibly from another tab. Nothing else
+          It was applied or set aside, possibly from another tab. Nothing else
           is needed here.
         </p>
       </header>
