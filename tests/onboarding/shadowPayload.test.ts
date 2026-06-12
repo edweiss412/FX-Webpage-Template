@@ -11,9 +11,33 @@ const MI11_ITEM = {
   new_email: "ada@new.com",
 };
 
+// Minimally-valid ParseResult (every non-optional field, mirroring lib/parser/types) —
+// parseShadowPayloadForApply validates the FULL shape via asParseResult at this boundary,
+// so a bare `{ show: { title: "T" } }` stub no longer passes.
+function minimalParseResult() {
+  return {
+    show: {
+      title: "T",
+      client_label: "CL",
+      dates: { showDays: ["2026-05-09"], set: "2026-05-08" },
+    },
+    crewMembers: [],
+    hotelReservations: [],
+    rooms: [],
+    transportation: null,
+    contacts: [],
+    pullSheet: null,
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null,
+    raw_unrecognized: [],
+    warnings: [],
+    hardErrors: [],
+  };
+}
+
 function payload(overrides: Record<string, unknown> = {}) {
   return {
-    parse_result: { show: { title: "T" } }, // shape-checked by asParseResult at the caller
+    parse_result: minimalParseResult(),
     staged_modified_time: STAGED,
     staged_id: "44444444-4444-4444-8444-444444444444",
     reviewer_choices: [{ item_id: "i-mi11", action: "apply" }],
@@ -70,6 +94,26 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
       ok: false,
       code: "STAGED_PARSE_RESULT_CORRUPT",
     });
+  });
+
+  test("object-shaped-but-invalid parse_result ({}, {show:{}}) is REFUSED here, not deferred downstream", () => {
+    // Concrete failure mode (whole-milestone HIGH): coerceJsonbObject alone only checks
+    // object-SHAPE, so `{}` / `{ show: {} }` passed ok:true and finalize-cas dereferenced
+    // parsed.parseResult.show.title → uncaught TypeError → route-level
+    // ONBOARDING_FINALIZE_INTERNAL_ERROR instead of the per-row retained-row refusal.
+    // One corrupt shadow blocked final publish AND hid the recovery path.
+    expect(parseShadowPayloadForApply(payload({ parse_result: {} }))).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_RESULT_CORRUPT",
+    });
+    expect(parseShadowPayloadForApply(payload({ parse_result: { show: {} } }))).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_RESULT_CORRUPT",
+    });
+    // Legacy double-encoded-but-VALID parse_result still parses (asParseResult decodes it).
+    expect(
+      parseShadowPayloadForApply(payload({ parse_result: JSON.stringify(minimalParseResult()) })),
+    ).toMatchObject({ ok: true });
   });
 
   test("missing staged_id or staged_modified_time is REFUSED (audit row + holds binding require both)", () => {

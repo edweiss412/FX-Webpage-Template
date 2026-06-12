@@ -1,7 +1,7 @@
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { Mi11Item } from "@/lib/sync/holds/writeMi11Holds";
 import type { ReviewerChoice } from "@/lib/sync/applyStagedCore";
-import { coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
+import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 
 /**
@@ -25,8 +25,9 @@ import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
  * whole batch).
  *
  * `parse_result` is decoded (object or legacy double-encoded JSON-string-of-
- * object) but its FULL ParseResult shape is checked by `asParseResult` at the
- * caller, which owns the apply boundary.
+ * object) AND its FULL ParseResult shape is validated here via `asParseResult`
+ * — finalize-cas consumes `parsed.parseResult` directly, so this parser IS the
+ * apply boundary for the shadow payload.
  */
 export type ShadowPayloadRefusalCode =
   | "STAGED_REVIEW_ITEMS_CORRUPT"
@@ -72,14 +73,20 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
   const obj = payload as Record<string, unknown>;
 
   // parse_result: ABSENT/null → refuse, NEVER consume-and-OK (the legacy
-  // silent-success bug). Present → decode object-or-double-encoded-string;
-  // anything else is corrupt.
+  // silent-success bug). Present → decode object-or-double-encoded-string AND
+  // validate the full ParseResult shape; anything else is corrupt.
   if (obj.parse_result === null || obj.parse_result === undefined) {
     return refuse("STAGED_PARSE_RESULT_CORRUPT");
   }
   let parseResult: ParseResult;
   try {
-    parseResult = coerceJsonbObject(obj.parse_result, "shadow payload parse_result") as ParseResult;
+    // asParseResult validates the FULL non-optional ParseResult contract (not just
+    // object-shape): an object-shaped-but-invalid payload (`{}`, `{ show: {} }`) must
+    // refuse HERE, not pass ok:true and TypeError at finalize-cas's
+    // `parsed.parseResult.show.title` deref — which surfaced as a route-level
+    // ONBOARDING_FINALIZE_INTERNAL_ERROR hiding the per-row retained-row recovery path.
+    // Bare catch (JsonbCoercionError and anything else): this parser NEVER throws.
+    parseResult = asParseResult(obj.parse_result);
   } catch {
     return refuse("STAGED_PARSE_RESULT_CORRUPT");
   }

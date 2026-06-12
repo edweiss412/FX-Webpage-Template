@@ -456,6 +456,51 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     expect(db.checkpoint?.status).toBe("all_batches_complete");
   });
 
+  test("object-shaped-but-invalid parse_result shadow gets the typed per-row refusal; shadow retained; siblings continue", async () => {
+    // Concrete failure mode (whole-milestone HIGH): `{ show: {} }` passed the old
+    // object-shape-only check (coerceJsonbObject), then syntheticFileMeta dereferenced
+    // parsed.parseResult.show.title → uncaught TypeError → route-level 500
+    // ONBOARDING_FINALIZE_INTERNAL_ERROR with NO per_row, NO retained-row recovery
+    // path, and the healthy sibling never applied.
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-corrupt",
+        show_id: "22222222-2222-4222-8222-222222222220",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload({ parse_result: { show: {} } }),
+      },
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-2",
+        show_id: "22222222-2222-4222-8222-222222222221",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload(),
+      },
+    ];
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(db));
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+      per_row: [
+        { drive_file_id: "existing-corrupt", code: "STAGED_PARSE_RESULT_CORRUPT" },
+        { drive_file_id: "existing-2", code: "OK" },
+      ],
+    });
+    // The corrupt shadow is RETAINED for operator recovery; the sibling applied.
+    expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-corrupt"]);
+    expect(db.appliedShadows).toEqual(["existing-2"]);
+    expect(db.published).toBe(false);
+    expect(db.deletedWizardDeferrals).toBe(false);
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
+  });
+
   test("is idempotent after settings were already promoted", async () => {
     const db = new FakeFinalizeCasDb();
     db.activeSessionId = null;
