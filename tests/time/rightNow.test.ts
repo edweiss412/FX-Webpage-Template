@@ -387,16 +387,15 @@ describe("selectRightNowState — set === travelIn evaluation order (rows 6 vs 7
   });
 });
 
-describe("selectRightNowState — inverted range (travelOut < travelIn) [pinned nonsense-tolerance]", () => {
-  // The parser should never emit travelOut < travelIn and spec §8.2 is
-  // silent on the shape, so per AGENTS.md invariant 7 these tests PIN
-  // what the ladder currently returns rather than adding validation (no
-  // caller crashes on these outputs — they render as ordinary, if
-  // nonsensical, card copy). Documented behavior: pre_travel (row 5,
-  // daysBetween >= 1) swallows every day strictly before travelIn —
-  // including the show day and travelOut itself — and post_show compares
-  // only against travelOut, so any day past travelIn reports the show as
-  // wrapped at a date before it "started".
+describe("selectRightNowState — inverted range (travelOut < travelIn) degrades to unknown", () => {
+  // The parser should never emit travelOut < travelIn — it is data-entry
+  // error in the sheet. Per spec §8.2 line 2414 (`unknown`/`dateless` are
+  // date-data fallbacks that override everything else), an inverted span
+  // is broken-sheet data the ladder cannot reason about: the pre-fix
+  // behavior rendered plausible-WRONG copy (pre_travel on the show day;
+  // post_show "wrapped" at a date before the show "started"). The
+  // full-dates gate now requires travelOut >= travelIn, so every probe
+  // day falls through to `unknown` — the honest "we can't tell" card.
   const INVERTED = {
     travelIn: "2026-06-10",
     set: null,
@@ -404,19 +403,29 @@ describe("selectRightNowState — inverted range (travelOut < travelIn) [pinned 
     travelOut: "2026-06-01",
   };
 
-  test("today between travelOut and travelIn — even ON the show day — → pre_travel (row 5 fires before show_day_n)", () => {
-    const state = selectRightNowState(todayInNY("2026-06-05"), INVERTED, NONE);
-    expect(state).toEqual({ kind: "pre_travel", travelIn: "2026-06-10", daysAway: 5 });
+  test("today before both bounds (before travelOut) → unknown", () => {
+    const state = selectRightNowState(todayInNY("2026-05-25"), INVERTED, NONE);
+    expect(state).toEqual({ kind: "unknown" });
   });
 
-  test("today === travelOut (still before travelIn) → pre_travel, NOT travel_out_day", () => {
+  test("today === the inverted travelOut → unknown, NOT pre_travel/travel_out_day", () => {
     const state = selectRightNowState(todayInNY("2026-06-01"), INVERTED, NONE);
-    expect(state).toEqual({ kind: "pre_travel", travelIn: "2026-06-10", daysAway: 9 });
+    expect(state).toEqual({ kind: "unknown" });
   });
 
-  test("today after travelIn (and after travelOut) → post_show with wrappedAt = the inverted travelOut", () => {
+  test("today between travelOut and travelIn — ON the show day — → unknown, NOT pre_travel", () => {
+    const state = selectRightNowState(todayInNY("2026-06-05"), INVERTED, NONE);
+    expect(state).toEqual({ kind: "unknown" });
+  });
+
+  test("today === travelIn → unknown, NOT travel_in_day", () => {
+    const state = selectRightNowState(todayInNY("2026-06-10"), INVERTED, NONE);
+    expect(state).toEqual({ kind: "unknown" });
+  });
+
+  test("today after travelIn (and after travelOut) → unknown, NOT post_show", () => {
     const state = selectRightNowState(todayInNY("2026-06-15"), INVERTED, NONE);
-    expect(state).toEqual({ kind: "post_show", wrappedAt: "2026-06-01" });
+    expect(state).toEqual({ kind: "unknown" });
   });
 });
 
