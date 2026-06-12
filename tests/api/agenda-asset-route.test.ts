@@ -29,9 +29,7 @@ const routeMock = vi.hoisted(() => ({
   google: { kind: "continue" } as { kind: string },
   linkCalls: 0,
   googleCalls: 0,
-  peek: { kind: "none" } as
-    | { kind: "none" }
-    | { kind: "envelope"; showId: string },
+  peek: { kind: "none" } as { kind: "none" } | { kind: "envelope"; showId: string },
   showRow: null as null | {
     id: string;
     published: boolean | null;
@@ -69,6 +67,17 @@ const routeMock = vi.hoisted(() => ({
   omit206ContentRange: false as boolean,
   use206StarTotal: false as boolean,
   use206MalformedTotal: false as boolean,
+  // When true, the 206 media response returns headers as a PLAIN OBJECT
+  // with canonical casing ({"Content-Range": ...}) instead of a WHATWG
+  // Headers instance — the shape of any adapter that preserves canonical
+  // header casing. pickStringHeader must resolve it case-insensitively or
+  // the fail-closed 206 guard re-trips (410 on every valid slice).
+  use206CanonicalPlainObjectHeaders: false as boolean,
+  // Adversarial R3 (gaxios-headers follow-up): when true, the 206 media
+  // response reports the FULL FILE size as Content-Length (e.g. 22 on a
+  // `bytes 0-9/22` partial) instead of the slice length (10). The route
+  // must fail closed on the inconsistent pair, never forward it.
+  use206FullFileContentLength: false as boolean,
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -177,7 +186,9 @@ vi.mock("@/lib/drive/client", () => ({
         routeMock.filesGetCalls.push({
           fileId: args.fileId,
           alt: args.alt,
-          ...(args.supportsAllDrives === undefined ? {} : { supportsAllDrives: args.supportsAllDrives }),
+          ...(args.supportsAllDrives === undefined
+            ? {}
+            : { supportsAllDrives: args.supportsAllDrives }),
         });
         routeMock.lastMediaOptions = options ?? null;
         if (routeMock.driveError) throw routeMock.driveError;
@@ -204,9 +215,32 @@ vi.mock("@/lib/drive/client", () => ({
               }
             }
             if (!routeMock.omit206ContentLength) {
-              headers["content-length"] = String(routeMock.driveBytes.byteLength);
+              // The synthetic Content-Range is always `bytes 0-9/...` — a
+              // 10-byte slice. A consistent upstream reports the SLICE
+              // length on a 206, not the full file size; the
+              // use206FullFileContentLength knob reproduces the
+              // inconsistent full-file pair (adversarial R3).
+              headers["content-length"] = routeMock.use206FullFileContentLength
+                ? String(routeMock.driveBytes.byteLength)
+                : "10";
             }
-            return { data: routeMock.driveBytes, status: 206, headers };
+            // Gaxios 7.x (googleapis dep) returns `response.headers` as a
+            // WHATWG `Headers` instance, NOT a plain object. The mock
+            // mirrors the live shape so plain index access on headers
+            // (`headers["content-range"]` → undefined → fail-closed 410 on
+            // every valid Range slice) can never regress silently again
+            // (live-reproduced production bug, 2026-06-12).
+            if (routeMock.use206CanonicalPlainObjectHeaders) {
+              const canonical: Record<string, string> = {};
+              if (headers["content-range"] !== undefined) {
+                canonical["Content-Range"] = headers["content-range"];
+              }
+              if (headers["content-length"] !== undefined) {
+                canonical["Content-Length"] = headers["content-length"];
+              }
+              return { data: routeMock.driveBytes, status: 206, headers: canonical };
+            }
+            return { data: routeMock.driveBytes, status: 206, headers: new Headers(headers) };
           }
           return { data: routeMock.driveBytes, status: 200 };
         }
@@ -259,6 +293,8 @@ beforeEach(() => {
   routeMock.omit206ContentRange = false;
   routeMock.use206StarTotal = false;
   routeMock.use206MalformedTotal = false;
+  routeMock.use206CanonicalPlainObjectHeaders = false;
+  routeMock.use206FullFileContentLength = false;
 });
 
 async function headAgenda(
@@ -419,6 +455,44 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(routeMock.lastMediaOptions?.headers?.Range).toBe("bytes=0-9");
     expect(res.headers.get("content-range")).toMatch(/^bytes 0-9\/\d+$/);
     expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("gaxios 7.x regression: 206 whose headers are a WHATWG Headers instance forwards Content-Range/Content-Length (was 410 on every valid slice)", async () => {
+    // Live-reproduced production bug (validation, 2026-06-12): gaxios 7.1.4
+    // returns `response.headers` as a real `Headers` instance; plain index
+    // access read null, so the R23 fail-closed total-size guard could not
+    // prove total <= cap and 410'd every valid Range slice — pdf.js
+    // incremental load died ("This agenda could not be loaded"). The drive
+    // mock above now returns `new Headers(...)` (the live shape); this test
+    // pins the end-to-end contract explicitly. Content-Length is the SLICE
+    // length (10 for bytes 0-9), never the full file size (adversarial R3).
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toBe("bytes 0-9/22");
+    expect(res.headers.get("content-length")).toBe("10");
+  });
+
+  test("adversarial R3: 206 whose upstream Content-Length disagrees with the Content-Range slice → fail-closed 410", async () => {
+    // Upstream says `Content-Range: bytes 0-9/22` (a 10-byte slice) but
+    // `Content-Length: 22` (the full file). Forwarding the pair verbatim
+    // hands PDF.js an impossible contract — it stalls or corrupts the
+    // incremental load. The route must fail closed, not forward.
+    routeMock.use206FullFileContentLength = true;
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("canonical-cased plain-object 206 headers forward Content-Range/Content-Length (adapter preserves casing)", async () => {
+    // Sibling of the gaxios 7.x regression above: an adapter that returns
+    // plain-object headers with canonical casing ({"Content-Range": ...})
+    // must not re-trip the fail-closed total-size guard (410 on every
+    // valid slice). pickStringHeader must scan plain objects
+    // case-insensitively, not just exact + lowercase keys.
+    routeMock.use206CanonicalPlainObjectHeaders = true;
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toBe("bytes 0-9/22");
+    expect(res.headers.get("content-length")).toBe("10");
   });
 
   test("Codex R19 P2: Drive metadata 404 (deleted file) → 410, not AGENDA_ASSET_LOOKUP_FAILED 500", async () => {
@@ -758,9 +832,10 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
     // TS narrows lastMediaOptions to `null` after the reset above; widen on read.
-    const postGetOptions = routeMock.lastMediaOptions as
-      | { responseType: "stream"; headers?: Record<string, string> }
-      | null;
+    const postGetOptions = routeMock.lastMediaOptions as {
+      responseType: "stream";
+      headers?: Record<string, string>;
+    } | null;
     expect(postGetOptions?.headers).toBeUndefined();
     const body = new TextDecoder().decode(new Uint8Array(await get.arrayBuffer()));
     expect(body).toBe("%PDF-1.7 fixture bytes");
