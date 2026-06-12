@@ -82,7 +82,10 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     }
 
     if (op === "probe-suppressed") {
-      return { rows: this.staleByDbClock && this.hasCheckpoint ? ([{ one: 1 }] as T[]) : [], rowCount: this.staleByDbClock && this.hasCheckpoint ? 1 : 0 };
+      return {
+        rows: this.staleByDbClock && this.hasCheckpoint ? ([{ one: 1 }] as T[]) : [],
+        rowCount: this.staleByDbClock && this.hasCheckpoint ? 1 : 0,
+      };
     }
 
     if (op === "log") {
@@ -168,7 +171,8 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     if (sql.startsWith("delete from public.pending_syncs")) return "purge-pending-syncs";
     if (sql.startsWith("delete from public.pending_ingestions")) return "purge-pending-ingestions";
     if (sql.startsWith("delete from public.onboarding_scan_manifest")) return "purge-manifest";
-    if (sql.startsWith("delete from public.deferred_ingestions")) return "purge-deferred-ingestions";
+    if (sql.startsWith("delete from public.deferred_ingestions"))
+      return "purge-deferred-ingestions";
     if (sql.startsWith("select pg_advisory_xact_lock") && sql.includes("finalize:")) {
       return "lock-finalize";
     }
@@ -181,7 +185,10 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     if (sql.startsWith("select") && sql.includes("from public.app_settings where id = 'default'")) {
       return "select-settings";
     }
-    if (sql.includes("from public.wizard_finalize_checkpoints") && sql.includes("last_processed_at > now()")) {
+    if (
+      sql.includes("from public.wizard_finalize_checkpoints") &&
+      sql.includes("last_processed_at > now()")
+    ) {
       return "select-recent-finalize";
     }
     if (sql.startsWith("delete from public.shows_pending_changes")) return "delete-shadow";
@@ -197,13 +204,17 @@ class FakeLifecycleTx implements OnboardingSessionTx {
       // through to the classify error below.
       return "delete-interim-shows";
     }
-    if (sql.includes("from public.onboarding_scan_manifest") && sql.includes("status = 'applied'")) {
+    if (
+      sql.includes("from public.onboarding_scan_manifest") &&
+      sql.includes("status = 'applied'")
+    ) {
       return "select-applied-manifest-drive-files";
     }
     if (sql.includes("from public.shows_pending_changes") && sql.includes("for update")) {
       return "select-shadow-drive-files";
     }
-    if (sql.startsWith("delete from public.wizard_finalize_checkpoints")) return "delete-checkpoint";
+    if (sql.startsWith("delete from public.wizard_finalize_checkpoints"))
+      return "delete-checkpoint";
     throw new Error(`Could not classify SQL: ${sql}`);
   }
 
