@@ -6,6 +6,18 @@ on Phase 4's `reapStaleOnboardingSessions`). The S5 real-DB retry-race test
 documents committed W1 scan residue but defers the "F4 reap sweeps it"
 assertion to F5b alongside Task 5.4.
 
+> **F5b CLOSED (2026-06-12, post-F4):** Task 5.4 landed. Half (a) was verified
+> as already pinned by the F5a "half (i)" route-level test + the mid-tx
+> statement-time tests — not duplicated. Half (b) added the commit-window
+> residue test (residue exists, wizard-scoped, fresh-skip respected by the F4
+> 24h guard, swept after backdating `deferred_at` + manifest
+> `observed_at`/`transitioned_at`), the `perFileProcessor` F5 inertness pin
+> (negative-regression verified: deleting `.is("wizard_session_id", null)`
+> fails it), and the S5-deferred reap assertion (fresh-skip, then backdate
+> `parsed_at`/`observed_at`/`transitioned_at`/`first_seen_at`/`last_attempt_at`,
+> then sweep of the committed W1 `pending_syncs` + manifest residue). The
+> two-half guarantee is fully pinned; F5 is complete.
+
 ## Task 5.6 — PostgREST DML lockdown evaluation (recorded verbatim)
 
 F5 introduces NO new RPC and NO new table. The three mutated tables are already

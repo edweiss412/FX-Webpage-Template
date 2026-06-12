@@ -30,11 +30,21 @@ import postgres from "postgres";
 import { assertLocalDbUrl } from "../db/_remediationHelpers";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import {
+  deletePendingIngestion,
   handleWizardPendingIngestionAction,
   transitionManifestRow,
   upsertWizardDeferral,
 } from "@/app/api/admin/onboarding/pending_ingestions/[id]/retry/route";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
+
+// F5b (Task 5.4): the reap is imported lazily inside the tests so its module
+// init can never observe the pre-pin env (its databaseUrl() resolves
+// TEST_DATABASE_URL ?? DATABASE_URL at call time — both pinned above).
+async function importReap() {
+  const { reapStaleOnboardingSessions } = await import("@/lib/onboarding/sessionLifecycle");
+  return reapStaleOnboardingSessions;
+}
+const REAP_ADMIN_DEPS = { requireAdminIdentity: async () => ({ email: "admin@example.com" }) };
 
 const DB_URL = assertLocalDbUrl(
   process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
@@ -384,8 +394,7 @@ test.skipIf(!dbUp)(
     // R32-1 residue contract: the scan's OWN committed W1 rows are NOT rolled
     // back by the route-tx abort — they are accepted, session-scoped (inert to
     // live sync by the wizard_session_id IS NULL filter shape) residue.
-    // The F4-reap-sweeps-this-residue half is DEFERRED TO F5b (Task 5.4),
-    // which imports reapStaleOnboardingSessions after Phase 4 lands.
+    // F5b (Task 5.4) closes the F5a-deferred half below: the F4 reap sweeps it.
     const residue = (await sql!.unsafe(
       `select wizard_session_id from public.pending_syncs
         where drive_file_id = $1 and wizard_session_id = $2::uuid`,
@@ -408,6 +417,66 @@ test.skipIf(!dbUp)(
       superseded_session_id: W1,
       drive_file_id: FILE,
     });
+
+    // ── F5b (Task 5.4, F5a-deferred half): the F4 reap sweeps the S5 residue ──
+    const reapStaleOnboardingSessions = await importReap();
+
+    // FRESH residue is NOT reaped — F4's 24h activity guard working as
+    // intended (the scan rows were just written: parsed_at / observed_at /
+    // first_seen_at / last_attempt_at all default to now()). This protects the
+    // guard from being weakened to make sweep tests pass.
+    const freshRun = await reapStaleOnboardingSessions(REAP_ADMIN_DEPS);
+    expect(freshRun.sessions.map((s) => s.wizardSessionId)).not.toContain(W1);
+    expect(
+      await sql!.unsafe(
+        `select 1 from public.pending_syncs where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+        [FILE, W1],
+      ),
+    ).toHaveLength(1); // residue untouched while fresh
+
+    // Backdate EVERY W1 activity timestamp the F4 GREATEST window reads
+    // (sessionLifecycle.ts freshness re-check) past 24h. W1's committed
+    // surfaces after this test: the scan-residue pending_syncs row
+    // (parsed_at; wizard_approved_at is NULL), the seeded manifest row
+    // (observed_at, transitioned_at), and the surviving pending_ingestions
+    // row (first_seen_at, last_attempt_at). No checkpoints / shadows /
+    // deferrals exist for W1 here.
+    await superseder!.unsafe(
+      `update public.pending_syncs set parsed_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+    await superseder!.unsafe(
+      `update public.onboarding_scan_manifest
+          set observed_at = now() - interval '25 hours',
+              transitioned_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+    await superseder!.unsafe(
+      `update public.pending_ingestions
+          set first_seen_at = now() - interval '25 hours',
+              last_attempt_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+
+    // NOW the orphan-row eligibility sweeps the committed W1 scan residue
+    // (W1 non-active, stale, checkpoint-less), regardless of W2's state.
+    const staleRun = await reapStaleOnboardingSessions(REAP_ADMIN_DEPS);
+    expect(staleRun.sessions.map((s) => s.wizardSessionId)).toContain(W1);
+    expect(
+      await sql!.unsafe(
+        `select 1 from public.pending_syncs where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+        [FILE, W1],
+      ),
+    ).toHaveLength(0); // the S5 scan residue is swept
+    expect(
+      await sql!.unsafe(
+        `select 1 from public.onboarding_scan_manifest where wizard_session_id = $1::uuid`,
+        [W1],
+      ),
+    ).toHaveLength(0); // the committed W1 manifest row is swept too
   },
 );
 
@@ -428,5 +497,93 @@ test.skipIf(!dbUp)(
     expect((await readManifestRow(W1, FILE)).status).toBe("hard_failed");
     expect(await readDeferralRows(FILE)).toEqual([]);
     expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull();
+  },
+);
+
+// F5b Task 5.4 — half (ii) of the two-half weakened guarantee (spec §7 R5-2,
+// ratified §8: the commit window is ACCEPTED, not closed — do NOT "fix" it
+// with locks/SERIALIZABLE). Half (a) — pre-statement supersession → typed 409,
+// nothing commits — is already pinned by the "half (i)" route-level test above
+// plus the mid-tx statement-time tests; NOT duplicated here. This test pins
+// the three facts nothing else pins:
+//   (a) a commit-window supersession really does leave a stale deferral row
+//       (if a refactor accidentally "closes" the window, the spec contract
+//       changed and we want to KNOW);
+//   (b) the residue is wizard-scoped (non-NULL wizard_session_id) — invisible
+//       to readLiveDeferral by shape (perFileProcessor.ts filters
+//       `.is("wizard_session_id", null)`; unit pin in perFileProcessor.test.ts);
+//   (c) the F4 reap removes it via orphan-row eligibility — RESPECTING the 24h
+//       freshness guard: fresh residue must NOT be reaped.
+test.skipIf(!dbUp)(
+  "half (ii): a flip INSIDE the commit window leaves residue; the residue is wizard-scoped and the F4 reap removes it",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    const row = (await readPendingIngestionRow(pendingIngestionId))!;
+
+    // All three statements succeed while W1 is still current; the supersession
+    // commits AFTER the last predicate check and BEFORE this tx's commit — the
+    // unclosable window.
+    await withPostgresSyncPipelineLock(
+      FILE,
+      async (tx) => {
+        expect(await transitionManifestRow(tx as never, row as never, "defer_until_modified")).toBe(
+          true,
+        );
+        expect(await upsertWizardDeferral(tx as never, row as never, "defer_until_modified")).toBe(
+          true,
+        );
+        expect(await deletePendingIngestion(tx as never, pendingIngestionId, W1)).toBe(true);
+        // Commit-window flip: a bare rotation lands now (no purge — a
+        // superseding purge would block on this tx's FOR UPDATE row and
+        // serialize after our commit; the residue class exists precisely when
+        // the superseding purge ran first or never saw us).
+        await flipSessionTo(W2);
+        return null; // normal return → COMMIT (this is the documented residue path)
+      },
+      { tryOnly: false },
+    );
+
+    // (a) Residue exists, and it is wizard-scoped — NOT a live deferral.
+    const residue = await readDeferralRows(FILE);
+    expect(residue).toHaveLength(1);
+    expect(residue[0]!.wizard_session_id).toBe(W1); // non-NULL: invisible to readLiveDeferral by shape
+    // The whole tx committed: manifest transitioned, pending_ingestions row gone.
+    expect((await readManifestRow(W1, FILE)).status).toBe("defer_until_modified");
+    expect(await readPendingIngestionRow(pendingIngestionId)).toBeNull();
+
+    // (c-1) FRESH residue is NOT reaped — F4's 24-hour activity guard working
+    // as intended (the rows were just written: deferred_at / transitioned_at
+    // default to / are set to now()). This assertion protects the guard from
+    // being weakened to make sweep tests pass.
+    const reapStaleOnboardingSessions = await importReap();
+    const freshRun = await reapStaleOnboardingSessions(REAP_ADMIN_DEPS);
+    expect(freshRun.sessions.map((s) => s.wizardSessionId)).not.toContain(W1);
+    expect(await readDeferralRows(FILE)).toHaveLength(1); // residue untouched while fresh
+
+    // (c-2) Backdate EVERY W1 activity timestamp the F4 GREATEST window reads
+    // past 24h. W1's committed surfaces after this test's tx: the deferral row
+    // (deferred_at) AND the transitioned manifest row (observed_at,
+    // transitioned_at) — the manifest UPDATE committed too; backdating only
+    // deferred_at would leave the session "fresh" via the manifest columns.
+    // (No checkpoints / shadows / pending rows exist for W1 here — the
+    // pending_ingestions row was deleted by the committed tx.)
+    await superseder!.unsafe(
+      `update public.deferred_ingestions set deferred_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+    await superseder!.unsafe(
+      `update public.onboarding_scan_manifest
+          set observed_at = now() - interval '25 hours',
+              transitioned_at = now() - interval '25 hours'
+        where wizard_session_id = $1::uuid`,
+      [W1],
+    );
+
+    // (c-3) NOW the F4 reap's orphan-row eligibility sweeps it (W1 non-active,
+    // stale, checkpoint-less), regardless of the superseding session's state.
+    const staleRun = await reapStaleOnboardingSessions(REAP_ADMIN_DEPS);
+    expect(staleRun.sessions.map((s) => s.wizardSessionId)).toContain(W1);
+    expect(await readDeferralRows(FILE)).toEqual([]);
   },
 );

@@ -182,6 +182,36 @@ describe("perFileProcessor gating phase", () => {
     );
   });
 
+  // F5b Task 5.4 — inertness half of the two-half weakened guarantee (spec §7
+  // R5-2). The fake honors `.is("wizard_session_id", null)` filtering
+  // (matches() above), so this is a faithful pin of the production query, not
+  // a tautology.
+  test("a wizard-scoped deferral residue row can NEVER suppress live sync (F5 inertness proof)", async () => {
+    // Residue shape from the F5 commit window: deferral row with NON-NULL
+    // wizard_session_id (the stale session that lost the CAS turnover race).
+    const fake = createFakeSupabase({
+      deferred_ingestions: [
+        {
+          drive_file_id: "file-1",
+          wizard_session_id: "f5f5f5f5-0001-4001-8001-f5f5f5f5f5f5",
+          deferred_kind: "permanent_ignore",
+          deferred_at_modified_time: null,
+        },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    // Concrete failure mode: if readLiveDeferral (lib/sync/perFileProcessor.ts)
+    // ever drops its `.is("wizard_session_id", null)` filter, the residue
+    // matches deferred_kind "permanent_ignore" and this returns
+    // { outcome: "skip", reason: "deferred_permanent" } — a live show
+    // permanently un-syncable because of wizard debris.
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-06-11T00:00:00.000Z")),
+    ).resolves.toEqual({ outcome: "proceed", mode: "cron" });
+  });
+
   test("defer-until-modified skips until Drive modifiedTime advances past the live deferral watermark", async () => {
     const fake = createFakeSupabase({
       deferred_ingestions: [
