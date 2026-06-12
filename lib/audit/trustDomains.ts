@@ -9,10 +9,7 @@ export type TrustDomain =
   | "non-route"
   | "unclassified";
 
-export type ChainStep =
-  | "validateGoogleSession"
-  | "validateGoogleIdentity"
-  | "requireAdmin";
+export type ChainStep = "validateGoogleSession" | "validateGoogleIdentity" | "requireAdmin";
 
 export type ValidPath = readonly ChainStep[];
 export type ExpectedChain = ValidPath | { anyOf: readonly ValidPath[] };
@@ -23,9 +20,7 @@ export type RouteSpec = {
 };
 
 export const CREW_SESSION_CHAINS: { anyOf: readonly ValidPath[] } = {
-  anyOf: [
-    ["requireAdmin"],
-  ],
+  anyOf: [["requireAdmin"]],
 };
 
 export const PROTECTED_ROUTES: readonly RouteSpec[] = [
@@ -49,6 +44,11 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/realtime/subscriber-token/route.ts", chain: "auth-library-exception" },
   { path: "app/api/show/[slug]/version/route.ts", chain: "auth-library-exception" },
   { path: "app/api/show/[slug]/unpublish/route.ts", chain: "public" },
+  // M12.13: emailed-undo confirm page — public BY DESIGN (spec §10); the
+  // single-use 24h token + the recipient binding r (unrevoked admin_emails
+  // HMAC) is the auth. Renders only on GET; consumption goes through the
+  // locked wrapper via its server action.
+  { path: "app/show/[slug]/unpublish/page.tsx", chain: "public" },
   { path: "app/api/report/route.ts", chain: CREW_SESSION_CHAINS },
   { path: "app/api/admin/admin-alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/needs-attention-count/route.ts", chain: ["requireAdmin"] },
@@ -112,7 +112,12 @@ export function routeSpecForPath(path: string): RouteSpec | undefined {
 
 export function expectedChainForDomain(path: string, domain: TrustDomain): ExpectedChain | null {
   const routeSpec = routeSpecForPath(path);
-  if (routeSpec && routeSpec.chain !== "auth-library-exception" && routeSpec.chain !== "public" && routeSpec.chain !== "cron") {
+  if (
+    routeSpec &&
+    routeSpec.chain !== "auth-library-exception" &&
+    routeSpec.chain !== "public" &&
+    routeSpec.chain !== "cron"
+  ) {
     return routeSpec.chain;
   }
   if (domain === "crew-session" || domain === "server-action") return CREW_SESSION_CHAINS;
