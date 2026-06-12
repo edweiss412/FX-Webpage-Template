@@ -72,6 +72,10 @@ mutators remain.
   surfaces at close-out; no `errorResponse` return sits after a mutating
   statement.
 
+## Class-sweep candidates (filed, not fixed here)
+
+- `components/admin/CleanupAbandonedFinalizeButton.tsx:91` has the same latent confirm-panel a11y issue fixed in `ReapStaleSessionsButton.tsx` (impeccable HIGH): `role="dialog"` without `aria-modal`/focus management, trigger unmounts on confirm dropping focus to `<body>` — sweep candidate for the inline `role="group"` + focus-return pattern.
+
 ## Verification (all green at close-out, local Supabase up)
 
 - `pnpm vitest run tests/onboarding tests/sync/perFileProcessor.test.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaErrorCatalogDocs.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts tests/db/postgrest-dml-lockdown.test.ts` → 440 passed.

@@ -52,7 +52,9 @@ vi.mock("@/lib/supabase/server", () => ({
   },
 }));
 
-import WizardStagedReapplyPage from "@/app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page";
+import WizardStagedReapplyPage, {
+  generateMetadata,
+} from "@/app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page";
 
 const WSID = "11111111-1111-1111-1111-111111111111";
 const DFID = "drive-consumed-1";
@@ -134,6 +136,35 @@ describe("F3 — already-resolved state (spec §5)", () => {
     const { getByTestId, queryByTestId } = await renderPage();
     expect(getByTestId("wizard-staged-reapply-infra-error")).toBeTruthy();
     expect(queryByTestId("wizard-staged-reapply-resolved")).toBeNull();
+  });
+
+  test("resolved branch gets its own tab title; found row keeps the re-apply title", async () => {
+    // Failure mode: the static module-level title labels the resolved state
+    // "Re-apply staged sheet" — a misleading tab title for a page whose body
+    // says nothing is left to re-apply (impeccable-critique MEDIUM).
+    const metadataFor = (wizardSessionId: string, driveFileId = DFID) =>
+      generateMetadata({ params: Promise.resolve({ wizardSessionId, driveFileId }) });
+
+    // Consumed row → resolved title.
+    expect((await metadataFor(WSID)).title).toBe("Sheet already resolved · Admin · FXAV");
+    // Malformed id → resolved title WITHOUT querying (same pre-query guard).
+    state.queryCount = 0;
+    expect((await metadataFor("not-a-uuid")).title).toBe(
+      "Sheet already resolved · Admin · FXAV",
+    );
+    expect(state.queryCount).toBe(0);
+    // Found row → the working-shell title (sibling-page format, page.tsx:33 form).
+    state.row = {
+      staged_id: "22222222-2222-2222-2222-222222222222",
+      drive_file_id: DFID,
+      staged_modified_time: "2026-06-10T12:00:00.000Z",
+      base_modified_time: null,
+      parse_result: null,
+      triggered_review_items: [],
+      last_finalize_failure_code: null,
+      source_kind: "onboarding_scan",
+    };
+    expect((await metadataFor(WSID)).title).toBe("Re-apply staged sheet · Admin · FXAV");
   });
 
   test("found row still renders the working re-apply shell (StagedReviewCard mounts)", async () => {

@@ -14,7 +14,7 @@
  * (R29-2 — silently dropping them would let an operator believe the sweep
  * completed while debris remains).
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
@@ -47,6 +47,26 @@ const GENERIC_ERROR =
 export function ReapStaleSessionsButton() {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
+
+  // Focus management (impeccable HIGH): the trigger unmounts while the confirm
+  // panel is open, so without explicit handling keyboard focus drops to <body>.
+  // On open, focus moves to Cancel (the least-destructive control); on
+  // cancel/finish, focus returns to the remounted trigger. `movedFocusRef`
+  // guards against stealing focus on initial mount.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const movedFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (state.kind === "confirming") {
+      movedFocusRef.current = true;
+      cancelRef.current?.focus();
+    } else if (state.kind !== "running" && movedFocusRef.current) {
+      // idle (cancel) / done / error — the trigger is enabled again.
+      movedFocusRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [state.kind]);
 
   async function confirmAndRun() {
     setState({ kind: "running" });
@@ -81,6 +101,7 @@ export function ReapStaleSessionsButton() {
       {state.kind === "confirming" ? null : (
         <button
           type="button"
+          ref={triggerRef}
           data-testid="reap-stale-sessions-button"
           onClick={() => setState({ kind: "confirming" })}
           disabled={state.kind === "running"}
@@ -92,7 +113,11 @@ export function ReapStaleSessionsButton() {
 
       {state.kind === "confirming" ? (
         <div
-          role="dialog"
+          // Inline non-modal confirm panel: role="group" (the page stays
+          // interactive, so role="dialog" without aria-modal/trapping would be
+          // an ARIA lie). Matches the repo's inline-group pattern
+          // (DashboardBucketSegmentedControl.tsx:49).
+          role="group"
           aria-labelledby="reap-stale-sessions-confirm-heading"
           data-testid="reap-stale-sessions-confirm"
           className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
@@ -115,6 +140,7 @@ export function ReapStaleSessionsButton() {
             </button>
             <button
               type="button"
+              ref={cancelRef}
               data-testid="reap-stale-sessions-confirm-cancel"
               onClick={() => setState({ kind: "idle" })}
               className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
@@ -133,16 +159,20 @@ export function ReapStaleSessionsButton() {
         >
           <p>
             {state.cleaned === 0 && state.unstable === 0
-              ? "Nothing to clean up — no old setup leftovers found."
-              : `Cleaned up leftovers from ${state.cleaned} old setup ${
-                  state.cleaned === 1 ? "session" : "sessions"
-                }.`}
+              ? "Nothing to clean up. No old setup leftovers were found."
+              : state.cleaned === 0
+                ? // cleaned=0 with unstable>0: never claim a 0-session success
+                  // (impeccable HIGH — false-success copy while debris remains).
+                  "Nothing was cleaned up this run."
+                : `Cleaned up leftovers from ${state.cleaned} old setup ${
+                    state.cleaned === 1 ? "session" : "sessions"
+                  }.`}
           </p>
           {state.unstable > 0 ? (
             <p data-testid="reap-stale-sessions-result-unstable">
               {state.unstable === 1
-                ? "1 session couldn't be cleaned this run — try again."
-                : `${state.unstable} sessions couldn't be cleaned this run — try again.`}
+                ? "1 session couldn't be cleaned this run. Try again."
+                : `${state.unstable} sessions couldn't be cleaned this run. Try again.`}
             </p>
           ) : null}
         </div>

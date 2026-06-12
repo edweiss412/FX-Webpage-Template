@@ -178,8 +178,8 @@ export default async function AdminSettingsPage() {
             <HoverHelp label="Help: Maintenance" testId="maintenance-help">
               <p>
                 Housekeeping actions. Cleaning up old setup leftovers removes staging data from
-                setup sessions abandoned more than a day ago — never your current setup or live
-                shows.
+                setup sessions abandoned more than a day ago. It never touches your current setup
+                or live shows.
               </p>
             </HoverHelp>
           </div>
@@ -189,7 +189,9 @@ export default async function AdminSettingsPage() {
             className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
           >
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 shrink-0 [&>svg]:h-4 [&>svg]:w-4 text-text-subtle">
+              {/* Icon box matches the sibling Preferences rows
+                (NotifyToggle.tsx:74): 20px lucide glyph, not 16px. */}
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
                 <Trash2 aria-hidden />
               </span>
               <div className="flex flex-col gap-1">

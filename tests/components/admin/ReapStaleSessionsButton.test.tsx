@@ -81,6 +81,63 @@ describe("ReapStaleSessionsButton", () => {
     expect(refreshMock).toHaveBeenCalled();
   });
 
+  test("cleaned=0 with unstable>0 renders no-false-success copy, never 'Cleaned up leftovers from 0'", async () => {
+    // Failure mode: the two-branch copy reads "Cleaned up leftovers from 0 old
+    // setup sessions." when every session was skipped_unstable — false-success
+    // copy while debris remains (impeccable-critique HIGH).
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({
+        status: "reaped",
+        sessions: [
+          { wizardSessionId: "u1", outcome: "skipped_unstable" },
+          { wizardSessionId: "u2", outcome: "skipped_unstable" },
+        ],
+      }),
+    );
+    const { getByTestId } = render(<ReapStaleSessionsButton />);
+    fireEvent.click(getByTestId("reap-stale-sessions-button"));
+    fireEvent.click(getByTestId("reap-stale-sessions-confirm-yes"));
+    await waitFor(() => expect(getByTestId("reap-stale-sessions-result")).toBeTruthy());
+    const result = getByTestId("reap-stale-sessions-result").textContent ?? "";
+    expect(result).toContain("Nothing was cleaned up this run.");
+    expect(result).not.toContain("Cleaned up leftovers from 0");
+    // The unstable line still surfaces distinctly (R29-2).
+    expect(getByTestId("reap-stale-sessions-result-unstable").textContent ?? "").toContain(
+      "couldn't be cleaned this run",
+    );
+    // New user-visible result copy carries no em dashes (impeccable MEDIUM).
+    expect(result).not.toContain("—");
+  });
+
+  test("focus moves into the confirm panel on open and returns to the trigger on cancel", () => {
+    // Failure mode: the trigger unmounts when the confirm panel opens, dropping
+    // keyboard focus to <body> (impeccable-critique HIGH, WCAG 2.4.3).
+    const { getByTestId } = render(<ReapStaleSessionsButton />);
+    fireEvent.click(getByTestId("reap-stale-sessions-button"));
+    expect(document.activeElement).toBe(getByTestId("reap-stale-sessions-confirm-cancel"));
+    fireEvent.click(getByTestId("reap-stale-sessions-confirm-cancel"));
+    expect(document.activeElement).toBe(getByTestId("reap-stale-sessions-button"));
+  });
+
+  test("focus returns to the trigger after a confirmed run finishes", async () => {
+    fetchMock.mockResolvedValueOnce(mockJsonResponse({ status: "reaped", sessions: [] }));
+    const { getByTestId } = render(<ReapStaleSessionsButton />);
+    fireEvent.click(getByTestId("reap-stale-sessions-button"));
+    fireEvent.click(getByTestId("reap-stale-sessions-confirm-yes"));
+    await waitFor(() => expect(getByTestId("reap-stale-sessions-result")).toBeTruthy());
+    expect(document.activeElement).toBe(getByTestId("reap-stale-sessions-button"));
+  });
+
+  test("the confirm panel is an inline labelled group, not an unmanaged dialog", () => {
+    // Failure mode: role="dialog" without aria-modal/focus trapping is an ARIA
+    // contract violation for an inline panel that doesn't block the page.
+    const { getByTestId } = render(<ReapStaleSessionsButton />);
+    fireEvent.click(getByTestId("reap-stale-sessions-button"));
+    const panel = getByTestId("reap-stale-sessions-confirm");
+    expect(panel.getAttribute("role")).toBe("group");
+    expect(panel.getAttribute("aria-labelledby")).toBe("reap-stale-sessions-confirm-heading");
+  });
+
   test("a clean run with zero sessions renders the nothing-to-clean copy without an unstable line", async () => {
     fetchMock.mockResolvedValueOnce(mockJsonResponse({ status: "reaped", sessions: [] }));
     const { getByTestId, queryByTestId } = render(<ReapStaleSessionsButton />);

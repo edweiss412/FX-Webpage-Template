@@ -23,6 +23,7 @@
  * `shows` row exists yet for failed wizard rows; existing-show
  * re-applies have their own /admin/show/[slug] entry point).
  */
+import { cache } from "react";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -30,7 +31,13 @@ import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedRevie
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Re-apply staged sheet · Admin · FXAV" };
+
+// Tab titles follow the sibling-page "X · Admin · FXAV" form (e.g.
+// app/admin/show/staged/[stagedId]/page.tsx:34). The resolved branch gets its
+// own title — a static "Re-apply staged sheet" tab label is misleading when
+// the body says nothing is left to re-apply (impeccable MEDIUM).
+const REAPPLY_TITLE = "Re-apply staged sheet · Admin · FXAV";
+const RESOLVED_TITLE = "Sheet already resolved · Admin · FXAV";
 
 type PageProps = {
   params: Promise<{ wizardSessionId: string; driveFileId: string }>;
@@ -140,6 +147,25 @@ export async function fetchWizardStagedRow(
   }
 }
 
+// Per-request dedupe so generateMetadata + the page body share ONE
+// pending_syncs query (React request cache; passthrough outside a request).
+const fetchWizardStagedRowCached = cache(fetchWizardStagedRow);
+
+export async function generateMetadata({ params }: PageProps) {
+  const { wizardSessionId, driveFileId } = await params;
+  // Mirrors the page's branch logic: malformed id short-circuits pre-query
+  // (uuid column — PostgREST would 400); row gone = resolved. Infra errors
+  // keep the re-apply title — the body renders the retry cue.
+  if (!UUID_RE.test(wizardSessionId)) {
+    return { title: RESOLVED_TITLE };
+  }
+  const result = await fetchWizardStagedRowCached(wizardSessionId, driveFileId);
+  if (result === null) {
+    return { title: RESOLVED_TITLE };
+  }
+  return { title: REAPPLY_TITLE };
+}
+
 export default async function WizardStagedReapplyPage({ params }: PageProps) {
   await requireAdmin();
   const { wizardSessionId, driveFileId } = await params;
@@ -150,7 +176,7 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
     return <AlreadyResolvedState />;
   }
 
-  const result = await fetchWizardStagedRow(wizardSessionId, driveFileId);
+  const result = await fetchWizardStagedRowCached(wizardSessionId, driveFileId);
 
   if (result !== null && typeof result === "object" && "kind" in result && result.kind === "infra_error") {
     return (
