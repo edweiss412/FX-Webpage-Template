@@ -51,8 +51,8 @@ importers:
         specifier: 16.2.4
         version: 16.2.4(@babel/core@7.29.0)(@opentelemetry/api@1.9.1)(@playwright/test@1.59.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       pdfjs-dist:
-        specifier: ^5.7.284
-        version: 5.7.284
+        specifier: 5.4.296
+        version: 5.4.296
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -3637,10 +3637,6 @@ packages:
   pdfjs-dist@5.4.296:
     resolution: {integrity: sha512-DlOzet0HO7OEnmUmB6wWGJrrdvbyJKftI1bhMitK7O2N8W2gc757yyYBbINy9IDafXAV9wmKr9t7xsTaNKRG5Q==}
     engines: {node: '>=20.16.0 || >=22.3.0'}
-
-  pdfjs-dist@5.7.284:
-    resolution: {integrity: sha512-h4EdYQczmGhbOlqc3PPZwxevn7ApdWPbovAuWXOB/DjIyigSnwfy2oze7c6mRcSr9XgLp3eN3EeL4DyySTPMFw==}
-    engines: {node: '>=22.13.0 || >=24'}
 
   pg-int8@1.0.1:
     resolution: {integrity: sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==}
@@ -8290,10 +8286,6 @@ snapshots:
   pathe@2.0.3: {}
 
   pdfjs-dist@5.4.296:
-    optionalDependencies:
-      '@napi-rs/canvas': 0.1.100
-
-  pdfjs-dist@5.7.284:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
 
