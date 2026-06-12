@@ -87,17 +87,16 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
         <p className="text-sm font-semibold text-text-strong">
           {item.candidateTitle ?? item.driveFileId}
         </p>
+        {/* aria-label drops the decorative "→" from the accessible name
+            without splitting the text run (inline-flex drops the space
+            between split items — byte-level screenshot drift). */}
         <Link
           data-testid={`needs-attention-link-first-seen-${item.stagedId}`}
           href={`/admin/show/staged/${encodeURIComponent(item.stagedId)}`}
+          aria-label="Review"
           className={reviewLinkClass}
         >
-          {/* Single inline wrapper: reviewLinkClass is inline-flex, and flex
-              drops whitespace-only text nodes between items — label + arrow
-              must share one flex item so the space renders. */}
-          <span>
-            Review <span aria-hidden="true">→</span>
-          </span>
+          Review →
         </Link>
       </li>
     );
@@ -111,15 +110,14 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
     >
       <CardHeader item={item} now={now} status="review" label="Changes to review" />
       <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
+      {/* aria-label — same decorative-arrow rationale as Review above. */}
       <Link
         data-testid={`needs-attention-link-${item.slug}`}
         href={`/admin/show/${encodeURIComponent(item.slug)}`}
+        aria-label="Open show"
         className={reviewLinkClass}
       >
-        {/* Single inline wrapper — same flex whitespace rationale as Review above. */}
-        <span>
-          Open show <span aria-hidden="true">→</span>
-        </span>
+        Open show →
       </Link>
     </li>
   );

@@ -157,16 +157,16 @@ export async function AlertBanner() {
           className="size-5 shrink-0"
         />
         <span className="min-w-0 flex-1">{msg}</span>
+        {/* aria-label drops the decorative "→" from the accessible name
+            without splitting the text run (flex containers drop the space
+            between split items AND shift text-decoration paint — byte-level
+            screenshot drift). */}
         <Link
           href="/admin#alerts"
+          aria-label="View alerts"
           className="inline-flex min-h-tap-min shrink-0 items-center text-sm underline underline-offset-2"
         >
-          {/* Single inline wrapper: the Link is a flex container, and flex drops
-              whitespace-only text nodes between items — label + arrow must share
-              one flex item so the space renders. */}
-          <span>
-            View alerts <span aria-hidden="true">→</span>
-          </span>
+          View alerts →
         </Link>
       </section>
     );

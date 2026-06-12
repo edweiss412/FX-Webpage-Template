@@ -249,16 +249,16 @@ describe("per-show page (§6)", () => {
   // M12.12 follow-up — the "Open crew page →" arrow is decorative; aria-hiding
   // it keeps it out of the accessible name. Failure mode caught: someone
   // inlines the arrow back into the accessible name.
-  it("Open-crew-page arrow is aria-hidden — accessible name drops →, visible text keeps it", async () => {
+  it("Open-crew-page accessible name drops the decorative → (aria-label), visible text keeps it", async () => {
     await renderPage();
     const link = screen.getByRole("link", { name: "Open crew page" });
     expect(link).toHaveAttribute("data-testid", "admin-show-open-crew");
-    // The <a> is a flex container; flex drops whitespace-only text nodes
-    // between items, so label + arrow MUST share one inline wrapper or the
-    // visible space before the arrow vanishes.
-    const wrapper = link.firstElementChild;
-    expect(wrapper?.tagName).toBe("SPAN");
-    expect(wrapper?.textContent).toBe("Open crew page →");
+    expect(link).toHaveAttribute("aria-label", "Open crew page");
+    // Visible text run stays UNSPLIT — splitting it drops the inline-flex
+    // inter-item space / shifts text-decoration paint (byte-level screenshot
+    // drift).
+    expect(link.textContent).toBe("Open crew page →");
+    expect(link.firstElementChild).toBeNull();
   });
 
   it("crew-link surfaces hidden for archived show (incl archived+published drift)", async () => {

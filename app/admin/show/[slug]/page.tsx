@@ -461,19 +461,18 @@ export default async function AdminShowPage({
               </HoverHelp>
             </div>
             {hasCrewLinkUrl && crewUrl ? (
+              // aria-label drops the decorative "→" from the accessible name
+              // without splitting the text run (inline-flex drops the space
+              // between split items — byte-level screenshot drift).
               <a
                 data-testid="admin-show-open-crew"
                 href={crewUrl}
                 target="_blank"
                 rel="noreferrer"
+                aria-label="Open crew page"
                 className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
-                {/* Single inline wrapper: the <a> is a flex container, and flex
-                    drops whitespace-only text nodes between items — label + arrow
-                    must share one flex item so the space renders. */}
-                <span>
-                  Open crew page <span aria-hidden="true">→</span>
-                </span>
+                Open crew page →
               </a>
             ) : null}
           </div>

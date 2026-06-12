@@ -60,17 +60,19 @@ describe("NeedsAttentionInbox", () => {
       { variant: "existing_staged", key: "sync:s2", stagedId: "s2", driveFileId: "d3", slug: "known-show", title: "Known Show", activityAt: ONE_HR_AGO },
     ];
     render(<NeedsAttentionInbox items={items} totalCount={2} renderedCount={2} overflowCount={0} now={NOW} />);
-    // Both Links use the inline-flex reviewLinkClass; flex drops
-    // whitespace-only text nodes between items, so label + arrow MUST share
-    // one inline wrapper or the visible space before the arrow vanishes.
+    // Visible text runs stay UNSPLIT — splitting them drops the inline-flex
+    // inter-item space / shifts text-decoration paint (byte-level screenshot
+    // drift). aria-label carries the arrow-free accessible name instead.
     const review = screen.getByRole("link", { name: "Review" });
     expect(review).toHaveAttribute("data-testid", "needs-attention-link-first-seen-s1");
-    expect(review.firstElementChild?.tagName).toBe("SPAN");
-    expect(review.firstElementChild?.textContent).toBe("Review →");
+    expect(review).toHaveAttribute("aria-label", "Review");
+    expect(review.textContent).toBe("Review →");
+    expect(review.firstElementChild).toBeNull();
     const openShow = screen.getByRole("link", { name: "Open show" });
     expect(openShow).toHaveAttribute("data-testid", "needs-attention-link-known-show");
-    expect(openShow.firstElementChild?.tagName).toBe("SPAN");
-    expect(openShow.firstElementChild?.textContent).toBe("Open show →");
+    expect(openShow).toHaveAttribute("aria-label", "Open show");
+    expect(openShow.textContent).toBe("Open show →");
+    expect(openShow.firstElementChild).toBeNull();
   });
 
   // M12.4 item D3 — each card shows a relative activity timestamp top-right when

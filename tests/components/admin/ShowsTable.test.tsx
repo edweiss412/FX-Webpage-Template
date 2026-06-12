@@ -487,15 +487,18 @@ describe("ShowsTable", () => {
     expect(link).toHaveAttribute("href", "/help/admin/dashboard#active-shows");
   });
 
-  // M12.12 follow-up — the legend link's "→" is decorative; aria-hiding it
-  // keeps it out of the accessible name. Failure mode caught: someone inlines
-  // the arrow back into the accessible name.
-  it("restage legend arrow is aria-hidden — accessible name drops →, visible text keeps it", () => {
+  // M12.12 follow-up — the legend link's "→" is decorative; aria-label drops
+  // it from the accessible name WITHOUT splitting the visible text run
+  // (text-run splits shift text-decoration paint — byte-level screenshot
+  // drift). Failure mode caught: someone puts the arrow back into the name.
+  it("restage legend accessible name drops the decorative → (aria-label), visible text keeps it", () => {
     const reviewRow = row({ slug: "rev", lastSyncStatus: "pending_review", title: "Review Me" });
     render(<ShowsTable rows={[reviewRow]} now={now} activeCount={1} overflowCount={0} />);
     const legend = screen.getByRole("link", { name: "What the sync statuses mean" });
     expect(legend).toHaveAttribute("data-testid", "help-affordance--dashboard-restage--legend");
-    expect(legend.textContent).toContain("→");
+    expect(legend).toHaveAttribute("aria-label", "What the sync statuses mean");
+    expect(legend.textContent).toBe("What the sync statuses mean →");
+    expect(legend.firstElementChild).toBeNull();
   });
 
   it("restage legend renders iff a VISIBLE row has bucket=review, links to re-stage (row 4)", () => {

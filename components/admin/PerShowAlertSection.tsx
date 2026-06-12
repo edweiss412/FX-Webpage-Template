@@ -166,11 +166,15 @@ export async function PerShowAlertSection({
             problem reappears.
           </p>
           <p className="mt-2">
+            {/* aria-label drops the decorative "→" from the accessible name
+                without splitting the text run (text-run splits shift
+                text-decoration paint — byte-level screenshot drift). */}
             <a
               href="/help/admin/parse-warnings"
+              aria-label="Learn more"
               className="font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
             >
-              Learn more <span aria-hidden="true">→</span>
+              Learn more →
             </a>
           </p>
         </HelpTooltip>

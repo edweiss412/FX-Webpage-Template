@@ -30,16 +30,15 @@ describe("DashboardFooter (Phase G.3 — matrix row 4)", () => {
   // M12.12 follow-up — the "→" is decorative; aria-hiding it keeps it out of
   // the accessible name. Failure mode caught: someone inlines the arrow back
   // into the accessible name.
-  it("tour-link arrow is aria-hidden — accessible name is 'Take the tour', visible text keeps →", () => {
+  it("tour-link accessible name drops the decorative → (aria-label), visible text keeps it", () => {
     render(<DashboardFooter />);
     const link = screen.getByRole("link", { name: "Take the tour" });
-    expect(link.textContent).toContain("→");
-    // The <a> is a flex container; flex drops whitespace-only text nodes
-    // between items, so label + arrow MUST share one inline wrapper or the
-    // visible space before the arrow vanishes (caught by screenshots-drift).
-    const wrapper = link.firstElementChild;
-    expect(wrapper?.tagName).toBe("SPAN");
-    expect(wrapper?.textContent).toBe("Take the tour →");
+    expect(link.getAttribute("aria-label")).toBe("Take the tour");
+    // The visible text run stays UNSPLIT — wrapping the arrow in a span
+    // shifts text-decoration paint and (on this flex container) drops the
+    // space before the arrow, both byte-level screenshot drift (PR #25 R1/R2).
+    expect(link.textContent).toBe("Take the tour →");
+    expect(link.firstElementChild).toBeNull();
   });
 
   it("does not render the retired M10 Tour modal trigger", () => {

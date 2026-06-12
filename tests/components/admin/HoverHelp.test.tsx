@@ -171,9 +171,11 @@ describe("HoverHelp", () => {
   });
 
   // M12.12 follow-up — the "→" glyph in the learnMore link is decorative;
-  // aria-hiding it makes the accessible name "Learn more" (not "Learn more →").
-  // Failure mode caught: someone inlines the arrow back into the accessible name.
-  it("learnMore arrow glyph is aria-hidden — accessible name is 'Learn more', visible text keeps →", () => {
+  // aria-label drops it from the accessible name ("Learn more", not
+  // "Learn more →") WITHOUT splitting the visible text run (text-run splits
+  // shift text-decoration paint — byte-level screenshot drift). Failure mode
+  // caught: someone puts the arrow back into the accessible name.
+  it("learnMore accessible name is 'Learn more' (aria-label) — visible text keeps →, run unsplit", () => {
     render(
       <HoverHelp label="Help: X" testId="x-help" learnMore={{ href: "/help/admin/dashboard" }}>
         <p>Body copy.</p>
@@ -181,7 +183,9 @@ describe("HoverHelp", () => {
     );
     const body = screen.getByTestId("x-help-body");
     const link = within(body).getByRole("link", { name: "Learn more", hidden: true });
-    expect(link.textContent).toContain("→");
+    expect(link).toHaveAttribute("aria-label", "Learn more");
+    expect(link.textContent).toBe("Learn more →");
+    expect(link.firstElementChild).toBeNull();
   });
 
   // M12.12 — existing no-learnMore call sites must NOT change semantics.

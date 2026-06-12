@@ -180,11 +180,17 @@ export function HoverHelp({
       >
         <div id={descId}>{children}</div>
         {learnMore ? (
+          // M12.12 follow-up: aria-label keeps the decorative "→" out of the
+          // accessible name. An aria-hidden <span> around the glyph was tried
+          // first but splitting the text run shifts text-decoration paint
+          // (byte-level screenshot drift, PR #25 R1/R2) — aria-label changes
+          // no rendered pixel. Same pattern as HelpAffordance / wizard links.
           <a
             href={learnMore.href}
+            aria-label="Learn more"
             className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
           >
-            Learn more <span aria-hidden="true">→</span>
+            Learn more →
           </a>
         ) : null}
       </div>

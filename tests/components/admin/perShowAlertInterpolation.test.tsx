@@ -83,12 +83,13 @@ describe("PerShowAlertSection <sheet-name> interpolation (§7)", () => {
     );
   });
 
-  // M12.12 follow-up — the tooltip-body link's "→" is decorative; aria-hiding
-  // it keeps it out of the accessible name. Failure mode caught: someone
-  // inlines the arrow back into the accessible name. Same body-testid scoping
-  // as row 8 above (per-row HelpAffordance links carry aria-labels and can't
-  // satisfy this query anyway).
-  it("alerts header Learn-more arrow is aria-hidden — accessible name drops →, visible text keeps it", async () => {
+  // M12.12 follow-up — the tooltip-body link's "→" is decorative; aria-label
+  // drops it from the accessible name WITHOUT splitting the visible text run
+  // (text-run splits shift text-decoration paint — byte-level screenshot
+  // drift). Failure mode caught: someone puts the arrow back into the name.
+  // Same body-testid scoping as row 8 above (per-row HelpAffordance links
+  // carry "Learn more: <title>" aria-labels and can't satisfy this query).
+  it("alerts header Learn-more accessible name drops the decorative → (aria-label), visible text keeps it", async () => {
     rows.value = [
       {
         id: "a1",
@@ -101,6 +102,8 @@ describe("PerShowAlertSection <sheet-name> interpolation (§7)", () => {
     render(await PerShowAlertSection({ showId: "s1", slug: "x" }));
     const body = screen.getByTestId("help-affordance--per-show-alerts--tooltip-body");
     const link = within(body).getByRole("link", { name: "Learn more", hidden: true });
-    expect(link.textContent).toContain("→");
+    expect(link).toHaveAttribute("aria-label", "Learn more");
+    expect(link.textContent).toBe("Learn more →");
+    expect(link.firstElementChild).toBeNull();
   });
 });

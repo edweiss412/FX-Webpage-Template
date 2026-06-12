@@ -28,17 +28,17 @@ export function DashboardFooter() {
       <p className="text-sm text-text-subtle">
         A short walkthrough of how this admin page is laid out.
       </p>
+      {/* aria-label drops the decorative "→" from the accessible name without
+          splitting the text run (flex containers drop the space between split
+          items AND shift text-decoration paint — byte-level screenshot drift
+          on dashboard-overview, PR #25 R1/R2). */}
       <a
         href="/help/tour"
+        aria-label="Take the tour"
         data-testid="help-affordance--dashboard-footer--tour"
         className="inline-flex w-fit min-h-tap-min items-center justify-center rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-4 transition-colors duration-fast hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
-        {/* Single inline wrapper: the <a> is a flex container, and flex drops
-            whitespace-only text nodes between items — label + arrow must share
-            one flex item so the space renders. */}
-        <span>
-          Take the tour <span aria-hidden="true">→</span>
-        </span>
+        Take the tour →
       </a>
     </footer>
   );

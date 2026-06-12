@@ -22,16 +22,15 @@ describe("<Header>", () => {
   // M12.12 follow-up — the "→" is decorative; aria-hiding it keeps it out of
   // the accessible name. Failure mode caught: someone inlines the arrow back
   // into the accessible name.
-  it("back-link arrow is aria-hidden — accessible name is 'Back to admin', visible text keeps →", () => {
+  it("back-link accessible name drops the decorative → (aria-label), visible text keeps it", () => {
     render(<Header />);
     const link = screen.getByRole("link", { name: "Back to admin" });
-    expect(link.textContent).toContain("→");
-    // The Link is a flex container; flex drops whitespace-only text nodes
-    // between items, so label + arrow MUST share one inline wrapper or the
-    // visible space before the arrow vanishes.
-    const wrapper = link.firstElementChild;
-    expect(wrapper?.tagName).toBe("SPAN");
-    expect(wrapper?.textContent).toBe("Back to admin →");
+    expect(link).toHaveAttribute("aria-label", "Back to admin");
+    // Visible text run stays UNSPLIT — splitting it drops the flex
+    // inter-item space / shifts text-decoration paint (byte-level screenshot
+    // drift).
+    expect(link.textContent).toBe("Back to admin →");
+    expect(link.firstElementChild).toBeNull();
   });
 
   it("renders the FXAV brand mark", () => {

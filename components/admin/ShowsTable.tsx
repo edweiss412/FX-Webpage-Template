@@ -405,12 +405,16 @@ export function ShowsTable({
           <span aria-hidden="true">⚠ </span>
           <span className="font-semibold text-text-strong">Changes to review</span> means a sheet
           edit is staged and waiting for your approval.{" "}
+          {/* aria-label drops the decorative "→" from the accessible name
+              without splitting the text run (text-run splits shift
+              text-decoration paint — byte-level screenshot drift). */}
           <Link
             href="/help/admin/review-queues#re-stage"
+            aria-label="What the sync statuses mean"
             data-testid="help-affordance--dashboard-restage--legend"
             className="font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
           >
-            What the sync statuses mean <span aria-hidden="true">→</span>
+            What the sync statuses mean →
           </Link>
         </p>
       ) : null}

@@ -57,16 +57,20 @@ describe("/help/errors (E.13)", () => {
     expect(src).not.toMatch(/Learn more/i); // the destination page never self-links
   });
 
-  // M12.12 follow-up — the tell-Eric CTA's "→" is decorative; aria-hiding it
-  // keeps it out of the accessible name. Failure mode caught: someone inlines
-  // the arrow back into the accessible name. Visible copy (AC-11.11 r10
-  // "tell Eric →") is unchanged.
-  it("tell-Eric CTA arrow is aria-hidden — accessible name drops →, visible text keeps it", async () => {
+  // M12.12 follow-up — the tell-Eric CTA's "→" is decorative; aria-label
+  // drops it from the accessible name WITHOUT splitting the visible text run
+  // (text-run splits shift text-decoration paint — byte-level screenshot
+  // drift). Visible copy (AC-11.11 r10 "tell Eric →") is unchanged. Failure
+  // mode caught: someone puts the arrow back into the accessible name.
+  it("tell-Eric CTA accessible name drops the decorative → (aria-label), visible text keeps it", async () => {
     const Page = (await import("@/app/help/errors/page")).default;
     const { getAllByRole } = render(<Page />);
     const ctas = getAllByRole("link", { name: "If this keeps happening, tell Eric" });
     expect(ctas.length).toBeGreaterThan(0);
-    for (const cta of ctas) expect(cta.textContent).toContain("→");
+    for (const cta of ctas) {
+      expect(cta.textContent).toBe("If this keeps happening, tell Eric →");
+      expect(cta.firstElementChild).toBeNull();
+    }
   });
 
   it("rendered output contains every renderable code as an anchor id", async () => {

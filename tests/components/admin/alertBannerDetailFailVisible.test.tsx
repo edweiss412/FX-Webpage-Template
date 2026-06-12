@@ -117,12 +117,10 @@ describe("AlertBanner detail-read fail-visible (Task 1.3)", () => {
     const { getByRole } = render(ui);
     const link = getByRole("link", { name: "View alerts" });
     expect(link.getAttribute("href")).toBe("/admin#alerts");
-    expect(link.textContent).toContain("→");
-    // The Link is a flex container; flex drops whitespace-only text nodes
-    // between items, so label + arrow MUST share one inline wrapper or the
-    // visible space before the arrow vanishes.
-    const wrapper = link.firstElementChild;
-    expect(wrapper?.tagName).toBe("SPAN");
-    expect(wrapper?.textContent).toBe("View alerts →");
+    expect(link).toHaveAttribute("aria-label", "View alerts");
+    // Visible text run stays UNSPLIT — splitting it shifts text-decoration
+    // paint / drops the flex inter-item space (byte-level screenshot drift).
+    expect(link.textContent).toBe("View alerts →");
+    expect(link.firstElementChild).toBeNull();
   });
 });
