@@ -19,7 +19,11 @@ export function hasFullShowDates(dates: ShowRow["dates"] | null | undefined): bo
     Boolean(dates.travelIn) &&
     Boolean(dates.travelOut) &&
     Array.isArray(dates.showDays) &&
-    dates.showDays.length > 0
+    dates.showDays.length > 0 &&
+    // Inverted span (travelOut < travelIn) is broken-sheet data the §8.2
+    // ladder cannot reason about — degrade to unknown, never plausible-
+    // wrong pre_travel/post_show copy. ISO string compare via compareIso.
+    compareIso(dates.travelOut as string, dates.travelIn as string) >= 0
   );
 }
 

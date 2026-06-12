@@ -55,6 +55,19 @@ function fallbackEntryFor(code: string): MessageCatalogEntry {
   };
 }
 
+/**
+ * Catalog-membership guard — the ONLY correct "is this a known code?"
+ * predicate now that `messageFor()` always returns an entry (the all-null
+ * fallback above makes its result truthy for ANY string, so result
+ * truthiness can no longer distinguish cataloged from unknown codes).
+ * `hasOwnProperty.call` (not `in`) so prototype-chain keys like
+ * "toString" don't false-positive. User-defined type guard so callers
+ * narrow `string` → `MessageCode` without a cast.
+ */
+export function isMessageCode(code: string): code is MessageCode {
+  return Object.prototype.hasOwnProperty.call(MESSAGE_CATALOG, code);
+}
+
 export function messageFor(code: MessageCode, params?: MessageParams): MessageCatalogEntry {
   const entry: MessageCatalogEntry | undefined = Object.prototype.hasOwnProperty.call(
     MESSAGE_CATALOG,

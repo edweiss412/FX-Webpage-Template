@@ -52,8 +52,13 @@ import {
   transportTileVisible,
   videoScopeVisible,
 } from "@/lib/visibility/scopeTiles";
+import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import type { Viewer, ShowForViewer } from "@/lib/data/getShowForViewer";
-import { resolveViewerContext } from "@/lib/data/viewerContext";
+import {
+  MalformedProjectionError,
+  resolveViewerContext,
+  type ViewerContext,
+} from "@/lib/data/viewerContext";
 import {
   filterVisibleTodayTiles,
   selectTodayTiles,
@@ -91,7 +96,29 @@ export async function ShowBody({
 }: ShowBodyProps): Promise<ReactNode> {
   // Per-viewer context computed once and threaded into the hero card and
   // the tile grid below.
-  const ctx = resolveViewerContext(viewer, data);
+  //
+  // FAIL CLOSED on a malformed projection: when crewMembers is not an
+  // array for a crew/admin_preview viewer, per-crew restrictions could
+  // not be verified, so resolveViewerContext throws the typed
+  // MalformedProjectionError instead of falling back to none
+  // restrictions (which would render Right Now / Schedule / Pack List
+  // unrestricted). The catch lives HERE — not in the page functions —
+  // because this Server Component executes during React render, after
+  // both call sites (crew route + admin preview-as route) have already
+  // returned their element. Renders the crew route's existing infra arm
+  // (page.tsx infra_error / resolved-arm catch use the same code).
+  // No retryHref: ShowBody doesn't receive the shareToken (the chip prop
+  // is null in exactly this case), and TerminalFailure's retry link is
+  // optional by design (components/auth/TerminalFailure.tsx).
+  let ctx: ViewerContext;
+  try {
+    ctx = resolveViewerContext(viewer, data);
+  } catch (err) {
+    if (err instanceof MalformedProjectionError) {
+      return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+    }
+    throw err;
+  }
   const rightNowCtx = buildRightNowContext({
     show: data.show,
     dateRestriction: ctx.dateRestriction,

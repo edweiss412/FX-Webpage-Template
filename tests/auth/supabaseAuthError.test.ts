@@ -23,44 +23,36 @@ describe("isAuthSessionMissingError", () => {
     ).toBe(false);
   });
 
-  test("PIN (fragility contract): message match is the LITERAL string 'Auth session missing!' — reworded session-missing errors are NOT recognized by message alone", () => {
-    // lib/auth/supabaseAuthError.ts:10 matches `err.message === "Auth session
-    // missing!"` exactly. If a future @supabase/supabase-js release rewords
-    // the message (punctuation, casing, phrasing) AND drops the
-    // AuthSessionMissingError name, this helper returns false and callers
-    // treat the unauthenticated case as an infra fault (500) instead of a
-    // sign-in redirect / continue. That limitation is intentional-as-shipped
-    // and pinned here. Loosening the match (substring/regex/status-based) is
-    // an SDK-version-semantics decision needing an owner call — OPEN QUESTION:
-    // rely solely on the error NAME, or broaden the message arm? Do NOT
-    // change the matcher without that decision.
+  test("PIN (name-only contract): matching is by error NAME only — reworded messages with name AuthSessionMissingError still match", () => {
+    // Owner decision (2026-06-12, supersedes the earlier literal-message
+    // fragility pin): the helper matches `err.name === "AuthSessionMissingError"`
+    // and NOTHING else. This mirrors the SDK's own type guard
+    // (@supabase/auth-js src/lib/errors.ts:140-142, `isAuthError(error) &&
+    // error.name === 'AuthSessionMissingError'`) and the name set by
+    // CustomAuthError's constructor (errors.ts:113-121). A future SDK release
+    // rewording the message (punctuation, casing, phrasing) cannot break the
+    // signed-out redirect as long as the class name survives.
     expect(
       isAuthSessionMissingError({
-        name: "AuthApiError",
+        name: "AuthSessionMissingError",
         message: "Auth session missing.",
         status: 400,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isAuthSessionMissingError({
-        name: "AuthApiError",
+        name: "AuthSessionMissingError",
         message: "auth session missing!",
         status: 400,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isAuthSessionMissingError({
-        name: "AuthApiError",
+        name: "AuthSessionMissingError",
         message: "No auth session found",
         status: 400,
       }),
-    ).toBe(false);
-  });
-
-  test("PIN: the error NAME alone is sufficient — a reworded message with name AuthSessionMissingError still matches", () => {
-    // The two checks are OR'd, so the name arm survives SDK message rewording
-    // as long as the SDK keeps the class name. This is the existing hedge
-    // against the literal-message fragility pinned above.
+    ).toBe(true);
     expect(
       isAuthSessionMissingError({
         name: "AuthSessionMissingError",
@@ -68,5 +60,26 @@ describe("isAuthSessionMissingError", () => {
         status: 400,
       }),
     ).toBe(true);
+  });
+
+  test("PIN: the literal message WITHOUT the name does NOT match — the message arm is deleted", () => {
+    // All production call sites receive the error in-process from
+    // supabase.auth.getUser() (lib/auth/requireAdmin.ts:176,
+    // lib/auth/isAdminSession.ts:31, lib/auth/validateGoogleSession.ts:94,
+    // lib/auth/validateGoogleIdentity.ts:45, app/auth/sign-in/page.tsx:124) —
+    // real AuthSessionMissingError instances always carry the name; no caller
+    // crosses a serialization boundary that would strip the class name. A
+    // generic Error carrying the old literal message is therefore NOT a
+    // session-missing signal.
+    expect(
+      isAuthSessionMissingError({
+        name: "Error",
+        message: "Auth session missing!",
+        status: 400,
+      }),
+    ).toBe(false);
+    expect(
+      isAuthSessionMissingError(new Error("Auth session missing!")),
+    ).toBe(false);
   });
 });

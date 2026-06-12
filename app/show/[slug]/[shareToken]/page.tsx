@@ -152,10 +152,15 @@ export default async function ShowPage({
           />
         );
       }
-      // Defense-in-depth: crewMembers is typed as a required array and the
-      // helper always constructs one (getShowForViewer.ts:305), but a
-      // malformed/degraded projection must degrade to a chip-less render —
-      // never an uncaught TypeError into Next's generic boundary (P-R5 Fix-1).
+      // Display-only chip derivation; fail-open is fine HERE because the
+      // chip carries no restriction semantics. The `?.` is still required:
+      // this runs in the page function, BEFORE React renders <ShowBody>, so
+      // an unguarded `.find` on a malformed projection would TypeError into
+      // Next's generic boundary (P-R5 Fix-1) and bypass the real fail-closed
+      // gate — resolveViewerContext throws MalformedProjectionError inside
+      // ShowBody, which renders <TerminalFailure
+      // code="PICKER_RESOLVER_LOOKUP_FAILED" />. On malformed data the chip
+      // value computed here is never shown; the page terminates in ShowBody.
       const crew = data.crewMembers?.find((c) => c.id === result.crewMemberId);
       return (
         <ShowBody

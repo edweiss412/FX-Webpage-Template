@@ -23,7 +23,7 @@
  * extraction.
  */
 import { describe, expect, test } from "vitest";
-import { resolveViewerContext } from "@/lib/data/viewerContext";
+import { MalformedProjectionError, resolveViewerContext } from "@/lib/data/viewerContext";
 import type { Viewer, ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { RoleFlag } from "@/lib/parser/types";
 import { SCOPE_TILE_UNLOCKING_FLAGS } from "@/lib/visibility/scopeTiles";
@@ -140,23 +140,50 @@ describe("resolveViewerContext", () => {
     expect(ctx.isAdmin).toBe(false);
   });
 
-  test("crew viewer with UNDEFINED crewMembers array → same fallback, no throw (defense-in-depth)", () => {
+  test("crew viewer with UNDEFINED crewMembers array → throws MalformedProjectionError (fail closed)", () => {
     // Malformed projection / degraded data layer: crewMembers missing
-    // entirely, not just the row. Per the live type (getShowForViewer.ts:96)
-    // and its only constructor (`(crewRes.data ?? []).map`, line 305) this
-    // can't happen through the real helper today — the guard pins the
-    // same tolerance the missing-row branch above already has, so an
-    // unguarded `.find` revert fails here with a TypeError.
+    // entirely, not just the row. Restrictions could not be VERIFIED here
+    // — routing this into the none-restrictions fallback would render
+    // Right Now / Schedule / Pack List unrestricted (fail-OPEN on
+    // per-crew visibility). The helper must throw the typed error so the
+    // render path can surface the existing infra TerminalFailure arm.
+    // Concrete failure mode caught: reverting the throw to the previous
+    // `?.`-fallback silently grants an unrestricted page.
     const viewer: Viewer = { kind: "crew", crewMemberId: "crew-alice" };
+    const data = makeData(undefined as unknown as ShowForViewer["crewMembers"]);
+
+    expect(() => resolveViewerContext(viewer, data)).toThrowError(
+      MalformedProjectionError,
+    );
+  });
+
+  test("admin_preview viewer with NON-ARRAY crewMembers → throws MalformedProjectionError (fail closed)", () => {
+    // Same class, different malformation shape (object instead of array)
+    // and the other restriction-reading viewer kind. Array.isArray is the
+    // guard, not truthiness — a truthy non-array must still fail closed.
+    const viewer: Viewer = {
+      kind: "admin_preview",
+      crewMemberId: "crew-bob",
+    };
+    const data = makeData(
+      { length: 1 } as unknown as ShowForViewer["crewMembers"],
+    );
+
+    expect(() => resolveViewerContext(viewer, data)).toThrowError(
+      MalformedProjectionError,
+    );
+  });
+
+  test("admin viewer with UNDEFINED crewMembers → does NOT throw (admin never reads crewMembers here)", () => {
+    // kind: 'admin' resolves to the synthesized all-flags context without
+    // touching crewMembers; the fail-closed guard must not regress that.
+    const viewer: Viewer = { kind: "admin" };
     const data = makeData(undefined as unknown as ShowForViewer["crewMembers"]);
 
     const ctx = resolveViewerContext(viewer, data);
 
     expect(ctx.viewerCrew).toBeNull();
-    expect(ctx.viewerFlags).toEqual([]);
-    expect(ctx.viewerName).toBeNull();
-    expect(ctx.dateRestriction).toEqual({ kind: "none" });
-    expect(ctx.stageRestriction).toEqual({ kind: "none" });
-    expect(ctx.isAdmin).toBe(false);
+    expect(ctx.isAdmin).toBe(true);
+    expect(ctx.viewerFlags).toEqual([...SCOPE_TILE_UNLOCKING_FLAGS]);
   });
 });

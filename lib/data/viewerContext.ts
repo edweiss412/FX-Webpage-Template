@@ -54,6 +54,25 @@ import { SCOPE_TILE_UNLOCKING_FLAGS } from "@/lib/visibility/scopeTiles";
  *   - `isAdmin` is `viewer.kind === 'admin'`. The page uses this for
  *     FinancialsTile and the transportTileVisible predicate.
  */
+/**
+ * Thrown when a crew/admin_preview viewer's projection carries a
+ * crewMembers field that is NOT an array (malformed/degraded data
+ * layer). Per-crew restrictions could not be verified, so the render
+ * path must FAIL CLOSED: ShowBody catches this and renders the route's
+ * existing infra arm (<TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />)
+ * instead of an unrestricted page. Distinct from the unmatched-row case
+ * inside a WELL-FORMED array, which keeps the original IIFE's
+ * none-restrictions tolerance (see resolveViewerContext docs).
+ */
+export class MalformedProjectionError extends Error {
+  constructor(viewerKind: string) {
+    super(
+      `ShowForViewer.crewMembers is not an array; cannot verify per-crew restrictions for viewer kind '${viewerKind}'`,
+    );
+    this.name = "MalformedProjectionError";
+  }
+}
+
 export type ViewerContext = {
   viewerCrew: ShowForViewer["crewMembers"][number] | null;
   dateRestriction: DateRestriction;
@@ -77,18 +96,35 @@ export type ViewerContext = {
  *     real name, real restrictions; isAdmin false). The
  *     surface-level admin posture (sticky preview banner, requireAdmin
  *     gate) is the page's responsibility, not this helper's.
- *   - crew/admin_preview viewer with NO matching row → defense-in-depth
- *     fallback: empty flags, null name, none restrictions, isAdmin
- *     false. Shouldn't happen post-getShowForViewer cross-show check,
- *     but mirrors the original IIFE's tolerance.
+ *   - crew/admin_preview viewer with NO matching row in a WELL-FORMED
+ *     array → defense-in-depth fallback: empty flags, null name, none
+ *     restrictions, isAdmin false. Shouldn't happen post-getShowForViewer
+ *     cross-show check, but mirrors the original IIFE's tolerance.
+ *   - crew/admin_preview viewer with a MALFORMED projection
+ *     (crewMembers not an array) → throws MalformedProjectionError.
+ *     Restrictions could not be VERIFIED, which is different from
+ *     "verified none": routing this into the none fallback would be
+ *     fail-OPEN on per-crew visibility (Right Now / Schedule / Pack
+ *     List unrestricted). ShowBody catches the typed error and renders
+ *     the existing infra TerminalFailure arm. Admin viewers never read
+ *     crewMembers here and are unaffected.
  */
 export function resolveViewerContext(viewer: Viewer, data: ShowForViewer): ViewerContext {
   const isAdmin = viewer.kind === "admin";
+  if (
+    (viewer.kind === "crew" || viewer.kind === "admin_preview") &&
+    !Array.isArray(data.crewMembers)
+  ) {
+    // crewMembers is typed as a required array and getShowForViewer's only
+    // constructor always builds one (`(crewRes.data ?? []).map`,
+    // getShowForViewer.ts:305) — but a malformed/degraded projection must
+    // fail CLOSED for restriction-reading viewers, not fall back to
+    // none-restrictions like the missing-row case.
+    throw new MalformedProjectionError(viewer.kind);
+  }
   const viewerCrew =
     viewer.kind === "crew" || viewer.kind === "admin_preview"
-      ? // Defense-in-depth `?.`: crewMembers is typed as a required array,
-        // but a malformed projection falls back like the missing-row case.
-        (data.crewMembers?.find((c) => c.id === viewer.crewMemberId) ?? null)
+      ? (data.crewMembers.find((c) => c.id === viewer.crewMemberId) ?? null)
       : null;
 
   const dateRestriction: DateRestriction = viewerCrew
