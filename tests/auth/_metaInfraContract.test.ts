@@ -154,12 +154,13 @@ const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "lib/auth/picker/selectIdentity.ts",
 ] as const;
 
-const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE =
-  /\bcreateSupabase(?:ServiceRole|Server)Client\s*\(/;
+const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE = /\bcreateSupabase(?:ServiceRole|Server)Client\s*\(/;
 
 function braceDelta(line: string): number {
   const withoutLineComment = line.replace(/\/\/.*$/, "");
-  return (withoutLineComment.match(/\{/g) ?? []).length - (withoutLineComment.match(/\}/g) ?? []).length;
+  return (
+    (withoutLineComment.match(/\{/g) ?? []).length - (withoutLineComment.match(/\}/g) ?? []).length
+  );
 }
 
 function supabaseConstructorCallsOutsideTry(source: string): Array<{ line: number; text: string }> {
@@ -191,14 +192,22 @@ describe("META infra-failure contract", () => {
   describe("R41 Supabase boundary source registry", () => {
     test("picker-bootstrap destructures both RPC boundaries", () => {
       const source = readFileSync("app/api/auth/picker-bootstrap/route.ts", "utf8");
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/);
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/);
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/,
+      );
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/,
+      );
     });
 
     test("OAuth callback destructures getUser and claim_oauth_identity RPC", () => {
       const source = readFileSync("app/auth/callback/route.ts", "utf8");
-      expect(source).toMatch(/const\s+\{\s*data:\s*userResult,\s*error:\s*getUserError\s*\}\s*=\s*await\s+supabase\.auth\.getUser\(\)/);
-      expect(source).toMatch(/const\s+\{\s*data:\s*result,\s*error:\s*rpcError\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/);
+      expect(source).toMatch(
+        /const\s+\{\s*data:\s*userResult,\s*error:\s*getUserError\s*\}\s*=\s*await\s+supabase\.auth\.getUser\(\)/,
+      );
+      expect(source).toMatch(
+        /const\s+\{\s*data:\s*result,\s*error:\s*rpcError\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/,
+      );
     });
 
     test("sign-out destructures signOut returned-error", () => {
@@ -208,13 +217,19 @@ describe("META infra-failure contract", () => {
 
     test("resolveShowPageAccess destructures the resolve_show_by_slug_and_token RPC boundary", () => {
       const source = readFileSync("lib/auth/picker/resolveShowPageAccess.ts", "utf8");
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/);
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/,
+      );
     });
 
     test("resolvePickerSelection destructures auth_email_canonical and crew email lookup", () => {
       const source = readFileSync("lib/auth/picker/resolvePickerSelection.ts", "utf8");
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+authClient\.rpc\("auth_email_canonical"\)/);
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("crew_members"\)[\s\S]*?\.select\("email"\)/);
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+authClient\.rpc\("auth_email_canonical"\)/,
+      );
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("crew_members"\)[\s\S]*?\.select\("email"\)/,
+      );
     });
 
     test("registered Supabase client constructors are inside try blocks", () => {
@@ -401,9 +416,7 @@ describe("META infra-failure contract", () => {
   describe("lib/data/adminEmails", () => {
     test("listAdminEmails: server-client construction throw → AdminEmailsInfraError", async () => {
       infraMock.throwOnConstruct = true;
-      const { listAdminEmails, AdminEmailsInfraError } = await import(
-        "@/lib/data/adminEmails"
-      );
+      const { listAdminEmails, AdminEmailsInfraError } = await import("@/lib/data/adminEmails");
       await expect(listAdminEmails()).rejects.toBeInstanceOf(AdminEmailsInfraError);
     });
 
@@ -417,9 +430,7 @@ describe("META infra-failure contract", () => {
 
     test("revokeAdminEmail: from() throw → AdminEmailsInfraError", async () => {
       infraMock.throwOnFrom = true;
-      const { revokeAdminEmail, AdminEmailsInfraError } = await import(
-        "@/lib/data/adminEmails"
-      );
+      const { revokeAdminEmail, AdminEmailsInfraError } = await import("@/lib/data/adminEmails");
       await expect(
         revokeAdminEmail({
           rawEmail: "infra-test@example.com",

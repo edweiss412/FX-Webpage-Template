@@ -635,7 +635,6 @@ export function RightNowCard({ context }: RightNowCardProps) {
         aria-hidden="true"
       />
 
-
       {/* §8.2 body crossfade. AnimatePresence with mode="wait" so the
           outgoing body fully exits (opacity → 0) BEFORE the new one
           enters (opacity 0 → 1). Keyed by state.kind so React rebuilds

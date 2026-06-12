@@ -82,7 +82,10 @@ function contextFor(candidate: RealtimeCandidate): Record<string, unknown> {
   };
 }
 
-async function isCandidateCurrent(candidate: RealtimeCandidate, sql: DeliverySql): Promise<boolean> {
+async function isCandidateCurrent(
+  candidate: RealtimeCandidate,
+  sql: DeliverySql,
+): Promise<boolean> {
   const epoch = epochFromDedupKey(candidate.dedupKey);
   if (candidate.kind === "show") {
     const rows = await sql`
@@ -263,7 +266,10 @@ async function deliverOneRecipient(input: {
   }
 
   const ledger = await existingLedger(input.sql, input.kind, input.dedupKey, recipient);
-  if (ledger?.status === "sent" || (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)) {
+  if (
+    ledger?.status === "sent" ||
+    (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)
+  ) {
     input.counts.skipped += 1;
     return;
   }

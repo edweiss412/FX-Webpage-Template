@@ -87,7 +87,10 @@ describe("no JSON.stringify into ::jsonb params (postgres.js double-encode guard
     expect(
       violations,
       violations
-        .map((v) => `${v.path}:${v.line} — ${v.text} (pass the raw object; postgres.js serializes ::jsonb params itself)`)
+        .map(
+          (v) =>
+            `${v.path}:${v.line} — ${v.text} (pass the raw object; postgres.js serializes ::jsonb params itself)`,
+        )
         .join("\n"),
     ).toEqual([]);
   });

@@ -176,9 +176,7 @@ describe("message catalog", () => {
         for (const match of copy.matchAll(/(.)?<([a-zA-Z][a-zA-Z0-9_-]*)>(.)?/g)) {
           const [, before, token, after] = match;
           const symmetric =
-            before !== undefined &&
-            before === after &&
-            SYMMETRIC_WRAPPERS.has(before);
+            before !== undefined && before === after && SYMMETRIC_WRAPPERS.has(before);
           if (!symmetric) {
             offenders.push(`${code}.${surface}: mismatched placeholder wrapper around <${token}>`);
           }
