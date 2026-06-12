@@ -492,3 +492,159 @@ describe("reap lock-set expansion retry (R24-1/R27-1/R28-1)", () => {
     expect(tx.operations.filter((op) => op === `lock-finalize:${STALE}`)).toHaveLength(3);
   });
 });
+
+describe("reap lock topology (F4 / spec §3.3 + §6)", () => {
+  test("finalize lock precedes EVERY other per-session operation, including eligibility re-checks and deletes", async () => {
+    const tx = new FakeReapTx();
+    staleSessionFixture(tx);
+    await reapStaleOnboardingSessions(deps(tx));
+    const ops = tx.operations;
+    const lockIdx = ops.indexOf(`lock-finalize:${STALE}`);
+    expect(lockIdx).toBeGreaterThan(-1);
+    const recheckIdx = ops.indexOf("read-active-session", ops.indexOf("enumerate-candidates") + 1);
+    const recencyIdx = ops.indexOf(`recency-check:${STALE}`);
+    const firstDelete = ops.findIndex((op) => op.startsWith("delete"));
+    const firstShowLock = ops.findIndex((op) => op.startsWith("lock-show:"));
+    // finalize lock → re-checks → show locks → deletes (cleanup's lock order)
+    expect(lockIdx).toBeLessThan(recheckIdx);
+    expect(lockIdx).toBeLessThan(recencyIdx);
+    expect(recencyIdx).toBeLessThan(firstShowLock);
+    expect(firstShowLock).toBeLessThan(firstDelete);
+  });
+
+  test("show locks cover the union of all five session tables in deterministic alphabetical order", async () => {
+    const tx = new FakeReapTx();
+    staleSessionFixture(tx); // drive ids: drive-m1, drive-s1, drive-p1, drive-i1, drive-d1
+    await reapStaleOnboardingSessions(deps(tx));
+    const showLocks = tx.operations
+      .filter((op) => op.startsWith("lock-show:"))
+      .map((op) => op.slice("lock-show:".length));
+    // Anti-tautology: derive the expectation from the fixture's five tables
+    // (a fresh fixture instance — the reap consumed the rows in `tx`), sorted.
+    const fixtureTx = new FakeReapTx();
+    staleSessionFixture(fixtureTx);
+    const expected = [
+      ...new Set(
+        DRIVE_ID_TABLES.flatMap((name) =>
+          fixtureTx.tables[name]!.filter((r) => r.wizard_session_id === STALE).map(
+            (r) => r.drive_file_id as string,
+          ),
+        ),
+      ),
+    ].sort((a, b) => a.localeCompare(b));
+    expect(expected).toHaveLength(5); // one id per session table in the fixture
+    expect(showLocks).toEqual(expected);
+  });
+
+  test("per-session tx boundary: two stale sessions sharing a drive_file_id never hold show locks across a finalize-lock acquisition (R5)", async () => {
+    // Concrete failure mode: in ONE outer tx, session A's show: locks (incl.
+    // the SHARED drive-shared file) are still held when finalize:B is
+    // requested — deadlocks against a concurrent cleanupAbandonedFinalize(B)
+    // (finalize:B held, waiting on show:drive-shared). Per-session
+    // transactions make the inversion structurally impossible: every lock is
+    // released at the session's commit, so each finalize: acquisition happens
+    // in a tx that holds NOTHING yet.
+    const A = "bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb"; // sorts before B below
+    const B = "eeeeeeee-0000-4000-8000-eeeeeeeeeeee";
+    const tx = new FakeReapTx();
+    tx.tables.pending_syncs!.push(
+      { wizard_session_id: A, drive_file_id: "drive-shared" },
+      { wizard_session_id: B, drive_file_id: "drive-shared" },
+      { wizard_session_id: B, drive_file_id: "drive-b-only" },
+    );
+    const result = await reapStaleOnboardingSessions(deps(tx));
+    expect(result.sessions.map((s) => s.wizardSessionId)).toEqual([A, B]);
+
+    const ops = tx.operations;
+    // 1 enumeration tx + 1 tx per candidate session.
+    expect(ops.filter((op) => op.startsWith("tx-begin:"))).toHaveLength(3);
+    // Each session's ENTIRE lock+delete sequence sits inside its own tx
+    // segment: no show: lock op may appear between a tx-commit and the next
+    // tx-begin, and the finalize: lock of session B must come AFTER the commit
+    // that released A's locks.
+    const commitA = ops.indexOf("tx-commit:2");
+    const finalizeB = ops.indexOf(`lock-finalize:${B}`);
+    expect(ops.indexOf(`lock-finalize:${A}`)).toBeGreaterThan(ops.indexOf("tx-begin:2"));
+    expect(commitA).toBeGreaterThan(-1);
+    expect(finalizeB).toBeGreaterThan(commitA); // A fully committed (locks released) first
+    // No show-lock op from A's segment leaks past A's commit.
+    const showLockIdxs = ops
+      .map((op, i) => (op.startsWith("lock-show:") ? i : -1))
+      .filter((i) => i >= 0 && i < finalizeB);
+    for (const i of showLockIdxs) expect(i).toBeLessThan(commitA);
+  });
+
+  test("a stale session whose ONLY row is a deferred_ingestions row is reaped under its show lock", async () => {
+    const tx = new FakeReapTx();
+    tx.tables.deferred_ingestions!.push({
+      wizard_session_id: STALE,
+      drive_file_id: "drive-only-deferral",
+    });
+    const result = await reapStaleOnboardingSessions(deps(tx));
+    expect(result.sessions).toEqual([{ wizardSessionId: STALE, outcome: "reaped_full" }]);
+    expect(tx.operations).toContain("lock-show:drive-only-deferral");
+    expect(tx.tables.deferred_ingestions).toEqual([]);
+  });
+
+  test("re-check under the lock: a session that became active between enumeration and lock is skipped untouched", async () => {
+    const tx = new FakeReapTx();
+    staleSessionFixture(tx);
+    // Simulate the race: the moment the finalize lock is granted, the session
+    // IS the active one.
+    const originalQuery = tx.query.bind(tx);
+    tx.query = (async (sql: string, params: readonly unknown[] = []) => {
+      const result = await originalQuery(sql, params);
+      if (/'finalize:'/.test(sql)) tx.activeSession = STALE;
+      return result;
+    }) as FakeReapTx["query"];
+    const result = await reapStaleOnboardingSessions(deps(tx));
+    expect(result.sessions).toEqual([]); // skipped_active filtered from reaped output
+    expect(tx.operations.filter((op) => op.startsWith("delete"))).toEqual([]);
+  });
+
+  test("a session with finalize activity within the last hour is skipped untouched", async () => {
+    const tx = new FakeReapTx();
+    tx.tables.wizard_finalize_checkpoints!.push({
+      wizard_session_id: STALE,
+      status: "in_progress",
+      recent: true,
+    });
+    tx.tables.pending_syncs!.push({ wizard_session_id: STALE, drive_file_id: "drive-busy" });
+    const result = await reapStaleOnboardingSessions(deps(tx));
+    expect(result.sessions).toEqual([]);
+    expect(tx.tables.pending_syncs).toHaveLength(1);
+    expect(tx.operations.filter((op) => op.startsWith("delete"))).toEqual([]);
+  });
+
+  test("R42-1/R44-1 structural: every drive-id-bearing reap DELETE filters BOTH wizard_session_id AND the locked drive-id set", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/onboarding/sessionLifecycle.ts", "utf8");
+    const reapBody = source.slice(source.indexOf("async function reapOneSession"));
+    expect(reapBody.length).toBeGreaterThan(0);
+    // Pin the staging registry so a table silently dropped from the sweep
+    // fails here (the loop interpolates public.${table} over this constant).
+    const registry = source.match(/const REAP_STAGING_TABLES = \[([\s\S]*?)\] as const/);
+    expect(registry).not.toBeNull();
+    for (const table of [
+      "pending_syncs",
+      "pending_ingestions",
+      "deferred_ingestions",
+      "onboarding_scan_manifest",
+    ]) {
+      expect(registry![1]).toContain(`"${table}"`);
+    }
+    // Every DELETE statement in the reap body except the checkpoint delete
+    // (no drive_file_id column) must carry the locked-set membership filter.
+    const deleteStatements =
+      reapBody.match(/delete from public\.[\s\S]*?returning 1 as deleted/g) ?? [];
+    expect(deleteStatements.length).toBeGreaterThanOrEqual(4);
+    for (const statement of deleteStatements) {
+      if (statement.includes("wizard_finalize_checkpoints")) continue;
+      expect(statement, `reap DELETE missing locked-set filter: ${statement}`).toContain("any($2)");
+    }
+    // R44-1: shows_pending_changes is explicitly covered (non-terminal branch).
+    expect(reapBody).toMatch(
+      /delete from public\.shows_pending_changes where wizard_session_id = \$1::uuid and drive_file_id = any\(\$2\)/,
+    );
+  });
+});
