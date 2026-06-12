@@ -7,10 +7,20 @@ const ROUTES = ["/help", "/help/admin/dashboard", "/help/errors", "/help/tour"];
 
 test.describe("/help auth gate (test #3)", () => {
   for (const route of ROUTES) {
-    test(`unauthenticated GET ${route} -> 403`, async ({ page }) => {
+    test(`unauthenticated GET ${route} -> redirect to sign-in`, async ({ page }) => {
       await signOut(page);
       const response = await page.goto(route, { waitUntil: "domcontentloaded" });
-      expect(response?.status()).toBe(403);
+      // Block-1-finding-5 (lib/auth/requireAdmin.ts:30-34, commit 0ffd9577,
+      // 2026-05-27): UNAUTHED admin-gated paths redirect to
+      // /auth/sign-in?next=<validated path> instead of dead-ending on 403.
+      // The security boundary is unchanged — help content never renders
+      // without a session; authed-but-not-admin still forbidden()s (the
+      // crew-403 case below). `next` is allowlist-validated and falls back
+      // to /admin for /help paths, so only the sign-in landing is pinned.
+      expect(response?.status()).toBe(200);
+      const landed = new URL(page.url());
+      expect(landed.pathname).toBe("/auth/sign-in");
+      expect(landed.searchParams.get("next")).not.toBeNull();
     });
 
     test(`authenticated-as-admin GET ${route} -> 200`, async ({ page }) => {
@@ -41,11 +51,8 @@ test.describe("/help AdminInfraError mapping (test #3)", () => {
     await expect(page.getByTestId("help-layout-infra-error")).toBeVisible();
 
     const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED");
-    const expected =
-      entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment.";
+    const expected = entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment.";
     await expect(page.locator("body")).toContainText(expected);
-    await expect(page.locator("body")).not.toContainText(
-      "ADMIN_SESSION_LOOKUP_FAILED",
-    );
+    await expect(page.locator("body")).not.toContainText("ADMIN_SESSION_LOOKUP_FAILED");
   });
 });
