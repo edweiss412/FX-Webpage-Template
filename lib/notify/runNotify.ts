@@ -74,6 +74,7 @@ export type MaintenanceDeps = {
   resolveRecoveredSyncProblems?: () => Promise<MaintenanceResult>;
   reconcileEmailDeliveryState?: typeof reconcileEmailDeliveryState;
   getAlertOnSyncProblems?: () => Promise<ToggleResult>;
+  getAlertOnAutoPublish?: () => Promise<ToggleResult>;
   getDailyReviewDigest?: () => Promise<ToggleResult>;
   configValid?: () => ConfigResult;
   now?: Date;
@@ -174,23 +175,52 @@ export async function runMaintenance(deps: MaintenanceDeps = {}): Promise<Mainte
   }
   out.push({ step: "recovery", result: recovery });
 
-  const [alertToggle, digestToggle] = await Promise.all([
+  // M12.13 §4.3b R5/R21/R28 — fetch all THREE channel toggles; a faulted read
+  // passes through to reconciliation as the tri-state `unknown` (no coercion),
+  // so channels whose toggles read cleanly still reconcile while the faulted
+  // channel can neither open nor resolve anything. The step result keeps the
+  // `infra_error` kind (5xx via statusFor) while carrying the typed fault
+  // sources + the partial reconciliation detail.
+  const channelState = (toggle: ToggleResult, source: string) =>
+    toggle.kind === "infra_error"
+      ? ({ kind: "unknown", source } as const)
+      : toggle.enabled
+        ? ({ kind: "enabled" } as const)
+        : ({ kind: "disabled" } as const);
+  const [alertToggle, digestToggle, undoToggle] = await Promise.all([
     (deps.getAlertOnSyncProblems ?? getAlertOnSyncProblems)().catch(() => ({
       kind: "infra_error" as const,
     })),
     (deps.getDailyReviewDigest ?? getDailyReviewDigest)().catch(() => ({
       kind: "infra_error" as const,
     })),
+    (deps.getAlertOnAutoPublish ?? getAlertOnAutoPublish)().catch(() => ({
+      kind: "infra_error" as const,
+    })),
   ]);
-  const email =
-    alertToggle.kind === "infra_error" || digestToggle.kind === "infra_error"
-      ? { kind: "infra_error" as const }
-      : await (deps.reconcileEmailDeliveryState ?? reconcileEmailDeliveryState)({
-          alertOnSyncProblems: alertToggle.enabled,
-          dailyReviewDigest: digestToggle.enabled,
-          configValid: (deps.configValid ?? configValid)().ok,
-          now,
-        }).catch(() => ({ kind: "infra_error" as const }));
+  const toggleFaults: string[] = [];
+  if (alertToggle.kind === "infra_error") toggleFaults.push("getAlertOnSyncProblems");
+  if (digestToggle.kind === "infra_error") toggleFaults.push("getDailyReviewDigest");
+  if (undoToggle.kind === "infra_error") toggleFaults.push("getAlertOnAutoPublish");
+
+  const reconciled = await (deps.reconcileEmailDeliveryState ?? reconcileEmailDeliveryState)({
+    alertOnSyncProblems: channelState(alertToggle, "getAlertOnSyncProblems"),
+    dailyReviewDigest: channelState(digestToggle, "getDailyReviewDigest"),
+    alertOnAutoPublish: channelState(undoToggle, "getAlertOnAutoPublish"),
+    configValid: (deps.configValid ?? configValid)().ok,
+    now,
+  }).catch(() => ({ kind: "infra_error" as const }));
+
+  const email: MaintenanceStepResult["result"] =
+    toggleFaults.length === 0
+      ? reconciled
+      : reconciled.kind === "ok"
+        ? {
+            kind: "infra_error",
+            toggleFaults,
+            detail: { opened: reconciled.opened, resolved: reconciled.resolved },
+          }
+        : { kind: "infra_error", toggleFaults };
   out.push({ step: "emailDelivery", result: email });
   return out;
 }

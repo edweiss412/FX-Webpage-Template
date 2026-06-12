@@ -63,8 +63,9 @@ function digestModel(recipient: string): DigestModel {
 }
 
 describe("runMaintenance", () => {
-  test("runs every maintenance step sequentially and continues after infra errors", async () => {
+  test("runs every maintenance step sequentially, continues after infra errors, and maps clean toggles to known tri-states", async () => {
     const events: string[] = [];
+    const reconcileInputs: unknown[] = [];
     const result = await runMaintenance({
       detectAndResolveStall: async () => {
         events.push("stall");
@@ -74,8 +75,9 @@ describe("runMaintenance", () => {
         events.push("recovery");
         return { kind: "ok" };
       },
-      reconcileEmailDeliveryState: async () => {
+      reconcileEmailDeliveryState: async (input) => {
         events.push("email");
+        reconcileInputs.push(input);
         return { kind: "ok", opened: 0, resolved: 0 };
       },
       readHeartbeat: async () => {
@@ -83,6 +85,7 @@ describe("runMaintenance", () => {
         return { kind: "ok", heartbeat: null };
       },
       getAlertOnSyncProblems: async () => ({ kind: "value", enabled: true }),
+      getAlertOnAutoPublish: async () => ({ kind: "value", enabled: true }),
       getDailyReviewDigest: async () => ({ kind: "value", enabled: false }),
       configValid: () => ({ ok: false }),
       now: new Date("2026-06-02T12:00:00.000Z"),
@@ -94,9 +97,16 @@ describe("runMaintenance", () => {
       { step: "recovery", result: { kind: "ok" } },
       { step: "emailDelivery", result: { kind: "ok", opened: 0, resolved: 0 } },
     ]);
+    expect(reconcileInputs[0]).toMatchObject({
+      alertOnSyncProblems: { kind: "enabled" },
+      dailyReviewDigest: { kind: "disabled" },
+      alertOnAutoPublish: { kind: "enabled" },
+      configValid: false,
+    });
   });
 
-  test("read/toggle thrown faults become maintenance infra_error results without throwing", async () => {
+  test("a THROWN toggle read passes through as UNKNOWN (no coercion); reconciliation still runs and the step stays 5xx-visible", async () => {
+    const reconcileInputs: unknown[] = [];
     await expect(
       runMaintenance({
         readHeartbeat: async () => {
@@ -106,13 +116,82 @@ describe("runMaintenance", () => {
         getAlertOnSyncProblems: async () => {
           throw new Error("toggle query fault");
         },
+        getAlertOnAutoPublish: async () => ({ kind: "value", enabled: true }),
         getDailyReviewDigest: async () => ({ kind: "value", enabled: true }),
+        reconcileEmailDeliveryState: async (input) => {
+          reconcileInputs.push(input);
+          return { kind: "ok", opened: 1, resolved: 2 };
+        },
+        configValid: () => ({ ok: true, origin: "https://crew.fxav.app" }),
       }),
     ).resolves.toEqual([
       { step: "stall", result: { kind: "infra_error" } },
       { step: "recovery", result: { kind: "ok" } },
-      { step: "emailDelivery", result: { kind: "infra_error" } },
+      {
+        step: "emailDelivery",
+        result: {
+          kind: "infra_error",
+          toggleFaults: ["getAlertOnSyncProblems"],
+          detail: { opened: 1, resolved: 2 },
+        },
+      },
     ]);
+    // R5/R21 — the faulted channel reaches reconciliation as UNKNOWN (never
+    // coerced to a boolean); the clean channels keep their known states.
+    expect(reconcileInputs[0]).toMatchObject({
+      alertOnSyncProblems: { kind: "unknown" },
+      dailyReviewDigest: { kind: "enabled" },
+      alertOnAutoPublish: { kind: "enabled" },
+    });
+  });
+
+  test("an UNDO toggle fault is independent: clean channels reconcile normally, the fault source is typed (R5/R28)", async () => {
+    const reconcileInputs: unknown[] = [];
+    const result = await runMaintenance({
+      readHeartbeat: async () => ({ kind: "ok", heartbeat: null }),
+      detectAndResolveStall: async () => ({ kind: "ok" }),
+      resolveRecoveredSyncProblems: async () => ({ kind: "ok" }),
+      getAlertOnSyncProblems: async () => ({ kind: "value", enabled: true }),
+      getAlertOnAutoPublish: async () => ({ kind: "infra_error" }),
+      getDailyReviewDigest: async () => ({ kind: "value", enabled: false }),
+      reconcileEmailDeliveryState: async (input) => {
+        reconcileInputs.push(input);
+        return { kind: "ok", opened: 0, resolved: 3 };
+      },
+      configValid: () => ({ ok: true, origin: "https://crew.fxav.app" }),
+    });
+
+    expect(result.at(-1)).toEqual({
+      step: "emailDelivery",
+      result: {
+        kind: "infra_error",
+        toggleFaults: ["getAlertOnAutoPublish"],
+        detail: { opened: 0, resolved: 3 },
+      },
+    });
+    expect(reconcileInputs[0]).toMatchObject({
+      alertOnSyncProblems: { kind: "enabled" },
+      dailyReviewDigest: { kind: "disabled" },
+      alertOnAutoPublish: { kind: "unknown" },
+    });
+  });
+
+  test("a reconciliation fault while toggles also faulted keeps the typed sources without inventing detail", async () => {
+    const result = await runMaintenance({
+      readHeartbeat: async () => ({ kind: "ok", heartbeat: null }),
+      detectAndResolveStall: async () => ({ kind: "ok" }),
+      resolveRecoveredSyncProblems: async () => ({ kind: "ok" }),
+      getAlertOnSyncProblems: async () => ({ kind: "value", enabled: true }),
+      getAlertOnAutoPublish: async () => ({ kind: "infra_error" }),
+      getDailyReviewDigest: async () => ({ kind: "value", enabled: true }),
+      reconcileEmailDeliveryState: async () => ({ kind: "infra_error" }),
+      configValid: () => ({ ok: true, origin: "https://crew.fxav.app" }),
+    });
+
+    expect(result.at(-1)).toEqual({
+      step: "emailDelivery",
+      result: { kind: "infra_error", toggleFaults: ["getAlertOnAutoPublish"] },
+    });
   });
 });
 

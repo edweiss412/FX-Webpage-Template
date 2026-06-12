@@ -74,7 +74,10 @@ describe("notify + app-settings infra-contract (structural)", () => {
 
   test("every REGISTERED path exists (a renamed/deleted boundary is caught)", () => {
     const missing = REGISTERED.filter((r) => !existsSync(r.path));
-    expect(missing.map((r) => r.path), "REGISTERED paths that no longer exist").toEqual([]);
+    expect(
+      missing.map((r) => r.path),
+      "REGISTERED paths that no longer exist",
+    ).toEqual([]);
   });
 
   test("notify app-settings toggle getters return infra_error for returned DB errors", async () => {
@@ -129,7 +132,9 @@ describe("notify + app-settings infra-contract (structural)", () => {
       },
     };
 
-    await expect(activeRecipients(returnedErrorClient as never)).resolves.toEqual({ kind: "infra_error" });
+    await expect(activeRecipients(returnedErrorClient as never)).resolves.toEqual({
+      kind: "infra_error",
+    });
     await expect(activeRecipients(thrownClient as never)).resolves.toEqual({ kind: "infra_error" });
   });
 
@@ -140,12 +145,17 @@ describe("notify + app-settings infra-contract (structural)", () => {
       throw new Error("query construction fault");
     });
 
-    await expect(listRealtimeCandidates(rejectedSql as never)).resolves.toEqual({ kind: "infra_error" });
-    await expect(listRealtimeCandidates(thrownSql as never)).resolves.toEqual({ kind: "infra_error" });
+    await expect(listRealtimeCandidates(rejectedSql as never)).resolves.toEqual({
+      kind: "infra_error",
+    });
+    await expect(listRealtimeCandidates(thrownSql as never)).resolves.toEqual({
+      kind: "infra_error",
+    });
   });
 
   test("resolveRecoveredSyncProblemAlert returns infra_error for postgres query faults", async () => {
-    const { resolveRecoveredSyncProblemAlert } = await import("@/lib/notify/detect/recoveryResolution");
+    const { resolveRecoveredSyncProblemAlert } =
+      await import("@/lib/notify/detect/recoveryResolution");
     const alert = {
       alertId: "alert-1",
       showId: "show-1",
@@ -227,7 +237,8 @@ describe("notify + app-settings infra-contract (structural)", () => {
       const text = strings.join("$");
       if (text.includes("select 1")) return Promise.resolve([{ ok: true }]);
       if (text.includes("select status, attempt_count")) return Promise.resolve([]);
-      if (text.includes("insert into public.email_deliveries")) return Promise.resolve([{ id: "failed" }]);
+      if (text.includes("insert into public.email_deliveries"))
+        return Promise.resolve([{ id: "failed" }]);
       return Promise.resolve([]);
     });
 
@@ -265,8 +276,9 @@ describe("notify + app-settings infra-contract (structural)", () => {
     await expect(
       reconcileEmailDeliveryState(
         {
-          alertOnSyncProblems: true,
-          dailyReviewDigest: true,
+          alertOnSyncProblems: { kind: "enabled" },
+          dailyReviewDigest: { kind: "enabled" },
+          alertOnAutoPublish: { kind: "disabled" },
           configValid: true,
           todayET: "2026-06-02",
         },
@@ -286,8 +298,9 @@ describe("notify + app-settings infra-contract (structural)", () => {
     await expect(
       reconcileEmailDeliveryState(
         {
-          alertOnSyncProblems: true,
-          dailyReviewDigest: false,
+          alertOnSyncProblems: { kind: "enabled" },
+          dailyReviewDigest: { kind: "disabled" },
+          alertOnAutoPublish: { kind: "disabled" },
           configValid: false,
           todayET: "2026-06-02",
         },
@@ -305,7 +318,9 @@ describe("notify + app-settings infra-contract (structural)", () => {
     const { buildDigestModel } = await import("@/lib/notify/digest");
     const sql = vi.fn(() => Promise.reject(new Error("db down")));
 
-    await expect(buildDigestModel("doug@fxav.net", "2026-06-02", { sql: sql as never })).resolves.toEqual({
+    await expect(
+      buildDigestModel("doug@fxav.net", "2026-06-02", { sql: sql as never }),
+    ).resolves.toEqual({
       kind: "infra_error",
     });
   });
@@ -314,7 +329,9 @@ describe("notify + app-settings infra-contract (structural)", () => {
     const { buildDigestModel } = await import("@/lib/notify/digest");
     const sql = vi.fn(() => Promise.reject({ message: "returned error" }));
 
-    await expect(buildDigestModel("doug@fxav.net", "2026-06-02", { sql: sql as never })).resolves.toEqual({
+    await expect(
+      buildDigestModel("doug@fxav.net", "2026-06-02", { sql: sql as never }),
+    ).resolves.toEqual({
       kind: "infra_error",
     });
   });
@@ -327,6 +344,7 @@ describe("notify + app-settings infra-contract (structural)", () => {
         readHeartbeat: async () => ({ kind: "infra_error" }),
         resolveRecoveredSyncProblems: async () => ({ kind: "ok" }),
         getAlertOnSyncProblems: async () => ({ kind: "value", enabled: true }),
+        getAlertOnAutoPublish: async () => ({ kind: "value", enabled: true }),
         getDailyReviewDigest: async () => ({ kind: "value", enabled: true }),
         reconcileEmailDeliveryState: async () => ({ kind: "ok", opened: 0, resolved: 0 }),
       }),

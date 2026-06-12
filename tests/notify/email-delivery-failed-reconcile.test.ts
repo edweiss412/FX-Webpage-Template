@@ -2,20 +2,58 @@ import postgres from "postgres";
 import { describe, expect, test, vi } from "vitest";
 import {
   reconcileEmailDeliveryState,
+  type ChannelToggleState,
   type EmailDeliveryFailedSql,
+  type EmailDeliveryStateInput,
 } from "@/lib/notify/detect/emailDeliveryFailed";
 import { deliverDigest, type DeliverySql } from "@/lib/notify/deliver";
+import { mintIdFor } from "@/lib/sync/unpublishBinding";
 
 type ScopeRow = { show_id: string | null };
 
-function fakeSql(options: {
-  scopes?: ScopeRow[];
-  currentByScope?: Record<string, boolean>;
-  throwOn?: "scopes" | "current";
-} = {}) {
+const ENABLED: ChannelToggleState = { kind: "enabled" };
+const DISABLED: ChannelToggleState = { kind: "disabled" };
+const UNKNOWN: ChannelToggleState = { kind: "unknown" };
+
+function triState(input: {
+  sync?: ChannelToggleState;
+  digest?: ChannelToggleState;
+  undo?: ChannelToggleState;
+  configValid?: boolean;
+  todayET?: string;
+}): EmailDeliveryStateInput {
+  return {
+    alertOnSyncProblems: input.sync ?? ENABLED,
+    dailyReviewDigest: input.digest ?? DISABLED,
+    alertOnAutoPublish: input.undo ?? DISABLED,
+    configValid: input.configValid ?? true,
+    todayET: input.todayET ?? "2026-06-02",
+  };
+}
+
+type UndoRow = { mint_id: string | null; live_token: string | null };
+
+function fakeSql(
+  options: {
+    scopes?: ScopeRow[];
+    // Query A (realtime_problem/digest currentness). A function receives the
+    // boolean channel flags the reconciler passed on THIS evaluation pass
+    // (pessimistic: unknown→disabled; optimistic: unknown→enabled), so
+    // tri-state tests can model rows whose currentness hinges on one flag.
+    currentByScope?: Record<
+      string,
+      boolean | ((flags: { sync: boolean; digest: boolean }) => boolean)
+    >;
+    // Query B (auto_publish_undo candidate rows; the mintId compare happens
+    // in memory in the reconciler).
+    undoRowsByScope?: Record<string, UndoRow[]>;
+    throwOn?: "scopes" | "current";
+  } = {},
+) {
   const calls: Array<{ text: string; values: unknown[] }> = [];
   const scopes = options.scopes ?? [{ show_id: "show-a" }, { show_id: null }];
   const currentByScope = options.currentByScope ?? { "show-a": true, null: false };
+  const undoRowsByScope = options.undoRowsByScope ?? {};
   const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = String.raw(strings, ...values.map((_value, index) => `$${index + 1}`));
     calls.push({ text, values });
@@ -23,10 +61,23 @@ function fakeSql(options: {
       if (options.throwOn === "scopes") return Promise.reject(new Error("scope read failed"));
       return Promise.resolve(scopes);
     }
+    if (/auto_publish_undo/i.test(text)) {
+      if (options.throwOn === "current") return Promise.reject(new Error("current read failed"));
+      const key = String(values[0] ?? "null");
+      return Promise.resolve(undoRowsByScope[key] ?? []);
+    }
     if (/from\s+public\.email_deliveries\s+e/i.test(text)) {
       if (options.throwOn === "current") return Promise.reject(new Error("current read failed"));
       const key = String(values[0] ?? "null");
-      return Promise.resolve(currentByScope[key] ? [{ exists: true }] : []);
+      const entry = currentByScope[key];
+      // The two boolean params of Query A are the sync + digest channel flags,
+      // in that order (the showId param repeats, so filter by type).
+      const flags = values.filter((value) => typeof value === "boolean");
+      const current =
+        typeof entry === "function"
+          ? entry({ sync: flags[0] === true, digest: flags[1] === true })
+          : entry;
+      return Promise.resolve(current ? [{ exists: true }] : []);
     }
     return Promise.resolve([]);
   }) as unknown as EmailDeliveryFailedSql;
@@ -42,15 +93,11 @@ describe("reconcileEmailDeliveryState", () => {
     const upsertAdminAlert = vi.fn();
     const resolveAdminAlert = vi.fn();
 
-    const result = await reconcileEmailDeliveryState(
-      {
-        alertOnSyncProblems: true,
-        dailyReviewDigest: true,
-        configValid: true,
-        todayET: "2026-06-02",
-      },
-      { sql, upsertAdminAlert, resolveAdminAlert },
-    );
+    const result = await reconcileEmailDeliveryState(triState({ sync: ENABLED, digest: ENABLED }), {
+      sql,
+      upsertAdminAlert,
+      resolveAdminAlert,
+    });
 
     expect(result).toEqual({ kind: "ok", opened: 2, resolved: 2 });
     expect(upsertAdminAlert).toHaveBeenCalledWith({
@@ -74,18 +121,17 @@ describe("reconcileEmailDeliveryState", () => {
   });
 
   test("enumerates the union of failed-row scopes and open EMAIL_DELIVERY_FAILED alert scopes", async () => {
-    const { sql, calls } = fakeSql({ scopes: [{ show_id: "show-from-open-alert" }], currentByScope: {} });
+    const { sql, calls } = fakeSql({
+      scopes: [{ show_id: "show-from-open-alert" }],
+      currentByScope: {},
+    });
     const resolveAdminAlert = vi.fn();
 
-    await reconcileEmailDeliveryState(
-      {
-        alertOnSyncProblems: true,
-        dailyReviewDigest: true,
-        configValid: true,
-        todayET: "2026-06-02",
-      },
-      { sql, resolveAdminAlert, upsertAdminAlert: vi.fn() },
-    );
+    await reconcileEmailDeliveryState(triState({ sync: ENABLED, digest: ENABLED }), {
+      sql,
+      resolveAdminAlert,
+      upsertAdminAlert: vi.fn(),
+    });
 
     expect(calls[0]?.text).toMatch(/failed_scopes/i);
     expect(calls[0]?.text).toMatch(/status\s*=\s*'failed'/i);
@@ -100,15 +146,11 @@ describe("reconcileEmailDeliveryState", () => {
   test("currentness query is recipient-active, toggle-aware, occurrence-exact, and excludes wizard rows", async () => {
     const { sql, calls } = fakeSql();
 
-    await reconcileEmailDeliveryState(
-      {
-        alertOnSyncProblems: false,
-        dailyReviewDigest: true,
-        configValid: true,
-        todayET: "2026-06-02",
-      },
-      { sql, upsertAdminAlert: vi.fn(), resolveAdminAlert: vi.fn() },
-    );
+    await reconcileEmailDeliveryState(triState({ sync: DISABLED, digest: ENABLED }), {
+      sql,
+      upsertAdminAlert: vi.fn(),
+      resolveAdminAlert: vi.fn(),
+    });
 
     const currentQuery = calls.find((c) => /from\s+public\.email_deliveries\s+e/i.test(c.text));
     expect(currentQuery?.values).toContain(false);
@@ -121,8 +163,12 @@ describe("reconcileEmailDeliveryState", () => {
     expect(currentQuery?.text).toMatch(/'global:SYNC_STALLED:'\s*\|\|/i);
     expect(currentQuery?.text).toMatch(/'ingestion:'\s*\|\|\s*pi\.drive_file_id/i);
     expect(currentQuery?.text).toMatch(/wizard_session_id\s+is\s+null/i);
-    expect(currentQuery?.text).toMatch(/floor\(extract\(epoch\s+from\s+a\.raised_at\)\s*\*\s*1e6\)::bigint/i);
-    expect(currentQuery?.text).toMatch(/floor\(extract\(epoch\s+from\s+pi\.first_seen_at\)\s*\*\s*1e6\)::bigint/i);
+    expect(currentQuery?.text).toMatch(
+      /floor\(extract\(epoch\s+from\s+a\.raised_at\)\s*\*\s*1e6\)::bigint/i,
+    );
+    expect(currentQuery?.text).toMatch(
+      /floor\(extract\(epoch\s+from\s+pi\.first_seen_at\)\s*\*\s*1e6\)::bigint/i,
+    );
     expect(currentQuery?.text).not.toMatch(/Date\.parse/i);
   });
 
@@ -131,21 +177,11 @@ describe("reconcileEmailDeliveryState", () => {
     const resolveAdminAlert = vi.fn();
 
     await reconcileEmailDeliveryState(
-      {
-        alertOnSyncProblems: false,
-        dailyReviewDigest: true,
-        configValid: false,
-        todayET: "2026-06-02",
-      },
+      triState({ sync: DISABLED, digest: ENABLED, configValid: false }),
       { ...fakeSql({ scopes: [] }), upsertAdminAlert, resolveAdminAlert },
     );
     await reconcileEmailDeliveryState(
-      {
-        alertOnSyncProblems: false,
-        dailyReviewDigest: false,
-        configValid: false,
-        todayET: "2026-06-02",
-      },
+      triState({ sync: DISABLED, digest: DISABLED, configValid: false }),
       { ...fakeSql({ scopes: [] }), upsertAdminAlert, resolveAdminAlert },
     );
 
@@ -167,15 +203,11 @@ describe("reconcileEmailDeliveryState", () => {
     });
     const resolveAdminAlert = vi.fn();
 
-    const result = await reconcileEmailDeliveryState(
-      {
-        alertOnSyncProblems: true,
-        dailyReviewDigest: false,
-        configValid: true,
-        todayET: "2026-06-02",
-      },
-      { sql, resolveAdminAlert, upsertAdminAlert: vi.fn() },
-    );
+    const result = await reconcileEmailDeliveryState(triState({}), {
+      sql,
+      resolveAdminAlert,
+      upsertAdminAlert: vi.fn(),
+    });
 
     expect(result).toMatchObject({ kind: "ok", resolved: 2 });
     expect(resolveAdminAlert).toHaveBeenCalledWith({
@@ -186,15 +218,16 @@ describe("reconcileEmailDeliveryState", () => {
 
   test("returned wrapper errors and thrown SQL faults return infra_error without throwing", async () => {
     await expect(
-      reconcileEmailDeliveryState(
-        { alertOnSyncProblems: true, dailyReviewDigest: true, configValid: true, todayET: "2026-06-02" },
-        { ...fakeSql({ throwOn: "current" }), upsertAdminAlert: vi.fn(), resolveAdminAlert: vi.fn() },
-      ),
+      reconcileEmailDeliveryState(triState({ sync: ENABLED, digest: ENABLED }), {
+        ...fakeSql({ throwOn: "current" }),
+        upsertAdminAlert: vi.fn(),
+        resolveAdminAlert: vi.fn(),
+      }),
     ).resolves.toEqual({ kind: "infra_error" });
 
     await expect(
       reconcileEmailDeliveryState(
-        { alertOnSyncProblems: true, dailyReviewDigest: true, configValid: false, todayET: "2026-06-02" },
+        triState({ sync: ENABLED, digest: ENABLED, configValid: false }),
         {
           ...fakeSql({ scopes: [] }),
           upsertAdminAlert: async () => {
@@ -204,6 +237,248 @@ describe("reconcileEmailDeliveryState", () => {
         },
       ),
     ).resolves.toEqual({ kind: "infra_error" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M12.13 spec §4.3b — kind-aware undo reconciliation + tri-state semantics.
+// The mintId compare (exact mint identity) happens IN MEMORY against the live
+// token the undo query returns; unknown channels make a scope un-resolvable
+// (R11) and keep EMAIL_NOT_CONFIGURED honest (R16).
+// ---------------------------------------------------------------------------
+
+describe("reconcileEmailDeliveryState — undo channel + tri-state (M12.13 §4.3b)", () => {
+  const LIVE_TOKEN = "tok-live-fixture";
+
+  test("failed undo row is CURRENT only when the LIVE token's hash equals context.mintId (in-memory compare)", async () => {
+    const upsertAdminAlert = vi.fn();
+    const resolveAdminAlert = vi.fn();
+    const { sql } = fakeSql({
+      scopes: [{ show_id: "show-undo" }],
+      currentByScope: { "show-undo": false },
+      undoRowsByScope: {
+        "show-undo": [{ mint_id: mintIdFor(LIVE_TOKEN), live_token: LIVE_TOKEN }],
+      },
+    });
+
+    const result = await reconcileEmailDeliveryState(triState({ sync: ENABLED, undo: ENABLED }), {
+      sql,
+      upsertAdminAlert,
+      resolveAdminAlert,
+    });
+
+    expect(result).toMatchObject({ kind: "ok", opened: 1 });
+    expect(upsertAdminAlert).toHaveBeenCalledWith({
+      showId: "show-undo",
+      code: "EMAIL_DELIVERY_FAILED",
+      context: {},
+    });
+    expect(resolveAdminAlert).not.toHaveBeenCalledWith({
+      showId: "show-undo",
+      code: "EMAIL_DELIVERY_FAILED",
+    });
+  });
+
+  test("re-minted token (stale context.mintId vs live token) is NON-current → scope resolves", async () => {
+    const upsertAdminAlert = vi.fn();
+    const resolveAdminAlert = vi.fn();
+    const { sql } = fakeSql({
+      scopes: [{ show_id: "show-undo" }],
+      currentByScope: { "show-undo": false },
+      undoRowsByScope: {
+        "show-undo": [{ mint_id: mintIdFor("tok-prior-mint"), live_token: LIVE_TOKEN }],
+      },
+    });
+
+    await reconcileEmailDeliveryState(triState({ sync: ENABLED, undo: ENABLED }), {
+      sql,
+      upsertAdminAlert,
+      resolveAdminAlert,
+    });
+
+    expect(upsertAdminAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ showId: "show-undo", code: "EMAIL_DELIVERY_FAILED" }),
+    );
+    expect(resolveAdminAlert).toHaveBeenCalledWith({
+      showId: "show-undo",
+      code: "EMAIL_DELIVERY_FAILED",
+    });
+  });
+
+  test("undo channel DISABLED never issues the undo currentness query → scope resolves", async () => {
+    const resolveAdminAlert = vi.fn();
+    const { sql, calls } = fakeSql({
+      scopes: [{ show_id: "show-undo" }],
+      currentByScope: { "show-undo": false },
+      undoRowsByScope: {
+        "show-undo": [{ mint_id: mintIdFor(LIVE_TOKEN), live_token: LIVE_TOKEN }],
+      },
+    });
+
+    await reconcileEmailDeliveryState(triState({ sync: ENABLED, undo: DISABLED }), {
+      sql,
+      upsertAdminAlert: vi.fn(),
+      resolveAdminAlert,
+    });
+
+    expect(calls.some((c) => /auto_publish_undo/i.test(c.text))).toBe(false);
+    expect(resolveAdminAlert).toHaveBeenCalledWith({
+      showId: "show-undo",
+      code: "EMAIL_DELIVERY_FAILED",
+    });
+  });
+
+  test("R11: unknown SYNC channel leaves the shared per-scope alert UNTOUCHED while its realtime row may be current", async () => {
+    const upsertAdminAlert = vi.fn();
+    const resolveAdminAlert = vi.fn();
+    const { sql } = fakeSql({
+      scopes: [{ show_id: "show-shared" }],
+      // The realtime row is current exactly when the sync flag is treated as
+      // enabled — i.e. only on the optimistic pass while the toggle is unknown.
+      currentByScope: { "show-shared": (flags) => flags.sync },
+    });
+
+    await reconcileEmailDeliveryState(triState({ sync: UNKNOWN, undo: ENABLED }), {
+      sql,
+      upsertAdminAlert,
+      resolveAdminAlert,
+    });
+
+    expect(upsertAdminAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EMAIL_DELIVERY_FAILED" }),
+    );
+    expect(resolveAdminAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EMAIL_DELIVERY_FAILED" }),
+    );
+  });
+
+  test("R11 symmetric: unknown UNDO channel with a possibly-current undo row leaves the alert untouched", async () => {
+    const upsertAdminAlert = vi.fn();
+    const resolveAdminAlert = vi.fn();
+    const { sql } = fakeSql({
+      scopes: [{ show_id: "show-shared" }],
+      currentByScope: { "show-shared": false },
+      undoRowsByScope: {
+        "show-shared": [{ mint_id: mintIdFor(LIVE_TOKEN), live_token: LIVE_TOKEN }],
+      },
+    });
+
+    await reconcileEmailDeliveryState(triState({ sync: ENABLED, undo: UNKNOWN }), {
+      sql,
+      upsertAdminAlert,
+      resolveAdminAlert,
+    });
+
+    expect(upsertAdminAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EMAIL_DELIVERY_FAILED" }),
+    );
+    expect(resolveAdminAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EMAIL_DELIVERY_FAILED" }),
+    );
+  });
+
+  test("unknown channel does NOT block resolution when the scope is known non-current under BOTH passes", async () => {
+    const resolveAdminAlert = vi.fn();
+    const { sql } = fakeSql({
+      scopes: [{ show_id: "show-dead" }],
+      currentByScope: { "show-dead": false },
+      // Undo rows whose other conditions fail return no candidate rows at all,
+      // so even the optimistic pass finds nothing — expiry/consumption resolve
+      // regardless of the unknown toggle.
+      undoRowsByScope: { "show-dead": [] },
+    });
+
+    await reconcileEmailDeliveryState(triState({ sync: ENABLED, undo: UNKNOWN }), {
+      sql,
+      upsertAdminAlert: vi.fn(),
+      resolveAdminAlert,
+    });
+
+    expect(resolveAdminAlert).toHaveBeenCalledWith({
+      showId: "show-dead",
+      code: "EMAIL_DELIVERY_FAILED",
+    });
+  });
+
+  test("undo currentness SQL pins per-row recipient strictness, mintId presence, context-expiry window, and show state", async () => {
+    const { sql, calls } = fakeSql({
+      scopes: [{ show_id: "show-undo" }],
+      currentByScope: { "show-undo": false },
+    });
+
+    await reconcileEmailDeliveryState(triState({ undo: ENABLED }), {
+      sql,
+      upsertAdminAlert: vi.fn(),
+      resolveAdminAlert: vi.fn(),
+    });
+
+    const undoQuery = calls.find((c) => /auto_publish_undo/i.test(c.text));
+    expect(undoQuery).toBeDefined();
+    expect(undoQuery?.text).toMatch(/kind\s*=\s*'auto_publish_undo'/i);
+    expect(undoQuery?.text).toMatch(/status\s*=\s*'failed'/i);
+    // R4 per-row strictness: the failed row's OWN recipient must still be an
+    // active admin — never "any active recipient exists".
+    expect(undoQuery?.text).toMatch(/ae\.email\s*=\s*e\.recipient/i);
+    expect(undoQuery?.text).toMatch(/revoked_at\s+is\s+null/i);
+    // Rows WITHOUT context.mintId are non-current by construction.
+    expect(undoQuery?.text).toMatch(/context\s*\?\s*'mintId'/i);
+    expect(undoQuery?.text).toMatch(/'expires_at'\)::timestamptz\s*>\s*now\(\)/i);
+    expect(undoQuery?.text).toMatch(/unpublish_token\s+is\s+not\s+null/i);
+    expect(undoQuery?.text).toMatch(/published\s+is\s+true/i);
+    expect(undoQuery?.text).toMatch(/archived\s+is\s+false/i);
+  });
+
+  test("R16: EMAIL_NOT_CONFIGURED opens on config-invalid while the undo toggle read is UNKNOWN and the others are known-off", async () => {
+    const upsertAdminAlert = vi.fn();
+    const resolveAdminAlert = vi.fn();
+
+    await reconcileEmailDeliveryState(
+      triState({ sync: DISABLED, digest: DISABLED, undo: UNKNOWN, configValid: false }),
+      { ...fakeSql({ scopes: [] }), upsertAdminAlert, resolveAdminAlert },
+    );
+
+    expect(upsertAdminAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "EMAIL_NOT_CONFIGURED",
+      context: {},
+    });
+    expect(resolveAdminAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EMAIL_NOT_CONFIGURED" }),
+    );
+  });
+
+  test("EMAIL_NOT_CONFIGURED opens when ONLY the undo toggle is enabled and config is invalid; resolves when all three are KNOWN disabled", async () => {
+    const opensUpsert = vi.fn();
+    await reconcileEmailDeliveryState(
+      triState({ sync: DISABLED, digest: DISABLED, undo: ENABLED, configValid: false }),
+      { ...fakeSql({ scopes: [] }), upsertAdminAlert: opensUpsert, resolveAdminAlert: vi.fn() },
+    );
+    expect(opensUpsert).toHaveBeenCalledWith({
+      showId: null,
+      code: "EMAIL_NOT_CONFIGURED",
+      context: {},
+    });
+
+    const resolves = vi.fn();
+    await reconcileEmailDeliveryState(
+      triState({ sync: DISABLED, digest: DISABLED, undo: DISABLED, configValid: false }),
+      { ...fakeSql({ scopes: [] }), upsertAdminAlert: vi.fn(), resolveAdminAlert: resolves },
+    );
+    expect(resolves).toHaveBeenCalledWith({ showId: null, code: "EMAIL_NOT_CONFIGURED" });
+  });
+
+  test("EMAIL_NOT_CONFIGURED resolves on VALID config even while toggle reads are unknown", async () => {
+    const resolveAdminAlert = vi.fn();
+
+    await reconcileEmailDeliveryState(
+      triState({ sync: UNKNOWN, digest: UNKNOWN, undo: UNKNOWN, configValid: true }),
+      { ...fakeSql({ scopes: [] }), upsertAdminAlert: vi.fn(), resolveAdminAlert },
+    );
+
+    expect(resolveAdminAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "EMAIL_NOT_CONFIGURED",
+    });
   });
 });
 
@@ -246,10 +521,9 @@ describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
         `;
 
         await expect(
-          reconcileEmailDeliveryState(
-            { alertOnSyncProblems: true, dailyReviewDigest: false, configValid: true, todayET: "2026-06-02" },
-            { sql: sql as unknown as EmailDeliveryFailedSql },
-          ),
+          reconcileEmailDeliveryState(triState({}), {
+            sql: sql as unknown as EmailDeliveryFailedSql,
+          }),
         ).resolves.toMatchObject({ kind: "ok" });
         let rows = await sql<{ id: string }[]>`
           select id from public.admin_alerts
@@ -261,10 +535,9 @@ describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
 
         await sql`update public.email_deliveries set status = 'sent' where recipient = ${recipient}`;
         await expect(
-          reconcileEmailDeliveryState(
-            { alertOnSyncProblems: true, dailyReviewDigest: false, configValid: true, todayET: "2026-06-02" },
-            { sql: sql as unknown as EmailDeliveryFailedSql },
-          ),
+          reconcileEmailDeliveryState(triState({}), {
+            sql: sql as unknown as EmailDeliveryFailedSql,
+          }),
         ).resolves.toMatchObject({ kind: "ok" });
         rows = await sql<{ id: string }[]>`
           select id from public.admin_alerts
@@ -338,10 +611,9 @@ describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
         expect(rows).toEqual([{ status: "failed" }]);
 
         await expect(
-          reconcileEmailDeliveryState(
-            { alertOnSyncProblems: false, dailyReviewDigest: true, configValid: true, todayET },
-            { sql: sql as unknown as EmailDeliveryFailedSql },
-          ),
+          reconcileEmailDeliveryState(triState({ sync: DISABLED, digest: ENABLED, todayET }), {
+            sql: sql as unknown as EmailDeliveryFailedSql,
+          }),
         ).resolves.toMatchObject({ kind: "ok" });
         rows = await sql<{ status: string }[]>`
           select 'open' as status
@@ -365,10 +637,9 @@ describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
         ).resolves.toMatchObject({ kind: "ok", sent: 1 });
 
         await expect(
-          reconcileEmailDeliveryState(
-            { alertOnSyncProblems: false, dailyReviewDigest: true, configValid: true, todayET },
-            { sql: sql as unknown as EmailDeliveryFailedSql },
-          ),
+          reconcileEmailDeliveryState(triState({ sync: DISABLED, digest: ENABLED, todayET }), {
+            sql: sql as unknown as EmailDeliveryFailedSql,
+          }),
         ).resolves.toMatchObject({ kind: "ok" });
         rows = await sql<{ status: string }[]>`
           select 'open' as status
