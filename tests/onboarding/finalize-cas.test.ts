@@ -90,6 +90,9 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   appliedShadows: string[] = [];
   auditRows: string[] = [];
   phaseDCasFailDriveIds = new Set<string>();
+  // WM-R9: drive ids whose live show is archived — applyShadow's lock-held re-read
+  // (readShowArchived_unlocked) must refuse them with SHOW_ARCHIVED_IMMUTABLE.
+  archivedDriveIds = new Set<string>();
   // Drive ids whose manifest rows carry created_show_id (the narrowed flip's locked set).
   sessionCreatedDriveIds: string[] = [];
   // WM-R7 finding 1: drive ids the legacy-ambiguity preflight reports — applied manifest
@@ -260,6 +263,9 @@ function makeFakePipelineTx(db: FakeFinalizeCasDb): SyncPipelineTx {
     async queryOne<T>(sqlText: string, params: unknown[] = []): Promise<T> {
       const normalized = sqlText.replace(/\s+/g, " ").trim();
       if (/pg_locks/i.test(normalized)) return { held: true } as T;
+      if (normalized.startsWith("select archived from public.shows")) {
+        return { archived: db.archivedDriveIds.has(params[0] as string) } as T;
+      }
       if (normalized.startsWith("insert into public.sync_audit")) {
         db.auditRows.push(params[1] as string); // $2 = drive_file_id
         return { id: "audit-1" } as T;
@@ -558,6 +564,56 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     expect(db.appliedShadows).toEqual(["existing-2"]);
     expect(db.published).toBe(false);
     expect(db.deletedWizardDeferrals).toBe(false);
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
+  });
+
+  test("archived-show shadow gets the typed SHOW_ARCHIVED_IMMUTABLE per-row refusal BEFORE apply; shadow retained; siblings continue (WM-R9)", async () => {
+    // Concrete failure mode (whole-milestone WM-R9 HIGH): applyShadow adopted the held show
+    // lock and ran applyStagedCore WITHOUT re-checking shows.archived — a show archived
+    // between Phase B staging and the final CAS got mutated (children/audit/feed), its shadow
+    // consumed, OK reported, violating archived-show immutability (DEF-4 of B2). The live
+    // staged paths refuse via readShowArchived_unlocked (lib/sync/applyStaged.ts /
+    // lib/sync/discardStaged.ts); Phase D must mirror that guard under the per-row lock.
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-archived",
+        show_id: "22222222-2222-4222-8222-222222222220",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload(),
+      },
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-2",
+        show_id: "22222222-2222-4222-8222-222222222221",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.archivedDriveIds.add("existing-archived");
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(db));
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+      per_row: [
+        { drive_file_id: "existing-archived", code: "SHOW_ARCHIVED_IMMUTABLE" },
+        { drive_file_id: "existing-2", code: "OK" },
+      ],
+    });
+    // Archived show NEVER reached the apply core (no snapshot, no audit); shadow RETAINED.
+    expect(db.appliedShadows).toEqual(["existing-2"]);
+    expect(db.auditRows).toEqual(["existing-2"]);
+    expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-archived"]);
+    // Batch does NOT resolve while the row pends.
+    expect(db.published).toBe(false);
+    expect(db.deletedWizardDeferrals).toBe(false);
+    expect(db.watchedFolderId).toBeNull();
     expect(db.checkpoint?.status).toBe("all_batches_complete");
   });
 

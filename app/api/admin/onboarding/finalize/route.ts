@@ -425,6 +425,16 @@ async function recordCreatedShowProvenance(
   }
 }
 
+// WM-R9 archived-show disposition: this Phase B staging path does NOT gate on shows.archived —
+// it relies on the Phase D guard (finalize-cas applyShadow's readShowArchived_unlocked re-check
+// under the per-row held lock, mirroring applyStaged_unlocked). Rationale: (a) staging writes
+// ONLY shows_pending_changes — the archived show itself is untouched, so DEF-4 immutability is
+// not violated at stage time; (b) a stage-time gate cannot close the race anyway (a show
+// archived AFTER staging still needs the lock-held apply-time re-check, which is therefore the
+// single authoritative guard — the same layering the live pipeline uses: pending_syncs staging
+// is ungated, applyStaged_unlocked refuses at apply time); (c) the Phase D refusal is typed +
+// recoverable (SHOW_ARCHIVED_IMMUTABLE per-row, shadow retained, unarchive → re-run final CAS).
+// A duplicate gate here would add surface without adding guarantee.
 async function stageExistingShowShadow(
   tx: FinalizeRouteTx,
   wizardSessionId: string,

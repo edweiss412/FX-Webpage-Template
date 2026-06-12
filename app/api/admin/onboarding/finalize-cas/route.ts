@@ -8,6 +8,7 @@ import {
 } from "@/lib/onboarding/shadowPayload";
 import { applyStagedCore, normalizeTimestamptz } from "@/lib/sync/applyStagedCore";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
+import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
@@ -66,7 +67,8 @@ type ShadowApplyResult =
       code:
         | "STAGED_PARSE_OUTDATED_AT_PHASE_D"
         | "STAGED_REVIEW_ITEMS_CORRUPT"
-        | "STAGED_PARSE_RESULT_CORRUPT";
+        | "STAGED_PARSE_RESULT_CORRUPT"
+        | typeof SHOW_ARCHIVED_IMMUTABLE;
     };
 
 type FinalizeCasResult =
@@ -342,6 +344,17 @@ async function applyShadow(
   }
 
   const lockedTx = await adoptShowLockHeld(pipelineTx, row.drive_file_id);
+
+  // WM-R9 (DEF-4 of B2): a show archived between Phase B staging and this final CAS must NOT be
+  // mutated. Mirror the live staged-apply guard exactly (applyStaged_unlocked,
+  // lib/sync/applyStaged.ts — readShowArchived_unlocked re-read under the held per-show lock,
+  // refusal BEFORE any consumption). Shadow RETAINED (typed per-row refusal; siblings continue;
+  // the batch never reaches final_cas_done while the row pends) — recovery is unarchive →
+  // re-run final CAS, or session supersession.
+  if (await readShowArchived_unlocked(lockedTx, row.drive_file_id)) {
+    return { drive_file_id: row.drive_file_id, code: SHOW_ARCHIVED_IMMUTABLE };
+  }
+
   const core = await applyStagedCore(lockedTx, {
     sourceScope: "wizard",
     driveFileId: row.drive_file_id,
