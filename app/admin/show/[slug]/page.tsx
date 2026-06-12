@@ -450,9 +450,13 @@ export default async function AdminShowPage({
                 rootTestId="help-affordance--per-show-crew--tooltip"
                 learnMore={{ href: "/help/admin/preview-as-crew" }}
               >
+                {/* M12.12 follow-up — per-row Preview as links render only when
+                    published && !archived (the gate below), so this copy scopes
+                    the promise to the published state instead of describing a
+                    link an unpublished/archived render doesn't contain. */}
                 <p>
-                  Everyone on this show&apos;s crew, one row per person. Use a row&apos;s Preview as
-                  link to see their page exactly as they do.
+                  Everyone on this show&apos;s crew, one row per person. Once the show is published,
+                  each row gets a Preview as link to see their page exactly as they do.
                 </p>
               </HoverHelp>
             </div>

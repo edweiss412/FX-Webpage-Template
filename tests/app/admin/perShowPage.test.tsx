@@ -436,6 +436,23 @@ describe("per-show page (§6)", () => {
     );
   });
 
+  // M12.12 follow-up — per-row "Preview as" links render only when
+  // published && !archived, so the Crew help body must not promise them
+  // unconditionally. Failure modes caught: (a) the copy reverts to the
+  // present-tense "Use a row's Preview as link" while an unpublished render
+  // contains no such link; (b) the publish-gated phrasing drifts out.
+  it("Crew help copy stays truthful for an unpublished show — publish-gated phrasing, no dangling promise", async () => {
+    state.show = { ...baseShow, published: false, archived: false };
+    await renderPage();
+    const crewCol = screen.getByTestId("per-show-crew-col");
+    // No per-row Preview as link in this state (live gate at page.tsx)…
+    expect(within(crewCol).queryByTestId("admin-show-preview-as-link-c1")).toBeNull();
+    // …so the help copy must scope the promise to the published state.
+    const body = within(crewCol).getByTestId("per-show-crew-help-body");
+    expect(body.textContent).toMatch(/once the show is published/i);
+    expect(body.textContent).not.toMatch(/use a row/i);
+  });
+
   it("sync footer keeps plain 'Last synced {rel}' for ok status (no redundant label)", async () => {
     state.show = {
       ...baseShow,
