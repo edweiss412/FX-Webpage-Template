@@ -469,6 +469,19 @@ async function publishAppliedWizardShows(
  * in this same run. A shadowless match is ambiguous by construction — it cannot be
  * distinguished from an abandoned pre-provenance first-seen row — so the preflight refuses
  * rather than guessing.
+ *
+ * WM-R8: shadow absence ALONE is not the discriminator — Phase D deletes shadows on per-row
+ * success (committed row transactions), so a completed existing-show row in a sibling-blocked
+ * batch is shadowless on retry. Its durable completion proof is the F1 audit shape the shared
+ * core writes (applyStagedCore.ts defaultInsertSyncAudit: parse_result_summary =
+ * { ...parseResultSummary(parse), source: auditSource } — crewCount-bearing with
+ * source='onboarding_finalize_cas'; the legacy broken writer's audits lacked crewCount, the
+ * F2 Arm-B discriminator, and pre-provenance Phase B creates audited as 'onboarding_finalize').
+ * Exclude any candidate whose drive_file_id + show id has such an audit row applied within
+ * THIS session's window (applied_at >= app_settings.pending_wizard_session_at — the audit's
+ * applied_at is the wizard_approved_at snapshot, always after the session mint). A stale
+ * F1-shape audit from a PRIOR session falls outside the window and is NOT completion proof;
+ * a NULL session-at compares to NULL → no exemption → fail-closed.
  */
 async function legacyAmbiguousManifestRows(
   tx: FinalizeCasRouteTx,
@@ -490,6 +503,19 @@ async function legacyAmbiguousManifestRows(
                  from public.shows_pending_changes p
                 where p.wizard_session_id = m.wizard_session_id
                   and p.drive_file_id = m.drive_file_id
+             )
+         and not exists (
+               select 1
+                 from public.sync_audit sa
+                where sa.drive_file_id = m.drive_file_id
+                  and sa.show_id = s.id
+                  and sa.parse_result_summary->>'source' = 'onboarding_finalize_cas'
+                  and sa.parse_result_summary ? 'crewCount'
+                  and sa.applied_at >= (
+                        select a.pending_wizard_session_at
+                          from public.app_settings a
+                         where a.id = 'default'
+                      )
              )
        order by m.drive_file_id
     `,

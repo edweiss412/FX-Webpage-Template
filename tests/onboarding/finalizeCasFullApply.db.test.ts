@@ -706,6 +706,20 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
         // discriminator omitted → wizard_created_session_id NULL (the OLD shape)
       });
       await seedManifestRow("drive-cas-legacy-a"); // applied, created_show_id NULL, NO shadow
+      // WM-R8 window pin: an F1-shape CAS audit row from a PRIOR session (applied_at BEFORE
+      // this session's pending_wizard_session_at) is NOT completion proof — the true legacy
+      // row must still refuse despite the stale audit.
+      await sql!.unsafe(
+        `insert into public.sync_audit
+           (show_id, drive_file_id, applied_by, staged_id, triggered_review_items,
+            reviewer_choices, derived_side_effects, parse_result_summary,
+            staged_modified_time, applied_at)
+         values ($1::uuid, 'drive-cas-legacy-a', 'approver@fxav.com', $2::uuid, '[]'::jsonb,
+                 '[]'::jsonb, '{}'::jsonb,
+                 '{"source":"onboarding_finalize_cas","crewCount":1}'::jsonb,
+                 $3::timestamptz, '2026-06-01T00:00:00.000Z'::timestamptz)`,
+        [legacyShowId, randomUUID(), STAGED],
+      );
       // Provenance-bearing sibling (the positive case): session-created row.
       const createdShowId = await seedLiveShow({
         drive: "drive-cas-legacy-b",
@@ -769,6 +783,106 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
           ),
         ).status,
       ).toBe("final_cas_done");
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "(legacy-retry) a Phase-D-completed row (F1 audit provenance, shadow consumed) is NOT legacy-ambiguous on retry (WM-R8)",
+    async () => {
+      // Concrete failure mode: the WM-R7 preflight uses shadow ABSENCE as its discriminator,
+      // but Phase D deletes shadows on per-row success. An existing published=false show whose
+      // shadow applies successfully (audit row written, shadow consumed) then a SIBLING blocks
+      // the final CAS → the retry classifies the COMPLETED row (no shadow, unpublished stays
+      // unpublished for existing shows, NULL provenance) as legacy-ambiguous → wizard
+      // permanently blocked. Durable completion proof = the F1 audit shape (crewCount-bearing
+      // parse_result_summary with source='onboarding_finalize_cas') for the row's drive_file_id
+      // within this session's window.
+      // Session minted BEFORE the wizard_approved_at snapshot the audit will carry:
+      await seedSession({ sessionAt: "2026-06-10T00:00:00.000Z" });
+      // A — pre-existing published=false show with a benign shadow (completes on call 1):
+      const doneShowId = await seedLiveShow({
+        drive: "drive-cas-done-a",
+        title: "Cas Done A Live",
+        crew: [{ name: "Ada", email: "ada@old.example" }],
+        lastSeen: BASE,
+        published: false,
+      });
+      await seedManifestRow("drive-cas-done-a"); // applied, created_show_id NULL (existing-show shape)
+      await seedShadow(
+        "drive-cas-done-a",
+        doneShowId,
+        shadowPayload(makeParse("Cas Done A", [{ name: "Ada", email: "ada@old.example" }])),
+      );
+      // B — sibling whose shadow is CAS-stale (live watermark at MID ≠ base BASE) → blocks:
+      const staleShowId = await seedLiveShow({
+        drive: "drive-cas-done-b",
+        title: "Cas Done B Live",
+        crew: [{ name: "Bo", email: "bo@x.example" }],
+        lastSeen: MID,
+      });
+      await seedShadow(
+        "drive-cas-done-b",
+        staleShowId,
+        shadowPayload(makeParse("Cas Done B", [{ name: "Bo", email: "bo@x.example" }]), {
+          base: BASE,
+        }),
+      );
+
+      // Call 1: A applies durably in its committed row transaction; B refuses → batch 409.
+      const res1 = await handleOnboardingFinalizeCas(request(), deps());
+      expect(res1.status).toBe(409);
+      const rows1 = await perRows(res1);
+      expect(rows1.find((r) => r.drive_file_id === "drive-cas-done-a")!.code).toBe("OK");
+      expect(rows1.find((r) => r.drive_file_id === "drive-cas-done-b")!.code).toBe(
+        "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+      );
+      // A's durable completion provenance: the F1 audit shape, shadow consumed.
+      const audit = one<{ parse_result_summary: Record<string, unknown> }>(
+        await sql!.unsafe(
+          `select parse_result_summary from public.sync_audit where drive_file_id = 'drive-cas-done-a'`,
+        ),
+      );
+      expect(audit.parse_result_summary).toMatchObject({ source: "onboarding_finalize_cas" });
+      expect(audit.parse_result_summary).toHaveProperty("crewCount");
+      expect(
+        (
+          await sql!.unsafe(
+            `select 1 from public.shows_pending_changes where drive_file_id = 'drive-cas-done-a'`,
+          )
+        ).length,
+      ).toBe(0);
+
+      // Call 2 (retry; sibling still stale): must NOT 409 legacy-ambiguous for the completed
+      // row — the typed sibling refusal is the only blocker.
+      const res2 = await handleOnboardingFinalizeCas(request(), deps());
+      expect(res2.status).toBe(409);
+      const body2 = (await res2.json()) as { code: string; per_row: PerRow[] };
+      expect(body2.code).toBe("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+      expect(body2.per_row).toEqual([
+        { drive_file_id: "drive-cas-done-b", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+      ]);
+
+      // Clear the sibling (watermark back at the staged baseline) → finalize COMPLETES.
+      await sql!.unsafe(
+        `update public.shows set last_seen_modified_time = $1::timestamptz where id = $2::uuid`,
+        [BASE, staleShowId],
+      );
+      const res3 = await handleOnboardingFinalizeCas(request(), deps());
+      expect(res3.status).toBe(200);
+      expect(
+        one<{ status: string }>(
+          await sql!.unsafe(
+            `select status from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`,
+            [SESSION],
+          ),
+        ).status,
+      ).toBe("final_cas_done");
+      // Existing-show contract preserved: the completed row is NOT force-published by the flip.
+      expect(
+        one<{ published: boolean }>(
+          await sql!.unsafe(`select published from public.shows where id = $1`, [doneShowId]),
+        ).published,
+      ).toBe(false);
     },
   );
 
