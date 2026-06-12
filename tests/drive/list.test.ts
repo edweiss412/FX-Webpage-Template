@@ -92,6 +92,74 @@ describe("listFolder", () => {
     );
   });
 
+  // === Pagination edge cases (pinned behavior) ===
+
+  test("terminates after a final page of exactly pageSize files when Drive omits nextPageToken (pinned: no extra request)", async () => {
+    // listFolder requests pageSize: 100. Drive MAY return a full page with
+    // no nextPageToken when the result count is an exact multiple of the
+    // page size — the loop must treat the absent token as terminal, not
+    // re-request page 1 or hang.
+    const PAGE_SIZE = 100; // mirrors the pageSize listFolder sends (asserted in the first test above)
+    const fullPage = Array.from({ length: PAGE_SIZE }, (_, i) => ({
+      id: `sheet-${i}`,
+      name: `Sheet ${i}`,
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      parents: [FOLDER_ID],
+    }));
+    const filesList = vi.fn().mockResolvedValue({
+      data: { files: fullPage }, // no nextPageToken
+    });
+    const { listFolder } = await import("@/lib/drive/list");
+
+    const files = await listFolder(FOLDER_ID, { drive: fakeDrive(filesList) });
+
+    expect(files).toHaveLength(PAGE_SIZE);
+    expect(files.map((file) => file.driveFileId)).toEqual(fullPage.map((file) => file.id));
+    expect(filesList).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns an empty list for an empty first page (no files array, no token) without a second request (pinned)", async () => {
+    const filesList = vi.fn().mockResolvedValue({ data: {} });
+    const { listFolder } = await import("@/lib/drive/list");
+
+    const files = await listFolder(FOLDER_ID, { drive: fakeDrive(filesList) });
+
+    expect(files).toEqual([]);
+    expect(filesList).toHaveBeenCalledTimes(1);
+  });
+
+  test("follows a nextPageToken onto an empty final page and terminates with only the first page's files (pinned)", async () => {
+    const filesList = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: {
+          nextPageToken: "page-2",
+          files: [
+            {
+              id: "sheet-1",
+              name: "First",
+              mimeType: "application/vnd.google-apps.spreadsheet",
+              modifiedTime: "2026-05-08T12:00:00.000Z",
+              parents: [FOLDER_ID],
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: { files: [] }, // empty terminal page, no token
+      });
+    const { listFolder } = await import("@/lib/drive/list");
+
+    const files = await listFolder(FOLDER_ID, { drive: fakeDrive(filesList) });
+
+    expect(files.map((file) => file.driveFileId)).toEqual(["sheet-1"]);
+    expect(filesList).toHaveBeenCalledTimes(2);
+    expect(filesList.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ pageToken: "page-2" }),
+    );
+  });
+
   test("drops files whose parents do not include the watched folder and emits UNEXPECTED_PARENT", async () => {
     const filesList = vi.fn().mockResolvedValue({
       data: {

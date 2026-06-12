@@ -100,6 +100,72 @@ describe("renderDigest — grouping, caps, overflow", () => {
   });
 });
 
+describe("null/undefined template variables — fallbacks render, never the literal 'null'/'undefined'", () => {
+  // Every nullable input is guarded with `??` in the templates; these tests PIN that
+  // an admin email body can never contain the words "null" or "undefined" when a
+  // nullable variable is absent. Failure mode caught: someone swaps a `??` fallback
+  // for raw interpolation (`${input.showTitle}`) and "undefined" lands in Doug's inbox.
+  const LEAK = /\b(?:null|undefined)\b/;
+
+  function expectNoLeak(out: { subject: string; text: string; html: string }) {
+    expect(out.subject).not.toMatch(LEAK);
+    expect(out.text).not.toMatch(LEAK);
+    expect(out.html).not.toMatch(LEAK);
+  }
+
+  test("show-level: null showTitle + null contextSheetName fall back to 'a show' / 'this show'", () => {
+    const out = renderRealtimeProblem({
+      kind: "show",
+      origin: ORIGIN,
+      slug: "s",
+      showTitle: null,
+      code: "SHEET_UNAVAILABLE",
+      contextSheetName: null,
+    });
+    expect(out.subject).toBe("FXAV · a show: sync problem");
+    expect(out.text).toContain("this show"); // <sheet-name> slot filled by the final fallback
+    expectNoLeak(out);
+  });
+
+  test("ingestion-level: null driveFileName + null lastErrorCode use the shared resolver fallback", () => {
+    const out = renderRealtimeProblem({
+      kind: "ingestion",
+      origin: ORIGIN,
+      driveFileName: null,
+      lastErrorCode: null,
+    });
+    expect(out.subject).toBe("FXAV · a new sheet: sync problem");
+    // Body comes from the DATA SOURCE (shared resolver), not an inline literal.
+    expect(out.text).toContain(resolveIngestionCopy({ code: null, driveFileName: null }));
+    expectNoLeak(out);
+  });
+
+  test("digest: null/undefined showTitle renders 'Untitled show'; null/undefined slug links to the dashboard", () => {
+    // React-style partial data can also surface `undefined` at runtime despite the
+    // `string | null` type — pin that the `??` guards cover both.
+    const undefinedShow = {
+      showTitle: undefined,
+      slug: undefined,
+      items: ["other issue"],
+    } as unknown as DigestInput["shows"][number];
+    const out = renderDigest({
+      origin: ORIGIN,
+      shows: [{ showTitle: null, slug: null, items: ["one issue"] }, undefinedShow],
+    });
+    expect((out.html.match(/Untitled show/g) ?? []).length).toBe(2);
+    expect(out.html).toContain(`href="${ORIGIN}/admin"`); // null slug → dashboard, not /admin/show/null
+    expect(out.html).not.toContain("/admin/show/");
+    expectNoLeak(out);
+  });
+
+  test("digest: zero shows renders a sane zero-count subject and the dashboard link", () => {
+    const out = renderDigest({ origin: ORIGIN, shows: [] });
+    expect(out.subject).toBe("FXAV daily review · 0 shows need attention");
+    expect(out.text).toContain(`${ORIGIN}/admin`);
+    expectNoLeak(out);
+  });
+});
+
 describe("em-dash audit (DESIGN.md §9 — no em dashes in any rendered copy)", () => {
   test.each([
     () => renderRealtimeProblem({ kind: "show", origin: ORIGIN, slug: "s", showTitle: "S", code: "SHEET_UNAVAILABLE", contextSheetName: null }),

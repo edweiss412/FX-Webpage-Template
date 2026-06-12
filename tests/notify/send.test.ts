@@ -97,6 +97,39 @@ describe("sendEmail outcomes", () => {
     },
   );
 
+  // Malformed provider success: Resend reports no error but the payload carries no
+  // usable message id. Treating this as ok would record a sent ledger row with no
+  // provider_message_id to reconcile against — it must be the no-message-id infra_error.
+  test.each([
+    ["data.id null", { id: null }],
+    ["data null", null],
+  ])("malformed success (%s, error: null) -> no-message-id infra_error", async (_label, data) => {
+    resendState.send.mockResolvedValue({ data, error: null, headers: {} });
+
+    await expect(sendEmail(args)).resolves.toEqual({
+      ok: false,
+      kind: "infra_error",
+      message: "no message id",
+    });
+  });
+
+  // Forward-compat: a Resend error name this code has never seen must fall through
+  // classifyResendError's default branch to infra_error (never retry_later, never a
+  // conflict reissue), carrying the provider's message.
+  test("unrecognized error.name hits the classify default branch -> infra_error", async () => {
+    resendState.send.mockResolvedValue({
+      data: null,
+      error: resendError("weird_new_error", 500),
+      headers: {},
+    });
+
+    await expect(sendEmail(args)).resolves.toEqual({
+      ok: false,
+      kind: "infra_error",
+      message: "resend weird_new_error",
+    });
+  });
+
   test("a thrown SDK error is caught (never throws into the loop)", async () => {
     resendState.send.mockRejectedValue(new Error("network down"));
 

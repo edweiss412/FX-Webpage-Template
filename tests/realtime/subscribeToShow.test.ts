@@ -204,6 +204,71 @@ describe("subscribeToShow", () => {
     expect(seenTokens).toEqual([]);
   });
 
+  test("does NOT fire onInvalidate when payload.show_id is a NUMBER matching the subscribed id's digits (strict !== — no type coercion; pinned)", () => {
+    // The guard at lib/realtime/subscribeToShow.ts:180 uses strict
+    // inequality (`msg.payload?.show_id !== showId`). A payload carrying
+    // show_id as the NUMBER 123 against a subscription for the STRING
+    // "123" must therefore be ignored — there is no loose-equality branch
+    // that would coerce 123 == "123" and fire the callback. This pins the
+    // strictness so a future refactor to `!=` (or String(...) coercion)
+    // fails this test instead of silently widening the fence.
+    const fake = makeFakeSupabase();
+    const seenTokens: string[] = [];
+    subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "123",
+      "fake.jwt.value",
+      (token) => {
+        seenTokens.push(token);
+      },
+    );
+    fake.fire({
+      event: "invalidate",
+      payload: { show_id: 123, version_token: "TOKEN-NUM" } as unknown as InvalidatePayload,
+    });
+    expect(seenTokens).toEqual([]);
+  });
+
+  test("ignores an invalidate message whose payload is null without throwing (pinned: optional-chained guard)", () => {
+    // `msg.payload?.show_id` short-circuits to undefined for a null
+    // payload; undefined !== showId, so the handler returns before
+    // touching version_token. No TypeError, no callback.
+    const fake = makeFakeSupabase();
+    const seenTokens: string[] = [];
+    subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      (token) => {
+        seenTokens.push(token);
+      },
+    );
+    expect(() =>
+      fake.fire({
+        event: "invalidate",
+        payload: null as unknown as InvalidatePayload,
+      }),
+    ).not.toThrow();
+    expect(seenTokens).toEqual([]);
+  });
+
+  test("ignores an invalidate message with no payload property at all without throwing (pinned)", () => {
+    const fake = makeFakeSupabase();
+    const seenTokens: string[] = [];
+    subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      (token) => {
+        seenTokens.push(token);
+      },
+    );
+    expect(() =>
+      fake.fire({ event: "invalidate" } as unknown as Parameters<typeof fake.fire>[0]),
+    ).not.toThrow();
+    expect(seenTokens).toEqual([]);
+  });
+
   test("returns the channel handle (on .channel) for caller cleanup via removeChannel", () => {
     const fake = makeFakeSupabase();
     const result = subscribeToShow(

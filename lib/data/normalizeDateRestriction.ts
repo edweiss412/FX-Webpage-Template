@@ -26,7 +26,9 @@
  *     - Already ISO YYYY-MM-DD token: pass through.
  *     - M/D token: expand to ${showYear}-${MM}-${DD} using the show's
  *       calendar year (derived from showDays[0] then travelIn then
- *       travelOut).
+ *       travelOut). Tokens naming an impossible calendar date for the
+ *       resolved year ("2/31", "2/29" on a non-leap year) are dropped —
+ *       never rolled over into the next month.
  *     - Anything else: drop.
  *
  *   Year disambiguation: most shows are single-year. Cross-year shows
@@ -37,6 +39,19 @@ import type { DateRestriction, ShowRow } from "@/lib/parser/types";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const M_D_PATTERN = /^(\d{1,2})\/(\d{1,2})$/;
+
+/**
+ * Real calendar validation for an M/D token against its resolved year.
+ * Date.UTC rolls impossible dates over (2026-02-31 → 2026-03-03); a
+ * round-trip month/day mismatch detects that. Without this check a
+ * token claiming Feb 31 was emitted verbatim ("2026-02-31") — and the
+ * cross-year picker's Date.parse silently treated it as a March date.
+ * Leap years are handled implicitly: 2/29 round-trips on 2028, not 2026.
+ */
+function isRealCalendarDate(year: number, month: number, day: number): boolean {
+  const d = new Date(Date.UTC(year, month - 1, day));
+  return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
+}
 
 function resolveShowYear(dates: ShowRow["dates"]): number | null {
   const candidates: Array<string | null | undefined> = [
@@ -131,6 +146,7 @@ export function normalizeDateRestriction(
       }
       const year = pickYearForMonthDay(month, day, dates) ?? fallbackYear;
       if (year === null) continue;
+      if (!isRealCalendarDate(year, month, day)) continue;
       const mm = month.toString().padStart(2, "0");
       const dd = day.toString().padStart(2, "0");
       normalized.push(`${year}-${mm}-${dd}`);

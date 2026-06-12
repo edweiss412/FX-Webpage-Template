@@ -238,6 +238,28 @@ describe("deliverRealtimeCandidates", () => {
     expect(upsertAdminAlert).not.toHaveBeenCalled();
   });
 
+  test("reissue that ALSO conflicts stops after exactly two sends: retryLater, no ledger write, no alert", async () => {
+    const { sql, state } = fakeSql();
+    // [conflict, conflict]: the sender fallback after these two results is ok:true,
+    // so a third (looping) send attempt would record a sent row and fail this test.
+    const { sendEmail } = sender([
+      { ok: false, kind: "idempotency_conflict" },
+      { ok: false, kind: "idempotency_conflict" },
+    ]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert, reissueKey: () => "fresh-nonce-1" },
+    );
+
+    expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 1 });
+    expect(sendEmail).toHaveBeenCalledTimes(2); // base + one reissue, never a third
+    expect(state.sentRows).toHaveLength(0);
+    expect(state.failedRows).toHaveLength(0);
+    expect(upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
   test("infra_error records conditional failure, increments attempts, and raises EMAIL_DELIVERY_FAILED", async () => {
     const { sql, state } = fakeSql();
     const { sendEmail } = sender([
@@ -325,6 +347,28 @@ describe("deliverRealtimeCandidates", () => {
     expect(result).toMatchObject({ kind: "ok", skipped: 1 });
     expect(sendEmail).not.toHaveBeenCalled();
     expect(state.sentRows).toHaveLength(0);
+  });
+
+  test("empty candidates or empty recipients return the zero-counts ok result without touching SQL or the provider", async () => {
+    const { sql, calls } = fakeSql();
+    const { sendEmail } = sender([]);
+    const zero = { kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 0 };
+
+    await expect(
+      deliverRealtimeCandidates(
+        { candidates: [], recipients: ["doug@fxav.net"], origin: ORIGIN },
+        { sql, sendEmail },
+      ),
+    ).resolves.toEqual(zero);
+    await expect(
+      deliverRealtimeCandidates(
+        { candidates: [showCandidate()], recipients: [], origin: ORIGIN },
+        { sql, sendEmail },
+      ),
+    ).resolves.toEqual(zero);
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
   test("show and pending currentness checks use SQL-computed microsecond epochs and wizard exclusion", async () => {
@@ -418,6 +462,28 @@ describe("deliverDigest", () => {
     );
 
     expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
+    expect(state.sentRows).toHaveLength(0);
+    expect(state.failedRows).toHaveLength(0);
+    expect(upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
+  test("reissue that ALSO conflicts stops after exactly two sends: retryLater, no ledger write, no alert", async () => {
+    const { sql, state } = fakeSql();
+    // Sender fallback after these two results is ok:true — a third send would
+    // record a sent row, so sentRows 0 + calledTimes 2 prove there is no loop.
+    const { sendEmail } = sender([
+      { ok: false, kind: "idempotency_conflict" },
+      { ok: false, kind: "idempotency_conflict" },
+    ]);
+    const upsertAdminAlert = vi.fn();
+
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { sql, sendEmail, upsertAdminAlert, reissueKey: () => "digest-fresh-nonce" },
+    );
+
+    expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 1 });
+    expect(sendEmail).toHaveBeenCalledTimes(2);
     expect(state.sentRows).toHaveLength(0);
     expect(state.failedRows).toHaveLength(0);
     expect(upsertAdminAlert).not.toHaveBeenCalled();

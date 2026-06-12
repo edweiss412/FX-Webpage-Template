@@ -30,6 +30,12 @@ describe("activeRecipients", () => {
     expect(is).toHaveBeenCalledWith("revoked_at", null);
   });
 
+  test("all recipients revoked -> { kind: 'ok', recipients: [] } (empty roster is a value, not a fault)", async () => {
+    // .is("revoked_at", null) filtered everything server-side: data is [], error null.
+    const { client } = fakeClient({ data: [], error: null });
+    expect(await activeRecipients(client)).toEqual({ kind: "ok", recipients: [] });
+  });
+
   test("drops non-canonicalizable emails", async () => {
     const { client } = fakeClient({ data: [{ email: "  " }, { email: "ok@x.com" }], error: null });
     expect(await activeRecipients(client)).toEqual({ kind: "ok", recipients: ["ok@x.com"] });

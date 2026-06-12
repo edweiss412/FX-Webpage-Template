@@ -97,10 +97,7 @@ export default async function ShowPage({
 
     case "infra_error":
       return (
-        <TerminalFailure
-          code={result.code as never}
-          retryHref={`/show/${slug}/${shareToken}`}
-        />
+        <TerminalFailure code={result.code as never} retryHref={`/show/${slug}/${shareToken}`} />
       );
 
     case "needs_picker_bootstrap": {
@@ -155,16 +152,18 @@ export default async function ShowPage({
           />
         );
       }
-      const crew = data.crewMembers.find((c) => c.id === result.crewMemberId);
+      // Defense-in-depth: crewMembers is typed as a required array and the
+      // helper always constructs one (getShowForViewer.ts:305), but a
+      // malformed/degraded projection must degrade to a chip-less render —
+      // never an uncaught TypeError into Next's generic boundary (P-R5 Fix-1).
+      const crew = data.crewMembers?.find((c) => c.id === result.crewMemberId);
       return (
         <ShowBody
           slug={slug}
           showId={result.showId}
           viewer={viewer}
           data={data}
-          identityChip={
-            crew ? { name: crew.name, role: crew.role, shareToken } : null
-          }
+          identityChip={crew ? { name: crew.name, role: crew.role, shareToken } : null}
         />
       );
     }
