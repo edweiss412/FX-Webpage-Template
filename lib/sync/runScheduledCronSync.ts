@@ -953,6 +953,12 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.staleGuard === "strict_less_than"
         ? "(last_seen_modified_time is null or last_seen_modified_time < $14::timestamptz)"
         : "(last_seen_modified_time is null or last_seen_modified_time <= $14::timestamptz)";
+    // NO autoPublish token entries in updateParams: the UPDATE arm references $1-$17 only (the
+    // tokens are first-seen INSERT columns). postgres.js sends every array entry as a wire
+    // parameter and real Postgres rejects an unreferenced one with 42P18 "could not determine
+    // data type of parameter $18" — latent since Amendment 9 (fda81c4d) because every prior
+    // suite faked this tx; surfaced by the first real-DB execution of the UPDATE arm (F1 Task
+    // 1.5 Phase D). Pinned by tests/sync/_insertParamsArityContract.test.ts (update-arm cases).
     const updateParams = [
       args.driveFileId,
       args.parseResult.show.title,
@@ -971,8 +977,6 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
-      args.autoPublishFirstSeen?.unpublishToken ?? null,
-      args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
     ];
     const skipDiagramsParams = [
       args.driveFileId,
