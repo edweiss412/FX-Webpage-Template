@@ -246,6 +246,16 @@ describe("per-show page (§6)", () => {
     expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
   });
 
+  // M12.12 follow-up — the "Open crew page →" arrow is decorative; aria-hiding
+  // it keeps it out of the accessible name. Failure mode caught: someone
+  // inlines the arrow back into the accessible name.
+  it("Open-crew-page arrow is aria-hidden — accessible name drops →, visible text keeps it", async () => {
+    await renderPage();
+    const link = screen.getByRole("link", { name: "Open crew page" });
+    expect(link).toHaveAttribute("data-testid", "admin-show-open-crew");
+    expect(link.textContent).toContain("→");
+  });
+
   it("crew-link surfaces hidden for archived show (incl archived+published drift)", async () => {
     state.show = { ...baseShow, archived: true, published: true };
     await renderPage();

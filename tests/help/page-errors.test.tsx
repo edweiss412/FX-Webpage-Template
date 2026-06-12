@@ -57,6 +57,18 @@ describe("/help/errors (E.13)", () => {
     expect(src).not.toMatch(/Learn more/i); // the destination page never self-links
   });
 
+  // M12.12 follow-up — the tell-Eric CTA's "→" is decorative; aria-hiding it
+  // keeps it out of the accessible name. Failure mode caught: someone inlines
+  // the arrow back into the accessible name. Visible copy (AC-11.11 r10
+  // "tell Eric →") is unchanged.
+  it("tell-Eric CTA arrow is aria-hidden — accessible name drops →, visible text keeps it", async () => {
+    const Page = (await import("@/app/help/errors/page")).default;
+    const { getAllByRole } = render(<Page />);
+    const ctas = getAllByRole("link", { name: "If this keeps happening, tell Eric" });
+    expect(ctas.length).toBeGreaterThan(0);
+    for (const cta of ctas) expect(cta.textContent).toContain("→");
+  });
+
   it("rendered output contains every renderable code as an anchor id", async () => {
     const Page = (await import("@/app/help/errors/page")).default;
     const html = renderToStaticMarkup(<Page />);

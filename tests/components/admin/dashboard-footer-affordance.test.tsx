@@ -27,6 +27,15 @@ describe("DashboardFooter (Phase G.3 — matrix row 4)", () => {
     expect(link.textContent).toMatch(/Take the tour/);
   });
 
+  // M12.12 follow-up — the "→" is decorative; aria-hiding it keeps it out of
+  // the accessible name. Failure mode caught: someone inlines the arrow back
+  // into the accessible name.
+  it("tour-link arrow is aria-hidden — accessible name is 'Take the tour', visible text keeps →", () => {
+    render(<DashboardFooter />);
+    const link = screen.getByRole("link", { name: "Take the tour" });
+    expect(link.textContent).toContain("→");
+  });
+
   it("does not render the retired M10 Tour modal trigger", () => {
     render(<DashboardFooter />);
     expect(screen.queryByTestId("admin-tour-trigger")).toBeNull();

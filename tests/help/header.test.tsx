@@ -19,6 +19,15 @@ describe("<Header>", () => {
     expect(link).toHaveAttribute("href", "/admin");
   });
 
+  // M12.12 follow-up — the "→" is decorative; aria-hiding it keeps it out of
+  // the accessible name. Failure mode caught: someone inlines the arrow back
+  // into the accessible name.
+  it("back-link arrow is aria-hidden — accessible name is 'Back to admin', visible text keeps →", () => {
+    render(<Header />);
+    const link = screen.getByRole("link", { name: "Back to admin" });
+    expect(link.textContent).toContain("→");
+  });
+
   it("renders the FXAV brand mark", () => {
     render(<Header />);
     expect(screen.getByTestId("help-header-brand")).toBeInTheDocument();

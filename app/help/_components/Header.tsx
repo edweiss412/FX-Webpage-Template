@@ -20,7 +20,7 @@ export function Header() {
           href="/admin"
           className="text-sm text-text hover:text-text-strong underline underline-offset-2 min-h-tap-min flex items-center"
         >
-          Back to admin →
+          Back to admin <span aria-hidden="true">→</span>
         </Link>
       </div>
     </header>

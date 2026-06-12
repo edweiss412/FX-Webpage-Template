@@ -92,7 +92,7 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
           href={`/admin/show/staged/${encodeURIComponent(item.stagedId)}`}
           className={reviewLinkClass}
         >
-          Review →
+          Review <span aria-hidden="true">→</span>
         </Link>
       </li>
     );
@@ -111,7 +111,7 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
         href={`/admin/show/${encodeURIComponent(item.slug)}`}
         className={reviewLinkClass}
       >
-        Open show →
+        Open show <span aria-hidden="true">→</span>
       </Link>
     </li>
   );

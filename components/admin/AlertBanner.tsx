@@ -161,7 +161,7 @@ export async function AlertBanner() {
           href="/admin#alerts"
           className="inline-flex min-h-tap-min shrink-0 items-center text-sm underline underline-offset-2"
         >
-          View alerts →
+          View alerts <span aria-hidden="true">→</span>
         </Link>
       </section>
     );

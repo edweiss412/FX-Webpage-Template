@@ -170,6 +170,20 @@ describe("HoverHelp", () => {
     expect(described.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // M12.12 follow-up — the "→" glyph in the learnMore link is decorative;
+  // aria-hiding it makes the accessible name "Learn more" (not "Learn more →").
+  // Failure mode caught: someone inlines the arrow back into the accessible name.
+  it("learnMore arrow glyph is aria-hidden — accessible name is 'Learn more', visible text keeps →", () => {
+    render(
+      <HoverHelp label="Help: X" testId="x-help" learnMore={{ href: "/help/admin/dashboard" }}>
+        <p>Body copy.</p>
+      </HoverHelp>,
+    );
+    const body = screen.getByTestId("x-help-body");
+    const link = within(body).getByRole("link", { name: "Learn more", hidden: true });
+    expect(link.textContent).toContain("→");
+  });
+
   // M12.12 — existing no-learnMore call sites must NOT change semantics.
   it("without learnMore, role=tooltip and describedby semantics are unchanged", () => {
     render(

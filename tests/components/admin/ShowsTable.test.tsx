@@ -487,6 +487,17 @@ describe("ShowsTable", () => {
     expect(link).toHaveAttribute("href", "/help/admin/dashboard#active-shows");
   });
 
+  // M12.12 follow-up — the legend link's "→" is decorative; aria-hiding it
+  // keeps it out of the accessible name. Failure mode caught: someone inlines
+  // the arrow back into the accessible name.
+  it("restage legend arrow is aria-hidden — accessible name drops →, visible text keeps it", () => {
+    const reviewRow = row({ slug: "rev", lastSyncStatus: "pending_review", title: "Review Me" });
+    render(<ShowsTable rows={[reviewRow]} now={now} activeCount={1} overflowCount={0} />);
+    const legend = screen.getByRole("link", { name: "What the sync statuses mean" });
+    expect(legend).toHaveAttribute("data-testid", "help-affordance--dashboard-restage--legend");
+    expect(legend.textContent).toContain("→");
+  });
+
   it("restage legend renders iff a VISIBLE row has bucket=review, links to re-stage (row 4)", () => {
     // Failure mode caught: an always-on legend (condition replaced by `true`)
     // fails the ok-only re-render below.

@@ -170,7 +170,7 @@ export async function PerShowAlertSection({
               href="/help/admin/parse-warnings"
               className="font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
             >
-              Learn more →
+              Learn more <span aria-hidden="true">→</span>
             </a>
           </p>
         </HelpTooltip>

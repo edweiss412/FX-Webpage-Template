@@ -410,7 +410,7 @@ export function ShowsTable({
             data-testid="help-affordance--dashboard-restage--legend"
             className="font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
           >
-            What the sync statuses mean →
+            What the sync statuses mean <span aria-hidden="true">→</span>
           </Link>
         </p>
       ) : null}

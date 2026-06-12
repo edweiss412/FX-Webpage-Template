@@ -51,6 +51,23 @@ describe("NeedsAttentionInbox", () => {
     expect(es.getAttribute("href")).toBe("/admin/show/known-show");
   });
 
+  // M12.12 follow-up — the "Review →" / "Open show →" arrows are decorative;
+  // aria-hiding them keeps them out of the accessible names. Failure mode
+  // caught: someone inlines an arrow back into an accessible name.
+  it("Review/Open-show arrows are aria-hidden — accessible names drop →, visible text keeps it", () => {
+    const items: NeedsAttentionItem[] = [
+      { variant: "first_seen", key: "sync:s1", stagedId: "s1", driveFileId: "d2", candidateTitle: "New Show", activityAt: ONE_HR_AGO },
+      { variant: "existing_staged", key: "sync:s2", stagedId: "s2", driveFileId: "d3", slug: "known-show", title: "Known Show", activityAt: ONE_HR_AGO },
+    ];
+    render(<NeedsAttentionInbox items={items} totalCount={2} renderedCount={2} overflowCount={0} now={NOW} />);
+    const review = screen.getByRole("link", { name: "Review" });
+    expect(review).toHaveAttribute("data-testid", "needs-attention-link-first-seen-s1");
+    expect(review.textContent).toContain("→");
+    const openShow = screen.getByRole("link", { name: "Open show" });
+    expect(openShow).toHaveAttribute("data-testid", "needs-attention-link-known-show");
+    expect(openShow.textContent).toContain("→");
+  });
+
   // M12.4 item D3 — each card shows a relative activity timestamp top-right when
   // the item carries one; the bare "never" placeholder is never rendered for a
   // null activityAt (the <time> is omitted entirely). Failure mode this catches:

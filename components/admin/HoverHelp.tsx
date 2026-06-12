@@ -184,7 +184,7 @@ export function HoverHelp({
             href={learnMore.href}
             className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
           >
-            Learn more →
+            Learn more <span aria-hidden="true">→</span>
           </a>
         ) : null}
       </div>

@@ -464,7 +464,7 @@ export default async function AdminShowPage({
                 rel="noreferrer"
                 className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
-                Open crew page →
+                Open crew page <span aria-hidden="true">→</span>
               </a>
             ) : null}
           </div>
