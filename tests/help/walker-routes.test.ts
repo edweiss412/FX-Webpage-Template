@@ -65,26 +65,28 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
   // These specs insert/delete whole fixture shows (and crew/pending rows)
   // through the PostgREST client; relocating them is an e2e fixture-
   // architecture change tracked as M12.12-DEF-3 in the affordance-matrix
-  // DEFERRED doc. The list is SHRINK-ONLY: the stale-exemption assertion
-  // below fails when a file is cleaned up (forcing its removal here), and
-  // any NEW file with locked-table DML fails the main assertion — the debt
-  // cannot grow. rightNow.ts and schedule-tile.spec.ts are deliberately
-  // NOT exempt: their date_restriction mutations now go through the locked
-  // psql helper.
-  const EXEMPT_PREEXISTING = new Set<string>([
-    "admin-nav-layout-dimensions.spec.ts",
-    "admin-parse-panel.spec.ts",
-    "admin-route-boundaries.spec.ts",
-    "crew-page.spec.ts",
-    "empty-state-reachability.spec.ts",
-    "empty-state.spec.ts",
-    "me-page.spec.ts",
-    "needs-attention-page.spec.ts",
-    "notes-tile.spec.ts",
-    "pack-list.spec.ts",
-    "right-now.spec.ts",
-    "sign-in-page.spec.ts",
-    "transport-tile.spec.ts",
+  // DEFERRED doc. Codex R3 hardened the freeze from a skip-set to EXACT
+  // per-file violation COUNTS, so exempt files are still scanned:
+  //   - count GROWS → fail loudly (new debt inside an exempt file blocked);
+  //   - count DROPS → fail with "shrink the entry" (cleanup must lower the
+  //     pin in the same commit — the shrink-only signal);
+  //   - non-exempt file with ANY hit → fails the main assertion as before.
+  // rightNow.ts and schedule-tile.spec.ts are deliberately NOT exempt:
+  // their date_restriction mutations go through the locked psql helper.
+  const EXEMPT_PREEXISTING = new Map<string, number>([
+    ["admin-nav-layout-dimensions.spec.ts", 2],
+    ["admin-parse-panel.spec.ts", 2],
+    ["admin-route-boundaries.spec.ts", 2],
+    ["crew-page.spec.ts", 2],
+    ["empty-state-reachability.spec.ts", 7],
+    ["empty-state.spec.ts", 2],
+    ["me-page.spec.ts", 8],
+    ["needs-attention-page.spec.ts", 2],
+    ["notes-tile.spec.ts", 5],
+    ["pack-list.spec.ts", 9],
+    ["right-now.spec.ts", 1],
+    ["sign-in-page.spec.ts", 5],
+    ["transport-tile.spec.ts", 2],
   ]);
 
   const e2eDir = join(process.cwd(), "tests/e2e");
@@ -115,26 +117,29 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     return hits;
   }
 
-  it("no .insert/.update/.delete within 5 lines of a locked-table from() anywhere under tests/e2e/", () => {
+  it("locked-table DML matches the frozen per-file counts everywhere under tests/e2e/ (0 for non-exempt files)", () => {
     for (const file of files) {
-      if (EXEMPT_PREEXISTING.has(file.name)) continue;
       const hits = lockedTableMutationLines(readFileSync(file.path, "utf8"));
-      expect(
-        hits,
-        `${file.name} mutates a locked table near line(s) ${hits.join(", ")} — e2e fixtures on locked tables must come from the locked seed or helpers/lockedCrewRestriction.ts, not unlocked PostgREST writes`,
-      ).toEqual([]);
+      const expected = EXEMPT_PREEXISTING.get(file.name) ?? 0;
+      if (hits.length === expected) continue;
+      const where = hits.length ? ` (line(s) ${hits.join(", ")})` : "";
+      const message =
+        hits.length > expected
+          ? `${file.name} has ${hits.length} locked-table mutation(s)${where} but only ${expected} are frozen — new e2e fixtures on locked tables must use the locked seed or helpers/lockedCrewRestriction.ts, not unlocked PostgREST writes`
+          : `${file.name} now has ${hits.length} locked-table mutation(s)${where}, below its frozen count of ${expected} — shrink its EXEMPT_PREEXISTING entry (or remove it at 0) in the same commit`;
+      expect.fail(message);
     }
   });
 
-  it("every exemption still corresponds to a real locked-table mutation (no stale exemptions)", () => {
-    const byName = new Map(files.map((f) => [f.name, f.path]));
-    for (const name of EXEMPT_PREEXISTING) {
-      const path = byName.get(name);
-      expect(path, `${name} is exempt but no longer exists — remove it`).toBeDefined();
-      const hits = lockedTableMutationLines(readFileSync(path!, "utf8"));
+  it("every exemption entry maps to an existing file with a nonzero frozen count", () => {
+    const names = new Set(files.map((f) => f.name));
+    for (const [name, count] of EXEMPT_PREEXISTING) {
+      expect(names.has(name), `${name} is exempt but no longer exists — remove its entry`).toBe(
+        true,
+      );
       expect(
-        hits.length,
-        `${name} no longer mutates a locked table — remove it from EXEMPT_PREEXISTING`,
+        count,
+        `${name} has a frozen count of ${count} — a zero/negative pin is a stale entry; remove it`,
       ).toBeGreaterThan(0);
     }
   });
