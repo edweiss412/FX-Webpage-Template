@@ -33,7 +33,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
-import { messageFor, MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/lookup";
+import { isMessageCode, messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 
 export type ReportSurface = "crew" | "admin";
@@ -134,16 +134,13 @@ function clearPersisted(surfaceId: string) {
 }
 
 function isKnownCode(code: unknown): code is MessageCode {
-  if (typeof code !== "string") return false;
-  // Lookup via the catalog without exporting it directly — messageFor
-  // returns undefined for unknown codes only if we typed it as such;
-  // here we rely on the catalog covering every code §A returns.
-  try {
-    const entry = messageFor(code as MessageCode);
-    return entry !== undefined && entry !== null;
-  } catch {
-    return false;
-  }
+  // Catalog MEMBERSHIP, not messageFor() truthiness: messageFor() now
+  // returns an all-null fallback entry for unknown codes (lookup.ts), so
+  // its result is truthy for ANY string — an unknown /api/report code
+  // would pass, get persisted as if cataloged, and render a BLANK retry
+  // alert (null copy on both surfaces). isMessageCode is the shared
+  // hasOwnProperty guard from lib/messages/lookup.ts.
+  return typeof code === "string" && isMessageCode(code);
 }
 
 function copyForCode(code: MessageCode, surface: ReportSurface): string | null {
@@ -207,9 +204,9 @@ export function ReportModal(props: ReportModalProps) {
     if (
       persistedAtMount?.status === "failed-retryable" &&
       typeof persistedAtMount.errorCode === "string" &&
-      persistedAtMount.errorCode in MESSAGE_CATALOG
+      isMessageCode(persistedAtMount.errorCode)
     ) {
-      return { kind: "code", code: persistedAtMount.errorCode as MessageCode };
+      return { kind: "code", code: persistedAtMount.errorCode };
     }
     return null;
   });

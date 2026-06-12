@@ -28,7 +28,7 @@ import { TriangleAlert } from "lucide-react";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
-import { getRequiredDougFacing, messageFor, type MessageCode } from "@/lib/messages/lookup";
+import { getRequiredDougFacing, isMessageCode, messageFor } from "@/lib/messages/lookup";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
@@ -213,12 +213,11 @@ export async function AlertBanner() {
   // is not a MessageCode enum). messageFor() dereferences the catalog entry, so
   // an uncataloged code would throw and take down the PERSISTENT admin layout.
   // Mirror ErrorExplainer/HelpAffordance's unknown-code resilience: a
-  // user-defined type guard NARROWS string → MessageCode (a bare `in` /
-  // hasOwnProperty check does not narrow on its own, and messageFor expects
-  // MessageCode), falling back to null/"" so the panel's <ErrorExplainer>
-  // (which also returns null for unknown codes) stays consistent.
-  const isMessageCode = (c: string): c is MessageCode =>
-    Object.prototype.hasOwnProperty.call(MESSAGE_CATALOG, c);
+  // shared `isMessageCode` type guard (lib/messages/lookup.ts) NARROWS
+  // string → MessageCode (a bare `in` / hasOwnProperty check does not narrow
+  // on its own, and messageFor expects MessageCode), falling back to null/""
+  // so the panel's <ErrorExplainer> (which also returns null for unknown
+  // codes) stays consistent.
   const topMessage = isMessageCode(alert.code)
     ? messageFor(alert.code, (alert.context ?? undefined) as never)
     : null;
