@@ -245,3 +245,78 @@ describe("parsePullSheet — multi-sub-tab (synthetic fixture)", () => {
     expect(warnings).toHaveLength(0);
   });
 });
+
+// ── Test 8: unknown variant — all packed_flag cells empty (edge-case pin) ─────
+describe("parsePullSheet — unknown variant: no packed_flag in any row (synthetic fixture)", () => {
+  // No cell in col[0] or col[4] of any data row matches /^(TRUE|FALSE)$/i, so
+  // detectVariant returns "unknown" for every row and parseDataRows defaults to
+  // Variant A [packed_flag, qty, item, sub_cat, cat] (pull-sheet.ts:218-230).
+  const md = [
+    "| PULL SHEET/No Flags | PULL SHEET/No Flags | PULL SHEET/No Flags | PULL SHEET/No Flags | PULL SHEET/No Flags |",
+    "| :-: | :-: | :-: | :-: | :-: |",
+    "|  | 2 | Item X | SUB1 | CATX |",
+    "|  | 4 | Item Y |  | CATY |",
+  ].join("\n");
+
+  const result = parsePullSheet(md);
+
+  it("emits exactly one PULL_SHEET_UNKNOWN_VARIANT warning with severity 'warn'", () => {
+    const matches = result.warnings.filter((w) => w.code === "PULL_SHEET_UNKNOWN_VARIANT");
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.severity).toBe("warn");
+    expect(matches[0]!.blockRef).toEqual({ kind: "pull_sheet" });
+  });
+
+  it("parses rows under the Variant A column mapping (col[1]=qty, col[2]=item, col[3]=subCat, col[4]=cat)", () => {
+    expect(result.pullSheet).not.toBeNull();
+    const items = result.pullSheet![0]!.items;
+    expect(items).toHaveLength(2);
+    expect(items[0]).toEqual({ qty: 2, cat: "CATX", subCat: "SUB1", item: "Item X" });
+    // blank sub_cat cell → subCat:null
+    expect(items[1]).toEqual({ qty: 4, cat: "CATY", subCat: null, item: "Item Y" });
+  });
+
+  it("does NOT emit PULL_SHEET_PARSE_PARTIAL or PULL_SHEET_AMBIGUOUS_FORMAT (rows are clean 5-col)", () => {
+    const codes = result.warnings.map((w) => w.code);
+    expect(codes).not.toContain("PULL_SHEET_PARSE_PARTIAL");
+    expect(codes).not.toContain("PULL_SHEET_AMBIGUOUS_FORMAT");
+  });
+});
+
+// ── Test 9: negative and fractional quantities (edge-case pin) ───────────────
+describe("parsePullSheet — negative and fractional qty values (synthetic fixture)", () => {
+  // PINS current behavior (pull-sheet.ts:251-259): qty parses via Number() with
+  // only a Number.isFinite gate — no sign or integrality validation. Negative
+  // ("-5") and fractional ("3.5") quantities are accepted verbatim with NO
+  // warning. A suspect-qty warning would be a NEW warning code, which on this
+  // project requires the §12.4 three-lockstep update (spec prose + gen:spec-codes
+  // + catalog.ts row, enforced by the x1-catalog-parity gate) — not a trivial
+  // pin-task change, so current acceptance is pinned instead. If qty validation
+  // is ever added, these assertions document exactly what loosens.
+  const md = [
+    "| PULL SHEET/Qty Edge | PULL SHEET/Qty Edge | PULL SHEET/Qty Edge | PULL SHEET/Qty Edge | PULL SHEET/Qty Edge |",
+    "| :-: | :-: | :-: | :-: | :-: |",
+    "| FALSE | -5 | Negative Qty Item |  | CAT1 |",
+    "| FALSE | 3.5 | Fractional Qty Item |  | CAT1 |",
+  ].join("\n");
+
+  const result = parsePullSheet(md);
+
+  it("accepts negative qty -5 verbatim (no clamp to 0 or null)", () => {
+    const item = result.pullSheet![0]!.items.find((i) => i.item === "Negative Qty Item");
+    expect(item).toBeDefined();
+    expect(item!.qty).toBe(-5);
+    expect(item!.rawSnippet).toBeUndefined(); // not routed through the partial-parse path
+  });
+
+  it("accepts fractional qty 3.5 verbatim (no rounding)", () => {
+    const item = result.pullSheet![0]!.items.find((i) => i.item === "Fractional Qty Item");
+    expect(item).toBeDefined();
+    expect(item!.qty).toBe(3.5);
+    expect(item!.rawSnippet).toBeUndefined();
+  });
+
+  it("emits no warnings — suspect numeric values are currently accepted silently", () => {
+    expect(result.warnings).toHaveLength(0);
+  });
+});

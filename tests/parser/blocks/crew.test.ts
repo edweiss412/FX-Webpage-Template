@@ -503,3 +503,56 @@ describe("extractRoleFlags — synthetic per-token vocabulary (plan §6.6)", () 
     });
   }
 });
+
+// ── Edge case: unparseable / empty EMAIL cells (pin, AC-1.2 boundary) ─────────
+//
+// PINS the current contract at crew.ts:238 + lib/email/canonicalize.ts:2-6:
+// canonicalize() ONLY trims + lowercases — it never validates email format.
+//   - A non-empty garbage value ("Not An Email") is passed through lowercased;
+//     the schema-level CHECK is the validity gate per canonicalize.ts:8-10 and
+//     AGENTS.md invariant 3 ("schema-level CHECK is the safety net").
+//   - canonicalize returns null ONLY for empty/whitespace cells — the common
+//     "row has no email" case — so a warning on the null path would fire for
+//     every emailless crew row (noise, not signal). No warning is emitted on
+//     either path today; adding one would require a NEW §12.4 warning-code row
+//     (three-lockstep spec+gen+catalog update), so the silent behavior is
+//     pinned here as a documented limitation instead.
+describe("parseCrew — unparseable/empty email cells (edge-case pin)", () => {
+  const md = [
+    "| CREW | NAME | ROLE | PHONE | EMAIL |",
+    "| :-: | :-: | :-: | :-: | :-: |",
+    "| | Jane Doe | - LEAD | 555-0100 | Not An Email |",
+    "| | John Roe | - V1 | 555-0101 | |",
+    "| | Kay Poe | - A1 | 555-0102 | MiXeD@ExAmPle.COM |",
+  ].join("\n");
+
+  it("non-empty garbage email is passed through lowercased — NOT nulled, NOT validated", () => {
+    const members = parseCrew(md, "v2");
+    const jane = members.find((m) => m.name === "Jane Doe");
+    expect(jane).toBeDefined();
+    expect(jane!.email).toBe("not an email");
+  });
+
+  it("empty email cell yields email:null silently (row still parsed)", () => {
+    const members = parseCrew(md, "v2");
+    const john = members.find((m) => m.name === "John Roe");
+    expect(john).toBeDefined();
+    expect(john!.email).toBeNull();
+    expect(john!.phone).toBe("555-0101");
+  });
+
+  it("valid mixed-case email canonicalizes to lowercase (control row)", () => {
+    const members = parseCrew(md, "v2");
+    const kay = members.find((m) => m.name === "Kay Poe");
+    expect(kay!.email).toBe("mixed@example.com");
+  });
+
+  it("no email-related ParseWarning is emitted for either path (pinned limitation)", () => {
+    const agg = { warnings: [], rawUnrecognized: [] };
+    parseCrew(md, "v2", agg);
+    const emailWarnings = agg.warnings.filter((w: { code: string; message: string }) =>
+      /email/i.test(w.code + w.message),
+    );
+    expect(emailWarnings).toHaveLength(0);
+  });
+});
