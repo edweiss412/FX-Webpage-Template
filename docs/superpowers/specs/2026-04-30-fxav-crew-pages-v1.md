@@ -689,6 +689,10 @@ create table app_settings (
   pending_folder_set_at       timestamptz,
   pending_wizard_session_id   uuid,                    -- generated at wizard start. All writes to pending_* and the final promotion CAS use it; lets two admins/tabs serialize cleanly. NULL when no wizard is in flight.
   pending_wizard_session_at   timestamptz,              -- M11 batch-11 finding 1: timestamp the current pending_wizard_session_id was minted. Powers the pre-onboarding 24h auto-rotate (every /admin GET and every wizard-step page-load checks this; if older than 24h, the session is treated as abandoned and the "Start over" purge path runs automatically). NULL iff pending_wizard_session_id is NULL — every write that sets one MUST set the other; every write that clears one MUST clear the other.
+  -- Notification preference toggles (default ON). alert_on_sync_problems + daily_review_digest added by M12.2 B3 (migration 20260602000003); alert_on_auto_publish added by M12.13 (gates the auto-publish undo email). Backfilled into this canonical block by M12.13 so the spec stops omitting live notify columns.
+  alert_on_sync_problems      boolean not null default true,
+  daily_review_digest         boolean not null default true,
+  alert_on_auto_publish       boolean not null default true,
   updated_at                  timestamptz not null default now()
 );
 insert into app_settings (id) values ('default') on conflict do nothing;
@@ -699,7 +703,7 @@ insert into app_settings (id) values ('default') on conflict do nothing;
 -- does not read it either. Service-role notify jobs are the only writers.
 create table email_deliveries (
   id              uuid primary key default gen_random_uuid(),
-  kind            text not null check (kind in ('realtime_problem','digest')),
+  kind            text not null check (kind in ('realtime_problem','digest','auto_publish_undo')), -- 'auto_publish_undo' added M12.13 (auto-publish undo delivery)
   channel         text not null default 'email' check (channel in ('email','sms','webhook')),
   dedup_key       text not null,
   show_id         uuid references shows(id) on delete set null,
