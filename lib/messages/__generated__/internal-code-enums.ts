@@ -204,7 +204,7 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   STALE_DISCARD_REJECTED: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   SYNC_FILE_FAILED: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
@@ -258,6 +258,9 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
+  WIZARD_SESSION_SUPERSEDED_RACE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   }
 } as const satisfies Record<string, InternalCodeEnumPayload>;
