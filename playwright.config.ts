@@ -300,8 +300,44 @@ export default defineConfig({
       env: {
         ADMIN_DEV_PANEL_ENABLED: "true",
         ENABLE_TEST_AUTH: "true",
+        // Build-time required: lib/email/hashForLog.ts throws at module
+        // evaluation unless HASH_FOR_LOG_PEPPER is >= 32 chars (R41
+        // admin_alerts PII-hash contract). `next build` collects page data
+        // for /api/auth/picker-bootstrap, which imports hashForLog, so the
+        // build fails without it. CI checkouts have no .env.local, so the
+        // deterministic fallbacks below must mirror
+        // playwright.screenshots.config.ts's 3004 webServer env (the
+        // M12.12 help-affordances workflow boots THIS entry on a bare
+        // runner; first real-CI run failed exactly here).
+        HASH_FOR_LOG_PEPPER:
+          process.env.HASH_FOR_LOG_PEPPER ?? "fxav-r41-test-pepper-32-chars-min-deterministic",
+        JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min",
         NEXT_DIST_DIR: ".next-screenshots-help",
-        TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        NEXT_PUBLIC_SUPABASE_URL:
+          process.env.NEXT_PUBLIC_SUPABASE_URL ??
+          process.env.SUPABASE_URL ??
+          "http://127.0.0.1:54321",
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+        NEXT_PUBLIC_SUPABASE_ANON_KEY:
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+        SUPABASE_ANON_KEY:
+          process.env.SUPABASE_ANON_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+        SUPABASE_SECRET_KEY:
+          process.env.SUPABASE_SECRET_KEY ??
+          process.env.SUPABASE_SERVICE_ROLE_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+        SUPABASE_SERVICE_ROLE_KEY:
+          process.env.SUPABASE_SERVICE_ROLE_KEY ??
+          process.env.SUPABASE_SECRET_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+        SUPABASE_URL: process.env.SUPABASE_URL ?? "http://127.0.0.1:54321",
+        TEST_DATABASE_URL:
+          process.env.TEST_DATABASE_URL ??
+          "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
         TEST_AUTH_SECRET: "test-secret-fixture",
       },
       url: "http://localhost:3004",
