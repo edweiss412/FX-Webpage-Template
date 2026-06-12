@@ -175,4 +175,21 @@ describe("requireAdmin", () => {
 
     await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
   });
+
+  test("PIN: is_admin RPC { data: null, error: null } fails CLOSED via forbidden() — never auth-success", async () => {
+    // Edge-case pin (2026-06-12): the gate is `if (data !== true) forbidden()`
+    // (lib/auth/requireAdmin.ts:209), so an anomalous null-data/null-error RPC
+    // result is a denial, not a success and not an infra 500. The live
+    // is_admin() function (supabase/migrations/20260501002000_rls_policies.sql:23)
+    // is a SQL `returns boolean` whose body coalesces both arms to false, so
+    // null data should be unreachable in practice — this test pins the
+    // defensive posture if the RPC contract ever drifts. No fail-open exists.
+    server.client.rpc.mockResolvedValue({ data: null, error: null });
+    const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+
+    await expect(requireAdmin()).rejects.toThrow("forbidden()");
+    await expect(requireAdmin()).rejects.not.toBeInstanceOf(AdminInfraError);
+    expect(nav.forbidden).toHaveBeenCalled();
+    expect(nav.redirect).not.toHaveBeenCalled();
+  });
 });
