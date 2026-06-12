@@ -40,11 +40,36 @@ import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRo
 // F5b (Task 5.4): the reap is imported lazily inside the tests so its module
 // init can never observe the pre-pin env (its databaseUrl() resolves
 // TEST_DATABASE_URL ?? DATABASE_URL at call time — both pinned above).
+// (The import below is type-only — erased at compile time, so it does NOT
+// load the module at collection time.)
+import type { OnboardingSessionTx } from "@/lib/onboarding/sessionLifecycle";
 async function importReap() {
   const { reapStaleOnboardingSessions } = await import("@/lib/onboarding/sessionLifecycle");
   return reapStaleOnboardingSessions;
 }
-const REAP_ADMIN_DEPS = { requireAdminIdentity: async () => ({ email: "admin@example.com" }) };
+// Reap withTx runs on a dedicated POOLED max-1 connection (reapPool, opened
+// with sql/superseder below). The reap's defaultWithTx opens a BRAND-NEW
+// postgres connection per per-session transaction, and the candidate set is
+// every leaked wizard session in the shared local DB (other suites' debris —
+// 255 observed), so two reap calls cost 2×(N+1) TCP+auth handshakes (~5.6s
+// measured at N=255) and deterministically blow the 5000ms test budget. The
+// pooled withTx keeps every reap semantic real — one sql.begin transaction
+// per session, real finalize/show advisory locks, real deletes — and removes
+// ONLY the connection-per-tx handshake. Errors pass through unwrapped, so
+// ReapLockSetExpandedError still drives the bounded retry loop.
+const pooledReapWithTx = async <R>(fn: (tx: OnboardingSessionTx) => Promise<R>): Promise<R> =>
+  (await reapPool!.begin(async (rawTx) =>
+    fn({
+      query: async <T>(sqlText: string, params: readonly unknown[] = []) => {
+        const rows = (await rawTx.unsafe(sqlText, [...params] as never[])) as unknown as T[];
+        return { rows, rowCount: rows.length };
+      },
+    }),
+  )) as R;
+const REAP_ADMIN_DEPS = {
+  requireAdminIdentity: async () => ({ email: "admin@example.com" }),
+  withTx: pooledReapWithTx,
+};
 
 const DB_URL = assertLocalDbUrl(
   process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
@@ -68,6 +93,7 @@ const FOLDER = "f5-cas-race-folder";
 // collection time (before beforeAll), so `dbUp` must be settled before then.
 let sql: ReturnType<typeof postgres> | null = null;
 let superseder: ReturnType<typeof postgres> | null = null;
+let reapPool: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 let originalSettings: {
   pending_wizard_session_id: string | null;
@@ -82,6 +108,7 @@ try {
   originalSettings = rows[0] ?? { pending_wizard_session_id: null, pending_folder_id: null };
   sql = probe;
   superseder = postgres(DB_URL, { max: 1, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  reapPool = postgres(DB_URL, { max: 1, idle_timeout: 2, connect_timeout: 3, prepare: false });
   dbUp = true;
 } catch {
   if (sql) await sql.end().catch(() => {});
@@ -114,6 +141,7 @@ afterAll(async () => {
   }
   if (sql) await sql.end().catch(() => {});
   if (superseder) await superseder.end().catch(() => {});
+  if (reapPool) await reapPool.end().catch(() => {});
   // Restore the pinned env vars (R19-1).
   if (ORIGINAL_ENV.TEST_DATABASE_URL === undefined) delete process.env.TEST_DATABASE_URL;
   else process.env.TEST_DATABASE_URL = ORIGINAL_ENV.TEST_DATABASE_URL;
@@ -478,6 +506,10 @@ test.skipIf(!dbUp)(
       ),
     ).toHaveLength(0); // the committed W1 manifest row is swept too
   },
+  // Headroom, NOT the fix (the fix is pooledReapWithTx above): the reap's
+  // candidate enumeration scans EVERY leaked wizard session in the shared
+  // local DB, so this test's runtime grows with other suites' debris.
+  15_000,
 );
 
 test.skipIf(!dbUp)(
@@ -586,4 +618,8 @@ test.skipIf(!dbUp)(
     expect(staleRun.sessions.map((s) => s.wizardSessionId)).toContain(W1);
     expect(await readDeferralRows(FILE)).toEqual([]);
   },
+  // Headroom, NOT the fix (the fix is pooledReapWithTx above): the reap's
+  // candidate enumeration scans EVERY leaked wizard session in the shared
+  // local DB, so this test's runtime grows with other suites' debris.
+  15_000,
 );
