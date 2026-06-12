@@ -174,9 +174,18 @@ class PostgresUnpublishTx implements UnpublishShowTx {
       `,
       [showId],
     );
-    await this.rows("delete from public.pending_syncs      where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
-    await this.rows("delete from public.pending_ingestions where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
-    await this.rows("delete from public.deferred_ingestions where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
+    await this.rows(
+      "delete from public.pending_syncs      where drive_file_id = $1 and wizard_session_id is null",
+      [row.drive_file_id],
+    );
+    await this.rows(
+      "delete from public.pending_ingestions where drive_file_id = $1 and wizard_session_id is null",
+      [row.drive_file_id],
+    );
+    await this.rows(
+      "delete from public.deferred_ingestions where drive_file_id = $1 and wizard_session_id is null",
+      [row.drive_file_id],
+    );
     return true;
   }
 
@@ -319,6 +328,29 @@ export async function unpublishShowViaEmailedLink_unlocked(
   return await compareExpireConsume_lockHeld(tx, show, args);
 }
 
+/**
+ * M12.13 §6.2 — the in-app undo server action reads the show's STORED
+ * `unpublish_token` by slug so it can pass it to the plain `unpublishShow`
+ * (which compares the submitted token against the stored one). Raw-postgres
+ * seam, mirroring `readDriveFileIdForUnpublishSlug` — NOT a Supabase client
+ * call, so the Supabase call-boundary registry rows don't apply (the action's
+ * inline `not-subject-to-meta` waiver covers it). A null result means the mint
+ * is gone (token vanished between render and click); the action surfaces the
+ * CONSUMED catalog outcome rather than calling `unpublishShow` with a bad token.
+ */
+export async function readUnpublishTokenForSlug(slug: string): Promise<string | null> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(
+      "select unpublish_token::text as unpublish_token from public.shows where slug = $1 limit 1",
+      [slug],
+    )) as Array<{ unpublish_token: string | null }>;
+    return rows[0]?.unpublish_token ?? null;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 export async function readDriveFileIdForUnpublishSlug(slug: string): Promise<string | null> {
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
@@ -332,9 +364,7 @@ export async function readDriveFileIdForUnpublishSlug(slug: string): Promise<str
   }
 }
 
-export async function unpublishShow(
-  args: UnpublishShowArgs,
-): Promise<UnpublishShowResult> {
+export async function unpublishShow(args: UnpublishShowArgs): Promise<UnpublishShowResult> {
   const driveFileId = await readDriveFileIdForUnpublishSlug(args.slug);
   if (!driveFileId) return { outcome: "not_found", status: 404 };
 
