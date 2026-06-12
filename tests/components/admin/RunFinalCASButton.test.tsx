@@ -7,8 +7,10 @@
  * rows renders each entry's catalog copy (lib/messages/lookup.ts) with
  * the drive_file_id as context, INSTEAD OF the generic top-level error
  * line. Corrupt rows (STAGED_PARSE_RESULT_CORRUPT /
- * STAGED_REVIEW_ITEMS_CORRUPT) point at the "Discard this setup and
- * start over" (Cleanup abandoned finalize) affordance; outdated rows
+ * STAGED_REVIEW_ITEMS_CORRUPT) use the developer-escape register — no
+ * per-row discard affordance exists on this surface and "Discard this
+ * setup and start over" is 409-refused for fresh sessions, so the copy
+ * must never promise a button that isn't reachable; outdated rows
  * self-heal on the next finalize click. No raw §12.4 code leaks
  * (invariant 5).
  */
@@ -60,7 +62,7 @@ describe("RunFinalCASButton", () => {
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/admin/onboarding/finalize-cas");
   });
 
-  test("WM-R3: 409 per_row corrupt row renders per-entry catalog copy pointing at cleanup, not the generic line", async () => {
+  test("WM-R3: 409 per_row corrupt row renders per-entry catalog copy with the developer escape, not the generic line", async () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse(
         {
@@ -88,8 +90,10 @@ describe("RunFinalCASButton", () => {
     const text = getByTestId("run-final-cas-per-row").textContent ?? "";
     expect(text).toContain("drive-corrupt-1");
     expect(text).toContain(MESSAGE_CATALOG.STAGED_PARSE_RESULT_CORRUPT.dougFacing!);
-    // Corrupt-row recovery points at the cleanup affordance.
-    expect(text).toContain("Discard this setup and start over");
+    // Corrupt-row recovery uses the developer-escape register — never
+    // promise a button that isn't reachable on this surface.
+    expect(text).toContain("contact the developer");
+    expect(text).not.toContain("Discard this setup and start over");
     expect(text).not.toContain("drive-ok-1");
     // No raw §12.4 code leaks (invariant 5).
     expect(container.textContent ?? "").not.toContain("STAGED_PARSE_RESULT_CORRUPT");
@@ -99,7 +103,7 @@ describe("RunFinalCASButton", () => {
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
-  test("WM-R3: 409 per_row review-items-corrupt row renders its catalog copy with the cleanup path", async () => {
+  test("WM-R3: 409 per_row review-items-corrupt row renders its catalog copy with the developer escape", async () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse(
         {
@@ -125,8 +129,9 @@ describe("RunFinalCASButton", () => {
     expect(text).toContain("drive-review-corrupt-1");
     expect(text).toContain(MESSAGE_CATALOG.STAGED_REVIEW_ITEMS_CORRUPT.dougFacing!);
     expect(MESSAGE_CATALOG.STAGED_REVIEW_ITEMS_CORRUPT.dougFacing!).toContain(
-      "Discard this setup and start over",
+      "contact the developer",
     );
+    expect(text).not.toContain("Discard this setup and start over");
     expect(container.textContent ?? "").not.toContain("STAGED_REVIEW_ITEMS_CORRUPT");
   });
 

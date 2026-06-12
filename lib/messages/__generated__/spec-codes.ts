@@ -1036,7 +1036,7 @@ export const SPEC_CODES = {
   },
   "STAGED_PARSE_RESULT_CORRUPT": {
     "crewFacing": null,
-    "dougFacing": "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it. If this blocks the final publish step of setup, use \"Discard this setup and start over\" to clear the setup instead.",
+    "dougFacing": "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     "followUp": "Doug → discard + re-sync the sheet",
     "helpfulContext": "The saved data for this staged sheet is stored in a format we can't read — it should be the parsed sheet but isn't. Rather than apply something we can't interpret, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds it cleanly. This usually only affects rows left over from an earlier app issue.",
   },
@@ -1078,7 +1078,7 @@ export const SPEC_CODES = {
   },
   "STAGED_REVIEW_ITEMS_CORRUPT": {
     "crewFacing": null,
-    "dougFacing": "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review. If this blocks the final publish step of setup, use \"Discard this setup and start over\" to clear the setup instead.",
+    "dougFacing": "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     "followUp": "Doug → discard + re-sync the sheet",
     "helpfulContext": "The saved list of changes that need your review for this staged sheet is stored in a format we can't read — it should be a list of review items but isn't. Rather than risk applying changes you never got to see, we block Apply and ask you to discard the row and re-sync the sheet; the next sync rebuilds a clean review checklist. This usually only affects rows left over from an earlier app issue.",
   },

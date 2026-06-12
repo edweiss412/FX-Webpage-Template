@@ -279,7 +279,7 @@ describe("FinalizeButton", () => {
     });
   });
 
-  test("WM-R3: finalize-cas 409 per_row corrupt row renders per-entry catalog copy pointing at cleanup, not the generic line", async () => {
+  test("WM-R3: finalize-cas 409 per_row corrupt row renders per-entry catalog copy with the developer escape, not the generic line", async () => {
     fetchMock
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -319,12 +319,14 @@ describe("FinalizeButton", () => {
     // Per-entry catalog copy with the file's drive_file_id as context.
     expect(text).toContain("drive-corrupt-1");
     expect(text).toContain(MESSAGE_CATALOG.STAGED_PARSE_RESULT_CORRUPT.dougFacing!);
-    // Corrupt-row recovery points at the cleanup affordance, both in the
-    // catalog row itself and in the rendered surface.
+    // Corrupt-row recovery uses the developer-escape register (no per-row
+    // discard affordance exists on this surface, and cleanup is 409-refused
+    // for fresh sessions) — never promise a button that isn't reachable.
     expect(MESSAGE_CATALOG.STAGED_PARSE_RESULT_CORRUPT.dougFacing!).toContain(
-      "Discard this setup and start over",
+      "contact the developer",
     );
-    expect(text).toContain("Discard this setup and start over");
+    expect(text).toContain("contact the developer");
+    expect(text).not.toContain("Discard this setup and start over");
     // OK rows are filtered out.
     expect(text).not.toContain("drive-ok-1");
     // No raw §12.4 code leaks (invariant 5).

@@ -616,3 +616,15 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Why deferred, not fixed here:** scan spans multiple transactions with long Drive I/O, so the fix is a session-level exclusion design (scan acquiring/honoring the finalize lock or a DB-visible `finalizing` state), not a one-line guard — it needs its own reviewed task. The milestone REDUCES the blast radius to self-healing debris: F4's stale-session reap sweeps retired-session orphan rows (incl. `final_cas_done` supersessions), and F5's `WIZARD_SESSION_SUPERSEDED_RACE` alert surfaces stale-tab actions. Single-operator admin usage bounds the race window today.
 
 **Trigger:** MUST be resolved (fix or explicit accept-with-rationale) in the M13 launch-gate checklist, or sooner if any onboarding milestone reopens `runOnboardingScan`.
+
+## ONBOARDING-FIXUPS-DEF-2 — Per-row discard/recovery affordance for corrupt-retained Phase D shadow rows
+
+**Found:** External impeccable delta-critique of `8f5bf84d` (2026-06-12), HIGH: the corrupt-row catalog copy (`STAGED_PARSE_RESULT_CORRUPT` / `STAGED_REVIEW_ITEMS_CORRUPT`) promised "Discard this setup and start over," but where the per-row panels render that affordance is absent (`components/admin/ReadyToPublish.tsx:7-9` — no cleanup affordance on the fresh branch, per plan §M10 Task 10.1 finding 2) or 409-refused for up to 24h (`lib/onboarding/sessionLifecycle.ts` `session_too_fresh` gate). The copy was rewritten to the developer-escape register in the same fix; this entry tracks the real affordance.
+
+**What:** A per-row discard/recovery affordance for corrupt-retained Phase D shadow rows — let Doug clear a single corrupt `pending_syncs` shadow row (or the blocking session) from the finalize-cas per-row panel instead of contacting the developer.
+
+**Why deferred, not fixed here:** The corrupt-retained state is near-unreachable post-lockdown — migration `20260611000002_lockdown_wizard_staging_tables.sql` revoked the only forge path (direct PostgREST DML on the wizard staging tables), so a corrupt `parse_result` / `triggered_review_items` jsonb can no longer be planted by any supported write path. Recovery today is developer-side SQL, or "Discard this setup and start over" once the 24h freshness window lapses (`session_too_fresh` gate). Building a reachable per-row affordance is new UI + a new RPC surface, disproportionate to a copy-fidelity fixup.
+
+**Noted, not fixed (MEDIUMs from the same critique):** (a) outdated rows (`STAGED_PARSE_OUTDATED_AT_PHASE_D`) self-heal on the next finalize click, but the per-row panel gives no "click publish again" hint; (b) the per-row panel uses the raw `drive_file_id` as the row identifier rather than a human-readable sheet/show name. Fold both into whatever milestone picks this entry up.
+
+**Trigger:** M13 launch-gate checklist, or sooner if any milestone reopens the finalize-cas UI (`components/admin/RunFinalCASButton.tsx` / `components/admin/FinalizeButton.tsx` per-row panels).
