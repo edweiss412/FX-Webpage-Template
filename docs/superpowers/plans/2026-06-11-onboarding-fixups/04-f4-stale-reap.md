@@ -279,19 +279,31 @@ export class FakeReapTx implements OnboardingSessionTx {
     }
     if (/delete from public\.shows s using public\.onboarding_scan_manifest m/.test(q)) {
       this.operations.push(`delete-interim-shows:${String(params[0])}`);
-  // R66-2: this classifier enforces the FULL real-SQL predicate set — manifest join by created_show_id,
-  // drive_file_id match, wizard_created_session_id === sessionId, published=false, and (reap) locked-set
-  // membership — and THROWS on any delete missing one. Negative unit cases: NULL/mismatched
-  // wizard_created_session_id and a same-drive forged manifest row both leave the show untouched.
-      const created = new Set(
-        this.tables.onboarding_scan_manifest
-          .filter((r) => r.wizard_session_id === params[0] && r.created_show_id != null)
-          .map((r) => r.created_show_id),
+      // R67-1: enforce the FULL real-SQL predicate set in BOTH the SQL shape and the data model.
+      // SQL-shape guard — a delete missing any safety predicate THROWS (catches an implementation
+      // that drops a guard while this fake still passes):
+      for (const required of [
+        /m\.created_show_id = s\.id/, /m\.drive_file_id = s\.drive_file_id/,
+        /s\.wizard_created_session_id = m\.wizard_session_id/, /s\.published = false/,
+        /m\.drive_file_id = any\(\$2\)/,   // reap locked-set membership ($2 = lockedDriveFileIds)
+      ]) {
+        if (!required.test(q)) throw new Error(`unsafe interim-show delete: missing ${required}`);
+      }
+      const lockedSet = new Set((params[1] ?? []) as string[]);
+      const manifest = this.tables.onboarding_scan_manifest.filter(
+        (r) => r.wizard_session_id === params[0] && r.created_show_id != null,
       );
       const before = this.tables.shows.length;
-      this.tables.shows = this.tables.shows.filter(
-        (r) => !(created.has(r.id) && r.published === false),
-      );
+      this.tables.shows = this.tables.shows.filter((show) => {
+        const m = manifest.find(
+          (r) =>
+            r.created_show_id === show.id &&
+            r.drive_file_id === show.drive_file_id &&            // R67-1: provenance binding
+            show.wizard_created_session_id === r.wizard_session_id && // show-side discriminator
+            lockedSet.has(r.drive_file_id),                       // locked-set membership
+        );
+        return !(m && show.published === false);
+      });
       const count = before - this.tables.shows.length;
       // Mirror the adapter contract (sessionLifecycle.ts:93-99): rowCount derives from
       // `returning` rows — the R4 idempotency fix depends on real counts here.
@@ -784,7 +796,7 @@ export async function reapStaleOnboardingSessions(
 }
 ```
 
-  Route/UI note (R29-2): the reap route response and the admin affordance surface `skipped_unstable` sessions distinctly from successful reaps (copy: "1 session couldn't be cleaned this run — try again"); add a route test asserting the outcome appears in the JSON body. R43-1 RED/GREEN checklist item (explicit): the SQL-shape structural test is written FIRST and must be RED against any session-only DELETE for the staging tables (temporarily revert the `and drive_file_id = any($2)` clause to confirm red), then GREEN with the locked-set contract. R47-1/R48-2 (now reflected in the executable snippets, not just prose): every created_show_id-keyed delete in cleanup/reap requires s.drive_file_id = m.drive_file_id; the REAP variant additionally requires m.drive_file_id = any(lockedDriveFileIds). Mismatched-provenance RED regression sits beside the other RED tests: manifest row pointing at an unrelated unpublished show → untouched by publish, cleanup, and reap. R63-1: every F4 seed for a session-created show sets wizard_created_session_id = SESSION; FakeReapTx delete classifiers enforce the SAME predicates as the real SQL (created_show_id + drive_file_id match + wizard_created_session_id match + published=false + locked-set membership) and throw on any delete lacking them; negative case: created_show_id present but wizard_created_session_id NULL/mismatched → show survives. R57-1 regressions: SAME-DRIVE forged manifest rows (created_show_id = the pre-existing show's own id, drive ids matching) for BOTH cleanupAbandonedFinalize and reapStaleOnboardingSessions → the pre-existing show survives (wizard_created_session_id NULL/mismatched). R45-1 regression: terminal session (final_cas_done) + retained shadow + stale deferral → deferral DELETED, shadow + checkpoint survive, outcome reaped_orphan_rows (NOT skipped_unstable), exactly one sync_log row. R42-1 regressions: (a) real-DB race — a stale action inserts a new-drive residue row after the reap's recheck; assert the reap does NOT delete it in that transaction and instead retries (fresh lock set covering the new id) or returns skipped_unstable; (b) structural test — every reap staging DELETE must filter BOTH wizard_session_id AND the locked drive-id set (reject session-only DELETEs by SQL-shape scan of the reap module — for EVERY drive-id-bearing reap table including shows_pending_changes (R44-1)). Adjust the candidate-enumeration SQL / fake-classifier pairing as needed — the fake must classify EXACTLY the SQL the implementation issues (the fake throws on anything unclassified, which is the structural no-purge/no-rotate guarantee).
+  Route/UI note (R29-2): the reap route response and the admin affordance surface `skipped_unstable` sessions distinctly from successful reaps (copy: "1 session couldn't be cleaned this run — try again"); add a route test asserting the outcome appears in the JSON body. R43-1 RED/GREEN checklist item (explicit): the SQL-shape structural test is written FIRST and must be RED against any session-only DELETE for the staging tables (temporarily revert the `and drive_file_id = any($2)` clause to confirm red), then GREEN with the locked-set contract. R47-1/R48-2 (now reflected in the executable snippets, not just prose): every created_show_id-keyed delete in cleanup/reap requires s.drive_file_id = m.drive_file_id; the REAP variant additionally requires m.drive_file_id = any(lockedDriveFileIds). Mismatched-provenance RED regression sits beside the other RED tests: manifest row pointing at an unrelated unpublished show → untouched by publish, cleanup, and reap. R67-1 negative seeds (unit AND real-DB): (i) same-drive forged manifest row pointing created_show_id at a pre-existing unpublished show with NULL wizard_created_session_id → survives; (ii) mismatched wizard_created_session_id → survives; (iii) drive id outside the locked set → survives that transaction. R63-1: every F4 seed for a session-created show sets wizard_created_session_id = SESSION; FakeReapTx delete classifiers enforce the SAME predicates as the real SQL (created_show_id + drive_file_id match + wizard_created_session_id match + published=false + locked-set membership) and throw on any delete lacking them; negative case: created_show_id present but wizard_created_session_id NULL/mismatched → show survives. R57-1 regressions: SAME-DRIVE forged manifest rows (created_show_id = the pre-existing show's own id, drive ids matching) for BOTH cleanupAbandonedFinalize and reapStaleOnboardingSessions → the pre-existing show survives (wizard_created_session_id NULL/mismatched). R45-1 regression: terminal session (final_cas_done) + retained shadow + stale deferral → deferral DELETED, shadow + checkpoint survive, outcome reaped_orphan_rows (NOT skipped_unstable), exactly one sync_log row. R42-1 regressions: (a) real-DB race — a stale action inserts a new-drive residue row after the reap's recheck; assert the reap does NOT delete it in that transaction and instead retries (fresh lock set covering the new id) or returns skipped_unstable; (b) structural test — every reap staging DELETE must filter BOTH wizard_session_id AND the locked drive-id set (reject session-only DELETEs by SQL-shape scan of the reap module — for EVERY drive-id-bearing reap table including shows_pending_changes (R44-1)). Adjust the candidate-enumeration SQL / fake-classifier pairing as needed — the fake must classify EXACTLY the SQL the implementation issues (the fake throws on anything unclassified, which is the structural no-purge/no-rotate guarantee).
 - [ ] **VERIFY (GREEN).** `pnpm vitest run tests/onboarding/reapStaleSessions.test.ts tests/onboarding/sessionLifecycle.test.ts` → all pass.
 - [ ] **COMMIT.** `feat(onboarding): session-scoped stale-debris reap (never purges, never rotates)`
 
