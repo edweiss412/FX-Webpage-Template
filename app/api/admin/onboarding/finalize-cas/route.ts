@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
-import { canonicalize } from "@/lib/email/canonicalize";
-import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
-import type { ParseResult } from "@/lib/parser/types";
+import type { DriveListedFile } from "@/lib/drive/list";
+import {
+  parseShadowPayloadForApply,
+  type ParsedShadowPayloadForApply,
+} from "@/lib/onboarding/shadowPayload";
+import { applyStagedCore, normalizeTimestamptz } from "@/lib/sync/applyStagedCore";
+import { revisionTimesMatch } from "@/lib/sync/applyStaged";
+import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
+import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 const OK_CODE = "OK" as const;
 
@@ -17,9 +23,12 @@ export type FinalizeCasRouteTx = {
 export type FinalizeCasRouteDeps = {
   requireAdminIdentity?: () => Promise<{ email: string }>;
   withTx?: <R>(fn: (tx: FinalizeCasRouteTx) => Promise<R>) => Promise<R>;
+  // F1 Task 1.5: the per-row callback also receives the canonical SyncPipelineTx built from the
+  // SAME raw postgres.js transaction that acquired the per-show advisory lock — the shared apply
+  // core runs on the holder's transaction, acquire-free (spec §3.3 single-holder rule).
   withRowTx?: <R>(
     driveFileId: string,
-    fn: (tx: FinalizeCasRouteTx) => Promise<R>,
+    fn: (tx: FinalizeCasRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>,
   ) => Promise<R>;
   subscribeToWatchedFolder?: (folderId: string) => Promise<unknown>;
 };
@@ -40,18 +49,25 @@ type ShadowRow = {
   drive_file_id: string;
   show_id: string;
   applied_by_email: string;
-  applied_at_intent: string;
-  payload: {
-    parse_result?: ParseResult;
-    staged_modified_time?: string;
-    staged_id?: string;
-    reviewer_choices?: unknown[];
-  };
+  applied_at_intent: string | Date;
+  payload: unknown;
 };
 
 type ShadowApplyResult =
-  | { drive_file_id: string; code: typeof OK_CODE }
-  | { drive_file_id: string; code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
+  | {
+      drive_file_id: string;
+      code: typeof OK_CODE;
+      // Response metadata, NOT an error code (no §12.4 row; invariant 5 unaffected — OK rows
+      // never render through the error catalog). Mirrors the live MI-12 reject contract.
+      disposition?: "discarded_by_reviewer_choice";
+    }
+  | {
+      drive_file_id: string;
+      code:
+        | "STAGED_PARSE_OUTDATED_AT_PHASE_D"
+        | "STAGED_REVIEW_ITEMS_CORRUPT"
+        | "STAGED_PARSE_RESULT_CORRUPT";
+    };
 
 type FinalizeCasResult =
   | {
@@ -94,14 +110,17 @@ async function defaultWithTx<R>(fn: (tx: FinalizeCasRouteTx) => Promise<R>): Pro
 
 async function defaultWithRowTx<R>(
   driveFileId: string,
-  fn: (tx: FinalizeCasRouteTx) => Promise<R>,
+  fn: (tx: FinalizeCasRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>,
 ): Promise<R> {
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     return (await sql.begin(async (rawTx) => {
-      const tx = postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> });
+      const raw = rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> };
+      const tx = postgresTxAdapter(raw);
       await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
-      return await fn(tx);
+      // The pipeline tx rides the SAME raw transaction that just took the per-show lock — the
+      // shared apply core only ADOPTS it (pg_locks ownership probe), never acquires (§3.3).
+      return await fn(tx, makeSyncPipelineTx(raw));
     })) as R;
   } finally {
     await sql.end({ timeout: 5 });
@@ -126,12 +145,43 @@ function errorResponse(status: number, code: string, extra: Record<string, unkno
   return NextResponse.json({ ok: false, code, ...extra }, { status });
 }
 
+/**
+ * Plan R16-1 (F1 Task 1.5): session DISCOVERY is a PLAIN read — no row lock. The authoritative
+ * app_settings FOR UPDATE re-check (readSessionForUpdate) is taken ONLY after `tryFinalizeLock`
+ * succeeds, matching the global total order finalize-lock → app_settings → per-show that
+ * cleanupAbandonedFinalize (lib/onboarding/sessionLifecycle.ts) and Phase B both follow. Taking
+ * app_settings first (the R7 sketch) is an AB-BA deadlock against cleanup under overlap.
+ */
 async function readSession(tx: FinalizeCasRouteTx): Promise<SessionRow> {
   const { rows } = await tx.query<SessionRow>(
     `
       select pending_wizard_session_id, pending_folder_id, watched_folder_id
         from public.app_settings
        where id = 'default'
+    `,
+  );
+  return rows[0] ?? {
+    pending_wizard_session_id: null,
+    pending_folder_id: null,
+    watched_folder_id: null,
+  };
+}
+
+/**
+ * The authoritative session-currency re-check (plan R16-1): holds the app_settings row lock
+ * from here through the tail `promoteSettings` CAS, so a MID-flight supersession attempt
+ * BLOCKS until Phase D commits — the detect-at-tail-only window (old-session shadow applies
+ * committing durably before the 409) is closed. A PRE-superseded session never reaches this
+ * point with a matching id (the plain discovery read already saw the new session and hits the
+ * existing typed aborts).
+ */
+async function readSessionForUpdate(tx: FinalizeCasRouteTx): Promise<SessionRow> {
+  const { rows } = await tx.query<SessionRow>(
+    `
+      select pending_wizard_session_id, pending_folder_id, watched_folder_id
+        from public.app_settings
+       where id = 'default'
+       for update
     `,
   );
   return rows[0] ?? {
@@ -238,120 +288,167 @@ async function deleteAppliedShadowRow(tx: FinalizeCasRouteTx, row: ShadowRow): P
   );
 }
 
+// Phase D is SQL-only (spec §3.4) — no Drive I/O. The fileMeta the apply core forwards into
+// runPhase2 is synthesized from the shadow payload (name from the staged parse, modifiedTime =
+// the staged instant); runPhase2 binds on `binding.modifiedTime`, not on fileMeta.
+function syntheticFileMeta(
+  row: ShadowRow,
+  parsed: Extract<ParsedShadowPayloadForApply, { ok: true }>,
+): DriveListedFile {
+  return {
+    driveFileId: row.drive_file_id,
+    name: parsed.parseResult.show.title ?? row.drive_file_id,
+    mimeType: "application/vnd.google-apps.spreadsheet",
+    modifiedTime: parsed.stagedModifiedTime,
+    parents: [],
+  };
+}
+
+/**
+ * F1 Task 1.5: Phase D existing-show apply routes through the SHARED apply core — the bespoke
+ * shows-only UPDATE and `insertShadowAudit` ('[]'/'{}' provenance stubs) were DELETED (their
+ * drift was the origin incident's class; the second-copy tripwire pins they never reappear).
+ *
+ * NO legacy `!parse_result → deleteAppliedShadowRow + OK` branch (plan R8 finding 1): a
+ * parse_result-less shadow used to be CONSUMED and reported successful — the damaged shadow
+ * disappeared during finalize-cas leaving stale live data with no retry surface. The parser
+ * fails it closed instead (shadow RETAINED, typed per-row code, siblings continue).
+ */
 async function applyShadow(
   tx: FinalizeCasRouteTx,
+  pipelineTx: SyncPipelineTx,
   row: ShadowRow,
 ): Promise<ShadowApplyResult> {
-  // payload.parse_result is jsonb read via postgres.js; a legacy double-encoded
-  // shadow payload carries it as a STRING SCALAR. Coerce so the publish UPDATE
-  // never dereferences `.show` on a string (M12 Phase 0.F smoke-3 class).
-  const rawParseResult = row.payload.parse_result;
-  if (!rawParseResult) {
-    await deleteAppliedShadowRow(tx, row);
-    return { drive_file_id: row.drive_file_id, code: OK_CODE };
-  }
-  const parseResult = asParseResult(rawParseResult);
-  const applied = await tx.query<{ applied: boolean }>(
-    `
-      update public.shows
-         set title = $2,
-             client_label = $3,
-             client_contact = $4::jsonb,
-             template_version = $5,
-             venue = $6::jsonb,
-             dates = $7::jsonb,
-             event_details = $8::jsonb,
-             agenda_links = $9::jsonb,
-             diagrams = $10::jsonb,
-             opening_reel_drive_file_id = $11,
-             opening_reel_drive_modified_time = $12::timestamptz,
-             opening_reel_head_revision_id = $13,
-             opening_reel_mime_type = $14,
-             last_seen_modified_time = $15::timestamptz,
-             coi_status = $16,
-             pull_sheet = $17::jsonb,
-             last_synced_at = now(),
-             last_sync_status = 'ok',
-             last_sync_error = null
-       where drive_file_id = $1
-         and (last_seen_modified_time is null or last_seen_modified_time <= $15::timestamptz)
-       returning true as applied
-    `,
-    [
-      row.drive_file_id,
-      parseResult.show.title,
-      parseResult.show.client_label,
-      parseResult.show.client_contact,
-      parseResult.show.template_version,
-      parseResult.show.venue,
-      parseResult.show.dates,
-      parseResult.show.event_details,
-      parseResult.show.agenda_links,
-      parseResult.diagrams,
-      parseResult.openingReel?.driveFileId ?? null,
-      parseResult.openingReel?.drive_modified_time ?? null,
-      parseResult.openingReel?.headRevisionId ?? null,
-      parseResult.openingReel?.mimeType ?? null,
-      row.payload.staged_modified_time ?? null,
-      parseResult.show.coi_status,
-      parseResult.pullSheet,
-    ],
-  );
-  if (applied.rowCount === 0) {
+  const parsed = parseShadowPayloadForApply(row.payload);
+  if (!parsed.ok) return { drive_file_id: row.drive_file_id, code: parsed.code }; // shadow retained
+
+  const live = (
+    await tx.query<{ id: string; last_seen_modified_time: string | Date | null; diagrams: unknown }>(
+      `
+        select id, last_seen_modified_time, diagrams
+          from public.shows
+         where drive_file_id = $1
+      `,
+      [row.drive_file_id],
+    )
+  ).rows[0];
+  if (!live) return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
+
+  // EQUALITY preflight — replaces the legacy `<=` CAS predicate (spec §3.2 R21-1): an
+  // advanced-but-still-<= live watermark is a baseline the reviewer never saw and must REFUSE.
+  // revisionTimesMatch handles postgres.js Date vs ISO-string instants.
+  if (!revisionTimesMatch(live.last_seen_modified_time, parsed.baseModifiedTime)) {
     return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
   }
-  await insertShadowAudit(tx, row);
+
+  const lockedTx = await adoptShowLockHeld(pipelineTx, row.drive_file_id);
+  const core = await applyStagedCore(lockedTx, {
+    sourceScope: "wizard",
+    driveFileId: row.drive_file_id,
+    show: {
+      showId: live.id,
+      lastSeenModifiedTime: normalizeTimestamptz(live.last_seen_modified_time),
+      diagrams: live.diagrams,
+    },
+    parseResult: parsed.parseResult,
+    triggeredReviewItems: parsed.triggeredReviewItems,
+    reviewerChoices: parsed.reviewerChoices,
+    stagedId: parsed.stagedId,
+    stagedModifiedTime: parsed.stagedModifiedTime, // holds baseModifiedTime analogue (spec §3.2)
+    baseModifiedTime: parsed.baseModifiedTime, // → sync_audit.base_modified_time
+    appliedByEmail: row.applied_by_email,
+    appliedAt: normalizeTimestamptz(row.applied_at_intent), // = wizard_approved_at snapshot (T1.4)
+    auditSource: "onboarding_finalize_cas",
+    fileMeta: syntheticFileMeta(row, parsed),
+    mi11Items: parsed.mi11Items, // → runPhase2 writes sync_holds BEFORE the hold-aware apply
+    // plan R24-2/R26-1/R31-1: choice-aware feed derivation lives INSIDE applyStagedCore, AFTER
+    // its reviewer-choice validation — reject-resolved items excluded; independent-resolved
+    // items dropped so writeAutoApplyChanges cannot derive crew_renamed for a choice the
+    // operator declined. applyShadow passes ONLY the raw payload fields (D-2).
+    feedPolicy: { kind: "choice_aware" },
+    skipDiagramsWrite: false, // payload diagrams already canonical (spec §3.4)
+  });
+
+  if (core.outcome === "invalid_request") {
+    return { drive_file_id: row.drive_file_id, code: "STAGED_REVIEW_ITEMS_CORRUPT" };
+  }
+  if (core.outcome === "discarded_by_choice") {
+    // Mirror of the live MI-12 reject contract (applyStaged.ts reject branch; pinned by
+    // tests/sync/applyStaged.test.ts:1118-1147): nothing applied, NO Phase 2, NO audit, live
+    // row untouched. The shadow is the wizard's staged-row analogue of deleteLivePendingSync's
+    // target, so it is CONSUMED-as-discarded; the live watermark is unchanged, so the next cron
+    // pass re-stages the change for dashboard re-review — the `try_again` analogue.
+    // (restoreShowStatus is N/A: stageExistingShowShadow never altered the live row's status.)
+    await deleteAppliedShadowRow(tx, row);
+    return {
+      drive_file_id: row.drive_file_id,
+      code: OK_CODE,
+      disposition: "discarded_by_reviewer_choice",
+    };
+  }
+  if (core.outcome !== "applied") {
+    // stale_baseline (core's redundant second defense) / stale_write (runPhase2's internal CAS).
+    return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
+  }
   await deleteAppliedShadowRow(tx, row);
   return { drive_file_id: row.drive_file_id, code: OK_CODE };
 }
 
-async function insertShadowAudit(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<void> {
-  await tx.query<{ id: string }>(
-    `
-      insert into public.sync_audit (
-        show_id, drive_file_id, applied_by, staged_id, triggered_review_items,
-        reviewer_choices, derived_side_effects, parse_result_summary,
-        base_modified_time, staged_modified_time
-      )
-      values (
-        $1::uuid, $2, $3, ($4)::uuid, '[]'::jsonb,
-        $5::jsonb, '{}'::jsonb,
-        jsonb_build_object('title', $6::text, 'source', 'onboarding_finalize_cas'),
-        null, $7::timestamptz
-      )
-      returning id
-    `,
-    [
-      row.show_id,
-      row.drive_file_id,
-      canonicalize(row.applied_by_email),
-      row.payload.staged_id ?? null,
-      // Coerce a legacy double-encoded reviewer_choices scalar to an array so it
-      // is not re-stored raw into sync_audit.reviewer_choices ($5::jsonb).
-      coerceJsonbArray(row.payload.reviewer_choices),
-      row.payload.parse_result ? asParseResult(row.payload.parse_result).show.title : null,
-      row.payload.staged_modified_time ?? null,
-    ],
-  );
-}
-
+/**
+ * F1 Task 1.5 (spec §3.4 R18-1): the publish flip is NARROWED to session-CREATED shows. Every
+ * created_show_id consumer joins ALL of (plan R47-1/R55-1/R56-1/R50-1):
+ *   - m.created_show_id = s.id        (the provenance pointer)
+ *   - m.drive_file_id = s.drive_file_id   (never trust created_show_id bare — a forged/stale
+ *     manifest row pointing at an UNRELATED unpublished show must not publish it)
+ *   - s.wizard_created_session_id = m.wizard_session_id  (show-side discriminator: a same-drive
+ *     forge cannot publish a deliberately-unpublished pre-existing show — its discriminator is
+ *     NULL and no manifest write can change it)
+ *   - m.status = 'applied'            (rows written by the finalize path; defense-in-depth)
+ *   - m.drive_file_id = any($2::text[])   (bound to the EXACT locked set acquired in this tail —
+ *     a manifest row inserted after the lock-set SELECT is NOT published by this run)
+ *
+ * Publish-flip lock topology (plan R49-2 — invariant 2): the flip is a `shows` mutation and runs
+ * under per-show advisory locks, acquired SORTED and LAST in the outer transaction (which
+ * already holds finalize: → app_settings per R16-1 — per-show last preserves the global order;
+ * the per-row apply loop's locks were released when its row transactions committed).
+ *
+ * Existing-show shadow applies PRESERVE the live `published` value automatically — the payload
+ * never carries `published` and applyShowSnapshot's UPDATE arm never writes it.
+ */
 async function publishAppliedWizardShows(
   tx: FinalizeCasRouteTx,
   wizardSessionId: string,
 ): Promise<void> {
-  await tx.query<{ published: boolean }>(
+  const { rows } = await tx.query<{ drive_file_id: string }>(
     `
-      update public.shows
-         set published = true
-       where drive_file_id in (
-         select drive_file_id
-           from public.onboarding_scan_manifest
-          where wizard_session_id = $1::uuid
-            and status = 'applied'
-       )
-      returning true as published
+      select drive_file_id
+        from public.onboarding_scan_manifest
+       where wizard_session_id = $1::uuid
+         and status = 'applied'
+         and created_show_id is not null
+       order by drive_file_id
     `,
     [wizardSessionId],
+  );
+  const lockedDriveFileIds = rows.map((row) => row.drive_file_id);
+  if (lockedDriveFileIds.length === 0) return;
+  for (const driveFileId of lockedDriveFileIds) {
+    await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+  }
+  await tx.query<{ published: boolean }>(
+    `
+      update public.shows s
+         set published = true
+        from public.onboarding_scan_manifest m
+       where m.wizard_session_id = $1::uuid
+         and m.status = 'applied'
+         and m.created_show_id = s.id
+         and m.drive_file_id = s.drive_file_id
+         and s.wizard_created_session_id = m.wizard_session_id
+         and m.drive_file_id = any($2::text[])
+      returning true as published
+    `,
+    [wizardSessionId, lockedDriveFileIds],
   );
 }
 
@@ -409,6 +506,7 @@ async function runFinalizeCas(
   tx: FinalizeCasRouteTx,
   deps: ReturnType<typeof depsWithDefaults>,
 ): Promise<FinalizeCasResult> {
+  // R16-1: PLAIN candidate-discovery read — no row lock yet (lock order: finalize: first).
   const session = await readSession(tx);
   const wizardSessionId = session.pending_wizard_session_id;
   if (!wizardSessionId || !session.pending_folder_id) {
@@ -426,6 +524,13 @@ async function runFinalizeCas(
 
   if (!(await tryFinalizeLock(tx, wizardSessionId))) {
     return errorResponse(409, "CONCURRENT_FINALIZE_IN_FLIGHT");
+  }
+
+  // R16-1: authoritative FOR UPDATE re-check AFTER the finalize lock — the row lock is held
+  // through the tail promoteSettings CAS, so a mid-flight supersession BLOCKS until commit.
+  const current = await readSessionForUpdate(tx);
+  if (current.pending_wizard_session_id !== wizardSessionId || !current.pending_folder_id) {
+    return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
   }
 
   const checkpoint = await readCheckpoint(tx, wizardSessionId);
@@ -448,7 +553,11 @@ async function runFinalizeCas(
 
   const shadowResults: ShadowApplyResult[] = [];
   for (const row of await readShadowRows(tx, wizardSessionId)) {
-    shadowResults.push(await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, row)));
+    shadowResults.push(
+      await deps.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
+        applyShadow(rowTx, pipelineTx, row),
+      ),
+    );
   }
   const blocked = shadowResults.filter((row) => row.code !== "OK");
   if (blocked.length > 0) {
@@ -465,7 +574,9 @@ async function runFinalizeCas(
     status: "finalize_complete",
     wizard_session_id: wizardSessionId,
     watched_folder_id: watchedFolderId,
-    ...(blocked.length > 0 ? { per_row: shadowResults } : {}),
+    // Per-row results surface even on success — the discarded_by_reviewer_choice disposition
+    // is the operator's confirmation that a rejected identity change was NOT applied.
+    ...(shadowResults.length > 0 ? { per_row: shadowResults } : {}),
   };
 }
 
@@ -490,10 +601,9 @@ export async function handleOnboardingFinalizeCas(
     await deps.subscribeToWatchedFolder(result.watched_folder_id);
     return NextResponse.json(result);
   } catch (error) {
-    // Never leak an empty 500: the final-CAS step coerces parse_result /
-    // reviewer_choices (which can throw a typed JsonbCoercionError on genuinely
-    // corrupt data) and runs DB work that may fault. Any unexpected throw
-    // becomes a typed JSON error + console.error, mirroring handleOnboardingFinalize.
+    // Never leak an empty 500: the final-CAS step parses shadow payloads and runs DB work that
+    // may fault. Any unexpected throw becomes a typed JSON error + console.error, mirroring
+    // handleOnboardingFinalize.
     console.error(
       `onboarding finalize-cas: unexpected failure: ${
         error instanceof Error ? error.message : String(error)
