@@ -2,29 +2,14 @@
 
 import { motion } from "framer-motion";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
-/**
- * Reliable `prefers-reduced-motion` detection. framer-motion's own
- * `useReducedMotion()` misses the INITIAL value — it returns false until a
- * matchMedia `change` event fires, so a visitor who already has reduced motion
- * on (no change event) would wrongly get animations (verified: matchMedia
- * reports reduce=true while framer's hook returned false). This hook reads
- * `matchMedia(...).matches` on mount and subscribes to changes. SSR-safe: it
- * starts `false` (the server can't know the preference) and updates on mount,
- * which is fine because the wrapper's DOM shape never depends on this value.
- */
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(mq.matches);
-    const onChange = () => setReduced(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return reduced;
-}
+// Reduced-motion detection lives in lib/a11y/usePrefersReducedMotion (shared
+// with RightNowCard since the 2026-06-11 bug-audit). It returns `null` until
+// mount; both usages below are truthiness checks, so null behaves exactly
+// like the previous SSR-`false` initial state — the wrapper's DOM shape never
+// depends on this value.
+import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 
 /**
  * components/layout/PageTransition.tsx (M12.11)
