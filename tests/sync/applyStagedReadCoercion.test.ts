@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  mapPendingSyncRowForApply,
-  type PendingSyncForApplyRow,
-} from "@/lib/sync/applyStaged";
+import { mapPendingSyncRowForApply, type PendingSyncForApplyRow } from "@/lib/sync/applyStaged";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
 /**
@@ -87,6 +84,37 @@ describe("mapPendingSyncRowForApply — Apply read boundary (fail closed on corr
     expect(mapped.triggeredReviewItems).toEqual([]);
     expect(mapped.reviewItemsCorrupt).toBe(false);
   });
+
+  // WM-R6 class-sweep: the array-only check let malformed ELEMENTS through to
+  // validateReviewerChoices' `items.map((item) => item.id)` (TypeError on null) and
+  // deriveAuthSideEffects' per-invariant name derefs — a stored `[null]` 500'd the
+  // Apply instead of refusing with the typed STAGED_REVIEW_ITEMS_CORRUPT result.
+  test("an array with a null ELEMENT is flagged corrupt (would TypeError in validateReviewerChoices)", () => {
+    const mapped = mapPendingSyncRowForApply(rowWith([null]));
+    expect(mapped.triggeredReviewItems).toEqual([]);
+    expect(mapped.reviewItemsCorrupt).toBe(true);
+  });
+
+  test("an element missing id/invariant is flagged corrupt; per-invariant name fields are required", () => {
+    // missing `invariant`
+    expect(mapPendingSyncRowForApply(rowWith([{ id: "i1" }])).reviewItemsCorrupt).toBe(true);
+    // MI-12 without the removed_name/added_name strings deriveAuthSideEffects derefs
+    expect(
+      mapPendingSyncRowForApply(rowWith([{ id: "i1", invariant: "MI-12" }])).reviewItemsCorrupt,
+    ).toBe(true);
+    // one bad element poisons the row even alongside valid siblings (fail closed per row)
+    expect(mapPendingSyncRowForApply(rowWith([...VALID, "not-an-object"])).reviewItemsCorrupt).toBe(
+      true,
+    );
+  });
+
+  test("unknown invariants with valid id/invariant strings stay NOT corrupt (forward-compat)", () => {
+    const mapped = mapPendingSyncRowForApply(
+      rowWith([{ id: "i9", invariant: "SOME_FUTURE_INVARIANT" }]),
+    );
+    expect(mapped.reviewItemsCorrupt).toBe(false);
+    expect(mapped.triggeredReviewItems).toHaveLength(1);
+  });
 });
 
 /**
@@ -100,20 +128,20 @@ function rowWithParseResult(parseResult: unknown): PendingSyncForApplyRow {
   return { ...rowWith([]), parse_result: parseResult as PendingSyncForApplyRow["parse_result"] };
 }
 
-  const validPR = () => ({
-    show: { title: "T", dates: { showDays: ["2026-05-09"] } },
-    crewMembers: [],
-    hotelReservations: [],
-    rooms: [],
-    transportation: null,
-    contacts: [],
-    pullSheet: null,
-    warnings: [],
-    raw_unrecognized: [],
-    hardErrors: [],
-    openingReel: null,
-    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
-  });
+const validPR = () => ({
+  show: { title: "T", dates: { showDays: ["2026-05-09"] } },
+  crewMembers: [],
+  hotelReservations: [],
+  rooms: [],
+  transportation: null,
+  contacts: [],
+  pullSheet: null,
+  warnings: [],
+  raw_unrecognized: [],
+  hardErrors: [],
+  openingReel: null,
+  diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+});
 
 describe("mapPendingSyncRowForApply — parse_result coercion (flag, never throw)", () => {
   test("a valid (complete) parse_result object is not corrupt", () => {
@@ -131,9 +159,9 @@ describe("mapPendingSyncRowForApply — parse_result coercion (flag, never throw
   test("a corrupt-but-object parse_result (partial — missing dates/arrays) FLAGS corrupt (Codex R3)", () => {
     // The exact R3 case: an object that passes the old `.show`-only gate but
     // would TypeError downstream. Must flag, not pass.
-    expect(mapPendingSyncRowForApply(rowWithParseResult({ show: { title: "T" } })).parseResultCorrupt).toBe(
-      true,
-    );
+    expect(
+      mapPendingSyncRowForApply(rowWithParseResult({ show: { title: "T" } })).parseResultCorrupt,
+    ).toBe(true);
   });
 
   test("a genuinely-corrupt parse_result FLAGS parseResultCorrupt and does NOT throw", () => {
@@ -145,7 +173,9 @@ describe("mapPendingSyncRowForApply — parse_result coercion (flag, never throw
   });
 
   test("an unparseable / null parse_result also flags corrupt without throwing", () => {
-    expect(mapPendingSyncRowForApply(rowWithParseResult("{not json")).parseResultCorrupt).toBe(true);
+    expect(mapPendingSyncRowForApply(rowWithParseResult("{not json")).parseResultCorrupt).toBe(
+      true,
+    );
     expect(mapPendingSyncRowForApply(rowWithParseResult(null)).parseResultCorrupt).toBe(true);
   });
 });
@@ -169,10 +199,7 @@ describe("mapPendingSyncRowForApply — parse_result coercion (flag, never throw
  * timestamptz Date to a full-precision ISO string so the `string` type is
  * honest and the downstream millisecond-exact comparison is correct.
  */
-function rowWithStagedModified(
-  staged: unknown,
-  base: unknown = null,
-): PendingSyncForApplyRow {
+function rowWithStagedModified(staged: unknown, base: unknown = null): PendingSyncForApplyRow {
   return {
     ...rowWith([]),
     // Cast through the row's declared types: production passes a Date here

@@ -5,6 +5,7 @@ import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { asParseResult, JsonbCoercionError } from "@/lib/db/coerceJsonbObject";
 import {
@@ -414,10 +415,17 @@ export type PendingSyncForApplyRow = {
  * case is regression-covered directly against the production read mapping,
  * not only through StagedReviewCard rendering.
  */
-export function mapPendingSyncRowForApply(
-  row: PendingSyncForApplyRow,
-): PendingSyncForApply {
+export function mapPendingSyncRowForApply(row: PendingSyncForApplyRow): PendingSyncForApply {
   const parsed = parseTriggeredReviewItems(row.triggered_review_items);
+  // WM-R6 class-sweep: parseTriggeredReviewItems is an ARRAY-only check that
+  // bare-casts elements. A stored malformed ELEMENT (`[null]`, an object missing
+  // `id`/`invariant`/per-invariant name fields) passes it and then throws inside
+  // validateReviewerChoices (`items.map((item) => item.id)`) or deriveAuthSideEffects'
+  // per-invariant name derefs — 500ing the Apply. Element corruption joins the
+  // existing fail-closed reviewItemsCorrupt flag (typed STAGED_REVIEW_ITEMS_CORRUPT
+  // refusal), the same posture as the shadow-payload gate; the shared element guard
+  // lives in lib/staging/reviewPayloadGuards.ts.
+  const reviewItemsValid = parsed.ok && parsed.items.every(isStructurallyValidReviewItem);
   // parse_result is jsonb read via postgres.js; a legacy double-encoded row
   // comes back as a STRING SCALAR — asParseResult decodes it. Genuinely-corrupt
   // data (unparseable / missing `.show`) makes asParseResult throw a typed
@@ -446,8 +454,8 @@ export function mapPendingSyncRowForApply(
     stagedModifiedTime: normalizeTimestamptz(row.staged_modified_time) as string,
     parseResult,
     parseResultCorrupt,
-    triggeredReviewItems: parsed.ok ? parsed.items : [],
-    reviewItemsCorrupt: !parsed.ok,
+    triggeredReviewItems: reviewItemsValid ? parsed.items : [],
+    reviewItemsCorrupt: !reviewItemsValid,
     priorLastSyncStatus: row.prior_last_sync_status,
     priorLastSyncError: row.prior_last_sync_error,
     warningSummary: row.warning_summary,
@@ -531,13 +539,7 @@ async function defaultApproveWizardPendingSync(
          )
       returning true as approved
     `,
-    [
-      row.driveFileId,
-      row.wizardSessionId,
-      row.stagedId,
-      appliedByEmail,
-      row.reviewerChoices,
-    ],
+    [row.driveFileId, row.wizardSessionId, row.stagedId, appliedByEmail, row.reviewerChoices],
   );
   return Boolean(approved?.approved);
 }
