@@ -12,7 +12,7 @@
 
 **Lock topology (spec §3.3 row "F2 remediation migration"):** the migration's own DO-block loop is the single holder of `show:<drive_file_id>` per candidate, acquired in deterministic `drive_file_id` order. It is a DO block, NOT a `create function`, so `tests/auth/advisoryLockRpcDeadlock.test.ts` (which greps create-function bodies) does not need extension — same exemption rationale documented at `supabase/migrations/20260608000004_retire_live_pending_syncs.sql:17-18`. No new lock-acquiring RPC surface appears in this phase.
 
-**Meta-test inventory (spec §9):** this phase EXTENDS nothing and CREATES nothing in the structural registries — the two NEW structural guards in §9 (second-copy tripwire, live-vs-wizard partition classification) are Phase 1 deliverables; `data_migration_markers` is not RPC-gated (no RPC touches it), so `tests/db/postgrest-dml-lockdown.test.ts` registry is N/A — but the table DOES get RLS + REVOKE lockdown (Task 2.2 step 5) because Supabase default privileges would otherwise expose it to PostgREST DML.
+- `tests/db/postgrest-dml-lockdown.test.ts` — **EXTEND (R64-2): RPC_GATED_TABLES row for `data_migration_markers`, same commit as the REVOKE in the F2 migration** (a fake marker insertion could otherwise mask Arm B damage; the earlier N/A call is reversed).
 
 ---
 
