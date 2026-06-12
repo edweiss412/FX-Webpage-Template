@@ -665,3 +665,113 @@ describe("runPhase2 destructive snapshot", () => {
     expect(written).toContain("strict_less_than");
   });
 });
+
+// Sequence: a first-seen sheet hard_fails (Phase 1 writes the live pending_ingestions row), then a
+// later pass on the SAME driveFileId parses clean and goes down the first-seen auto-publish apply
+// route. The cleanup of the stale pending_ingestions row lives in the APPLY path
+// (lib/sync/applyParseResult.ts:131 — wired through runPhase2), NOT in Phase 1's stage branch
+// (lib/sync/phase1.ts:355, which only fires when something stages). Real route: cron/push pass →
+// perFileProcessor proceeds (no shows row → no watermark) → runPhase1 → 'auto_publish_ready' →
+// runPhase2 with autoPublishFirstSeen → applyParseResult → tx.deleteLivePendingIngestion
+// (real port: lib/sync/runScheduledCronSync.ts:649, scoped wizard_session_id IS NULL).
+// Mutation guard: removing the applyParseResult.ts:131 delete leaves the row behind → (c) fails.
+describe("hard_fail → clean-recovery sequence on the same file", () => {
+  class FakePhase1And2Tx extends FakePhase2Tx {
+    async readShowForPhase1(driveFileId: string) {
+      this.operations.push(`readShowForPhase1:${driveFileId}`);
+      const show = this.shows.get(driveFileId);
+      if (!show) return null;
+      return {
+        showId: show.id,
+        driveFileId,
+        lastSeenModifiedTime: show.lastSeenModifiedTime,
+        lastSyncStatus: show.lastSyncStatus,
+        lastSyncError: show.lastSyncError,
+        priorParseResult: parseResult(),
+      };
+    }
+
+    async readLivePendingSync(driveFileId: string) {
+      this.operations.push(`readLivePendingSync:${driveFileId}`);
+      return null;
+    }
+
+    async upsertLivePendingIngestion(row: { driveFileId: string }) {
+      this.operations.push(`upsertLivePendingIngestion:${row.driveFileId}`);
+      this.pendingIngestions.add(row.driveFileId);
+    }
+
+    async upsertLivePendingSync(): Promise<{ stagedId: string }> {
+      this.operations.push("upsertLivePendingSync");
+      return { stagedId: "staged-never-expected" };
+    }
+
+    async updateShowParseError(driveFileId: string) {
+      this.operations.push(`updateShowParseError:${driveFileId}`);
+    }
+
+    async updateShowPendingReview(driveFileId: string) {
+      this.operations.push(`updateShowPendingReview:${driveFileId}`);
+    }
+
+    async deleteWizardPendingSyncsExcept(wizardSessionId: string) {
+      this.operations.push(`deleteWizardPendingSyncsExcept:${wizardSessionId}`);
+    }
+  }
+
+  test("second pass applies clean and the APPLY path deletes the pending_ingestions row left by the hard_fail", async () => {
+    vi.resetModules();
+    const { runPhase1 } = await import("@/lib/sync/phase1");
+    const { runPhase2 } = await import("@/lib/sync/phase2");
+    const tx = new FakePhase1And2Tx();
+    const flagOn = {
+      getAutoPublishCleanFirstSeen: async () => ({ kind: "value" as const, autoPublish: true }),
+    };
+
+    // Pass 1: first-seen sheet hard-fails (MI-4_NO_CREW) → live pending_ingestions row created.
+    const first = await runPhase1(
+      tx as never,
+      { ...baseArgs, parseResult: parseResult({ crewMembers: [] }) },
+      flagOn,
+    );
+    expect(first).toMatchObject({ outcome: "hard_fail", code: "MI-4_NO_CREW" });
+    expect(tx.pendingIngestions.has("file-1")).toBe(true);
+
+    // Pass 2 (same driveFileId): clean parse → first-seen auto-publish route. (a) Phase 1 routes to
+    // auto_publish_ready (the stage branch — phase1.ts:355's cleanup — is NOT taken), and (b) the
+    // pending_ingestions row is still there after Phase 1: Phase 1 did not clean it up.
+    const opsBeforePass2 = tx.operations.length;
+    const second = await runPhase1(
+      tx as never,
+      { ...baseArgs, parseResult: parseResult() },
+      flagOn,
+    );
+    expect(second).toEqual({ outcome: "auto_publish_ready" });
+    expect(tx.pendingIngestions.has("file-1")).toBe(true);
+    expect(tx.operations.slice(opsBeforePass2).join("\n")).not.toMatch(
+      /deleteLivePendingIngestion|upsertLivePendingSync/,
+    );
+
+    // Apply: runPhase2 with the autoPublishFirstSeen payload the cron route derives from
+    // 'auto_publish_ready' (runScheduledCronSync.ts:2340). (c) the row is deleted, by the apply.
+    const phase2 = await runPhase2(tx as never, {
+      ...baseArgs,
+      parseResult: parseResult(),
+      autoPublishFirstSeen: {
+        unpublishToken: "tok-1",
+        unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
+      },
+    });
+    expect(phase2).toMatchObject({ outcome: "applied", showId: "show-1" });
+    expect(tx.pendingIngestions.has("file-1")).toBe(false);
+
+    // The delete is applyParseResult's (runs inside the apply, AFTER the crew snapshot writes) —
+    // not a Phase-1 side effect.
+    const deleteIdx = tx.operations.indexOf(
+      "deleteLivePendingIngestion:file-1:wizard_session_id IS NULL",
+    );
+    const upsertCrewIdx = tx.operations.findIndex((op) => op.startsWith("upsertCrewMembers:"));
+    expect(deleteIdx).toBeGreaterThan(upsertCrewIdx);
+    expect(upsertCrewIdx).toBeGreaterThan(-1);
+  });
+});
