@@ -181,6 +181,52 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(source).not.toMatch(/\.rpc\(/);
   });
 
+  test("finalize routes acquire the finalize advisory lock BEFORE any app_settings FOR UPDATE row lock (R25-1/R29-1: global total order vs cleanupAbandonedFinalize)", () => {
+    // cleanupAbandonedFinalize's order is finalize-lock → app_settings FOR UPDATE
+    // (lib/onboarding/sessionLifecycle.ts cleanupAbandonedFinalize). A finalize route that takes
+    // the app_settings row lock FIRST and only then touches the finalize lock inverts that order
+    // (AB-BA) — cleanup clicked while a finalize batch is mid-flight can deadlock both, stranding
+    // the wizard at the exact moment the operator is trying to recover it. Pin: in each route's
+    // handler body, every call to a helper whose SQL does `from public.app_settings … for update`
+    // must appear AFTER the `tryFinalizeLock(` call site.
+    for (const { file, handlerName } of [
+      { file: "app/api/admin/onboarding/finalize/route.ts", handlerName: "handleOnboardingFinalize" },
+      { file: "app/api/admin/onboarding/finalize-cas/route.ts", handlerName: "runFinalizeCas" },
+    ]) {
+      const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+
+      // Top-level function bodies (closing brace at column 0).
+      const fnBodies = new Map<string, string>();
+      for (const m of source.matchAll(
+        /(?:^|\n)(?:export\s+)?async function ([A-Za-z0-9_]+)\s*(?:<[^>]*>)?\(([\s\S]*?)\n\}/g,
+      )) {
+        const [, name, body] = m;
+        if (name && body) fnBodies.set(name, body);
+      }
+
+      const appSettingsForUpdateHelpers = [...fnBodies.entries()]
+        .filter(([, body]) => /from\s+public\.app_settings[\s\S]*?\bfor\s+update\b/i.test(body))
+        .map(([name]) => name);
+
+      const handlerBody = fnBodies.get(handlerName);
+      expect(handlerBody, `${file}: could not extract ${handlerName} body`).toBeTruthy();
+      const lockAt = handlerBody!.search(/\btryFinalizeLock\s*\(/);
+      expect(lockAt, `${file}: ${handlerName} never calls tryFinalizeLock`).toBeGreaterThan(-1);
+
+      for (const helper of appSettingsForUpdateHelpers) {
+        const callRe = new RegExp(`\\b${helper}\\s*\\(`, "g");
+        for (const call of handlerBody!.matchAll(callRe)) {
+          expect(
+            call.index! > lockAt,
+            `${file}: ${handlerName} calls ${helper} (app_settings FOR UPDATE) at idx ${call.index} ` +
+              `BEFORE tryFinalizeLock at idx ${lockAt} — inverts cleanupAbandonedFinalize's ` +
+              `finalize-lock→app_settings order (AB-BA deadlock under cleanup/finalize overlap)`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
   test("onboarding finalize routes use direct SQL advisory locks and no lock-taking RPC boundary", () => {
     for (const file of [
       "app/api/admin/onboarding/finalize/route.ts",

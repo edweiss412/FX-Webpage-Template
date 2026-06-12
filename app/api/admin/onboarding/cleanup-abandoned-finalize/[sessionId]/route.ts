@@ -136,9 +136,13 @@ async function insertAudit(input: {
         'onboarding-cleanup:' || $1,
         $4,
         $5::uuid,
-        jsonb_build_array(jsonb_build_object('phase', $2, 'status', $3)),
+        -- ::text casts: $2/$3/$6 appear ONLY inside jsonb_build_object, so postgres cannot
+        -- infer their types — real-DB execution fails with "could not determine data type of
+        -- parameter" (same class as the sessionLifecycle sync_log insert; fake-tx suites never
+        -- execute the SQL).
+        jsonb_build_array(jsonb_build_object('phase', $2::text, 'status', $3::text)),
         '[]'::jsonb,
-        jsonb_build_object('reason', $6),
+        jsonb_build_object('reason', $6::text),
         jsonb_build_object(
           'wizard_session_id', $1::uuid,
           'applied_manifest_count', $7::int,

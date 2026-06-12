@@ -17,6 +17,8 @@ const STAGED_PARSE_REVISION_RACE_DURING_FINALIZE =
 const STAGED_PARSE_SOURCE_OUT_OF_SCOPE = "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" as const;
 const WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED =
   "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED" as const;
+// §12.4-cataloged (lib/messages/catalog.ts WIZARD_SESSION_SUPERSEDED) — reused, no new code.
+const WIZARD_SESSION_SUPERSEDED = "WIZARD_SESSION_SUPERSEDED" as const;
 // not-subject:M5-D8 — error CODE identifier (admin-log-only, routed through the
 // §12.4 catalog), not inline user-facing copy; matches only because the name ends in ERROR.
 const ONBOARDING_FINALIZE_INTERNAL_ERROR = "ONBOARDING_FINALIZE_INTERNAL_ERROR" as const;
@@ -168,7 +170,26 @@ function requireApprovedByEmail(row: PendingFinalizeRow): string {
   return row.wizard_approved_by_email;
 }
 
-async function readActiveSession(tx: FinalizeRouteTx): Promise<string | null> {
+/**
+ * Plan R25-1/R29-1 (F1 Task 1.3): session discovery is a PLAIN read — no row lock. The
+ * app_settings FOR UPDATE row lock is taken ONLY after `tryFinalizeLock` succeeds
+ * (readActiveSessionForUpdate below), matching cleanupAbandonedFinalize's global total order
+ * finalize-lock → app_settings (lib/onboarding/sessionLifecycle.ts cleanupAbandonedFinalize).
+ * The old order (FOR UPDATE first) inverted it — AB-BA under cleanup/finalize overlap. Pinned
+ * by tests/auth/advisoryLockRpcDeadlock.test.ts (lock-order structural test).
+ */
+async function readCandidateSessionId(tx: FinalizeRouteTx): Promise<string | null> {
+  const { rows } = await tx.query<ActiveSessionRow>(
+    `
+      select pending_wizard_session_id
+        from public.app_settings
+       where id = 'default'
+    `,
+  );
+  return rows[0]?.pending_wizard_session_id ?? null;
+}
+
+async function readActiveSessionForUpdate(tx: FinalizeRouteTx): Promise<string | null> {
   const { rows } = await tx.query<ActiveSessionRow>(
     `
       select pending_wizard_session_id
@@ -624,13 +645,21 @@ export async function handleOnboardingFinalize(
 
   try {
     return await runtime.withTx(async (tx) => {
-      const wizardSessionId = await readActiveSession(tx);
+      // R25-1/R29-1 lock order: discover the candidate session WITHOUT a row lock, acquire
+      // finalize:<session>, THEN take the app_settings FOR UPDATE row lock and re-check the
+      // candidate is still the active session (supersession between discovery and lock → 409).
+      const wizardSessionId = await readCandidateSessionId(tx);
       if (!wizardSessionId) {
         return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
       }
 
       const locked = await tryFinalizeLock(tx, wizardSessionId);
       if (!locked) return errorResponse(409, "CONCURRENT_FINALIZE_IN_FLIGHT");
+
+      const activeSessionId = await readActiveSessionForUpdate(tx);
+      if (activeSessionId !== wizardSessionId) {
+        return errorResponse(409, WIZARD_SESSION_SUPERSEDED);
+      }
 
       const checkpoint = await ensureCheckpoint(tx, wizardSessionId);
       if (!checkpoint) return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");

@@ -399,7 +399,11 @@ export async function cleanupAbandonedFinalize(
         values (
           'cleanup_abandoned_finalize',
           'abandoned onboarding finalize cleaned up by an admin',
-          jsonb_build_array(jsonb_build_object('wizard_session_id', $1::uuid, 'admin_email', $2))
+          -- $2::text: bare $2 only appears inside jsonb_build_object, so postgres cannot infer
+          -- its type — real-DB execution failed with "could not determine data type of parameter
+          -- $2" (surfaced by tests/onboarding/finalizeCleanupOverlap.db.test.ts; fake-tx suites
+          -- never execute the SQL).
+          jsonb_build_array(jsonb_build_object('wizard_session_id', $1::uuid, 'admin_email', $2::text))
         )
       `,
       [sessionId, admin.email],
