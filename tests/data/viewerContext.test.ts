@@ -139,4 +139,24 @@ describe("resolveViewerContext", () => {
     expect(ctx.stageRestriction).toEqual({ kind: "none" });
     expect(ctx.isAdmin).toBe(false);
   });
+
+  test("crew viewer with UNDEFINED crewMembers array → same fallback, no throw (defense-in-depth)", () => {
+    // Malformed projection / degraded data layer: crewMembers missing
+    // entirely, not just the row. Per the live type (getShowForViewer.ts:96)
+    // and its only constructor (`(crewRes.data ?? []).map`, line 305) this
+    // can't happen through the real helper today — the guard pins the
+    // same tolerance the missing-row branch above already has, so an
+    // unguarded `.find` revert fails here with a TypeError.
+    const viewer: Viewer = { kind: "crew", crewMemberId: "crew-alice" };
+    const data = makeData(undefined as unknown as ShowForViewer["crewMembers"]);
+
+    const ctx = resolveViewerContext(viewer, data);
+
+    expect(ctx.viewerCrew).toBeNull();
+    expect(ctx.viewerFlags).toEqual([]);
+    expect(ctx.viewerName).toBeNull();
+    expect(ctx.dateRestriction).toEqual({ kind: "none" });
+    expect(ctx.stageRestriction).toEqual({ kind: "none" });
+    expect(ctx.isAdmin).toBe(false);
+  });
 });
