@@ -6,7 +6,7 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ## Milestone close-out (2026-06-11)
 
-### M12.12-DEF-1: phantom 24h-undo promise in shipped UI copy — ✅ RESOLVED 2026-06-12 (M12.13, PR #<n>)
+### M12.12-DEF-1: phantom 24h-undo promise in shipped UI copy — ✅ RESOLVED 2026-06-12 (M12.13, PR #29 (merge 1159d5d2))
 
 **Resolution (M12.13 auto-publish undo delivery):** resolved via fix-path (b) — the delivery surface SHIPPED, making the existing copy true rather than rewording it (the owner-selected scope over copy-only). The undo is now delivered three ways: a recipient-bound email (B3 leg, gated by the new `alert_on_auto_publish` toggle), a tokened `/show/[slug]/unpublish` confirm page, and two in-app affordances (per-show footer button + the SHOW_FIRST_PUBLISHED alert-row action) live while the 24h window is open. The forbidden-prose registry's `24-hour-undo-email` entry retired accordingly (the promise is now true on every install); `email-delivery-of-action-link` narrowed to still ban phantom links for other channels. `AutoPublishToggle.tsx:74` and `StagedReviewCard.tsx:136` are UNCHANGED — they became true as written. Spec: `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery-design.md` (adversarial R30). Original entry preserved below.
 
