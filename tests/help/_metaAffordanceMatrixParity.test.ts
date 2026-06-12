@@ -43,7 +43,7 @@ const liveIds = new Set([...concreteIds].filter((id) => !DEFERRED_TESTIDS.has(id
 // The occurrence-uniqueness rule below counts substring hits via indexOf. That
 // is only sound if no concrete id is a substring of another concrete id —
 // otherwise one literal would count toward two ids. Verified for the current
-// 19-row matrix (Task 9 pre-check); this assertion keeps the precondition
+// 20-row matrix (Task 9 pre-check); this assertion keeps the precondition
 // pinned so a future row that violates it fails loudly instead of silently
 // double-counting (the fix then is a boundary-aware regex scan).
 const allConcrete = [...concreteIds];

@@ -178,6 +178,16 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   },
   {
     kind: "concrete",
+    sourceSurface: "Settings - Maintenance section header",
+    sourceRoute: "/admin/settings",
+    affordance: "? tooltip",
+    testid: "help-affordance--settings-maintenance--tooltip",
+    target: "/help/admin/settings#maintenance",
+    visibleAt: "both",
+    owningMilestone: "Onboarding fixups (F4)",
+  },
+  {
+    kind: "concrete",
     sourceSurface: "Onboarding wizard - Step 1 (service-account email)",
     sourceRoute: "/admin",
     affordance: "? icon",

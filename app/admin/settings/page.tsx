@@ -193,7 +193,12 @@ export default async function AdminSettingsPage() {
             >
               Maintenance
             </h2>
-            <HoverHelp label="Help: Maintenance" testId="maintenance-help">
+            <HoverHelp
+              label="Help: Maintenance"
+              testId="maintenance-help"
+              rootTestId="help-affordance--settings-maintenance--tooltip"
+              learnMore={{ href: "/help/admin/settings#maintenance" }}
+            >
               <p>
                 Housekeeping actions. Cleaning up old setup leftovers removes staging data from
                 setup sessions abandoned more than a day ago. It never touches your current setup or
