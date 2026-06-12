@@ -101,6 +101,9 @@ export const INTERNAL_CODE_ENUMS = {
   ONBOARDING_FINALIZE_INTERNAL_ERROR: {
     source: "pending_ingestions.last_error_code"
   },
+  ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
+    source: "pending_ingestions.last_error_code"
+  },
   OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
     source: "pending_ingestions.last_error_code"
   },

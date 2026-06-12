@@ -92,6 +92,10 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   phaseDCasFailDriveIds = new Set<string>();
   // Drive ids whose manifest rows carry created_show_id (the narrowed flip's locked set).
   sessionCreatedDriveIds: string[] = [];
+  // WM-R7 finding 1: drive ids the legacy-ambiguity preflight reports — applied manifest
+  // rows with NULL created_show_id whose published=false show carries NO provenance
+  // discriminator and has NO shadow (the pre-provenance Phase B shape).
+  legacyAmbiguousDriveIds: string[] = [];
   published = false;
   deletedWizardDeferrals = false;
   operations: string[] = [];
@@ -164,6 +168,13 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
       };
     }
 
+    if (normalized.startsWith("select m.drive_file_id from public.onboarding_scan_manifest m")) {
+      return {
+        rows: this.legacyAmbiguousDriveIds.map((drive_file_id) => ({ drive_file_id }) as T),
+        rowCount: this.legacyAmbiguousDriveIds.length,
+      };
+    }
+
     if (normalized.startsWith("select drive_file_id from public.onboarding_scan_manifest")) {
       return {
         rows: this.sessionCreatedDriveIds.map((drive_file_id) => ({ drive_file_id }) as T),
@@ -224,6 +235,9 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
     if (sql.startsWith("select status, batches_completed")) return "read-checkpoint";
     if (sql.startsWith("select wizard_session_id, drive_file_id")) return "read-shadows";
     if (sql.startsWith("select id, last_seen_modified_time, diagrams")) return "read-live-show";
+    if (sql.startsWith("select m.drive_file_id from public.onboarding_scan_manifest m")) {
+      return "legacy-ambiguity-preflight";
+    }
     if (sql.startsWith("select drive_file_id from public.onboarding_scan_manifest")) {
       return "read-created-manifest";
     }
@@ -616,6 +630,61 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       code: "ONBOARDING_NOT_RESOLVED",
       unresolved_manifest_count: 1,
     });
+  });
+
+  test("legacy pre-provenance Phase B rows REFUSE the final CAS fail-closed — before any apply/flip (WM-R7 finding 1)", async () => {
+    // Concrete failure mode: a setup that ran Phase B on MAIN (pre-provenance)
+    // has status='applied' manifest rows with created_show_id NULL and a
+    // published=false first-seen show with wizard_created_session_id NULL. The
+    // narrowed publish flip selects only provenance-bearing rows, so the final
+    // CAS would COMPLETE (final_cas_done, settings promoted) publishing ZERO
+    // rows — the show stays invisible with no pending row to recover.
+    const db = new FakeFinalizeCasDb();
+    db.legacyAmbiguousDriveIds = ["legacy-1"];
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "22222222-2222-4222-8222-222222222222",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = ["first-seen-1"];
+    const routeDeps = deps(db);
+
+    const response = await handleOnboardingFinalizeCas(request(), routeDeps);
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({
+      ok: false,
+      code: "ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+      per_row: [{ drive_file_id: "legacy-1", code: "ONBOARDING_LEGACY_ROW_AMBIGUOUS" }],
+    });
+    // The preflight fires BEFORE any row apply/flip: nothing applied, nothing
+    // published, shadow retained, settings NOT promoted, checkpoint NOT done.
+    expect(db.appliedShadows).toEqual([]);
+    expect(db.shadowRows).toHaveLength(1);
+    expect(db.published).toBe(false);
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
+    expect(db.activeSessionId).toBe(W1);
+    expect(routeDeps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(db.operations).not.toContain("read-shadows");
+    expect(db.operations).toContain("legacy-ambiguity-preflight");
+  });
+
+  test("ONBOARDING_LEGACY_ROW_AMBIGUOUS is cataloged with Doug-facing recovery copy (invariant 5)", async () => {
+    // RunFinalCASButton renders per-row codes via messageFor().dougFacing — an
+    // uncataloged code would fall back to the generic error and strand the
+    // operator without the re-run-setup recovery instruction.
+    const { MESSAGE_CATALOG } = await import("@/lib/messages/catalog");
+    const entry = MESSAGE_CATALOG["ONBOARDING_LEGACY_ROW_AMBIGUOUS" as keyof typeof MESSAGE_CATALOG] as
+      | { dougFacing: string | null; helpfulContext: string | null }
+      | undefined;
+    expect(entry).toBeDefined();
+    expect(entry!.dougFacing).toMatch(/setup/i);
+    expect(entry!.helpfulContext).toBeTruthy();
   });
 
   test("never returns an empty 500 — an unexpected throw becomes a typed JSON error + console.error", async () => {

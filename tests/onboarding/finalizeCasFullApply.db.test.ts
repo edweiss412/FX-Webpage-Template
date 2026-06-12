@@ -572,14 +572,22 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
       });
       await seedManifestRow("drive-cas-d-a", { createdShowId });
       // B — pre-existing published=false (B2-unpublished) show approved into a shadow:
-      // manifest row applied, created_show_id NULL.
+      // manifest row applied, created_show_id NULL. The shadow row is load-bearing twice:
+      // it matches the production shape this case describes, AND it exempts the row from
+      // the WM-R7 legacy-ambiguity preflight (shadow-backed rows legitimately carry NULL
+      // created_show_id; shadowless ones are the refused legacy shape).
       const preexistingId = await seedLiveShow({
         drive: "drive-cas-d-b",
         title: "Cas D Preexisting",
-        lastSeen: STAGED,
+        lastSeen: BASE,
         published: false,
       });
       await seedManifestRow("drive-cas-d-b");
+      await seedShadow(
+        "drive-cas-d-b",
+        preexistingId,
+        shadowPayload(makeParse("Cas D Preexisting", [])),
+      );
       // C — SAME-DRIVE forge (R55-1/R56-1): created_show_id forged to the row's own show id via
       // service-role SQL; the SHOW carries no wizard_created_session_id discriminator.
       const sameDriveForgedId = await seedLiveShow({
@@ -677,6 +685,90 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
         ).published;
       expect(await published(lockedShowId)).toBe(true); // the locked set published
       expect(await published(lateShowId)).toBe(false); // the late row did NOT (set-bound any($2))
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "(legacy) pre-provenance Phase B rows REFUSE the final CAS fail-closed; provenance siblings publish after recovery (WM-R7)",
+    async () => {
+      // Concrete failure mode: a setup that ran Phase B on MAIN (pre-provenance)
+      // left status='applied' manifest rows with created_show_id NULL and a
+      // published=false first-seen show with wizard_created_session_id NULL (no
+      // shadow — first-seen rows never have one). The narrowed publish flip
+      // selects only provenance-bearing rows → final-CAS would COMPLETE
+      // (final_cas_done, settings promoted) publishing ZERO rows; the show
+      // stays invisible forever with no pending row to recover.
+      const legacyShowId = await seedLiveShow({
+        drive: "drive-cas-legacy-a",
+        title: "Cas Legacy Old PhaseB",
+        lastSeen: STAGED,
+        published: false,
+        // discriminator omitted → wizard_created_session_id NULL (the OLD shape)
+      });
+      await seedManifestRow("drive-cas-legacy-a"); // applied, created_show_id NULL, NO shadow
+      // Provenance-bearing sibling (the positive case): session-created row.
+      const createdShowId = await seedLiveShow({
+        drive: "drive-cas-legacy-b",
+        title: "Cas Legacy Created",
+        lastSeen: STAGED,
+        published: false,
+        discriminator: SESSION,
+      });
+      await seedManifestRow("drive-cas-legacy-b", { createdShowId });
+
+      const res = await handleOnboardingFinalizeCas(request(), deps());
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { ok: boolean; code: string; per_row: PerRow[] };
+      expect(body.code).toBe("ONBOARDING_LEGACY_ROW_AMBIGUOUS");
+      expect(body.per_row).toEqual([
+        { drive_file_id: "drive-cas-legacy-a", code: "ONBOARDING_LEGACY_ROW_AMBIGUOUS" },
+      ]);
+      // Fail-closed: NOT final_cas_done, settings NOT promoted, NOTHING published.
+      const checkpoint = one<{ status: string }>(
+        await sql!.unsafe(
+          `select status from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`,
+          [SESSION],
+        ),
+      );
+      expect(checkpoint.status).toBe("all_batches_complete");
+      const settings = one<{ pending_wizard_session_id: string | null; watched_folder_id: string | null }>(
+        await sql!.unsafe(
+          `select pending_wizard_session_id, watched_folder_id from public.app_settings where id = 'default'`,
+        ),
+      );
+      expect(settings.pending_wizard_session_id).toBe(SESSION);
+      expect(settings.watched_folder_id).toBeNull();
+      const published = async (id: string) =>
+        one<{ published: boolean }>(
+          await sql!.unsafe(`select published from public.shows where id = $1`, [id]),
+        ).published;
+      expect(await published(legacyShowId)).toBe(false);
+      expect(await published(createdShowId)).toBe(false); // sibling NOT published either — preflight is before the flip
+
+      // Recovery: re-running setup restages + re-finalizes the sheet on the NEW
+      // code, which records provenance on both sides. Simulate that outcome,
+      // then the final CAS completes and publishes BOTH rows (positive case).
+      await sql!.unsafe(
+        `update public.onboarding_scan_manifest set created_show_id = $1::uuid
+          where wizard_session_id = $2::uuid and drive_file_id = 'drive-cas-legacy-a'`,
+        [legacyShowId, SESSION],
+      );
+      await sql!.unsafe(
+        `update public.shows set wizard_created_session_id = $1::uuid where id = $2::uuid`,
+        [SESSION, legacyShowId],
+      );
+      const res2 = await handleOnboardingFinalizeCas(request(), deps());
+      expect(res2.status).toBe(200);
+      expect(await published(legacyShowId)).toBe(true);
+      expect(await published(createdShowId)).toBe(true);
+      expect(
+        one<{ status: string }>(
+          await sql!.unsafe(
+            `select status from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`,
+            [SESSION],
+          ),
+        ).status,
+      ).toBe("final_cas_done");
     },
   );
 

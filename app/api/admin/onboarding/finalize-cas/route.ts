@@ -452,6 +452,52 @@ async function publishAppliedWizardShows(
   );
 }
 
+/**
+ * WM-R7 finding 1 — upgrade-safety preflight (FAIL-CLOSED). A setup that ran Phase B on
+ * pre-provenance code (before migration 20260611000000) left `status='applied'` manifest rows
+ * with `created_show_id` NULL and a `published=false` first-seen show whose
+ * `wizard_created_session_id` is NULL. The narrowed flip above selects only provenance-bearing
+ * rows, so the final CAS would COMPLETE (final_cas_done, settings promoted) publishing ZERO
+ * rows — the show stays invisible with no pending row to recover. Detect the legacy-ambiguous
+ * shape inside the locked transaction, BEFORE any row apply/flip, and refuse with the cataloged
+ * ONBOARDING_LEGACY_ROW_AMBIGUOUS recovery code instead of completing (recovery: re-run setup
+ * so the sheet is restaged — the wizard re-scan restages first-seen rows — or contact the
+ * developer).
+ *
+ * Shadow-backed rows are EXCLUDED: existing-show shadows legitimately carry NULL
+ * created_show_id (only first-seen creates write it) and are consumed by the apply loop later
+ * in this same run. A shadowless match is ambiguous by construction — it cannot be
+ * distinguished from an abandoned pre-provenance first-seen row — so the preflight refuses
+ * rather than guessing.
+ */
+async function legacyAmbiguousManifestRows(
+  tx: FinalizeCasRouteTx,
+  wizardSessionId: string,
+): Promise<string[]> {
+  const { rows } = await tx.query<{ drive_file_id: string }>(
+    `
+      select m.drive_file_id
+        from public.onboarding_scan_manifest m
+        join public.shows s
+          on s.drive_file_id = m.drive_file_id
+       where m.wizard_session_id = $1::uuid
+         and m.status = 'applied'
+         and m.created_show_id is null
+         and s.published = false
+         and s.wizard_created_session_id is null
+         and not exists (
+               select 1
+                 from public.shows_pending_changes p
+                where p.wizard_session_id = m.wizard_session_id
+                  and p.drive_file_id = m.drive_file_id
+             )
+       order by m.drive_file_id
+    `,
+    [wizardSessionId],
+  );
+  return rows.map((row) => row.drive_file_id);
+}
+
 async function deleteWizardDeferrals(
   tx: FinalizeCasRouteTx,
   wizardSessionId: string,
@@ -548,6 +594,19 @@ async function runFinalizeCas(
   if (unresolved > 0) {
     return errorResponse(409, "ONBOARDING_NOT_RESOLVED", {
       unresolved_manifest_count: unresolved,
+    });
+  }
+
+  // WM-R7 finding 1: legacy-ambiguity preflight runs BEFORE any row apply/flip — a refusal
+  // must leave the session fully recoverable (no shadow consumed, nothing published, settings
+  // unpromoted, checkpoint NOT final_cas_done).
+  const legacyAmbiguous = await legacyAmbiguousManifestRows(tx, wizardSessionId);
+  if (legacyAmbiguous.length > 0) {
+    return errorResponse(409, "ONBOARDING_LEGACY_ROW_AMBIGUOUS", {
+      per_row: legacyAmbiguous.map((driveFileId) => ({
+        drive_file_id: driveFileId,
+        code: "ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+      })),
     });
   }
 

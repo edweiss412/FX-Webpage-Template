@@ -572,6 +572,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → fix Drive share",
     "helpfulContext": "We tried to read your folder using the service account but Drive returned an access-denied response. Open the folder's share dialog and add the service-account email shown in the wizard. Once it's shared, click 'Try again'.",
   },
+  "ONBOARDING_LEGACY_ROW_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
+    "followUp": "Doug → re-run setup; Eric if it persists",
+    "helpfulContext": "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets — or contact the developer if this keeps happening.",
+  },
   "ONBOARDING_NOT_RESOLVED": {
     "crewFacing": null,
     "dougFacing": "Some sheets in your folder still need review before we can finish setup. Resolve them and try again.",

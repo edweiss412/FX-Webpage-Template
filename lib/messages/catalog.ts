@@ -1279,6 +1279,19 @@ export const MESSAGE_CATALOG = {
       "Something on our end (not your sheet, not your folder) failed during the wizard. The developer has been notified and will fix the underlying issue. Try again in a few minutes.",
     helpHref: "/help/errors#ONBOARDING_OPERATOR_ERROR",
   },
+  ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
+    code: "ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+    dougFacing:
+      "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
+    crewFacing: null,
+    followUp: "Doug → re-run setup; Eric if it persists",
+    helpfulContext:
+      "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets — or contact the developer if this keeps happening.",
+    title: "Sheets from an older setup run",
+    longExplanation:
+      "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets. If this keeps happening, contact the developer.",
+    helpHref: "/help/errors#ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+  },
   ONBOARDING_NOT_RESOLVED: {
     code: "ONBOARDING_NOT_RESOLVED",
     dougFacing:
