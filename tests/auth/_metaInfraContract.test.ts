@@ -56,7 +56,8 @@
  *       collapsed infra → benign" — the existing row in this file fails.
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 const infraMock = vi.hoisted(() => ({
   // When `throwOnConstruct` is true, createSupabaseServerClient throws.
@@ -140,12 +141,15 @@ beforeEach(() => {
 });
 
 const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
+  "app/api/auth/google/start/route.ts",
   "app/api/auth/picker-bootstrap/route.ts",
   "app/api/show/[slug]/version/route.ts",
   "app/auth/callback/route.ts",
+  "app/auth/sign-in/page.tsx",
   "app/auth/sign-out/route.ts",
   "lib/auth/picker/resolvePickerSelection.ts",
   "lib/auth/picker/resetPickerEpoch.ts",
+  "lib/auth/picker/resolveShowPageAccess.ts",
   "lib/auth/picker/rotateShareToken.ts",
   "lib/auth/picker/selectIdentity.ts",
 ] as const;
@@ -202,6 +206,11 @@ describe("META infra-failure contract", () => {
       expect(source).toMatch(/const\s+\{\s*error\s*\}\s*=\s*await\s+supabase\.auth\.signOut\(\)/);
     });
 
+    test("resolveShowPageAccess destructures the resolve_show_by_slug_and_token RPC boundary", () => {
+      const source = readFileSync("lib/auth/picker/resolveShowPageAccess.ts", "utf8");
+      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/);
+    });
+
     test("resolvePickerSelection destructures auth_email_canonical and crew email lookup", () => {
       const source = readFileSync("lib/auth/picker/resolvePickerSelection.ts", "utf8");
       expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+authClient\.rpc\("auth_email_canonical"\)/);
@@ -218,6 +227,54 @@ describe("META infra-failure contract", () => {
       });
 
       expect(violations).toEqual([]);
+    });
+
+    // 2026-06-11 bug-audit: the registry was a fixed file list with no orphan
+    // detection, so lib/auth/picker/resolveShowPageAccess.ts shipped Supabase
+    // constructor calls without being registered (or waivered) and CI stayed
+    // green — exactly the "meta-tests must walk every file in the relevant
+    // subtree, not lexically scan a named file list" class from AGENTS.md.
+    // This layer walks the auth domain this meta-test owns and requires every
+    // constructor call site to be EITHER in SUPABASE_CONSTRUCTOR_CONTRACT_FILES,
+    // covered by a behavioral describe below (BEHAVIORAL_CONTRACT_FILES), or
+    // carry an inline `// not-subject-to-meta: <reason>` waiver per AGENTS.md
+    // invariant 9. Sibling domains (lib/notify, lib/sync, ...) are owned by
+    // their own registry-style meta-tests.
+    test("every auth-domain Supabase constructor call site is registered, behaviorally covered, or waivered", () => {
+      const AUTH_DOMAIN_ROOTS = ["lib/auth", "app/auth", "app/api/auth", "app/api/show"];
+      // Helpers exercised by the behavioral describes in this file rather
+      // than the source-scan registry.
+      const BEHAVIORAL_CONTRACT_FILES = new Set([
+        "lib/auth/isAdminSession.ts",
+        "lib/auth/validateGoogleIdentity.ts",
+        "lib/auth/validateGoogleSession.ts",
+        "lib/auth/requireAdmin.ts",
+      ]);
+
+      const walk = (dir: string, out: string[] = []): string[] => {
+        for (const entry of readdirSync(dir)) {
+          const full = join(dir, entry);
+          if (statSync(full).isDirectory()) walk(full, out);
+          else if (/\.(ts|tsx)$/.test(full)) out.push(full);
+        }
+        return out;
+      };
+
+      const registered = new Set<string>(SUPABASE_CONSTRUCTOR_CONTRACT_FILES);
+      const orphans = AUTH_DOMAIN_ROOTS.flatMap((root) => walk(root)).filter((file) => {
+        const source = readFileSync(file, "utf8");
+        if (!SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE.test(source)) return false;
+        if (registered.has(file) || BEHAVIORAL_CONTRACT_FILES.has(file)) return false;
+        return !source.includes("// not-subject-to-meta:");
+      });
+
+      expect(
+        orphans,
+        `Unregistered Supabase constructor call sites in the auth domain:\n${orphans.join("\n")}\n` +
+          "Add the file to SUPABASE_CONSTRUCTOR_CONTRACT_FILES (plus a destructuring " +
+          "assertion if it adds new RPC boundaries), cover it with a behavioral " +
+          "describe, or add an inline `// not-subject-to-meta: <reason>` waiver.",
+      ).toEqual([]);
     });
   });
 
