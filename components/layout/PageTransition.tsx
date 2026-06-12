@@ -29,7 +29,7 @@ import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
  * the `--duration-normal` (220ms) / `--ease-out-expo` design tokens.
  *
  * STRUCTURAL STABILITY (no hydration mismatch): the wrapper element is ALWAYS
- * rendered — we never branch the returned tree shape on `useReducedMotion()`.
+ * rendered — we never branch the returned tree shape on `usePrefersReducedMotion()`.
  * SSR can't know the motion preference and renders the wrapper; if the client's
  * first render returned a bare fragment instead (for reduced-motion users),
  * React would hit a root-shape mismatch and remount the admin content during
