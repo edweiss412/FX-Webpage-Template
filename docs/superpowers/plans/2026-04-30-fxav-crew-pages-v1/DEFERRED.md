@@ -628,3 +628,9 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Noted, not fixed (MEDIUMs from the same critique):** (a) outdated rows (`STAGED_PARSE_OUTDATED_AT_PHASE_D`) self-heal on the next finalize click, but the per-row panel gives no "click publish again" hint; (b) the per-row panel uses the raw `drive_file_id` as the row identifier rather than a human-readable sheet/show name. Fold both into whatever milestone picks this entry up.
 
 **Trigger:** M13 launch-gate checklist, or sooner if any milestone reopens the finalize-cas UI (`components/admin/RunFinalCASButton.tsx` / `components/admin/FinalizeButton.tsx` per-row panels).
+
+## ONBOARDING-FIXUPS-DEF-3 — Reject-discarded shadows lack completion provenance for the legacy preflight
+
+**Found:** WM-R8 fix follow-up (2026-06-12). A Phase D shadow resolved as `discarded_by_reviewer_choice` (MI-12 reject) writes no `sync_audit` row (ratified live reject contract), so on a published=false existing show it leaves no durable completion provenance. If a SIBLING shadow then blocks final-CAS, the retry's `ONBOARDING_LEGACY_ROW_AMBIGUOUS` preflight classifies the completed-by-reject row as legacy-ambiguous and 409s. **Recovery exists and is correct** (the cataloged copy: re-run setup → restage, or developer clears) — this is an availability annoyance on a narrow path (unpublished existing show + reject choice + partial batch + retry), not data loss; fail-closed is the safe direction. Proper fix needs a design decision: a durable per-row completion marker that doesn't violate the no-audit reject contract (e.g., manifest-row completion stamp written by Phase D for ALL terminal row outcomes).
+
+**Trigger:** M13 launch-gate checklist, or any milestone reopening finalize-cas / the reject contract.
