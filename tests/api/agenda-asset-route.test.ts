@@ -67,6 +67,12 @@ const routeMock = vi.hoisted(() => ({
   omit206ContentRange: false as boolean,
   use206StarTotal: false as boolean,
   use206MalformedTotal: false as boolean,
+  // When true, the 206 media response returns headers as a PLAIN OBJECT
+  // with canonical casing ({"Content-Range": ...}) instead of a WHATWG
+  // Headers instance — the shape of any adapter that preserves canonical
+  // header casing. pickStringHeader must resolve it case-insensitively or
+  // the fail-closed 206 guard re-trips (410 on every valid slice).
+  use206CanonicalPlainObjectHeaders: false as boolean,
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -212,6 +218,16 @@ vi.mock("@/lib/drive/client", () => ({
             // (`headers["content-range"]` → undefined → fail-closed 410 on
             // every valid Range slice) can never regress silently again
             // (live-reproduced production bug, 2026-06-12).
+            if (routeMock.use206CanonicalPlainObjectHeaders) {
+              const canonical: Record<string, string> = {};
+              if (headers["content-range"] !== undefined) {
+                canonical["Content-Range"] = headers["content-range"];
+              }
+              if (headers["content-length"] !== undefined) {
+                canonical["Content-Length"] = headers["content-length"];
+              }
+              return { data: routeMock.driveBytes, status: 206, headers: canonical };
+            }
             return { data: routeMock.driveBytes, status: 206, headers: new Headers(headers) };
           }
           return { data: routeMock.driveBytes, status: 200 };
@@ -265,6 +281,7 @@ beforeEach(() => {
   routeMock.omit206ContentRange = false;
   routeMock.use206StarTotal = false;
   routeMock.use206MalformedTotal = false;
+  routeMock.use206CanonicalPlainObjectHeaders = false;
 });
 
 async function headAgenda(
@@ -435,6 +452,19 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     // incremental load died ("This agenda could not be loaded"). The drive
     // mock above now returns `new Headers(...)` (the live shape); this test
     // pins the end-to-end contract explicitly.
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toBe("bytes 0-9/22");
+    expect(res.headers.get("content-length")).toBe("22");
+  });
+
+  test("canonical-cased plain-object 206 headers forward Content-Range/Content-Length (adapter preserves casing)", async () => {
+    // Sibling of the gaxios 7.x regression above: an adapter that returns
+    // plain-object headers with canonical casing ({"Content-Range": ...})
+    // must not re-trip the fail-closed total-size guard (410 on every
+    // valid slice). pickStringHeader must scan plain objects
+    // case-insensitively, not just exact + lowercase keys.
+    routeMock.use206CanonicalPlainObjectHeaders = true;
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(206);
     expect(res.headers.get("content-range")).toBe("bytes 0-9/22");

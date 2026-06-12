@@ -49,6 +49,22 @@ describe("pickStringHeader", () => {
     expect(pickStringHeader({ "content-length": "10" }, "Content-Length")).toBe("10");
   });
 
+  test("canonical-cased plain-object key resolves for a lowercase query (adapter preserves casing)", () => {
+    // Regression: a plain-object response with canonical casing
+    // ({"Content-Range": ...}) queried as "content-range" returned null,
+    // re-tripping the fail-closed 206 guard (410) under any adapter that
+    // preserves canonical header casing.
+    expect(pickStringHeader({ "Content-Range": "bytes 0-9/22" }, "content-range")).toBe(
+      "bytes 0-9/22",
+    );
+  });
+
+  test("canonical-cased string[] plain-object key resolves for a lowercase query", () => {
+    expect(
+      pickStringHeader({ "Content-Range": ["bytes 0-9/22", "ignored"] }, "content-range"),
+    ).toBe("bytes 0-9/22");
+  });
+
   test("reads first element of a string[] value", () => {
     expect(
       pickStringHeader({ "content-range": ["bytes 0-9/22", "ignored"] }, "content-range"),

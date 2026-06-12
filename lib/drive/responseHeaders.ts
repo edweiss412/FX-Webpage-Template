@@ -32,7 +32,21 @@ export function pickStringHeader(headers: GaxiosResponseHeaders, name: string): 
     return (headers as Headers).get(name);
   }
   const record = headers as Record<string, string | string[] | undefined>;
-  const value = record[name] ?? record[name.toLowerCase()];
+  // Direct-hit fast path (exact key or lowercase key), then a
+  // case-insensitive scan: adapters that preserve canonical casing
+  // ({"Content-Range": ...}) must still resolve a "content-range" query,
+  // or the asset routes' fail-closed 206 guard re-trips (410) on every
+  // valid Range slice.
+  let value = record[name] ?? record[name.toLowerCase()];
+  if (value === undefined) {
+    const lower = name.toLowerCase();
+    for (const [key, candidate] of Object.entries(record)) {
+      if (candidate !== undefined && key.toLowerCase() === lower) {
+        value = candidate;
+        break;
+      }
+    }
+  }
   if (typeof value === "string") return value;
   if (Array.isArray(value) && typeof value[0] === "string") return value[0];
   return null;
