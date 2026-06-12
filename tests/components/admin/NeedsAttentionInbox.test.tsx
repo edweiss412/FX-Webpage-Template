@@ -60,12 +60,17 @@ describe("NeedsAttentionInbox", () => {
       { variant: "existing_staged", key: "sync:s2", stagedId: "s2", driveFileId: "d3", slug: "known-show", title: "Known Show", activityAt: ONE_HR_AGO },
     ];
     render(<NeedsAttentionInbox items={items} totalCount={2} renderedCount={2} overflowCount={0} now={NOW} />);
+    // Both Links use the inline-flex reviewLinkClass; flex drops
+    // whitespace-only text nodes between items, so label + arrow MUST share
+    // one inline wrapper or the visible space before the arrow vanishes.
     const review = screen.getByRole("link", { name: "Review" });
     expect(review).toHaveAttribute("data-testid", "needs-attention-link-first-seen-s1");
-    expect(review.textContent).toContain("→");
+    expect(review.firstElementChild?.tagName).toBe("SPAN");
+    expect(review.firstElementChild?.textContent).toBe("Review →");
     const openShow = screen.getByRole("link", { name: "Open show" });
     expect(openShow).toHaveAttribute("data-testid", "needs-attention-link-known-show");
-    expect(openShow.textContent).toContain("→");
+    expect(openShow.firstElementChild?.tagName).toBe("SPAN");
+    expect(openShow.firstElementChild?.textContent).toBe("Open show →");
   });
 
   // M12.4 item D3 — each card shows a relative activity timestamp top-right when

@@ -161,7 +161,12 @@ export async function AlertBanner() {
           href="/admin#alerts"
           className="inline-flex min-h-tap-min shrink-0 items-center text-sm underline underline-offset-2"
         >
-          View alerts <span aria-hidden="true">→</span>
+          {/* Single inline wrapper: the Link is a flex container, and flex drops
+              whitespace-only text nodes between items — label + arrow must share
+              one flex item so the space renders. */}
+          <span>
+            View alerts <span aria-hidden="true">→</span>
+          </span>
         </Link>
       </section>
     );

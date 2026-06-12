@@ -20,7 +20,12 @@ export function Header() {
           href="/admin"
           className="text-sm text-text hover:text-text-strong underline underline-offset-2 min-h-tap-min flex items-center"
         >
-          Back to admin <span aria-hidden="true">→</span>
+          {/* Single inline wrapper: the Link is a flex container, and flex drops
+              whitespace-only text nodes between items — label + arrow must share
+              one flex item so the space renders. */}
+          <span>
+            Back to admin <span aria-hidden="true">→</span>
+          </span>
         </Link>
       </div>
     </header>

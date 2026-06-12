@@ -26,6 +26,12 @@ describe("<Header>", () => {
     render(<Header />);
     const link = screen.getByRole("link", { name: "Back to admin" });
     expect(link.textContent).toContain("→");
+    // The Link is a flex container; flex drops whitespace-only text nodes
+    // between items, so label + arrow MUST share one inline wrapper or the
+    // visible space before the arrow vanishes.
+    const wrapper = link.firstElementChild;
+    expect(wrapper?.tagName).toBe("SPAN");
+    expect(wrapper?.textContent).toBe("Back to admin →");
   });
 
   it("renders the FXAV brand mark", () => {

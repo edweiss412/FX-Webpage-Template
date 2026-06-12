@@ -92,7 +92,12 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
           href={`/admin/show/staged/${encodeURIComponent(item.stagedId)}`}
           className={reviewLinkClass}
         >
-          Review <span aria-hidden="true">→</span>
+          {/* Single inline wrapper: reviewLinkClass is inline-flex, and flex
+              drops whitespace-only text nodes between items — label + arrow
+              must share one flex item so the space renders. */}
+          <span>
+            Review <span aria-hidden="true">→</span>
+          </span>
         </Link>
       </li>
     );
@@ -111,7 +116,10 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
         href={`/admin/show/${encodeURIComponent(item.slug)}`}
         className={reviewLinkClass}
       >
-        Open show <span aria-hidden="true">→</span>
+        {/* Single inline wrapper — same flex whitespace rationale as Review above. */}
+        <span>
+          Open show <span aria-hidden="true">→</span>
+        </span>
       </Link>
     </li>
   );

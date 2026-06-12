@@ -253,7 +253,12 @@ describe("per-show page (§6)", () => {
     await renderPage();
     const link = screen.getByRole("link", { name: "Open crew page" });
     expect(link).toHaveAttribute("data-testid", "admin-show-open-crew");
-    expect(link.textContent).toContain("→");
+    // The <a> is a flex container; flex drops whitespace-only text nodes
+    // between items, so label + arrow MUST share one inline wrapper or the
+    // visible space before the arrow vanishes.
+    const wrapper = link.firstElementChild;
+    expect(wrapper?.tagName).toBe("SPAN");
+    expect(wrapper?.textContent).toBe("Open crew page →");
   });
 
   it("crew-link surfaces hidden for archived show (incl archived+published drift)", async () => {

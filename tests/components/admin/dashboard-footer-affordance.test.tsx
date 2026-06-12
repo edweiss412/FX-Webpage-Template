@@ -34,6 +34,12 @@ describe("DashboardFooter (Phase G.3 — matrix row 4)", () => {
     render(<DashboardFooter />);
     const link = screen.getByRole("link", { name: "Take the tour" });
     expect(link.textContent).toContain("→");
+    // The <a> is a flex container; flex drops whitespace-only text nodes
+    // between items, so label + arrow MUST share one inline wrapper or the
+    // visible space before the arrow vanishes (caught by screenshots-drift).
+    const wrapper = link.firstElementChild;
+    expect(wrapper?.tagName).toBe("SPAN");
+    expect(wrapper?.textContent).toBe("Take the tour →");
   });
 
   it("does not render the retired M10 Tour modal trigger", () => {
