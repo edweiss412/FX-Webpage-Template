@@ -64,6 +64,10 @@
     "show_id",
     "stage_restriction"
   ],
+  "data_migration_markers": [
+    "executed_at",
+    "key"
+  ],
   "deferred_ingestions": [
     "deferred_at",
     "deferred_at_modified_time",
