@@ -51,28 +51,48 @@ describe("NeedsAttentionInbox", () => {
     expect(es.getAttribute("href")).toBe("/admin/show/known-show");
   });
 
-  // M12.12 follow-up — the "Review →" / "Open show →" arrows are decorative;
-  // aria-hiding them keeps them out of the accessible names. Failure mode
-  // caught: someone inlines an arrow back into an accessible name.
-  it("Review/Open-show arrows are aria-hidden — accessible names drop →, visible text keeps it", () => {
+  // M12.12 follow-up + Codex R2 MEDIUM — the "Review →" / "Open show →"
+  // arrows are decorative; aria-label carries the arrow-free accessible
+  // name (text runs stay UNSPLIT — splitting them drops the inline-flex
+  // inter-item space / shifts text-decoration paint, byte-level screenshot
+  // drift). Names are ROW-SPECIFIC per WCAG 2.4.4 (a repeated list — incl.
+  // the 100-item page — must not announce N identical "Review" links),
+  // built from the same field the card title renders: candidateTitle ??
+  // driveFileId for first_seen, title ?? slug for existing_staged.
+  it("Review/Open-show accessible names are row-specific (aria-label), visible text keeps →", () => {
     const items: NeedsAttentionItem[] = [
       { variant: "first_seen", key: "sync:s1", stagedId: "s1", driveFileId: "d2", candidateTitle: "New Show", activityAt: ONE_HR_AGO },
       { variant: "existing_staged", key: "sync:s2", stagedId: "s2", driveFileId: "d3", slug: "known-show", title: "Known Show", activityAt: ONE_HR_AGO },
     ];
     render(<NeedsAttentionInbox items={items} totalCount={2} renderedCount={2} overflowCount={0} now={NOW} />);
-    // Visible text runs stay UNSPLIT — splitting them drops the inline-flex
-    // inter-item space / shifts text-decoration paint (byte-level screenshot
-    // drift). aria-label carries the arrow-free accessible name instead.
-    const review = screen.getByRole("link", { name: "Review" });
+    const review = screen.getByRole("link", { name: "Review New Show" });
     expect(review).toHaveAttribute("data-testid", "needs-attention-link-first-seen-s1");
-    expect(review).toHaveAttribute("aria-label", "Review");
     expect(review.textContent).toBe("Review →");
     expect(review.firstElementChild).toBeNull();
-    const openShow = screen.getByRole("link", { name: "Open show" });
+    const openShow = screen.getByRole("link", { name: "Open show Known Show" });
     expect(openShow).toHaveAttribute("data-testid", "needs-attention-link-known-show");
-    expect(openShow).toHaveAttribute("aria-label", "Open show");
     expect(openShow.textContent).toBe("Open show →");
     expect(openShow.firstElementChild).toBeNull();
+  });
+
+  // Codex R2 MEDIUM — two same-variant rows with different targets must get
+  // DISTINCT accessible names (the whole point of row-specific labels), and
+  // the title-less fallbacks (driveFileId / slug) must keep them distinct.
+  it("two same-variant rows expose distinct accessible names (incl. null-title fallbacks)", () => {
+    const items: NeedsAttentionItem[] = [
+      { variant: "first_seen", key: "sync:f1", stagedId: "f1", driveFileId: "drive-a", candidateTitle: "Alpha Gala", activityAt: ONE_HR_AGO },
+      { variant: "first_seen", key: "sync:f2", stagedId: "f2", driveFileId: "drive-b", candidateTitle: null, activityAt: ONE_HR_AGO },
+      { variant: "existing_staged", key: "sync:e1", stagedId: "e1", driveFileId: "d-e1", slug: "beta-show", title: "Beta Show", activityAt: ONE_HR_AGO },
+      { variant: "existing_staged", key: "sync:e2", stagedId: "e2", driveFileId: "d-e2", slug: "gamma-show", title: null, activityAt: ONE_HR_AGO },
+    ];
+    render(<NeedsAttentionInbox items={items} totalCount={4} renderedCount={4} overflowCount={0} now={NOW} />);
+    expect(screen.getByRole("link", { name: "Review Alpha Gala" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review drive-b" })).toBeInTheDocument(); // candidateTitle null → driveFileId
+    expect(screen.getByRole("link", { name: "Open show Beta Show" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open show gamma-show" })).toBeInTheDocument(); // title null → slug
+    // No two links share an accessible name (the WCAG 2.4.4 failure mode).
+    const names = screen.getAllByRole("link").map((l) => l.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(names.length);
   });
 
   // M12.4 item D3 — each card shows a relative activity timestamp top-right when

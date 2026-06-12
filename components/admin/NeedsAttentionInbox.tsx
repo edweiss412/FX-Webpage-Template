@@ -89,11 +89,14 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
         </p>
         {/* aria-label drops the decorative "→" from the accessible name
             without splitting the text run (inline-flex drops the space
-            between split items — byte-level screenshot drift). */}
+            between split items — byte-level screenshot drift). Row-specific
+            per WCAG 2.4.4 (Codex R2): a repeated list must not announce N
+            identical "Review" links — suffix the same field the card title
+            renders (candidateTitle ?? driveFileId). */}
         <Link
           data-testid={`needs-attention-link-first-seen-${item.stagedId}`}
           href={`/admin/show/staged/${encodeURIComponent(item.stagedId)}`}
-          aria-label="Review"
+          aria-label={`Review ${item.candidateTitle ?? item.driveFileId}`}
           className={reviewLinkClass}
         >
           Review →
@@ -110,11 +113,13 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
     >
       <CardHeader item={item} now={now} status="review" label="Changes to review" />
       <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
-      {/* aria-label — same decorative-arrow rationale as Review above. */}
+      {/* aria-label — same decorative-arrow + row-specific (WCAG 2.4.4)
+          rationale as Review above; suffix matches the card title's
+          title ?? slug. */}
       <Link
         data-testid={`needs-attention-link-${item.slug}`}
         href={`/admin/show/${encodeURIComponent(item.slug)}`}
-        aria-label="Open show"
+        aria-label={`Open show ${item.title ?? item.slug}`}
         className={reviewLinkClass}
       >
         Open show →
