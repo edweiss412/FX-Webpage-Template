@@ -21,6 +21,7 @@ describe("B3 app_settings notification columns", () => {
          and column_name in (
            'alert_on_sync_problems',
            'daily_review_digest',
+           'alert_on_auto_publish',
            'sync_cron_heartbeat_at'
          )
        order by column_name;
@@ -48,6 +49,13 @@ describe("B3 app_settings notification columns", () => {
       isNullable: "NO",
     });
     expect(byName.daily_review_digest?.columnDefault).toMatch(/true/);
+
+    // M12.13 §4.5: dedicated auto-publish-undo toggle, default ON.
+    expect(byName.alert_on_auto_publish).toMatchObject({
+      dataType: "boolean",
+      isNullable: "NO",
+    });
+    expect(byName.alert_on_auto_publish?.columnDefault).toMatch(/true/);
 
     expect(byName.sync_cron_heartbeat_at).toMatchObject({
       dataType: "timestamp with time zone",

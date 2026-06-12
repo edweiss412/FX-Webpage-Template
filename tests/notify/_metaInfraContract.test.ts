@@ -9,6 +9,7 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/notify/recipients.ts" },
   { path: "lib/appSettings/getAlertOnSyncProblems.ts" },
   { path: "lib/appSettings/getDailyReviewDigest.ts" },
+  { path: "lib/appSettings/getAlertOnAutoPublish.ts" },
   { path: "lib/notify/detect/stall.ts" },
   { path: "lib/notify/detect/recoveryResolution.ts" },
   { path: "lib/notify/detect/candidates.ts" },
@@ -36,6 +37,7 @@ function walkTs(dir: string): string[] {
 const APP_SETTINGS_GETTERS = [
   "lib/appSettings/getAlertOnSyncProblems.ts",
   "lib/appSettings/getDailyReviewDigest.ts",
+  "lib/appSettings/getAlertOnAutoPublish.ts",
 ];
 
 function scannedFiles(): string[] {
@@ -86,11 +88,13 @@ describe("notify + app-settings infra-contract (structural)", () => {
     };
     const { getAlertOnSyncProblems } = await import("@/lib/appSettings/getAlertOnSyncProblems");
     const { getDailyReviewDigest } = await import("@/lib/appSettings/getDailyReviewDigest");
+    const { getAlertOnAutoPublish } = await import("@/lib/appSettings/getAlertOnAutoPublish");
 
     await expect(getAlertOnSyncProblems(client as never)).resolves.toEqual({
       kind: "infra_error",
     });
     await expect(getDailyReviewDigest(client as never)).resolves.toEqual({ kind: "infra_error" });
+    await expect(getAlertOnAutoPublish(client as never)).resolves.toEqual({ kind: "infra_error" });
   });
 
   test("notify app-settings toggle getters return infra_error for thrown query faults", async () => {
@@ -101,11 +105,13 @@ describe("notify + app-settings infra-contract (structural)", () => {
     };
     const { getAlertOnSyncProblems } = await import("@/lib/appSettings/getAlertOnSyncProblems");
     const { getDailyReviewDigest } = await import("@/lib/appSettings/getDailyReviewDigest");
+    const { getAlertOnAutoPublish } = await import("@/lib/appSettings/getAlertOnAutoPublish");
 
     await expect(getAlertOnSyncProblems(client as never)).resolves.toEqual({
       kind: "infra_error",
     });
     await expect(getDailyReviewDigest(client as never)).resolves.toEqual({ kind: "infra_error" });
+    await expect(getAlertOnAutoPublish(client as never)).resolves.toEqual({ kind: "infra_error" });
   });
 
   test("activeRecipients returns infra_error for returned DB errors and thrown query faults", async () => {
