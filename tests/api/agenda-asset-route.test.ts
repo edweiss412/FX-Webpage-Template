@@ -29,9 +29,7 @@ const routeMock = vi.hoisted(() => ({
   google: { kind: "continue" } as { kind: string },
   linkCalls: 0,
   googleCalls: 0,
-  peek: { kind: "none" } as
-    | { kind: "none" }
-    | { kind: "envelope"; showId: string },
+  peek: { kind: "none" } as { kind: "none" } | { kind: "envelope"; showId: string },
   showRow: null as null | {
     id: string;
     published: boolean | null;
@@ -177,7 +175,9 @@ vi.mock("@/lib/drive/client", () => ({
         routeMock.filesGetCalls.push({
           fileId: args.fileId,
           alt: args.alt,
-          ...(args.supportsAllDrives === undefined ? {} : { supportsAllDrives: args.supportsAllDrives }),
+          ...(args.supportsAllDrives === undefined
+            ? {}
+            : { supportsAllDrives: args.supportsAllDrives }),
         });
         routeMock.lastMediaOptions = options ?? null;
         if (routeMock.driveError) throw routeMock.driveError;
@@ -206,7 +206,13 @@ vi.mock("@/lib/drive/client", () => ({
             if (!routeMock.omit206ContentLength) {
               headers["content-length"] = String(routeMock.driveBytes.byteLength);
             }
-            return { data: routeMock.driveBytes, status: 206, headers };
+            // Gaxios 7.x (googleapis dep) returns `response.headers` as a
+            // WHATWG `Headers` instance, NOT a plain object. The mock
+            // mirrors the live shape so plain index access on headers
+            // (`headers["content-range"]` → undefined → fail-closed 410 on
+            // every valid Range slice) can never regress silently again
+            // (live-reproduced production bug, 2026-06-12).
+            return { data: routeMock.driveBytes, status: 206, headers: new Headers(headers) };
           }
           return { data: routeMock.driveBytes, status: 200 };
         }
@@ -419,6 +425,20 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(routeMock.lastMediaOptions?.headers?.Range).toBe("bytes=0-9");
     expect(res.headers.get("content-range")).toMatch(/^bytes 0-9\/\d+$/);
     expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("gaxios 7.x regression: 206 whose headers are a WHATWG Headers instance forwards Content-Range/Content-Length (was 410 on every valid slice)", async () => {
+    // Live-reproduced production bug (validation, 2026-06-12): gaxios 7.1.4
+    // returns `response.headers` as a real `Headers` instance; plain index
+    // access read null, so the R23 fail-closed total-size guard could not
+    // prove total <= cap and 410'd every valid Range slice — pdf.js
+    // incremental load died ("This agenda could not be loaded"). The drive
+    // mock above now returns `new Headers(...)` (the live shape); this test
+    // pins the end-to-end contract explicitly.
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toBe("bytes 0-9/22");
+    expect(res.headers.get("content-length")).toBe("22");
   });
 
   test("Codex R19 P2: Drive metadata 404 (deleted file) → 410, not AGENDA_ASSET_LOOKUP_FAILED 500", async () => {
@@ -758,9 +778,10 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
     // TS narrows lastMediaOptions to `null` after the reset above; widen on read.
-    const postGetOptions = routeMock.lastMediaOptions as
-      | { responseType: "stream"; headers?: Record<string, string> }
-      | null;
+    const postGetOptions = routeMock.lastMediaOptions as {
+      responseType: "stream";
+      headers?: Record<string, string>;
+    } | null;
     expect(postGetOptions?.headers).toBeUndefined();
     const body = new TextDecoder().decode(new Uint8Array(await get.arrayBuffer()));
     expect(body).toBe("%PDF-1.7 fixture bytes");
