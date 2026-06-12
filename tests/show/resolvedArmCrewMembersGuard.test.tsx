@@ -2,24 +2,41 @@
 /**
  * tests/show/resolvedArmCrewMembersGuard.test.tsx
  *
- * Defense-in-depth guard on the `resolved` arm of
- * app/show/[slug]/[shareToken]/page.tsx: after getShowForViewer succeeds the
- * page derives the identity chip via `data.crewMembers.find(...)`. The
- * undefined-FIND-RESULT case is already handled (identityChip ternary), but a
- * missing/undefined `crewMembers` ARRAY (malformed projection, stale roster
- * mid-navigation, mocked/degraded data layer) would make `.find` throw an
- * unhandled TypeError into Next's generic error boundary — bypassing the
- * page's P-R5 Fix-1 contract that every data failure routes to a deliberate
- * surface, never an uncaught throw.
+ * Fail-closed contract for a MALFORMED projection (crewMembers missing /
+ * not an array) on the `resolved` arm of
+ * app/show/[slug]/[shareToken]/page.tsx + the full ShowBody render path.
  *
- * Note: per the live type (lib/data/getShowForViewer.ts:96 `crewMembers:
- * Array<...>`) and its only constructor (`(crewRes.data ?? []).map(...)`,
- * line 305), crewMembers is always an array today — this test pins the
- * DEFENSE-IN-DEPTH guard, mirroring resolveViewerContext's tolerance.
+ * History: the original guard PR routed a malformed projection into the
+ * same `{kind:"none"}` restrictions fallback as the unmatched-row case
+ * and rendered a chip-less page. For crew/admin_preview viewers that is
+ * fail-OPEN on per-crew visibility — Right Now / Schedule / Pack List
+ * render UNRESTRICTED when the restrictions could not be verified.
+ * The contract is now:
  *
- * Concrete failure mode caught: unguarded `data.crewMembers.find(` reverts →
- * ShowPage rejects with TypeError instead of rendering with a null chip.
+ *   - unmatched row in a WELL-FORMED array → none-restrictions tolerance
+ *     (unchanged; pinned in tests/data/viewerContext.test.ts).
+ *   - crew/admin_preview viewer + non-array crewMembers →
+ *     resolveViewerContext throws MalformedProjectionError; ShowBody
+ *     catches it and renders the route's EXISTING infra arm,
+ *     <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" /> — no
+ *     tiles, no hero card, no unrestricted schedule.
+ *
+ * The page function itself still must NOT throw: ShowPage derives the
+ * display-only identity chip from `data.crewMembers?.find(...)` BEFORE
+ * React renders ShowBody, and an uncaught TypeError there would bypass
+ * the deliberate-surface contract (P-R5 Fix-1) AND ShowBody's
+ * fail-closed catch. So this file pins both halves:
+ *
+ *   1. ShowPage resolves (no throw) and hands ShowBody a null chip.
+ *   2. Rendering ShowBody with the malformed projection produces
+ *      TerminalFailure, NOT the tile grid.
+ *
+ * Concrete failure modes caught: (a) reverting the typed throw to the
+ * old none-restrictions fallback → test 2 fails because the page
+ * renders `page-container` instead of `terminal-failure`; (b) dropping
+ * the `?.` chip guard in page.tsx → test 1 rejects with a TypeError.
  */
+import { render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
@@ -61,35 +78,65 @@ const malformedData = {
   tileErrors: {},
 } as unknown as ShowForViewer;
 
-describe("resolved arm: missing crewMembers array (defense-in-depth)", () => {
-  test("undefined crewMembers → renders ShowBody with null identityChip, does NOT throw", async () => {
-    const { resolveShowPageAccess } = await import("@/lib/auth/picker/resolveShowPageAccess");
-    const { getShowForViewer } = await import("@/lib/data/getShowForViewer");
-    vi.mocked(resolveShowPageAccess).mockResolvedValue({
-      kind: "resolved",
-      showId: "show-1",
-      crewMemberId: "crew-1",
-      source: "cookie",
-    });
-    vi.mocked(getShowForViewer).mockResolvedValue(malformedData);
+type ShowBodyProps = {
+  slug: string;
+  showId: string;
+  viewer: { kind: string; crewMemberId: string };
+  data: ShowForViewer;
+  identityChip: unknown;
+};
 
-    const { default: ShowPage } = await import("@/app/show/[slug]/[shareToken]/page");
+async function resolveShowPageElement(): Promise<React.ReactElement<ShowBodyProps>> {
+  const { resolveShowPageAccess } = await import("@/lib/auth/picker/resolveShowPageAccess");
+  const { getShowForViewer } = await import("@/lib/data/getShowForViewer");
+  vi.mocked(resolveShowPageAccess).mockResolvedValue({
+    kind: "resolved",
+    showId: "show-1",
+    crewMemberId: "crew-1",
+    source: "cookie",
+  });
+  vi.mocked(getShowForViewer).mockResolvedValue(malformedData);
 
-    // Without the guard this rejects with
-    // "Cannot read properties of undefined (reading 'find')".
-    const element = (await ShowPage({
-      params: Promise.resolve({ slug: "any-show", shareToken: "a".repeat(64) }),
-      searchParams: Promise.resolve({}),
-    })) as React.ReactElement<{
-      identityChip: unknown;
-      data: ShowForViewer;
-      viewer: { kind: string; crewMemberId: string };
-    }>;
+  const { default: ShowPage } = await import("@/app/show/[slug]/[shareToken]/page");
 
-    // Renders the resolved-arm ShowBody (not TerminalFailure): the chip is
-    // simply absent, exactly like the existing missing-row fallback.
+  // Without the page.tsx `?.` chip guard this rejects with
+  // "Cannot read properties of undefined (reading 'find')".
+  return (await ShowPage({
+    params: Promise.resolve({ slug: "any-show", shareToken: "a".repeat(64) }),
+    searchParams: Promise.resolve({}),
+  })) as React.ReactElement<ShowBodyProps>;
+}
+
+describe("resolved arm: missing crewMembers array fails CLOSED", () => {
+  test("ShowPage does not throw; chip is null (display-only, page terminates inside ShowBody)", async () => {
+    const element = await resolveShowPageElement();
+
     expect(element.props.identityChip).toBeNull();
     expect(element.props.data).toBe(malformedData);
     expect(element.props.viewer).toEqual({ kind: "crew", crewMemberId: "crew-1" });
+  });
+
+  test("full ShowBody render path → TerminalFailure (PICKER_RESOLVER_LOOKUP_FAILED copy), no tile grid", async () => {
+    const element = await resolveShowPageElement();
+
+    // ShowBody is an async Server Component; invoke it directly with the
+    // exact props the page handed it and render the resolved tree.
+    const { ShowBody } = await import("@/app/show/[slug]/[shareToken]/_ShowBody");
+    const node = await ShowBody(element.props as Parameters<typeof ShowBody>[0]);
+    render(<>{node}</>);
+
+    // Fail-closed: the EXISTING infra arm renders…
+    expect(screen.getByTestId("terminal-failure")).toBeTruthy();
+    // …with the cataloged crew-facing copy for PICKER_RESOLVER_LOOKUP_FAILED
+    // (lib/messages/catalog.ts), never the raw code (AGENTS.md invariant 5).
+    expect(
+      screen.getByText("Couldn't load your show access. Please try again in a moment."),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("PICKER_RESOLVER_LOOKUP_FAILED");
+
+    // …and the unrestricted page does NOT: no tile grid, no Today band.
+    expect(screen.queryByTestId("page-container")).toBeNull();
+    expect(screen.queryByTestId("tile-grid")).toBeNull();
+    expect(screen.queryByTestId("today-band")).toBeNull();
   });
 });
