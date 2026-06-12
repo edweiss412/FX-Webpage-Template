@@ -739,6 +739,58 @@ describe("E. State machine transitions", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// E2. Unknown-code fallback — messageFor() now ALWAYS returns an entry
+// (all-null fallback for uncataloged codes), so catalog membership must
+// be tested via hasOwnProperty, NOT messageFor() truthiness. Concrete
+// failure mode caught: an unknown /api/report `code` passing the
+// known-code predicate stores `error.kind === "code"` with a code whose
+// copy is null on BOTH surfaces → errorCopy resolves to "" → the user
+// sees a BLANK retry alert, and sessionStorage persists the unknown
+// code as if it were cataloged.
+// ──────────────────────────────────────────────────────────────────────
+describe("E2. Unknown response code falls back to generic network copy", () => {
+  test("unknown code → NETWORK_UNREACHABLE copy rendered (not blank), code NOT persisted as known", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(500, { ok: false, code: "TOTALLY_UNKNOWN_CODE_XYZ" }),
+    );
+    const { getByTestId } = render(<ReportModal {...defaultProps()} />);
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => getByTestId("report-modal-retry"));
+
+    const errText = getByTestId("report-modal-error").textContent ?? "";
+    // Anti-tautology: assert the literal catalog string for the generic
+    // network fallback — NOT a messageFor() round-trip, and NOT merely
+    // "non-empty" (which a drifted copy could satisfy).
+    expect(errText).toContain(MESSAGE_CATALOG.NETWORK_UNREACHABLE.crewFacing!);
+    // Invariant 5: the raw code never lands in the DOM.
+    expect(errText).not.toContain("TOTALLY_UNKNOWN_CODE_XYZ");
+
+    // The unknown code must NOT be persisted as a cataloged errorCode —
+    // a cross-mount resume would otherwise rehydrate a blank explainer.
+    const persisted = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
+    expect(persisted.status).toBe("failed-retryable");
+    expect(persisted.errorCode).toBeNull();
+  });
+
+  test("prototype-chain key as code (e.g. 'toString') is treated as unknown", async () => {
+    // `"toString" in MESSAGE_CATALOG` is true via the prototype chain;
+    // Object.prototype.hasOwnProperty.call is the required membership
+    // test. A predicate built on `in` (or on messageFor truthiness)
+    // classifies this as known → blank alert.
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { ok: false, code: "toString" }));
+    const { getByTestId } = render(<ReportModal {...defaultProps()} />);
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => getByTestId("report-modal-retry"));
+    const errText = getByTestId("report-modal-error").textContent ?? "";
+    expect(errText).toContain(MESSAGE_CATALOG.NETWORK_UNREACHABLE.crewFacing!);
+    const persisted = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
+    expect(persisted.errorCode).toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // F. Resume UX — auto-resume with banner.
 // ──────────────────────────────────────────────────────────────────────
 describe("F. Resume UX", () => {
