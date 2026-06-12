@@ -34,6 +34,10 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/dev/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },
+  // Onboarding-fixups F3 — /admin/onboarding is a redirect-only alias for the
+  // wizard dispatcher at /admin; admin-gated by app/admin/layout.tsx like
+  // every sibling (no sinks of its own).
+  { path: "app/admin/onboarding/page.tsx", chain: ["requireAdmin"] },
   {
     path: "app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx",
     chain: ["requireAdmin"],
