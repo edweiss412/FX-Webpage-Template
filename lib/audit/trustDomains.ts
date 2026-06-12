@@ -9,10 +9,7 @@ export type TrustDomain =
   | "non-route"
   | "unclassified";
 
-export type ChainStep =
-  | "validateGoogleSession"
-  | "validateGoogleIdentity"
-  | "requireAdmin";
+export type ChainStep = "validateGoogleSession" | "validateGoogleIdentity" | "requireAdmin";
 
 export type ValidPath = readonly ChainStep[];
 export type ExpectedChain = ValidPath | { anyOf: readonly ValidPath[] };
@@ -23,9 +20,7 @@ export type RouteSpec = {
 };
 
 export const CREW_SESSION_CHAINS: { anyOf: readonly ValidPath[] } = {
-  anyOf: [
-    ["requireAdmin"],
-  ],
+  anyOf: [["requireAdmin"]],
 };
 
 export const PROTECTED_ROUTES: readonly RouteSpec[] = [
@@ -66,6 +61,12 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/admin/onboarding/finalize-cas/route.ts", chain: ["requireAdmin"] },
   {
     path: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
+    chain: ["requireAdmin"],
+  },
+  // Onboarding-fixups F4 (Task 4.5) — session-scoped stale-debris reap, slim
+  // sibling of the cleanup route's admin gate.
+  {
+    path: "app/api/admin/onboarding/reap-stale-sessions/route.ts",
     chain: ["requireAdmin"],
   },
   { path: "app/api/admin/onboarding/scan/route.ts", chain: ["requireAdmin"] },
@@ -112,7 +113,12 @@ export function routeSpecForPath(path: string): RouteSpec | undefined {
 
 export function expectedChainForDomain(path: string, domain: TrustDomain): ExpectedChain | null {
   const routeSpec = routeSpecForPath(path);
-  if (routeSpec && routeSpec.chain !== "auth-library-exception" && routeSpec.chain !== "public" && routeSpec.chain !== "cron") {
+  if (
+    routeSpec &&
+    routeSpec.chain !== "auth-library-exception" &&
+    routeSpec.chain !== "public" &&
+    routeSpec.chain !== "cron"
+  ) {
     return routeSpec.chain;
   }
   if (domain === "crew-session" || domain === "server-action") return CREW_SESSION_CHAINS;
