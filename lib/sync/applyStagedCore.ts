@@ -319,19 +319,82 @@ export function withWizardScopedLivePartitionOps(
 }
 
 /**
- * Task 1.2 classification registry for every live-partition lifecycle op reachable from (or
- * deliberately excluded from) the core. Stub in Task 1.1; filled in Task 1.2 and pinned by
- * tests/sync/_livePartitionClassificationContract.test.ts (Task 1.7).
+ * Task 1.2 classification registry: every live-partition lifecycle op on the apply surface,
+ * classified live-vs-wizard per spec §3.2. The rg class enumeration (re-run 2026-06-11 against
+ * this worktree):
+ *
+ *   rg -n "pending_syncs|pending_ingestions|deferred_ingestions|admin_alerts" \
+ *     lib/sync/applyStagedCore.ts lib/sync/applyParseResult.ts lib/sync/applyStaged.ts \
+ *     lib/sync/phase2.ts lib/sync/runScheduledCronSync.ts
+ *
+ * `deferred_ingestions`: zero statements on the apply surface (the only wizard-side writer is the
+ * retry route; the live reader is `readLiveDeferral`, perFileProcessor.ts) — classified N/A for
+ * the core; the Task 1.7 registry walker asserts the absence.
+ *
+ * Caller-level rows (reachableFromCore: false) record WHY the core does not own the op — the
+ * Task 1.7 meta-test (tests/sync/_livePartitionClassificationContract.test.ts) walks this table
+ * and pins that the core's source never references those symbols.
  */
 export type LivePartitionClassificationRow = {
   op: string;
   site: string;
   reachableFromCore: boolean;
-  classification: "live-only" | "live-only-caller-level" | "wizard-only";
+  class: "live-only" | "wizard-only";
   wizardBehavior: string;
 };
 
-export const LIVE_PARTITION_CLASSIFICATION: LivePartitionClassificationRow[] = [];
+export const LIVE_PARTITION_CLASSIFICATION: ReadonlyArray<LivePartitionClassificationRow> = [
+  {
+    op: "deleteLivePendingIngestion",
+    site: "ApplyParseResultTx contract applyParseResult.ts:41, called unconditionally :131; impl runScheduledCronSync.ts:649-658 (wizard_session_id is null)",
+    reachableFromCore: true, // via runPhase2 → applyParseResult
+    class: "live-only",
+    wizardBehavior: "no-op via withWizardScopedLivePartitionOps (core step 6)",
+  },
+  {
+    op: "deleteLivePendingSync",
+    site: "defaultDeleteLivePendingSync, lib/sync/applyStagedCore.ts (moved here in T1.1; live pending_syncs DELETE, wizard_session_id is null — spec step 6L)",
+    reachableFromCore: true, // core step 11
+    class: "live-only",
+    wizardBehavior: 'skipped (sourceScope === "wizard" gate on core step 11)',
+  },
+  {
+    op: "resolveStaleSyncProblemAlerts",
+    site: "runScheduledCronSync.ts:139-157; cron-path call sites only — NOT invoked by applyStaged or the core",
+    reachableFromCore: false,
+    class: "live-only", // cron caller level
+    wizardBehavior: "pinned: core must NOT call it (Task 1.7 meta-test)",
+  },
+  {
+    op: "restoreDeleteAndIngest",
+    site: "applyStaged.ts restoreDeleteAndIngest (defaultRestoreShowStatus + defaultUpsertLivePendingIngestion — live failure restoration; stays in the legacy live caller)",
+    reachableFromCore: false,
+    class: "live-only", // caller level
+    wizardBehavior:
+      "wizard failure paths use recordWizardApplyHardFail / Phase B demotePending — never the live restore",
+  },
+  {
+    op: "deleteApprovedPending",
+    site: "app/api/admin/onboarding/finalize/route.ts:452-468 (wizard-scoped predicate; Phase B route level)",
+    reachableFromCore: false,
+    class: "wizard-only",
+    wizardBehavior: "unchanged; this is WHY core step 11 is a wizard no-op",
+  },
+  {
+    op: "upsertWizardPendingIngestion",
+    site: "defaultUpsertWizardPendingIngestion applyStaged.ts (wizard approve branch; wizard_session_id-scoped upsert)",
+    reachableFromCore: false,
+    class: "wizard-only",
+    wizardBehavior: "unchanged (retry/defer routes own wizard rows; never the apply core)",
+  },
+  {
+    op: "adminAlertWriters",
+    site: "applyStaged() outer live branch + first-published tail (caller level admin_alerts writers)",
+    reachableFromCore: false,
+    class: "live-only", // caller level
+    wizardBehavior: "wizard callers never invoke them",
+  },
+];
 
 export type ApplyStagedCoreArgs = {
   sourceScope: "live" | "wizard"; // drives live-partition op classification (Task 1.2)
