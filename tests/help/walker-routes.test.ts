@@ -43,36 +43,66 @@ describe("walker route derivation (spec §3.1/§6)", () => {
   });
 });
 
-describe("walker is read-only on locked tables (structural pin)", () => {
-  // Plan-wide invariant 2 tables. The walker (and the helper modules it can
-  // reach) must never mutate them — fixture rows on locked tables come ONLY
-  // from the locked seed (drive_file_id prefixed seed-fixture:). Concrete
-  // failure mode caught: someone re-adds an unlocked locked-table fixture
-  // write to the walker (the pre-Task-11 firstSeenStagedId delete/insert on
-  // pending_syncs is the exact shape this pin forbids). Invariant 2's
-  // dropped M9.5 auth table is deliberately omitted from the regex: the
-  // M11.5 G3 cutover removed it (tests/db/cutover-drop-m9-5.test.ts pins
-  // the absence), a write would fail at the catalog, and the cross-cutting
-  // no-m9-5-surfaces sweep bans spelling its name here.
+describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural pin)", () => {
+  // Plan-wide invariant 2 tables. NO file under tests/e2e/ may mutate them
+  // through the service-role PostgREST client — fixture rows on locked
+  // tables come from the locked seed (supabase/seed.ts /
+  // seedWalkerFixtures.ts) or the shared locked psql helper
+  // (tests/e2e/helpers/lockedCrewRestriction.ts). Concrete failure modes
+  // caught: the pre-Task-11 firstSeenStagedId delete/insert on
+  // pending_syncs; the pre-M12.12-DEF-2 rightNow.ts date_restriction
+  // toggle; the schedule-tile copy of that toggle (Codex R2 HIGH).
+  // Invariant 2's dropped M9.5 auth table is deliberately omitted from the
+  // regex: the M11.5 G3 cutover removed it (tests/db/cutover-drop-m9-5
+  // pins the absence), a write would fail at the catalog, and the
+  // cross-cutting no-m9-5-surfaces sweep bans spelling its name here.
   const LOCKED_TABLE_FROM_RE =
     /from\(\s*"(shows|crew_members|pending_syncs|pending_ingestions)"\s*\)/;
   const MUTATION_RE = /\.(insert|update|delete)\(/;
 
-  // Helper exemptions — EMPTY since M12.12-DEF-2 relocated rightNow.ts's
-  // crew_members date_restriction toggle into a locked psql transaction
-  // (per-show advisory lock, seedWalkerFixtures.ts pattern). Any future
-  // entry must be a real, justified locked-table mutation; the stale-
-  // exemption assertion below forces the set to shrink when cleaned up.
-  const EXEMPT_HELPERS = new Set<string>([]);
+  // Pre-existing M4/M5-era fixture-DML debt, frozen by the Codex R2 sweep
+  // that broadened this guard from walker-only to the whole e2e tree.
+  // These specs insert/delete whole fixture shows (and crew/pending rows)
+  // through the PostgREST client; relocating them is an e2e fixture-
+  // architecture change tracked as M12.12-DEF-3 in the affordance-matrix
+  // DEFERRED doc. The list is SHRINK-ONLY: the stale-exemption assertion
+  // below fails when a file is cleaned up (forcing its removal here), and
+  // any NEW file with locked-table DML fails the main assertion — the debt
+  // cannot grow. rightNow.ts and schedule-tile.spec.ts are deliberately
+  // NOT exempt: their date_restriction mutations now go through the locked
+  // psql helper.
+  const EXEMPT_PREEXISTING = new Set<string>([
+    "admin-nav-layout-dimensions.spec.ts",
+    "admin-parse-panel.spec.ts",
+    "admin-route-boundaries.spec.ts",
+    "crew-page.spec.ts",
+    "empty-state-reachability.spec.ts",
+    "empty-state.spec.ts",
+    "me-page.spec.ts",
+    "needs-attention-page.spec.ts",
+    "notes-tile.spec.ts",
+    "pack-list.spec.ts",
+    "right-now.spec.ts",
+    "sign-in-page.spec.ts",
+    "transport-tile.spec.ts",
+  ]);
 
-  const helpersDir = join(process.cwd(), "tests/e2e/helpers");
-  const files: Array<{ name: string; path: string }> = [
-    {
-      name: "deep-link-walker.spec.ts",
-      path: join(process.cwd(), "tests/e2e/deep-link-walker.spec.ts"),
-    },
-    ...readdirSync(helpersDir).map((name) => ({ name, path: join(helpersDir, name) })),
-  ];
+  const e2eDir = join(process.cwd(), "tests/e2e");
+
+  function walkTsFiles(dir: string): Array<{ name: string; path: string }> {
+    const out: Array<{ name: string; path: string }> = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        out.push(...walkTsFiles(path));
+        continue;
+      }
+      if (entry.name.endsWith(".ts")) out.push({ name: entry.name, path });
+    }
+    return out;
+  }
+
+  const files = walkTsFiles(e2eDir);
 
   function lockedTableMutationLines(source: string): number[] {
     const lines = source.split("\n");
@@ -85,36 +115,39 @@ describe("walker is read-only on locked tables (structural pin)", () => {
     return hits;
   }
 
-  it("no .insert/.update/.delete within 5 lines of a locked-table from() in the walker or its helpers", () => {
+  it("no .insert/.update/.delete within 5 lines of a locked-table from() anywhere under tests/e2e/", () => {
     for (const file of files) {
-      if (EXEMPT_HELPERS.has(file.name)) continue;
+      if (EXEMPT_PREEXISTING.has(file.name)) continue;
       const hits = lockedTableMutationLines(readFileSync(file.path, "utf8"));
       expect(
         hits,
-        `${file.name} mutates a locked table near line(s) ${hits.join(", ")} — walker fixtures on locked tables must come from the seed, not test-time writes`,
+        `${file.name} mutates a locked table near line(s) ${hits.join(", ")} — e2e fixtures on locked tables must come from the locked seed or helpers/lockedCrewRestriction.ts, not unlocked PostgREST writes`,
       ).toEqual([]);
     }
   });
 
   it("every exemption still corresponds to a real locked-table mutation (no stale exemptions)", () => {
-    for (const name of EXEMPT_HELPERS) {
-      const hits = lockedTableMutationLines(readFileSync(join(helpersDir, name), "utf8"));
+    const byName = new Map(files.map((f) => [f.name, f.path]));
+    for (const name of EXEMPT_PREEXISTING) {
+      const path = byName.get(name);
+      expect(path, `${name} is exempt but no longer exists — remove it`).toBeDefined();
+      const hits = lockedTableMutationLines(readFileSync(path!, "utf8"));
       expect(
         hits.length,
-        `${name} no longer mutates a locked table — remove it from EXEMPT_HELPERS`,
+        `${name} no longer mutates a locked table — remove it from EXEMPT_PREEXISTING`,
       ).toBeGreaterThan(0);
     }
   });
 
-  // M12.12-DEF-2 follow-up (Codex MEDIUM): rightNow.ts's locked psql UPDATE
+  // M12.12-DEF-2 follow-up (Codex MEDIUM): the shared locked psql UPDATE
   // must stay scoped to the show whose advisory lock it holds — an id-only
   // WHERE would let a stale/cross-show crew id mutate a row the held lock
   // doesn't cover. Lexical pin; the behavioral proof is the helper's no-row
   // RETURNING guard (cross-show ids throw — verified by live psql smoke).
-  it("rightNow.ts scopes its crew_members UPDATE to the advisory-locked show", () => {
-    const src = readFileSync(join(helpersDir, "rightNow.ts"), "utf8");
+  it("lockedCrewRestriction.ts scopes its crew_members UPDATE to the advisory-locked show", () => {
+    const src = readFileSync(join(e2eDir, "helpers/lockedCrewRestriction.ts"), "utf8");
     expect(src).toMatch(
-      /update public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(SEED_DRIVE_FILE_ID\)\}\)/,
+      /update public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(driveFileId\)\}\)/,
     );
   });
 });

@@ -38,8 +38,8 @@
  *   `afterAll` can restore it. The serialization (`workers: 1` in
  *   playwright.config.ts) prevents inter-suite races.
  */
-import { execFileSync } from "node:child_process";
 import type { Page } from "@playwright/test";
+import { setDateRestrictionLocked } from "./lockedCrewRestriction";
 import { admin } from "./supabaseAdmin";
 
 export const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
@@ -108,67 +108,19 @@ export async function lookupSeededShow(): Promise<SeededShow> {
   };
 }
 
-// Same databaseUrl resolution as supabase/seedWalkerFixtures.ts:25-28 /
-// supabase/seed.ts:11-13 — psql is the locked-fixture transport for both.
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-
-function sqlString(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
 /**
- * Mutate the LEAD viewer's `date_restriction` via psql inside ONE
- * transaction that holds the per-show advisory lock (plan-wide invariant
- * 2, admin/blocking form: `pg_advisory_xact_lock(hashtext('show:' ||
- * drive_file_id))`) — the locked-fixture pattern established by
- * supabase/seedWalkerFixtures.ts. M12.12-DEF-2 relocated this write off
- * the PostgREST admin client, which held NO lock; the walker-routes
- * structural pin (tests/help/walker-routes.test.ts) now passes with zero
- * exemptions.
- *
- * Single-holder rule: this transaction is the ONLY lock holder on this
- * code path — no JS-side wrapper or RPC wraps the call, so nothing nests.
- *
- * `leadCrewId` always comes from lookupSeededShow(), i.e. a crew row of
- * the SEED_DRIVE_FILE_ID show — and the UPDATE is additionally scoped to
- * that show's show_id, so a stale/cross-show crew id can never mutate a
- * row the held lock doesn't cover (the no-row RETURNING guard makes any
- * mismatch THROW instead). `restriction === null/undefined` writes SQL
- * NULL, matching the prior PostgREST `.update({ date_restriction: null })`
- * semantics; objects are written as jsonb.
+ * Mutate the LEAD viewer's `date_restriction` through the SHARED locked
+ * psql path (lockedCrewRestriction.ts): one transaction holding the
+ * per-show advisory lock, UPDATE show-scoped to the locked show, no-row
+ * RETURNING guard throws. M12.12-DEF-2 relocated this write off the
+ * PostgREST admin client (which held NO lock); the Codex R2 class-sweep
+ * extracted the locked path into the shared helper so
+ * schedule-tile.spec.ts's identical mutation uses it too. `leadCrewId`
+ * always comes from lookupSeededShow(), i.e. a crew row of the
+ * SEED_DRIVE_FILE_ID show.
  */
 export async function setDateRestriction(leadCrewId: string, restriction: unknown): Promise<void> {
-  const restrictionSql =
-    restriction == null ? "null" : `${sqlString(JSON.stringify(restriction))}::jsonb`;
-  const sql = `
-    begin;
-    select pg_advisory_xact_lock(hashtext('show:' || ${sqlString(SEED_DRIVE_FILE_ID)}));
-    update public.crew_members
-       set date_restriction = ${restrictionSql}
-     where id = ${sqlString(leadCrewId)}::uuid
-       and show_id = (select id from public.shows where drive_file_id = ${sqlString(SEED_DRIVE_FILE_ID)})
-    returning id;
-    commit;
-  `;
-  let stdout: string;
-  try {
-    stdout = execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
-      input: sql,
-      encoding: "utf8",
-    });
-  } catch (err) {
-    throw new Error(
-      `right-now-transitions: update date_restriction failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  if (!stdout.includes(leadCrewId)) {
-    throw new Error(
-      `right-now-transitions: update date_restriction matched no crew row (id=${leadCrewId} — run \`pnpm db:seed\`?)`,
-    );
-  }
+  await setDateRestrictionLocked(SEED_DRIVE_FILE_ID, leadCrewId, restriction);
 }
 
 /**
