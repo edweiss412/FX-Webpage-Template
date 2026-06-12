@@ -317,6 +317,15 @@ export default defineConfig({
         // playwright.screenshots.config.ts's 3004 webServer env (the
         // M12.12 help-affordances workflow boots THIS entry on a bare
         // runner; first real-CI run failed exactly here).
+        // OnboardingWizard renders its steps only when this parses with a
+        // client_email (OnboardingWizard.tsx:48-59, gate at :335) — without
+        // it the wizard rows' testids never mount (real-CI round 4: all
+        // three wizard rows failed on a bare runner; .env.local supplies
+        // the real value locally). Only client_email is read on the render
+        // path; the walker never triggers Drive API calls.
+        GOOGLE_SERVICE_ACCOUNT_JSON:
+          process.env.GOOGLE_SERVICE_ACCOUNT_JSON ??
+          '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}',
         HASH_FOR_LOG_PEPPER:
           process.env.HASH_FOR_LOG_PEPPER ?? "fxav-r41-test-pepper-32-chars-min-deterministic",
         JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min",
