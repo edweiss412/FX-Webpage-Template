@@ -40,7 +40,11 @@ const WALKER_DRIVE_FILE_IDS = [
 // Runtime guard mirroring the structural pin: the lock order IS the sorted
 // order. A reordered edit fails loud here before touching the DB.
 for (let i = 1; i < WALKER_DRIVE_FILE_IDS.length; i += 1) {
-  if (WALKER_DRIVE_FILE_IDS[i - 1] >= WALKER_DRIVE_FILE_IDS[i]) {
+  const prev = WALKER_DRIVE_FILE_IDS[i - 1];
+  const curr = WALKER_DRIVE_FILE_IDS[i];
+  // `undefined` is unreachable under the loop bounds; folding it into the
+  // throw keeps noUncheckedIndexedAccess satisfied without a `!` assertion.
+  if (prev === undefined || curr === undefined || prev >= curr) {
     throw new Error(
       "WALKER_DRIVE_FILE_IDS must stay drive_file_id-sorted ascending — " +
         "the advisory locks are acquired in array order (deadlock-order contract).",

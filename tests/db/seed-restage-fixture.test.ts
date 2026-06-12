@@ -122,7 +122,10 @@ describe("M12.12 Task 12: locked seed cleanup + walker extension lock topology",
       /const WALKER_DRIVE_FILE_IDS = \[([\s\S]*?)\] as const;/,
     );
     expect(arrayMatch, "WALKER_DRIVE_FILE_IDS array literal").not.toBeNull();
-    const ids = [...arrayMatch![1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    // `?.[1] ?? ""` keeps noUncheckedIndexedAccess satisfied; an empty body
+    // yields ids=[] which fails the exact-set assertion below loudly.
+    const arrayBody = arrayMatch?.[1] ?? "";
+    const ids = [...arrayBody.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 
     // Exactly FOUR, the exact set, and array order IS sorted ascending order
     // (the locks are emitted by mapping this array — order in source is the
