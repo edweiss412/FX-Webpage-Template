@@ -12,7 +12,9 @@
  *     requireAdmin here defensively).
  *   - SELECT pending_syncs WHERE wizard_session_id = $wsid AND
  *     drive_file_id = $dfid AND wizard_approved = FALSE.
- *   - Row-not-found → 404 with STALE_DISCARD_REJECTED context.
+ *   - Row-not-found / malformed session id → rendered "already resolved"
+ *     state page (F3, onboarding-fixups spec §5) — the normal post-Apply
+ *     state, not a 404.
  *   - Row-found → render <StagedReviewCard mode='wizard_failed_reapply' />
  *     with last_finalize_failure_code surfaced via messageFor.
  *
@@ -21,7 +23,6 @@
  * `shows` row exists yet for failed wizard rows; existing-show
  * re-applies have their own /admin/show/[slug] entry point).
  */
-import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -45,6 +46,50 @@ type WizardStagedRow = {
   last_finalize_failure_code: string | null;
   source_kind: "cron" | "push" | "manual" | "onboarding_scan";
 };
+
+// pending_syncs.wizard_session_id is uuid — a malformed id would 400 at PostgREST
+// and surface as a FAKE infra error. Treat it as indistinguishable-from-consumed
+// (spec §5 guard conditions; no row-existence leak). Local-const convention per
+// lib/auth/picker/cookieEnvelope.ts:6.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// F3 (spec §5): the row being gone is the NORMAL post-Apply state (stale tab /
+// back-nav) — render a calm resolved page, not a 404. State page, not an error
+// code: no §12.4 row (invariant 5 vacuously satisfied).
+function AlreadyResolvedState() {
+  return (
+    <main
+      data-testid="wizard-staged-reapply-resolved"
+      className="mx-auto flex max-w-2xl flex-col gap-section-gap"
+    >
+      <header className="flex flex-col gap-2">
+        <h2 className="text-2xl font-semibold text-text-strong">
+          This sheet is already taken care of.
+        </h2>
+        <p className="max-w-prose text-base text-text-subtle">
+          It was applied or set aside — possibly from another tab. Nothing else
+          is needed here.
+        </p>
+      </header>
+      <nav aria-label="Wizard navigation" className="flex flex-wrap gap-x-6 gap-y-2">
+        <Link
+          href="/admin/onboarding"
+          data-testid="wizard-staged-resolved-back-to-setup"
+          className="inline-flex min-h-tap-min items-center text-sm text-text-subtle hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Back to setup
+        </Link>
+        <Link
+          href="/admin"
+          data-testid="wizard-staged-resolved-go-to-dashboard"
+          className="inline-flex min-h-tap-min items-center text-sm text-text-subtle hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Go to dashboard
+        </Link>
+      </nav>
+    </main>
+  );
+}
 
 function summaryFromParseResult(
   parseResult: WizardStagedRow["parse_result"],
@@ -99,6 +144,12 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
   await requireAdmin();
   const { wizardSessionId, driveFileId } = await params;
 
+  // Malformed session id: indistinguishable from consumed without leaking row
+  // existence — same state page, and never sent to PostgREST (uuid column).
+  if (!UUID_RE.test(wizardSessionId)) {
+    return <AlreadyResolvedState />;
+  }
+
   const result = await fetchWizardStagedRow(wizardSessionId, driveFileId);
 
   if (result !== null && typeof result === "object" && "kind" in result && result.kind === "infra_error") {
@@ -121,8 +172,9 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
   }
 
   if (result === null) {
-    // Row not found — likely re-applied by a sibling tab or discarded.
-    notFound();
+    // Row gone = applied or set aside (possibly another tab) — the normal
+    // post-Apply state, not an error (F3, spec §5).
+    return <AlreadyResolvedState />;
   }
 
   const row = result as WizardStagedRow;
