@@ -8,6 +8,10 @@ import {
 } from "@/lib/sync/retrySingleFile";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
+import {
+  upsertAdminAlert as defaultUpsertAdminAlert,
+  type UpsertAdminAlertInput,
+} from "@/lib/adminAlerts/upsertAdminAlert";
 
 export type WizardPendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -26,6 +30,11 @@ export type WizardPendingIngestionRouteDeps = {
     wizardSessionId: string,
     deps?: RetrySingleFileDeps,
   ) => Promise<RetrySingleFileResult>;
+  // F5 Task 5.3: post-rollback WIZARD_SESSION_SUPERSEDED_RACE alert producer
+  // (its own transaction — the Supabase service-role RPC — never the aborted
+  // one) + best-effort current-session read for the alert payload.
+  upsertAdminAlert?: (input: UpsertAdminAlertInput) => Promise<string | null>;
+  readCurrentWizardSessionId?: () => Promise<string | null>;
 };
 
 type RouteContext = {
@@ -81,6 +90,31 @@ async function defaultWithRowTx<R>(
 async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
   const { requireAdminIdentity } = await import("@/lib/auth/requireAdmin");
   return await requireAdminIdentity();
+}
+
+// F5 Task 5.3: best-effort read of the CURRENT wizard session for the alert
+// payload. Runs AFTER the protected transaction aborted, on its own short
+// connection; any failure yields null (the alert is best-effort context).
+async function defaultReadCurrentWizardSessionId(): Promise<string | null> {
+  try {
+    const sql = postgres(databaseUrl(), {
+      max: 1,
+      idle_timeout: 1,
+      connect_timeout: 3,
+      prepare: false,
+    });
+    try {
+      const rows = (await sql.unsafe(
+        `select pending_wizard_session_id from public.app_settings where id = 'default' limit 1`,
+        [],
+      )) as Array<{ pending_wizard_session_id: string | null }>;
+      return rows[0]?.pending_wizard_session_id ?? null;
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  } catch {
+    return null;
+  }
 }
 
 function depsWithDefaults(deps: WizardPendingIngestionRouteDeps) {
@@ -360,9 +394,27 @@ async function handleAction(
     });
   } catch (error) {
     if (error instanceof WizardSessionSupersededRollbackError) {
-      // Transaction is already aborted here. Task 5.3 adds the post-rollback
-      // alert write (its own follow-up transaction — never inside the
-      // aborted one).
+      // Transaction is already aborted here. The alert write runs on the
+      // Supabase service-role RPC — its own transaction, the established
+      // post-rollback follow-up pattern; it is NEVER inside the aborted tx.
+      // Best-effort: a failed alert write is logged, never masks the 409.
+      try {
+        await (routeDeps.upsertAdminAlert ?? defaultUpsertAdminAlert)({
+          showId: null,
+          code: "WIZARD_SESSION_SUPERSEDED_RACE",
+          context: {
+            attempted_action: error.context.attemptedAction,
+            superseded_session_id: error.context.supersededSessionId,
+            current_session_id: await (
+              routeDeps.readCurrentWizardSessionId ?? defaultReadCurrentWizardSessionId
+            )(),
+            pending_ingestion_id: error.context.pendingIngestionId ?? null,
+            drive_file_id: error.context.driveFileId,
+          },
+        });
+      } catch (alertError) {
+        console.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", alertError);
+      }
       return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
     }
     throw error;

@@ -1280,6 +1280,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → use the active wizard tab",
     "helpfulContext": null,
   },
+  "WIZARD_SESSION_SUPERSEDED_RACE": {
+    "crewFacing": null,
+    "dougFacing": "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
+    "followUp": "Doug → continue in the active wizard tab",
+    "helpfulContext": "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab.",
+  },
 } as const satisfies Record<string, SpecCodePayload>;
 
 export const RETIRED_CODES = {

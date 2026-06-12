@@ -225,6 +225,102 @@ test.skipIf(!dbUp)(
   },
 );
 
+// F5 Task 5.3 durability: the WIZARD_SESSION_SUPERSEDED_RACE alert must be
+// COMMITTED (visible from another connection) while every protected mutation
+// of the aborted transaction rolled back. The alert writer is stubbed to a
+// direct-SQL writer that calls the SAME RPC the production default
+// (lib/adminAlerts/upsertAdminAlert.ts) calls — public.upsert_admin_alert —
+// on a fresh connection, i.e. its own transaction (the post-rollback
+// follow-up pattern), never inside the aborted tx.
+async function directSqlAlertWriter(input: {
+  showId: string | null;
+  code: string;
+  context: Record<string, unknown>;
+}): Promise<string | null> {
+  const conn = postgres(DB_URL, { max: 1, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  try {
+    const rows = (await conn.unsafe(
+      `select public.upsert_admin_alert($1::uuid, $2, $3::jsonb) as id`,
+      // postgres.js serializes a $N::jsonb param itself — pass the raw object
+      // via conn.json, never JSON.stringify (double-encode → jsonb string scalar).
+      [input.showId, input.code, conn.json(input.context as never) as never],
+    )) as Array<{ id: string | null }>;
+    return rows[0]?.id ?? null;
+  } finally {
+    await conn.end({ timeout: 5 });
+  }
+}
+
+test.skipIf(!dbUp)(
+  "durability: the post-rollback alert COMMITS while every protected mutation rolls back (route-level, real SQL)",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    assertLoopbackOpenersPinned();
+
+    // Drive the REAL route with the REAL per-show-locked tx; interpose only on
+    // the tx handle so the committed supersession lands AFTER the manifest
+    // UPDATE executed and BEFORE the deferral statement — the statement-time
+    // window the typed rollback exists for.
+    const withRowTxFlippingMidWindow = async <R>(
+      driveFileId: string,
+      fn: (tx: never) => Promise<R> | R,
+    ): Promise<R> => {
+      const result = await withPostgresSyncPipelineLock(
+        driveFileId,
+        async (tx) => {
+          const wrapped = {
+            queryOne: async <T>(sqlText: string, params: unknown[]): Promise<T> => {
+              if (sqlText.replace(/\s+/g, " ").trim().startsWith("insert into public.deferred_ingestions")) {
+                await flipSessionTo(W2); // committed mid-window, between statements 1 and 2
+              }
+              return await (tx as { queryOne<T2>(s: string, p: unknown[]): Promise<T2> }).queryOne<T>(
+                sqlText,
+                params,
+              );
+            },
+          };
+          return await fn(wrapped as never);
+        },
+        { tryOnly: false },
+      );
+      if (typeof result === "object" && result !== null && "skipped" in (result as object)) {
+        throw new Error("durability test: lock unexpectedly skipped");
+      }
+      return result as R;
+    };
+
+    const response = await handleWizardPendingIngestionAction(
+      { params: Promise.resolve({ id: pendingIngestionId }) },
+      {
+        requireAdminIdentity: async () => ({ email: "admin@example.com" }),
+        withRowTx: withRowTxFlippingMidWindow,
+        upsertAdminAlert: directSqlAlertWriter as never,
+      },
+      "defer_until_modified",
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+
+    // The alert row EXISTS and is committed — read from a third connection.
+    const alerts = (await sql!.unsafe(
+      `select code, context, resolved_at from public.admin_alerts
+        where code = 'WIZARD_SESSION_SUPERSEDED_RACE' and context->>'drive_file_id' = $1`,
+      [FILE],
+    )) as unknown as Array<{ code: string; context: Record<string, unknown> }>;
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.context).toMatchObject({
+      attempted_action: "defer_until_modified",
+      superseded_session_id: W1,
+      drive_file_id: FILE,
+    });
+
+    // ...while NONE of the three protected mutations persisted (Task 5.2 contract).
+    expect((await readManifestRow(W1, FILE)).status).toBe("hard_failed");
+    expect(await readDeferralRows(FILE)).toEqual([]);
+    expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull();
+  },
+);
+
 test.skipIf(!dbUp)(
   "half (i): a supersession visible BEFORE any mutating statement → typed 409, nothing commits (route-level)",
   async () => {

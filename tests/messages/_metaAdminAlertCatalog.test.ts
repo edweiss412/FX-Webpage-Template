@@ -95,6 +95,7 @@ const ADMIN_ALERTS_CODES = [
   "TILE_SERVER_RENDER_FAILED", //       M9 Task 9.2: per-tile server-render failure
   "BRANCH_PROTECTION_DRIFT", //         X.6 branch-protection drift detector
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED", // X.6 branch-protection monitor auth failure
+  "WIZARD_SESSION_SUPERSEDED_RACE", //  F5 wizard-session CAS race post-rollback producer
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -260,6 +261,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
     path: "scripts/verify-branch-protection.ts",
     pattern: /code:\s*"BRANCH_PROTECTION_MONITOR_AUTH_FAILED"/,
+  },
+  WIZARD_SESSION_SUPERSEDED_RACE: {
+    path: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    pattern: /code:\s*"WIZARD_SESSION_SUPERSEDED_RACE"/,
   },
 };
 

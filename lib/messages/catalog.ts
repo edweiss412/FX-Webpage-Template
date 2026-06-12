@@ -140,6 +140,25 @@ export const MESSAGE_CATALOG = {
     longExplanation: "Setup wizards run one at a time. Another wizard was started (probably from a different tab or device) and your session was retired. Refresh and start setup over in a single tab.",
     helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED",
   },
+  // F5 Task 5.3: durable operator signal for the wizard-session CAS turnover
+  // race. Copy is action-GENERIC ("retry, defer, ignore, or discard") and
+  // deliberately avoids absolute-rollback claims — retry's commit-window scan
+  // residue is ACCEPTED + swept (spec §7 R5-2 / §8), so "rolled back in full"
+  // would be false for retry. defer/ignore/discard DO roll back fully; the
+  // copy says the action was cancelled without asserting zero residue.
+  WIZARD_SESSION_SUPERSEDED_RACE: {
+    code: "WIZARD_SESSION_SUPERSEDED_RACE",
+    dougFacing:
+      "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
+    crewFacing: null,
+    followUp: "Doug → continue in the active wizard tab",
+    helpfulContext:
+      "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab.",
+    title: "Stale wizard action cancelled",
+    longExplanation:
+      "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over; the older action was cancelled before it could change the new wizard's state, and any setup-scan leftovers from the old tab are inert and cleaned up automatically. Continue working in the active wizard tab.",
+    helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED_RACE",
+  },
   WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
     code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
     dougFacing: "We made an update to the review process since you approved this sheet. Please review and Apply it again to finish setup.",
