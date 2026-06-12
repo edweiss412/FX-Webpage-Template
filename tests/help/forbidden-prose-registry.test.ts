@@ -29,6 +29,15 @@
  * AFTER a reviewer (cross-model adversarial or human) has ratified the
  * phrasing as misleading. Each entry MUST cite the round + the shipped
  * surface that proves the claim is wrong.
+ *
+ * M12.13 (spec §7 registry-narrowing table): the auto-publish undo now
+ * ships on every install (per-show in-app Undo button on the live token
+ * window) and via email when `alert_on_auto_publish` is enabled. Two
+ * entries move with that delivery: `24-hour-undo-email` RETIRES (its
+ * factual basis — "no surface ships" — has ended), and
+ * `email-delivery-of-action-link` NARROWS via a per-entry `allow`
+ * carve-out so truthful undo-email references pass while phantom claims
+ * for OTHER (non-existent) action-link channels still fail.
  */
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -53,6 +62,14 @@ type ForbiddenProseEntry = {
   id: string;
   /** Why this phrasing is phantom; what shipped surface contradicts it. */
   rationale: string;
+  /**
+   * Optional carve-out. When the surrounding text matches `allow`, a `pattern`
+   * hit is NOT a violation — the phrasing is truthful for a shipped surface.
+   * Used to narrow a class entry whose factual basis became partially true
+   * (M12.13: the auto-publish undo email now ships, so truthful references to
+   * IT must pass while phantom claims for OTHER action links still fail).
+   */
+  allow?: RegExp;
 };
 
 const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
@@ -92,13 +109,13 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
     rationale:
       "R15 finding 2 (daily-rhythm.mdx + whats-different.mdx). The per-show panel exposes a crew section with Issue/Revoke link controls and a separate Preview-as-a-crew-member admin-impersonation section; there is no copyable preview-links list affordance. Doug issues each link via per-row controls and shares the URL through his usual channel.",
   },
-  {
-    id: "24-hour-undo-email",
-    pattern:
-      /(?:24[- ]hour|24h)[^.]{0,80}(?:undo|unpublish)|(?:undo|unpublish)[^.]{0,80}(?:24[- ]hour|24h|24\s+hours)/i,
-    rationale:
-      "R15 finding 1 (catalog SHOW_FIRST_PUBLISHED + getting-started/dashboard/review-queues/tour). Auto-publish emits an admin_alert with severity=info that AlertBanner filters out, and no email-send infrastructure ships in v1. The unpublish endpoint + token exist server-side but Doug has no in-app delivery surface for the link. Until the safety-net surface ships, help must not promise the email/undo. Pattern catches both orders ('24-hour … undo' and 'undo … within 24 hours') — the reversed phrasing evaded the original regex (M12.12 cluster-1 finding 1).",
-  },
+  // RETIRED (M12.13, spec §7 registry-narrowing table): the `24-hour-undo-email`
+  // entry banned any "24-hour … undo" / "undo … within 24 hours" phrasing because
+  // no delivery surface shipped. That factual basis has ended — the auto-publish
+  // undo now ships on EVERY install via the per-show in-app Undo button on the live
+  // token window, and via email when `alert_on_auto_publish` is enabled. The promise
+  // is true; the ban is deleted. (Truthful undo-email references are additionally
+  // carved out of the `email-delivery-of-action-link` class below.)
   {
     id: "confirmation-email",
     pattern: /confirmation\s+email/i,
@@ -108,8 +125,19 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
   {
     id: "email-delivery-of-action-link",
     pattern: /\b(?:link|button|URL)\b[^.]{0,40}\b(?:in|from)\s+your\s+email\b/i,
+    // M12.13 (spec §7) NARROW: the auto-publish undo email now ships
+    // (lib/notify auto_publish_undo template + per-recipient delivery, gated by
+    // the `alert_on_auto_publish` toggle), so a truthful reference to the UNDO
+    // link in that email is no longer phantom. The carve-out admits only
+    // undo/unpublish-scoped phrasings; every OTHER "<link|button|URL> in your
+    // email" claim (a confirmation link, a sign-in link, a preview link, …)
+    // still has no delivery channel and stays banned. A truthful undo reference
+    // passes; a phantom claim for a DIFFERENT action link still fails (proven by
+    // the negative-regression below).
+    allow:
+      /\b(?:undo|unpublish)\b[^.]{0,60}\b(?:link|button|URL)\b[^.]{0,40}\b(?:in|from)\s+your\s+email\b|\b(?:link|button|URL)\b[^.]{0,40}\bto\s+(?:undo|unpublish)\b/i,
     rationale:
-      "R18 finding 1 root. UNPUBLISH_TOKEN_CONSUMED claimed 'the unpublish link in your email' — same email-delivery phantom class as confirmation-email but a different surface phrasing. Class-sweep variant: any '<link|button|URL> in/from your email' phrasing implies an email-delivery channel that does not ship in v1.",
+      "R18 finding 1 root, NARROWED in M12.13 (spec §7). UNPUBLISH_TOKEN_CONSUMED once claimed 'the unpublish link in your email' as a phantom — but the auto-publish undo email now ships (lib/notify auto_publish_undo + per-recipient delivery, toggle-gated). The class still bans any '<link|button|URL> in/from your email' phrasing for a channel that does NOT ship (confirmation email, sign-in link, preview-link email, …); the `allow` carve-out exempts ONLY undo/unpublish-scoped references, which are now truthful.",
   },
   {
     id: "share-the-url-channel",
@@ -124,6 +152,18 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
       "R16 corollary. Same root as share-the-url-channel: 'send each their link from <surface>' implies Doug has a sendable URL extracted from <surface>. He doesn't. Whitelist legitimate paraphrases by adjusting this pattern only after confirming a URL surface ships.",
   },
 ];
+
+/**
+ * A `pattern` hit is a violation UNLESS the same text satisfies the entry's
+ * `allow` carve-out (a truthful, shipped reference). Returns the matched text
+ * when it is a genuine violation, otherwise `null`.
+ */
+function violatingMatch(entry: ForbiddenProseEntry, text: string): string | null {
+  const m = text.match(entry.pattern);
+  if (!m) return null;
+  if (entry.allow && entry.allow.test(text)) return null;
+  return m[0];
+}
 
 function helpMdxFiles(): string[] {
   const out: string[] = [];
@@ -153,12 +193,12 @@ describe("Forbidden-prose registry (R14 structural defense)", () => {
     for (const file of helpMdxFiles()) {
       const src = readFileSync(file, "utf8");
       for (const entry of FORBIDDEN_PROSE) {
-        const m = src.match(entry.pattern);
-        if (m) {
-          const idx = src.indexOf(m[0]);
+        const hit = violatingMatch(entry, src);
+        if (hit) {
+          const idx = src.indexOf(hit);
           const lineNum = src.slice(0, idx).split("\n").length;
           violations.push(
-            `${relative(PROJECT_ROOT, file)}:${lineNum} matches forbidden pattern "${entry.id}": "${m[0]}". ` +
+            `${relative(PROJECT_ROOT, file)}:${lineNum} matches forbidden pattern "${entry.id}": "${hit}". ` +
               `Rationale: ${entry.rationale}`,
           );
         }
@@ -194,10 +234,10 @@ describe("Forbidden-prose registry (R14 structural defense)", () => {
         const value = (entry as Record<string, unknown>)[field];
         if (typeof value !== "string") continue;
         for (const fp of FORBIDDEN_PROSE) {
-          const m = value.match(fp.pattern);
-          if (m) {
+          const hit = violatingMatch(fp, value);
+          if (hit) {
             violations.push(
-              `${code}.${field} matches forbidden pattern "${fp.id}": "${m[0]}". ` +
+              `${code}.${field} matches forbidden pattern "${fp.id}": "${hit}". ` +
                 `Rationale: ${fp.rationale}`,
             );
           }
@@ -212,5 +252,53 @@ describe("Forbidden-prose registry (R14 structural defense)", () => {
       "Doug → share the crew page URL with the crew member via your usual channel";
     const matched = FORBIDDEN_PROSE.find((e) => e.pattern.test(syntheticFollowUp));
     expect(matched?.id).toBe("share-the-url-channel");
+  });
+
+  // ── M12.13 registry-narrowing negative pins (spec §7) ────────────────────
+  // The `email-delivery-of-action-link` class was NARROWED, not deleted. These
+  // pin BOTH required properties: (a) a phantom claim for a DIFFERENT action
+  // link still FAILS the registry; (b) a truthful undo-email reference PASSES.
+
+  const emailLinkEntry = () => {
+    const entry = FORBIDDEN_PROSE.find((e) => e.id === "email-delivery-of-action-link");
+    expect(
+      entry,
+      "email-delivery-of-action-link entry must still exist (narrowed, not deleted)",
+    ).toBeDefined();
+    return entry!;
+  };
+
+  it("still FAILS a phantom claim for a DIFFERENT (non-undo) action link (negative regression)", () => {
+    // A confirmation/sign-in link in your email is still phantom — no such
+    // delivery channel ships. The carve-out must NOT swallow it.
+    const phantom = "Tap the confirmation link in your email to finish setting up your account";
+    expect(violatingMatch(emailLinkEntry(), phantom)).not.toBeNull();
+  });
+
+  it("PASSES a truthful reference to the auto-publish undo email (carve-out)", () => {
+    // The undo email now ships; a truthful reference to ITS link must not fire.
+    const truthful =
+      "If a show publishes itself, we email you a button to undo it — open the undo link in your email within 24 hours.";
+    expect(violatingMatch(emailLinkEntry(), truthful)).toBeNull();
+  });
+
+  it("the carve-out is scoped to undo/unpublish — a generic 'link in your email' with no undo context still FAILS", () => {
+    // Defends against an over-broad allow regex that would let any
+    // email-delivery claim through. No undo/unpublish token → still a violation.
+    const generic = "Click the link in your email to view the report";
+    expect(violatingMatch(emailLinkEntry(), generic)).not.toBeNull();
+  });
+
+  it("the retired 24-hour-undo-email entry is gone (the promise now ships everywhere)", () => {
+    expect(FORBIDDEN_PROSE.find((e) => e.id === "24-hour-undo-email")).toBeUndefined();
+  });
+
+  it("the generic confirmation-email entry is preserved unchanged", () => {
+    const entry = FORBIDDEN_PROSE.find((e) => e.id === "confirmation-email");
+    expect(entry).toBeDefined();
+    expect(entry!.allow).toBeUndefined();
+    expect(
+      violatingMatch(entry!, "Watch for a confirmation email after you submit"),
+    ).not.toBeNull();
   });
 });
