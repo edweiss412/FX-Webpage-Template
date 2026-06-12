@@ -29,6 +29,7 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 
 export const dynamic = "force-dynamic";
 
@@ -205,7 +206,17 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
 
   const row = result as WizardStagedRow;
 
+  // WM-R7 finding 2: array-level `ok` is not enough — bare-cast ELEMENTS
+  // (`[null]`, missing-field objects) crash StagedReviewCard's
+  // `item.id`/`item.invariant` derefs and kill the recovery page. Run the
+  // shared element guard (lib/staging/reviewPayloadGuards.ts) and fail closed
+  // into the card's existing corrupt state, mirroring the Apply-path
+  // STAGED_REVIEW_ITEMS_CORRUPT posture.
   const parsedReviewItems = parseTriggeredReviewItems(row.triggered_review_items);
+  const reviewItems =
+    parsedReviewItems.ok && parsedReviewItems.items.every(isStructurallyValidReviewItem)
+      ? parsedReviewItems.items
+      : null;
   const stagedRow: StagedRow = {
     driveFileId: row.drive_file_id,
     stagedId: row.staged_id,
@@ -213,8 +224,8 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
     stagedModifiedTime: row.staged_modified_time,
     baseModifiedTime: row.base_modified_time,
     warningSummary: "",
-    triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
-    reviewItemsCorrupt: !parsedReviewItems.ok,
+    triggeredReviewItems: reviewItems ?? [],
+    reviewItemsCorrupt: reviewItems === null,
     ...(summaryFromParseResult(row.parse_result) !== undefined
       ? { parseSummaryLine: summaryFromParseResult(row.parse_result)! }
       : {}),

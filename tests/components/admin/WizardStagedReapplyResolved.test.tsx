@@ -23,9 +23,14 @@ const notFoundMock = vi.fn((): never => {
 vi.mock("next/navigation", () => ({ notFound: () => notFoundMock() }));
 
 // The found-row path mounts this client component; stub it (its own contract is
-// pinned by tests/components/admin/WizardStagedPage.test.tsx).
+// pinned by tests/components/admin/WizardStagedPage.test.tsx). The stub records
+// the forwarded `row` prop so the WM-R7 element-guard tests can assert the page
+// boundary, not the card internals.
 vi.mock("@/components/admin/StagedReviewCard", () => ({
-  StagedReviewCard: () => <div data-testid="staged-review-card-stub" />,
+  StagedReviewCard: (props: { row: unknown }) => {
+    state.cardRows.push(props.row);
+    return <div data-testid="staged-review-card-stub" />;
+  },
 }));
 
 const state = vi.hoisted(() => ({
@@ -33,6 +38,7 @@ const state = vi.hoisted(() => ({
   queryError: null as { message: string } | null,
   clientThrows: false,
   queryCount: 0,
+  cardRows: [] as unknown[],
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -72,6 +78,7 @@ beforeEach(() => {
   state.queryError = null;
   state.clientThrows = false;
   state.queryCount = 0;
+  state.cardRows = [];
   notFoundMock.mockClear();
 });
 
@@ -183,5 +190,59 @@ describe("F3 — already-resolved state (spec §5)", () => {
     expect(getByTestId("wizard-staged-reapply-page")).toBeTruthy();
     expect(getByTestId("staged-review-card-stub")).toBeTruthy();
     expect(queryByTestId("wizard-staged-reapply-resolved")).toBeNull();
+  });
+
+  test("malformed review-item ELEMENTS fail closed at the page boundary: [] + reviewItemsCorrupt (WM-R7 finding 2)", async () => {
+    // Failure mode: parseTriggeredReviewItems is ARRAY-level only — `[null]` and
+    // missing-field elements pass `ok: true` and are bare-cast into
+    // StagedReviewCard, whose `item.invariant` / `item.id` derefs crash the
+    // render and kill the recovery page. The page must run the shared element
+    // guard (lib/staging/reviewPayloadGuards.ts) and route invalid elements
+    // into the card's EXISTING corrupt state (triggeredReviewItems: [] +
+    // reviewItemsCorrupt: true), mirroring the Apply-path refusal posture.
+    state.row = {
+      staged_id: "22222222-2222-2222-2222-222222222222",
+      drive_file_id: DFID,
+      staged_modified_time: "2026-06-10T12:00:00.000Z",
+      base_modified_time: null,
+      parse_result: null,
+      // One null element + one MI-12 element missing its required
+      // removed_name/added_name string fields — both bare-cast crash shapes.
+      triggered_review_items: [null, { id: "i-1", invariant: "MI-12" }],
+      last_finalize_failure_code: "STAGED_REVIEW_ITEMS_CORRUPT",
+      source_kind: "onboarding_scan",
+    };
+    const { getByTestId } = await renderPage();
+    expect(getByTestId("staged-review-card-stub")).toBeTruthy();
+    expect(state.cardRows).toHaveLength(1);
+    expect(state.cardRows[0]).toMatchObject({
+      triggeredReviewItems: [],
+      reviewItemsCorrupt: true,
+    });
+  });
+
+  test("structurally VALID review items still pass through untouched (element-guard positive)", async () => {
+    // Negative-regression guard for the guard itself: an over-broad element
+    // filter that empties LEGITIMATE items would silently skip the review gate.
+    const items = [
+      { id: "i-1", invariant: "MI-12", removed_name: "Old Name", added_name: "New Name" },
+      { id: "i-2", invariant: "MI-6" },
+    ];
+    state.row = {
+      staged_id: "22222222-2222-2222-2222-222222222222",
+      drive_file_id: DFID,
+      staged_modified_time: "2026-06-10T12:00:00.000Z",
+      base_modified_time: null,
+      parse_result: null,
+      triggered_review_items: items,
+      last_finalize_failure_code: null,
+      source_kind: "onboarding_scan",
+    };
+    await renderPage();
+    expect(state.cardRows).toHaveLength(1);
+    expect(state.cardRows[0]).toMatchObject({
+      triggeredReviewItems: items,
+      reviewItemsCorrupt: false,
+    });
   });
 });
