@@ -5,6 +5,7 @@ import type {
 } from "@/app/api/admin/onboarding/finalize/route";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
+import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 
@@ -85,6 +86,11 @@ class FakeFinalizeDb implements FinalizeRouteTx {
   auditRows: string[] = [];
   deletedPending: string[] = [];
   operations: string[] = [];
+  // F1 Task 1.3: created_show_id provenance UPDATE behavior. `false` simulates a wizard-session
+  // supersession committing between the core apply and the provenance UPDATE (returning 0 rows)
+  // — unreachable today behind the outer app_settings FOR UPDATE, pinned as defense-in-depth.
+  provenanceRecordSucceeds = true;
+  provenanceRecorded: string[] = [];
 
   async query<T>(sql: string, params: readonly unknown[] = []) {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -167,6 +173,12 @@ class FakeFinalizeDb implements FinalizeRouteTx {
       return { rows: [{ demoted: true } as T], rowCount: 1 };
     }
 
+    if (normalized.startsWith("update public.onboarding_scan_manifest set created_show_id")) {
+      if (!this.provenanceRecordSucceeds) return { rows: [], rowCount: 0 };
+      this.provenanceRecorded.push(params[0] as string);
+      return { rows: [{ recorded: true } as T], rowCount: 1 };
+    }
+
     if (normalized.startsWith("update public.onboarding_scan_manifest")) {
       this.manifestStatuses.set(params[0] as string, "staged");
       return { rows: [{ updated: true } as T], rowCount: 1 };
@@ -212,10 +224,56 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     if (sql.startsWith("update public.pending_syncs")) return "demote-pending";
     if (sql.startsWith("insert into public.shows_pending_changes")) return "stage-shadow";
     if (sql.startsWith("insert into public.shows")) return "apply-first-seen";
+    if (sql.startsWith("update public.onboarding_scan_manifest set created_show_id")) {
+      return "record-provenance";
+    }
     if (sql.startsWith("delete from public.pending_syncs")) return "delete-pending";
     if (sql.startsWith("update public.wizard_finalize_checkpoints")) return "advance-checkpoint";
     return "other";
   }
+}
+
+/**
+ * Minimal spy SyncPipelineTx — only the methods the shared apply core touches on the first-seen
+ * path. The fake-DB suites assert routing/demote behavior, not apply internals (those are
+ * covered by tests/onboarding/finalizeFirstSeenFullApply.db.test.ts against the real DB).
+ * deleteLivePendingIngestion THROWS: the wizard-scoped core must never reach it (spec §3.2).
+ */
+function fakePipelineTx(db: FakeFinalizeDb): SyncPipelineTx {
+  return {
+    async queryOne(sqlText: string, params: unknown[]) {
+      const normalized = sqlText.replace(/\s+/g, " ").trim();
+      if (/pg_locks/i.test(normalized)) return { held: true };
+      if (normalized.startsWith("insert into public.sync_audit")) {
+        db.auditRows.push(params[1] as string);
+        return { id: "audit-1" };
+      }
+      throw new Error(`Unhandled SQL in fake pipeline tx: ${normalized}`);
+    },
+    async applyShowSnapshot(args: { driveFileId: string }) {
+      db.firstSeenApplied.push(args.driveFileId);
+      return {
+        outcome: "updated" as const,
+        showId: "show-first-seen",
+        previousCrewNames: [],
+        previousCrewMembers: [],
+      };
+    },
+    async deleteCrewMembersNotIn() {},
+    async upsertCrewMembers() {},
+    async provisionAddedCrewAuth() {},
+    async revokeRemovedCrewAuth() {},
+    async replaceHotelReservations() {},
+    async replaceRooms() {},
+    async replaceTransportation() {},
+    async replaceContacts() {},
+    async upsertShowsInternal() {},
+    async deleteLivePendingIngestion() {
+      throw new Error(
+        "live partition touched from a wizard finalize (deleteLivePendingIngestion) — spec §3.2",
+      );
+    },
+  } as unknown as SyncPipelineTx;
 }
 
 function pending(driveFileId: string, overrides: Partial<PendingRow> = {}): PendingRow {
@@ -236,7 +294,7 @@ function deps(db: FakeFinalizeDb, overrides: Partial<FinalizeRouteDeps> = {}): F
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     withTx: async (fn) => fn(db),
-    withRowTx: async (_driveFileId, fn) => fn(db),
+    withRowTx: async (_driveFileId, fn) => fn(db, fakePipelineTx(db)),
     fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
       driveFileId,
       name: `${driveFileId}.xlsx`,
@@ -708,6 +766,49 @@ describe("POST /api/admin/onboarding/finalize", () => {
     expect(db.demoted).toEqual([
       { driveFileId: "version-1", code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED" },
     ]);
+  });
+
+  test("provenance UPDATE matching 0 rows throws FirstSeenProvenanceRaceError BEFORE deleteApprovedPending; the loop demotes with WIZARD_SESSION_SUPERSEDED", async () => {
+    // Defense-in-depth (F1 Task 1.3): if a wizard-session supersession ever committed between
+    // the core apply and the provenance UPDATE, the UPDATE's active-session EXISTS predicate
+    // matches 0 rows. Without the returning-check, the per-row tx would still COMMIT an
+    // unpublished show with NO created_show_id recorded AND consume the staging row — a
+    // permanent invisible orphan (F4's reap can't identify it; Phase D's narrowed flip never
+    // publishes it; no pending row left to re-apply). TODAY this interleaving is unreachable —
+    // readActiveSessionForUpdate holds app_settings FOR UPDATE for the whole outer batch (the
+    // lock-topology DB test pins that serialization); this unit test pins the guard against
+    // future lock refactors.
+    const db = new FakeFinalizeDb();
+    db.approved = [pending("provenance-race-1")];
+    db.provenanceRecordSucceeds = false; // simulate the FOR UPDATE being weakened/removed
+
+    const response = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      per_row: [
+        {
+          drive_file_id: "provenance-race-1",
+          wizard_session_id: W1,
+          code: "WIZARD_SESSION_SUPERSEDED",
+          re_apply_url:
+            "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/provenance-race-1",
+        },
+      ],
+    });
+    // The throw aborts the per-row transaction BEFORE the staged row is consumed — the
+    // pending_syncs row survives for re-apply (spy op-order, not just absence):
+    expect(db.operations).toContain("record-provenance");
+    expect(db.operations).not.toContain("delete-pending");
+    expect(db.deletedPending).toEqual([]);
+    // …and the loop's catch demotes the row in a FRESH per-row tx with the cataloged code:
+    expect(db.demoted).toEqual([
+      { driveFileId: "provenance-race-1", code: "WIZARD_SESSION_SUPERSEDED" },
+    ]);
+    expect(db.approved.find((row) => row.drive_file_id === "provenance-race-1")).toMatchObject({
+      wizard_approved: false,
+      wizard_approved_by_email: null,
+    });
   });
 
   test("never returns an empty 500 — an unexpected throw becomes a typed JSON error + console.error", async () => {

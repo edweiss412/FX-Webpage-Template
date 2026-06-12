@@ -2,10 +2,16 @@ import { NextResponse } from "next/server";
 import postgres from "postgres";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
-import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult } from "@/lib/parser/types";
-import { insertFirstSeenShowWithSlugRetry } from "@/lib/sync/runScheduledCronSync";
+import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
+import {
+  applyStagedCore,
+  normalizeTimestamptz,
+  type ReviewerChoice,
+} from "@/lib/sync/applyStagedCore";
+import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
+import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
 import { canonicalize } from "@/lib/email/canonicalize";
 
@@ -30,10 +36,40 @@ export type FinalizeRouteTx = {
 export type FinalizeRouteDeps = {
   requireAdminIdentity?: () => Promise<{ email: string }>;
   withTx?: <R>(fn: (tx: FinalizeRouteTx) => Promise<R>) => Promise<R>;
-  withRowTx?: <R>(driveFileId: string, fn: (tx: FinalizeRouteTx) => Promise<R>) => Promise<R>;
+  // F1 Task 1.3: the per-row callback also receives the canonical SyncPipelineTx built from the
+  // SAME raw postgres.js transaction that acquired the per-show advisory lock — the shared apply
+  // core runs on the holder's transaction, acquire-free (spec §3.3 single-holder rule).
+  withRowTx?: <R>(
+    driveFileId: string,
+    fn: (tx: FinalizeRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>,
+  ) => Promise<R>;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
   batchCap?: number;
 };
+
+/**
+ * F1 Task 1.3 defense-in-depth: thrown when the created_show_id provenance UPDATE matches 0
+ * rows (the active-session EXISTS predicate failed — a supersession committed mid-row). The
+ * throw aborts the per-row transaction, rolling back the just-applied show/children/audit so
+ * the pending_syncs row survives untouched (no permanent invisible orphan). TODAY the outer
+ * app_settings FOR UPDATE makes this unreachable (lock-topology DB test pins that); the guard
+ * protects future lock refactors. The per-row loop maps it to a demote +
+ * WIZARD_SESSION_SUPERSEDED PerRowResult.
+ */
+export class FirstSeenProvenanceRaceError extends Error {
+  readonly code = WIZARD_SESSION_SUPERSEDED;
+
+  constructor(
+    readonly driveFileId: string,
+    readonly wizardSessionId: string,
+  ) {
+    super(
+      `first-seen provenance not recorded for ${driveFileId}: wizard session ` +
+        `${wizardSessionId} is no longer active — rolling back the per-row apply`,
+    );
+    this.name = "FirstSeenProvenanceRaceError";
+  }
+}
 
 type ActiveSessionRow = {
   pending_wizard_session_id: string | null;
@@ -53,6 +89,11 @@ type PendingFinalizeRow = {
   wizard_reviewer_choices: unknown[];
   wizard_reviewer_choices_version: number | null;
   wizard_approved_by_email: string | null;
+  // postgres.js parses timestamptz into a JS Date despite the string annotation elsewhere —
+  // normalizeTimestamptz at the read boundary.
+  wizard_approved_at: string | Date | null;
+  triggered_review_items: unknown;
+  base_modified_time: string | Date | null;
 };
 
 type PerRowResult =
@@ -68,6 +109,7 @@ type PerRowResult =
         | typeof STAGED_PARSE_REVISION_RACE_DURING_FINALIZE
         | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE
         | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
+        | typeof WIZARD_SESSION_SUPERSEDED
         | "DRIVE_FETCH_FAILED";
       re_apply_url: string;
     };
@@ -105,16 +147,17 @@ async function defaultWithTx<R>(fn: (tx: FinalizeRouteTx) => Promise<R>): Promis
 
 async function defaultWithRowTx<R>(
   driveFileId: string,
-  fn: (tx: FinalizeRouteTx) => Promise<R>,
+  fn: (tx: FinalizeRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>,
 ): Promise<R> {
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     return (await sql.begin(async (rawTx) => {
-      const tx = postgresTxAdapter(
-        rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> },
-      );
+      const raw = rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> };
+      const tx = postgresTxAdapter(raw);
       await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
-      return await fn(tx);
+      // The pipeline tx rides the SAME raw transaction that just took the per-show lock — the
+      // shared apply core only ADOPTS it (pg_locks ownership probe), never acquires (§3.3).
+      return await fn(tx, makeSyncPipelineTx(raw));
     })) as R;
   } finally {
     await sql.end({ timeout: 5 });
@@ -261,7 +304,8 @@ async function selectApprovedRows(
     `
       select drive_file_id, staged_id, staged_modified_time, parse_result,
              wizard_reviewer_choices, wizard_reviewer_choices_version,
-             wizard_approved_by_email
+             wizard_approved_by_email, wizard_approved_at,
+             triggered_review_items, base_modified_time
         from public.pending_syncs
        where wizard_session_id = $1::uuid
          and wizard_approved = true
@@ -294,6 +338,7 @@ async function demotePending(
     | typeof STAGED_PARSE_REVISION_RACE_DURING_FINALIZE
     | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE
     | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
+    | typeof WIZARD_SESSION_SUPERSEDED
     | "DRIVE_FETCH_FAILED",
 ): Promise<void> {
   await tx.query<{ demoted: boolean }>(
@@ -342,90 +387,39 @@ async function readPendingFolderId(tx: FinalizeRouteTx): Promise<string | null> 
   return rows[0]?.pending_folder_id ?? null;
 }
 
-async function applyFirstSeenDraft(
-  tx: FinalizeRouteTx,
-  row: PendingFinalizeRow,
-): Promise<string | null> {
-  const parseResult = row.parse_result;
-  return await insertFirstSeenShowWithSlugRetry({
-    baseSlug: deriveSlug(parseResult, []),
-    insert: async (slug) => {
-      const inserted = await tx.query<{ show_id: string }>(
-        `
-          insert into public.shows (
-            drive_file_id, slug, title, client_label, client_contact, template_version,
-            venue, dates, event_details, agenda_links, diagrams,
-            opening_reel_drive_file_id, opening_reel_drive_modified_time,
-            opening_reel_head_revision_id, opening_reel_mime_type,
-            last_seen_modified_time, coi_status, pull_sheet,
-            last_synced_at, last_sync_status, last_sync_error, published
-          )
-          values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
-                  $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
-                  $14, $15, $16::timestamptz, $17, $18::jsonb,
-                  now(), 'ok', null, false)
-          on conflict (drive_file_id) do nothing
-          returning id as show_id
-        `,
-        [
-          row.drive_file_id,
-          slug,
-          parseResult.show.title,
-          parseResult.show.client_label,
-          parseResult.show.client_contact,
-          parseResult.show.template_version,
-          parseResult.show.venue,
-          parseResult.show.dates,
-          parseResult.show.event_details,
-          parseResult.show.agenda_links,
-          parseResult.diagrams,
-          parseResult.openingReel?.driveFileId ?? null,
-          parseResult.openingReel?.drive_modified_time ?? null,
-          parseResult.openingReel?.headRevisionId ?? null,
-          parseResult.openingReel?.mimeType ?? null,
-          row.staged_modified_time,
-          parseResult.show.coi_status,
-          parseResult.pullSheet,
-        ],
-      );
-      return inserted.rows[0]?.show_id ?? null;
-    },
-  });
-}
+// The bespoke applyFirstSeenDraft / insertFinalizeAudit writers were DELETED in F1 Task 1.3:
+// their shows-only INSERT + '[]'/'{}' audit stubs were THE origin incident (0 crew / 0 rooms /
+// empty shows_internal with last_sync_status='ok'). The first-seen branch now runs the shared
+// apply core (lib/sync/applyStagedCore.ts) — children + shows_internal + auth-contract calls +
+// real audit provenance — and the second-copy tripwire (Task 1.7) pins that no bespoke
+// public.shows writer reappears here.
 
-async function insertFinalizeAudit(
+/**
+ * Record which show this manifest row's first-seen finalize created — returning-checked, in
+ * the SAME per-row transaction as the apply. The EXISTS predicate binds the write to the
+ * still-active wizard session; 0 rows → FirstSeenProvenanceRaceError (typed rollback BEFORE
+ * deleteApprovedPending consumes the staging row).
+ */
+async function recordCreatedShowProvenance(
   tx: FinalizeRouteTx,
-  input: {
-    showId: string;
-    row: PendingFinalizeRow;
-    appliedByEmail: string;
-  },
+  wizardSessionId: string,
+  driveFileId: string,
+  showId: string,
 ): Promise<void> {
-  await tx.query<{ id: string }>(
+  const recorded = await tx.query<{ recorded: boolean }>(
     `
-      insert into public.sync_audit (
-        show_id, drive_file_id, applied_by, staged_id, triggered_review_items,
-        reviewer_choices, derived_side_effects, parse_result_summary,
-        base_modified_time, staged_modified_time
-      )
-      values (
-        $1::uuid, $2, $3, $4::uuid, '[]'::jsonb,
-        $5::jsonb, '{}'::jsonb,
-        jsonb_build_object('title', $6::text, 'source', 'onboarding_finalize'),
-        null, $7::timestamptz
-      )
-      returning id
+      update public.onboarding_scan_manifest
+         set created_show_id = $3::uuid
+       where drive_file_id = $1 and wizard_session_id = $2::uuid
+         and exists (select 1 from public.app_settings
+                      where id = 'default' and pending_wizard_session_id = $2::uuid)
+      returning true as recorded
     `,
-    [
-      input.showId,
-      input.row.drive_file_id,
-      canonicalize(input.appliedByEmail),
-      input.row.staged_id,
-      input.row.wizard_reviewer_choices ?? [],
-      input.row.parse_result.show.title,
-      input.row.staged_modified_time,
-    ],
+    [driveFileId, wizardSessionId, showId],
   );
+  if (recorded.rowCount === 0) {
+    throw new FirstSeenProvenanceRaceError(driveFileId, wizardSessionId);
+  }
 }
 
 async function stageExistingShowShadow(
@@ -536,6 +530,7 @@ async function processApprovedRow(input: {
   row: PendingFinalizeRow;
   wizardSessionId: string;
   tx: FinalizeRouteTx;
+  pipelineTx: SyncPipelineTx;
   fetchDriveFileMetadata: (driveFileId: string) => Promise<DriveListedFile>;
 }): Promise<PerRowResult> {
   const { row, wizardSessionId, tx } = input;
@@ -615,14 +610,73 @@ async function processApprovedRow(input: {
     return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
   }
 
-  const showId = await applyFirstSeenDraft(tx, coercedRow);
-  if (showId) {
-    await insertFinalizeAudit(tx, {
-      showId,
-      row: coercedRow,
-      appliedByEmail: requireApprovedByEmail(coercedRow),
-    });
+  // First-seen branch (F1 Task 1.3): the FULL Phase-2 apply via the shared core — children +
+  // shows_internal + auth-contract calls — with published=false preserved (firstSeenPublished),
+  // the show-side session discriminator written in the same INSERT (wizardCreatedSessionId),
+  // NO feed rows (the feed documents changes to LIVE shows), and REAL audit provenance
+  // (approving admin + Apply-click instant, spec §3.1 R8-1).
+  const parsedItems = parseTriggeredReviewItems(row.triggered_review_items);
+  if (!parsedItems.ok) {
+    // Approved rows are parseable BY CONSTRUCTION (the wizard approve branch refuses corrupt
+    // items before approval) — reaching this is data corruption → the route's typed-500 wrapper.
+    throw new Error("approved onboarding row has corrupt triggered_review_items");
   }
+  const stagedModifiedTimeIso = normalizeTimestamptz(row.staged_modified_time);
+  if (!stagedModifiedTimeIso) {
+    throw new Error("approved onboarding row is missing staged_modified_time");
+  }
+
+  const lockedTx = await adoptShowLockHeld(input.pipelineTx, row.drive_file_id);
+  const core = await applyStagedCore(lockedTx, {
+    sourceScope: "wizard",
+    driveFileId: row.drive_file_id,
+    show: null, // first-seen: gated by !showExists above
+    parseResult: coercedRow.parse_result,
+    triggeredReviewItems: parsedItems.items,
+    reviewerChoices: coercedRow.wizard_reviewer_choices as ReviewerChoice[],
+    stagedId: row.staged_id,
+    stagedModifiedTime: stagedModifiedTimeIso,
+    baseModifiedTime: null, // no live row → equality preflight trivially holds
+    appliedByEmail: requireApprovedByEmail(coercedRow), // approving admin, NOT the finalizer
+    appliedAt: normalizeTimestamptz(row.wizard_approved_at), // Apply-click instant, NOT now()
+    auditSource: "onboarding_finalize",
+    fileMeta: metadata,
+    mi11Items: [], // first-seen: no prior crew → MI-11 impossible
+    feedPolicy: { kind: "none" }, // first-seen writes NO show_change_log rows (spec §3.1)
+    skipDiagramsWrite: false, // payload diagrams already canonical (spec §3.4)
+    firstSeenPublished: false,
+    // R59-1/R60-1: threaded ApplyStagedCoreArgs → Phase2Args → applyShowSnapshot → the
+    // first-seen INSERT writes shows.wizard_created_session_id in the SAME statement.
+    wizardCreatedSessionId: wizardSessionId,
+  });
+
+  if (core.outcome === "stale_write") {
+    await demotePending(
+      tx,
+      wizardSessionId,
+      row.drive_file_id,
+      STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+    );
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+  if (core.outcome !== "applied") {
+    // invalid_request / stale_baseline / discarded_by_choice are corrupt-by-construction here:
+    // approved rows passed validateReviewerChoices at approval time and a first-seen row has no
+    // live baseline → typed-500 wrapper.
+    throw new Error(
+      `onboarding finalize first-seen apply refused (${core.outcome}` +
+        `${"code" in core ? `: ${core.code}` : ""}) for ${row.drive_file_id}`,
+    );
+  }
+
+  // Provenance BEFORE consuming the staging row — a race throws and rolls back the whole
+  // per-row transaction (FirstSeenProvenanceRaceError), leaving pending_syncs untouched.
+  await recordCreatedShowProvenance(tx, wizardSessionId, row.drive_file_id, core.showId);
   await deleteApprovedPending(tx, wizardSessionId, row);
   return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
 }
@@ -706,14 +760,37 @@ export async function handleOnboardingFinalize(
 
       const perRow: PerRowResult[] = [];
       for (const row of approvedRows) {
-        const result = await runtime.withRowTx(row.drive_file_id, (rowTx) =>
-          processApprovedRow({
-            row,
-            wizardSessionId,
-            tx: rowTx,
-            fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
-          }),
-        );
+        let result: PerRowResult;
+        try {
+          result = await runtime.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
+            processApprovedRow({
+              row,
+              wizardSessionId,
+              tx: rowTx,
+              pipelineTx,
+              fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
+            }),
+          );
+        } catch (error) {
+          if (!(error instanceof FirstSeenProvenanceRaceError)) throw error;
+          // The throw aborted the per-row transaction (show/children/audit rolled back; the
+          // pending_syncs row survives). Demote it in a FRESH per-row tx (re-acquiring the
+          // per-show lock) so the operator gets the existing demote/re-apply recovery path.
+          await runtime.withRowTx(row.drive_file_id, async (rowTx) => {
+            await demotePending(
+              rowTx,
+              wizardSessionId,
+              row.drive_file_id,
+              WIZARD_SESSION_SUPERSEDED,
+            );
+          });
+          result = {
+            drive_file_id: row.drive_file_id,
+            wizard_session_id: wizardSessionId,
+            code: WIZARD_SESSION_SUPERSEDED,
+            re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+          };
+        }
         perRow.push(result);
       }
 

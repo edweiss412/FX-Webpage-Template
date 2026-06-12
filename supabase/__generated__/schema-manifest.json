@@ -115,6 +115,7 @@
     "show_id"
   ],
   "onboarding_scan_manifest": [
+    "created_show_id",
     "drive_file_id",
     "folder_id",
     "id",
@@ -280,7 +281,8 @@
     "title",
     "unpublish_token",
     "unpublish_token_expires_at",
-    "venue"
+    "venue",
+    "wizard_created_session_id"
   ],
   "shows_internal": [
     "financials",

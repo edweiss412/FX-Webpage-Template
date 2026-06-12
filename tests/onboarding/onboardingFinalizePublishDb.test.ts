@@ -80,6 +80,9 @@ function first<T = Record<string, unknown>>(rows: unknown): T {
 
 async function cleanup(): Promise<void> {
   if (!sql) return;
+  await sql
+    .unsafe(`delete from public.onboarding_scan_manifest where drive_file_id = $1`, [DRIVE_FILE_ID])
+    .catch(() => {});
   await sql.unsafe(`delete from public.sync_audit where drive_file_id = $1`, [DRIVE_FILE_ID]).catch(() => {});
   await sql.unsafe(`delete from public.shows where drive_file_id = $1`, [DRIVE_FILE_ID]).catch(() => {});
   await sql
@@ -108,6 +111,16 @@ async function activateSession(): Promise<void> {
             pending_folder_id = $2
       where id = 'default'`,
     [SESSION, FOLDER],
+  );
+  // F1 Task 1.3: the production scan always writes a manifest row for a wizard-staged file;
+  // the first-seen finalize now records created_show_id provenance into it (returning-checked).
+  // Seed it so the harness matches the production invariant.
+  await sql!.unsafe(
+    `insert into public.onboarding_scan_manifest
+       (folder_id, wizard_session_id, drive_file_id, mime_type, name, status)
+     values ($1, $2::uuid, $3, 'application/vnd.google-apps.spreadsheet', 'fixture.gsheet', 'applied')
+     on conflict (wizard_session_id, drive_file_id) do update set status = 'applied'`,
+    [FOLDER, SESSION, DRIVE_FILE_ID],
   );
 }
 
@@ -258,15 +271,20 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
       // Simulate a row written by the OLD buggy writer: BOTH parse_result and
       // wizard_reviewer_choices stored as jsonb STRING SCALARS (Codex R1 MEDIUM —
       // legacy reviewer_choices must be decoded, not re-stored raw into the audit).
-      const REVIEWER_CHOICES = [{ id: "rc1", invariant: "MI-8", choice: "apply" }];
+      // F1 Task 1.3 reconciliation: the shared apply core validates reviewer choices against
+      // triggered_review_items (as the approve branch always did before persisting them), so
+      // the legacy fixture carries a MATCHING item + a production-shape choice — both still
+      // double-encoded string scalars, which is the corruption under test.
+      const TRIGGERED_ITEMS = [{ id: "rc1", invariant: "MI-7", section: "rooms" }];
+      const REVIEWER_CHOICES = [{ item_id: "rc1", action: "apply" }];
       await sql!.unsafe(
         `insert into public.pending_syncs
            (drive_file_id, staged_modified_time, parse_result, triggered_review_items,
             source_kind, warning_summary, wizard_session_id,
             wizard_approved, wizard_reviewer_choices, wizard_reviewer_choices_version,
             wizard_approved_by_email, wizard_approved_at)
-         values ($1, $2::timestamptz, $3::jsonb, '[]'::jsonb, 'onboarding_scan', '', $4::uuid,
-                 true, $5::jsonb, 1, 'doug@example.com', now())`,
+         values ($1, $2::timestamptz, $3::jsonb, $5::jsonb, 'onboarding_scan', '', $4::uuid,
+                 true, $6::jsonb, 1, 'doug@example.com', now())`,
         // A single JSON.stringify passed as a postgres.js `$N::jsonb` param is
         // exactly what the OLD buggy writer did — postgres.js then serializes
         // the string a SECOND time, producing a jsonb STRING SCALAR whose text
@@ -276,6 +294,7 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
           STAGED_INSTANT,
           JSON.stringify(PARSE_RESULT),
           SESSION,
+          JSON.stringify(TRIGGERED_ITEMS),
           JSON.stringify(REVIEWER_CHOICES),
         ],
       );
