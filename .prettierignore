@@ -24,6 +24,12 @@ next-env.d.ts
 # prettier from re-flowing it.
 supabase/__generated__/
 
+# The master spec is gen:spec-codes INPUT — x1-catalog-parity byte-compares the
+# regenerated manifest against the committed one, and prettier's markdown
+# emphasis normalization (_x_ -> *x*, asterisk escaping) inside §12.4 table
+# cells changes the generated copy. Never format it.
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
+
 # Editor / OS
 .DS_Store
 
