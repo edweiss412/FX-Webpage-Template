@@ -182,6 +182,18 @@ async function assertTarget(root: ReturnType<Page["getByTestId"]>, row: Concrete
   const hoverTrigger = root.locator("button[aria-expanded]").first();
   if ((await hoverTrigger.count()) > 0) {
     await hoverTrigger.click();
+    // Playwright's mouse click moves the pointer onto the trigger first, so
+    // HoverHelp's mouse-only pointerenter (hover-open) fires BEFORE the click
+    // toggle — net result: open-by-hover, then toggle → closed. Real inputs
+    // don't hit this (hover-readers don't click; touch taps don't hover;
+    // keyboard toggles without a pointer). If the state settled closed, click
+    // once more — the pointer is already inside, so no second pointerenter
+    // fires and the toggle lands open.
+    try {
+      await expect(hoverTrigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+    } catch {
+      await hoverTrigger.click();
+    }
   }
 
   const summary = root.locator("summary").first();
