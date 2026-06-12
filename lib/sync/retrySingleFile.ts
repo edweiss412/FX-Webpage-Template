@@ -10,6 +10,7 @@ import {
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 export type RetrySingleFileTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -71,20 +72,30 @@ async function readPendingIngestion(
   );
 }
 
+// F5 Task 5.5 S5 (R12 HIGH): the delete carries the wizard-session currency
+// EXISTS predicate — readWizardSettings runs ONCE up front, then Drive I/O +
+// runOnboardingScan open a LONG window before this statement; a supersession
+// committing in that window must 0-row the delete (caller throws).
 async function deletePendingIngestion(
   tx: LockedShowTx<RetrySingleFileTx>,
   driveFileId: string,
   wizardSessionId: string,
-): Promise<void> {
-  await tx.queryOne<{ deleted: boolean } | null>(
+): Promise<boolean> {
+  const deleted = await tx.queryOne<{ deleted: boolean } | null>(
     `
       delete from public.pending_ingestions
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
+         and exists (
+           select 1 from public.app_settings
+            where id = 'default'
+              and pending_wizard_session_id = $2::uuid
+         )
       returning true as deleted
     `,
     [driveFileId, wizardSessionId],
   );
+  return Boolean(deleted?.deleted);
 }
 
 function statusFromScan(
@@ -152,7 +163,18 @@ export async function retrySingleFile_unlocked(
   );
   const result = statusFromScan(scan, driveFileId, pending);
   if (result.outcome === "retried" && result.status === "staged") {
-    await deletePendingIngestion(tx, driveFileId, wizardSessionId);
+    const deleted = await deletePendingIngestion(tx, driveFileId, wizardSessionId);
+    if (!deleted) {
+      // Statement-time supersession: throw so the enclosing per-show-locked
+      // transaction ABORTS (the retry route's catch maps this to the typed
+      // 409 + WIZARD_SESSION_SUPERSEDED_RACE alert). The scan's OWN committed
+      // W1-scoped staging rows are accepted, F4-swept residue (spec §7 R5-2).
+      throw new WizardSessionSupersededRollbackError({
+        attemptedAction: "retry",
+        supersededSessionId: wizardSessionId,
+        driveFileId,
+      });
+    }
   }
   return result;
 }

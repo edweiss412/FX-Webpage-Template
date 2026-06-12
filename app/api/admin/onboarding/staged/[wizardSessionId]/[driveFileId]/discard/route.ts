@@ -10,6 +10,14 @@ import {
   type WizardStagedRouteTx,
 } from "../apply/route";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import {
+  readCurrentWizardSessionIdBestEffort,
+  WizardSessionSupersededRollbackError,
+} from "@/lib/sync/wizardSessionRollback";
+import {
+  upsertAdminAlert as defaultUpsertAdminAlert,
+  type UpsertAdminAlertInput,
+} from "@/lib/adminAlerts/upsertAdminAlert";
 
 export type WizardDiscardRouteDeps = Omit<WizardStagedRouteDeps, "applyStagedUnlocked"> & {
   discardStagedUnlocked?: (
@@ -17,6 +25,11 @@ export type WizardDiscardRouteDeps = Omit<WizardStagedRouteDeps, "applyStagedUnl
     args: Parameters<typeof defaultDiscardStagedUnlocked>[1],
     deps?: DiscardStagedDeps,
   ) => Promise<DiscardStagedResult>;
+  // F5 Task 5.5 (R51-1): the alert contract is route-consistent — the discard
+  // route fires the SAME post-rollback WIZARD_SESSION_SUPERSEDED_RACE
+  // producer as the retry route, in its own follow-up transaction.
+  upsertAdminAlert?: (input: UpsertAdminAlertInput) => Promise<string | null>;
+  readCurrentWizardSessionId?: () => Promise<string | null>;
 };
 
 type RouteContext = {
@@ -103,19 +116,49 @@ export async function handleWizardStagedDiscard(
   const variant = variantForKind(body.kind);
   if (!variant) return errorResponse(400, "INVALID_REVIEWER_ACTION");
 
-  const result = await deps.withRowTx(driveFileId, (tx) =>
-    deps.discardStagedUnlocked(
-      tx,
-      {
-        sourceScope: "wizard",
-        wizardSessionId,
-        driveFileId,
-        stagedId: body.stagedId as string,
-        variant,
-      },
-      {},
-    ),
-  );
+  let result: DiscardStagedResult;
+  try {
+    result = await deps.withRowTx(driveFileId, (tx) =>
+      deps.discardStagedUnlocked(
+        tx,
+        {
+          sourceScope: "wizard",
+          wizardSessionId,
+          driveFileId,
+          stagedId: body.stagedId as string,
+          variant,
+        },
+        {},
+      ),
+    );
+  } catch (error) {
+    // F5 Task 5.5 (S3/S4 + R51-1): discardStaged_unlocked throws the typed
+    // rollback error on a post-mutation currency miss. The per-show-locked tx
+    // is already ABORTED here; map to the cataloged 409 (never an uncataloged
+    // 500 — invariant 5) and fire the post-rollback race alert in its own
+    // follow-up transaction (best-effort; failure logged, never masks the 409).
+    if (error instanceof WizardSessionSupersededRollbackError) {
+      try {
+        await (routeDeps.upsertAdminAlert ?? defaultUpsertAdminAlert)({
+          showId: null,
+          code: "WIZARD_SESSION_SUPERSEDED_RACE",
+          context: {
+            attempted_action: error.context.attemptedAction,
+            superseded_session_id: error.context.supersededSessionId,
+            current_session_id: await (
+              routeDeps.readCurrentWizardSessionId ?? readCurrentWizardSessionIdBestEffort
+            )(),
+            pending_ingestion_id: error.context.pendingIngestionId ?? null,
+            drive_file_id: error.context.driveFileId,
+          },
+        });
+      } catch (alertError) {
+        console.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", alertError);
+      }
+      return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+    }
+    throw error;
+  }
   if (result.outcome === "discarded") {
     return NextResponse.json({
       status: "discarded",

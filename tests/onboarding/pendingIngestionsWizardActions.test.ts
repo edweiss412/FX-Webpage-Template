@@ -393,6 +393,34 @@ describe("wizard pending_ingestions actions", () => {
     expect(entry?.dougFacing ?? null).not.toBeNull();
   });
 
+  // F5 Task 5.5 (plan R17-1) retry-alert copy parity: the copy is action-
+  // GENERIC. "defer" may appear in a Doug-reaching field ONLY inside the
+  // generic enumeration "retry, defer, ignore, or discard" — action-specific
+  // defer/ignore wording would mislead an operator whose race came from a
+  // retry click (the only durable signal for the race).
+  test("WIZARD_SESSION_SUPERSEDED_RACE copy mentions 'defer' only inside the generic action enumeration", () => {
+    const entry = (MESSAGE_CATALOG as Record<string, Record<string, string | null> | undefined>)[
+      "WIZARD_SESSION_SUPERSEDED_RACE"
+    ];
+    expect(entry).toBeDefined();
+    const dougReachingFields = [
+      "dougFacing",
+      "helpfulContext",
+      "title",
+      "longExplanation",
+      "followUp",
+    ] as const;
+    const GENERIC = "retry, defer, ignore, or discard";
+    for (const field of dougReachingFields) {
+      const copy = (entry?.[field] ?? "") as string;
+      const stripped = copy.split(GENERIC).join("");
+      expect(
+        /defer/i.test(stripped),
+        `${field} mentions "defer" outside the generic "${GENERIC}" enumeration — copy must stay action-generic for retry races`,
+      ).toBe(false);
+    }
+  });
+
   test("the typed error carries the race context for the Task-5.3 alert payload", () => {
     const error = new WizardSessionSupersededRollbackError({
       attemptedAction: "defer_until_modified",

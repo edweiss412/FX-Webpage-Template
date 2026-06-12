@@ -321,6 +321,96 @@ test.skipIf(!dbUp)(
   },
 );
 
+// F5 Task 5.5 S5 (R12 HIGH) — retry race. The natural window is INSIDE the
+// scan (Drive I/O + staging, retrySingleFile.ts): inject a runOnboardingScan
+// stub that (a) actually WRITES a W1 staging row on its own committed
+// connection (runOnboardingScan runs its own transaction in production — R32
+// residue contract: this is real-write residue, not a pure stub), (b) performs
+// the committed flip mid-window, then (c) reports the file staged — exactly
+// the sequence a real takeover produces.
+test.skipIf(!dbUp)(
+  "retry race: supersession lands between the app_settings read and the pending-ingestion delete → typed rollback, row survives, route 409s, alert carries attempted_action retry",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    assertLoopbackOpenersPinned();
+
+    const response = await handleWizardPendingIngestionAction(
+      { params: Promise.resolve({ id: pendingIngestionId }) },
+      {
+        requireAdminIdentity: async () => ({ email: "admin@example.com" }), // real withRowTx + real DB
+        upsertAdminAlert: directSqlAlertWriter as never,
+        retrySingleFileUnlocked: async (tx, driveFileId, wizardSessionId) =>
+          (await import("@/lib/sync/retrySingleFile")).retrySingleFile_unlocked(
+            tx as never,
+            driveFileId,
+            wizardSessionId,
+            {
+              fetchDriveFileMetadata: async () => ({
+                driveFileId: FILE,
+                name: "f5-race.xlsx",
+                mimeType: "application/vnd.google-apps.spreadsheet",
+                modifiedTime: "2026-06-11T00:00:00.000Z",
+                parents: [FOLDER],
+              }),
+              runOnboardingScan: async () => {
+                // The scan's own committed tx writes W1-scoped staging rows
+                // BEFORE the supersession lands (real-write residue, R32-1).
+                await superseder!.unsafe(
+                  `insert into public.pending_syncs
+                     (drive_file_id, staged_modified_time, parse_result, source_kind,
+                      warning_summary, wizard_session_id, triggered_review_items)
+                   values ($1, '2026-06-11T00:00:00.000Z'::timestamptz, $2::jsonb,
+                           'onboarding_scan', '', $3::uuid, '[]'::jsonb)`,
+                  [FILE, JSON.stringify({ show: { title: "F5 Retry Race" } }), W1],
+                );
+                await flipSessionTo(W2);
+                return {
+                  outcome: "completed" as const,
+                  processed: [{ driveFileId: FILE, outcome: "staged" as const }],
+                };
+              },
+            },
+          ),
+      },
+      "retry",
+    );
+    // Concrete failure mode: pre-fix this is 200 {status:"staged"} — success
+    // reported to a RETIRED wizard tab — and the W1-scoped pending_ingestions
+    // row is deleted by a stale session AFTER the supersession committed.
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull(); // delete rolled back
+
+    // R32-1 residue contract: the scan's OWN committed W1 rows are NOT rolled
+    // back by the route-tx abort — they are accepted, session-scoped (inert to
+    // live sync by the wizard_session_id IS NULL filter shape) residue.
+    // The F4-reap-sweeps-this-residue half is DEFERRED TO F5b (Task 5.4),
+    // which imports reapStaleOnboardingSessions after Phase 4 lands.
+    const residue = (await sql!.unsafe(
+      `select wizard_session_id from public.pending_syncs
+        where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+      [FILE, W1],
+    )) as unknown as Array<{ wizard_session_id: string }>;
+    expect(residue).toHaveLength(1); // documented residue — committed and visible
+
+    // Retry-alert copy parity (plan R17-1): the persisted alert row carries
+    // attempted_action "retry" — the only durable signal for the race must
+    // not describe a defer/ignore click.
+    const alerts = (await sql!.unsafe(
+      `select context from public.admin_alerts
+        where code = 'WIZARD_SESSION_SUPERSEDED_RACE' and context->>'drive_file_id' = $1
+          and context->>'attempted_action' = 'retry'`,
+      [FILE],
+    )) as unknown as Array<{ context: Record<string, unknown> }>;
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.context).toMatchObject({
+      attempted_action: "retry",
+      superseded_session_id: W1,
+      drive_file_id: FILE,
+    });
+  },
+);
+
 test.skipIf(!dbUp)(
   "half (i): a supersession visible BEFORE any mutating statement → typed 409, nothing commits (route-level)",
   async () => {

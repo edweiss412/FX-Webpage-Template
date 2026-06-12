@@ -7,7 +7,10 @@ import {
   type RetrySingleFileResult,
 } from "@/lib/sync/retrySingleFile";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
-import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
+import {
+  readCurrentWizardSessionIdBestEffort,
+  WizardSessionSupersededRollbackError,
+} from "@/lib/sync/wizardSessionRollback";
 import {
   upsertAdminAlert as defaultUpsertAdminAlert,
   type UpsertAdminAlertInput,
@@ -92,30 +95,6 @@ async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
   return await requireAdminIdentity();
 }
 
-// F5 Task 5.3: best-effort read of the CURRENT wizard session for the alert
-// payload. Runs AFTER the protected transaction aborted, on its own short
-// connection; any failure yields null (the alert is best-effort context).
-async function defaultReadCurrentWizardSessionId(): Promise<string | null> {
-  try {
-    const sql = postgres(databaseUrl(), {
-      max: 1,
-      idle_timeout: 1,
-      connect_timeout: 3,
-      prepare: false,
-    });
-    try {
-      const rows = (await sql.unsafe(
-        `select pending_wizard_session_id from public.app_settings where id = 'default' limit 1`,
-        [],
-      )) as Array<{ pending_wizard_session_id: string | null }>;
-      return rows[0]?.pending_wizard_session_id ?? null;
-    } finally {
-      await sql.end({ timeout: 5 });
-    }
-  } catch {
-    return null;
-  }
-}
 
 function depsWithDefaults(deps: WizardPendingIngestionRouteDeps) {
   return {
@@ -189,6 +168,10 @@ function isCurrentWizardRow(
   );
 }
 
+// F5 Task 5.5 S1 (report-only): this helper returns errorResponse from inside
+// the tx callback — safe to return (commits an EMPTY tx) ONLY because no
+// mutation precedes it; mutating-statement misses must throw
+// WizardSessionSupersededRollbackError instead (the R9-1 abort mechanism).
 async function requireCurrentWizardRow(
   tx: WizardPendingIngestionRouteTx,
   id: string,
@@ -334,6 +317,11 @@ async function handleAction(
         return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
       }
       if (action === "retry") {
+        // F5 Task 5.5 S5: retrySingleFile_unlocked THROWS
+        // WizardSessionSupersededRollbackError on a statement-time delete
+        // miss — the catch below maps it to the typed 409 + race alert.
+        // The returned wizard_superseded outcome here is the PRE-mutation
+        // refusal (empty-tx commit, the S1/S2-benign shape).
         const result = await deps.retrySingleFileUnlocked(
           tx,
           current.row.drive_file_id,
@@ -406,7 +394,7 @@ async function handleAction(
             attempted_action: error.context.attemptedAction,
             superseded_session_id: error.context.supersededSessionId,
             current_session_id: await (
-              routeDeps.readCurrentWizardSessionId ?? defaultReadCurrentWizardSessionId
+              routeDeps.readCurrentWizardSessionId ?? readCurrentWizardSessionIdBestEffort
             )(),
             pending_ingestion_id: error.context.pendingIngestionId ?? null,
             drive_file_id: error.context.driveFileId,
