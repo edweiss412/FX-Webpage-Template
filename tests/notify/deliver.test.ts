@@ -373,9 +373,13 @@ describe("deliverDigest", () => {
         "digest-msg-1",
       ]),
     );
-    expect(String(state.sentRows[0]?.values.find((value) => String(value).includes("source_totals")))).toContain(
-      '"date_et":"2026-06-02"',
+    // The context param is the RAW object — postgres.js serializes ::jsonb
+    // params itself; a pre-stringified value double-encodes (2026-06-11 audit).
+    const contextParam = state.sentRows[0]?.values.find(
+      (value): value is Record<string, unknown> =>
+        typeof value === "object" && value !== null && "source_totals" in value,
     );
+    expect(contextParam).toMatchObject({ date_et: "2026-06-02" });
   });
 
   test("reissues changed-payload idempotency conflicts with a distinct key and records sent after a 200", async () => {
