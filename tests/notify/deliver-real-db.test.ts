@@ -166,7 +166,7 @@ describe("deliverRealtimeCandidates real DB context jsonb shape", () => {
               kind: "infra_error" as const,
               message: "provider down",
             })),
-            upsertAdminAlert: vi.fn(async () => undefined),
+            upsertAdminAlert: vi.fn(async () => null),
           },
         );
         expect(failedResult).toEqual({ kind: "ok", sent: 0, failed: 1, skipped: 0, retryLater: 0 });
