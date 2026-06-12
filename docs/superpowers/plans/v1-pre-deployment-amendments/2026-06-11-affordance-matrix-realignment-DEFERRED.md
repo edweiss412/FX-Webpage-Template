@@ -15,7 +15,9 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 - **Fix path:** EITHER (a) reword the two component strings to describe the shipped archive-recovery path (what Doug can actually do today), with a B2-spec line-edit amendment ratified in the same commit; OR (b) ship the unpublish-token delivery surface, making the existing promise true (at which point the forbidden-prose registry entry also relaxes).
 - **Re-open trigger:** M13 launch checklist (user-visible overpromise should not ship to the v1 operator) OR the next milestone that touches the B2 auto-publish/staged-review surface, whichever comes first.
 
-### M12.12-DEF-2: unlocked `crew_members.update` in `tests/e2e/helpers/rightNow.ts`
+### M12.12-DEF-2: unlocked `crew_members.update` in `tests/e2e/helpers/rightNow.ts` — ✅ RESOLVED 2026-06-11 (this PR)
+
+- **Resolution:** `setDateRestriction` now shells out to psql and performs the `date_restriction` UPDATE inside one transaction holding `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` for the seeded show — the `seedWalkerFixtures.ts` locked-fixture pattern. The `EXEMPT_HELPERS` entry and its stale-exemption accommodation were removed, so the walker-routes structural pin (`tests/help/walker-routes.test.ts`) now passes with zero exemptions.
 
 - **Severity:** LOW (test-only, local stack)
 - **File:line:** `tests/e2e/helpers/rightNow.ts:111-114` (`setDateRestriction` calls `admin.from("crew_members").update({ date_restriction: restriction })` directly)

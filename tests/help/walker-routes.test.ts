@@ -58,12 +58,12 @@ describe("walker is read-only on locked tables (structural pin)", () => {
     /from\(\s*"(shows|crew_members|pending_syncs|pending_ingestions)"\s*\)/;
   const MUTATION_RE = /\.(insert|update|delete)\(/;
 
-  // Pre-existing, non-walker helper exemptions. rightNow.ts is the
-  // right-now-transitions fixture layer (mobile-safari project); its
-  // crew_members date_restriction toggle predates the walker and is not in
-  // the walker's import graph. The stale-exemption assertion below forces
-  // this set to shrink if the helper is ever cleaned up.
-  const EXEMPT_HELPERS = new Set(["rightNow.ts"]);
+  // Helper exemptions — EMPTY since M12.12-DEF-2 relocated rightNow.ts's
+  // crew_members date_restriction toggle into a locked psql transaction
+  // (per-show advisory lock, seedWalkerFixtures.ts pattern). Any future
+  // entry must be a real, justified locked-table mutation; the stale-
+  // exemption assertion below forces the set to shrink when cleaned up.
+  const EXEMPT_HELPERS = new Set<string>([]);
 
   const helpersDir = join(process.cwd(), "tests/e2e/helpers");
   const files: Array<{ name: string; path: string }> = [
