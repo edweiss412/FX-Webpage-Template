@@ -65,26 +65,26 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
   {
     id: "copy-each-crew-members-link",
     pattern: /copy each crew member['']s link/i,
-    rationale:
-      "Paraphrase variant of copy-each-persons-link. Same shipped-state reasoning.",
+    rationale: "Paraphrase variant of copy-each-persons-link. Same shipped-state reasoning.",
   },
   {
     id: "dashboard-row-action",
     pattern: /(?:via|from|using|through)\s+the\s+dashboard['']?s?\s+row\s+actions?/i,
     rationale:
-      "R14 finding 2 (per-show-panel.mdx:19). ActiveShowsPanel rows are link + dates + crew count + last-sync status, no in-row actions. Help must point Doug to Drive directly or to the per-show panel — never to a phantom dashboard row action.",
+      "R14 finding 2 (per-show-panel.mdx:19). Dashboard show rows (live ShowsTable, components/admin/ShowsTable.tsx — previously the deleted ActiveShowsPanel) are link + dates + crew count + last-sync status, no in-row actions. Help must point Doug to Drive directly or to the per-show panel — never to a phantom dashboard row action.",
   },
   {
     id: "active-shows-row-actions-column",
-    pattern: /\b(?:Active\s+shows[^.]{0,120}\bActions\b|\bActions\b\s+column\b)[^.]{0,120}\b(?:Open|Preview as|Re-sync|Archive)\b/i,
+    pattern:
+      /\b(?:Active\s+shows[^.]{0,120}\bActions\b|\bActions\b\s+column\b)[^.]{0,120}\b(?:Open|Preview as|Re-sync|Archive)\b/i,
     rationale:
-      "R13 finding 2 (dashboard.mdx). ActiveShowsPanel does not render an Actions column. Pattern requires the column/Active-shows context so legitimate prose mentioning admin write actions (like FINALIZE_OWNED_SHOW.helpfulContext) does not false-positive.",
+      "R13 finding 2 (dashboard.mdx). The dashboard shows table (live ShowsTable — previously the deleted ActiveShowsPanel) does not render an Actions column. Pattern requires the column/Active-shows context so legitimate prose mentioning admin write actions (like FINALIZE_OWNED_SHOW.helpfulContext) does not false-positive.",
   },
   {
     id: "yellow-warnings-badge",
     pattern: /\bYellow\s+warnings?\s+badge\b/i,
     rationale:
-      "R13 finding 2 (dashboard.mdx). ActiveShowsPanel.statusGlyph emits only ✓, ⚠ Review staged changes, ✗ Needs attention, Publishing…, or · — there is no separate warnings-count badge in the row.",
+      "R13 finding 2 (dashboard.mdx). The live sync column maps last_sync_status through syncStatusBucket (lib/admin/syncStatus.ts) to one dot+label pill per row — there is no separate warnings-count badge in the row. (Same was true of the deleted ActiveShowsPanel's statusGlyph set.)",
   },
   {
     id: "preview-links-list",
@@ -94,9 +94,10 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
   },
   {
     id: "24-hour-undo-email",
-    pattern: /(?:24[- ]hour|24h)[^.]{0,80}(?:undo|unpublish)/i,
+    pattern:
+      /(?:24[- ]hour|24h)[^.]{0,80}(?:undo|unpublish)|(?:undo|unpublish)[^.]{0,80}(?:24[- ]hour|24h|24\s+hours)/i,
     rationale:
-      "R15 finding 1 (catalog SHOW_FIRST_PUBLISHED + getting-started/dashboard/review-queues/tour). Auto-publish emits an admin_alert with severity=info that AlertBanner filters out, and no email-send infrastructure ships in v1. The unpublish endpoint + token exist server-side but Doug has no in-app delivery surface for the link. Until the safety-net surface ships, help must not promise the email/undo.",
+      "R15 finding 1 (catalog SHOW_FIRST_PUBLISHED + getting-started/dashboard/review-queues/tour). Auto-publish emits an admin_alert with severity=info that AlertBanner filters out, and no email-send infrastructure ships in v1. The unpublish endpoint + token exist server-side but Doug has no in-app delivery surface for the link. Until the safety-net surface ships, help must not promise the email/undo. Pattern catches both orders ('24-hour … undo' and 'undo … within 24 hours') — the reversed phrasing evaded the original regex (M12.12 cluster-1 finding 1).",
   },
   {
     id: "confirmation-email",

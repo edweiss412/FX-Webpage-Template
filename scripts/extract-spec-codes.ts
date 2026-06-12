@@ -63,15 +63,14 @@ const M115_RETIRED_CATALOG_CODES = new Set([
   "LINK_SESSION_KEY_ROTATED",
   "LINK_VERSION_MISMATCH",
 ]);
+// Post-parse wording overrides for codes whose live (M11.5 crew-auth-pivot)
+// copy diverges from the frozen §12.4 prose. An entry belongs here ONLY while
+// the canonical spec text is stale; once §12.4 states the shipped wording, the
+// entry must be removed so the spec prose is the single source of truth.
+// SHOW_FIRST_PUBLISHED was removed at M12.12 close-out after its §12.4 row +
+// helpfulContext appendix entry were updated to the shipped archive-recovery
+// wording (the override had been masking the stale unpublish-link prose).
 const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {
-  SHOW_FIRST_PUBLISHED: {
-    dougFacing:
-      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](share-token-url) within 24h.",
-    crewFacing: null,
-    followUp: null,
-    helpfulContext:
-      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and stop the share-token URL from resolving.",
-  },
   SHOW_UNPUBLISHED: {
     dougFacing:
       "_<sheet-name>_ has been unpublished. Its share-token URL no longer works. Drag the sheet back into your watched folder when you're ready to publish again.",
@@ -174,9 +173,7 @@ function codeFromCell(raw: string): string | null {
 function retiredCodeFromCell(raw: string): { key: string; variant: string | null } | null {
   const cleaned = cleanCodeCell(raw);
   if (!cleaned) return null;
-  const match = cleaned.match(
-    /^([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*)(?:\s+\(([^)]+)\))?$/,
-  );
+  const match = cleaned.match(/^([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*)(?:\s+\(([^)]+)\))?$/);
   if (!match?.[1]) return null;
   return {
     key: match[1],
@@ -204,11 +201,7 @@ function findCatalogSection(markdown: string): string {
 function parseYamlString(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed
-      .slice(1, -1)
-      .replace(/\\"/g, '"')
-      .replace(/\\n/g, "\n")
-      .replace(/\\\\/g, "\\");
+    return trimmed.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
   }
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
     return trimmed.slice(1, -1).replace(/''/g, "'");
@@ -419,7 +412,8 @@ function stableObjectLiteral(value: unknown, indent = 0): string {
   return [
     "{",
     ...entries.map(
-      ([key, entry]) => `${childPad}${JSON.stringify(key)}: ${stableObjectLiteral(entry, indent + 2)},`,
+      ([key, entry]) =>
+        `${childPad}${JSON.stringify(key)}: ${stableObjectLiteral(entry, indent + 2)},`,
     ),
     `${pad}}`,
   ].join("\n");

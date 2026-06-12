@@ -155,7 +155,7 @@ export async function PerShowAlertSection({
         </h2>
         <HelpTooltip
           label="Help: Alerts for this show"
-          testId="per-show-alert-help"
+          testId="help-affordance--per-show-alerts--tooltip"
         >
           <p>
             Alerts collect anything we noticed about this show that you
@@ -164,6 +164,14 @@ export async function PerShowAlertSection({
             for a plain-language explanation. Mark resolved once you have
             looked into it; the alert will return if the underlying
             problem reappears.
+          </p>
+          <p className="mt-2">
+            <a
+              href="/help/admin/parse-warnings"
+              className="font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+            >
+              Learn more →
+            </a>
           </p>
         </HelpTooltip>
       </div>

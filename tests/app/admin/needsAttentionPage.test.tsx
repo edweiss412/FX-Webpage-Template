@@ -7,7 +7,7 @@
 // `supabase` client (pins the no-injected-client rule, spec §4.3).
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { PAGE_RENDER_CAP, type NeedsAttention } from "@/lib/admin/needsAttention";
 import type { LoadNeedsAttentionResult } from "@/lib/admin/loadNeedsAttention";
 
@@ -135,6 +135,19 @@ describe("/admin/needs-attention page (spec §4.3)", () => {
     expect(container.querySelector("div#alerts")).not.toBeNull();
     // And the inbox is NOT rendered in the degraded state.
     expect(screen.queryByTestId("needs-attention-inbox")).toBeNull();
+  });
+
+  // M12.12 matrix row 3 — failure mode caught: a header redesign drops the
+  // HoverHelp from titleAppendSlot → the matrix root testid vanishes (the
+  // M12.x drift class, caught at unit speed).
+  it("page header help carries matrix root testid + first-seen link", async () => {
+    await renderPage();
+
+    const root = screen.getByTestId("help-affordance--needs-attention-page--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/review-queues#first-seen",
+    );
   });
 
   it("calls loadNeedsAttention with { cap: PAGE_RENDER_CAP } and WITHOUT an own `supabase` property", async () => {

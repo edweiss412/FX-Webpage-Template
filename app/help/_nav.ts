@@ -26,6 +26,7 @@ export const NAV: ReadonlyArray<NavEntry> = [
   { slug: "/help/admin/preview-as-crew", title: "Preview as crew", group: "admin-surface" },
   { slug: "/help/admin/sharing-links", title: "Sharing crew links", group: "admin-surface" },
   { slug: "/help/admin/onboarding-wizard", title: "Onboarding wizard", group: "admin-surface" },
+  { slug: "/help/admin/settings", title: "Settings", group: "admin-surface" },
 
   // Reference
   { slug: "/help/tour", title: "Tour", group: "reference" },

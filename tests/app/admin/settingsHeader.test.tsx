@@ -7,7 +7,7 @@
 // left-aligned) as of M12.4 item S4 (the old max-w-[740px] cap was removed).
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 const calls = vi.hoisted(() => ({ requireAdminIdentity: 0, requireAdmin: 0 }));
 
@@ -114,6 +114,18 @@ describe("Settings header (Task 4.2)", () => {
     expect(screen.getByTestId("admin-settings-drive-connection-section")).toBeInTheDocument();
     expect(screen.getByTestId("drive-connection-rerun-setup-button")).toBeInTheDocument();
     expect(screen.getByTestId("admin-active-list")).toBeInTheDocument();
+  });
+
+  // M12.12 matrix row 14 — failure mode caught: a settings redesign drops the
+  // Preferences header HoverHelp (or its learnMore deep link) → the matrix
+  // root testid or the hidden help-link href vanishes; pinned at unit speed.
+  it("Preferences header help carries matrix root testid + settings#preferences link (row 14)", async () => {
+    await renderSettings();
+    const root = screen.getByTestId("help-affordance--settings-preferences--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/settings#preferences",
+    );
   });
 
   it("renders both notify-preference rows, bound to their own reads, above auto-publish (Task 6.3)", async () => {

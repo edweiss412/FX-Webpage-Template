@@ -167,7 +167,36 @@ export default defineConfig({
         viewport: { width: 390, height: 844 },
       },
     },
+    {
+      // M12.12 Task 11: desktop pass of the deep-link affordance walker.
+      // Same server/setup as help-docs but a 1280x800 desktop viewport (no
+      // iPhone device spread) so desktop-only matrix rows (visibleAt:
+      // "desktop", e.g. the dashboard needs-attention inbox tooltip) are
+      // actually exercised — the walker skips rows per walksAt() at runtime.
+      // ONLY the walker spec runs here: the help-auth / help-mobile specs in
+      // the shared help-docs testMatch are mobile-shaped.
+      name: "help-docs-desktop",
+      testMatch: /deep-link-walker\.spec\.ts/,
+      dependencies: ["help-docs-setup"],
+      use: {
+        baseURL: "http://localhost:3004",
+        contextOptions: {
+          reducedMotion: "reduce",
+        },
+        locale: "en-US",
+        timezoneId: "America/New_York",
+        viewport: { width: 1280, height: 800 },
+      },
+    },
   ],
+  // In CI the help-affordances walker boots ONLY the :3004 server: the five
+  // entries below share one source tree, and scripts/with-admin-dev-flag.mjs
+  // physically holds app/admin/dev aside during flag-UNSET builds — parallel
+  // cold builds race that window (real-CI round 3: the :3000 type-check died
+  // on a missing app/admin/dev/page.js mid-hold). The help-docs-setup /
+  // help-docs / help-docs-desktop projects all target :3004 exclusively
+  // (project baseURL), so HELP_DOCS_WALKER_ONLY=1 keeps CI to one build.
+  // Local runs without the flag boot everything, unchanged.
   webServer: [
     {
       // M0 baseline server — widened in M5 §B to support the auth-chain
@@ -279,13 +308,60 @@ export default defineConfig({
       env: {
         ADMIN_DEV_PANEL_ENABLED: "true",
         ENABLE_TEST_AUTH: "true",
+        // Build-time required: lib/email/hashForLog.ts throws at module
+        // evaluation unless HASH_FOR_LOG_PEPPER is >= 32 chars (R41
+        // admin_alerts PII-hash contract). `next build` collects page data
+        // for /api/auth/picker-bootstrap, which imports hashForLog, so the
+        // build fails without it. CI checkouts have no .env.local, so the
+        // deterministic fallbacks below must mirror
+        // playwright.screenshots.config.ts's 3004 webServer env (the
+        // M12.12 help-affordances workflow boots THIS entry on a bare
+        // runner; first real-CI run failed exactly here).
+        // OnboardingWizard renders its steps only when this parses with a
+        // client_email (OnboardingWizard.tsx:48-59, gate at :335) — without
+        // it the wizard rows' testids never mount (real-CI round 4: all
+        // three wizard rows failed on a bare runner; .env.local supplies
+        // the real value locally). Only client_email is read on the render
+        // path; the walker never triggers Drive API calls.
+        GOOGLE_SERVICE_ACCOUNT_JSON:
+          process.env.GOOGLE_SERVICE_ACCOUNT_JSON ??
+          '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}',
+        HASH_FOR_LOG_PEPPER:
+          process.env.HASH_FOR_LOG_PEPPER ?? "fxav-r41-test-pepper-32-chars-min-deterministic",
+        JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min",
         NEXT_DIST_DIR: ".next-screenshots-help",
-        TEST_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        NEXT_PUBLIC_SUPABASE_URL:
+          process.env.NEXT_PUBLIC_SUPABASE_URL ??
+          process.env.SUPABASE_URL ??
+          "http://127.0.0.1:54321",
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+        NEXT_PUBLIC_SUPABASE_ANON_KEY:
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+        SUPABASE_ANON_KEY:
+          process.env.SUPABASE_ANON_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0",
+        SUPABASE_SECRET_KEY:
+          process.env.SUPABASE_SECRET_KEY ??
+          process.env.SUPABASE_SERVICE_ROLE_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+        SUPABASE_SERVICE_ROLE_KEY:
+          process.env.SUPABASE_SERVICE_ROLE_KEY ??
+          process.env.SUPABASE_SECRET_KEY ??
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
+        SUPABASE_URL: process.env.SUPABASE_URL ?? "http://127.0.0.1:54321",
+        TEST_DATABASE_URL:
+          process.env.TEST_DATABASE_URL ??
+          "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
         TEST_AUTH_SECRET: "test-secret-fixture",
       },
       url: "http://localhost:3004",
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
     },
-  ],
+  ].filter(
+    (server) => !process.env.HELP_DOCS_WALKER_ONLY || server.url === "http://localhost:3004",
+  ),
 });

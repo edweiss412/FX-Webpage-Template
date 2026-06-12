@@ -4,8 +4,8 @@
  *
  * LIVE first-seen staged review page. Renders the review surface for a
  * `pending_syncs` row that has NO matching `shows` row yet (the
- * first-seen path). Reached from the Dashboard PendingPanel's
- * "Review and apply" link.
+ * first-seen path). Reached from the Dashboard Needs-attention inbox's
+ * first-seen "Review →" link.
  *
  * Server Component:
  *   - admin-gated by app/admin/layout.tsx (we re-call requireAdmin

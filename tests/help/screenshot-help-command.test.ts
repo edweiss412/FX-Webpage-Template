@@ -11,6 +11,10 @@ const playwrightConfigPath = join(process.cwd(), "playwright.screenshots.config.
 const defaultPlaywrightConfigPath = join(process.cwd(), "playwright.config.ts");
 const captureSpecPath = join(process.cwd(), "tests/e2e/screenshots-help-capture.spec.ts");
 const workflowPath = join(process.cwd(), ".github/workflows/screenshots-drift.yml");
+// M12.12 Task 14: the guarded-migration Supabase boot moved from an inline
+// workflow block into the shared script so screenshots-drift /
+// screenshots-regen / help-affordances can never drift on the hold-aside list.
+const bootstrapScriptPath = join(process.cwd(), "scripts/ci/supabase-local-bootstrap.sh");
 const seedPath = join(process.cwd(), "supabase/seed.ts");
 
 function readIfExists(path: string): string {
@@ -64,7 +68,13 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
 
     expect(existsSync(workflowPath)).toBe(true);
     expect(workflow).toContain("supabase/setup-cli");
-    expect(workflow).toContain("supabase start");
+    // The `supabase start` boot lives in the shared bootstrap script the
+    // workflow delegates to (M12.12 Task 14 consolidation).
+    expect(workflow).toContain("bash scripts/ci/supabase-local-bootstrap.sh");
+    const bootstrapScript = readIfExists(bootstrapScriptPath);
+    expect(existsSync(bootstrapScriptPath)).toBe(true);
+    expect(bootstrapScript).toContain("supabase start");
+    expect(bootstrapScript).toContain("supabase migration up --include-all");
     expect(workflow).toContain("mcr.microsoft.com/playwright:v1.59.1-jammy");
     expect(workflow).toContain("docker run --rm --platform linux/amd64 --network host");
     expect(workflow).toContain("postgresql-client");
@@ -80,7 +90,9 @@ describe("screenshot:help capture project + drift gate (Task F.5)", () => {
 
     expect(existsSync(seedPath)).toBe(true);
     expect(seed).toMatch(/update\s+public\.app_settings[\s\S]*watched_folder_id\s*=/i);
-    expect(seed).toMatch(/update\s+public\.app_settings[\s\S]*pending_wizard_session_id\s*=\s*null/i);
+    expect(seed).toMatch(
+      /update\s+public\.app_settings[\s\S]*pending_wizard_session_id\s*=\s*null/i,
+    );
     expect(seed).toMatch(/update\s+public\.app_settings[\s\S]*pending_folder_id\s*=\s*null/i);
   });
 });

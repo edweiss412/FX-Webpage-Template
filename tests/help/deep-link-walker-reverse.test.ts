@@ -8,7 +8,7 @@ import { messageFor } from "@/lib/messages/lookup";
 const ROOT = process.cwd();
 const APP_HELP = join(ROOT, "app/help");
 const SOURCE_ROOTS = ["app", "components"].map((p) => join(ROOT, p));
-const HELP_AFFORDANCE_RE = /data-testid=["'](help-affordance--[^"']+)["']/g;
+const HELP_AFFORDANCE_RE = /(?:data-testid|rootTestId)=["'](help-affordance--[^"']+)["']/g;
 const FAMILY_TESTID_RE = /^help-affordance--error-message--[a-z0-9-]+--learn-more$/;
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -70,9 +70,7 @@ function isDocumentedEntry(entry: MessageCatalogEntry): boolean {
   );
 }
 
-const concreteRows = AFFORDANCE_MATRIX.filter((row): row is ConcreteRow =>
-  row.kind === "concrete",
-);
+const concreteRows = AFFORDANCE_MATRIX.filter((row): row is ConcreteRow => row.kind === "concrete");
 
 describe("deep-link walker reverse and target resolution (Task G.5)", () => {
   it("every help-affordance testid literal in source is represented by the matrix or template family", () => {
@@ -126,7 +124,9 @@ describe("deep-link walker reverse and target resolution (Task G.5)", () => {
         }
         const src = readFileSync(file, "utf8");
         if (!/<RefAnchor[^>]*\bid=\{entry\.code\}/.test(src)) {
-          failures.push(`${entry.code}: ${relative(ROOT, file)} does not emit dynamic code anchors`);
+          failures.push(
+            `${entry.code}: ${relative(ROOT, file)} does not emit dynamic code anchors`,
+          );
         }
         continue;
       }
@@ -137,7 +137,9 @@ describe("deep-link walker reverse and target resolution (Task G.5)", () => {
         continue;
       }
       if (fragment && !hasFragment(file, fragment)) {
-        failures.push(`${entry.code}: ${relative(ROOT, file)} missing explicit #${fragment} anchor`);
+        failures.push(
+          `${entry.code}: ${relative(ROOT, file)} missing explicit #${fragment} anchor`,
+        );
       }
     }
 

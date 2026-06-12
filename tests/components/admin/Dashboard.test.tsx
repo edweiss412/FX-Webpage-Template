@@ -67,9 +67,9 @@ afterEach(() => {
   vi.resetModules();
 });
 
-async function renderDashboard() {
+async function renderDashboard(options: { bucket?: "active" | "archived" } = {}) {
   const { Dashboard } = await import("@/components/admin/Dashboard");
-  render(await Dashboard());
+  render(await Dashboard(options));
 }
 
 describe("Dashboard composition", () => {
@@ -99,6 +99,27 @@ describe("Dashboard composition", () => {
     await renderDashboard();
     expect(screen.getByTestId("needs-attention-count-chip")).toBeInTheDocument();
     expect(screen.getByTestId("needs-attention-help-trigger")).toBeInTheDocument();
+  });
+
+  // M12.12 matrix rows 2 + 5 — failure mode caught: a redesign drops either
+  // header's HoverHelp → the matrix root testid vanishes (the M12.x drift
+  // class, caught at unit speed instead of by the help-MDX crosswalk gate).
+  it("desktop needs-attention header help carries matrix root testid + first-seen link", async () => {
+    await renderDashboard();
+    const root = screen.getByTestId("help-affordance--dashboard-needs-attention--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/review-queues#first-seen",
+    );
+  });
+
+  it("archived header help carries matrix root testid + archived link (archived bucket only)", async () => {
+    await renderDashboard({ bucket: "archived" });
+    const root = screen.getByTestId("help-affordance--dashboard-archived-shows--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/dashboard#archived",
+    );
   });
 
   it("summary card renders loader-derived stream totals, not the rendered subset (R6-F1)", async () => {

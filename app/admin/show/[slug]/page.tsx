@@ -21,11 +21,12 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
-import { formatRelative, formatDateRange } from "@/components/admin/ActiveShowsPanel";
+import { formatRelative, formatDateRange } from "@/lib/admin/showDisplay";
 import { syncStatusBucket } from "@/lib/admin/syncStatus";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
@@ -439,7 +440,22 @@ export default async function AdminShowPage({
           className="flex min-w-0 flex-col gap-3 min-[720px]:flex-1"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
+            {/* M12.12 matrix row 9 — div wrapper (not span): HoverHelp's root
+                is a div, and span>div is invalid nesting. */}
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
+              <HoverHelp
+                label="Help: Crew"
+                testId="per-show-crew-help"
+                rootTestId="help-affordance--per-show-crew--tooltip"
+                learnMore={{ href: "/help/admin/preview-as-crew" }}
+              >
+                <p>
+                  Everyone on this show&apos;s crew, one row per person. Use a row&apos;s Preview as
+                  link to see their page exactly as they do.
+                </p>
+              </HoverHelp>
+            </div>
             {hasCrewLinkUrl && crewUrl ? (
               <a
                 data-testid="admin-show-open-crew"
@@ -618,7 +634,23 @@ export default async function AdminShowPage({
         data-testid="admin-show-sync-footer"
         className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"
       >
-        <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
+        {/* M12.12 matrix row 7 — the help affordance rides the status side of
+            the justified-between footer (div wrapper, not span: HoverHelp's
+            root is a div and span>div is invalid nesting). */}
+        <div className="flex items-center gap-2">
+          <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
+          <HoverHelp
+            label="Help: Sync status"
+            testId="per-show-sync-help"
+            rootTestId="help-affordance--per-show-sync-footer--tooltip"
+            learnMore={{ href: "/help/admin/per-show-panel#sync-health" }}
+          >
+            <p>
+              How the last sync with this show&apos;s sheet went. We re-check on a schedule; Re-sync
+              forces a fresh read right now.
+            </p>
+          </HoverHelp>
+        </div>
         {/* Page-level "manage this show" actions, grouped right (M12.5 — the
             Live-case Archive control moved here from a standalone mid-page row).
             Archive shows ONLY for a Live show (published && !archived); Held

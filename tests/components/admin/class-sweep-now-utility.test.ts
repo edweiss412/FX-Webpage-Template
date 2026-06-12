@@ -12,8 +12,9 @@
  *
  * Sites pinned by this test:
  *   1. app/admin/_finalizeCheckpoint.ts — isCheckpointStale takes now: Date
- *   2. components/admin/ActiveShowsPanel.tsx — formatRelative takes now: Date
- *      AND the panel receives `now` (prop or via await nowDate() locally)
+ *   2. lib/admin/showDisplay.ts — formatRelative takes now: Date (relocated
+ *      from the deleted ActiveShowsPanel, M12.12 Task 10) AND the live
+ *      consumers (ShowsTable, NeedsAttentionInbox) receive `now` as a prop
  *   3. components/admin/AlertBanner.tsx — imports nowDate, calls await nowDate()
  *      and passes that into raisedAtSuffix(...) (no more `new Date()` arg)
  *   4. components/admin/PerShowAlertSection.tsx — formatRelative takes
@@ -72,8 +73,8 @@ describe("M11 C.2 extension — render-side time migration class-sweep (AC-11.38
     });
   });
 
-  describe("components/admin/ActiveShowsPanel.tsx", () => {
-    const src = read("components/admin/ActiveShowsPanel.tsx");
+  describe("lib/admin/showDisplay.ts (relocated from ActiveShowsPanel — M12.12 Task 10)", () => {
+    const src = read("lib/admin/showDisplay.ts");
 
     it("formatRelative takes a `now: Date` parameter", () => {
       expect(src).toMatch(
@@ -93,14 +94,18 @@ describe("M11 C.2 extension — render-side time migration class-sweep (AC-11.38
       expect(body).toMatch(/\bnow\.getTime\s*\(\s*\)/);
     });
 
-    it("ActiveShowsPanel receives `now` (prop or via await nowDate() internally)", () => {
-      const acceptsNowProp =
-        /ActiveShowsPanelProps\s*=\s*\{[\s\S]*?\bnow\s*:\s*Date\b/.test(src) ||
-        /\bnow\s*:\s*Date\b[\s\S]*?ActiveShowsPanelProps/.test(src);
-      const importsNowDate =
-        /from\s+["']@\/lib\/time\/now["']/.test(src) &&
-        /\bnowDate\b/.test(src);
-      expect(acceptsNowProp || importsNowDate).toBe(true);
+    it("ShowsTable (live formatRelative consumer) receives `now: Date` as a prop", () => {
+      const tableSrc = read("components/admin/ShowsTable.tsx");
+      expect(tableSrc).toMatch(
+        /ShowsTableProps\s*=\s*\{[\s\S]*?\bnow\s*:\s*Date\b/,
+      );
+    });
+
+    it("NeedsAttentionInbox (live formatRelative consumer) receives `now: Date` as a prop", () => {
+      const inboxSrc = read("components/admin/NeedsAttentionInbox.tsx");
+      expect(inboxSrc).toMatch(
+        /NeedsAttentionInboxProps\s*=\s*\{[\s\S]*?\bnow\s*:\s*Date\b/,
+      );
     });
   });
 

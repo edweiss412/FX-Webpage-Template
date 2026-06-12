@@ -85,7 +85,12 @@ export function AdministratorsSection({
       >
         Administrators ({active.length})
       </h2>
-      <HoverHelp label="Help: Administrators" testId="admins-help">
+      <HoverHelp
+        label="Help: Administrators"
+        testId="admins-help"
+        rootTestId="help-affordance--settings-administrators--tooltip"
+        learnMore={{ href: "/help/admin/settings#administrators" }}
+      >
         <p>
           People who can sign in and manage shows here. Add or revoke access. You
           can&rsquo;t revoke your own.
