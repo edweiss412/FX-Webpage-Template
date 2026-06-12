@@ -79,6 +79,15 @@ const routeMock = vi.hoisted(() => ({
   omit206ContentRange: false as boolean,
   use206StarTotal: false as boolean,
   use206MalformedTotal: false as boolean,
+  // When true, the 206 media response omits the `content-length` header
+  // so the route must derive the slice length from the verified
+  // Content-Range (adversarial R3 — agenda-route parity).
+  omit206ContentLength: false as boolean,
+  // Adversarial R3: when true, the 206 media response reports the FULL
+  // FILE size (the Content-Range total) as Content-Length instead of the
+  // slice length (10 for bytes 0-9). The route must fail closed on the
+  // inconsistent pair, never forward it.
+  use206FullFileContentLength: false as boolean,
 }));
 
 function md5(bytes: Uint8Array): string {
@@ -201,9 +210,16 @@ vi.mock("@/lib/drive/client", () => ({
             routeMock.reel206TotalOverride !== null
               ? routeMock.reel206TotalOverride
               : (routeMock.revisionBytes?.byteLength ?? 0);
-          const headers: Record<string, string> = {
-            "content-length": String(routeMock.revisionBytes?.byteLength ?? 0),
-          };
+          const headers: Record<string, string> = {};
+          if (!routeMock.omit206ContentLength) {
+            // The synthetic Content-Range is always `bytes 0-9/...` — a
+            // 10-byte slice. A consistent upstream reports the SLICE
+            // length on a 206; use206FullFileContentLength reproduces the
+            // inconsistent full-file pair (adversarial R3).
+            headers["content-length"] = routeMock.use206FullFileContentLength
+              ? String(total)
+              : "10";
+          }
           if (!routeMock.omit206ContentRange) {
             if (routeMock.use206StarTotal) {
               headers["content-range"] = `bytes 0-9/*`;
@@ -276,6 +292,8 @@ beforeEach(() => {
   routeMock.omit206ContentRange = false;
   routeMock.use206StarTotal = false;
   routeMock.use206MalformedTotal = false;
+  routeMock.omit206ContentLength = false;
+  routeMock.use206FullFileContentLength = false;
 });
 
 async function headReel(init?: { headers?: Record<string, string> }): Promise<Response> {
@@ -446,10 +464,29 @@ describe("/api/asset/reel/[show]", () => {
     // a Headers instance read null, so the R22/R23 fail-closed total-size
     // guard 410'd every valid Range slice. The mock above now returns
     // `new Headers(...)`; this test pins the end-to-end contract.
+    // Content-Length is the SLICE length (10 for bytes 0-9), never the
+    // full file size (adversarial R3).
     const res = await getReel({ headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(206);
     expect(res.headers.get("content-range")).toMatch(/^bytes 0-9\/\d+$/);
-    expect(res.headers.get("content-length")).not.toBeNull();
+    expect(res.headers.get("content-length")).toBe("10");
+  });
+
+  test("adversarial R3: 206 whose upstream Content-Length disagrees with the Content-Range slice → fail-closed 410", async () => {
+    // Upstream says `Content-Range: bytes 0-9/22` (a 10-byte slice) but
+    // `Content-Length: 22` (the full file). Forwarding the pair verbatim
+    // hands the video client an impossible contract. Fail closed.
+    routeMock.reel206TotalOverride = 22; // under cap → bytes 0-9/22
+    routeMock.use206FullFileContentLength = true; // Content-Length: 22
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("adversarial R3: 206 without upstream Content-Length derives the slice length from the verified Content-Range", async () => {
+    routeMock.omit206ContentLength = true;
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-length")).toBe("10");
   });
 
   test("Codex R19 P1: Drive metadata 404 → 410 (drift contract — not REEL_ASSET_LOOKUP_FAILED 500)", async () => {

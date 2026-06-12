@@ -518,10 +518,24 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       // omit Content-Range entirely on 206. Fail-closed unless we can
       // affirmatively prove total <= cap; destroy upstream stream so the
       // Drive socket is released.
+      let verified206SliceLen: number | null = null;
       if (driveStatus === 206) {
-        const totalMatch = contentRange?.match(/^bytes \d+-\d+\/(\d+)$/);
-        const total = totalMatch ? Number(totalMatch[1]) : NaN;
-        if (!Number.isFinite(total) || total > MAX_REEL_FALLBACK_BYTES) {
+        const rangeMatch = contentRange?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+        const total = rangeMatch ? Number(rangeMatch[3]) : NaN;
+        // Adversarial R3 (gaxios-headers follow-up): the verified
+        // Content-Range is authoritative for THIS response's byte count —
+        // sliceLen = e-s+1. An upstream Content-Length that disagrees
+        // (e.g. full-file total alongside `bytes 0-9/22`) would forward
+        // an inconsistent pair to the video client. Fail closed on
+        // mismatch (or a degenerate slice); derive from Content-Range
+        // when Content-Length is absent.
+        const sliceLen = rangeMatch ? Number(rangeMatch[2]) - Number(rangeMatch[1]) + 1 : NaN;
+        if (
+          !Number.isFinite(total) ||
+          total > MAX_REEL_FALLBACK_BYTES ||
+          !(sliceLen >= 1) ||
+          (!!contentLength && Number(contentLength) !== sliceLen)
+        ) {
           const data = revRes.data;
           if (data instanceof Readable) {
             data.destroy();
@@ -530,6 +544,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           }
           return gone();
         }
+        verified206SliceLen = sliceLen;
       }
       // Wrap in a bounded pass-through so even if Drive reports `size`
       // wrong (or omits it for an unusual content type), the worker
@@ -553,7 +568,14 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         Vary: "Range",
       };
       if (contentRange) responseHeaders["Content-Range"] = contentRange;
-      if (contentLength) responseHeaders["Content-Length"] = contentLength;
+      // On 206 the slice length derived from the verified Content-Range
+      // is authoritative (adversarial R3); on 200 forward upstream
+      // Content-Length verbatim as before.
+      if (verified206SliceLen !== null) {
+        responseHeaders["Content-Length"] = String(verified206SliceLen);
+      } else if (contentLength) {
+        responseHeaders["Content-Length"] = contentLength;
+      }
       return new Response(stream, { status: driveStatus, headers: responseHeaders });
     } catch (revisionsError) {
       // Codex R18 P1: Drive 416 means the requested Range is

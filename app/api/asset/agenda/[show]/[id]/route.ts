@@ -503,9 +503,23 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       // Fail-closed unless we can affirmatively prove total <= cap;
       // destroy the upstream Node stream to release the socket.
       if (driveStatus === 206) {
-        const totalMatch = contentRange?.match(/^bytes \d+-\d+\/(\d+)$/);
-        const total = totalMatch ? Number(totalMatch[1]) : NaN;
-        if (!Number.isFinite(total) || total > MAX_AGENDA_BYTES) {
+        const rangeMatch = contentRange?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+        const total = rangeMatch ? Number(rangeMatch[3]) : NaN;
+        // Adversarial R3 (gaxios-headers follow-up): the verified
+        // Content-Range is authoritative for THIS response's byte count —
+        // sliceLen = e-s+1. An upstream Content-Length that disagrees
+        // (e.g. full-file `22` alongside `bytes 0-9/22`) would forward an
+        // inconsistent pair; per Codex R20 P1 that tells PDF.js a 10-byte
+        // slice is the entire file — it stalls or corrupts the
+        // incremental load. Fail closed on mismatch (or a degenerate
+        // slice); derive from Content-Range when Content-Length is absent.
+        const sliceLen = rangeMatch ? Number(rangeMatch[2]) - Number(rangeMatch[1]) + 1 : NaN;
+        if (
+          !Number.isFinite(total) ||
+          total > MAX_AGENDA_BYTES ||
+          !(sliceLen >= 1) ||
+          (!!driveContentLength && Number(driveContentLength) !== sliceLen)
+        ) {
           const data = bytesResult.data;
           if (data instanceof Readable) {
             data.destroy();
@@ -514,27 +528,20 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           }
           return gone();
         }
-      }
-      if (contentRange) headers["Content-Range"] = contentRange;
-      // Codex R20 P1: Content-Length must reflect THIS response's byte
-      // count, not the full file size. Reporting the full size on a
-      // 206 partial tells PDF.js a 10-byte slice is the entire file —
-      // it stalls or corrupts the incremental load.
-      if (driveContentLength) {
-        headers["Content-Length"] = driveContentLength;
-      } else if (driveStatus === 206 && contentRange) {
-        // Derive slice length from `Content-Range: bytes <s>-<e>/<total>`
-        // when upstream omitted Content-Length.
-        const match = contentRange.match(/^bytes (\d+)-(\d+)\//);
-        if (match) {
-          const sliceLen = Number(match[2]) - Number(match[1]) + 1;
-          if (Number.isFinite(sliceLen) && sliceLen >= 0) {
-            headers["Content-Length"] = String(sliceLen);
-          }
+        // rangeMatch is non-null here (the guard above failed closed on
+        // any unparseable Content-Range), so contentRange is a string.
+        headers["Content-Range"] = contentRange as string;
+        // Codex R20 P1: Content-Length must reflect THIS response's byte
+        // count, not the full file size.
+        headers["Content-Length"] = String(sliceLen);
+      } else {
+        if (contentRange) headers["Content-Range"] = contentRange;
+        if (driveContentLength) {
+          headers["Content-Length"] = driveContentLength;
+        } else if (driveStatus === 200 && Number.isFinite(reportedSize)) {
+          // Only use metadata size on a FULL 200 response. Never on 206.
+          headers["Content-Length"] = String(reportedSize);
         }
-      } else if (driveStatus === 200 && Number.isFinite(reportedSize)) {
-        // Only use metadata size on a FULL 200 response. Never on 206.
-        headers["Content-Length"] = String(reportedSize);
       }
       return new Response(stream, { status: driveStatus, headers });
     } catch (err) {
