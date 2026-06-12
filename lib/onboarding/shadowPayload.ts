@@ -93,6 +93,31 @@ function isReviewerChoice(value: unknown): value is ReviewerChoice {
   return true;
 }
 
+
+// WM-R5: per-invariant structural validation for review-item elements at this gate
+// boundary. Guarantees: string `id` + string `invariant` on every element, plus the
+// per-invariant string fields the apply core dereferences (deriveAuthSideEffects name
+// pushes + expectedRenameValue). Asset/unknown invariants deref nothing beyond id/invariant.
+const REVIEW_ITEM_REQUIRED_STRING_FIELDS: Record<string, readonly string[]> = {
+  "MI-11": ["crew_name"],
+  "MI-12": ["removed_name", "added_name"],
+  "MI-13": ["removed_name", "added_name"],
+  "MI-14": ["removed_name", "added_name"],
+  "MI-13-orphan-remove": ["removed_name"],
+  "MI-14-orphan-remove": ["removed_name"],
+  "MI-13-orphan-add": ["added_name"],
+  "MI-14-orphan-add": ["added_name"],
+};
+
+function isStructurallyValidReviewItem(item: unknown): boolean {
+  if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
+  const rec = item as Record<string, unknown>;
+  if (typeof rec.id !== "string" || rec.id.length === 0) return false;
+  if (typeof rec.invariant !== "string" || rec.invariant.length === 0) return false;
+  const required = REVIEW_ITEM_REQUIRED_STRING_FIELDS[rec.invariant] ?? [];
+  return required.every((field) => typeof rec[field] === "string");
+}
+
 export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloadForApply {
   // Non-null plain-object guard: jsonb permits top-level null / string / number /
   // boolean / array; none of those carries an interpretable apply payload.
@@ -139,6 +164,16 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
   }
   const parsedItems = parseTriggeredReviewItems(obj.triggered_review_items);
   if (!parsedItems.ok) {
+    return refuse("STAGED_REVIEW_ITEMS_CORRUPT");
+  }
+  // WM-R5 (same class as the WM-R4 reviewer_choices fix, item side): the shared parser
+  // bare-casts any array, so element shapes must be validated HERE before the mi11 filter's
+  // `item.invariant` deref and the core's per-invariant name derefs (deriveAuthSideEffects /
+  // expectedRenameValue). One malformed retained shadow must yield the per-row
+  // STAGED_REVIEW_ITEMS_CORRUPT refusal, never a thrown TypeError that 500s the whole batch.
+  // Unknown invariant strings with valid id/invariant are accepted: allowedActions is total
+  // (defaults to {apply}) and derefs nothing else — refusing them would break forward-compat.
+  if (!parsedItems.items.every(isStructurallyValidReviewItem)) {
     return refuse("STAGED_REVIEW_ITEMS_CORRUPT");
   }
   const mi11Items = parsedItems.items.filter(

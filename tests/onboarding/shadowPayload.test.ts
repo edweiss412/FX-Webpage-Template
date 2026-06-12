@@ -70,6 +70,36 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     expect(parsed).toEqual({ ok: false, code: "STAGED_REVIEW_ITEMS_CORRUPT" });
   });
 
+  // WM-R5: element-level validation — same class as the WM-R4 reviewer_choices fix, on
+  // the item side. A bare array cast let `[null]` reach the mi11 filter's `item.invariant`
+  // deref (and the core's deriveAuthSideEffects name derefs), turning one malformed
+  // retained shadow into a batch-blocking ONBOARDING_FINALIZE_INTERNAL_ERROR instead of
+  // the per-row STAGED_REVIEW_ITEMS_CORRUPT recovery path.
+  test.each([
+    ["null element", [null]],
+    ["scalar element", ["x"]],
+    ["empty object element", [{}]],
+    ["missing id", [{ invariant: "MI-11", crew_name: "Ada", prior_email: null, new_email: "a@b.c" }]],
+    ["non-string invariant", [{ id: "i1", invariant: 7 }]],
+    ["MI-11 missing crew_name", [{ id: "i1", invariant: "MI-11", prior_email: null, new_email: "a@b.c" }]],
+    ["MI-12 missing added_name", [{ id: "i1", invariant: "MI-12", removed_name: "Old" }]],
+    ["MI-13-orphan-remove missing removed_name", [{ id: "i1", invariant: "MI-13-orphan-remove" }]],
+    ["mixed valid + invalid", [
+      { id: "i1", invariant: "MI-11", crew_name: "Ada", prior_email: null, new_email: "a@b.c" },
+      null,
+    ]],
+  ])("malformed triggered_review_items element (%s) is REFUSED, never thrown on", (_label, items) => {
+    const parsed = parseShadowPayloadForApply(payload({ triggered_review_items: items }));
+    expect(parsed).toEqual({ ok: false, code: "STAGED_REVIEW_ITEMS_CORRUPT" });
+  });
+
+  test("unknown invariant string with string id/invariant is ACCEPTED (allowedActions is total; forward-compat)", () => {
+    const parsed = parseShadowPayloadForApply(
+      payload({ triggered_review_items: [{ id: "i9", invariant: "MI-99-future" }] }),
+    );
+    expect(parsed).toMatchObject({ ok: true });
+  });
+
   test("missing base_modified_time is REFUSED as outdated (cannot prove baseline currency)", () => {
     const { base_modified_time: _omit, ...rest } = payload();
     const parsed = parseShadowPayloadForApply(rest);
