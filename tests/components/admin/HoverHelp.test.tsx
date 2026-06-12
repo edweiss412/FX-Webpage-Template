@@ -170,6 +170,33 @@ describe("HoverHelp", () => {
     expect(described.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // M12.12 follow-up — the "→" glyph in the learnMore link is decorative;
+  // aria-label drops it from the accessible name WITHOUT splitting the
+  // visible text run (text-run splits shift text-decoration paint —
+  // byte-level screenshot drift). The name is context-specific per WCAG
+  // 2.4.4, derived from the trigger label ("Help: Active shows" → "Learn
+  // more about active shows"). Failure modes caught: arrow back in the
+  // accessible name; derivation drops the "Help: " strip or lowercasing.
+  it("learnMore accessible name is label-derived 'Learn more about …' — visible text keeps →, run unsplit", () => {
+    render(
+      <HoverHelp
+        label="Help: Active shows"
+        testId="x-help"
+        learnMore={{ href: "/help/admin/dashboard" }}
+      >
+        <p>Body copy.</p>
+      </HoverHelp>,
+    );
+    const body = screen.getByTestId("x-help-body");
+    const link = within(body).getByRole("link", {
+      name: "Learn more about active shows",
+      hidden: true,
+    });
+    expect(link).toHaveAttribute("aria-label", "Learn more about active shows");
+    expect(link.textContent).toBe("Learn more →");
+    expect(link.firstElementChild).toBeNull();
+  });
+
   // M12.12 — existing no-learnMore call sites must NOT change semantics.
   it("without learnMore, role=tooltip and describedby semantics are unchanged", () => {
     render(

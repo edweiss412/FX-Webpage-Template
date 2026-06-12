@@ -106,4 +106,21 @@ describe("AlertBanner detail-read fail-visible (Task 1.3)", () => {
     expect(el.textContent).toContain(getRequiredDougFacing("ADMIN_ALERT_COUNT_FAILED"));
     expect(el.querySelector("a[href='/admin#alerts']")).not.toBeNull();
   });
+
+  // M12.12 follow-up — the "View alerts →" arrow is decorative; aria-hiding it
+  // keeps it out of the accessible name. Failure mode caught: someone inlines
+  // the arrow back into the accessible name.
+  it("degraded-strip View-alerts arrow is aria-hidden — accessible name drops →, visible text keeps it", async () => {
+    mockState.detailReturnedError = true;
+    const { AlertBanner } = await import("@/components/admin/AlertBanner");
+    const ui = await AlertBanner();
+    const { getByRole } = render(ui);
+    const link = getByRole("link", { name: "View alerts" });
+    expect(link.getAttribute("href")).toBe("/admin#alerts");
+    expect(link).toHaveAttribute("aria-label", "View alerts");
+    // Visible text run stays UNSPLIT — splitting it shifts text-decoration
+    // paint / drops the flex inter-item space (byte-level screenshot drift).
+    expect(link.textContent).toBe("View alerts →");
+    expect(link.firstElementChild).toBeNull();
+  });
 });

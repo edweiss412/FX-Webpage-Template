@@ -450,18 +450,27 @@ export default async function AdminShowPage({
                 rootTestId="help-affordance--per-show-crew--tooltip"
                 learnMore={{ href: "/help/admin/preview-as-crew" }}
               >
+                {/* M12.12 follow-up — per-row Preview as links render only when
+                    published && !archived (the gate below), so this copy scopes
+                    the promise to the published state instead of describing a
+                    link an unpublished/archived render doesn't contain. */}
                 <p>
-                  Everyone on this show&apos;s crew, one row per person. Use a row&apos;s Preview as
-                  link to see their page exactly as they do.
+                  Everyone on this show&apos;s crew, one row per person. Once the show is published
+                  (and not archived), each row gets a Preview as link to see their page exactly as
+                  they do.
                 </p>
               </HoverHelp>
             </div>
             {hasCrewLinkUrl && crewUrl ? (
+              // aria-label drops the decorative "→" from the accessible name
+              // without splitting the text run (inline-flex drops the space
+              // between split items — byte-level screenshot drift).
               <a
                 data-testid="admin-show-open-crew"
                 href={crewUrl}
                 target="_blank"
                 rel="noreferrer"
+                aria-label="Open crew page"
                 className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
                 Open crew page →
