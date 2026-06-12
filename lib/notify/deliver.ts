@@ -185,7 +185,12 @@ async function upsertSent(
       set status = 'sent',
           provider_message_id = excluded.provider_message_id,
           error = null,
-          sent_at = excluded.sent_at
+          sent_at = excluded.sent_at,
+          -- Self-repair (Codex adversarial R1): a row written by the old
+          -- double-encoding code during the migration→deploy skew window
+          -- holds a jsonb string scalar; refresh context from the candidate
+          -- so the corruption cannot survive a later status flip.
+          context = excluded.context
     returning id
   `;
 }
@@ -217,7 +222,9 @@ async function upsertFailed(
     on conflict (kind, dedup_key, recipient) do update
       set status = 'failed',
           error = excluded.error,
-          attempt_count = public.email_deliveries.attempt_count + 1
+          attempt_count = public.email_deliveries.attempt_count + 1,
+          -- Self-repair on retry — see upsertSent's conflict branch.
+          context = excluded.context
       where public.email_deliveries.status <> 'sent'
     returning id
   `;

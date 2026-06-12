@@ -177,6 +177,69 @@ describe("deliverRealtimeCandidates real DB context jsonb shape", () => {
         `;
         expect(failedRows).toHaveLength(1);
         expect(failedRows[0]).toEqual({ typeof: "object", ctx_code: "SHEET_UNAVAILABLE" });
+
+        // Version-skew self-repair (Codex adversarial R1): a row written by the
+        // OLD double-encoding code AFTER the backfill migration ran (migration-
+        // before-deploy window) must be repaired by the new writer's conflict
+        // branch, not preserved forever. Seed the corrupted shape directly,
+        // then retry (failed branch) and send (sent branch) over the conflict.
+        await sql`delete from public.email_deliveries where recipient = ${recipient}`;
+        await sql`
+          insert into public.email_deliveries (
+            kind, channel, dedup_key, show_id, recipient, triggered_codes, context,
+            status, provider_message_id, error, attempt_count
+          )
+          values (
+            'realtime_problem', 'email', ${dedupKey}, ${showId!}::uuid, ${recipient},
+            array['SHEET_UNAVAILABLE']::text[],
+            to_jsonb('{"code":"SHEET_UNAVAILABLE"}'::text),
+            'failed', null, 'old-writer corruption', 1
+          )
+        `;
+        const retryResult = await deliverRealtimeCandidates(
+          { candidates: [candidate], recipients: [recipient], origin: "https://crew.fxav.app" },
+          {
+            sql: sql as unknown as DeliverySql,
+            sendEmail: vi.fn(async () => ({
+              ok: false as const,
+              kind: "infra_error" as const,
+              message: "provider down",
+            })),
+            upsertAdminAlert: vi.fn(async () => null),
+          },
+        );
+        expect(retryResult).toEqual({ kind: "ok", sent: 0, failed: 1, skipped: 0, retryLater: 0 });
+        const repairedOnRetry = await sql<{ typeof: string }[]>`
+          select jsonb_typeof(context) as "typeof"
+            from public.email_deliveries where recipient = ${recipient}
+        `;
+        expect(repairedOnRetry[0]).toEqual({ typeof: "object" });
+
+        // Sent branch repairs too: corrupt the row again, then deliver ok.
+        await sql`
+          update public.email_deliveries
+             set context = to_jsonb('{"code":"SHEET_UNAVAILABLE"}'::text)
+           where recipient = ${recipient}
+        `;
+        const sentOverConflict = await deliverRealtimeCandidates(
+          { candidates: [candidate], recipients: [recipient], origin: "https://crew.fxav.app" },
+          {
+            sql: sql as unknown as DeliverySql,
+            sendEmail: vi.fn(async () => ({ ok: true as const, messageId: "ctx-repair-msg" })),
+          },
+        );
+        expect(sentOverConflict).toEqual({
+          kind: "ok",
+          sent: 1,
+          failed: 0,
+          skipped: 0,
+          retryLater: 0,
+        });
+        const repairedOnSent = await sql<{ typeof: string }[]>`
+          select jsonb_typeof(context) as "typeof"
+            from public.email_deliveries where recipient = ${recipient} and status = 'sent'
+        `;
+        expect(repairedOnSent[0]).toEqual({ typeof: "object" });
       } finally {
         await sql`delete from public.email_deliveries where recipient = ${recipient}`;
         await sql`delete from public.admin_emails where email = ${recipient}`;
