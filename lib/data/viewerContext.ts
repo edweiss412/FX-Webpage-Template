@@ -86,7 +86,9 @@ export function resolveViewerContext(viewer: Viewer, data: ShowForViewer): Viewe
   const isAdmin = viewer.kind === "admin";
   const viewerCrew =
     viewer.kind === "crew" || viewer.kind === "admin_preview"
-      ? (data.crewMembers.find((c) => c.id === viewer.crewMemberId) ?? null)
+      ? // Defense-in-depth `?.`: crewMembers is typed as a required array,
+        // but a malformed projection falls back like the missing-row case.
+        (data.crewMembers?.find((c) => c.id === viewer.crewMemberId) ?? null)
       : null;
 
   const dateRestriction: DateRestriction = viewerCrew
