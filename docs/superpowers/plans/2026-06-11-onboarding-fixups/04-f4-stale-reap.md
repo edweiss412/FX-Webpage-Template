@@ -366,7 +366,9 @@ function staleSessionFixture(tx: FakeReapTx) {
     { wizard_session_id: STALE, drive_file_id: "drive-d1" },
     { wizard_session_id: null, drive_file_id: "drive-live" },
   );
-  tx.tables.shows.push({ id: "show-1", drive_file_id: "drive-m1", published: false });
+  // R68-1: a session-CREATED interim show carries the discriminator (the delete predicate requires it);
+  // NULL/mismatch variants live only in the explicit forged-provenance negative tests.
+  tx.tables.shows.push({ id: "show-1", drive_file_id: "drive-m1", published: false, wizard_created_session_id: STALE });
 }
 
 describe("reapStaleOnboardingSessions — session-scoped reap (F4)", () => {

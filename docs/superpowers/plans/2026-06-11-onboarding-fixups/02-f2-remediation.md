@@ -701,7 +701,13 @@ declare
 begin
   -- Defense-in-depth: never purge the ACTIVE session even if an id collided.
   select pending_wizard_session_id into active_sid
-    from public.app_settings where id = 'default';
+
+  -- R68-2: PRECONDITION — none of the captured 18 synthetic ids may be the ACTIVE session.
+  -- The purge would otherwise preserve the active session's rows and then RAISE on residue,
+  -- rolling back the watermark resets during the controlled validation apply.
+  if active_sid = any (synthetic_ids) then
+    raise exception 'onboarding_fixups purge: active wizard session % is in the synthetic purge list — rotate or finish it first', active_sid;
+  end if;    from public.app_settings where id = 'default';
 
   foreach sid in array synthetic_ids loop
     continue when active_sid is not null and sid = active_sid;
