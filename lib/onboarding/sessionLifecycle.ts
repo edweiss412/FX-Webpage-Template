@@ -376,16 +376,25 @@ export async function cleanupAbandonedFinalize(
     await tx.query(`delete from public.shows_pending_changes where wizard_session_id = $1::uuid`, [
       sessionId,
     ]);
+    // F4 Task 4.1 (spec §6 / R11-1): the first-seen interim-show delete is
+    // PROVENANCE-keyed (created_show_id written by F1 Phase B in the same
+    // per-row tx as the show INSERT), never the `published = false` proxy —
+    // the existing-show shadow branch creates shadows regardless of published
+    // (master spec line 2591 b), so the proxy deleted pre-existing
+    // legitimately-unpublished shows approved into a shadow. R48-2: the
+    // drive_file_id binding + R57-1 show-side wizard_created_session_id
+    // discriminator defeat forged-provenance manifest rows. `published = false`
+    // stays as a belt-and-suspenders guard (a session-created row that somehow
+    // got published must never be deleted here).
     await tx.query(
       `
-        delete from public.shows
-         where published = false
-           and drive_file_id in (
-             select drive_file_id
-               from public.onboarding_scan_manifest
-              where wizard_session_id = $1::uuid
-                and status = 'applied'
-           )
+        delete from public.shows s
+         using public.onboarding_scan_manifest m
+         where m.wizard_session_id = $1::uuid
+           and m.created_show_id = s.id
+           and m.drive_file_id = s.drive_file_id
+           and s.wizard_created_session_id = m.wizard_session_id
+           and s.published = false
       `,
       [sessionId],
     );

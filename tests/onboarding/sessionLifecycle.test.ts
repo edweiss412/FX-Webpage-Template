@@ -185,7 +185,18 @@ class FakeLifecycleTx implements OnboardingSessionTx {
       return "select-recent-finalize";
     }
     if (sql.startsWith("delete from public.shows_pending_changes")) return "delete-shadow";
-    if (sql.startsWith("delete from public.shows")) return "delete-interim-shows";
+    if (
+      sql.startsWith("delete from public.shows") &&
+      sql.includes("using public.onboarding_scan_manifest") &&
+      sql.includes("created_show_id = s.id") &&
+      sql.includes("wizard_created_session_id = m.wizard_session_id")
+    ) {
+      // F4 Task 4.1: the first-seen delete is provenance-keyed (created_show_id
+      // join + show-side discriminator), never the published=false proxy. A
+      // bare `delete from public.shows where published = false` now falls
+      // through to the classify error below.
+      return "delete-interim-shows";
+    }
     if (sql.includes("from public.onboarding_scan_manifest") && sql.includes("status = 'applied'")) {
       return "select-applied-manifest-drive-files";
     }
