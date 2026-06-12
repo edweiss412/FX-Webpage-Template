@@ -63,15 +63,14 @@ const M115_RETIRED_CATALOG_CODES = new Set([
   "LINK_SESSION_KEY_ROTATED",
   "LINK_VERSION_MISMATCH",
 ]);
+// Post-parse wording overrides for codes whose live (M11.5 crew-auth-pivot)
+// copy diverges from the frozen §12.4 prose. An entry belongs here ONLY while
+// the canonical spec text is stale; once §12.4 states the shipped wording, the
+// entry must be removed so the spec prose is the single source of truth.
+// SHOW_FIRST_PUBLISHED was removed at M12.12 close-out after its §12.4 row +
+// helpfulContext appendix entry were updated to the shipped archive-recovery
+// wording (the override had been masking the stale unpublish-link prose).
 const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {
-  SHOW_FIRST_PUBLISHED: {
-    dougFacing:
-      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Archive the show from its page — its crew link switches off until you unarchive and republish.",
-    crewFacing: null,
-    followUp: null,
-    helpfulContext:
-      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, archive the show from its per-show page — that stops the share-token URL from resolving until you unarchive and republish.",
-  },
   SHOW_UNPUBLISHED: {
     dougFacing:
       "_<sheet-name>_ has been unpublished. Its share-token URL no longer works. Drag the sheet back into your watched folder when you're ready to publish again.",
