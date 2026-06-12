@@ -1,0 +1,61 @@
+name: Help affordances (deep-link walker)
+on:
+  pull_request:
+    paths:
+      - "components/admin/**"
+      - "app/admin/**"
+      - "app/help/**"
+      - "lib/messages/**"
+      - "lib/admin/**"
+      - "tests/e2e/**"
+      - "playwright.config.ts"
+      - "scripts/ci/**"
+      - "supabase/migrations/**"
+      - "supabase/seed.ts"
+      - "supabase/seedWalkerFixtures.ts"
+      - ".github/workflows/help-affordances.yml"
+  workflow_dispatch:
+
+jobs:
+  deep-link-walker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Install psql (db:seed shells out via execFileSync("psql", ...))
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Boot local Supabase (guarded migrations)
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      # webkit as well as chromium: the help-docs project spreads
+      # devices["iPhone 14"], whose defaultBrowserType is webkit; the
+      # help-docs-setup / help-docs-desktop projects run chromium.
+      - run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Run walker (mobile + desktop)
+        env:
+          # help-docs-setup.ts asserts these in the TEST-RUNNER process —
+          # the webServer.env in playwright.config.ts only reaches the Next
+          # server process, NOT the Playwright workers.
+          ENABLE_TEST_AUTH: "true"
+          TEST_AUTH_SECRET: "test-secret-fixture"
+        run: pnpm exec playwright test --project=help-docs-setup --project=help-docs --project=help-docs-desktop
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: help-affordances-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
