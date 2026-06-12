@@ -240,3 +240,40 @@ describe("advisory-lock RPC deadlock guard", () => {
     }
   });
 });
+
+describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)", () => {
+  test("applyStagedCore.ts contains zero advisory-lock acquisitions and adopts via assertion only", () => {
+    const core = stripComments(readFileSync(join(ROOT, "lib/sync/applyStagedCore.ts"), "utf8"));
+    // Acquire-free: any pg_advisory* in the core is a second holder under the Phase B/D/dashboard
+    // holders — deadlock under burst (M5 R20 class, invariant 2).
+    expect(core).not.toMatch(/pg_(?:try_)?advisory_xact_lock/i);
+    expect(core).not.toMatch(/withPostgresSyncPipelineLock|withShowLock\s*\(/);
+    // Adoption, not acquisition: the core asserts the caller already holds the lock.
+    expect(core).toMatch(/assertShowLockHeld|adoptShowLockHeld/);
+  });
+
+  test("finalize routes hold the documented per-show advisory-lock topology (single holder per surface)", () => {
+    // Plan 01-f1 §"Advisory-lock holder topology": the per-row tx wrapper (defaultWithRowTx) is
+    // the ONLY holder for the apply surfaces. DEVIATION from the plan's literal `toHaveLength(1)`
+    // for both files: live finalize-cas ALSO contains the publish-flip's sorted per-show lock
+    // loop inside publishAppliedWizardShows (plan R49-2 — acquired LAST in the OUTER transaction,
+    // after the per-row apply transactions have committed and released their locks, so the
+    // single-holder-at-a-time rule still holds). Pin the exact counts so a NEW acquisition on
+    // either surface fails review here.
+    const expected: ReadonlyArray<{ file: string; acquisitions: number }> = [
+      // defaultWithRowTx only (Phase B per-row holder).
+      { file: "app/api/admin/onboarding/finalize/route.ts", acquisitions: 1 },
+      // defaultWithRowTx (Phase D per-row holder) + publishAppliedWizardShows sorted flip loop.
+      { file: "app/api/admin/onboarding/finalize-cas/route.ts", acquisitions: 2 },
+    ];
+    for (const { file, acquisitions } of expected) {
+      const src = stripComments(readFileSync(join(ROOT, file), "utf8"));
+      const found = src.match(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/g) ?? [];
+      expect(
+        found,
+        `${file}: expected exactly ${acquisitions} per-show advisory-lock acquisition(s); a new ` +
+          `acquisition needs a topology review (single-holder rule, invariant 2)`,
+      ).toHaveLength(acquisitions);
+    }
+  });
+});

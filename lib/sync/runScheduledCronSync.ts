@@ -202,6 +202,7 @@ export type CronLiveShowRow = {
   /**
    * Show title (sheet name) — projected so SHEET_UNAVAILABLE admin
    * alerts can supply `sheet_name` in admin_alerts.context for the
+   * (live-partition:n/a — doc reference, no statement)
    * §12.4 `<sheet-name>` placeholder interpolation (M9 C0 round-7 fix).
    * Nullable for shows that haven't successfully parsed yet, or for
    * legacy rows that pre-date title population.
@@ -594,6 +595,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
         select drive_file_id, wizard_session_id, base_modified_time, staged_modified_time,
                parse_result, triggered_review_items, prior_last_sync_status,
                prior_last_sync_error, staged_id, source_kind, warning_summary
+          -- live-partition:live-only — live pending_syncs read (wizard_session_id is null);
+          -- cron surface, not reachable from the wizard apply core (F1 Task 1.2/1.7)
           from public.pending_syncs
          where drive_file_id = $1
            and wizard_session_id is null
@@ -620,6 +623,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async upsertLivePendingIngestion(row: Parameters<Phase1Tx["upsertLivePendingIngestion"]>[0]) {
     await this.rows(
       `
+        -- live-partition:live-only — live pending_ingestions upsert (wizard_session_id null)
         insert into public.pending_ingestions (
           drive_file_id, drive_file_name, last_error_code, last_error_message,
           last_warnings, wizard_session_id, last_seen_modified_time
@@ -629,6 +633,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         do update set
           drive_file_name = excluded.drive_file_name,
           last_attempt_at = now(),
+          -- live-partition:live-only — live-row on-conflict arm (F1 Task 1.2/1.7)
           attempt_count = public.pending_ingestions.attempt_count + 1,
           last_error_code = excluded.last_error_code,
           last_error_message = excluded.last_error_message,
@@ -660,6 +665,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async upsertLivePendingSync(row: Parameters<Phase1Tx["upsertLivePendingSync"]>[0]) {
     const upserted = await this.one<{ staged_id: string }>(
       `
+        -- live-partition:live-only — live pending_syncs stage write (wizard_session_id null)
         insert into public.pending_syncs (
           drive_file_id, base_modified_time, staged_modified_time, parse_result,
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
@@ -746,6 +752,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       showId: row?.id ?? null,
       lastSeenModifiedTime: row?.last_seen_modified_time ?? null,
       // Returned so admin_alerts producers can supply `sheet_name` in
+      // (live-partition:n/a — doc reference, no statement)
       // context for the §12.4 SHEET_UNAVAILABLE placeholder (M9 C0 R7).
       title: row?.title ?? null,
     };
@@ -882,6 +889,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async readLiveDeferral(driveFileId: string): Promise<DeferredIngestionRow | null> {
     const row = await this.one<DeferredIngestionRow>(
       `
+        -- live-partition:live-only — live deferred_ingestions read (wizard_session_id is null)
         select deferred_kind, deferred_at_modified_time
           from public.deferred_ingestions
          where drive_file_id = $1
@@ -896,6 +904,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async deleteLiveDeferral(driveFileId: string): Promise<void> {
     await this.rows(
       `
+        -- live-partition:live-only — live deferred_ingestions delete (wizard_session_id is null)
         delete from public.deferred_ingestions
          where drive_file_id = $1
            and wizard_session_id is null
@@ -907,6 +916,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async deleteWizardPendingSyncsExcept(wizardSessionId: string) {
     await this.rows(
       `
+        -- live-partition:wizard-only — wizard pending_syncs supersession cleanup
         delete from public.pending_syncs
          where wizard_session_id is not null
            and wizard_session_id <> $1::uuid
@@ -1975,7 +1985,8 @@ async function handleFetchFailure_unlocked(
       });
     } else {
       // B3 §4.1: show-level DRIVE_FETCH_FAILED producer. Realtime email
-      // consumes admin_alerts, while `code` here is the raw drive failure.
+      // consumes admin_alerts (live-partition:n/a — doc reference, no statement),
+      // while `code` here is the raw drive failure.
       await recoveryTx.upsertAdminAlert({
         showId,
         code: "DRIVE_FETCH_FAILED",

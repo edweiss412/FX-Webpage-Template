@@ -22,7 +22,8 @@ import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 // Result-code provenance (AC-X.2 internal-code-enum manifest): these reviewer-choice refusal
 // codes moved here from applyStaged.ts, which sits on the staged_parse apply surface alongside
-// the pending_ingestions / admin_alerts writers — the extraction classification
+// the pending_ingestions / admin_alerts writers (live-partition:n/a — doc reference, no
+// statement) — the extraction classification
 // (scripts/extract-internal-code-enums.ts content gates) is unchanged by the F1 move.
 export const MISSING_REVIEWER_CHOICE = "MISSING_REVIEWER_CHOICE" as const;
 export const EXTRA_REVIEWER_CHOICE = "EXTRA_REVIEWER_CHOICE" as const;
@@ -329,7 +330,8 @@ export function withWizardScopedLivePartitionOps(
  *
  * `deferred_ingestions`: zero statements on the apply surface (the only wizard-side writer is the
  * retry route; the live reader is `readLiveDeferral`, perFileProcessor.ts) — classified N/A for
- * the core; the Task 1.7 registry walker asserts the absence.
+ * the core (live-partition:n/a — doc reference, no statement); the Task 1.7 registry walker
+ * asserts the absence.
  *
  * Caller-level rows (reachableFromCore: false) record WHY the core does not own the op — the
  * Task 1.7 meta-test (tests/sync/_livePartitionClassificationContract.test.ts) walks this table
