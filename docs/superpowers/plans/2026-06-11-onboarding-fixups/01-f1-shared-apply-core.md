@@ -591,6 +591,7 @@ test("Phase B first-seen finalize persists the FULL parse: children + shows_inte
   const manifest = one(await sql`select created_show_id from public.onboarding_scan_manifest
                                   where wizard_session_id = ${SESSION} and drive_file_id = ${DRIVE_FILE_ID}`);
   expect(manifest.created_show_id).toBe(show.id);
+  expect(show.wizard_created_session_id).toBe(SESSION);  // R66-1: hard discriminator assertion — flip/cleanup join on it
 
   // Audit provenance (R8-1): actor = APPROVING admin, applied_at = Apply-click instant,
   // real items/choices/derived, shared summary shape + source:

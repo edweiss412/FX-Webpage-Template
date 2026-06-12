@@ -279,6 +279,10 @@ export class FakeReapTx implements OnboardingSessionTx {
     }
     if (/delete from public\.shows s using public\.onboarding_scan_manifest m/.test(q)) {
       this.operations.push(`delete-interim-shows:${String(params[0])}`);
+  // R66-2: this classifier enforces the FULL real-SQL predicate set — manifest join by created_show_id,
+  // drive_file_id match, wizard_created_session_id === sessionId, published=false, and (reap) locked-set
+  // membership — and THROWS on any delete missing one. Negative unit cases: NULL/mismatched
+  // wizard_created_session_id and a same-drive forged manifest row both leave the show untouched.
       const created = new Set(
         this.tables.onboarding_scan_manifest
           .filter((r) => r.wizard_session_id === params[0] && r.created_show_id != null)
