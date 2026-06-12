@@ -26,7 +26,6 @@ import {
   enrichWithDrivePins,
   type DriveClient,
   type DriveFileMeta,
-  type SpreadsheetEmbeddedObject,
   type SpreadsheetSheet,
 } from "@/lib/sync/enrichWithDrivePins";
 import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
@@ -129,7 +128,9 @@ export type SyncPipelineTx = LockableSyncTx &
   Partial<RevisionRaceCooldownTx> &
   Partial<LiveDeferralTx>;
 
-export function syncProblemCodeForStatus(status: string | null | undefined): SyncProblemCode | null {
+export function syncProblemCodeForStatus(
+  status: string | null | undefined,
+): SyncProblemCode | null {
   if (status === "drive_error") return "DRIVE_FETCH_FAILED";
   if (status === "parse_error") return "PARSE_ERROR_LAST_GOOD";
   if (status === "sheet_unavailable") return "SHEET_UNAVAILABLE";
@@ -1312,12 +1313,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
           parse_warnings = excluded.parse_warnings,
           raw_unrecognized = excluded.raw_unrecognized
       `,
-      [
-        showId,
-        payload.financials,
-        payload.parse_warnings,
-        payload.raw_unrecognized,
-      ],
+      [showId, payload.financials, payload.parse_warnings, payload.raw_unrecognized],
     );
   }
 }
@@ -1471,7 +1467,7 @@ async function defaultCaptureBinding(
   };
 }
 
-function defaultDriveClient(): DriveClient {
+export function defaultDriveClient(): DriveClient {
   return {
     async getFile(fileId) {
       return toDriveFileMeta(await fetchDriveFileMetadata(fileId));
@@ -1483,36 +1479,21 @@ function defaultDriveClient(): DriveClient {
       };
     },
     async listSpreadsheetSheets(spreadsheetId) {
+      // Sheets v4's Sheet schema exposes NO field that enumerates floating
+      // drawn/embedded images, so the projection is titles-only and embeddedObjects
+      // is always empty. extractEmbeddedImages degrades honestly (warning +
+      // linked-folder fallback). Feasible diagram sourcing is tracked in
+      // BACKLOG.md (BL-DIAGRAMS-EMBEDDED-SOURCE).
       const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
       const response = await sheetsClient.spreadsheets.get({
         spreadsheetId,
-        fields:
-          "sheets(properties(title),drawings(objectId,imageProperties(contentUrl,mimeType),embeddedObject(description,title)))",
+        fields: "sheets(properties(title))",
       });
       return ((response.data.sheets ?? []) as unknown[]).map((sheet) => {
-        const record = sheet as {
-          properties?: { title?: string | null };
-          drawings?: Array<{
-            objectId?: string | null;
-            imageProperties?: { contentUrl?: string | null; mimeType?: string | null };
-            embeddedObject?: { title?: string | null; description?: string | null };
-          }>;
-        };
-        const embeddedObjects: SpreadsheetEmbeddedObject[] = (record.drawings ?? [])
-          .filter((drawing) => drawing.objectId)
-          .map((drawing) => {
-            const alt =
-              drawing.embeddedObject?.title ?? drawing.embeddedObject?.description ?? null;
-            return {
-              objectId: drawing.objectId!,
-              mimeType: drawing.imageProperties?.mimeType ?? "image/png",
-              ...(alt ? { alt } : {}),
-              contentUrl: drawing.imageProperties?.contentUrl ?? null,
-            };
-          });
+        const record = sheet as { properties?: { title?: string | null } };
         return {
           title: record.properties?.title ?? "",
-          embeddedObjects,
+          embeddedObjects: [],
         } satisfies SpreadsheetSheet;
       });
     },
@@ -1774,7 +1755,10 @@ function timestampMs(value: string | Date | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function modifiedTimeAdvanced(left: string | Date, right: string | Date | null | undefined): boolean {
+function modifiedTimeAdvanced(
+  left: string | Date,
+  right: string | Date | null | undefined,
+): boolean {
   const leftMs = timestampMs(left);
   const rightMs = timestampMs(right);
   if (leftMs === null) return false;
@@ -2003,7 +1987,9 @@ async function handleFetchFailure_unlocked(
     await resolveStaleSyncProblemAlerts_unlocked(
       tx,
       showId,
-      syncProblemCodeForStatus(code === STAGED_PARSE_SOURCE_GONE ? "sheet_unavailable" : "drive_error"),
+      syncProblemCodeForStatus(
+        code === STAGED_PARSE_SOURCE_GONE ? "sheet_unavailable" : "drive_error",
+      ),
     );
     return result;
   }
