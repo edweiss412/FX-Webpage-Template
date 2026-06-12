@@ -37,11 +37,12 @@ export function pickStringHeader(headers: GaxiosResponseHeaders, name: string): 
   // ({"Content-Range": ...}) must still resolve a "content-range" query,
   // or the asset routes' fail-closed 206 guard re-trips (410) on every
   // valid Range slice.
-  let value = record[name] ?? record[name.toLowerCase()];
+  let value = record[name] ?? record[name.toLowerCase()]; // canonicalize-exempt: HTTP header name case-folding, not email
   if (value === undefined) {
-    const lower = name.toLowerCase();
+    const lower = name.toLowerCase(); // canonicalize-exempt: HTTP header name case-folding, not email
     for (const [key, candidate] of Object.entries(record)) {
-      if (candidate !== undefined && key.toLowerCase() === lower) {
+      const foldedKey = key.toLowerCase(); // canonicalize-exempt: HTTP header name case-folding, not email
+      if (candidate !== undefined && foldedKey === lower) {
         value = candidate;
         break;
       }
