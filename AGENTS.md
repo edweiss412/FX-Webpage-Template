@@ -71,7 +71,7 @@ These apply when this repo is being driven by Codex CLI (`codex exec`) rather th
 
 - **Sandbox + git.** Codex's sandbox mode restricts git operations. If you produce a commit-worthy patch under Codex, either (a) finish the patch, exit the sandbox, and run `git add` + `git commit` from outside, or (b) explicitly relax sandbox to allow git for this repo. Don't try `git commit` inside a default-sandboxed Codex run — it will fail or no-op silently.
 - **Reasoning level.** Default to high (matches the published 56-task benchmark configuration). Treat `xhigh`/medium-low experiments as unverified anecdotes.
-- **Companion-surface check.** Codex/GPT-5.5's known strength is broader integration footprint, but its risk is bigger patches. Before declaring a task done, grep the repo for parallel surfaces the change should also touch: `lib/parser/versions/v*.ts` mirrors, `supabase/migrations/` vs inline CHECKs in `tables/`, `app/show/[slug]/page.tsx` vs `app/show/[slug]/p/page.tsx` (signed-link path mirrors signed-in path).
+- **Companion-surface check.** Codex/GPT-5.5's known strength is broader integration footprint, but its risk is bigger patches. Before declaring a task done, grep the repo for parallel surfaces the change should also touch: `lib/parser/versions/v*.ts` mirrors, `supabase/migrations/` vs inline CHECKs in `tables/`, and the crew show page at `app/show/[slug]/[shareToken]/page.tsx` (the only crew route since the M11.5 picker pivot — there is no slug-only mirror; `lib/audit/authChain.ts` pins the canonical paths).
 - **Output verbosity.** Match the verbosity to the task. Don't narrate tool calls. Don't echo file contents the user just read. Keep explanations proportional to complexity.
 
 ---
