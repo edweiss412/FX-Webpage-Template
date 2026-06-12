@@ -1531,7 +1531,7 @@ export const MESSAGE_CATALOG = {
   STAGED_REVIEW_ITEMS_CORRUPT: {
     code: "STAGED_REVIEW_ITEMS_CORRUPT",
     dougFacing:
-      "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review.",
+      "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review. If this blocks the final publish step of setup, use \"Discard this setup and start over\" to clear the setup instead.",
     crewFacing: null,
     followUp: "Doug → discard + re-sync the sheet",
     helpfulContext:
@@ -1544,7 +1544,7 @@ export const MESSAGE_CATALOG = {
   STAGED_PARSE_RESULT_CORRUPT: {
     code: "STAGED_PARSE_RESULT_CORRUPT",
     dougFacing:
-      "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it.",
+      "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it. If this blocks the final publish step of setup, use \"Discard this setup and start over\" to clear the setup instead.",
     crewFacing: null,
     followUp: "Doug → discard + re-sync the sheet",
     helpfulContext:
