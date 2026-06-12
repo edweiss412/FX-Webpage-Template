@@ -19,6 +19,20 @@ describe("<Header>", () => {
     expect(link).toHaveAttribute("href", "/admin");
   });
 
+  // M12.12 follow-up — the "→" is decorative; aria-hiding it keeps it out of
+  // the accessible name. Failure mode caught: someone inlines the arrow back
+  // into the accessible name.
+  it("back-link accessible name drops the decorative → (aria-label), visible text keeps it", () => {
+    render(<Header />);
+    const link = screen.getByRole("link", { name: "Back to admin" });
+    expect(link).toHaveAttribute("aria-label", "Back to admin");
+    // Visible text run stays UNSPLIT — splitting it drops the flex
+    // inter-item space / shifts text-decoration paint (byte-level screenshot
+    // drift).
+    expect(link.textContent).toBe("Back to admin →");
+    expect(link.firstElementChild).toBeNull();
+  });
+
   it("renders the FXAV brand mark", () => {
     render(<Header />);
     expect(screen.getByTestId("help-header-brand")).toBeInTheDocument();

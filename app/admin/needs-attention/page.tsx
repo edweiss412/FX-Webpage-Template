@@ -17,6 +17,7 @@
  */
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import { AlertBanner } from "@/components/admin/AlertBanner";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import { loadNeedsAttention } from "@/lib/admin/loadNeedsAttention";
 import { PAGE_RENDER_CAP } from "@/lib/admin/needsAttention";
@@ -31,7 +32,23 @@ export default async function NeedsAttentionPage() {
   const now = await nowDate();
   return (
     <div data-testid="admin-needs-attention-page" className="flex w-full flex-col gap-section-gap">
-      <AdminPageHeader title="Needs attention" sub="Everything waiting on you, across all shows." />
+      <AdminPageHeader
+        title="Needs attention"
+        sub="Everything waiting on you, across all shows."
+        titleAppendSlot={
+          <HoverHelp
+            label="Help: Needs attention"
+            testId="needs-attention-page-help"
+            rootTestId="help-affordance--needs-attention-page--tooltip"
+            learnMore={{ href: "/help/admin/review-queues#first-seen" }}
+          >
+            <p>
+              Everything waiting on a decision from you: sheets we could not auto-apply and staged
+              changes to review. Items leave this list as soon as you resolve them.
+            </p>
+          </HoverHelp>
+        }
+      />
       {/* Banner placement contract: dashboard + THIS page only (spec D-5 amendment). */}
       {/* empty:hidden collapses the slot (and its flex gap) in the common
           no-alerts state - AlertBanner renders null, leaving the div empty

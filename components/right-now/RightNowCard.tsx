@@ -121,7 +121,9 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+
+import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import {
   daysBetween,
   formatIsoForTimezone,
@@ -361,10 +363,15 @@ export function RightNowCard({ context }: RightNowCardProps) {
   // [reduced motion] through useReducedMotion") was aspirational, not
   // implemented. Wire it up: when the user has prefers-reduced-motion,
   // collapse the crossfade duration to 0 so the body swap is instant.
-  // Hook returns `null` until hydration completes; treat null as
-  // "unknown — animate at full duration" for SSR + first-paint
-  // consistency with the existing render contract.
-  const prefersReducedMotion = useReducedMotion();
+  // 2026-06-11 bug-audit: framer's useReducedMotion() misses the INITIAL
+  // matchMedia value (no change event at load), so the preference could
+  // stay "unknown" indefinitely for a user whose setting never changes
+  // mid-session. The shared matchMedia-on-mount hook (also used by
+  // PageTransition) resolves the real preference on mount. It returns
+  // `null` only for SSR + the first client render; treat null as
+  // "unknown — animate at full duration" for first-paint consistency
+  // with the existing render contract.
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     // 60-second tick. Keeps the card "live" without spamming React.
@@ -540,8 +547,8 @@ export function RightNowCard({ context }: RightNowCardProps) {
             // Codex round-19 MEDIUM: framer-motion does NOT consume
             // the CSS `--duration-*` custom properties — the override
             // in app/globals.css applies to CSS-driven elements only.
-            // Gate explicitly via useReducedMotion above so the body
-            // swap is instant for motion-sensitive users. `null`
+            // Gate explicitly via usePrefersReducedMotion above so the
+            // body swap is instant for motion-sensitive users. `null`
             // (pre-hydration / unknown) keeps the default duration so
             // SSR + first-paint render unchanged.
             duration: prefersReducedMotion === true ? 0 : 0.22,
@@ -627,7 +634,6 @@ export function RightNowCard({ context }: RightNowCardProps) {
         hidden
         aria-hidden="true"
       />
-
 
       {/* §8.2 body crossfade. AnimatePresence with mode="wait" so the
           outgoing body fully exits (opacity → 0) BEFORE the new one

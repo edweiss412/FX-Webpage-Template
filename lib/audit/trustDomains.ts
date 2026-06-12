@@ -48,6 +48,11 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/realtime/subscriber-token/route.ts", chain: "auth-library-exception" },
   { path: "app/api/show/[slug]/version/route.ts", chain: "auth-library-exception" },
   { path: "app/api/show/[slug]/unpublish/route.ts", chain: "public" },
+  // M12.13: emailed-undo confirm page — public BY DESIGN (spec §10); the
+  // single-use 24h token + the recipient binding r (unrevoked admin_emails
+  // HMAC) is the auth. Renders only on GET; consumption goes through the
+  // locked wrapper via its server action.
+  { path: "app/show/[slug]/unpublish/page.tsx", chain: "public" },
   { path: "app/api/report/route.ts", chain: CREW_SESSION_CHAINS },
   { path: "app/api/admin/admin-alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/needs-attention-count/route.ts", chain: ["requireAdmin"] },

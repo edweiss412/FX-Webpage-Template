@@ -42,8 +42,13 @@ export default function ErrorsPage() {
           </RefAnchor>
           <p>{entry.longExplanation}</p>
           <p className="text-sm text-text-subtle">
+            {/* aria-label drops the decorative "→" from the accessible name
+                without splitting the text run (text-run splits shift
+                text-decoration paint — byte-level screenshot drift). Visible
+                AC-11.11 r10 copy unchanged. */}
             <a
               href="mailto:edweiss412@gmail.com?subject=FXAV%20bug%3A&body=What%20happened%3A%0A%0AWhich%20code%3A%0A"
+              aria-label="If this keeps happening, tell Eric"
               className="underline underline-offset-2"
             >
               If this keeps happening, tell Eric →

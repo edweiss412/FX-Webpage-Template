@@ -306,6 +306,129 @@ describe("formatIsoForTimezone — module-scope formatter cache", () => {
   });
 });
 
+describe("selectRightNowState — single-day show (travelIn === travelOut === showDays[0]) [pinned]", () => {
+  // Spec §8.2 has no row for the degenerate single-day show where every
+  // named date collapses onto one calendar day. Per AGENTS.md invariant 7
+  // (spec is canonical; where silent, pin current behavior) these tests
+  // PIN the ladder outcome: travel_in_day wins on the day itself because
+  // row 6 (rightNow.ts:323) is evaluated before set_day (row 7), show_day_n
+  // (row 8), and travel_out_day (row 9). A branch-order swap that lets
+  // show_day_n or travel_out_day win flips these assertions.
+  const SINGLE_DAY = {
+    travelIn: "2026-06-15",
+    set: null,
+    showDays: ["2026-06-15"],
+    travelOut: "2026-06-15",
+  };
+
+  test("crew assigned that day → travel_in_day (row 6 beats show_day_n row 8 and travel_out_day row 9)", () => {
+    const state = selectRightNowState(todayInNY("2026-06-15"), SINGLE_DAY, explicit("2026-06-15"));
+    expect(state.kind).toBe("travel_in_day");
+  });
+
+  test("unrestricted viewer that day → travel_in_day (same winner without a restriction)", () => {
+    const state = selectRightNowState(todayInNY("2026-06-15"), SINGLE_DAY, NONE);
+    expect(state.kind).toBe("travel_in_day");
+  });
+
+  test("day before — crew assigned to the single day → viewer_off_day_pre {daysAway: 1}", () => {
+    // Row 4 (rightNow.ts:276-295) fires: today < viewer's first assigned
+    // day AND today < travelIn — the explicit restriction wins over the
+    // unrestricted pre_travel shape.
+    const state = selectRightNowState(todayInNY("2026-06-14"), SINGLE_DAY, explicit("2026-06-15"));
+    expect(state.kind).toBe("viewer_off_day_pre");
+    if (state.kind === "viewer_off_day_pre") {
+      expect(state.firstAssignedDay).toBe("2026-06-15");
+      expect(state.daysAway).toBe(1);
+    }
+  });
+
+  test("day before — unrestricted viewer → pre_travel {daysAway: 1}", () => {
+    const state = selectRightNowState(todayInNY("2026-06-14"), SINGLE_DAY, NONE);
+    expect(state.kind).toBe("pre_travel");
+    if (state.kind === "pre_travel") {
+      expect(state.travelIn).toBe("2026-06-15");
+      expect(state.daysAway).toBe(1);
+    }
+  });
+
+  test("day after — crew assigned to the single day → viewer_after_last_day (row 2 beats post_show row 10)", () => {
+    const state = selectRightNowState(todayInNY("2026-06-16"), SINGLE_DAY, explicit("2026-06-15"));
+    expect(state.kind).toBe("viewer_after_last_day");
+    if (state.kind === "viewer_after_last_day") {
+      expect(state.travelOut).toBe("2026-06-15");
+    }
+  });
+
+  test("day after — unrestricted viewer → post_show {wrappedAt}", () => {
+    const state = selectRightNowState(todayInNY("2026-06-16"), SINGLE_DAY, NONE);
+    expect(state.kind).toBe("post_show");
+    if (state.kind === "post_show") {
+      expect(state.wrappedAt).toBe("2026-06-15");
+    }
+  });
+});
+
+describe("selectRightNowState — set === travelIn evaluation order (rows 6 vs 7) [pinned]", () => {
+  test("today === set === travelIn → travel_in_day wins (FAILS if travel_in_day/set_day branches are swapped)", () => {
+    // rightNow.ts evaluates travel_in_day (line 323) BEFORE set_day
+    // (line 328). When the sheet puts set on the same day as travel-in,
+    // the card leads with travel copy. If a refactor reorders the two
+    // branches, this resolves to set_day and the assertion fails — the
+    // test is order-sensitive by construction.
+    const dates = {
+      travelIn: "2026-06-01",
+      set: "2026-06-01",
+      showDays: ["2026-06-02", "2026-06-03"],
+      travelOut: "2026-06-04",
+    };
+    const state = selectRightNowState(todayInNY("2026-06-01"), dates, NONE);
+    expect(state.kind).toBe("travel_in_day");
+  });
+});
+
+describe("selectRightNowState — inverted range (travelOut < travelIn) degrades to unknown", () => {
+  // The parser should never emit travelOut < travelIn — it is data-entry
+  // error in the sheet. Per spec §8.2 line 2414 (`unknown`/`dateless` are
+  // date-data fallbacks that override everything else), an inverted span
+  // is broken-sheet data the ladder cannot reason about: the pre-fix
+  // behavior rendered plausible-WRONG copy (pre_travel on the show day;
+  // post_show "wrapped" at a date before the show "started"). The
+  // full-dates gate now requires travelOut >= travelIn, so every probe
+  // day falls through to `unknown` — the honest "we can't tell" card.
+  const INVERTED = {
+    travelIn: "2026-06-10",
+    set: null,
+    showDays: ["2026-06-05"],
+    travelOut: "2026-06-01",
+  };
+
+  test("today before both bounds (before travelOut) → unknown", () => {
+    const state = selectRightNowState(todayInNY("2026-05-25"), INVERTED, NONE);
+    expect(state).toEqual({ kind: "unknown" });
+  });
+
+  test("today === the inverted travelOut → unknown, NOT pre_travel/travel_out_day", () => {
+    const state = selectRightNowState(todayInNY("2026-06-01"), INVERTED, NONE);
+    expect(state).toEqual({ kind: "unknown" });
+  });
+
+  test("today between travelOut and travelIn — ON the show day — → unknown, NOT pre_travel", () => {
+    const state = selectRightNowState(todayInNY("2026-06-05"), INVERTED, NONE);
+    expect(state).toEqual({ kind: "unknown" });
+  });
+
+  test("today === travelIn → unknown, NOT travel_in_day", () => {
+    const state = selectRightNowState(todayInNY("2026-06-10"), INVERTED, NONE);
+    expect(state).toEqual({ kind: "unknown" });
+  });
+
+  test("today after travelIn (and after travelOut) → unknown, NOT post_show", () => {
+    const state = selectRightNowState(todayInNY("2026-06-15"), INVERTED, NONE);
+    expect(state).toEqual({ kind: "unknown" });
+  });
+});
+
 describe("daysBetween — exported helper", () => {
   test("positive delta when b is later than a", () => {
     expect(daysBetween("2026-06-01", "2026-06-04")).toBe(3);

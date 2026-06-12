@@ -1,4 +1,4 @@
-import { parseSheet, type ParsedSheet } from "@/lib/parser";
+import { parseSheet, deriveSchedulePhases, type ParsedSheet } from "@/lib/parser";
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 
@@ -124,5 +124,59 @@ describe("parseSheet — schedule_phases derivation from dates (M1 baseline)", (
         expect(phaseCount, `${f}: schedule_phases empty despite having dates`).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+// ── Edge case: showDays empty but set/travelIn/travelOut present ─────────────
+//
+// PINS current M1 dates-only baseline behavior (lib/parser/index.ts:272-307).
+// The master spec (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md) never
+// mentions schedule_phases — derivation rules live only in the index.ts comment
+// block (M1 baseline + Codex round-2 amendment). With NO show days, no "Show" or
+// "Strike" phase is produced anywhere: Strike only attaches to the LAST show day,
+// so a show with set+travel dates but zero parsed show days has no Strike day at
+// all. If a future spec amendment demands a synthesized Show/Strike phase, that
+// is a derivation change, not a parser bug — these tests pin today's contract.
+describe("deriveSchedulePhases — empty showDays with set/travel dates (edge-case pin)", () => {
+  it("travelIn on a separate day: only Set + Load Out phases; no Show/Strike anywhere", () => {
+    const dates = {
+      travelIn: "2026-07-01",
+      set: "2026-07-02",
+      showDays: [] as string[],
+      travelOut: "2026-07-05",
+    };
+    const phases = deriveSchedulePhases(dates);
+    // travelIn is travel-only (no phase); set day omits Load In because
+    // travelIn is a different calendar day (index.ts:284-292).
+    expect(phases).toEqual({
+      "2026-07-02": ["Set"],
+      "2026-07-05": ["Load Out"],
+    });
+    const allPhases = Object.values(phases).flat();
+    expect(allPhases).not.toContain("Show");
+    expect(allPhases).not.toContain("Strike");
+  });
+
+  it("travelIn absent: set day compounds Set + Load In; still no Show/Strike", () => {
+    const phases = deriveSchedulePhases({
+      travelIn: null,
+      set: "2026-07-02",
+      showDays: [],
+      travelOut: "2026-07-05",
+    });
+    expect(phases).toEqual({
+      "2026-07-02": ["Set", "Load In"],
+      "2026-07-05": ["Load Out"],
+    });
+  });
+
+  it("all dates null and showDays empty: returns an empty phase map", () => {
+    const phases = deriveSchedulePhases({
+      travelIn: null,
+      set: null,
+      showDays: [],
+      travelOut: null,
+    });
+    expect(phases).toEqual({});
   });
 });

@@ -1,42 +1,51 @@
 # Reading the dashboard
 
-The admin dashboard is where you start each morning. Two stacked panels tell you whether anything needs your attention. On a quiet day, you scan it and move on.
+The admin dashboard is where you start each morning. On a wider screen it's two columns — the **Active shows** table on the left, the **Needs attention** inbox on the right. On a phone they stack, and the inbox collapses to a summary card that opens its own page. On a quiet day, you scan it and move on.
 
 <Screenshot
   name="dashboard-overview"
-  alt="The admin dashboard with the Active shows panel on top and the Sheets-we-couldn't-auto-apply panel below it."
+  alt="The admin dashboard with the Active shows table on the left and the Needs attention inbox beside it."
 />
 
-<h2 id="active-shows">The Active shows panel</h2>
+<h2 id="active-shows">The Active shows table</h2>
 
-One row per show. The row is a single line on a wider screen and stacks vertically on a phone. Each row reads from left to right (or top to bottom on a phone):
+One row per show. Next to the **Active shows** title sits a count chip with the total number of shows on your account — even if the list below is capped. The **Find** box narrows the list as you type a show name, and the **Active** / **Archived** toggle switches which bucket you're looking at.
 
-- **Title.** The show name, exactly as it appears in your sheet. Tapping the title opens the per-show panel for that show.
-- **Dates.** Load-in through load-out, formatted `3/22 → 3/26/26`. Hidden if the sheet didn't have dates yet.
-- **Crew count.** A short `crew` label preceded by the count of crew rows the latest applied sync produced.
-- **Last sync + status.** Relative time since the last poll (e.g., "5 min ago") followed by `·` and one of the status indicators below.
+The column headers — **Show**, **Dates**, **Crew**, **Sync status** — double as sort buttons: tap one to sort by that column, tap it again to flip the direction. On a phone the columns stack under each show's title instead of spreading across the row. Reading a row:
 
-The **status indicator** is the part of the row that matters most. The shipped values are:
+- **Title and state.** The show name, exactly as it appears in your sheet (long names wrap, never get cut off). A live show carries a **Live** pill next to its title; a show going through its first publish shows **Publishing…**; a show brought back from the archive but not yet republished shows **Held — not published**.
+- **Dates.** Load-in through load-out, formatted `3/22/26 → 3/26/26`. Shown as a dash if the sheet didn't have dates yet.
+- **Crew.** The count of crew rows the latest applied sync produced.
+- **Sync status.** A colored dot plus plain words telling you how the last sync went.
 
-- **`✓`** — The sheet polled cleanly and any edits were auto-applied. Nothing for you to do.
-- **`⚠ Review staged changes`** — The sheet has new edits that tripped a review rule, so the app staged them instead of auto-applying. The crew still sees the prior approved version. Tap the row's title to open the per-show panel; the staged-review card sits at the top with Apply + Discard. See [Review queues](/help/admin/review-queues#re-stage) for what to do next.
-- **`✗ Needs attention`** — The most recent sync hard-failed (parse error, or the sheet was moved or unshared). The crew page still serves the last good version. Tap the title to open the per-show panel, read the error message, fix the sheet, and re-sync from there.
-- **`Publishing…`** — The show is going through its first publish after onboarding. Show up shortly as `✓`.
-- **`·`** — Quiet placeholder when the sync state isn't one of the above (e.g., a never-synced row, or a status string the panel doesn't have a dedicated glyph for).
+The **Sync status** column is the part that matters most. The values you'll see:
 
-Every row-level action — opening the show, re-syncing from Drive, previewing as a crew member, reviewing staged changes — lives one click deeper, on the per-show panel that opens when you tap the title. The dashboard row is read-only at a glance; the per-show panel is where you act.
+- **Synced** — followed by how long ago. The sheet polled cleanly and any edits were auto-applied. Nothing for you to do.
+- **`⚠ Changes to review`** — The sheet has new edits that tripped a review rule, so the app staged them instead of auto-applying. The crew still sees the prior approved version. Tap the row to open the per-show panel; the staged-review card sits at the top with Apply + Discard. See [Review queues](/help/admin/review-queues#re-stage) for what to do next.
+- **"Couldn't reach Drive"**, **"Sheet not in folder"**, or **"Couldn't read the sheet"** — The most recent sync hard-failed. The crew page still serves the last good version. Tap the row, read the plain-language error on the per-show panel, fix the sheet, and re-sync from there.
+- **"Sync in progress"** — A poll is running right now. Check back in a moment.
+- **"Not synced yet"** — The app hasn't completed a poll for this show yet.
+
+Tapping anywhere on a row opens that show's per-show panel — that's where every action lives (re-sync, preview as crew, staged review, sharing). The table itself is a read-only glance.
 
 The empty state (no shows yet) reads "You do not have any shows yet." and tells you to share a sheet into your watched Drive folder so the sync can pick it up.
 
-<h2 id="pending-ingestion">The Sheets-we-couldn't-auto-apply panel</h2>
+<h2 id="pending-ingestion">The Needs attention inbox</h2>
 
-Most new sheets in your folder publish on their own and show up in **Active shows**. This panel only fills up when the app couldn't take a sheet that far on its own. Two kinds of rows show up here:
+The right-hand column collects everything waiting on you, across all shows, with a count chip showing the total. On a phone it appears as a summary card instead — tap it to open the full **Needs attention** page. Three kinds of cards show up here:
 
-- **First-seen sheets that hard-failed.** A new sheet appeared in your Drive folder, but the fetch or parse failed before it could become a show. Each row shows the file name, when it was first seen, how many times the app has tried, and the error message. Your options are **Retry now** (so the app tries again), **Defer until modified** (the row stays out of the way until the sheet's modified time changes), and **Permanently ignore** (the row is dismissed for good). Retry never auto-applies a first-seen sheet, even when everything passes. It can only move the row into the queue below, where you Apply it explicitly.
-- **First-seen sheets held for review.** The parse passed, but something tripped a review rule (a crew count that shrank, a LEAD status that toggled, an email that moved between rows, a diagram tab that came back empty), or the sheet was surfaced by the onboarding wizard's scan step. Either way the app held it for your sign-off. Each row shows the candidate title and dates the app pulled out, plus a list of what tripped the review. Your options are **Review and apply** (opens the staged-review surface, where you confirm the show goes live) and **Discard** (drops the candidate without ever creating a public crew link).
+- **Couldn't process a sheet.** A new sheet appeared in your Drive folder, but the app couldn't fetch or read it, so it never became a show. The card names the file and explains what went wrong in plain words. Your options: **Retry now** (the app tries again), **Defer until modified** (the card stays out of the way until the sheet is edited again), or **Permanently ignore** (the card is dismissed for good). A successful retry doesn't skip your sign-off — the sheet moves along the same path as any other new sheet.
+- **New sheet to review.** The sheet parsed fine, but something asked for your sign-off — a review rule tripped, or the sheet came in through the onboarding wizard's scan. Tap **Review** to open the staged-review surface, where you confirm the show before it goes live or discard it without ever creating a crew link.
+- **Changes to review.** An already-live show has staged edits waiting for approval. Tap **Open show** to jump to its per-show panel and Apply or Discard them there.
 
-A row stays in this panel until you act on it. Nothing here clears itself.
+A card stays in the inbox until you act on it. Nothing here clears itself. When it's empty it says "Nothing waiting on you." — the best way to read the dashboard.
+
+<h2 id="archived">Archived shows</h2>
+
+The **Archived** side of the bucket toggle lists shows you've archived. Their crew links stay off until you unarchive and republish — crew who open an old link see nothing, which is the point of archiving a wrapped show.
+
+You archive from the bottom of a show's per-show page (**Archive show**). Each row in the archived list has a one-tap **Unarchive**, which moves the show back to the Active list as **Held — not published**. Open it and publish it again to turn the crew links back on.
 
 ## Staged-changes review
 
-Edits to an already-live show don't appear here. They show up as a yellow **Review staged changes** badge on the show's row in the Active shows panel above. The handling is the same idea, just in a different place. For the full walkthrough see [Review queues](/help/admin/review-queues#re-stage).
+Edits to an already-live show appear in two places at once: as the **Changes to review** label in that show's **Sync status** column, and as a card in the **Needs attention** inbox. Both routes lead to the same per-show panel and the same Apply-or-Discard decision. For the full walkthrough see [Review queues](/help/admin/review-queues#re-stage).

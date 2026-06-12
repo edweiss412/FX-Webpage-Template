@@ -18,6 +18,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
+import { UndoAutoPublishButton } from "@/components/admin/UndoAutoPublishButton";
+import type { UndoAutoPublishOutcome } from "@/app/admin/show/[slug]/_actions/undoAutoPublish";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
@@ -49,7 +51,23 @@ type PerShowAlertSectionProps = {
   slug: string;
   /** Optional ?alert_id query param value — highlights the matching row. */
   highlightAlertId?: string | null;
+  /**
+   * M12.13 §6.3 — auto-publish undo window state (computed on the page from
+   * `unpublish_token_expires_at`). When true, SHOW_FIRST_PUBLISHED rows render
+   * the shared undo action after the message. Optional/false-default so existing
+   * call sites and tests that don't thread it keep their behavior (no undo
+   * action). The bound (slug-bound, useActionState-shaped) undo action is
+   * required only when the flag can be true.
+   */
+  undoWindowOpen?: boolean;
+  undoAutoPublishAction?: (
+    prevState: UndoAutoPublishOutcome | null,
+    formData: FormData,
+  ) => UndoAutoPublishOutcome | Promise<UndoAutoPublishOutcome>;
 };
+
+/** §6.3 — the only alert code that carries an in-app undo action. */
+const UNDO_ALERT_CODE = "SHOW_FIRST_PUBLISHED";
 
 // §7 fix: interpolate the alert's context so placeholders like `<sheet-name>`
 // resolve to the real value instead of leaking literally. Guards not-in-catalog
@@ -58,8 +76,10 @@ type PerShowAlertSectionProps = {
 // (invariant 5). Call-site-only change; lookup.ts's contract is untouched.
 function safeDougFacing(code: string, context: Record<string, unknown> | null): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
-  const doug = messageFor(code as MessageCode, (context as MessageParams | null) ?? undefined)
-    .dougFacing;
+  const doug = messageFor(
+    code as MessageCode,
+    (context as MessageParams | null) ?? undefined,
+  ).dougFacing;
   if (!doug) return null;
   if (UNRESOLVED_PLACEHOLDER_RE.test(doug)) return null;
   return doug;
@@ -110,6 +130,8 @@ export async function PerShowAlertSection({
   showId,
   slug,
   highlightAlertId,
+  undoWindowOpen = false,
+  undoAutoPublishAction,
 }: PerShowAlertSectionProps) {
   const result = await fetchPerShowAlerts(showId);
 
@@ -120,10 +142,7 @@ export async function PerShowAlertSection({
         aria-labelledby="per-show-alert-section-heading"
         className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
       >
-        <h2
-          id="per-show-alert-section-heading"
-          className="text-base font-semibold"
-        >
+        <h2 id="per-show-alert-section-heading" className="text-base font-semibold">
           Could not load alerts
         </h2>
         <p>The admin database query failed. Refresh in a moment.</p>
@@ -147,23 +166,30 @@ export async function PerShowAlertSection({
       className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
     >
       <div className="flex items-center gap-2">
-        <h2
-          id="per-show-alert-section-heading"
-          className="text-lg font-semibold"
-        >
+        <h2 id="per-show-alert-section-heading" className="text-lg font-semibold">
           Alerts for this show ({result.length})
         </h2>
         <HelpTooltip
           label="Help: Alerts for this show"
-          testId="per-show-alert-help"
+          testId="help-affordance--per-show-alerts--tooltip"
         >
           <p>
-            Alerts collect anything we noticed about this show that you
-            should know about: parse warnings, ambiguous crew rows, sync
-            issues, and the like. Tap What does this mean on any alert
-            for a plain-language explanation. Mark resolved once you have
-            looked into it; the alert will return if the underlying
-            problem reappears.
+            Alerts collect anything we noticed about this show that you should know about: parse
+            warnings, ambiguous crew rows, sync issues, and the like. Tap What does this mean on any
+            alert for a plain-language explanation. Mark resolved once you have looked into it; the
+            alert will return if the underlying problem reappears.
+          </p>
+          <p className="mt-2">
+            {/* aria-label drops the decorative "→" from the accessible name
+                without splitting the text run (text-run splits shift
+                text-decoration paint — byte-level screenshot drift). */}
+            <a
+              href="/help/admin/parse-warnings"
+              aria-label="Learn more about alerts"
+              className="font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+            >
+              Learn more →
+            </a>
           </p>
         </HelpTooltip>
       </div>
@@ -187,6 +213,18 @@ export async function PerShowAlertSection({
                 code={alert.code}
                 {...(alert.context ? { params: alert.context as MessageParams } : {})}
               />
+              {/* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows carry the shared in-app
+                  undo action while the token window is open. The SAME component +
+                  bound server action as the footer button (copy/behavior cannot
+                  drift). When the window closes (24h lapse or manual publish →
+                  no token), this disappears and the alert remains as history. */}
+              {undoWindowOpen && alert.code === UNDO_ALERT_CODE && undoAutoPublishAction ? (
+                <UndoAutoPublishButton
+                  slug={slug}
+                  undoAction={undoAutoPublishAction}
+                  testId="undo-auto-publish-alert"
+                />
+              ) : null}
               <p className="text-xs text-text-subtle tabular-nums">
                 Raised{" "}
                 <time dateTime={alert.raised_at} suppressHydrationWarning>

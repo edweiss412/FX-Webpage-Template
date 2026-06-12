@@ -39,6 +39,7 @@
  *   playwright.config.ts) prevents inter-suite races.
  */
 import type { Page } from "@playwright/test";
+import { setDateRestrictionLocked } from "./lockedCrewRestriction";
 import { admin } from "./supabaseAdmin";
 
 export const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
@@ -107,13 +108,19 @@ export async function lookupSeededShow(): Promise<SeededShow> {
   };
 }
 
+/**
+ * Mutate the LEAD viewer's `date_restriction` through the SHARED locked
+ * psql path (lockedCrewRestriction.ts): one transaction holding the
+ * per-show advisory lock, UPDATE show-scoped to the locked show, no-row
+ * RETURNING guard throws. M12.12-DEF-2 relocated this write off the
+ * PostgREST admin client (which held NO lock); the Codex R2 class-sweep
+ * extracted the locked path into the shared helper so
+ * schedule-tile.spec.ts's identical mutation uses it too. `leadCrewId`
+ * always comes from lookupSeededShow(), i.e. a crew row of the
+ * SEED_DRIVE_FILE_ID show.
+ */
 export async function setDateRestriction(leadCrewId: string, restriction: unknown): Promise<void> {
-  const { error } = await admin
-    .from("crew_members")
-    .update({ date_restriction: restriction })
-    .eq("id", leadCrewId);
-  if (error)
-    throw new Error(`right-now-transitions: update date_restriction failed: ${error.message}`);
+  await setDateRestrictionLocked(SEED_DRIVE_FILE_ID, leadCrewId, restriction);
 }
 
 /**

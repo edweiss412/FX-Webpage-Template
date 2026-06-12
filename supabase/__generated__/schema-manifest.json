@@ -24,6 +24,7 @@
   ],
   "app_settings": [
     "active_signing_key_id",
+    "alert_on_auto_publish",
     "alert_on_sync_problems",
     "auto_publish_clean_first_seen",
     "daily_review_digest",

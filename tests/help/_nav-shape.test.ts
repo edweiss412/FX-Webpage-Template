@@ -15,7 +15,7 @@ describe("app/help/_nav.ts shape", () => {
     }
   });
 
-  it("includes all 13 v1 pages by slug", () => {
+  it("includes all 14 v1 pages by slug", () => {
     const slugs = NAV.map((e: NavEntry) => e.slug).sort();
     expect(slugs).toEqual(
       [
@@ -26,6 +26,7 @@ describe("app/help/_nav.ts shape", () => {
         "/help/admin/per-show-panel",
         "/help/admin/preview-as-crew",
         "/help/admin/review-queues",
+        "/help/admin/settings",
         "/help/admin/sharing-links",
         "/help/daily-rhythm",
         "/help/errors",

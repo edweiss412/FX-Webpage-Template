@@ -33,11 +33,23 @@ test.describe("/help mobile layout (test #6)", () => {
     expect(scroll.scrollWidth).toBeLessThanOrEqual(scroll.innerWidth);
 
     const tooSmall = await page.evaluate(() => {
-      const interactive = Array.from(
-        document.querySelectorAll("a, button, [role='button']"),
-      );
+      const interactive = Array.from(document.querySelectorAll("a, button, [role='button']"));
       return interactive
         .filter((el) => (el as HTMLElement).offsetParent !== null)
+        .filter((el) => {
+          // sr-only-until-focused chrome (the M11-A-D2 skip-link,
+          // app/help/layout.tsx) is clipped to 1x1 while unfocused — it is
+          // not a pointer target, so the WCAG 2.5.x floor doesn't apply in
+          // that state. Exempt the clipped state here; the focused-size
+          // assertion after this sweep pins its real tap size. This repo's
+          // Tailwind v4 sr-only clips via `clip-path: inset(50%)` (computed
+          // `clip` is "auto" — verified live 2026-06-11); the legacy
+          // `clip: rect(0 0 0 0)` form is kept for robustness.
+          const cs = getComputedStyle(el);
+          const srOnlyClipped =
+            cs.clipPath === "inset(50%)" || cs.clip === "rect(0px, 0px, 0px, 0px)";
+          return !(cs.position === "absolute" && srOnlyClipped);
+        })
         .filter((el) => {
           // WCAG 2.5.5 inline exception: links rendered inline within prose
           // body text (e.g., MDX content <a> inside <main> paragraphs/list
@@ -69,5 +81,17 @@ test.describe("/help mobile layout (test #6)", () => {
         2,
       )}`,
     ).toEqual([]);
+
+    // The skip-link exempted from the sweep above must still meet the 44px
+    // floor in its FOCUSED (visible) state — focus:not-sr-only +
+    // min-h-tap-min (app/help/layout.tsx). Failure mode caught: someone
+    // drops the focus:* sizing classes and the link becomes an invisible or
+    // sub-44px focused target.
+    const skipLink = page.getByRole("link", { name: "Skip to content" });
+    await skipLink.focus();
+    await expect(skipLink).toBeVisible();
+    const focusedBox = await skipLink.boundingBox();
+    expect(focusedBox, "focused skip-link should be measurable").not.toBeNull();
+    expect(focusedBox!.height).toBeGreaterThanOrEqual(44);
   });
 });

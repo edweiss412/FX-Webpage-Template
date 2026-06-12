@@ -21,11 +21,12 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
-import { formatRelative, formatDateRange } from "@/components/admin/ActiveShowsPanel";
+import { formatRelative, formatDateRange } from "@/lib/admin/showDisplay";
 import { syncStatusBucket } from "@/lib/admin/syncStatus";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
@@ -37,6 +38,7 @@ import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { PublishShowButton } from "@/components/admin/PublishShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
+import { UndoAutoPublishButton } from "@/components/admin/UndoAutoPublishButton";
 import {
   archiveShowAction,
   publishShowAction,
@@ -44,6 +46,7 @@ import {
   mi11ApproveAction,
   mi11RejectAction,
   undoChangeAction,
+  undoAutoPublishAction,
 } from "./_actions";
 import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
@@ -69,6 +72,10 @@ type ShowLookupRow = {
   archived: boolean;
   last_synced_at: string | null;
   last_sync_status: string | null;
+  // M12.13 §6.1: the EXPIRY only (never the token itself — the secret stays
+  // server-side; the undo action re-reads the token by slug). Drives
+  // `undoWindowOpen = expires_at != null && expires_at > now`.
+  unpublish_token_expires_at: string | null;
 };
 
 type CrewMemberRow = {
@@ -142,7 +149,7 @@ export default async function AdminShowPage({
     const { data, error: showError } = await supabase
       .from("shows")
       .select(
-        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status",
+        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status, unpublish_token_expires_at",
       )
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
@@ -230,6 +237,15 @@ export default async function AdminShowPage({
   // reads "Archived", never "Published".
   const archived = Boolean(show.archived);
   const published = show.published;
+
+  // M12.13 §6.1 — the auto-publish undo safety net is OPEN iff a live token mint
+  // exists and hasn't expired. The page never sees the token (secret stays
+  // server-side); the expiry alone gates both in-app affordances (the footer
+  // button and the SHOW_FIRST_PUBLISHED alert-row action). A manual publish mints
+  // no token (B2), so its expiry is null → window closed → no affordance.
+  const undoExpiresAt = show.unpublish_token_expires_at;
+  const undoExpiresMs = undoExpiresAt ? Date.parse(undoExpiresAt) : NaN;
+  const undoWindowOpen = Number.isFinite(undoExpiresMs) && undoExpiresMs > now.getTime();
 
   // §3.2 finalize-owned ("Publishing…") vs Held discriminator. Same
   // authoritative source as the dashboard (components/admin/Dashboard.tsx:287):
@@ -373,6 +389,11 @@ export default async function AdminShowPage({
         showId={show.id}
         slug={show.slug}
         highlightAlertId={sp.alert_id ?? null}
+        /* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows render the shared undo action
+           iff the token window is still open. The bound action is passed down so
+           the section reuses the SAME server action as the footer button. */
+        undoWindowOpen={undoWindowOpen}
+        undoAutoPublishAction={undoAutoPublishAction.bind(null, show.slug)}
       />
 
       {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
@@ -439,13 +460,37 @@ export default async function AdminShowPage({
           className="flex min-w-0 flex-col gap-3 min-[720px]:flex-1"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
+            {/* M12.12 matrix row 9 — div wrapper (not span): HoverHelp's root
+                is a div, and span>div is invalid nesting. */}
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
+              <HoverHelp
+                label="Help: Crew"
+                testId="per-show-crew-help"
+                rootTestId="help-affordance--per-show-crew--tooltip"
+                learnMore={{ href: "/help/admin/preview-as-crew" }}
+              >
+                {/* M12.12 follow-up — per-row Preview as links render only when
+                    published && !archived (the gate below), so this copy scopes
+                    the promise to the published state instead of describing a
+                    link an unpublished/archived render doesn't contain. */}
+                <p>
+                  Everyone on this show&apos;s crew, one row per person. Once the show is published
+                  (and not archived), each row gets a Preview as link to see their page exactly as
+                  they do.
+                </p>
+              </HoverHelp>
+            </div>
             {hasCrewLinkUrl && crewUrl ? (
+              // aria-label drops the decorative "→" from the accessible name
+              // without splitting the text run (inline-flex drops the space
+              // between split items — byte-level screenshot drift).
               <a
                 data-testid="admin-show-open-crew"
                 href={crewUrl}
                 target="_blank"
                 rel="noreferrer"
+                aria-label="Open crew page"
                 className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
                 Open crew page →
@@ -618,12 +663,39 @@ export default async function AdminShowPage({
         data-testid="admin-show-sync-footer"
         className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"
       >
-        <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
+        {/* M12.12 matrix row 7 — the help affordance rides the status side of
+            the justified-between footer (div wrapper, not span: HoverHelp's
+            root is a div and span>div is invalid nesting). */}
+        <div className="flex items-center gap-2">
+          <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
+          <HoverHelp
+            label="Help: Sync status"
+            testId="per-show-sync-help"
+            rootTestId="help-affordance--per-show-sync-footer--tooltip"
+            learnMore={{ href: "/help/admin/per-show-panel#sync-health" }}
+          >
+            <p>
+              How the last sync with this show&apos;s sheet went. We re-check on a schedule; Re-sync
+              forces a fresh read right now.
+            </p>
+          </HoverHelp>
+        </div>
         {/* Page-level "manage this show" actions, grouped right (M12.5 — the
             Live-case Archive control moved here from a standalone mid-page row).
             Archive shows ONLY for a Live show (published && !archived); Held
             keeps Archive grouped with Publish above, Archived shows Unarchive. */}
         <div className="flex flex-wrap items-center gap-3">
+          {/* M12.13 §6.2/§6.4 — the in-app undo, beside Archive/Re-sync, rendered
+              iff the token window is open AND the show is Live (published &&
+              !archived). Post-undo the show is archived → this disappears and the
+              Re-sync-paused note + archived affordances take over. */}
+          {undoWindowOpen && published && !archived ? (
+            <UndoAutoPublishButton
+              slug={show.slug}
+              undoAction={undoAutoPublishAction.bind(null, show.slug)}
+              testId="undo-auto-publish-footer"
+            />
+          ) : null}
           {isShowEligibleForCrewLink ? (
             <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
           ) : null}

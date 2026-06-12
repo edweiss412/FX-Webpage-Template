@@ -97,10 +97,7 @@ export default async function ShowPage({
 
     case "infra_error":
       return (
-        <TerminalFailure
-          code={result.code as never}
-          retryHref={`/show/${slug}/${shareToken}`}
-        />
+        <TerminalFailure code={result.code as never} retryHref={`/show/${slug}/${shareToken}`} />
       );
 
     case "needs_picker_bootstrap": {
@@ -155,16 +152,23 @@ export default async function ShowPage({
           />
         );
       }
-      const crew = data.crewMembers.find((c) => c.id === result.crewMemberId);
+      // Display-only chip derivation; fail-open is fine HERE because the
+      // chip carries no restriction semantics. The `?.` is still required:
+      // this runs in the page function, BEFORE React renders <ShowBody>, so
+      // an unguarded `.find` on a malformed projection would TypeError into
+      // Next's generic boundary (P-R5 Fix-1) and bypass the real fail-closed
+      // gate — resolveViewerContext throws MalformedProjectionError inside
+      // ShowBody, which renders <TerminalFailure
+      // code="PICKER_RESOLVER_LOOKUP_FAILED" />. On malformed data the chip
+      // value computed here is never shown; the page terminates in ShowBody.
+      const crew = data.crewMembers?.find((c) => c.id === result.crewMemberId);
       return (
         <ShowBody
           slug={slug}
           showId={result.showId}
           viewer={viewer}
           data={data}
-          identityChip={
-            crew ? { name: crew.name, role: crew.role, shareToken } : null
-          }
+          identityChip={crew ? { name: crew.name, role: crew.role, shareToken } : null}
         />
       );
     }

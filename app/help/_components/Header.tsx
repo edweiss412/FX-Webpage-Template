@@ -16,8 +16,12 @@ export function Header() {
             The component lives at components/layout/ThemeToggle.tsx
             (verified at plan-write time via `find components -name ThemeToggle`). */}
         <ThemeToggle />
+        {/* aria-label drops the decorative "→" from the accessible name
+            without splitting the text run (flex drops the space between
+            split items — byte-level screenshot drift). */}
         <Link
           href="/admin"
+          aria-label="Back to admin"
           className="text-sm text-text hover:text-text-strong underline underline-offset-2 min-h-tap-min flex items-center"
         >
           Back to admin →

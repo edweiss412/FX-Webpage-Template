@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { CAPTURE_LAUNCH_ARGS } from "./scripts/capture-launch-args";
 
 process.env.ENABLE_TEST_AUTH ??= "true";
 process.env.TEST_AUTH_SECRET ??= "test-secret-fixture";
@@ -32,7 +33,7 @@ export default defineConfig({
           reducedMotion: "reduce",
         },
         launchOptions: {
-          args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+          args: CAPTURE_LAUNCH_ARGS,
         },
         locale: "en-US",
         timezoneId: "America/New_York",
@@ -61,7 +62,11 @@ export default defineConfig({
           reducedMotion: "reduce",
         },
         launchOptions: {
-          args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+          // NOTE: captureAll() (scripts/help-screenshots.ts) launches its OWN
+          // Chromium — these launchOptions do not reach it. The shared
+          // CAPTURE_LAUNCH_ARGS constant is the single source of truth for
+          // both paths; rationale lives in scripts/capture-launch-args.ts.
+          args: CAPTURE_LAUNCH_ARGS,
         },
         locale: "en-US",
         timezoneId: "America/New_York",

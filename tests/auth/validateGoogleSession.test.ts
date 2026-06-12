@@ -10,6 +10,7 @@ const googleMock = vi.hoisted(() => ({
   userEmail: null as string | null,
   missingSessionError: false,
   crewRows: [] as CrewRow[],
+  crewDataNull: false,
   eqCalls: [] as Array<[string, string]>,
   alertUpserts: [] as unknown[],
   alertError: null as { message: string } | null,
@@ -43,7 +44,11 @@ vi.mock("@/lib/supabase/server", () => ({
               filters.set(column, value);
               return this;
             },
-            then(resolve: (value: { data: CrewRow[]; error: null }) => void) {
+            then(resolve: (value: { data: CrewRow[] | null; error: null }) => void) {
+              if (googleMock.crewDataNull) {
+                resolve({ data: null, error: null });
+                return;
+              }
               resolve({
                 data: googleMock.crewRows.filter(
                   (row) =>
@@ -83,6 +88,7 @@ beforeEach(() => {
   googleMock.userEmail = null;
   googleMock.missingSessionError = false;
   googleMock.crewRows = [];
+  googleMock.crewDataNull = false;
   googleMock.eqCalls = [];
   googleMock.alertUpserts = [];
   googleMock.alertError = null;
@@ -135,6 +141,28 @@ describe("validateGoogleSession", () => {
       kind: "continue",
       code: "GOOGLE_NO_CREW_MATCH",
     });
+  });
+
+  test("PIN: crew lookup { data: null, error: null } lands in the deny path (continue + GOOGLE_NO_CREW_MATCH), never success", async () => {
+    // Edge-case pin (2026-06-12): lib/auth/validateGoogleSession.ts coalesces
+    // `crewRows ?? []` so an anomalous null-data/null-error select result is
+    // indistinguishable from zero rows → the chain continues to the next auth
+    // method with the no-crew-match signal. PostgREST selects return [] (not
+    // null) in practice, so this shape should be unreachable — the pin
+    // documents that even if the client contract drifts, the result is a
+    // fall-through denial, NOT a minted session and NOT an uncaught throw.
+    googleMock.userEmail = "alice@fxav.net";
+    googleMock.crewDataNull = true;
+
+    const result = await validateGoogleSession(new Request("https://crew.fxav.show"), {
+      showId,
+    });
+
+    expect(result).toEqual({
+      kind: "continue",
+      code: "GOOGLE_NO_CREW_MATCH",
+    });
+    expect(googleMock.alertUpserts).toHaveLength(0);
   });
 
   test("duplicate email within the same show raises AMBIGUOUS_EMAIL_BINDING and coalesces an admin alert", async () => {

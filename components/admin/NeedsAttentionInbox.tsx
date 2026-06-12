@@ -1,7 +1,8 @@
 // M12.2 Phase A Task 6 — NeedsAttentionInbox (spec §5.3). Consumes the pre-built
 // items + exact counts from buildNeedsAttention (Task 3). Per-variant tone pill
 // + action:
-//   - pending_ingestion → existing PendingPanel retry/discard buttons
+//   - pending_ingestion → retry/discard buttons (PendingPanelRetryButton /
+//     PendingPanelDiscardButtons client islands)
 //   - first_seen        → onboarding staged review link (/admin/show/staged/{id})
 //   - existing_staged   → per-show review link (/admin/show/{slug}, archived-safe)
 // "+N more" is driven by the REAL overflowCount (totalCount − renderedCount),
@@ -10,7 +11,7 @@
 import Link from "next/link";
 import type { NeedsAttentionItem } from "@/lib/admin/needsAttention";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
-import { formatRelative } from "@/components/admin/ActiveShowsPanel";
+import { formatRelative } from "@/lib/admin/showDisplay";
 import { PendingPanelRetryButton } from "@/components/admin/PendingPanelRetryButton";
 import { PendingPanelDiscardButtons } from "@/components/admin/PendingPanelDiscardButtons";
 
@@ -86,9 +87,21 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
         <p className="text-sm font-semibold text-text-strong">
           {item.candidateTitle ?? item.driveFileId}
         </p>
+        {/* aria-label drops the decorative "→" from the accessible name
+            without splitting the text run (inline-flex drops the space
+            between split items — byte-level screenshot drift). Row-specific
+            per WCAG 2.4.4 (Codex R2): a repeated list must not announce N
+            identical "Review" links. The unique driveFileId discriminator
+            is UNCONDITIONAL when a title is present (Codex R4) — duplicate
+            parsed titles must not re-collapse the names. */}
         <Link
           data-testid={`needs-attention-link-first-seen-${item.stagedId}`}
           href={`/admin/show/staged/${encodeURIComponent(item.stagedId)}`}
+          aria-label={
+            item.candidateTitle
+              ? `Review ${item.candidateTitle} (${item.driveFileId})`
+              : `Review ${item.driveFileId}`
+          }
           className={reviewLinkClass}
         >
           Review →
@@ -105,9 +118,16 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
     >
       <CardHeader item={item} now={now} status="review" label="Changes to review" />
       <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
+      {/* aria-label — same decorative-arrow + row-specific (WCAG 2.4.4)
+          rationale as Review above; the unique slug discriminator is
+          UNCONDITIONAL when a title is present (Codex R4) — two staged
+          shows can share a title but never a slug. */}
       <Link
         data-testid={`needs-attention-link-${item.slug}`}
         href={`/admin/show/${encodeURIComponent(item.slug)}`}
+        aria-label={
+          item.title ? `Open show ${item.title} (${item.slug})` : `Open show ${item.slug}`
+        }
         className={reviewLinkClass}
       >
         Open show →

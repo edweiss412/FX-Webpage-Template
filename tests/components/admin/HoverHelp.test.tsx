@@ -8,7 +8,7 @@
 //   - Escape closes; aria-expanded reflects state.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 
 afterEach(cleanup);
@@ -127,5 +127,97 @@ describe("HoverHelp", () => {
     // 44px tap-target floor for the custom (badge) trigger button.
     expect(trigger.className).toContain("min-h-tap-min");
     expect(trigger.className).toContain("min-w-tap-min");
+  });
+
+  // M12.12 affordance matrix — rootTestId lets an e2e walker locate the whole
+  // affordance; trigger/body keep the existing `-trigger`/`-body` convention.
+  it("rootTestId lands on the wrapper; trigger/body keep the testId convention", () => {
+    render(
+      <HoverHelp label="Help: X" testId="x-help" rootTestId="help-affordance--x--tooltip">
+        <p>Body copy.</p>
+      </HoverHelp>,
+    );
+    const root = screen.getByTestId("help-affordance--x--tooltip");
+    expect(within(root).getByTestId("x-help-trigger")).toBeInTheDocument();
+    expect(within(root).getByTestId("x-help-body")).toBeInTheDocument();
+  });
+
+  // M12.12 — learnMore turns the body into a disclosure (a tooltip role must not
+  // contain interactive content): role=tooltip dropped, aria-controls added, and
+  // aria-describedby narrowed to the children-only wrapper so the link text is
+  // excluded from the SR description. Concrete failure modes caught: link
+  // flattened into the description; aria-controls missing; link before children.
+  it("learnMore renders a link AFTER children, drops role=tooltip, adds aria-controls, scopes describedby to children only", () => {
+    render(
+      <HoverHelp
+        label="Help: X"
+        testId="x-help"
+        learnMore={{ href: "/help/admin/dashboard#active-shows" }}
+      >
+        <p>Body copy.</p>
+      </HoverHelp>,
+    );
+    const trigger = screen.getByTestId("x-help-trigger");
+    const body = screen.getByTestId("x-help-body");
+    expect(body).not.toHaveAttribute("role");
+    expect(trigger).toHaveAttribute("aria-controls", body.id);
+    const describedId = trigger.getAttribute("aria-describedby")!;
+    const described = document.getElementById(describedId)!;
+    expect(within(described).queryByRole("link", { hidden: true })).toBeNull(); // link excluded from description
+    const link = within(body).getByRole("link", { hidden: true });
+    expect(link).toHaveAttribute("href", "/help/admin/dashboard#active-shows");
+    expect(link).toHaveTextContent(/learn more/i);
+    expect(described.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // M12.12 follow-up — the "→" glyph in the learnMore link is decorative;
+  // aria-label drops it from the accessible name WITHOUT splitting the
+  // visible text run (text-run splits shift text-decoration paint —
+  // byte-level screenshot drift). The name is context-specific per WCAG
+  // 2.4.4, derived from the trigger label ("Help: Active shows" → "Learn
+  // more about active shows"). Failure modes caught: arrow back in the
+  // accessible name; derivation drops the "Help: " strip or lowercasing.
+  it("learnMore accessible name is label-derived 'Learn more about …' — visible text keeps →, run unsplit", () => {
+    render(
+      <HoverHelp
+        label="Help: Active shows"
+        testId="x-help"
+        learnMore={{ href: "/help/admin/dashboard" }}
+      >
+        <p>Body copy.</p>
+      </HoverHelp>,
+    );
+    const body = screen.getByTestId("x-help-body");
+    const link = within(body).getByRole("link", {
+      name: "Learn more about active shows",
+      hidden: true,
+    });
+    expect(link).toHaveAttribute("aria-label", "Learn more about active shows");
+    expect(link.textContent).toBe("Learn more →");
+    expect(link.firstElementChild).toBeNull();
+  });
+
+  // M12.12 — existing no-learnMore call sites must NOT change semantics.
+  it("without learnMore, role=tooltip and describedby semantics are unchanged", () => {
+    render(
+      <HoverHelp label="Help: X" testId="x-help">
+        <p>Body.</p>
+      </HoverHelp>,
+    );
+    const body = screen.getByTestId("x-help-body");
+    expect(body).toHaveAttribute("role", "tooltip");
+    expect(screen.getByTestId("x-help-trigger")).toHaveAttribute("aria-describedby", body.id);
+  });
+
+  // M12.12 spec §4.1 R6 — <span> cannot legally contain a div body; both the
+  // body and the root wrapper must be divs so block children are valid HTML.
+  it("body AND root wrapper are divs (block children are valid HTML at every level)", () => {
+    render(
+      <HoverHelp label="Help: X" testId="x-help" rootTestId="help-affordance--x--tooltip">
+        <p>Body.</p>
+      </HoverHelp>,
+    );
+    expect(screen.getByTestId("x-help-body").tagName).toBe("DIV");
+    expect(screen.getByTestId("help-affordance--x--tooltip").tagName).toBe("DIV"); // span root containing a div body would itself be invalid (spec R6)
   });
 });

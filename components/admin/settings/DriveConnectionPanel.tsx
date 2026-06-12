@@ -130,7 +130,12 @@ export function DriveConnectionPanel({
         >
           Drive connection
         </h2>
-        <HoverHelp label="Help: Drive connection" testId="drive-help">
+        <HoverHelp
+          label="Help: Drive connection"
+          testId="drive-help"
+          rootTestId="help-affordance--settings-drive-connection--tooltip"
+          learnMore={{ href: "/help/admin/settings#drive-connection" }}
+        >
           <p>
             How FXAV connects to your Google Drive folder of show sheets, and
             whether syncing is healthy.
@@ -176,6 +181,8 @@ export function DriveConnectionPanel({
           <HoverHelp
             label="What this status means"
             testId="drive-connection-health-help"
+            rootTestId="help-affordance--settings-drive-health-badge--tooltip"
+            learnMore={{ href: "/help/admin/settings#drive-health" }}
             align="right"
             trigger={
               <span

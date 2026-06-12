@@ -9,7 +9,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
-import type { ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
+import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 
 afterEach(cleanup);
 
@@ -468,6 +468,80 @@ describe("ShowsTable", () => {
     expect(screen.getByTestId("shows-sync-review").textContent).toContain("Changes to review");
     fireEvent.click(screen.getByTestId("shows-sort-sync")); // desc reverses
     expect(rowOrder()).toEqual(["ok", "review", "drive"]);
+  });
+
+  // ── M12.12 rows 1 + 4: matrix wiring + conditional restage legend ──
+  it("header help carries the matrix root testid and Learn-more target (row 1)", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "a", lastSyncStatus: "ok" })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const root = screen.getByTestId("help-affordance--dashboard-active-shows--tooltip");
+    // The popover body is closed by default → the Learn-more link is hidden.
+    // Scoped to the HoverHelp root so the row <Link> can never satisfy this.
+    const link = within(root).getByRole("link", { hidden: true });
+    expect(link).toHaveAttribute("href", "/help/admin/dashboard#active-shows");
+  });
+
+  // M12.12 follow-up — the legend link's "→" is decorative; aria-label drops
+  // it from the accessible name WITHOUT splitting the visible text run
+  // (text-run splits shift text-decoration paint — byte-level screenshot
+  // drift). Failure mode caught: someone puts the arrow back into the name.
+  it("restage legend accessible name drops the decorative → (aria-label), visible text keeps it", () => {
+    const reviewRow = row({ slug: "rev", lastSyncStatus: "pending_review", title: "Review Me" });
+    render(<ShowsTable rows={[reviewRow]} now={now} activeCount={1} overflowCount={0} />);
+    const legend = screen.getByRole("link", { name: "What the sync statuses mean" });
+    expect(legend).toHaveAttribute("data-testid", "help-affordance--dashboard-restage--legend");
+    expect(legend).toHaveAttribute("aria-label", "What the sync statuses mean");
+    expect(legend.textContent).toBe("What the sync statuses mean →");
+    expect(legend.firstElementChild).toBeNull();
+  });
+
+  it("restage legend renders iff a VISIBLE row has bucket=review, links to re-stage (row 4)", () => {
+    // Failure mode caught: an always-on legend (condition replaced by `true`)
+    // fails the ok-only re-render below.
+    const reviewRow = row({ slug: "rev", lastSyncStatus: "pending_review", title: "Review Me" });
+    const okRow = row({ slug: "fine", lastSyncStatus: "ok", title: "Fine Show" });
+    render(<ShowsTable rows={[reviewRow, okRow]} now={now} activeCount={2} overflowCount={0} />);
+    const legend = screen.getByTestId("help-affordance--dashboard-restage--legend");
+    expect(legend).toHaveAttribute("href", "/help/admin/review-queues#re-stage");
+    // Re-render with only the ok row → legend absent. Anti-tautology: assert on
+    // the legend testid ONLY — the SyncCell's "Changes to review" label must
+    // never be able to satisfy a text-based scan.
+    cleanup();
+    render(<ShowsTable rows={[okRow]} now={now} activeCount={1} overflowCount={0} />);
+    expect(screen.queryByTestId("help-affordance--dashboard-restage--legend")).toBeNull();
+  });
+
+  it("legend follows the FILTERED visible set — Find hiding every review row hides it", () => {
+    // Failure mode caught: legend keyed off the UNFILTERED `rows` input array
+    // would survive the Find filter and fail here.
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "z", lastSyncStatus: "pending_review", title: "Zebra" }),
+          row({ slug: "al", lastSyncStatus: "ok", title: "Alpha" }),
+        ]}
+        now={now}
+        activeCount={2}
+        overflowCount={0}
+      />,
+    );
+    expect(screen.getByTestId("help-affordance--dashboard-restage--legend")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "Alpha" } });
+    expect(screen.queryByTestId("help-affordance--dashboard-restage--legend")).toBeNull();
+    // Clearing the filter restores the legend (instant — no animation contract).
+    fireEvent.change(screen.getByTestId("shows-find-input"), { target: { value: "" } });
+    expect(screen.getByTestId("help-affordance--dashboard-restage--legend")).toBeInTheDocument();
+  });
+
+  it("zero rows → no legend (guard condition)", () => {
+    render(<ShowsTable rows={[]} now={now} activeCount={0} overflowCount={0} />);
+    expect(screen.queryByTestId("help-affordance--dashboard-restage--legend")).toBeNull();
   });
 
   it("the sort header is a real 44px tap target (min-h-tap-min) and the dates cell never wraps/truncates", () => {

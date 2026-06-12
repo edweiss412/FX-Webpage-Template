@@ -285,21 +285,19 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
 
 // ── Codex round-19 — prefers-reduced-motion wiring ────────────────────
 //
-// We mock framer-motion to override `useReducedMotion` per-test. A
-// matchMedia mock at the test level is too late: framer-motion may
-// capture matchMedia at module-load time, so the late override is
-// ignored. vi.mock at module scope replaces the hook itself, which
-// is the only level of override that's reliable across versions.
+// 2026-06-11 bug-audit: RightNowCard no longer uses framer-motion's
+// `useReducedMotion` (it missed the INITIAL matchMedia value); it reads
+// the shared matchMedia-on-mount hook at lib/a11y/usePrefersReducedMotion.
+// We mock that module per-test — the hook is ours, so the module-scope
+// mock is reliable regardless of framer-motion's internals. The REAL
+// hook-to-matchMedia path is pinned separately in
+// tests/components/RightNowCardReducedMotionInitial.test.tsx.
 
 const reducedMotionMock = { value: false as boolean };
 
-vi.mock("framer-motion", async () => {
-  const actual = await vi.importActual<typeof import("framer-motion")>("framer-motion");
-  return {
-    ...actual,
-    useReducedMotion: () => reducedMotionMock.value,
-  };
-});
+vi.mock("@/lib/a11y/usePrefersReducedMotion", () => ({
+  usePrefersReducedMotion: () => reducedMotionMock.value,
+}));
 
 describe("RightNowCard — prefers-reduced-motion (Codex round-19 MEDIUM)", () => {
   test("data-prefers-reduced-motion='true' when useReducedMotion returns true", () => {

@@ -18,7 +18,7 @@
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
-import { type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
+import { type ActiveShowRow } from "@/lib/admin/showDisplay";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";
@@ -349,13 +349,10 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
         data-testid="admin-dashboard-infra-error"
         className="mx-auto flex max-w-4xl flex-col gap-section-gap"
       >
+        {/* B1-D3: no eyebrow here — this branch renders BELOW the shared
+            <AdminPageHeader title="Dashboard"> (app/admin/page.tsx Task 4.1
+            single title source); page-level chrome would double the header. */}
         <header className="flex flex-col gap-2">
-          <p
-            className="text-xs font-medium uppercase text-text-subtle"
-            style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-          >
-            Admin
-          </p>
           <h2 className="text-2xl font-semibold text-text-strong">
             We could not load your dashboard.
           </h2>
@@ -428,7 +425,12 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
                   >
                     {result.archivedCount}
                   </span>
-                  <HoverHelp label="Help: Archived shows" testId="archived-help">
+                  <HoverHelp
+                    label="Help: Archived shows"
+                    testId="archived-help"
+                    rootTestId="help-affordance--dashboard-archived-shows--tooltip"
+                    learnMore={{ href: "/help/admin/dashboard#archived" }}
+                  >
                     <p>
                       Shows you&apos;ve archived. Their crew links stay off until you unarchive and
                       republish.
@@ -512,7 +514,12 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
               >
                 {result.needsAttention.totalCount}
               </span>
-              <HoverHelp label="Help: Needs attention" testId="needs-attention-help">
+              <HoverHelp
+                label="Help: Needs attention"
+                testId="needs-attention-help"
+                rootTestId="help-affordance--dashboard-needs-attention--tooltip"
+                learnMore={{ href: "/help/admin/review-queues#first-seen" }}
+              >
                 <p>
                   Sheets and changes waiting on you: new shows to review, staged edits to approve,
                   or sheets that couldn&apos;t be processed.

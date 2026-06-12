@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import sharp from "sharp";
+import { CAPTURE_LAUNCH_ARGS } from "./capture-launch-args";
 import { MANIFEST, type ManifestEntry, type ScreenshotTheme } from "./help-screenshots.manifest";
 import { parseFixtureDateRangeFromPath } from "./help-screenshots-fixture-range";
 import { ADMIN_FIXTURE } from "@/tests/e2e/helpers/fixtures";
@@ -107,9 +108,16 @@ async function installDeterminism(page: Page, theme: CaptureTheme): Promise<void
   });
 }
 
+// M11-F-D1: registered PRE-navigation via addInitScript (not a post-navigation
+// style-tag injection) so a captured surface with an entrance animation (framer-motion
+// initial/animate, CSS @keyframes, spinner) can never start animating during
+// the goto→inject gap and hand the drift gate a mid-animation frame. The init
+// script attaches the <style> the moment documentElement exists — before any
+// element renders — falling back to a MutationObserver for documents where
+// the root hasn't been created yet at init-script time.
 async function disableAnimations(page: Page): Promise<void> {
-  await page.addStyleTag({
-    content: `
+  await page.addInitScript(() => {
+    const css = `
       *, *::before, *::after {
         animation-delay: 0s !important;
         animation-duration: 0s !important;
@@ -118,7 +126,23 @@ async function disableAnimations(page: Page): Promise<void> {
         transition-delay: 0s !important;
         transition-duration: 0s !important;
       }
-    `,
+    `;
+    const attach = () => {
+      const style = document.createElement("style");
+      style.setAttribute("data-screenshot-animation-suppression", "");
+      style.textContent = css;
+      (document.head ?? document.documentElement).appendChild(style);
+    };
+    if (document.documentElement) {
+      attach();
+    } else {
+      new MutationObserver((_mutations, observer) => {
+        if (document.documentElement) {
+          attach();
+          observer.disconnect();
+        }
+      }).observe(document, { childList: true });
+    }
   });
 }
 
@@ -126,6 +150,16 @@ async function waitForQuiescence(page: Page, entry: ManifestEntry): Promise<void
   const waitFor = entry.waitFor ?? entry.captureSelector ?? "body";
   await page.locator(waitFor).first().waitFor({ state: "visible" });
   await page.waitForLoadState("networkidle");
+  // M11-A-D5 recipe: networkidle does not guarantee fonts are rasterized or
+  // the last layout/paint has flushed — on loaded CI runners the same content
+  // captured different bytes run-to-run (needs-attention-mobile-dark, PR #22).
+  // fonts.ready + a double-rAF flush pins the paint before the stable wait.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
   await page.waitForTimeout(entry.expectStableMs ?? DEFAULT_EXPECT_STABLE_MS);
 }
 
@@ -159,13 +193,13 @@ async function captureEntryTheme(
   const page = await context.newPage();
   try {
     await installDeterminism(page, theme);
+    await disableAnimations(page);
     await signInAs(page, ADMIN_FIXTURE, { baseUrl });
     await page.setExtraHTTPHeaders({
       "X-Screenshot-Frozen-Now": entry.frozenClockInstant,
       Authorization: `Bearer ${testAuthSecret}`,
     });
     await page.goto(new URL(entry.route, baseUrl).toString(), { waitUntil: "domcontentloaded" });
-    await disableAnimations(page);
     await waitForQuiescence(page, entry);
 
     const pngBuffer = await screenshotPng(page, entry);
@@ -184,8 +218,11 @@ export async function captureAll(): Promise<void> {
     validateFrozenClockInstant(entry);
   }
 
+  // This launch produces the drift-gated WebPs — Playwright config
+  // launchOptions do NOT reach it, so the determinism args must be consumed
+  // here directly (shared constant; Codex R2 finding on PR #22).
   const browser = await chromium.launch({
-    args: ["--font-render-hinting=none", "--disable-skia-runtime-opts"],
+    args: CAPTURE_LAUNCH_ARGS,
   });
 
   try {

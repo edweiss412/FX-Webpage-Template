@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
 import { getDailyReviewDigest } from "@/lib/appSettings/getDailyReviewDigest";
+import { getAlertOnAutoPublish } from "@/lib/appSettings/getAlertOnAutoPublish";
 
 type QueryResult = { data: unknown; error: unknown };
 
@@ -121,5 +122,48 @@ describe("fail-closed app-settings notify toggles", () => {
     supabaseMock.throwOnConstruct = true;
 
     await expect(getDailyReviewDigest()).resolves.toEqual({ kind: "infra_error" });
+  });
+
+  test("getAlertOnAutoPublish returns true only for a boolean true singleton value", async () => {
+    const { client, from, select, eq } = fakeClient({
+      data: { alert_on_auto_publish: true },
+      error: null,
+    });
+
+    await expect(getAlertOnAutoPublish(client)).resolves.toEqual({
+      kind: "value",
+      enabled: true,
+    });
+    expect(from).toHaveBeenCalledWith("app_settings");
+    expect(select).toHaveBeenCalledWith("alert_on_auto_publish");
+    expect(eq).toHaveBeenCalledWith("id", "default");
+  });
+
+  test.each([
+    ["missing row", null],
+    ["non-boolean value", { alert_on_auto_publish: "true" }],
+  ])("getAlertOnAutoPublish fail-closes on %s", async (_label, data) => {
+    const { client } = fakeClient({ data, error: null });
+
+    await expect(getAlertOnAutoPublish(client)).resolves.toEqual({
+      kind: "value",
+      enabled: false,
+    });
+  });
+
+  test("getAlertOnAutoPublish returns infra_error for returned and thrown DB faults", async () => {
+    await expect(
+      getAlertOnAutoPublish(fakeClient({ data: null, error: { message: "boom" } }).client),
+    ).resolves.toEqual({ kind: "infra_error" });
+
+    await expect(getAlertOnAutoPublish(throwingClient().client)).resolves.toEqual({
+      kind: "infra_error",
+    });
+  });
+
+  test("getAlertOnAutoPublish returns infra_error for construction faults", async () => {
+    supabaseMock.throwOnConstruct = true;
+
+    await expect(getAlertOnAutoPublish()).resolves.toEqual({ kind: "infra_error" });
   });
 });

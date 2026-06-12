@@ -7,7 +7,7 @@
 // left-aligned) as of M12.4 item S4 (the old max-w-[740px] cap was removed).
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 const calls = vi.hoisted(() => ({ requireAdminIdentity: 0, requireAdmin: 0 }));
 
@@ -63,6 +63,10 @@ vi.mock("@/lib/appSettings/getAlertOnSyncProblems", () => ({
 vi.mock("@/lib/appSettings/getDailyReviewDigest", () => ({
   getDailyReviewDigest: async () => ({ kind: "value" as const, enabled: false }),
 }));
+// M12.13 §4.5 — the third notify row's read (distinct value proves its own bind).
+vi.mock("@/lib/appSettings/getAlertOnAutoPublish", () => ({
+  getAlertOnAutoPublish: async () => ({ kind: "value" as const, enabled: true }),
+}));
 
 async function renderSettings() {
   const mod = await import("@/app/admin/settings/page");
@@ -116,24 +120,48 @@ describe("Settings header (Task 4.2)", () => {
     expect(screen.getByTestId("admin-active-list")).toBeInTheDocument();
   });
 
-  it("renders both notify-preference rows, bound to their own reads, above auto-publish (Task 6.3)", async () => {
+  // M12.12 matrix row 14 — failure mode caught: a settings redesign drops the
+  // Preferences header HoverHelp (or its learnMore deep link) → the matrix
+  // root testid or the hidden help-link href vanishes; pinned at unit speed.
+  it("Preferences header help carries matrix root testid + settings#preferences link (row 14)", async () => {
+    await renderSettings();
+    const root = screen.getByTestId("help-affordance--settings-preferences--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/settings#preferences",
+    );
+  });
+
+  it("renders all three notify-preference rows, bound to their own reads, above auto-publish (Task 6.3 + M12.13)", async () => {
     await renderSettings();
     const sync = screen.getByTestId("alert-on-sync-problems-setting-row");
     const digest = screen.getByTestId("daily-review-digest-setting-row");
+    const autoPub = screen.getByTestId("alert-on-auto-publish-setting-row");
     expect(sync.textContent).toMatch(/Alert me about sync problems/);
     expect(digest.textContent).toMatch(/Daily review digest/);
-    // Each row binds its own read: sync=on (true), digest=off (false).
-    expect(screen.getByTestId("alert-on-sync-problems-toggle").getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByTestId("daily-review-digest-toggle").getAttribute("aria-checked")).toBe("false");
-    // DOM order: both notify rows precede the auto-publish row.
-    const page = screen.getByTestId("admin-settings-page");
-    const rows = Array.from(page.querySelectorAll<HTMLElement>("[data-testid$='-setting-row']")).map(
-      (el) => el.getAttribute("data-testid"),
+    expect(autoPub.textContent).toMatch(/Email me when a show publishes itself/);
+    // Each row binds its own read: sync=on (true), digest=off (false), auto-publish=on (true).
+    expect(screen.getByTestId("alert-on-sync-problems-toggle").getAttribute("aria-checked")).toBe(
+      "true",
     );
+    expect(screen.getByTestId("daily-review-digest-toggle").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+    expect(screen.getByTestId("alert-on-auto-publish-toggle").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    // DOM order: all three notify rows precede the auto-publish (clean-show) row.
+    const page = screen.getByTestId("admin-settings-page");
+    const rows = Array.from(
+      page.querySelectorAll<HTMLElement>("[data-testid$='-setting-row']"),
+    ).map((el) => el.getAttribute("data-testid"));
     expect(rows.indexOf("alert-on-sync-problems-setting-row")).toBeLessThan(
       rows.indexOf("auto-publish-setting-row"),
     );
     expect(rows.indexOf("daily-review-digest-setting-row")).toBeLessThan(
+      rows.indexOf("auto-publish-setting-row"),
+    );
+    expect(rows.indexOf("alert-on-auto-publish-setting-row")).toBeLessThan(
       rows.indexOf("auto-publish-setting-row"),
     );
   });

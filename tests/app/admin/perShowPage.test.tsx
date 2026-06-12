@@ -5,7 +5,7 @@
 // quiet sync footer. Full async-page render with mocked data layer.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 const state = vi.hoisted(() => ({
   show: {} as Record<string, unknown>,
@@ -246,6 +246,21 @@ describe("per-show page (§6)", () => {
     expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
   });
 
+  // M12.12 follow-up — the "Open crew page →" arrow is decorative; aria-hiding
+  // it keeps it out of the accessible name. Failure mode caught: someone
+  // inlines the arrow back into the accessible name.
+  it("Open-crew-page accessible name drops the decorative → (aria-label), visible text keeps it", async () => {
+    await renderPage();
+    const link = screen.getByRole("link", { name: "Open crew page" });
+    expect(link).toHaveAttribute("data-testid", "admin-show-open-crew");
+    expect(link).toHaveAttribute("aria-label", "Open crew page");
+    // Visible text run stays UNSPLIT — splitting it drops the inline-flex
+    // inter-item space / shifts text-decoration paint (byte-level screenshot
+    // drift).
+    expect(link.textContent).toBe("Open crew page →");
+    expect(link.firstElementChild).toBeNull();
+  });
+
   it("crew-link surfaces hidden for archived show (incl archived+published drift)", async () => {
     state.show = { ...baseShow, archived: true, published: true };
     await renderPage();
@@ -399,6 +414,50 @@ describe("per-show page (§6)", () => {
     await renderPage();
     expect(screen.getByTestId("admin-resync-button")).toBeInTheDocument();
     expect(screen.queryByTestId("admin-show-resync-archived")).toBeNull();
+  });
+
+  // M12.12 matrix row 7 — failure mode caught: a footer redesign drops the
+  // HoverHelp (or its learnMore deep link) → the matrix root testid or the
+  // hidden help-link href vanishes; the drift surfaces at unit speed instead
+  // of via the e2e affordance walker.
+  it("sync footer help carries matrix root testid + sync-health deep link (row 7)", async () => {
+    await renderPage();
+    const footer = screen.getByTestId("admin-show-sync-footer");
+    const root = within(footer).getByTestId("help-affordance--per-show-sync-footer--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/per-show-panel#sync-health",
+    );
+  });
+
+  // M12.12 matrix row 9 — same drift class, Crew section header.
+  it("Crew header help carries matrix root testid + preview-as-crew link (row 9)", async () => {
+    await renderPage();
+    const crewCol = screen.getByTestId("per-show-crew-col");
+    const root = within(crewCol).getByTestId("help-affordance--per-show-crew--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/preview-as-crew",
+    );
+  });
+
+  // M12.12 follow-up — per-row "Preview as" links render only when
+  // published && !archived, so the Crew help body must not promise them
+  // unconditionally. Failure modes caught: (a) the copy reverts to the
+  // present-tense "Use a row's Preview as link" while an unpublished render
+  // contains no such link; (b) the publish-gated phrasing drifts out.
+  it("Crew help copy stays truthful for an unpublished show — publish-gated phrasing, no dangling promise", async () => {
+    state.show = { ...baseShow, published: false, archived: false };
+    await renderPage();
+    const crewCol = screen.getByTestId("per-show-crew-col");
+    // No per-row Preview as link in this state (live gate at page.tsx)…
+    expect(within(crewCol).queryByTestId("admin-show-preview-as-link-c1")).toBeNull();
+    // …so the help copy must scope the promise to the published state —
+    // including published-then-archived (published stays true after archive;
+    // the render gate is published && !archived).
+    const body = within(crewCol).getByTestId("per-show-crew-help-body");
+    expect(body.textContent).toMatch(/once the show is published \(and not archived\)/i);
+    expect(body.textContent).not.toMatch(/use a row/i);
   });
 
   it("sync footer keeps plain 'Last synced {rel}' for ok status (no redundant label)", async () => {

@@ -56,7 +56,8 @@
  *       collapsed infra → benign" — the existing row in this file fails.
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 const infraMock = vi.hoisted(() => ({
   // When `throwOnConstruct` is true, createSupabaseServerClient throws.
@@ -68,6 +69,12 @@ const infraMock = vi.hoisted(() => ({
   throwOnGetUser: false,
   throwOnRpc: false,
   throwOnFrom: false,
+  // When non-null, the returned client's auth.getUser RESOLVES with
+  // { data: { user: null }, error: <this object> } — exercises the
+  // returned-error (not thrown) Supabase boundary so behavioral rows
+  // can pin returned-missing vs returned-non-missing classification
+  // (root-landing spec §4.1.3).
+  getUserReturnedError: null as null | Record<string, unknown>,
 }));
 
 function makeThrowingClient() {
@@ -76,6 +83,9 @@ function makeThrowingClient() {
       getUser: async () => {
         if (infraMock.throwOnGetUser) {
           throw new Error("META: simulated getUser infrastructure fault");
+        }
+        if (infraMock.getUserReturnedError !== null) {
+          return { data: { user: null }, error: infraMock.getUserReturnedError };
         }
         return { data: { user: null }, error: null };
       },
@@ -127,25 +137,30 @@ beforeEach(() => {
   infraMock.throwOnGetUser = false;
   infraMock.throwOnRpc = false;
   infraMock.throwOnFrom = false;
+  infraMock.getUserReturnedError = null;
 });
 
 const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
+  "app/api/auth/google/start/route.ts",
   "app/api/auth/picker-bootstrap/route.ts",
   "app/api/show/[slug]/version/route.ts",
   "app/auth/callback/route.ts",
+  "app/auth/sign-in/page.tsx",
   "app/auth/sign-out/route.ts",
   "lib/auth/picker/resolvePickerSelection.ts",
   "lib/auth/picker/resetPickerEpoch.ts",
+  "lib/auth/picker/resolveShowPageAccess.ts",
   "lib/auth/picker/rotateShareToken.ts",
   "lib/auth/picker/selectIdentity.ts",
 ] as const;
 
-const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE =
-  /\bcreateSupabase(?:ServiceRole|Server)Client\s*\(/;
+const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE = /\bcreateSupabase(?:ServiceRole|Server)Client\s*\(/;
 
 function braceDelta(line: string): number {
   const withoutLineComment = line.replace(/\/\/.*$/, "");
-  return (withoutLineComment.match(/\{/g) ?? []).length - (withoutLineComment.match(/\}/g) ?? []).length;
+  return (
+    (withoutLineComment.match(/\{/g) ?? []).length - (withoutLineComment.match(/\}/g) ?? []).length
+  );
 }
 
 function supabaseConstructorCallsOutsideTry(source: string): Array<{ line: number; text: string }> {
@@ -177,14 +192,22 @@ describe("META infra-failure contract", () => {
   describe("R41 Supabase boundary source registry", () => {
     test("picker-bootstrap destructures both RPC boundaries", () => {
       const source = readFileSync("app/api/auth/picker-bootstrap/route.ts", "utf8");
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/);
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/);
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/,
+      );
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/,
+      );
     });
 
     test("OAuth callback destructures getUser and claim_oauth_identity RPC", () => {
       const source = readFileSync("app/auth/callback/route.ts", "utf8");
-      expect(source).toMatch(/const\s+\{\s*data:\s*userResult,\s*error:\s*getUserError\s*\}\s*=\s*await\s+supabase\.auth\.getUser\(\)/);
-      expect(source).toMatch(/const\s+\{\s*data:\s*result,\s*error:\s*rpcError\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/);
+      expect(source).toMatch(
+        /const\s+\{\s*data:\s*userResult,\s*error:\s*getUserError\s*\}\s*=\s*await\s+supabase\.auth\.getUser\(\)/,
+      );
+      expect(source).toMatch(
+        /const\s+\{\s*data:\s*result,\s*error:\s*rpcError\s*\}\s*=\s*await\s+serviceRole\.rpc\("claim_oauth_identity"/,
+      );
     });
 
     test("sign-out destructures signOut returned-error", () => {
@@ -192,10 +215,21 @@ describe("META infra-failure contract", () => {
       expect(source).toMatch(/const\s+\{\s*error\s*\}\s*=\s*await\s+supabase\.auth\.signOut\(\)/);
     });
 
+    test("resolveShowPageAccess destructures the resolve_show_by_slug_and_token RPC boundary", () => {
+      const source = readFileSync("lib/auth/picker/resolveShowPageAccess.ts", "utf8");
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+serviceRole\.rpc\("resolve_show_by_slug_and_token"/,
+      );
+    });
+
     test("resolvePickerSelection destructures auth_email_canonical and crew email lookup", () => {
       const source = readFileSync("lib/auth/picker/resolvePickerSelection.ts", "utf8");
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+authClient\.rpc\("auth_email_canonical"\)/);
-      expect(source).toMatch(/const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("crew_members"\)[\s\S]*?\.select\("email"\)/);
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*await\s+authClient\.rpc\("auth_email_canonical"\)/,
+      );
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("crew_members"\)[\s\S]*?\.select\("email"\)/,
+      );
     });
 
     test("registered Supabase client constructors are inside try blocks", () => {
@@ -208,6 +242,54 @@ describe("META infra-failure contract", () => {
       });
 
       expect(violations).toEqual([]);
+    });
+
+    // 2026-06-11 bug-audit: the registry was a fixed file list with no orphan
+    // detection, so lib/auth/picker/resolveShowPageAccess.ts shipped Supabase
+    // constructor calls without being registered (or waivered) and CI stayed
+    // green — exactly the "meta-tests must walk every file in the relevant
+    // subtree, not lexically scan a named file list" class from AGENTS.md.
+    // This layer walks the auth domain this meta-test owns and requires every
+    // constructor call site to be EITHER in SUPABASE_CONSTRUCTOR_CONTRACT_FILES,
+    // covered by a behavioral describe below (BEHAVIORAL_CONTRACT_FILES), or
+    // carry an inline `// not-subject-to-meta: <reason>` waiver per AGENTS.md
+    // invariant 9. Sibling domains (lib/notify, lib/sync, ...) are owned by
+    // their own registry-style meta-tests.
+    test("every auth-domain Supabase constructor call site is registered, behaviorally covered, or waivered", () => {
+      const AUTH_DOMAIN_ROOTS = ["lib/auth", "app/auth", "app/api/auth", "app/api/show"];
+      // Helpers exercised by the behavioral describes in this file rather
+      // than the source-scan registry.
+      const BEHAVIORAL_CONTRACT_FILES = new Set([
+        "lib/auth/isAdminSession.ts",
+        "lib/auth/validateGoogleIdentity.ts",
+        "lib/auth/validateGoogleSession.ts",
+        "lib/auth/requireAdmin.ts",
+      ]);
+
+      const walk = (dir: string, out: string[] = []): string[] => {
+        for (const entry of readdirSync(dir)) {
+          const full = join(dir, entry);
+          if (statSync(full).isDirectory()) walk(full, out);
+          else if (/\.(ts|tsx)$/.test(full)) out.push(full);
+        }
+        return out;
+      };
+
+      const registered = new Set<string>(SUPABASE_CONSTRUCTOR_CONTRACT_FILES);
+      const orphans = AUTH_DOMAIN_ROOTS.flatMap((root) => walk(root)).filter((file) => {
+        const source = readFileSync(file, "utf8");
+        if (!SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE.test(source)) return false;
+        if (registered.has(file) || BEHAVIORAL_CONTRACT_FILES.has(file)) return false;
+        return !source.includes("// not-subject-to-meta:");
+      });
+
+      expect(
+        orphans,
+        `Unregistered Supabase constructor call sites in the auth domain:\n${orphans.join("\n")}\n` +
+          "Add the file to SUPABASE_CONSTRUCTOR_CONTRACT_FILES (plus a destructuring " +
+          "assertion if it adds new RPC boundaries), cover it with a behavioral " +
+          "describe, or add an inline `// not-subject-to-meta: <reason>` waiver.",
+      ).toEqual([]);
     });
   });
 
@@ -334,9 +416,7 @@ describe("META infra-failure contract", () => {
   describe("lib/data/adminEmails", () => {
     test("listAdminEmails: server-client construction throw → AdminEmailsInfraError", async () => {
       infraMock.throwOnConstruct = true;
-      const { listAdminEmails, AdminEmailsInfraError } = await import(
-        "@/lib/data/adminEmails"
-      );
+      const { listAdminEmails, AdminEmailsInfraError } = await import("@/lib/data/adminEmails");
       await expect(listAdminEmails()).rejects.toBeInstanceOf(AdminEmailsInfraError);
     });
 
@@ -350,9 +430,7 @@ describe("META infra-failure contract", () => {
 
     test("revokeAdminEmail: from() throw → AdminEmailsInfraError", async () => {
       infraMock.throwOnFrom = true;
-      const { revokeAdminEmail, AdminEmailsInfraError } = await import(
-        "@/lib/data/adminEmails"
-      );
+      const { revokeAdminEmail, AdminEmailsInfraError } = await import("@/lib/data/adminEmails");
       await expect(
         revokeAdminEmail({
           rawEmail: "infra-test@example.com",
@@ -362,5 +440,4 @@ describe("META infra-failure contract", () => {
       ).rejects.toBeInstanceOf(AdminEmailsInfraError);
     });
   });
-
 });

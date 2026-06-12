@@ -19,11 +19,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronRight, ChevronsUpDown, Search } from "lucide-react";
-import {
-  formatDateRange,
-  formatRelative,
-  type ActiveShowRow,
-} from "@/components/admin/ActiveShowsPanel";
+import { formatDateRange, formatRelative, type ActiveShowRow } from "@/lib/admin/showDisplay";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
@@ -233,7 +229,12 @@ export function ShowsTable({
           >
             {activeCount}
           </span>
-          <HoverHelp label="Help: Active shows" testId="shows-help">
+          <HoverHelp
+            label="Help: Active shows"
+            testId="shows-help"
+            rootTestId="help-affordance--dashboard-active-shows--tooltip"
+            learnMore={{ href: "/help/admin/dashboard#active-shows" }}
+          >
             <p>
               Shows that are live or still in flight: everything not archived. The count is the
               total on your account, even if the list below is capped.
@@ -391,6 +392,32 @@ export function ShowsTable({
           </ul>
         </div>
       )}
+
+      {/* M12.12 row 4 — restage legend. Keyed on `visible` (the SAME post-Find,
+          post-sort array the rows .map over), NEVER the unfiltered `rows` input:
+          zero rows → no legend; rows visible but none in the review bucket → no
+          legend; a Find query hiding every review row → no legend. Appears and
+          disappears INSTANTLY — no animation wrapper, no animation classes; a
+          bucket switch while Find is non-empty recomputes from the new visible
+          set, still instant. */}
+      {visible.some((r) => syncStatusBucket(r.lastSyncStatus).bucket === "review") ? (
+        <p className="text-sm text-text-subtle">
+          <span aria-hidden="true">⚠ </span>
+          <span className="font-semibold text-text-strong">Changes to review</span> means a sheet
+          edit is staged and waiting for your approval.{" "}
+          {/* aria-label drops the decorative "→" from the accessible name
+              without splitting the text run (text-run splits shift
+              text-decoration paint — byte-level screenshot drift). */}
+          <Link
+            href="/help/admin/review-queues#re-stage"
+            aria-label="What the sync statuses mean"
+            data-testid="help-affordance--dashboard-restage--legend"
+            className="font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+          >
+            What the sync statuses mean →
+          </Link>
+        </p>
+      ) : null}
     </div>
   );
 }

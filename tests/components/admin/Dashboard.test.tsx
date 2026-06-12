@@ -5,7 +5,7 @@
 // NOT stretch — DESIGN §7). The infra_error path renders the existing error main.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 const state = vi.hoisted(() => ({ throwOnConstruct: false }));
 // Mobile needs-attention Task 7 (R6-F1) — when set, loadNeedsAttention returns
@@ -67,9 +67,9 @@ afterEach(() => {
   vi.resetModules();
 });
 
-async function renderDashboard() {
+async function renderDashboard(options: { bucket?: "active" | "archived" } = {}) {
   const { Dashboard } = await import("@/components/admin/Dashboard");
-  render(await Dashboard());
+  render(await Dashboard(options));
 }
 
 describe("Dashboard composition", () => {
@@ -99,6 +99,27 @@ describe("Dashboard composition", () => {
     await renderDashboard();
     expect(screen.getByTestId("needs-attention-count-chip")).toBeInTheDocument();
     expect(screen.getByTestId("needs-attention-help-trigger")).toBeInTheDocument();
+  });
+
+  // M12.12 matrix rows 2 + 5 — failure mode caught: a redesign drops either
+  // header's HoverHelp → the matrix root testid vanishes (the M12.x drift
+  // class, caught at unit speed instead of by the help-MDX crosswalk gate).
+  it("desktop needs-attention header help carries matrix root testid + first-seen link", async () => {
+    await renderDashboard();
+    const root = screen.getByTestId("help-affordance--dashboard-needs-attention--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/review-queues#first-seen",
+    );
+  });
+
+  it("archived header help carries matrix root testid + archived link (archived bucket only)", async () => {
+    await renderDashboard({ bucket: "archived" });
+    const root = screen.getByTestId("help-affordance--dashboard-archived-shows--tooltip");
+    expect(within(root).getByRole("link", { hidden: true })).toHaveAttribute(
+      "href",
+      "/help/admin/dashboard#archived",
+    );
   });
 
   it("summary card renders loader-derived stream totals, not the rendered subset (R6-F1)", async () => {
@@ -166,5 +187,19 @@ describe("Dashboard composition", () => {
     await renderDashboard();
     expect(screen.getByTestId("admin-dashboard-infra-error")).toBeInTheDocument();
     expect(screen.queryByTestId("stat-strip")).toBeNull();
+  });
+
+  // B1-D3 (M12.2 DEFERRED) — the infra-error branch renders BELOW the shared
+  // <AdminPageHeader title="Dashboard"> in app/admin/page.tsx, so it must not
+  // carry its own "Admin" eyebrow chrome: two stacked header blocks otherwise.
+  // Failure mode caught: someone re-adds page-level chrome to the error branch
+  // and the infra-fault page regresses to a doubled header.
+  it("B1-D3: infra_error branch carries no 'Admin' eyebrow (single header under AdminPageHeader)", async () => {
+    state.throwOnConstruct = true;
+    await renderDashboard();
+    const errorMain = screen.getByTestId("admin-dashboard-infra-error");
+    expect(within(errorMain).queryByText(/^admin$/i)).toBeNull();
+    // The error message itself still renders — content, not chrome.
+    expect(within(errorMain).getByText(/we could not load your dashboard/i)).toBeInTheDocument();
   });
 });

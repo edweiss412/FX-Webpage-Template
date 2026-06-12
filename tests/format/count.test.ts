@@ -12,6 +12,12 @@ describe("formatBoundedCount", () => {
     expect(formatBoundedCount(100)).toBe("99+");
     expect(formatBoundedCount(250)).toBe("99+");
   });
+  test("adjacent boundary sweep 98/99/100/101 — pins the v < 100 threshold (fails if < drifts to <= or the cap moves)", () => {
+    expect(formatBoundedCount(98)).toBe("98");
+    expect(formatBoundedCount(99)).toBe("99");
+    expect(formatBoundedCount(100)).toBe("99+");
+    expect(formatBoundedCount(101)).toBe("99+");
+  });
   test("defensive on bad input (negative / NaN / non-finite)", () => {
     expect(formatBoundedCount(-5)).toBe("0");
     expect(formatBoundedCount(Number.NaN)).toBe("0");

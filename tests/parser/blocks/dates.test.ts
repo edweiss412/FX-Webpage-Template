@@ -297,3 +297,47 @@ describe("parseDates — v1 SHOW rows reject calendar-invalid dates", () => {
     expect(d.showDays).toContain("2025-04-30");
   });
 });
+
+// ── Edge case: duplicate show days (pin dedupe + sort) ────────────────────────
+//
+// PINS current behavior:
+//   v1 path  — extractAllDates pulls every date match from ONE row's value cell;
+//              parseV1Dates dedupes via showDays.includes() (dates.ts:142-148)
+//              and sorts ascending at dates.ts:151.
+//   v2/v4 path — each SHOW DAY row contributes one date; duplicates dropped via
+//              includes() (dates.ts:207-213) and sorted at dates.ts:236.
+describe("parseDates — duplicate showDays (edge-case pin)", () => {
+  it("v1: one Show row listing the same date twice yields a single deduped entry", () => {
+    // Value cell contains 5/21/24 twice (range start + restated) plus 5/22/24.
+    const md = [
+      "| DATES | |",
+      "| :---: | :---: |",
+      "| Travel | 5/19/24 |",
+      "| Set | 5/20/24 |",
+      "| Show | 5/21/24 - 5/22/24 & 5/21/24 |",
+      "| Travel | 5/23/24 |",
+    ].join("\n");
+    const d = parseDates(md, "v1");
+    // Exactly two unique show days — the repeated 5/21/24 collapses to one.
+    expect(d.showDays).toEqual(["2024-05-21", "2024-05-22"]);
+  });
+
+  it("v2/v4: duplicate SHOW DAY rows collapse and out-of-order dates sort ascending", () => {
+    // SHOW DAY 1 carries the LATER date and SHOW DAY 2/3 both carry 3/24/26 —
+    // pins that output order comes from the sort, not row order, and that the
+    // duplicate row is dropped.
+    const md = [
+      "| DATES |  |  |  |  |",
+      "| :-: | :-: | :-: | :-: | :-: |",
+      "|  | SET |  | 3/23/26 |  |",
+      "|  | SHOW DAY 1 |  | 3/25/26 |  |",
+      "|  | SHOW DAY 2 |  | 3/24/26 |  |",
+      "|  | SHOW DAY 3 |  | 3/24/26 |  |",
+      "|  | TRAVEL OUT |  | 3/26/26 |  |",
+    ].join("\n");
+    const d = parseDates(md, "v4");
+    expect(d.showDays).toEqual(["2026-03-24", "2026-03-25"]);
+    expect(d.set).toBe("2026-03-23");
+    expect(d.travelOut).toBe("2026-03-26");
+  });
+});

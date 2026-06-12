@@ -23,9 +23,18 @@
  *     open/close timer, so the pointer can move from the trigger onto the body
  *     without it disappearing (1.4.13 Hoverable). A small close delay bridges the
  *     6px trigger→body gap.
- *   - SCREEN READERS — the body has a useId() id; every trigger sets
- *     `aria-describedby` to it; the body stays in the DOM (visually hidden when
- *     closed) so the description always resolves.
+ *   - SCREEN READERS — the body has a useId() id and stays in the DOM (visually
+ *     hidden when closed) so the description always resolves. Two modes:
+ *       · DEFAULT (no learnMore) — body is role="tooltip"; the trigger sets
+ *         `aria-describedby` to the body id (unchanged M12.5 contract).
+ *       · LEARN-MORE DISCLOSURE (M12.12) — a tooltip role must not contain
+ *         interactive content, so when `learnMore` is set the body DROPS
+ *         role="tooltip" and becomes a disclosure: the trigger (already
+ *         aria-expanded) gains `aria-controls` pointing at the body, and
+ *         `aria-describedby` narrows to a children-only inner wrapper so the
+ *         "Learn more →" link text is EXCLUDED from the SR description. The
+ *         link renders after the children and is reachable via Tab when the
+ *         popover is open.
  *   - 44px TAP TARGET — the "?" keeps a 20px visual with a transparent
  *     `before:-inset-3` overlay (44px hit area); custom triggers get
  *     min-h/w-tap-min.
@@ -45,6 +54,8 @@ export function HoverHelp({
   trigger,
   align = "left",
   testId = "hover-help",
+  rootTestId,
+  learnMore,
 }: {
   /** Accessible name for the trigger (e.g., "Help: Active shows"). */
   label: string;
@@ -56,9 +67,20 @@ export function HoverHelp({
   align?: "left" | "right";
   /** Test id root; trigger gets `-trigger`, body gets `-body`. */
   testId?: string;
+  /** M12.12 affordance-matrix test id on the root wrapper (e2e walker hook). */
+  rootTestId?: string;
+  /**
+   * Optional "Learn more →" link rendered AFTER the children. A tooltip role
+   * must not contain interactive content, so when set the body drops
+   * role="tooltip" and becomes a disclosure: the trigger (already
+   * aria-expanded) gains aria-controls, and aria-describedby narrows to the
+   * children-only wrapper so the link text is excluded from the SR description.
+   */
+  learnMore?: { href: string };
 }) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
+  const descId = useId();
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearCloseTimer = () => {
@@ -105,7 +127,10 @@ export function HoverHelp({
     "data-testid": `${testId}-trigger`,
     "aria-label": label,
     "aria-expanded": open,
-    "aria-describedby": bodyId,
+    // With learnMore the description narrows to the children-only wrapper so
+    // the interactive link is excluded; no-learnMore instances are unchanged.
+    "aria-describedby": learnMore ? descId : bodyId,
+    "aria-controls": learnMore ? bodyId : undefined,
     onClick: () => {
       clearCloseTimer();
       setOpen((o) => !o);
@@ -113,8 +138,12 @@ export function HoverHelp({
   };
 
   return (
-    <span
+    // div (not span): the body below is a div — a span root containing a div
+    // would itself be invalid HTML (spec §4.1 R6). Layout-identical: display
+    // comes from the inline-flex class.
+    <div
       className="relative inline-flex"
+      data-testid={rootTestId}
       onPointerEnter={onMouseEnter}
       onPointerLeave={onMouseLeave}
     >
@@ -139,9 +168,9 @@ export function HoverHelp({
       {/* Body stays in the DOM (so aria-describedby always resolves); visually
           hidden until open. Hoverable while open (pointer-events-auto + shares the
           open/close timer) so the pointer can move onto it — 1.4.13 Hoverable. */}
-      <span
+      <div
         id={bodyId}
-        role="tooltip"
+        role={learnMore ? undefined : "tooltip"}
         data-testid={`${testId}-body`}
         onPointerEnter={openNow}
         onPointerLeave={scheduleClose}
@@ -149,8 +178,27 @@ export function HoverHelp({
           open ? "visible opacity-100" : "pointer-events-none invisible opacity-0"
         } ${align === "right" ? "right-0" : "left-0"}`}
       >
-        {children}
-      </span>
-    </span>
+        <div id={descId}>{children}</div>
+        {learnMore ? (
+          // M12.12 follow-up: aria-label keeps the decorative "→" out of the
+          // accessible name. An aria-hidden <span> around the glyph was tried
+          // first but splitting the text run shifts text-decoration paint
+          // (byte-level screenshot drift, PR #25 R1/R2) — aria-label changes
+          // no rendered pixel. Context-specific per WCAG 2.4.4, derived from
+          // the trigger label ("Help: Active shows" → "Learn more about
+          // active shows") — the HelpAffordance "Learn more: <title>" pattern.
+          <a
+            href={learnMore.href}
+            aria-label={`Learn more about ${(() => {
+              const topic = label.startsWith("Help: ") ? label.slice("Help: ".length) : label;
+              return topic.charAt(0).toLowerCase() + topic.slice(1);
+            })()}`}
+            className="mt-2 inline-block text-xs font-semibold text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+          >
+            Learn more →
+          </a>
+        ) : null}
+      </div>
+    </div>
   );
 }

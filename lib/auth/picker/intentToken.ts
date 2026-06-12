@@ -63,6 +63,9 @@ export function verifyPickerIntent(
   }
 
   if (!isPayload(parsed)) return null;
+  // Expiry contract (pinned by tests/auth/picker/intentToken.test.ts):
+  // strictly-less-than, so a token whose exp EQUALS nowSeconds is still
+  // valid — the token lives through its exp second inclusive.
   if (parsed.exp < nowSeconds) return null;
   return parsed;
 }

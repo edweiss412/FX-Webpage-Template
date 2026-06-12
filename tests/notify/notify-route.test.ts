@@ -117,4 +117,107 @@ describe("notify cron route", () => {
 
     expect(response.status).toBe(200);
   });
+
+  // -------------------------------------------------------------------------
+  // M12.13 §4.2 R27/R28 — statusFor matrix for recorded toggle faults. ANY
+  // recorded toggle infra source (delivery-side partial per-kind fault OR a
+  // maintenance-side reconciliation fault) must surface 5xx so pg_cron sees
+  // the degradation; deliberate toggle-OFF skips remain 200.
+  // -------------------------------------------------------------------------
+
+  test("returns 500 when an otherwise-ok delivery RECORDED a per-kind toggle fault (R27)", async () => {
+    const result = {
+      kind: "ok" as const,
+      maintenance: [{ step: "stall" as const, result: { kind: "ok" as const } }],
+      delivery: { kind: "ok" as const, sent: 2, toggleFaults: ["getAlertOnAutoPublish"] },
+    };
+    runRealtimeNotifyMock.mockResolvedValue(result);
+
+    const response = await GET(request("realtime"));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual(result);
+  });
+
+  test("returns 500 when a skipped delivery carries a recorded toggle fault (off + fault mix)", async () => {
+    const result = {
+      kind: "ok" as const,
+      maintenance: [{ step: "stall" as const, result: { kind: "ok" as const } }],
+      delivery: {
+        kind: "skipped" as const,
+        reason: "alert_on_sync_problems_off",
+        toggleFaults: ["getAlertOnAutoPublish"],
+      },
+    };
+    runRealtimeNotifyMock.mockResolvedValue(result);
+
+    const response = await GET(request("realtime"));
+
+    expect(response.status).toBe(500);
+  });
+
+  test("deliberate toggle-OFF skips (single and combined reasons) stay 200 — OFF is not a fault", async () => {
+    for (const reason of [
+      "alert_on_sync_problems_off",
+      "alert_on_auto_publish_off",
+      "alert_on_sync_problems_off+alert_on_auto_publish_off",
+    ]) {
+      runRealtimeNotifyMock.mockResolvedValue({
+        kind: "ok" as const,
+        maintenance: [{ step: "stall" as const, result: { kind: "ok" as const } }],
+        delivery: { kind: "skipped" as const, reason },
+      });
+
+      const response = await GET(request("realtime"));
+
+      expect(response.status).toBe(200);
+    }
+  });
+
+  test("returns 500 when the MAINTENANCE emailDelivery step records toggle faults as infra_error detail (R28)", async () => {
+    const result = {
+      kind: "ok" as const,
+      maintenance: [
+        { step: "stall" as const, result: { kind: "ok" as const } },
+        {
+          step: "emailDelivery" as const,
+          result: {
+            kind: "infra_error" as const,
+            toggleFaults: ["getAlertOnSyncProblems"],
+            detail: { opened: 0, resolved: 1 },
+          },
+        },
+      ],
+      delivery: { kind: "ok" as const, sent: 0 },
+    };
+    runRealtimeNotifyMock.mockResolvedValue(result);
+
+    const response = await GET(request("realtime"));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual(result);
+  });
+
+  test("returns 500 for a maintenance step carrying recorded toggleFaults even with a non-fault kind (mechanism pin)", async () => {
+    const result = {
+      kind: "ok" as const,
+      maintenance: [
+        {
+          step: "emailDelivery" as const,
+          result: {
+            kind: "ok" as const,
+            opened: 0,
+            resolved: 0,
+            toggleFaults: ["getAlertOnAutoPublish"],
+          },
+        },
+      ],
+      delivery: { kind: "ok" as const, sent: 0 },
+    };
+    runRealtimeNotifyMock.mockResolvedValue(result);
+
+    const response = await GET(request("realtime"));
+
+    expect(response.status).toBe(500);
+  });
 });

@@ -1,0 +1,74 @@
+name: Help affordances (deep-link walker)
+on:
+  pull_request:
+    paths:
+      - "components/admin/**"
+      - "app/admin/**"
+      - "app/help/**"
+      - "lib/messages/**"
+      - "lib/admin/**"
+      - "tests/e2e/**"
+      - "playwright.config.ts"
+      - "scripts/ci/**"
+      - "supabase/migrations/**"
+      - "supabase/seed.ts"
+      - "supabase/seedWalkerFixtures.ts"
+      - ".github/workflows/help-affordances.yml"
+  workflow_dispatch:
+
+jobs:
+  deep-link-walker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Install psql (db:seed shells out via execFileSync("psql", ...))
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Boot local Supabase (guarded migrations)
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      # webkit as well as chromium: the help-docs project spreads
+      # devices["iPhone 14"], whose defaultBrowserType is webkit; the
+      # help-docs-setup / help-docs-desktop projects run chromium.
+      - run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Run walker (mobile + desktop)
+        env:
+          # help-docs-setup.ts asserts these in the TEST-RUNNER process —
+          # the webServer.env in playwright.config.ts only reaches the Next
+          # server process, NOT the Playwright workers.
+          ENABLE_TEST_AUTH: "true"
+          TEST_AUTH_SECRET: "test-secret-fixture"
+          # playwright test boots EVERY webServer entry in the default
+          # config (ports 3000-3004), not just the 3004 one the walker
+          # projects use. The 3000/3001/3002/3003 builds read
+          # HASH_FOR_LOG_PEPPER at module evaluation (R41 PII-hash
+          # contract) and only the 3004 entry carries an inline fallback —
+          # locally .env.local supplies the rest; bare CI runners must get
+          # it here so every child build inherits it (real-CI round 2).
+          HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
+          # Boot ONLY the :3004 webServer (the walker projects' sole target).
+          # Without this, playwright cold-builds all five servers in parallel
+          # and the with-admin-dev-flag wrapper's hold-aside window races the
+          # other builds' type-checks (real-CI round 3).
+          HELP_DOCS_WALKER_ONLY: "1"
+        run: pnpm exec playwright test --project=help-docs-setup --project=help-docs --project=help-docs-desktop
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: help-affordances-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

@@ -139,6 +139,53 @@ describe("message catalog", () => {
     });
   });
 
+  // 2026-06-11 bug-audit sweep: spec-authoring annotations ("(admin_alerts
+  // banner)") and stray outer quotes leaked from §12.4 cells into rendered
+  // copy on two rows, and three rows carried mismatched placeholder wrappers
+  // (`*<minutes>_`, `_<sheet-name>*`, `_<sheet-name>\*`). ErrorExplainer and
+  // AlertBanner render copy verbatim (plain text, no markdown), so any of
+  // these reach the user literally. Sweep every code, both surfaces.
+  //
+  // Allowed wrapper styles are SYMMETRIC pairs only — `_<x>_`, `*<x>*`,
+  // `` `<x>` `` all ship today as deliberate (if literal) emphasis styles;
+  // this test does not relitigate style, it pins out typos.
+  //
+  // DIAGRAMS_EMBEDDED_NONE_FOUND is allowlisted: its §12.4 cell documents two
+  // scenario variants with "(first-seen)"/"(existing show...)" annotations,
+  // and its dougFacing is never rendered — the UI surface for that code is
+  // StagedReviewCard's own copy (components/admin/StagedReviewCard.tsx:178)
+  // and the parser warning text (lib/sync/enrichWithDrivePins.ts:134). If a
+  // renderer ever consumes this dougFacing, split the variants first.
+  test("no rendered copy carries spec-authoring annotations, wrapping quotes, or mismatched placeholder wrappers", () => {
+    const UNRENDERED_SCENARIO_VARIANT_ROWS = new Set(["DIAGRAMS_EMBEDDED_NONE_FOUND"]);
+    const SYMMETRIC_WRAPPERS = new Set(["_", "*", "`"]);
+    const offenders: string[] = [];
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      if (UNRENDERED_SCENARIO_VARIANT_ROWS.has(code)) continue;
+      for (const surface of ["dougFacing", "crewFacing"] as const) {
+        const copy = entry[surface];
+        if (copy === null) continue;
+        if (/\(admin_alerts[^)]*\)/.test(copy)) {
+          offenders.push(`${code}.${surface}: spec-authoring annotation in copy`);
+        }
+        if (copy.startsWith('"') && copy.endsWith('"')) {
+          offenders.push(`${code}.${surface}: literal wrapping quotes around entire copy`);
+        }
+        // Placeholder wrappers must be a symmetric pair from the allowed set;
+        // anything else abutting `<token>` is a typo (e.g. `*<minutes>_`).
+        for (const match of copy.matchAll(/(.)?<([a-zA-Z][a-zA-Z0-9_-]*)>(.)?/g)) {
+          const [, before, token, after] = match;
+          const symmetric =
+            before !== undefined && before === after && SYMMETRIC_WRAPPERS.has(before);
+          if (!symmetric) {
+            offenders.push(`${code}.${surface}: mismatched placeholder wrapper around <${token}>`);
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   test("AGENDA_UNAUTHENTICATED carries the ratified §12.4 amendment copy", () => {
     expect(messageFor("AGENDA_UNAUTHENTICATED")).toMatchObject({
       code: "AGENDA_UNAUTHENTICATED",

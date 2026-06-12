@@ -62,6 +62,13 @@ const lockHolderRegistry = [
     key: "hashtext('show:' || drive_file_id)",
   },
   {
+    path: "lib/sync/unpublishShow.ts",
+    holder: "unpublishShowViaEmailedLink",
+    layer:
+      "mirrors unpublishShow's topology — slug bootstrap read, then ONE withShowLock holder; the FOR-SHARE recipient-binding re-validation runs inside that same holder (no new lock layer); unpublishShowViaEmailedLink_unlocked never locks",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "lib/onboarding/sessionLifecycle.ts",
     holder: "cleanupAbandonedFinalize",
     layer:

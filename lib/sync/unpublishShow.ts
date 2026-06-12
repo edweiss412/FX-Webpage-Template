@@ -5,6 +5,7 @@ import {
   type LockedShowTx,
   withShowLock,
 } from "@/lib/sync/lockedShowTx";
+import { bindingMatchesActiveAdmin, mintIdFor } from "@/lib/sync/unpublishBinding";
 
 export const UNPUBLISH_TOKEN_CONSUMED = "UNPUBLISH_TOKEN_CONSUMED" as const;
 export const UNPUBLISH_TOKEN_EXPIRED = "UNPUBLISH_TOKEN_EXPIRED" as const;
@@ -22,6 +23,12 @@ export type UnpublishShowRow = {
 
 export type UnpublishShowTx = LockableSyncTx & {
   readShowForUnpublish(slug: string): Promise<UnpublishShowRow | null>;
+  /**
+   * M12.13 spec §3: unrevoked admin_emails read `FOR SHARE` inside the locked
+   * transaction — a concurrent revocation UPDATE blocks against this read (or
+   * vice versa), so revoked-before-consume recipients NEVER consume.
+   */
+  readActiveAdminEmailsForShare(): Promise<Array<{ email: string }>>;
   clearUnpublishToken(showId: string): Promise<void>;
   archiveAndConsumeUnpublishToken(showId: string, token: string): Promise<boolean>;
   upsertAdminAlert(input: {
@@ -42,6 +49,11 @@ export type UnpublishShowArgs = {
   slug: string;
   token: string;
   now?: Date;
+};
+
+export type UnpublishShowViaEmailedLinkArgs = UnpublishShowArgs & {
+  /** Recipient binding from the emailed link (lib/sync/unpublishBinding.ts). */
+  r: string;
 };
 
 type PostgresTransaction = {
@@ -108,6 +120,17 @@ class PostgresUnpublishTx implements UnpublishShowTx {
     };
   }
 
+  async readActiveAdminEmailsForShare(): Promise<Array<{ email: string }>> {
+    return await this.rows<{ email: string }>(
+      `
+        select email
+          from public.admin_emails
+         where revoked_at is null
+           for share
+      `,
+    );
+  }
+
   async clearUnpublishToken(showId: string): Promise<void> {
     await this.rows(
       `
@@ -151,9 +174,18 @@ class PostgresUnpublishTx implements UnpublishShowTx {
       `,
       [showId],
     );
-    await this.rows("delete from public.pending_syncs      where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
-    await this.rows("delete from public.pending_ingestions where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
-    await this.rows("delete from public.deferred_ingestions where drive_file_id = $1 and wizard_session_id is null", [row.drive_file_id]);
+    await this.rows(
+      "delete from public.pending_syncs      where drive_file_id = $1 and wizard_session_id is null",
+      [row.drive_file_id],
+    );
+    await this.rows(
+      "delete from public.pending_ingestions where drive_file_id = $1 and wizard_session_id is null",
+      [row.drive_file_id],
+    );
+    await this.rows(
+      "delete from public.deferred_ingestions where drive_file_id = $1 and wizard_session_id is null",
+      [row.drive_file_id],
+    );
     return true;
   }
 
@@ -180,24 +212,19 @@ function isExpired(expiresAt: string, now: Date): boolean {
   return expiresMs < now.getTime();
 }
 
-export async function unpublishShow_unlocked(
+/**
+ * Shared compare/expiry/consume semantics (M12.13 Task 3 refactor — single
+ * source for both the in-app path and the emailed-link wrapper; the wrapper
+ * reaches this ONLY after the recipient binding validated). Requires the
+ * caller to have read the show under the held lock and to have handled the
+ * null-token state already (the two paths diverge there: in-app → CONSUMED,
+ * public emailed link → neutral, spec §3 R19).
+ */
+async function compareExpireConsume_lockHeld(
   tx: LockedShowTx<UnpublishShowTx>,
+  show: UnpublishShowRow & { unpublishToken: string; unpublishTokenExpiresAt: string },
   args: UnpublishShowArgs,
 ): Promise<UnpublishShowResult> {
-  const show = await tx.readShowForUnpublish(args.slug);
-  if (!show) return { outcome: "not_found", status: 404 };
-
-  await assertShowLockHeld(tx, show.driveFileId);
-
-  if (!show.unpublishToken || !show.unpublishTokenExpiresAt) {
-    return {
-      outcome: "consumed",
-      status: 400,
-      code: UNPUBLISH_TOKEN_CONSUMED,
-      showId: show.id,
-    };
-  }
-
   if (show.unpublishToken !== args.token) {
     return { outcome: "not_found", status: 404 };
   }
@@ -235,6 +262,95 @@ export async function unpublishShow_unlocked(
   return { outcome: "success", status: 200, showId: show.id };
 }
 
+function hasLiveTokenColumns(
+  show: UnpublishShowRow,
+): show is UnpublishShowRow & { unpublishToken: string; unpublishTokenExpiresAt: string } {
+  return show.unpublishToken !== null && show.unpublishTokenExpiresAt !== null;
+}
+
+export async function unpublishShow_unlocked(
+  tx: LockedShowTx<UnpublishShowTx>,
+  args: UnpublishShowArgs,
+): Promise<UnpublishShowResult> {
+  const show = await tx.readShowForUnpublish(args.slug);
+  if (!show) return { outcome: "not_found", status: 404 };
+
+  await assertShowLockHeld(tx, show.driveFileId);
+
+  if (!hasLiveTokenColumns(show)) {
+    return {
+      outcome: "consumed",
+      status: 400,
+      code: UNPUBLISH_TOKEN_CONSUMED,
+      showId: show.id,
+    };
+  }
+
+  return await compareExpireConsume_lockHeld(tx, show, args);
+}
+
+/**
+ * M12.13 spec §3 ("Atomic recipient re-validation" + "Consumed-token
+ * contract", R12/R18/R19) — the PUBLIC emailed-link consume path. Inside the
+ * SAME locked transaction as `unpublishShow`, in this exact order:
+ *
+ * 1. Read the show row.
+ * 2. Token columns NULL → NEUTRAL (`not_found`): the current mint does not
+ *    exist, so `r` is underivable — the consumed branch is unreachable
+ *    publicly (R19; CONSUMED renders only on the session-authed in-app legs).
+ * 3. Compute mintId from the STORED token; read unrevoked admin_emails
+ *    `FOR SHARE` (serializes against concurrent revocation); binding no-match
+ *    → NEUTRAL with ZERO further token-state branches — no compare, no expiry
+ *    handling, no expired-clear side effect; token state untouched and
+ *    unlearned (R18).
+ * 4. Only after the binding validates: the shared compare/expiry/consume
+ *    semantics (identical to plain `unpublishShow`).
+ */
+export async function unpublishShowViaEmailedLink_unlocked(
+  tx: LockedShowTx<UnpublishShowTx>,
+  args: UnpublishShowViaEmailedLinkArgs,
+): Promise<UnpublishShowResult> {
+  const show = await tx.readShowForUnpublish(args.slug);
+  if (!show) return { outcome: "not_found", status: 404 };
+
+  await assertShowLockHeld(tx, show.driveFileId);
+
+  if (!hasLiveTokenColumns(show)) {
+    return { outcome: "not_found", status: 404 };
+  }
+
+  const mintId = mintIdFor(show.unpublishToken);
+  const activeAdmins = await tx.readActiveAdminEmailsForShare();
+  if (!bindingMatchesActiveAdmin(activeAdmins, args.r, show.id, mintId)) {
+    return { outcome: "not_found", status: 404 };
+  }
+
+  return await compareExpireConsume_lockHeld(tx, show, args);
+}
+
+/**
+ * M12.13 §6.2 — the in-app undo server action reads the show's STORED
+ * `unpublish_token` by slug so it can pass it to the plain `unpublishShow`
+ * (which compares the submitted token against the stored one). Raw-postgres
+ * seam, mirroring `readDriveFileIdForUnpublishSlug` — NOT a Supabase client
+ * call, so the Supabase call-boundary registry rows don't apply (the action's
+ * inline `not-subject-to-meta` waiver covers it). A null result means the mint
+ * is gone (token vanished between render and click); the action surfaces the
+ * CONSUMED catalog outcome rather than calling `unpublishShow` with a bad token.
+ */
+export async function readUnpublishTokenForSlug(slug: string): Promise<string | null> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(
+      "select unpublish_token::text as unpublish_token from public.shows where slug = $1 limit 1",
+      [slug],
+    )) as Array<{ unpublish_token: string | null }>;
+    return rows[0]?.unpublish_token ?? null;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 export async function readDriveFileIdForUnpublishSlug(slug: string): Promise<string | null> {
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
@@ -248,9 +364,7 @@ export async function readDriveFileIdForUnpublishSlug(slug: string): Promise<str
   }
 }
 
-export async function unpublishShow(
-  args: UnpublishShowArgs,
-): Promise<UnpublishShowResult> {
+export async function unpublishShow(args: UnpublishShowArgs): Promise<UnpublishShowResult> {
   const driveFileId = await readDriveFileIdForUnpublishSlug(args.slug);
   if (!driveFileId) return { outcome: "not_found", status: 404 };
 
@@ -261,6 +375,35 @@ export async function unpublishShow(
       return await withShowLock<UnpublishShowTx, UnpublishShowResult>(
         driveFileId,
         (lockedTx) => unpublishShow_unlocked(lockedTx, args),
+        { tx, tryOnly: false },
+      );
+    })) as UnpublishShowResult;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/**
+ * Public emailed-link consume entry point. Mirrors `unpublishShow`'s topology
+ * exactly — slug→drive_file_id bootstrap read, then ONE `withShowLock` holder
+ * (the wrapper adds statements inside the EXISTING lock layer; no new lock —
+ * single-holder rule, AGENTS.md invariant 2). The recipient-binding
+ * re-validation runs inside the locked transaction via
+ * `unpublishShowViaEmailedLink_unlocked`.
+ */
+export async function unpublishShowViaEmailedLink(
+  args: UnpublishShowViaEmailedLinkArgs,
+): Promise<UnpublishShowResult> {
+  const driveFileId = await readDriveFileIdForUnpublishSlug(args.slug);
+  if (!driveFileId) return { outcome: "not_found", status: 404 };
+
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    return (await sql.begin(async (rawTx) => {
+      const tx = new PostgresUnpublishTx(rawTx as unknown as PostgresTransaction);
+      return await withShowLock<UnpublishShowTx, UnpublishShowResult>(
+        driveFileId,
+        (lockedTx) => unpublishShowViaEmailedLink_unlocked(lockedTx, args),
         { tx, tryOnly: false },
       );
     })) as UnpublishShowResult;

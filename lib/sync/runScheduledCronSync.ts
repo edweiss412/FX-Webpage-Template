@@ -1704,7 +1704,8 @@ async function emitFirstPublishedNotice(args: {
   driveFileId: string;
   fileMeta: DriveListedFile;
   parseResult: ParseResult;
-  unpublishToken: string;
+  // M12.13: unpublishToken is intentionally NOT a parameter — the raw bearer secret never enters
+  // alert context. The token is still minted + persisted to shows.unpublish_token upstream.
   unpublishTokenExpiresAt: string;
 }): Promise<void> {
   await args.deps.upsertAdminAlert({
@@ -1715,7 +1716,9 @@ async function emitFirstPublishedNotice(args: {
       sheet_name: args.fileMeta.name,
       crew_count: args.parseResult.crewMembers.length,
       show_date: showDateForAlert(args.parseResult),
-      unpublish_token: args.unpublishToken,
+      // M12.13: the raw bearer secret is no longer persisted in alert context (a table every
+      // admin session reads). Only the non-secret expiry window stays; the in-app alert-row
+      // action re-reads shows.unpublish_token service-role-side when it needs the secret.
       unpublish_token_expires_at: args.unpublishTokenExpiresAt,
     },
   });
@@ -1744,7 +1747,6 @@ export async function emitSuccessfulPhase2Tail(args: {
       driveFileId: args.driveFileId,
       fileMeta: args.fileMeta,
       parseResult: args.parseResult,
-      unpublishToken: args.autoPublishFirstSeen.unpublishToken,
       unpublishTokenExpiresAt: args.autoPublishFirstSeen.unpublishTokenExpiresAt,
     });
   }

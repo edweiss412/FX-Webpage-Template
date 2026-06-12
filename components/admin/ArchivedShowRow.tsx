@@ -27,7 +27,7 @@
  * (client) UnarchiveShowButton.
  */
 import Link from "next/link";
-import { formatRelative, type ActiveShowRow } from "@/components/admin/ActiveShowsPanel";
+import { formatRelative, type ActiveShowRow } from "@/lib/admin/showDisplay";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
 
 type ArchivedShowRowProps = {

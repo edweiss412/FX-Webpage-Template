@@ -46,9 +46,11 @@ import { Bell, Sparkles, ShieldCheck, Trash2 } from "lucide-react";
 import { getAutoPublishCleanFirstSeen } from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
 import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
 import { getDailyReviewDigest } from "@/lib/appSettings/getDailyReviewDigest";
+import { getAlertOnAutoPublish } from "@/lib/appSettings/getAlertOnAutoPublish";
 import { setAutoPublish } from "./_actions/setAutoPublish";
 import { setAlertOnSyncProblems } from "./_actions/setAlertOnSyncProblems";
 import { setDailyReviewDigest } from "./_actions/setDailyReviewDigest";
+import { setAlertOnAutoPublish } from "./_actions/setAlertOnAutoPublish";
 
 /** Map a fail-closed toggle read ({kind:'value',enabled} | infra_error) onto the
  * NotifyToggle's {kind:'value',on} | infra_error prop shape (degraded → OFF). */
@@ -78,6 +80,7 @@ export default async function AdminSettingsPage() {
   // control; never a silent wrong/falsely-ON state — §7.2).
   const alertOnSyncProblemsInitial = toNotifyInitial(await getAlertOnSyncProblems());
   const dailyReviewDigestInitial = toNotifyInitial(await getDailyReviewDigest());
+  const alertOnAutoPublishInitial = toNotifyInitial(await getAlertOnAutoPublish());
 
   return (
     <main data-testid="admin-settings-page" className="flex w-full flex-col">
@@ -116,7 +119,12 @@ export default async function AdminSettingsPage() {
             >
               Preferences
             </h2>
-            <HoverHelp label="Help: Preferences" testId="prefs-help">
+            <HoverHelp
+              label="Help: Preferences"
+              testId="prefs-help"
+              rootTestId="help-affordance--settings-preferences--tooltip"
+              learnMore={{ href: "/help/admin/settings#preferences" }}
+            >
               <p>
                 Account-wide settings: email alerts, auto-publishing clean shows, and developer
                 tools.
@@ -145,6 +153,16 @@ export default async function AdminSettingsPage() {
               description="A once-a-day email summarizing sheets that need your review, grouped by show. Nothing waiting means no email."
               initial={dailyReviewDigestInitial}
               action={setDailyReviewDigest}
+              icon={<Bell aria-hidden />}
+            />
+
+            <NotifyToggle
+              testId="alert-on-auto-publish"
+              title="Email me when a show publishes itself"
+              ariaLabel="Email me when a show publishes itself"
+              description="When auto-publish puts a clean show live on its own, email me a link to undo it within the 24-hour window."
+              initial={alertOnAutoPublishInitial}
+              action={setAlertOnAutoPublish}
               icon={<Bell aria-hidden />}
             />
 
@@ -178,8 +196,8 @@ export default async function AdminSettingsPage() {
             <HoverHelp label="Help: Maintenance" testId="maintenance-help">
               <p>
                 Housekeeping actions. Cleaning up old setup leftovers removes staging data from
-                setup sessions abandoned more than a day ago. It never touches your current setup
-                or live shows.
+                setup sessions abandoned more than a day ago. It never touches your current setup or
+                live shows.
               </p>
             </HoverHelp>
           </div>

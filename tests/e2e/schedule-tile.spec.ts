@@ -31,6 +31,7 @@
  * spec). Desktop assertions are Task 4.13's job.
  */
 import { test, expect } from "@playwright/test";
+import { setDateRestrictionLocked } from "./helpers/lockedCrewRestriction";
 import { admin } from "./helpers/supabaseAdmin";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
@@ -97,7 +98,13 @@ async function lookupSeededShow(): Promise<SeededShow> {
   };
 }
 
-/** Set the lead crew member's date_restriction JSONB. */
+/**
+ * Set the lead crew member's date_restriction JSONB — through the SHARED
+ * locked psql path (helpers/lockedCrewRestriction.ts): per-show advisory
+ * lock held in one transaction, UPDATE show-scoped, no-row guard throws.
+ * Codex R2 class-sweep: this was the same unlocked PostgREST mutation
+ * shape M12.12-DEF-2 fixed in helpers/rightNow.ts.
+ */
 async function setDateRestriction(
   leadCrewId: string,
   restriction:
@@ -105,13 +112,7 @@ async function setDateRestriction(
     | { kind: "unknown_asterisk"; days: null }
     | { kind: "none" },
 ): Promise<void> {
-  const { error } = await admin
-    .from("crew_members")
-    .update({ date_restriction: restriction })
-    .eq("id", leadCrewId);
-  if (error) {
-    throw new Error(`schedule-tile.spec: failed to update date_restriction: ${error.message}`);
-  }
+  await setDateRestrictionLocked(SEED_DRIVE_FILE_ID, leadCrewId, restriction);
 }
 
 // TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).

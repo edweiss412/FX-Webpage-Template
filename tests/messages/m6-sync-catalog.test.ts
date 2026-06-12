@@ -117,11 +117,14 @@ describe("M6 sync message catalog", () => {
     expect(MESSAGE_CATALOG.SHOW_FIRST_PUBLISHED).toMatchObject({
       severity: "info",
       dougFacing:
-        "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](share-token-url) within 24h.",
+        // M12.13: the undo now DELIVERS (in-app always; emailed token+r
+        // confirm link when configured) — the copy stopped pretending
+        // archive-from-the-page is the only recovery.
+        "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Use Undo auto-publish — the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; after that, archive the show from its page instead. Either way its crew link switches off until you republish.",
       crewFacing: null,
       followUp: null,
       helpfulContext:
-        "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and stop the share-token URL from resolving.",
+        "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, use Undo auto-publish — the button appears on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; once it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
     });
     expect(MESSAGE_CATALOG.SHOW_UNPUBLISHED).toMatchObject({
       dougFacing:

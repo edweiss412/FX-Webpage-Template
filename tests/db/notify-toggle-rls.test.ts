@@ -39,7 +39,10 @@ afterAll(async () => {
 
 const ROLLBACK = Symbol("rollback");
 
-async function updateCountAs(claims: string, column: "alert_on_sync_problems" | "daily_review_digest"): Promise<number> {
+async function updateCountAs(
+  claims: string,
+  column: "alert_on_sync_problems" | "daily_review_digest" | "alert_on_auto_publish",
+): Promise<number> {
   let count = -1;
   try {
     await sql.begin(async (tx) => {
@@ -60,7 +63,7 @@ async function updateCountAs(claims: string, column: "alert_on_sync_problems" | 
   return count;
 }
 
-describe.each(["alert_on_sync_problems", "daily_review_digest"] as const)(
+describe.each(["alert_on_sync_problems", "daily_review_digest", "alert_on_auto_publish"] as const)(
   "app_settings notify toggle RLS — %s (AC-B3.10, admin_only)",
   (column) => {
     it("a NON-admin update affects zero rows (DENIED by admin_only RLS)", async () => {
@@ -72,3 +75,29 @@ describe.each(["alert_on_sync_problems", "daily_review_digest"] as const)(
     });
   },
 );
+
+// M12.13 §4.5/R26: writing the auto-publish toggle OFF persists across a read
+// (the getter returns the persisted value, not a default). ROLLBACK'd so the
+// real singleton is never mutated; an ADMIN claim is used so the write lands.
+describe("alert_on_auto_publish OFF persists (M12.13 §4.5)", () => {
+  it("an admin write of false is read back as false within the same tx", async () => {
+    let readBack: boolean | null = null;
+    try {
+      await sql.begin(async (tx) => {
+        await tx`select set_config('role', 'authenticated', true)`;
+        await tx`select set_config('request.jwt.claims', ${ADMIN_CLAIMS}, true)`;
+        await tx`
+          update public.app_settings set alert_on_auto_publish = false where id = 'default'
+        `;
+        const [row] = await tx<{ alert_on_auto_publish: boolean }[]>`
+          select alert_on_auto_publish from public.app_settings where id = 'default'
+        `;
+        readBack = row?.alert_on_auto_publish ?? null;
+        throw ROLLBACK;
+      });
+    } catch (err) {
+      if (err !== ROLLBACK) throw err;
+    }
+    expect(readBack).toBe(false);
+  });
+});

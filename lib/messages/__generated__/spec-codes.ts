@@ -250,9 +250,9 @@ export const SPEC_CODES = {
   },
   "EMAIL_NOT_CONFIGURED": {
     "crewFacing": null,
-    "dougFacing": "Email notifications aren't set up yet, so alerts won't be emailed. Check that the email provider key, the sending address, and the site address are all configured.",
+    "dougFacing": "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. Check that the email provider key, the sending address, and the site address are all configured.",
     "followUp": "Doug → check email provider key, sending address, and site address",
-    "helpfulContext": "Outbound email isn't fully configured, so sync-problem alerts and the daily digest won't be emailed. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts still work; set whichever is missing to enable email.",
+    "helpfulContext": "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and the in-app undo button still work; set whichever is missing to enable email.",
   },
   "EMBEDDED_ASSET_DRIFTED": {
     "crewFacing": null,
@@ -436,7 +436,7 @@ export const SPEC_CODES = {
   },
   "MI-5b_DUPLICATE_CREW_EMAIL": {
     "crewFacing": null,
-    "dougFacing": "Two crew rows share the same email in _<sheet-name>*. Each crew member needs their own email.",
+    "dougFacing": "Two crew rows share the same email in _<sheet-name>_. Each crew member needs their own email.",
     "followUp": "Doug → fix sheet",
     "helpfulContext": "Two rows in the CREW block share the same email address. Email is how we identify a crew member across shows, so duplicates would let one person see another's view. Each crew row needs a distinct email — fix the typo or paste mistake and re-save.",
   },
@@ -850,7 +850,7 @@ export const SPEC_CODES = {
   },
   "REPORT_RATE_LIMITED_ADMIN": {
     "crewFacing": null,
-    "dougFacing": "You've reported a lot already this hour — give the developer a beat to catch up. Try again in *<minutes>_ min, or message Eric directly.",
+    "dougFacing": "You've reported a lot already this hour — give the developer a beat to catch up. Try again in a little while, or message Eric directly.",
     "followUp": "Doug → wait or message",
     "helpfulContext": "To keep the developer's inbox under control, the admin report endpoint is capped at 10 reports per hour. The window resets on a rolling basis. Wait the indicated time, or message Eric directly if it's urgent.",
   },
@@ -922,9 +922,9 @@ export const SPEC_CODES = {
   },
   "SHOW_FIRST_PUBLISHED": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](share-token-url) within 24h.",
+    "dougFacing": "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Use Undo auto-publish — the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; after that, archive the show from its page instead. Either way its crew link switches off until you republish.",
     "followUp": null,
-    "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and stop the share-token URL from resolving.",
+    "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, use Undo auto-publish — the button appears on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; once it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
   },
   "SHOW_PUBLISHED_BY_ADMIN": {
     "crewFacing": null,
@@ -1204,7 +1204,7 @@ export const SPEC_CODES = {
   },
   "UNKNOWN_FIELD": {
     "crewFacing": null,
-    "dougFacing": "We saw a row called _<key>_ in _<sheet-name>\\* that we don't know how to handle. It's not breaking anything; want to flag it to the developer?",
+    "dougFacing": "We saw a row called _<key>_ in _<sheet-name>_ that we don't know how to handle. It's not breaking anything; want to flag it to the developer?",
     "followUp": "Doug → optional Report",
     "helpfulContext": "The parser scans every row of your sheet and matches each label against the canonical block list (CLIENT, DATES, CREW, MAIN/SECONDARY, etc.). Anything that doesn't match is captured into the show's `raw_unrecognized` map and surfaced here so you can decide whether it's noise (a typo, a one-off note) or a sign that your template is drifting. Nothing is broken either way — the row is preserved verbatim. If you'd like the developer to handle the row going forward, click Report; if it's intentional one-off content, ignore the warning.",
   },
@@ -1216,19 +1216,19 @@ export const SPEC_CODES = {
   },
   "UNPUBLISH_TOKEN_CONSUMED": {
     "crewFacing": null,
-    "dougFacing": "This unpublish link has already been used. The show is already unpublished, or someone else (or another tab) clicked it before you.",
+    "dougFacing": "This undo has already been used. The show is already unpublished, or someone else (or another tab) got there first.",
     "followUp": "Doug → check show status in admin",
-    "helpfulContext": "The auto-publish unpublish link is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already clicked it. Check the admin dashboard to confirm the current state.",
+    "helpfulContext": "The auto-publish undo is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already triggered it. You'll only ever see this message inside the admin — a spent emailed link shows a generic not-found page instead. Check the show's page to confirm the current state.",
   },
   "UNPUBLISH_TOKEN_EXPIRED": {
     "crewFacing": null,
-    "dougFacing": "This unpublish link expired (24-hour window). To take this show offline now, archive it from the admin dashboard.",
+    "dougFacing": "This unpublish link expired. Links stay valid for 24 hours; to take this show offline now, archive it from the admin dashboard.",
     "followUp": "Doug → archive via dashboard",
-    "helpfulContext": "The auto-publish unpublish link is only valid for 24 hours after issuance. After that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the admin dashboard and archive it from the show's parse panel.",
+    "helpfulContext": "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the admin dashboard and archive it from the show's parse panel.",
   },
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
-    "dougFacing": "(admin_alerts banner) \"A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.\"",
+    "dougFacing": "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",
     "followUp": "Eric → reconcile / retry",
     "helpfulContext": "We tried to register a real-time push subscription with Google Drive and didn't get a confirmation back. The cron job will keep this show in sync on its normal schedule; this just means edits won't appear instantly until the developer reconciles the subscription.",
   },
@@ -1246,7 +1246,7 @@ export const SPEC_CODES = {
   },
   "WEBHOOK_TOKEN_INVALID": {
     "crewFacing": null,
-    "dougFacing": "\"A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.\" (admin_alerts top-bar banner)",
+    "dougFacing": "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.",
     "followUp": "Eric → investigate",
     "helpfulContext": "A push notification arrived from Google Drive carrying the wrong verification token. This usually means a stale subscription is still firing or someone's spoofing the endpoint. The developer has been notified and will rotate the token if needed.",
   },
