@@ -165,7 +165,9 @@ async function upsertSent(
   messageId: string,
   now: Date,
 ): Promise<void> {
-  const context = JSON.stringify(input.context);
+  // Raw object, NOT JSON.stringify: postgres.js serializes a `::jsonb` param
+  // itself; a pre-stringified value double-encodes into a jsonb string scalar.
+  const context = input.context;
   await sql`
     insert into public.email_deliveries (
       kind, channel, dedup_key, show_id, recipient, triggered_codes, context,
@@ -197,7 +199,8 @@ async function upsertFailed(
   recipient: string,
   error: string,
 ): Promise<boolean> {
-  const context = JSON.stringify(input.context);
+  // Raw object, NOT JSON.stringify — see upsertSent.
+  const context = input.context;
   const rows = await sql`
     insert into public.email_deliveries (
       kind, channel, dedup_key, show_id, recipient, triggered_codes, context,
