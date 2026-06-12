@@ -4,7 +4,7 @@
 
 **Spec:** `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-onboarding-fixups-design.md` §4 (F2) + §6 final bullet (F4 one-time purge rides this migration). The §4 SQL block is copied **verbatim** into the migration — do not "improve" it; every clause is the residue of a numbered adversarial finding (R7/R12/R13/R14/R15/R16/R18-2/R19-2) and each clause has a regression test below.
 
-**Goal:** One migration file — `supabase/migrations/20260611000001_onboarding_fixups_remediation.sql` — containing (1) the `data_migration_markers` table, (2) the windowed two-arm watermark-reset DO block (spec §4, verbatim), (3) the F4 one-time purge of the 18 synthetic validation wizard sessions, plus the full regression suite, the `ON_ERROR_STOP` local-apply verification, the schema-manifest regen commit, and the documented surgical validation apply.
+**Goal:** One migration file — `supabase/migrations/20260611000001_onboarding_fixups_remediation.sql` — containing (1) the `data_migration_markers` table, (2) the windowed two-arm watermark-reset DO block (spec §4, verbatim), (3) the F4 one-time purge of the 30 synthetic validation wizard sessions (18 at plan-time capture; re-captured 2026-06-12), plus the full regression suite, the `ON_ERROR_STOP` local-apply verification, the schema-manifest regen commit, and the documented surgical validation apply.
 
 **Depends on:** Phase 1 (F1) only for the *audit-shape contract*: F1's Phase D writer is required (spec §4 R14 bullet, citing R8-1) to emit the shared `parseResultSummary` shape (`lib/sync/applyStaged.ts:505-512` — `{ title, crewCount, roomCount, warningCount }`) **plus** a `'source': 'onboarding_finalize_cas'` key. ⚠️ Pre-draft verification note: the live shared `parseResultSummary` has NO `source` key today — adding it for the wizard writers is a Phase 1 deliverable; this phase's "F1-shape audit" fixtures assume it. The migration itself has no code dependency on Phase 1 and is deployment-order-independent by design (Arm B keys on audit *shape*, not dates — spec §4 R14).
 
@@ -16,7 +16,7 @@
 
 ---
 
-## Task 2.1 — Capture the exact 18 synthetic `wizard_session_id` values (verification step, no commit)
+## Task 2.1 — Capture the exact synthetic `wizard_session_id` values (18 at plan time; 30 at execution) (verification step, no commit)
 
 The F4 purge is keyed to the EXACT ids (spec §6: "keyed to the EXACT 18 `wizard_session_id` values captured from the validation DB (enumerated in the migration; no-op in any environment where they don't exist)"). A `drive_file_id like 'drive-%'` prefix boundary was explicitly rejected (spec §6, R23 finding 2).
 
@@ -30,26 +30,38 @@ psql "$TEST_DATABASE_URL" -At -c "select wizard_session_id from public.wizard_fi
 psql "$TEST_DATABASE_URL" -At -c "select count(*), count(distinct wizard_session_id), bool_and(drive_file_id like 'drive-%') from public.shows_pending_changes;"
 ```
 
-- [ ] **2. Confirm** the two id sets are identical (18 ids; `shows_pending_changes` count check returns `18|18|t`). Captured 2026-06-11 (already verified during plan drafting — re-run to confirm nothing moved before the migration commits):
+- [ ] **2. Confirm** the two id sets are identical (`shows_pending_changes` count check matches `N|N|t`). Plan-time capture 2026-06-11 listed 18 ids; the Task 2.1 re-run on 2026-06-12 found **30** (the original 18 all present + 12 new synthetic sessions created since drafting) — set identity re-verified (symmetric difference 0, `30|30|t`; the active `app_settings.pending_wizard_session_id` is NOT in the list). Migration array + this list updated accordingly per the instruction below:
 
 ```text
 02304ebb-1d29-4a7e-b042-86b893247240
 023ddce3-9d9c-428a-b3bc-59501b73e77b
+0d2b0752-a06d-416e-96d8-28c9049eedf7
 2123a4d7-2992-4345-bb98-6882b09951e4
+21c02055-9ebc-4087-8759-a61e6b623f36
 2265e894-3d42-4c93-9a9a-fce6dda97fa1
 24b619a2-b2f7-4432-a114-640e05833ee5
 35fd4ba3-4fd6-4c27-9b74-8284ca7f7c70
 417b1867-8d7e-49a2-bb31-0abb413355c5
 43d95a73-eaf4-4a91-b97a-3e3bddfe5c23
+44457c00-7fc5-4db5-bb19-77290f667f48
 515d2e64-23d9-483f-9a05-ace5030af67d
+55d884db-a7f5-4b83-85a8-4149bd78a303
+561b1b88-bba3-40a8-bbd0-17ff19e16772
+80aaa6ef-8b14-4b19-885a-59137391d3c9
 943737a2-caa7-4771-ad66-62fde4f8e888
 ad5b5459-0f2d-46b7-a185-f64b681d4286
+b587e807-592f-4ac6-97a0-27a66fe7092e
 b864845d-12b6-40ca-8750-a1109984ee5a
+bd695762-cacc-438b-bb52-e08cd9f9167f
+be58e356-1019-4922-b738-490c58b18c82
+beed9557-9372-44b1-b417-6e1736ee1281
 bfd41ae1-4c0a-42e2-8d75-a6489690071c
 d1d15523-b62d-403d-9ee0-508a338a8970
 d5e32eaf-9c87-4625-96ca-7735e245998c
 d6975cf2-6062-4fc7-a92f-e61eab9be538
 da638b4b-7079-45fb-b6af-635a3f67d59d
+e44c3068-c300-498f-aeff-0ec05990a909
+ff476853-7107-4326-bb16-92c41463824a
 ffda8263-241c-427e-8c04-51dba595ea83
 ```
 
@@ -771,7 +783,7 @@ commit;  -- R59-2
 pnpm vitest run tests/db/onboarding-fixups-remediation.test.ts
 ```
 
-Expected: all 12 tests pass (3 Arm A, 4 Arm B, 1 race, 1 local-host guard, 2 idempotency/lockdown, 1 purge). The local-host guard test must appear in the run output — it is the structural defense that keeps this destructive suite off the validation project (validation access happens ONLY in Task 2.5's labeled close-out commands).
+Expected: all 13 tests pass (3 Arm A, 5 Arm B — R13/R14/R15/R16/R18-2, 1 race, 1 local-host guard, 2 idempotency/lockdown, 1 purge). The local-host guard test must appear in the run output — it is the structural defense that keeps this destructive suite off the validation project (validation access happens ONLY in Task 2.5's labeled close-out commands).
 
 - [ ] **6. Negative-regression spot check (pin the windowing clause):** temporarily delete the two `and (prev_pass is null or sa.applied_at > prev_pass - interval '1 hour')` lines from the UPDATE's Arm B predicate, re-run — R15 must fail (`expect(not null)` receives null). Restore verbatim, re-run green. (This proves the test actually exercises the window rather than passing tautologically.)
 

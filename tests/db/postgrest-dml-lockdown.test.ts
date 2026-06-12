@@ -328,6 +328,22 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
   },
   {
+    // F2 remediation (onboarding-fixups R64-2): pass-marker table for the windowed
+    // watermark-reset migration. A PostgREST-forged pass row would shrink the Arm B
+    // window and mask broken-CAS damage. Internal-only — no RPC entry point; written
+    // exclusively by the migration's own DO block (service_role/postgres). No
+    // PostgREST SELECT either (selectAnon/Authenticated both false).
+    table: "data_migration_markers",
+    closed_at:
+      "supabase/migrations/20260611000001_onboarding_fixups_remediation.sql:94",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      key: "lockdown-probe",
+    },
+    rowFilter: "?key=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
     // Internal allowlist for the no-global-cursor DDL event trigger (20260501004000).
     // NOT RPC-gated — it has no RPC entry point and no app PostgREST access at all:
     // the reject_global_watermark_columns() event trigger reads it in-DB (bypasses RLS)
