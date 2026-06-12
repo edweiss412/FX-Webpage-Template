@@ -48,6 +48,14 @@ jobs:
           # server process, NOT the Playwright workers.
           ENABLE_TEST_AUTH: "true"
           TEST_AUTH_SECRET: "test-secret-fixture"
+          # playwright test boots EVERY webServer entry in the default
+          # config (ports 3000-3004), not just the 3004 one the walker
+          # projects use. The 3000/3001/3002/3003 builds read
+          # HASH_FOR_LOG_PEPPER at module evaluation (R41 PII-hash
+          # contract) and only the 3004 entry carries an inline fallback —
+          # locally .env.local supplies the rest; bare CI runners must get
+          # it here so every child build inherits it (real-CI round 2).
+          HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
         run: pnpm exec playwright test --project=help-docs-setup --project=help-docs --project=help-docs-desktop
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
