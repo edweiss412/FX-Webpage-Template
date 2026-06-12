@@ -782,6 +782,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional Report",
     "helpfulContext": "A pull-sheet case had data rows, but none of them exposed a TRUE/FALSE packed flag in the supported Variant A or Variant B positions. The parser defaults to Variant A so crew still see the list, but Doug should report it if quantities or packing columns look wrong.",
   },
+  "REAP_STALE_SESSIONS_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't clean up the old setup leftovers. Refresh and try again, or contact the developer if this keeps happening.",
+    "followUp": "Doug → retry; if persistent, Eric",
+    "helpfulContext": "The clean-up-old-setup-leftovers action failed partway, usually a database or lock fault. Each old setup session is cleaned in its own transaction, so anything already cleaned stayed cleaned and nothing was left half-removed. Running it again is safe; if it keeps failing, contact the developer.",
+  },
   "REEL_ASSET_LOOKUP_FAILED": {
     "crewFacing": "This video could not be loaded. Ask Doug if it keeps happening.",
     "dougFacing": "The opening reel could not be loaded. Refresh and try again.",
