@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import postgres from "postgres";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
-import type { ParseResult } from "@/lib/parser/types";
+import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import {
@@ -426,7 +426,15 @@ async function stageExistingShowShadow(
   tx: FinalizeRouteTx,
   wizardSessionId: string,
   row: PendingFinalizeRow,
+  triggeredReviewItems: TriggeredReviewItem[],
 ): Promise<void> {
+  // F1 Task 1.4: deleteApprovedPending consumes the pending_syncs row right after this INSERT,
+  // so triggered_review_items + base_modified_time exist ONLY in this payload by Phase D —
+  // without them, choice validation, MI-11 detection, and deriveAuthSideEffects would run
+  // against nothing (spec §3.2 R1-1/R20-1). The items param is the DECODED array (never the
+  // raw column value — re-storing a legacy double-encoded scalar through $::jsonb would
+  // preserve the corruption). applied_at_intent snapshots the Apply click (wizard_approved_at),
+  // NOT staging time (spec §3.1 R8-1).
   await tx.query<{ show_id: string }>(
     `
       insert into public.shows_pending_changes (
@@ -438,9 +446,11 @@ async function stageExistingShowShadow(
                'parse_result', $3::jsonb,
                'staged_modified_time', $4::timestamptz,
                'staged_id', $5::uuid,
-               'reviewer_choices', $6::jsonb
+               'reviewer_choices', $6::jsonb,
+               'triggered_review_items', $8::jsonb,
+               'base_modified_time', $9::timestamptz
              ),
-             $7, now()
+             $7, $10::timestamptz
         from public.shows s
        where s.drive_file_id = $1
       on conflict (wizard_session_id, drive_file_id)
@@ -460,6 +470,9 @@ async function stageExistingShowShadow(
       row.staged_id,
       row.wizard_reviewer_choices ?? [],
       canonicalize(requireApprovedByEmail(row)),
+      triggeredReviewItems,
+      normalizeTimestamptz(row.base_modified_time),
+      normalizeTimestamptz(row.wizard_approved_at),
     ],
   );
 }
@@ -604,8 +617,17 @@ async function processApprovedRow(input: {
     wizard_reviewer_choices: coerceJsonbArray(row.wizard_reviewer_choices),
   };
 
+  // F1 Task 1.4: parsed for BOTH branches — the existing-show shadow copies the DECODED items
+  // array into its payload (never the raw column value), and the first-seen core consumes it.
+  const parsedItems = parseTriggeredReviewItems(row.triggered_review_items);
+  if (!parsedItems.ok) {
+    // Approved rows are parseable BY CONSTRUCTION (the wizard approve branch refuses corrupt
+    // items before approval) — reaching this is data corruption → the route's typed-500 wrapper.
+    throw new Error("approved onboarding row has corrupt triggered_review_items");
+  }
+
   if (await showExists(tx, row.drive_file_id)) {
-    await stageExistingShowShadow(tx, wizardSessionId, coercedRow);
+    await stageExistingShowShadow(tx, wizardSessionId, coercedRow, parsedItems.items);
     await deleteApprovedPending(tx, wizardSessionId, row);
     return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
   }
@@ -615,12 +637,6 @@ async function processApprovedRow(input: {
   // the show-side session discriminator written in the same INSERT (wizardCreatedSessionId),
   // NO feed rows (the feed documents changes to LIVE shows), and REAL audit provenance
   // (approving admin + Apply-click instant, spec §3.1 R8-1).
-  const parsedItems = parseTriggeredReviewItems(row.triggered_review_items);
-  if (!parsedItems.ok) {
-    // Approved rows are parseable BY CONSTRUCTION (the wizard approve branch refuses corrupt
-    // items before approval) — reaching this is data corruption → the route's typed-500 wrapper.
-    throw new Error("approved onboarding row has corrupt triggered_review_items");
-  }
   const stagedModifiedTimeIso = normalizeTimestamptz(row.staged_modified_time);
   if (!stagedModifiedTimeIso) {
     throw new Error("approved onboarding row is missing staged_modified_time");

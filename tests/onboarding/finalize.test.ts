@@ -1,8 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import type {
-  FinalizeRouteDeps,
-  FinalizeRouteTx,
-} from "@/app/api/admin/onboarding/finalize/route";
+import type { FinalizeRouteDeps, FinalizeRouteTx } from "@/app/api/admin/onboarding/finalize/route";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
@@ -24,6 +21,9 @@ type PendingRow = {
   wizard_reviewer_choices_version: number | null;
   wizard_approved: boolean;
   wizard_approved_by_email: string | null;
+  wizard_approved_at: string | null;
+  triggered_review_items: unknown;
+  base_modified_time: string | null;
 };
 
 type ManifestStatus =
@@ -82,6 +82,9 @@ class FakeFinalizeDb implements FinalizeRouteTx {
   manifestStatuses = new Map<string, ManifestStatus>();
   demoted: Array<{ driveFileId: string; code: string }> = [];
   stagedShadows: string[] = [];
+  // F1 Task 1.4: full param capture for the shadow INSERT so the payload-shape assertions
+  // compare against seeded fixture instants (anti-tautology: never a now()-window check).
+  stagedShadowParams: Array<readonly unknown[]> = [];
   firstSeenApplied: string[] = [];
   auditRows: string[] = [];
   deletedPending: string[] = [];
@@ -126,7 +129,10 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     }
 
     if (normalized.startsWith("select status, batches_completed")) {
-      return { rows: this.checkpoint ? [this.checkpoint as T] : [], rowCount: this.checkpoint ? 1 : 0 };
+      return {
+        rows: this.checkpoint ? [this.checkpoint as T] : [],
+        rowCount: this.checkpoint ? 1 : 0,
+      };
     }
 
     if (normalized.startsWith("select count(*)::int as unresolved_count")) {
@@ -186,6 +192,7 @@ class FakeFinalizeDb implements FinalizeRouteTx {
 
     if (normalized.startsWith("insert into public.shows_pending_changes")) {
       this.stagedShadows.push(params[0] as string);
+      this.stagedShadowParams.push(params);
       return { rows: [{ show_id: "show-1" } as T], rowCount: 1 };
     }
 
@@ -219,7 +226,8 @@ class FakeFinalizeDb implements FinalizeRouteTx {
   private classify(sql: string): string {
     if (sql.includes("pg_try_advisory_xact_lock(hashtext('finalize:'")) return "try-finalize-lock";
     if (sql.startsWith("select pending_wizard_session_id")) return "read-session";
-    if (sql.startsWith("insert into public.wizard_finalize_checkpoints")) return "ensure-checkpoint";
+    if (sql.startsWith("insert into public.wizard_finalize_checkpoints"))
+      return "ensure-checkpoint";
     if (sql.startsWith("select drive_file_id, staged_id")) return "select-approved";
     if (sql.startsWith("update public.pending_syncs")) return "demote-pending";
     if (sql.startsWith("insert into public.shows_pending_changes")) return "stage-shadow";
@@ -286,6 +294,9 @@ function pending(driveFileId: string, overrides: Partial<PendingRow> = {}): Pend
     wizard_reviewer_choices_version: 1,
     wizard_approved: true,
     wizard_approved_by_email: "doug@example.com",
+    wizard_approved_at: "2026-05-08T12:30:00.000Z",
+    triggered_review_items: [],
+    base_modified_time: null,
     ...overrides,
   };
 }
@@ -433,8 +444,29 @@ describe("POST /api/admin/onboarding/finalize", () => {
   });
 
   test("processes one batch: first-seen rows apply as unpublished drafts and existing rows stage shadow changes", async () => {
+    // F1 Task 1.4 fixture instants — the shadow payload must carry these VERBATIM from the
+    // pending row (it is deleted right after staging, so Phase D has no other source).
+    const EXISTING_ITEMS = [
+      {
+        id: "i-mi11",
+        invariant: "MI-11",
+        crew_name: "Ada",
+        prior_email: "ada@old.com",
+        new_email: "ada@new.com",
+      },
+    ];
+    const EXISTING_BASE = "2026-05-06T00:00:00.000Z";
+    const EXISTING_APPROVED_AT = "2026-05-08T12:34:56.789Z";
+
     const db = new FakeFinalizeDb();
-    db.approved = [pending("first-seen-1"), pending("existing-1")];
+    db.approved = [
+      pending("first-seen-1"),
+      pending("existing-1", {
+        triggered_review_items: EXISTING_ITEMS,
+        base_modified_time: EXISTING_BASE,
+        wizard_approved_at: EXISTING_APPROVED_AT,
+      }),
+    ];
     db.existingShows.add("existing-1");
 
     const response = await handleOnboardingFinalize(request(), deps(db));
@@ -454,6 +486,15 @@ describe("POST /api/admin/onboarding/finalize", () => {
     expect(db.auditRows).toEqual(["first-seen-1"]);
     expect(db.stagedShadows).toEqual(["existing-1"]);
     expect(db.deletedPending).toEqual(["first-seen-1", "existing-1"]);
+
+    // F1 Task 1.4: the shadow payload carries triggered_review_items + base_modified_time
+    // copied from pending_syncs BEFORE deleteApprovedPending, and applied_at_intent is the
+    // seeded Apply-click instant (wizard_approved_at), NOT a now() window (spec §3.1 R8-1).
+    expect(db.stagedShadowParams).toHaveLength(1);
+    const shadowParams = db.stagedShadowParams[0]!;
+    expect(shadowParams[7]).toEqual(EXISTING_ITEMS); // $8::jsonb triggered_review_items
+    expect(shadowParams[8]).toBe(EXISTING_BASE); // $9::timestamptz base_modified_time
+    expect(shadowParams[9]).toBe(EXISTING_APPROVED_AT); // $10::timestamptz applied_at_intent
   });
 
   test("returns all_batches_complete only after approved rows and unresolved manifest rows are gone", async () => {
@@ -555,7 +596,8 @@ describe("POST /api/admin/onboarding/finalize", () => {
         {
           drive_file_id: "failure-last-3",
           code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
-          re_apply_url: "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/failure-last-3",
+          re_apply_url:
+            "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/failure-last-3",
         },
       ],
     });
@@ -742,7 +784,9 @@ describe("POST /api/admin/onboarding/finalize", () => {
         },
       ],
     });
-    expect(db.demoted).toEqual([{ driveFileId: "moved-1", code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" }]);
+    expect(db.demoted).toEqual([
+      { driveFileId: "moved-1", code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" },
+    ]);
     expect(db.deletedPending).toEqual([]);
   });
 
