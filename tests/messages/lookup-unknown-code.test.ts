@@ -81,7 +81,7 @@ describe("messageFor — null-field hygiene on KNOWN codes (regression context f
   it("nullable getters return null cleanly when the catalog field is null (SESSION_IDLE_TIMEOUT has dougFacing/helpfulContext null per catalog.ts)", () => {
     expect(getDougFacing("SESSION_IDLE_TIMEOUT")).toBeNull();
     expect(lookupHelpfulContext("SESSION_IDLE_TIMEOUT")).toBeNull();
-    expect(getCrewFacing("SESSION_IDLE_TIMEOUT")).toMatch(/session timed out/i);
+    expect(getCrewFacing("SESSION_IDLE_TIMEOUT")).toMatch(/session has expired/i);
   });
 
   it("interpolation on a known code leaves unmatched placeholders intact even when other params are supplied (unknown-code angle: params must never be required for safety)", () => {
