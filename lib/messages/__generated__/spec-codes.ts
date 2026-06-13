@@ -448,7 +448,7 @@ export const SPEC_CODES = {
   },
   "MI-7_SECTION_SHRINKAGE": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ lost more than half of its _<section>_ — _<prior*count>* before, _<new_count>_ now. Review before applying.",
+    "dougFacing": "_<sheet-name>_ lost more than half of its _<section>_ — _<prior_count>_ before, _<new_count>_ now. Review before applying.",
     "followUp": "Doug → review staged",
     "helpfulContext": "More than half of the rows in the named section disappeared since the last approved sync. Section collapses are usually accidental (often a half-finished paste). Open the staged review to confirm before applying.",
   },

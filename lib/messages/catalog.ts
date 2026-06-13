@@ -696,7 +696,7 @@ export const MESSAGE_CATALOG = {
   "MI-7_SECTION_SHRINKAGE": {
     code: "MI-7_SECTION_SHRINKAGE",
     dougFacing:
-      "_<sheet-name>_ lost more than half of its _<section>_ — _<prior*count>* before, _<new_count>_ now. Review before applying.",
+      "_<sheet-name>_ lost more than half of its _<section>_ — _<prior_count>_ before, _<new_count>_ now. Review before applying.",
     crewFacing: null,
     followUp: "Doug → review staged",
     helpfulContext:
