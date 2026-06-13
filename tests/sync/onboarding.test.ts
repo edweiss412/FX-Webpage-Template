@@ -423,6 +423,41 @@ describe("runOnboardingScan", () => {
     ]);
   });
 
+  test("session superseded between aborted per-file tx and recovery tx returns superseded with no recovery artifacts", async () => {
+    const tx = new FakeOnboardingTx();
+    const originalUpsert = tx.upsertLivePendingSync.bind(tx);
+    tx.upsertLivePendingSync = async (row) => {
+      if (row.driveFileId === "file-1") {
+        // Cancel/restart race: the wizard session is superseded after the
+        // conflicting statement aborts the per-file tx but before the fresh
+        // recovery tx runs — its upsertManifest must observe the mismatch.
+        tx.activeWizardSessionId = W2;
+        tx.conflictOnPendingSync = "42P10";
+      } else {
+        tx.conflictOnPendingSync = null;
+      }
+      return originalUpsert(row);
+    };
+
+    const { result } = await runWith(tx, [file("file-1"), file("file-2")], {
+      "file-1": parseResult(),
+      "file-2": parseResult(),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "superseded",
+      code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
+      processed: [],
+    });
+    // No recovery artifacts for the inactive session: no manifest row, no
+    // LIVE_ROW_CONFLICT admin alert, no live-row-conflict sync_log entry.
+    expect(tx.manifest).toEqual([]);
+    expect(tx.adminAlerts).toEqual([]);
+    expect(tx.syncLog).toEqual([
+      expect.objectContaining({ code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" }),
+    ]);
+  });
+
   test("unexpected onboarding Phase 1 pass writes hard_failed manifest instead of fake staged row", async () => {
     const tx = new FakeOnboardingTx();
     const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
@@ -467,26 +502,32 @@ describe("runOnboardingScan", () => {
     });
     let firstStarted = false;
 
-    const withShowLock = vi.fn(async (driveFileId: string, fn: (lockedTx: unknown) => Promise<unknown>, options?: { tx?: unknown }) => {
-      events.push(`request:${driveFileId}`);
-      if (held) {
-        events.push(`wait:${driveFileId}`);
-        await new Promise<void>((resolve) => waiters.push(resolve));
-      }
-      held = true;
-      events.push(`start:${driveFileId}`);
-      try {
-        if (!firstStarted) {
-          firstStarted = true;
-          await releaseFirst;
+    const withShowLock = vi.fn(
+      async (
+        driveFileId: string,
+        fn: (lockedTx: unknown) => Promise<unknown>,
+        options?: { tx?: unknown },
+      ) => {
+        events.push(`request:${driveFileId}`);
+        if (held) {
+          events.push(`wait:${driveFileId}`);
+          await new Promise<void>((resolve) => waiters.push(resolve));
         }
-        return await fn(options?.tx);
-      } finally {
-        events.push(`commit:${driveFileId}`);
-        held = false;
-        waiters.shift()?.();
-      }
-    });
+        held = true;
+        events.push(`start:${driveFileId}`);
+        try {
+          if (!firstStarted) {
+            firstStarted = true;
+            await releaseFirst;
+          }
+          return await fn(options?.tx);
+        } finally {
+          events.push(`commit:${driveFileId}`);
+          held = false;
+          waiters.shift()?.();
+        }
+      },
+    );
 
     const scanDeps = (tx: FakeOnboardingTx) =>
       ({

@@ -694,14 +694,38 @@ class OnboardingScanLiveRowConflictRollbackError extends Error {
   }
 }
 
-/** Recovery writes for a live-row conflict — MUST run on a fresh transaction. */
+/**
+ * Recovery writes for a live-row conflict — MUST run on a fresh transaction.
+ *
+ * Returns the upsertManifest boolean (false = app_settings
+ * .pending_wizard_session_id no longer matches this session, i.e. the session
+ * was superseded between the aborted per-file tx and this recovery tx). The
+ * manifest write runs FIRST so that nothing else emits when superseded: no
+ * onboarding_scan_live_row_conflict sync_log row, no LIVE_ROW_CONFLICT admin
+ * alert. Mirrors the normal scan paths, which convert upsertManifest=false
+ * into the WIZARD_SESSION_SUPERSEDED_DURING_SCAN stop result.
+ */
 async function recordLiveRowConflict(
   folderId: string,
   wizardSessionId: string,
   tx: OnboardingScanTx,
   file: DriveListedFile,
   conflict: OnboardingScanLiveRowConflictRollbackError,
-): Promise<void> {
+): Promise<boolean> {
+  const wrote = await callTx("upsertManifest", () =>
+    tx.upsertManifest({
+      folderId,
+      wizardSessionId,
+      driveFileId: file.driveFileId,
+      mimeType: file.mimeType,
+      name: file.name,
+      status: "live_row_conflict",
+    }),
+  );
+  if (!wrote) {
+    await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+    return false;
+  }
   await callTx("logSync", () =>
     tx.logSync({
       code: "onboarding_scan_live_row_conflict",
@@ -727,16 +751,7 @@ async function recordLiveRowConflict(
       },
     }),
   );
-  await callTx("upsertManifest", () =>
-    tx.upsertManifest({
-      folderId,
-      wizardSessionId,
-      driveFileId: file.driveFileId,
-      mimeType: file.mimeType,
-      name: file.name,
-      status: "live_row_conflict",
-    }),
-  );
+  return true;
 }
 
 async function scanPreparedFiles(
@@ -779,17 +794,24 @@ async function scanPreparedFiles(
       // the live_row_conflict in a FRESH transaction, re-acquiring the same
       // per-show lock (single-holder rule: the lock wrapper stays the one
       // holder layer, same as the scan path).
-      await withTx(async (tx) => {
+      const recorded = await withTx(async (tx) => {
         const locked = await lock(
           prepared.file.driveFileId,
           (lockedTx) =>
             recordLiveRowConflict(folderId, wizardSessionId, lockedTx, prepared.file, error),
           { tx, tryOnly: false },
         );
-        if (locked && typeof locked === "object" && "skipped" in locked) {
+        if (typeof locked !== "boolean") {
           throw new OnboardingScanInfraError("withShowLock", locked);
         }
+        return locked;
       });
+      if (!recorded) {
+        // upsertManifest=false: the wizard session was superseded between the
+        // aborted per-file tx and the recovery tx. Mirror the normal scan
+        // paths' superseded stop — no recovery artifacts were emitted.
+        return { outcome: "superseded", code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, processed };
+      }
       processed.push({ driveFileId: prepared.file.driveFileId, outcome: "live_row_conflict" });
       continue;
     }
