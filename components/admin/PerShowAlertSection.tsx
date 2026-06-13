@@ -24,6 +24,7 @@ import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 
 const UNRESOLVED_PLACEHOLDER_RE = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
 
@@ -207,7 +208,7 @@ export async function PerShowAlertSection({
               }`}
             >
               <p className="text-sm font-semibold text-text-strong">
-                {copy ?? "Something needs your attention on this show."}
+                {copy ? renderEmphasis(copy) : "Something needs your attention on this show."}
               </p>
               <HelpAffordance
                 code={alert.code}

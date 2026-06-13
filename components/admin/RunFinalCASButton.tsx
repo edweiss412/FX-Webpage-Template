@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 
 // WM-R3: finalize-cas 409s carry per_row entries ({ drive_file_id, code })
 // for retained shadow rows (app/api/admin/onboarding/finalize-cas/route.ts
@@ -126,7 +127,7 @@ export function RunFinalCASButton({ sessionId: _sessionId }: Props) {
           data-testid="run-final-cas-error"
           className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
         >
-          <p>{state.copy}</p>
+          <p>{renderEmphasis(state.copy)}</p>
           <HelpAffordance code={state.code} />
         </div>
       ) : null}

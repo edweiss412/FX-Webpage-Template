@@ -2,6 +2,7 @@
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { messageFor } from "@/lib/messages/lookup";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Header } from "./_components/Header";
 import { Sidebar } from "./_components/Sidebar";
 import { Breadcrumb } from "./_components/Breadcrumb";
@@ -26,7 +27,9 @@ export default async function HelpLayout({ children }: { children: ReactNode }) 
         >
           <h1 className="text-2xl font-semibold">Help unavailable</h1>
           <p className="mt-4 text-base text-text-subtle">
-            {entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."}
+            {renderEmphasis(
+              entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment.",
+            )}
           </p>
           <a
             href="/admin"

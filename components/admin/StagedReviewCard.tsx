@@ -56,6 +56,7 @@ import { ReportButton } from "@/components/shared/ReportButton";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import type { MessageCode } from "@/lib/messages/catalog";
+import { renderEmphasisOr } from "@/components/messages/renderEmphasis";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 
@@ -297,9 +298,7 @@ export function StagedReviewCard({
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const router = useRouter();
 
-  const isFirstSeen = row.triggeredReviewItems.some((i) =>
-    FIRST_SEEN_INVARIANTS.has(i.invariant),
-  );
+  const isFirstSeen = row.triggeredReviewItems.some((i) => FIRST_SEEN_INVARIANTS.has(i.invariant));
 
   const setChoice = (itemId: string, action: ReviewerAction) => {
     setChoices((prev) => {
@@ -397,7 +396,7 @@ export function StagedReviewCard({
         }
         router.refresh();
       } else {
-        const errMaybe = (json as { error?: string; code?: string });
+        const errMaybe = json as { error?: string; code?: string };
         setErrorCode(errMaybe.error ?? errMaybe.code ?? "SYNC_INFRA_ERROR");
       }
     } catch {
@@ -446,7 +445,7 @@ export function StagedReviewCard({
         onMutated?.();
         router.refresh();
       } else {
-        const errMaybe = (json as { error?: string; code?: string });
+        const errMaybe = json as { error?: string; code?: string };
         setErrorCode(errMaybe.error ?? errMaybe.code ?? "SYNC_INFRA_ERROR");
       }
     } catch {
@@ -490,9 +489,8 @@ export function StagedReviewCard({
               testId="help-affordance--first-seen-review-card--tooltip"
             >
               <p>
-                This is the first time we have seen this sheet. Approve the
-                parsed details to publish, or set the sheet aside until it
-                changes again.
+                This is the first time we have seen this sheet. Approve the parsed details to
+                publish, or set the sheet aside until it changes again.
               </p>
               <a
                 href="/help/admin/review-queues#first-seen"
@@ -526,12 +524,11 @@ export function StagedReviewCard({
           </p>
         ) : null}
         {isWizardMode && lastFinalizeFailureCode ? (
-          <p
-            className="text-sm text-warning-text"
-            data-testid="staged-wizard-failure-code"
-          >
-            {safeDougFacing(lastFinalizeFailureCode) ??
-              "This sheet could not be published in the last batch."}
+          <p className="text-sm text-warning-text" data-testid="staged-wizard-failure-code">
+            {renderEmphasisOr(
+              safeDougFacing(lastFinalizeFailureCode),
+              "This sheet could not be published in the last batch.",
+            )}
           </p>
         ) : null}
       </header>
@@ -554,19 +551,13 @@ export function StagedReviewCard({
                 data-testid={`review-item-${item.id}`}
                 className="rounded-sm bg-surface-sunken p-3"
               >
-                <p
-                  id={`item-${item.id}-desc`}
-                  className="text-sm text-text-strong"
-                >
+                <p id={`item-${item.id}-desc`} className="text-sm text-text-strong">
                   {describeItem(item)}
                 </p>
                 {/* Associate the visible description with the radio group
                     so screen readers announce the change context, not
                     just "Apply, radio button" with no antecedent. */}
-                <fieldset
-                  className="mt-2 space-y-2"
-                  aria-describedby={`item-${item.id}-desc`}
-                >
+                <fieldset className="mt-2 space-y-2" aria-describedby={`item-${item.id}-desc`}>
                   <legend className="sr-only">How should this change be applied?</legend>
                   {allowed.map((action) => {
                     const id = `item-${item.id}-${action}`;
@@ -624,47 +615,47 @@ export function StagedReviewCard({
           data-testid="staged-review-read-only"
           className="mt-6 rounded-sm border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
         >
-          This show is archived. Staged changes are view-only here; applying or
-          discarding for an archived show isn&rsquo;t available in Phase A.
+          This show is archived. Staged changes are view-only here; applying or discarding for an
+          archived show isn&rsquo;t available in Phase A.
         </p>
       ) : null}
       {!readOnly && (
-      <div className="mt-6 flex flex-wrap gap-2">
-        {!reviewItemsCorrupt && (
+        <div className="mt-6 flex flex-wrap gap-2">
+          {!reviewItemsCorrupt && (
+            <button
+              type="button"
+              onClick={handleApply}
+              disabled={pending}
+              data-testid="staged-review-apply"
+              aria-busy={pending}
+              className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Apply
+            </button>
+          )}
           <button
             type="button"
-            onClick={handleApply}
+            onClick={() => handleDiscard("try_again")}
             disabled={pending}
-            data-testid="staged-review-apply"
-            aria-busy={pending}
-            className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Apply
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => handleDiscard("try_again")}
-          disabled={pending}
-          data-testid="staged-review-discard-try-again"
-          aria-busy={pending}
-          className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Retry on next sync
-        </button>
-        {isFirstSeen ? (
-          <button
-            type="button"
-            onClick={() => handleDiscard("defer_until_modified")}
-            disabled={pending}
-            data-testid="staged-review-discard-defer"
+            data-testid="staged-review-discard-try-again"
             aria-busy={pending}
             className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Wait for next edit
+            Retry on next sync
           </button>
-        ) : null}
-      </div>
+          {isFirstSeen ? (
+            <button
+              type="button"
+              onClick={() => handleDiscard("defer_until_modified")}
+              disabled={pending}
+              data-testid="staged-review-discard-defer"
+              aria-busy={pending}
+              className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Wait for next edit
+            </button>
+          ) : null}
+        </div>
       )}
       {!readOnly && isFirstSeen ? (
         <div className="mt-4 border-t border-border pt-4">
@@ -679,10 +670,7 @@ export function StagedReviewCard({
           >
             Stop showing this sheet
           </button>
-          <p
-            id={`staged-${row.stagedId}-ignore-note`}
-            className="mt-1 text-xs text-text-subtle"
-          >
+          <p id={`staged-${row.stagedId}-ignore-note`} className="mt-1 text-xs text-text-subtle">
             This sheet will not reappear until Doug clears it from settings.
           </p>
         </div>

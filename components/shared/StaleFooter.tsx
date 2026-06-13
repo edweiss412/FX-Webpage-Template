@@ -19,6 +19,7 @@
  * Server Component (no 'use client').
  */
 import { messageFor, type MessageCode } from "@/lib/messages/lookup";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
 
 type StaleFooterProps = {
@@ -103,7 +104,7 @@ export function StaleFooter({ lastSyncedAt, lastSyncStatus, now }: StaleFooterPr
       data-code={code}
       className={`text-xs ${TIER_CLASS[tier]}`}
     >
-      {text}
+      {renderEmphasis(text)}
     </div>
   );
 }
