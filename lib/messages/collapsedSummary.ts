@@ -27,10 +27,18 @@ export function firstSentence(s: string): string {
  *   like `(SW-POST_SHOW)` are left intact.
  *
  * Application order: bold → *em* → _em_
+ *
+ * The asterisk passes use `[^*]+` (not lazy `.+?`) content classes — identical
+ * to renderEmphasis's BOLD_RE/EM_RE — so a literal `***` run is NEVER treated
+ * as emphasis. Catalog copy such as UNKNOWN_DAY_RESTRICTION tells Doug the role
+ * cell contains `***`; the lazy `.+?` form collapsed that to `*` on every
+ * surface routed through here (the AlertBanner collapsed line and plainCatalogText
+ * via lookup.ts), mis-stating the literal marker (Codex R3). Keeping the classes
+ * symmetric with renderEmphasis means the styled and plaintext paths agree.
  */
 export function stripEmphasis(s: string): string {
   return s
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
     .replace(/(^|[\s("'])_(\S(?:.*?\S)?)_(?=[\s)"'.,!?;:]|$)/g, "$1$2");
 }

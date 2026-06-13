@@ -32,11 +32,20 @@ describe("stripEmphasis", () => {
   });
   it("strips outer _em_ pair but keeps internal underscore", () => {
     expect(stripEmphasis("_Validation (SW-POST_SHOW)_ isn't here")).toBe(
-      "Validation (SW-POST_SHOW) isn't here"
+      "Validation (SW-POST_SHOW) isn't here",
     );
   });
   it("leaves lone internal underscore in snake_case untouched", () => {
     expect(stripEmphasis("snake_case stays")).toBe("snake_case stays");
+  });
+  it("preserves a literal `***` run (does NOT collapse it to `*`)", () => {
+    // UNKNOWN_DAY_RESTRICTION tells Doug the role cell contains `***`. The lazy
+    // `.+?` form matched `*`...`*` inside the triple and collapsed it to `*` on
+    // every surface routed through stripEmphasis (AlertBanner collapsed line,
+    // plainCatalogText). `[^*]+` content classes preserve it (Codex R3).
+    expect(stripEmphasis("day-restricted (`***` in the role)")).toBe(
+      "day-restricted (`***` in the role)",
+    );
   });
   it("handles empty string", () => {
     expect(stripEmphasis("")).toBe("");

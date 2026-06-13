@@ -34,8 +34,10 @@ import {
   getRequiredDougFacing,
   lookupHelpfulContext,
   messageFor,
+  plainCatalogText,
   type MessageCode,
 } from "@/lib/messages/lookup";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
 // A code shape a retired/typo'd DB row could plausibly contain. Never a
 // catalog key (catalog keys are real §12.4 codes; this one is namespaced
@@ -88,5 +90,32 @@ describe("messageFor — null-field hygiene on KNOWN codes (regression context f
     // DRIVE_FETCH_FAILED crewFacing contains <time>; pass an unrelated param.
     const entry = messageFor("DRIVE_FETCH_FAILED", { unrelated: "x" });
     expect(entry.crewFacing).toContain("<time>");
+  });
+});
+
+describe("plainCatalogText — strip semantics match renderCatalogEmphasis (Codex R3)", () => {
+  it("preserves the literal `***` day-restriction token (does NOT collapse it to `*`)", () => {
+    // CREW_DAY_RESTRICTED tells Doug the role cell contains `***`. The styled
+    // renderer (renderEmphasis, [^*]+ classes) preserves it; the plaintext path
+    // must too. The naive lazy-`.+?` stripEmphasis collapsed `***` → `*`, which
+    // would mis-tell Doug the literal marker to look for.
+    const input = "flagged as day-restricted (`***` in the role)";
+    expect(plainCatalogText(input)).toBe(input);
+  });
+
+  it("preserves the live UNKNOWN_DAY_RESTRICTION dougFacing `***` literal after stripping", () => {
+    const doug = MESSAGE_CATALOG["UNKNOWN_DAY_RESTRICTION"].dougFacing;
+    expect(doug).not.toBeNull();
+    // Anti-tautology: assert against the live catalog string. The `_<crew-name>_`
+    // emphasis IS stripped, but the literal `***` code span is preserved.
+    expect(plainCatalogText(doug!)).toContain("`***`");
+    expect(plainCatalogText(doug!)).not.toContain("`*`");
+  });
+
+  it("still strips real single/double emphasis and interpolates params as opaque text", () => {
+    expect(plainCatalogText("_<sheet-name>_ failed", { "sheet-name": "Foo *draft*" })).toBe(
+      "Foo *draft* failed",
+    );
+    expect(plainCatalogText("**bold** and *em*")).toBe("bold and em");
   });
 });

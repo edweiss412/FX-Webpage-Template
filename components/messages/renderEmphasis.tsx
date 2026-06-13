@@ -8,12 +8,11 @@
  * Companion to `stripEmphasis` in lib/messages/collapsedSummary.ts (the
  * collapsed AlertBanner line strips; full surfaces render styled — this
  * helper is the "render styled" half). Same pass order (**bold** → *em* →
- * _em_) and the same word-boundary contract for `_em_` (internal
- * underscores in tokens like (SW-POST_SHOW) are left intact). One
- * deliberate divergence: content classes here are `[^*]+` (stripEmphasis
- * uses lazy `.+?`), so the `***` day-restriction token in
- * CREW_DAY_RESTRICTED copy is never treated as emphasis here even though
- * stripEmphasis would mangle it.
+ * _em_), the same word-boundary contract for `_em_` (internal underscores
+ * in tokens like (SW-POST_SHOW) are left intact), and the same `[^*]+`
+ * content classes — so a literal `***` run (the UNKNOWN_DAY_RESTRICTION
+ * day-restriction marker) is preserved identically by both the styled and
+ * the plaintext (stripEmphasis / plainCatalogText) paths.
  *
  * Consumers: every surface that renders catalog copy as JSX — pinned by
  * tests/messages/_metaEmphasisRenderContract.test.ts.
