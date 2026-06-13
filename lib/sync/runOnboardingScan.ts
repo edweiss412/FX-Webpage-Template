@@ -60,15 +60,15 @@ export type WizardIsolationIndexProbe = { ok: true } | { ok: false; missing: str
 
 export type OnboardingScanTx = Phase1Tx &
   LockableSyncTx & {
-  ensureWizardIsolationIndexes(): Promise<WizardIsolationIndexProbe>;
-  upsertManifest(row: OnboardingManifestRow): Promise<boolean>;
-  logSync(entry: {
-    code: string;
-    driveFileId?: string;
-    payload?: Record<string, unknown>;
-  }): Promise<void>;
-  upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
-};
+    ensureWizardIsolationIndexes(): Promise<WizardIsolationIndexProbe>;
+    upsertManifest(row: OnboardingManifestRow): Promise<boolean>;
+    logSync(entry: {
+      code: string;
+      driveFileId?: string;
+      payload?: Record<string, unknown>;
+    }): Promise<void>;
+    upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
+  };
 
 export type OnboardingScanResult =
   | {
@@ -546,9 +546,7 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -564,9 +562,7 @@ async function scanPreparedFileWithTx(
 
     if (result.outcome === "stage") {
       if (result.stagedId.length === 0) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -587,9 +583,7 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -622,9 +616,7 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -650,9 +642,7 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -675,42 +665,78 @@ async function scanPreparedFileWithTx(
       }
       throw error;
     }
-    await callTx("logSync", () =>
-      tx.logSync({
-        code: "onboarding_scan_live_row_conflict",
-        driveFileId: file.driveFileId,
-        payload: { drive_file_id: file.driveFileId, sqlstate: state, kind },
-      }),
-    );
-    await callTx("upsertAdminAlert", () =>
-      tx.upsertAdminAlert({
-        showId: null,
-        code: LIVE_ROW_CONFLICT,
-        context: {
-          drive_file_id: file.driveFileId,
-          file_name: file.name,
-          folder_id: folderId,
-          wizard_session_id: wizardSessionId,
-          sqlstate: state,
-          kind,
-        },
-      }),
-    );
-    await callTx("upsertManifest", () =>
-      tx.upsertManifest({
-        folderId,
-        wizardSessionId,
-        driveFileId: file.driveFileId,
-        mimeType: file.mimeType,
-        name: file.name,
-        status: "live_row_conflict",
-      }),
-    );
-    processed.push({ driveFileId: file.driveFileId, outcome: "live_row_conflict" });
-    return { kind: "continue" };
+    // 25P02 abort class: the 23505/42P10 was raised by a statement ON THIS
+    // per-file transaction, so the transaction is already aborted — any
+    // recovery write issued here would fail with 25P02
+    // in_failed_sql_transaction on real Postgres (live-reproduced; sibling of
+    // the first-seen slug-collision fix in runScheduledCronSync). Rethrow a
+    // typed control-flow error so the per-file transaction rolls back;
+    // scanPreparedFiles records the conflict in a FRESH transaction.
+    throw new OnboardingScanLiveRowConflictRollbackError(String(state), kind);
   }
 
   return { kind: "continue" };
+}
+
+/**
+ * Control-flow error: a live-row conflict (legacy-PK 23505 / arbiter-inference
+ * 42P10) aborted the per-file scan transaction. Thrown OUT of the transaction
+ * so it rolls back; the caller writes the live_row_conflict recovery rows
+ * (sync_log, admin alert, manifest) in a fresh transaction.
+ */
+class OnboardingScanLiveRowConflictRollbackError extends Error {
+  constructor(
+    readonly sqlstate: string,
+    readonly conflictKind: string,
+  ) {
+    super(`onboarding scan live-row conflict (sqlstate ${sqlstate}, ${conflictKind})`);
+    this.name = "OnboardingScanLiveRowConflictRollbackError";
+  }
+}
+
+/** Recovery writes for a live-row conflict — MUST run on a fresh transaction. */
+async function recordLiveRowConflict(
+  folderId: string,
+  wizardSessionId: string,
+  tx: OnboardingScanTx,
+  file: DriveListedFile,
+  conflict: OnboardingScanLiveRowConflictRollbackError,
+): Promise<void> {
+  await callTx("logSync", () =>
+    tx.logSync({
+      code: "onboarding_scan_live_row_conflict",
+      driveFileId: file.driveFileId,
+      payload: {
+        drive_file_id: file.driveFileId,
+        sqlstate: conflict.sqlstate,
+        kind: conflict.conflictKind,
+      },
+    }),
+  );
+  await callTx("upsertAdminAlert", () =>
+    tx.upsertAdminAlert({
+      showId: null,
+      code: LIVE_ROW_CONFLICT,
+      context: {
+        drive_file_id: file.driveFileId,
+        file_name: file.name,
+        folder_id: folderId,
+        wizard_session_id: wizardSessionId,
+        sqlstate: conflict.sqlstate,
+        kind: conflict.conflictKind,
+      },
+    }),
+  );
+  await callTx("upsertManifest", () =>
+    tx.upsertManifest({
+      folderId,
+      wizardSessionId,
+      driveFileId: file.driveFileId,
+      mimeType: file.mimeType,
+      name: file.name,
+      status: "live_row_conflict",
+    }),
+  );
 }
 
 async function scanPreparedFiles(
@@ -725,25 +751,48 @@ async function scanPreparedFiles(
   const lock = deps.withShowLock ?? defaultWithShowLock;
 
   for (const prepared of preparedFiles) {
-    const step = await withTx(async (tx) => {
-      const locked = await lock(
-        prepared.file.driveFileId,
-        (lockedTx) =>
-          scanPreparedFileWithTx(
-            folderId,
-            wizardSessionId,
-            lockedTx,
-            prepared,
-            processed,
-            runPhase1Impl,
-          ),
-        { tx, tryOnly: false },
-      );
-      if ("skipped" in locked) {
-        throw new OnboardingScanInfraError("withShowLock", locked);
-      }
-      return locked;
-    });
+    let step: OnboardingScanStep;
+    try {
+      step = await withTx(async (tx) => {
+        const locked = await lock(
+          prepared.file.driveFileId,
+          (lockedTx) =>
+            scanPreparedFileWithTx(
+              folderId,
+              wizardSessionId,
+              lockedTx,
+              prepared,
+              processed,
+              runPhase1Impl,
+            ),
+          { tx, tryOnly: false },
+        );
+        if ("skipped" in locked) {
+          throw new OnboardingScanInfraError("withShowLock", locked);
+        }
+        return locked;
+      });
+    } catch (error) {
+      if (!(error instanceof OnboardingScanLiveRowConflictRollbackError)) throw error;
+      // The conflicting per-file transaction rolled back above (its 23505/42P10
+      // left it aborted — writing the recovery rows there would 25P02). Record
+      // the live_row_conflict in a FRESH transaction, re-acquiring the same
+      // per-show lock (single-holder rule: the lock wrapper stays the one
+      // holder layer, same as the scan path).
+      await withTx(async (tx) => {
+        const locked = await lock(
+          prepared.file.driveFileId,
+          (lockedTx) =>
+            recordLiveRowConflict(folderId, wizardSessionId, lockedTx, prepared.file, error),
+          { tx, tryOnly: false },
+        );
+        if (locked && typeof locked === "object" && "skipped" in locked) {
+          throw new OnboardingScanInfraError("withShowLock", locked);
+        }
+      });
+      processed.push({ driveFileId: prepared.file.driveFileId, outcome: "live_row_conflict" });
+      continue;
+    }
     if (step.kind === "stop") return step.result;
   }
 
