@@ -19,7 +19,7 @@
  * Server Component (no 'use client').
  */
 import { messageFor, type MessageCode } from "@/lib/messages/lookup";
-import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
 
 type StaleFooterProps = {
@@ -94,8 +94,9 @@ export function StaleFooter({ lastSyncedAt, lastSyncStatus, now }: StaleFooterPr
     );
   }
 
-  const message = messageFor(code, { time: relative });
-  const text = message.crewFacing ?? "";
+  // Raw template; the time value interpolates AFTER emphasis parsing so
+  // it is inserted as opaque text (param-safe contract, Codex R1).
+  const text = messageFor(code).crewFacing ?? "";
 
   return (
     <div
@@ -104,7 +105,7 @@ export function StaleFooter({ lastSyncedAt, lastSyncStatus, now }: StaleFooterPr
       data-code={code}
       className={`text-xs ${TIER_CLASS[tier]}`}
     >
-      {renderEmphasis(text)}
+      {renderCatalogEmphasis(text, { time: relative })}
     </div>
   );
 }

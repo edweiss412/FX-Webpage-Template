@@ -18,7 +18,8 @@
  * Consumers: every surface that renders catalog copy as JSX — pinned by
  * tests/messages/_metaEmphasisRenderContract.test.ts.
  */
-import type { ReactNode } from "react";
+import { cloneElement, isValidElement, type ReactNode } from "react";
+import { interpolate, type MessageParams } from "@/lib/messages/lookup";
 
 const BOLD_RE = /\*\*([^*]+)\*\*/g;
 const EM_RE = /\*([^*]+)\*/g;
@@ -56,6 +57,38 @@ function applyPass(
 
 function wrapPass(nodes: ReactNode[], re: RegExp, wrap: Wrap, passName: string): ReactNode[] {
   return applyPass(nodes, re, (m, key) => [wrap(m[1] as string, key)], passName);
+}
+
+/**
+ * Param-safe renderer: parse emphasis on the raw catalog TEMPLATE, then
+ * interpolate placeholder values into the resulting text nodes. Parameter
+ * values are opaque text — byte-preserved, never parsed as markup. Use this
+ * (not renderEmphasis on an already-interpolated string) whenever params
+ * exist: a sheet literally named "Foo *draft*" must render byte-identical
+ * inside the styled wrapper instead of being consumed as emphasis and
+ * splitting the catalog-authored marker pair (Codex R1 MEDIUM).
+ *
+ * Placeholders are atomic `<token>` runs with no marker characters, so they
+ * never span an emphasis boundary; interpolating per text node (including
+ * the single string child of each <em>/<strong> this module creates) is
+ * exactly equivalent to messageFor's whole-string interpolation.
+ */
+export function renderCatalogEmphasis(template: string, params?: MessageParams): ReactNode[] {
+  const nodes = renderEmphasis(template);
+  if (!params) return nodes;
+  return nodes.map((node, i) => {
+    if (typeof node === "string") {
+      return interpolate(node, params) ?? node;
+    }
+    if (isValidElement<{ children?: ReactNode }>(node) && typeof node.props.children === "string") {
+      return cloneElement(
+        node,
+        { key: node.key ?? `p-${i}` },
+        interpolate(node.props.children, params) ?? node.props.children,
+      );
+    }
+    return node;
+  });
 }
 
 /** Nullable-copy convenience: render styled markers, or the plain fallback. */

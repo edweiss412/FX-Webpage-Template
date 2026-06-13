@@ -19,7 +19,7 @@
  */
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { renderCatalogEmphasis, renderEmphasis } from "@/components/messages/renderEmphasis";
 
 function renderToContainer(text: string) {
   return render(<p data-testid="subject">{renderEmphasis(text)}</p>);
@@ -79,5 +79,66 @@ describe("renderEmphasis", () => {
     expect(node.textContent).toBe("RPAS: stalled. Check the dashboard.");
     expect(node.querySelector("em")?.textContent).toBe("RPAS");
     expect(node.querySelector("strong")?.textContent).toBe("Check the dashboard.");
+  });
+});
+
+/**
+ * renderCatalogEmphasis: the param-safe entry point (Codex R1 MEDIUM).
+ * Emphasis is parsed on the catalog TEMPLATE; parameter values are inserted
+ * afterwards as opaque text and byte-preserved. The failure mode pinned: a
+ * sheet literally named "Foo *draft*" interpolated into "_<sheet-name>_ is
+ * live" used to have its asterisks eaten as markup, which split the outer
+ * underscore pair and leaked literal "_" into the visible text.
+ */
+describe("renderCatalogEmphasis", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  function renderTemplate(template: string, params?: Record<string, string>) {
+    return render(<p data-testid="subject">{renderCatalogEmphasis(template, params)}</p>);
+  }
+
+  test("param value containing paired asterisks is byte-preserved inside the styled wrapper", () => {
+    const { getByTestId } = renderTemplate("_<sheet-name>_ is now live for crew.", {
+      "sheet-name": "Foo *draft*",
+    });
+    const node = getByTestId("subject");
+    expect(node.querySelector("em")?.textContent).toBe("Foo *draft*");
+    expect(node.textContent).toBe("Foo *draft* is now live for crew.");
+    // The catalog-authored underscore pair must be styled away, not split.
+    expect(node.textContent).not.toContain("_");
+  });
+
+  test("param value with paired underscores is byte-preserved, not parsed", () => {
+    const { getByTestId } = renderTemplate("*<sheet-name>*: sync stalled.", {
+      "sheet-name": "spring _gala_ 2026",
+    });
+    const node = getByTestId("subject");
+    expect(node.querySelector("em")?.textContent).toBe("spring _gala_ 2026");
+    expect(node.textContent).toBe("spring _gala_ 2026: sync stalled.");
+  });
+
+  test("param value with **bold** markers and a trailing underscore is not parsed", () => {
+    const { getByTestId } = renderTemplate("Email <email> is already an admin.", {
+      email: "**ops**_@example.com_",
+    });
+    const node = getByTestId("subject");
+    expect(node.textContent).toBe("Email **ops**_@example.com_ is already an admin.");
+    expect(node.querySelector("em, strong")).toBeNull();
+  });
+
+  test("missing params leave the placeholder token intact (interpolate semantics)", () => {
+    const { getByTestId } = renderTemplate("_<sheet-name>_ was edited again.");
+    const node = getByTestId("subject");
+    expect(node.querySelector("em")?.textContent).toBe("<sheet-name>");
+    expect(node.textContent).toBe("<sheet-name> was edited again.");
+  });
+
+  test("snake_case param keys satisfy hyphenated placeholders (messageFor parity)", () => {
+    const { getByTestId } = renderTemplate("_<sheet-name>_ lost rows.", {
+      sheet_name: "RPAS Central",
+    });
+    expect(getByTestId("subject").textContent).toBe("RPAS Central lost rows.");
   });
 });

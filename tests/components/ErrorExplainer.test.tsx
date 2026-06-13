@@ -106,6 +106,25 @@ describe("ErrorExplainer", () => {
     expect(message.textContent).toBe(expected);
   });
 
+  test("marker characters inside a param value are byte-preserved, never parsed as markup", () => {
+    // Codex R1 (MEDIUM): a sheet literally named "Foo *draft*" must come
+    // through byte-identical inside the styled <em>; parsing the interpolated
+    // string used to eat the asterisks and leak the outer markers instead.
+    const { getByTestId } = render(
+      <ErrorExplainer
+        code="SYNC_DELAYED_SEVERE"
+        surface="admin"
+        params={{ "sheet-name": "Foo *draft*" }}
+      />,
+    );
+    const message = getByTestId("error-explainer-message");
+    expect(message.querySelector("em")?.textContent).toBe("Foo *draft*");
+    const expected = (MESSAGE_CATALOG.SYNC_DELAYED_SEVERE.dougFacing ?? "")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace("<sheet-name>", "Foo *draft*");
+    expect(message.textContent).toBe(expected);
+  });
+
   test("DEFENSIVE: unknown code (user-controlled string) renders null — no DOM mount", () => {
     const { container } = render(
       <ErrorExplainer code="ARBITRARY_INJECTED_STRING" surface="crew" />,

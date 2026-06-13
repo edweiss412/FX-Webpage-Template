@@ -33,7 +33,7 @@
  */
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
-import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 
 export type ErrorExplainerProps = {
   /**
@@ -81,9 +81,10 @@ export function ErrorExplainer({
   if (!isKnownCode(code)) {
     return null;
   }
-  // Use messageFor to apply optional placeholder interpolation. When
-  // `params` is undefined, messageFor returns the raw catalog entry.
-  const entry = messageFor(code, params);
+  // Read the RAW catalog entry; interpolation happens inside
+  // renderCatalogEmphasis AFTER emphasis parsing, so parameter values are
+  // opaque text (byte-preserved), never parsed as markup.
+  const entry = messageFor(code);
   const message = surface === "admin" ? entry.dougFacing : entry.crewFacing;
 
   // Defensive: known code, but no copy for this surface (e.g., GOOGLE_NO_CREW_MATCH
@@ -98,7 +99,7 @@ export function ErrorExplainer({
     <div data-testid="error-explainer">
       {/* The message text. Host provides framing chrome (bg/border/padding). */}
       <p data-testid="error-explainer-message" className="text-base font-medium">
-        {renderEmphasis(message)}
+        {renderCatalogEmphasis(message, params)}
       </p>
       {/*
         M9 C8 / M5-D6 #1: the `<details>` below suppresses the UA
@@ -112,7 +113,7 @@ export function ErrorExplainer({
         <details className="mt-3 list-none text-sm text-text-subtle [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none">
           <summary className="cursor-pointer list-none">Helpful context</summary>
           <p data-testid="error-explainer-helpful-context" className="mt-2">
-            {renderEmphasis(entry.helpfulContext!)}
+            {renderCatalogEmphasis(entry.helpfulContext!, params)}
           </p>
         </details>
       ) : null}
