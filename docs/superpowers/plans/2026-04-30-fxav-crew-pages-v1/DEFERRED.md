@@ -636,3 +636,15 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Found:** WM-R8 fix follow-up (2026-06-12). A Phase D shadow resolved as `discarded_by_reviewer_choice` (MI-12 reject) writes no `sync_audit` row (ratified live reject contract), so on a published=false existing show it leaves no durable completion provenance. If a SIBLING shadow then blocks final-CAS, the retry's `ONBOARDING_LEGACY_ROW_AMBIGUOUS` preflight classifies the completed-by-reject row as legacy-ambiguous and 409s. **Recovery exists and is correct** (the cataloged copy: re-run setup → restage, or developer clears) — this is an availability annoyance on a narrow path (unpublished existing show + reject choice + partial batch + retry), not data loss; fail-closed is the safe direction. Proper fix needs a design decision: a durable per-row completion marker that doesn't violate the no-audit reject contract (e.g., manifest-row completion stamp written by Phase D for ALL terminal row outcomes).
 
 **Trigger:** M13 launch-gate checklist, or any milestone reopening finalize-cas / the reject contract.
+
+## ONBOARDING-FIXUPS-DEF-4 — Cron first-seen auto-publish races an in-flight wizard session on a re-onboarded watched folder
+
+**Found:** Validation provenance drill, 2026-06-13. Live evidence: wizard session `99862a4e` held a first-seen `onboarding_scan_manifest` row for drive_file_id `1f2mV_cq0jdmJhrL-lD5Hn7PVnSRTkLyVjZMLGEbbh7k`, but the 5-min cron (the folder was already a `watched_folder_id`) auto-published the same file first-seen at 00:45:50 before the wizard finalized. Proof chain: `shows.created_at` matches the cron `sync_log` applied at 00:45:51; `unpublish_token` is set — only the cron `autoPublishFirstSeen` arm writes it; and the sole `sync_audit` row carries `source=onboarding_finalize_cas`. Wizard Phase B then took the existing-show shadow path (`app/api/admin/onboarding/finalize/route.ts:666-670`, by design) and stamped no provenance — neither `onboarding_scan_manifest.created_show_id` nor `shows.wizard_created_session_id`. The WM-R8 legacy-ambiguity preflight did not fire only because the cron-created show had `published=true`.
+
+**Consequence:** The first-seen provenance contract is silently unmet for wizard-first-seen rows the cron wins — the show exists with no manifest/show provenance linkage, so any downstream consumer of `created_show_id` / `wizard_created_session_id` (finalize-cas narrowing, the WM-R8 preflight family) sees a provenance-less row.
+
+**Why deferred, not fixed here:** the candidate fix needs a spec'd decision, not a one-line guard — e.g. the cron skips first-seen auto-publish for files holding an active wizard manifest row, which interacts directly with DEF-1's scan-vs-finalize session-exclusion analysis (the same scan/finalize/cron concurrency surface) and must be designed with it.
+
+**Fail-posture:** no data corruption — the show is correct and published; the gap is provenance/preflight bookkeeping only.
+
+**Trigger:** M13 launch-gate checklist (same as DEF-1/2/3).
