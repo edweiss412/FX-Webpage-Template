@@ -50,6 +50,14 @@ function lookupDougFacing(code: string | undefined | null): string | null {
   return messageFor(code as MessageCode).dougFacing ?? null;
 }
 
+// Surface-appropriate generic for hard-fail wizard rows whose producer code is
+// non-catalog/unresolvable. The shared SHEET_PROCESS_FAILED generic says "Open
+// the show…", but a phase-1 hard-fail may have produced no show, and this row's
+// only controls are Retry/Defer/Ignore below — so point Doug at those instead
+// (Codex R6). Exported for the surface-appropriateness regression test.
+export const WIZARD_HARD_FAIL_GENERIC =
+  "We couldn't read this sheet. Fix it in Drive and Retry, or choose Defer or Permanently ignore below.";
+
 export type Step3ManifestStatus =
   | "staged"
   | "hard_failed"
@@ -223,6 +231,7 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
       ? resolveIngestionCopy({
           code: row.errorCode ?? null,
           driveFileName: row.driveFileName ?? null,
+          genericFallback: WIZARD_HARD_FAIL_GENERIC,
         })
       : null;
 

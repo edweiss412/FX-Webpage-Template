@@ -21,7 +21,11 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
-import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
+import {
+  Step3Review,
+  WIZARD_HARD_FAIL_GENERIC,
+  type Step3Row,
+} from "@/components/admin/wizard/Step3Review";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -142,9 +146,11 @@ describe("Step3Review", () => {
     // include non-catalog values like MI-2_EMPTY_TITLE / MI-3_NO_VALID_DATES.
     // The old per-wizard lookupDougFacing returned null for those, leaving the
     // row with Retry/Defer/Ignore and NO reason. Routing through
-    // resolveIngestionCopy falls back to the GENERIC SHEET_PROCESS_FAILED copy,
-    // matching the needs-attention inbox + email, so Doug always sees why.
-    const generic = MESSAGE_CATALOG.SHEET_PROCESS_FAILED.dougFacing!;
+    // resolveIngestionCopy with a WIZARD-SPECIFIC generic fallback gives Doug a
+    // surface-appropriate reason: it points at the row's own Retry/Defer/Ignore
+    // controls, NOT the inbox/email's "Open the show…" copy (Codex R6 — these
+    // phase-1 hard-fails may have produced no show to open).
+    const inboxGeneric = MESSAGE_CATALOG.SHEET_PROCESS_FAILED.dougFacing!;
     for (const code of ["MI-2_EMPTY_TITLE", "MI-3_NO_VALID_DATES", "PARSE_HARD_FAIL"]) {
       cleanup();
       const row: Step3Row = { ...HARD_FAILED_ROW, errorCode: code };
@@ -153,8 +159,11 @@ describe("Step3Review", () => {
       );
       const article = getByTestId(`wizard-step3-row-${row.driveFileId}`);
       const text = article.textContent ?? "";
-      expect(text).toContain(generic);
-      // Never a raw code, never an empty explanation.
+      // Surface-appropriate generic: references the wizard actions, never empty,
+      // never the inbox "Open the show" copy, never a raw code.
+      expect(text).toContain(WIZARD_HARD_FAIL_GENERIC);
+      expect(text).not.toContain("Open the show");
+      expect(text).not.toContain(inboxGeneric);
       expect(text).not.toContain(code);
     }
   });

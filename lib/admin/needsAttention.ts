@@ -105,19 +105,29 @@ export type NeedsAttention = {
 /**
  * Catalog-safe copy for a pending-ingestion item (spec §7). NEVER renders a
  * raw code, raw last_error_message, or an unfilled `<…>` placeholder. Returns
- * the FIXED generic SHEET_PROCESS_FAILED copy when the code is missing, not a
- * catalog code, has a null dougFacing, or still contains an unresolved
- * placeholder after interpolation.
+ * the generic fallback copy when the code is missing, not a catalog code, has
+ * a null dougFacing, or still contains an unresolved placeholder after
+ * interpolation.
+ *
+ * `genericFallback` lets each surface supply context-appropriate generic copy.
+ * Default is SHEET_PROCESS_FAILED ("Open the show to see the staged change…"),
+ * correct for the needs-attention inbox + emails where a show exists. The
+ * wizard step-3 passes its own generic that points at the row's Retry/Defer/
+ * Ignore controls, because a phase-1 hard-fail may have produced no show to
+ * open (Codex R6). The catalog-code path is surface-agnostic and unaffected;
+ * only the generic fallback differs.
  */
 export function resolveIngestionCopy(input: {
   code: string | null;
   driveFileName: string | null;
+  genericFallback?: string;
 }): string {
   const { code, driveFileName } = input;
-  if (!code) return GENERIC_INGESTION_COPY;
+  const generic = input.genericFallback ?? GENERIC_INGESTION_COPY;
+  if (!code) return generic;
   // No parser→catalog error-code alias map exists (spec §7 step 1 → rely on
   // the generic fallback): a non-catalog code goes straight to generic.
-  if (!(code in MESSAGE_CATALOG)) return GENERIC_INGESTION_COPY;
+  if (!(code in MESSAGE_CATALOG)) return generic;
   // Raw template (no params) so plainCatalogText can strip the catalog's
   // Markdown emphasis markers BEFORE interpolating the sheet name. This copy
   // feeds plaintext surfaces only — the realtime/digest email bodies and the
@@ -125,10 +135,10 @@ export function resolveIngestionCopy(input: {
   // which render Markdown, so a literal "_<sheet>_" would leak. Stripping on
   // the template keeps it param-safe: a sheet named "Foo *draft*" survives.
   const template = messageFor(code as MessageCode).dougFacing;
-  if (!template) return GENERIC_INGESTION_COPY; // crew-only code (null dougFacing)
+  if (!template) return generic; // crew-only code (null dougFacing)
   const params = driveFileName ? { sheet_name: driveFileName } : undefined;
   const doug = plainCatalogText(template, params);
-  if (UNRESOLVED_PLACEHOLDER_RE.test(doug)) return GENERIC_INGESTION_COPY; // unfilled <…>
+  if (UNRESOLVED_PLACEHOLDER_RE.test(doug)) return generic; // unfilled <…>
   return doug;
 }
 
