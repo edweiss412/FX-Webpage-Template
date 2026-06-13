@@ -300,46 +300,55 @@ export const MAX_SHOW_SLUG_INSERT_ATTEMPTS = 20;
 
 export class ShowSlugCollisionRetryExhaustedError extends Error {
   readonly code = "SHOW_SLUG_COLLISION_RETRY_EXHAUSTED";
-  override readonly cause: unknown;
 
-  constructor(baseSlug: string, attempts: number, cause: unknown) {
+  constructor(baseSlug: string, attempts: number) {
     super(`Could not allocate a unique show slug for ${baseSlug} after ${attempts} attempts`);
     this.name = "ShowSlugCollisionRetryExhaustedError";
-    this.cause = cause;
   }
-}
-
-function isPostgresUniqueViolation(cause: unknown): boolean {
-  return (
-    typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    (cause as { code?: unknown }).code === "23505"
-  );
 }
 
 function slugCandidateForAttempt(baseSlug: string, attempt: number): string {
   return attempt === 1 ? baseSlug : `${baseSlug}-${attempt}`;
 }
 
+/**
+ * First-seen show INSERT with slug-collision retry (§6.9 collision policy).
+ *
+ * The retry is driven by EMPTY RETURNS from a conflict-free
+ * `INSERT … ON CONFLICT DO NOTHING RETURNING …` — NEVER by catching 23505.
+ * Catch-and-retry inside one transaction is broken on real Postgres: the first
+ * unique violation ABORTS the transaction, so attempt 2 fails with 25P02
+ * `in_failed_sql_transaction` (live-reproduced via wizard finalize 500 on a
+ * first-seen sheet whose derived slug collided with an existing show). With
+ * `ON CONFLICT DO NOTHING` no statement ever errors, so the transaction stays
+ * healthy across attempts.
+ *
+ * Because the conflict-free INSERT cannot name two arbiters, an empty return
+ * means SOME unique key conflicted — `shows_slug_key` (retry with the next
+ * suffix) or `shows_drive_file_id_key` (the caller's existing concurrent-insert
+ * stale path; see applyShowSnapshot's `if (!updated) return stale`).
+ * `isSlugTaken` disambiguates: under READ COMMITTED the follow-up SELECT runs
+ * on a fresh statement snapshot, so a concurrent insert that just committed
+ * (the ON CONFLICT speculative-insertion wait) is visible to it.
+ */
 export async function insertFirstSeenShowWithSlugRetry<T>(args: {
   baseSlug: string;
   insert: (slug: string) => Promise<T | null>;
+  isSlugTaken: (slug: string) => Promise<boolean>;
   maxAttempts?: number;
 }): Promise<T | null> {
   const maxAttempts = args.maxAttempts ?? MAX_SHOW_SLUG_INSERT_ATTEMPTS;
-  let lastUniqueViolation: unknown = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await args.insert(slugCandidateForAttempt(args.baseSlug, attempt));
-    } catch (cause) {
-      if (!isPostgresUniqueViolation(cause)) throw cause;
-      lastUniqueViolation = cause;
-    }
+    const candidate = slugCandidateForAttempt(args.baseSlug, attempt);
+    const inserted = await args.insert(candidate);
+    if (inserted !== null) return inserted;
+    // Empty return without a slug conflict → the drive_file_id key conflicted;
+    // preserve the caller's null → "stale" contract.
+    if (!(await args.isSlugTaken(candidate))) return null;
   }
 
-  throw new ShowSlugCollisionRetryExhaustedError(args.baseSlug, maxAttempts, lastUniqueViolation);
+  throw new ShowSlugCollisionRetryExhaustedError(args.baseSlug, maxAttempts);
 }
 
 function databaseUrl(): string {
@@ -1118,11 +1127,18 @@ class PostgresPipelineTx implements SyncPipelineTx {
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
                         $19::uuid, $20::timestamptz, now(), 'ok', null${extraValues})
-                on conflict (drive_file_id) do nothing
+                on conflict do nothing
                 returning id
               `,
                 [...insertParamsForSlug(slug), ...extraParams],
               ),
+            // Disambiguates the conflict-free INSERT's empty return: slug taken
+            // → next suffix; otherwise drive_file_id conflicted → null → stale.
+            isSlugTaken: async (slug) =>
+              (await this.one<{ taken: true }>(
+                "select true as taken from public.shows where slug = $1 limit 1",
+                [slug],
+              )) !== null,
           });
         })();
 

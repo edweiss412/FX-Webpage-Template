@@ -28,6 +28,9 @@ const databaseUrl =
 const SESSION = "5e5e5e5e-2222-4222-8222-5e5e5e5e5e5e";
 const FOLDER = "finalize-publish-db-folder";
 const DRIVE_FILE_ID = "finalize-publish-db-file";
+const COLLIDER_DRIVE_FILE_ID = "finalize-publish-db-collider";
+// deriveSlug(PARSE_RESULT, []) — dates.set "2026-05-08" → "2026-05" + slugified TITLE.
+const DERIVED_BASE_SLUG = "2026-05-finalize-publish-db-fixture";
 const STAGED_INSTANT = "2026-05-09T03:44:06.040Z";
 const TITLE = "Finalize Publish DB Fixture";
 
@@ -41,7 +44,12 @@ const PARSE_RESULT = {
     client_contact: { primary: { name: "Pat", email: "pat@example.com" } },
     template_version: "v4",
     venue: { name: "Grand Hall" },
-    dates: { travelIn: "2026-05-07", set: "2026-05-08", showDays: ["2026-05-09"], travelOut: "2026-05-10" },
+    dates: {
+      travelIn: "2026-05-07",
+      set: "2026-05-08",
+      showDays: ["2026-05-09"],
+      travelOut: "2026-05-10",
+    },
     event_details: { theme: "Annual" },
     agenda_links: [{ label: "Run of show", url: "https://example.com/ros" }],
     coi_status: null,
@@ -62,7 +70,12 @@ const PARSE_RESULT = {
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 try {
-  const probe = postgres(databaseUrl, { max: 1, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  const probe = postgres(databaseUrl, {
+    max: 1,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
   await probe.unsafe("select 1", []);
   sql = probe;
   dbUp = true;
@@ -83,8 +96,15 @@ async function cleanup(): Promise<void> {
   await sql
     .unsafe(`delete from public.onboarding_scan_manifest where drive_file_id = $1`, [DRIVE_FILE_ID])
     .catch(() => {});
-  await sql.unsafe(`delete from public.sync_audit where drive_file_id = $1`, [DRIVE_FILE_ID]).catch(() => {});
-  await sql.unsafe(`delete from public.shows where drive_file_id = $1`, [DRIVE_FILE_ID]).catch(() => {});
+  await sql
+    .unsafe(`delete from public.sync_audit where drive_file_id = $1`, [DRIVE_FILE_ID])
+    .catch(() => {});
+  await sql
+    .unsafe(`delete from public.shows where drive_file_id = $1`, [DRIVE_FILE_ID])
+    .catch(() => {});
+  await sql
+    .unsafe(`delete from public.shows where drive_file_id = $1`, [COLLIDER_DRIVE_FILE_ID])
+    .catch(() => {});
   await sql
     .unsafe(`delete from public.pending_syncs where drive_file_id = $1`, [DRIVE_FILE_ID])
     .catch(() => {});
@@ -92,7 +112,9 @@ async function cleanup(): Promise<void> {
     .unsafe(`delete from public.shows_pending_changes where drive_file_id = $1`, [DRIVE_FILE_ID])
     .catch(() => {});
   await sql
-    .unsafe(`delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`, [SESSION])
+    .unsafe(`delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`, [
+      SESSION,
+    ])
     .catch(() => {});
   await sql
     .unsafe(
@@ -333,6 +355,48 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
       const audit = first<{ rc_type: string; rc_len: number }>(auditRows);
       expect(audit.rc_type).toBe("array");
       expect(audit.rc_len).toBe(1);
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "real finalize survives a first-seen slug collision with an existing show (deduped slug, no 500)",
+    async () => {
+      // Live-reproduced production bug (validation onboarding drill, 2026-06-12):
+      // a first-seen sheet whose derived slug collides with an existing show
+      // (Doug duplicating last year's sheet — same title) hit a catch-and-retry
+      // of 23505 (shows_slug_key) INSIDE the already-aborted transaction →
+      // 25P02 → Phase2InfraError(applyShowSnapshot) → finalize 500 with
+      // ONBOARDING_FINALIZE_INTERNAL_ERROR.
+      await sql!.unsafe(
+        `insert into public.shows (drive_file_id, slug, title, client_label, template_version)
+         values ($1, $2, $3, 'Acme Corp', 'v4')`,
+        [COLLIDER_DRIVE_FILE_ID, DERIVED_BASE_SLUG, TITLE],
+      );
+
+      await writeViaRealWriter(PARSE_RESULT);
+      await approveStagedRow();
+
+      const response = await handleOnboardingFinalize(
+        new Request("https://crew.fxav.test/api/admin/onboarding/finalize", { method: "POST" }),
+        finalizeDeps(),
+      );
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { per_row: Array<{ code: string }> };
+      expect(body.per_row[0]?.code).toBe("OK");
+
+      const showRows = await sql!.unsafe(`select slug from public.shows where drive_file_id = $1`, [
+        DRIVE_FILE_ID,
+      ]);
+      expect(showRows.length).toBe(1);
+      expect(first<{ slug: string }>(showRows).slug).toBe(`${DERIVED_BASE_SLUG}-2`);
+
+      // The pre-existing show keeps its slug untouched.
+      const colliderRows = await sql!.unsafe(
+        `select slug from public.shows where drive_file_id = $1`,
+        [COLLIDER_DRIVE_FILE_ID],
+      );
+      expect(first<{ slug: string }>(colliderRows).slug).toBe(DERIVED_BASE_SLUG);
     },
   );
 });
