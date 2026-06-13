@@ -123,7 +123,7 @@ describe("/admin/needs-attention page (spec §4.3)", () => {
     const { container } = await renderPage();
 
     const degraded = screen.getByTestId("needs-attention-page-degraded");
-    expect(degraded).toHaveTextContent(/This is usually temporary/);
+    expect(degraded).toHaveTextContent(/We could not load this list right now/);
 
     // Invariant 5: no raw code / raw infra message anywhere in the DOM.
     const domText = container.textContent ?? "";

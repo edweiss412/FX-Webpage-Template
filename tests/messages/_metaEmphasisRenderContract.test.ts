@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
 const ACCESSOR_RE =
-  /\.dougFacing\b|\.crewFacing\b|\.helpfulContext\b|getDougFacing\(|getCrewFacing\(|getRequiredDougFacing\(|lookupHelpfulContext\(/;
+  /\.dougFacing\b|\.crewFacing\b|\.helpfulContext\b|getDougFacing\(|getCrewFacing\(|getRequiredDougFacing\(|lookupHelpfulContext\(|messageFor\(/;
 
 const EMPHASIS_AWARE_IMPORT_RE =
   /from\s+["']@\/components\/messages\/renderEmphasis["']|stripEmphasis/;
@@ -80,6 +80,10 @@ const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> =
   {
     file: "app/show/[slug]/unpublish/page.tsx",
     reason: "Unpublish-link doug copy; marker-free.",
+  },
+  {
+    file: "components/admin/ParsePanel.tsx",
+    reason: "Comment-only messageFor mention; renders warningSummary strings, not catalog copy.",
   },
   {
     file: "components/admin/CleanupAbandonedFinalizeButton.tsx",

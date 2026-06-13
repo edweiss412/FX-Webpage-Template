@@ -107,4 +107,30 @@ describe("staged-review server→client contract (real component + real coercer)
     const { queryByTestId } = renderCardForRawJsonb(null);
     expect(queryByTestId("staged-review-no-items")).not.toBeNull();
   });
+
+  // Copy × mode interaction: the editable empty state invites Apply, but in
+  // readOnly (archived) mode the Apply button is hidden — the copy must not
+  // promise an affordance that isn't there (dual-gate critique finding).
+  test("empty-state copy offers Apply only when the card is editable", () => {
+    const row: StagedRow = {
+      driveFileId: "drive-1",
+      stagedId: "11111111-1111-4111-8111-111111111111",
+      sourceKind: "onboarding_scan",
+      stagedModifiedTime: "2026-05-28T12:00:00Z",
+      baseModifiedTime: null,
+      warningSummary: "",
+      triggeredReviewItems: [],
+      reviewItemsCorrupt: false,
+    };
+    const editable = render(<StagedReviewCard row={row} mode="first_seen" showId="show-1" />);
+    expect(editable.getByTestId("staged-review-no-items").textContent).toContain(
+      "apply this change as-is",
+    );
+    cleanup();
+    const readOnly = render(
+      <StagedReviewCard row={row} mode="first_seen" showId="show-1" readOnly />,
+    );
+    expect(readOnly.getByTestId("staged-review-no-items").textContent).not.toContain("apply");
+    expect(readOnly.queryByTestId("staged-review-apply")).toBeNull();
+  });
 });

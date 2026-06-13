@@ -1,10 +1,10 @@
 # Per-show panel
 
-`/admin/show/<slug>` is the per-show panel. You land here from the dashboard, either by opening a show row or by following a **Changes to review** badge. The panel stacks four sections: preview as a crew member, parse warnings, share and access, and the crew section, with a quiet [sync-status footer](#sync-health) at the bottom of the page. When this show has edits waiting for your sign-off, a staged-review card appears above them all. On a quiet show the card is absent and the sections give you a quick read of what the sheet looks like to the app.
+`/admin/show/<slug>` is the per-show panel. You land here from the dashboard, either by opening a show row or by following a **Changes to review** badge. The panel stacks three sections: preview as a crew member, parse warnings, and the crew & share-access section, with a quiet [sync-status footer](#sync-health) at the bottom of the page. When this show has edits waiting for your review, a staged-review card appears above them all. On a quiet show the card is absent and the sections give you a quick read of what the sheet looks like to the app.
 
 <h2 id="staged-review-card">Staged review card</h2>
 
-A staged-review card appears at the top of the panel whenever this show has edits that haven't been Applied yet. The eyebrow tells you where the change came from (**Auto sync**, **Drive push**, **Manual sync**, or **Onboarding scan**), and the heading is a one-line summary of what changed. Each item that needs your sign-off gets a plain-language description, plus a diff between the prior approved version and the staged one for each affected section (crew, hotels, rooms, and so on). The card gives you the Apply and Discard buttons.
+A staged-review card appears at the top of the panel whenever this show has edits that haven't been Applied yet. The eyebrow tells you where the change came from (**Auto sync**, **Drive push**, **Manual sync**, or **Onboarding scan**), and the heading is a one-line summary of what changed. Each item that needs your review gets a plain-language description, plus a diff between the prior approved version and the staged one for each affected section (crew, hotels, rooms, and so on). The card gives you the Apply and Discard buttons.
 
 The card also names the version you're approving: "staged from edits Doug made on …" with the staged modified time, so there's no guessing about which save you're looking at. While the card is present, the three sections below render underneath as informational context.
 

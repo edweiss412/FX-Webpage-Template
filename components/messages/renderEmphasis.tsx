@@ -5,16 +5,18 @@
  * authors into copy (`**bold**`, `*em*`, word-boundary `_em_`). Converts
  * markers to <strong>/<em> so no literal `*` / `_` characters reach the DOM.
  *
- * Mirrors the matching semantics of `stripEmphasis` in
- * lib/messages/collapsedSummary.ts (the collapsed AlertBanner line strips;
- * full surfaces render styled — this helper is the "render styled" half):
- *   - application order: **bold** → *em* → _em_
- *   - `[^*]+` content classes so the `***` day-restriction token in
- *     CREW_DAY_RESTRICTED copy is never treated as emphasis
- *   - `_em_` only at word boundaries, so internal underscores in tokens
- *     like (SW-POST_SHOW) are left intact
+ * Companion to `stripEmphasis` in lib/messages/collapsedSummary.ts (the
+ * collapsed AlertBanner line strips; full surfaces render styled — this
+ * helper is the "render styled" half). Same pass order (**bold** → *em* →
+ * _em_) and the same word-boundary contract for `_em_` (internal
+ * underscores in tokens like (SW-POST_SHOW) are left intact). One
+ * deliberate divergence: content classes here are `[^*]+` (stripEmphasis
+ * uses lazy `.+?`), so the `***` day-restriction token in
+ * CREW_DAY_RESTRICTED copy is never treated as emphasis here even though
+ * stripEmphasis would mangle it.
  *
- * Consumers: <ErrorExplainer> (message + helpful context) and <StaleFooter>.
+ * Consumers: every surface that renders catalog copy as JSX — pinned by
+ * tests/messages/_metaEmphasisRenderContract.test.ts.
  */
 import type { ReactNode } from "react";
 

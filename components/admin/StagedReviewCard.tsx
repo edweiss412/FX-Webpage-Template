@@ -587,7 +587,9 @@ export function StagedReviewCard({
         </ul>
       ) : (
         <p className="text-sm text-text-subtle" data-testid="staged-review-no-items">
-          Nothing to decide here. You can apply this change as-is.
+          {readOnly
+            ? "Nothing to decide here."
+            : "Nothing to decide here. You can apply this change as-is."}
         </p>
       )}
 
