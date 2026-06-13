@@ -41,7 +41,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
-import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { renderCatalogEmphasis, renderEmphasis } from "@/components/messages/renderEmphasis";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -248,7 +248,15 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
       {row.status === "hard_failed" && row.pendingIngestionId ? (
         <>
           {hardFailCopy ? (
-            <p className="text-sm text-text-subtle">{renderEmphasis(hardFailCopy)}</p>
+            <p className="text-sm text-text-subtle">
+              {/* hardFailCopy is the RAW catalog template (lookupDougFacing
+                  takes no params); MI-* hard-fail rows open with
+                  "_<sheet-name>_ …", so thread this row's own sheet name —
+                  otherwise Doug sees the literal token. */}
+              {renderCatalogEmphasis(hardFailCopy, {
+                "sheet-name": row.driveFileName ?? row.driveFileId,
+              })}
+            </p>
           ) : null}
           {row.errorCode ? <HelpAffordance code={row.errorCode} /> : null}
           <HardFailedActions row={row as Step3Row & { pendingIngestionId: string }} />
