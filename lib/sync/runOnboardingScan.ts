@@ -345,6 +345,17 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
   async upsertLivePendingSync(
     row: Omit<Phase1PendingSyncRow, "stagedId"> & { stagedId?: string },
   ): Promise<{ stagedId: string }> {
+    // base_modified_time records the LIVE watermark this staged parse is based on — Phase D's
+    // equality preflight (finalize-cas applyShadow → revisionTimesMatch) refuses the shadow
+    // apply unless it still equals shows.last_seen_modified_time, and a NULL base only matches
+    // a NULL live watermark. This tx deliberately blinds readShowForPhase1 (first-seen
+    // semantics: full-parse onboarding review, no MI-6..14 diffs, no shows mutations), so
+    // runPhase1 always passes baseModifiedTime null here — for a RE-ONBOARDED existing show
+    // (live watermark non-null) a literal-null base made Phase D refuse EVERY row with
+    // STAGED_PARSE_OUTDATED_AT_PHASE_D (2026-06-12 validation onboarding drill). Stamp the
+    // live watermark at staging time instead, under the per-show advisory lock the scan
+    // already holds; a genuine first-seen file has no shows row → subselect yields NULL and
+    // the existing null-base contract is unchanged.
     const upserted = await this.one<{ staged_id: string }>(
       `
         insert into public.pending_syncs (
@@ -352,7 +363,12 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
           staged_id, source_kind, warning_summary, wizard_session_id
         )
-        select $1, $2::timestamptz, $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
+        select $1,
+               coalesce(
+                 $2::timestamptz,
+                 (select s.last_seen_modified_time from public.shows s where s.drive_file_id = $1)
+               ),
+               $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
                coalesce($8::uuid, gen_random_uuid()), $9, $10, $11::uuid
         where exists (
           select 1 from public.app_settings
