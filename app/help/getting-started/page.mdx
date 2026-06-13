@@ -11,7 +11,7 @@ You do this once. After that, every new show sheet you drop into your folder sho
 </Step>
 
 <Step n={3}>
-**Wait about five minutes.** Most sheets in the folder will appear in the dashboard's Active shows list on their own. If a sheet's parse hits something unusual or hard-fails, it'll land in the "Sheets we couldn't auto-apply" panel for you to review; open it from there and click "Review and apply."
+**Wait about five minutes.** Most sheets in the folder will appear in the dashboard's Active shows list on their own. Anything the app can't apply by itself is held for your sign-off: during setup you'll see it in the wizard's review step (click "Review and apply"); after setup it lands in the dashboard's **Needs attention** inbox.
 </Step>
 
 <TipFromSheets>
@@ -25,5 +25,5 @@ You're already used to organizing your shows in a Drive folder. This step just g
 ## If something doesn't appear
 
 - **Sheet doesn't show up in the dashboard.** Confirm the folder is shared with the service-account email (not your personal email), and that the sheet sits *inside* that folder (not a sibling).
-- **Sheet appears but parse fails.** Open it from the "Sheets we couldn't auto-apply" panel and click "Review and apply." The parse warnings explain exactly what to fix.
+- **Sheet appears but is held for review.** Open it from the **Needs attention** inbox (or the wizard's review step during setup) and apply it. The parse warnings explain exactly what to fix.
 - **Need to start over.** Unshare the folder and re-share it. The app re-scans automatically.

@@ -65,8 +65,8 @@ Each row carries a status badge. You start with three first-contact statuses and
 
 First-contact statuses:
 
-- **Ready for review.** The sheet parsed cleanly. Click **Review and apply** to walk through what the parser extracted and approve it.
-- **Couldn't parse.** Yellow badge with a plain-English explanation of what went wrong. Most of the time this is "the sheet has a column we don't recognize" or "a date cell didn't read as a date." The row offers three buttons: **Retry now** (re-runs the parser, useful after you fix a cell in Drive), **Defer until modified** (we'll re-check the next time the sheet changes), and **Permanently ignore** (the sheet stays out of the system).
+- **Ready for review.** The sheet parsed cleanly. Click **Review and apply** to walk through what the app extracted and approve it.
+- **Couldn't parse.** Yellow badge with a plain-English explanation of what went wrong. Most of the time this is "the sheet has a column we don't recognize" or "a date cell didn't read as a date." The row offers three buttons: **Retry now** (re-reads the sheet, useful after you fix a cell in Drive), **Defer until modified** (we'll re-check the next time the sheet changes), and **Permanently ignore** (the sheet stays out of the system).
 - **Skipped: not a Google Sheet.** The folder contained something that isn't a Google Sheet (a doc, a PDF, an image). The app ignores it; the row is informational and counts as resolved automatically.
 - **Live row conflict.** This only happens in an unusual recovery situation where the same sheet exists in your live data already; the wizard won't promote it again. You resolve the live row from the dashboard, then re-run setup.
 
@@ -75,7 +75,7 @@ After you act on a row, its badge flips to one of these resolved states: **Appli
 What you do on this step:
 
 <Step n={1}>
-**Open each row and review what the parser extracted.** "Parsed and ready" rows are the ones that need your eyeballs; the other statuses are informational.
+**Open each row and review what the app extracted.** "Parsed and ready" rows are the ones that need your eyeballs; the other statuses are informational.
 </Step>
 
 <Step n={2}>
