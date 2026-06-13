@@ -87,7 +87,12 @@ describe("buildNeedsAttention", () => {
   it("does NOT drop a first_seen sync newer than several existing_staged rows (single pending_syncs stream)", () => {
     // RENDER_CAP existing_staged syncs (older) + 1 first_seen sync (newest).
     const syncs = [
-      { stagedId: "new", driveFileId: "df-new", candidateTitle: "New", stagedModifiedTime: iso(28) },
+      {
+        stagedId: "new",
+        driveFileId: "df-new",
+        candidateTitle: "New",
+        stagedModifiedTime: iso(28),
+      },
       ...Array.from({ length: RENDER_CAP }, (_, i) => ({
         stagedId: `old-${i}`,
         driveFileId: `df-known-${i}`,
@@ -118,8 +123,20 @@ describe("buildNeedsAttention", () => {
   it("orders pending_ingestions by last_attempt_at (retry stays top), tie-broken deterministically", () => {
     const result = buildNeedsAttention({
       ingestions: [
-        { id: "old-retry", driveFileId: "df-1", driveFileName: "Re-failing", lastErrorCode: "DRIVE_FETCH_FAILED", lastAttemptAt: iso(20) },
-        { id: "recent", driveFileId: "df-2", driveFileName: "Recent", lastErrorCode: "DRIVE_FETCH_FAILED", lastAttemptAt: iso(10) },
+        {
+          id: "old-retry",
+          driveFileId: "df-1",
+          driveFileName: "Re-failing",
+          lastErrorCode: "DRIVE_FETCH_FAILED",
+          lastAttemptAt: iso(20),
+        },
+        {
+          id: "recent",
+          driveFileId: "df-2",
+          driveFileName: "Recent",
+          lastErrorCode: "DRIVE_FETCH_FAILED",
+          lastAttemptAt: iso(10),
+        },
       ],
       syncs: [],
       existence: {},
@@ -140,6 +157,32 @@ describe("resolveIngestionCopy (catalog-safe, spec §7)", () => {
     expect(copy).not.toMatch(/<[a-z-]+>/i);
   });
 
+  it("strips catalog emphasis markers so plaintext surfaces (email body, inbox copy line) never show literal * or _", () => {
+    // MI-2_TITLE_MISSING.dougFacing = "_<sheet-name>_ doesn't have a recognizable…".
+    // resolveIngestionCopy feeds both the realtime/digest email bodies AND the
+    // in-app NeedsAttentionInbox copy line (item.copy, rendered raw) — neither
+    // renders Markdown, so the markers must be stripped, not leaked.
+    const copy = resolveIngestionCopy({
+      code: "MI-2_TITLE_MISSING",
+      driveFileName: "Broken Sheet",
+    });
+    expect(copy).toBe(
+      "Broken Sheet doesn't have a recognizable show title. Add or fix the CLIENT row.",
+    );
+    expect(copy).not.toContain("_");
+    expect(copy).not.toContain("<sheet-name>");
+  });
+
+  it("preserves a sheet name that itself contains marker characters (strip the template, not the value)", () => {
+    // Param-safety mirror of renderCatalogEmphasis (Codex R1): markers are
+    // stripped on the TEMPLATE, then the sheet name is interpolated as opaque
+    // text, so a file literally named "Foo *draft*" survives byte-for-byte.
+    const copy = resolveIngestionCopy({ code: "MI-2_TITLE_MISSING", driveFileName: "Foo *draft*" });
+    expect(copy).toBe(
+      "Foo *draft* doesn't have a recognizable show title. Add or fix the CLIENT row.",
+    );
+  });
+
   it("falls back to generic for an unknown / non-catalog code (e.g. parser alias)", () => {
     expect(resolveIngestionCopy({ code: "MI-2_EMPTY_TITLE", driveFileName: "x" })).toBe(GENERIC);
   });
@@ -156,6 +199,8 @@ describe("resolveIngestionCopy (catalog-safe, spec §7)", () => {
   });
 
   it("falls back to generic for a crew-only code whose dougFacing is null", () => {
-    expect(resolveIngestionCopy({ code: "GOOGLE_NO_CREW_MATCH", driveFileName: "x" })).toBe(GENERIC);
+    expect(resolveIngestionCopy({ code: "GOOGLE_NO_CREW_MATCH", driveFileName: "x" })).toBe(
+      GENERIC,
+    );
   });
 });

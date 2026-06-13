@@ -10,7 +10,12 @@
 // via the existence map. Counts come from the exact totals (totalCounts), never
 // the capped array — so "+N more" and the Need-review stat reflect reality.
 
-import { MESSAGE_CATALOG, messageFor, type MessageCode } from "@/lib/messages/lookup";
+import {
+  MESSAGE_CATALOG,
+  messageFor,
+  plainCatalogText,
+  type MessageCode,
+} from "@/lib/messages/lookup";
 
 // V4/V7 — pin the inbox max-render cap. Chosen >> FXAV scale, < PostgREST cap.
 export const RENDER_CAP = 20;
@@ -113,9 +118,16 @@ export function resolveIngestionCopy(input: {
   // No parser→catalog error-code alias map exists (spec §7 step 1 → rely on
   // the generic fallback): a non-catalog code goes straight to generic.
   if (!(code in MESSAGE_CATALOG)) return GENERIC_INGESTION_COPY;
+  // Raw template (no params) so plainCatalogText can strip the catalog's
+  // Markdown emphasis markers BEFORE interpolating the sheet name. This copy
+  // feeds plaintext surfaces only — the realtime/digest email bodies and the
+  // in-app NeedsAttentionInbox copy line (item.copy, rendered raw) — none of
+  // which render Markdown, so a literal "_<sheet>_" would leak. Stripping on
+  // the template keeps it param-safe: a sheet named "Foo *draft*" survives.
+  const template = messageFor(code as MessageCode).dougFacing;
+  if (!template) return GENERIC_INGESTION_COPY; // crew-only code (null dougFacing)
   const params = driveFileName ? { sheet_name: driveFileName } : undefined;
-  const doug = messageFor(code as MessageCode, params).dougFacing;
-  if (!doug) return GENERIC_INGESTION_COPY; // crew-only code (null dougFacing)
+  const doug = plainCatalogText(template, params);
   if (UNRESOLVED_PLACEHOLDER_RE.test(doug)) return GENERIC_INGESTION_COPY; // unfilled <…>
   return doug;
 }

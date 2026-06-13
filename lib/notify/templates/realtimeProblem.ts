@@ -1,4 +1,4 @@
-import { messageFor, type MessageCode } from "@/lib/messages/lookup";
+import { messageFor, plainCatalogText, type MessageCode } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { escapeHtml, assertNoUnresolvedPlaceholder } from "./escapeHtml";
@@ -13,7 +13,12 @@ export type RealtimeInput =
       contextSheetName: string | null;
     }
   | { kind: "global"; origin: string }
-  | { kind: "ingestion"; origin: string; driveFileName: string | null; lastErrorCode: string | null };
+  | {
+      kind: "ingestion";
+      origin: string;
+      driveFileName: string | null;
+      lastErrorCode: string | null;
+    };
 
 export type RenderedEmail = { subject: string; html: string; text: string };
 
@@ -44,22 +49,33 @@ export function renderRealtimeProblem(input: RealtimeInput): RenderedEmail {
     href = `${input.origin}/admin/show/${input.slug}`;
     subjectShow = input.showTitle ?? "a show";
     guardTemplate(input.code);
-    // Non-empty sheet name so messageFor always fills <sheet-name> (never leaks it).
+    // Non-empty sheet name so the <sheet-name> slot is always filled (never leaks it).
     const sheetName = input.contextSheetName ?? input.showTitle ?? "this show";
-    const entry = messageFor(input.code as MessageCode, { sheet_name: sheetName });
-    bodyText = entry.dougFacing ?? `${subjectShow} has a sync problem.`;
+    // plainCatalogText strips the catalog's Markdown emphasis markers
+    // (`*<sheet-name>*`, `_<sheet-name>_`) off the template before filling the
+    // name — email is plaintext/escaped-HTML with no Markdown renderer.
+    const template = messageFor(input.code as MessageCode).dougFacing;
+    bodyText = template
+      ? plainCatalogText(template, { sheet_name: sheetName })
+      : `${subjectShow} has a sync problem.`;
   } else if (input.kind === "ingestion") {
     href = `${input.origin}/admin`;
     subjectShow = input.driveFileName ?? "a new sheet";
     // Shared resolver guarantees a placeholder-free string: unknown / null-dougFacing /
     // crew-only / unresolved-placeholder codes fall back to generic copy. Never a raw
     // code; never throws.
-    bodyText = resolveIngestionCopy({ code: input.lastErrorCode, driveFileName: input.driveFileName });
+    bodyText = resolveIngestionCopy({
+      code: input.lastErrorCode,
+      driveFileName: input.driveFileName,
+    });
   } else {
     href = `${input.origin}/admin`;
     subjectShow = "syncing";
     guardTemplate("SYNC_STALLED");
-    bodyText = MESSAGE_CATALOG.SYNC_STALLED.dougFacing ?? "Syncing is stalled.";
+    const stalled = MESSAGE_CATALOG.SYNC_STALLED.dougFacing;
+    // Defensive strip for consistency with the other paths (SYNC_STALLED is
+    // marker-free today, so this is a no-op unless the copy gains emphasis).
+    bodyText = stalled ? plainCatalogText(stalled) : "Syncing is stalled.";
   }
 
   const subject = `FXAV · ${subjectShow}: sync problem`;
