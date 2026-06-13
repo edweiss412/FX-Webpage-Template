@@ -146,7 +146,7 @@ export async function PerShowAlertSection({
         <h2 id="per-show-alert-section-heading" className="text-base font-semibold">
           Could not load alerts
         </h2>
-        <p>The admin database query failed. Refresh in a moment.</p>
+        <p>This is usually temporary. Refresh in a moment.</p>
       </section>
     );
   }

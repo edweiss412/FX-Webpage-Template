@@ -62,8 +62,8 @@ export default async function NeedsAttentionPage() {
             data-testid="needs-attention-page-degraded"
             className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
           >
-            The admin database query failed. Refresh in a moment. If this keeps happening, contact
-            the developer.
+            We couldn't load this list right now. This is usually temporary. Refresh in a moment. If
+            it keeps happening, contact the developer.
           </p>
         ) : (
           <NeedsAttentionInbox

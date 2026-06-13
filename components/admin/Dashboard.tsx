@@ -126,13 +126,12 @@ export async function fetchDashboardData(
   // Built as data so the query below stays ONE chained `.from().select()…limit()`
   // statement (the bounded-read meta-test, tests/admin/_metaBoundedReads.test.ts,
   // splits on `;` and requires the `.limit(` bound in the same statement).
-  const showOrder: ReadonlyArray<[string, { ascending: boolean; nullsFirst: boolean }]> =
-    isArchived
-      ? [
-          ["archived_at", { ascending: false, nullsFirst: false }],
-          ["id", { ascending: true, nullsFirst: false }],
-        ]
-      : [["last_synced_at", { ascending: false, nullsFirst: false }]];
+  const showOrder: ReadonlyArray<[string, { ascending: boolean; nullsFirst: boolean }]> = isArchived
+    ? [
+        ["archived_at", { ascending: false, nullsFirst: false }],
+        ["id", { ascending: true, nullsFirst: false }],
+      ]
+    : [["last_synced_at", { ascending: false, nullsFirst: false }]];
 
   let showsRows: ReadonlyArray<Record<string, unknown>>;
   try {
@@ -169,7 +168,10 @@ export async function fetchDashboardData(
       .select("id", { count: "exact", head: true })
       .eq("archived", false);
     if (q.error) {
-      return { kind: "infra_error", message: `shows active count query failed: ${q.error.message}` };
+      return {
+        kind: "infra_error",
+        message: `shows active count query failed: ${q.error.message}`,
+      };
     }
     // Fall back to the rendered length ONLY when this is the selected bucket
     // (so a null count from a head-less mock still resolves); otherwise 0.
@@ -188,7 +190,10 @@ export async function fetchDashboardData(
       .select("id", { count: "exact", head: true })
       .eq("archived", true);
     if (q.error) {
-      return { kind: "infra_error", message: `shows archived count query failed: ${q.error.message}` };
+      return {
+        kind: "infra_error",
+        message: `shows archived count query failed: ${q.error.message}`,
+      };
     }
     archivedCount = q.count ?? (isArchived ? showsRows.length : 0);
   } catch (err) {
@@ -201,8 +206,7 @@ export async function fetchDashboardData(
   // stats/overflow are scoped to the SELECTED bucket (that is what `showsRows`
   // holds); the StatStrip's "Active shows" stat keeps reading `activeCount`.
   const selectedCount = isArchived ? archivedCount : activeCount;
-  const statsScope: "global" | "shown" =
-    selectedCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
+  const statsScope: "global" | "shown" = selectedCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
   const overflowCount = Math.max(0, selectedCount - showsRows.length);
 
   // ── isLive per row (single `now`; shared tz + span helpers), liveCount = Σ ──
@@ -218,7 +222,10 @@ export async function fetchDashboardData(
         .select("show_id", { count: "exact", head: true })
         .in("show_id", activeShowIds);
       if (q.error) {
-        return { kind: "infra_error", message: `crew_members count query failed: ${q.error.message}` };
+        return {
+          kind: "infra_error",
+          message: `crew_members count query failed: ${q.error.message}`,
+        };
       }
       crewTotal = q.count ?? 0;
     } catch (err) {
@@ -277,9 +284,7 @@ export async function fetchDashboardData(
   // the owned set) — the safe, non-alarming label.
   const finalizeOwnedIds = new Set<string>();
   if (!isArchived) {
-    const inFlightIds = showsRows
-      .filter((s) => !Boolean(s.published))
-      .map((s) => s.id as string);
+    const inFlightIds = showsRows.filter((s) => !Boolean(s.published)).map((s) => s.id as string);
     for (const showId of inFlightIds) {
       try {
         const q = await supabase.rpc("readfinalizeowned_b2", { p_show_id: showId });
@@ -357,8 +362,8 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
             We could not load your dashboard.
           </h2>
           <p className="max-w-prose text-base text-text-subtle">
-            The admin database query failed. Refresh in a moment. If this keeps
-            happening, contact the developer.
+            This is usually temporary. Refresh in a moment. If it keeps happening, contact the
+            developer.
           </p>
         </header>
       </main>
@@ -366,10 +371,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
   }
 
   return (
-    <main
-      data-testid="admin-dashboard"
-      className="flex w-full flex-col gap-section-gap"
-    >
+    <main data-testid="admin-dashboard" className="flex w-full flex-col gap-section-gap">
       {/* Title + sub + eyebrow live in the shared <AdminPageHeader> rendered
           above <Dashboard/> in app/admin/page.tsx (Task 4.1 single title source).
           The dashboard-local "Open settings" link was removed (M12.6) — the

@@ -587,7 +587,7 @@ export function StagedReviewCard({
         </ul>
       ) : (
         <p className="text-sm text-text-subtle" data-testid="staged-review-no-items">
-          No reviewer choices required for this stage.
+          Nothing to decide here. You can apply this change as-is.
         </p>
       )}
 
