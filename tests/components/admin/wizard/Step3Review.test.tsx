@@ -120,24 +120,43 @@ describe("Step3Review", () => {
     expect(review.textContent ?? "").toMatch(/Review/i);
   });
 
-  test("hard_failed row interpolates the sheet name into placeholder-bearing catalog copy", () => {
+  test("hard_failed row with a CATALOG code shows interpolated, marker-free copy", () => {
     // MI-2_TITLE_MISSING.dougFacing opens with "_<sheet-name>_ doesn't have…".
-    // The wizard renders codes without going through an interpolating host,
-    // so Doug literally saw "<sheet-name> doesn't have a recognizable show
-    // title." — the row must thread its own sheet name as the param.
-    const row: Step3Row = {
-      ...HARD_FAILED_ROW,
-      errorCode: "MI-2_TITLE_MISSING",
-    };
+    // Routed through resolveIngestionCopy (the shared pending-ingestion
+    // resolver): the sheet name fills the slot and the emphasis markers are
+    // stripped for this plaintext row (no literal <sheet-name> or "_").
+    const row: Step3Row = { ...HARD_FAILED_ROW, errorCode: "MI-2_TITLE_MISSING" };
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
     );
     const article = getByTestId(`wizard-step3-row-${row.driveFileId}`);
     expect(article.textContent ?? "").not.toContain("<sheet-name>");
-    expect(article.querySelector("em")?.textContent).toBe(row.driveFileName);
+    expect(article.textContent ?? "").not.toContain("_");
     expect(article.textContent ?? "").toContain(
       `${row.driveFileName} doesn't have a recognizable show title.`,
     );
+  });
+
+  test("hard_failed row with a NON-CATALOG producer code still shows actionable copy (never empty)", () => {
+    // THE failure mode (Codex R5): the real phase-1 hard-fail producer codes
+    // include non-catalog values like MI-2_EMPTY_TITLE / MI-3_NO_VALID_DATES.
+    // The old per-wizard lookupDougFacing returned null for those, leaving the
+    // row with Retry/Defer/Ignore and NO reason. Routing through
+    // resolveIngestionCopy falls back to the GENERIC SHEET_PROCESS_FAILED copy,
+    // matching the needs-attention inbox + email, so Doug always sees why.
+    const generic = MESSAGE_CATALOG.SHEET_PROCESS_FAILED.dougFacing!;
+    for (const code of ["MI-2_EMPTY_TITLE", "MI-3_NO_VALID_DATES", "PARSE_HARD_FAIL"]) {
+      cleanup();
+      const row: Step3Row = { ...HARD_FAILED_ROW, errorCode: code };
+      const { getByTestId } = render(
+        <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+      );
+      const article = getByTestId(`wizard-step3-row-${row.driveFileId}`);
+      const text = article.textContent ?? "";
+      expect(text).toContain(generic);
+      // Never a raw code, never an empty explanation.
+      expect(text).not.toContain(code);
+    }
   });
 
   test("hard_failed row renders Retry / Defer / Ignore buttons that POST to the matching routes", async () => {

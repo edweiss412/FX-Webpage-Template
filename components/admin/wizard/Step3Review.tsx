@@ -38,10 +38,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
+import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
-import { renderCatalogEmphasis, renderEmphasis } from "@/components/messages/renderEmphasis";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -209,7 +210,21 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
 function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: string }) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
-  const hardFailCopy = row.status === "hard_failed" ? lookupDougFacing(row.errorCode) : null;
+  // Hard-fail rows ARE pending_ingestions rows (row.errorCode = last_error_code).
+  // Route through the SHARED resolver the needs-attention inbox + emails use, not
+  // the catalog-only lookupDougFacing: the real phase-1 producer codes include
+  // non-catalog values (MI-2_EMPTY_TITLE, MI-3_NO_VALID_DATES, PARSE_HARD_FAIL)
+  // for which lookupDougFacing returned null, leaving the row's reason blank
+  // (Codex R5). resolveIngestionCopy falls back to GENERIC copy (never empty),
+  // strips emphasis markers, and fills the sheet name — one resolver, three
+  // surfaces. Always non-null, so the render guard below only filters non-hard-fail.
+  const hardFailCopy =
+    row.status === "hard_failed"
+      ? resolveIngestionCopy({
+          code: row.errorCode ?? null,
+          driveFileName: row.driveFileName ?? null,
+        })
+      : null;
 
   return (
     <article
@@ -248,15 +263,9 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
       {row.status === "hard_failed" && row.pendingIngestionId ? (
         <>
           {hardFailCopy ? (
-            <p className="text-sm text-text-subtle">
-              {/* hardFailCopy is the RAW catalog template (lookupDougFacing
-                  takes no params); MI-* hard-fail rows open with
-                  "_<sheet-name>_ …", so thread this row's own sheet name —
-                  otherwise Doug sees the literal token. */}
-              {renderCatalogEmphasis(hardFailCopy, {
-                "sheet-name": row.driveFileName ?? row.driveFileId,
-              })}
-            </p>
+            // resolveIngestionCopy already filled the sheet name and stripped
+            // emphasis markers (plaintext), so render it directly.
+            <p className="text-sm text-text-subtle">{hardFailCopy}</p>
           ) : null}
           {row.errorCode ? <HelpAffordance code={row.errorCode} /> : null}
           <HardFailedActions row={row as Step3Row & { pendingIngestionId: string }} />
