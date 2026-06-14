@@ -106,7 +106,7 @@ describe("ReSyncButton", () => {
     });
   });
 
-  test("success summary covers the 'stage' outcome", async () => {
+  test("success summary covers the 'stage' outcome in plain language (no pipeline jargon)", async () => {
     fetchMock.mockResolvedValue({
       json: async () => ({
         ok: true,
@@ -116,8 +116,29 @@ describe("ReSyncButton", () => {
     const { getByTestId } = render(<ReSyncButton slug="my-show" />);
     fireEvent.click(getByTestId("admin-resync-button"));
     await waitFor(() => {
-      expect(getByTestId("admin-resync-success").textContent ?? "").toContain("staged for review");
+      expect(getByTestId("admin-resync-success").textContent ?? "").toContain(
+        "waiting for your review",
+      );
     });
+    // Doug-facing voice contract: sync outcome toasts speak plain language,
+    // never parser/pipeline vocabulary ("staged", "parse", "invariant").
+    expect(getByTestId("admin-resync-success").textContent ?? "").not.toMatch(
+      /\bstaged\b|\bparse\b|\binvariant\b/i,
+    );
+  });
+
+  test("the 'hard_fail' outcome explains the problem without parser jargon", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({ ok: true, result: { outcome: "hard_fail" } }),
+    } as unknown as Response);
+    const { getByTestId } = render(<ReSyncButton slug="my-show" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    await waitFor(() => getByTestId("admin-resync-success"));
+    const text = getByTestId("admin-resync-success").textContent ?? "";
+    // Concrete failure mode: "Synced, but the parse failed an invariant."
+    // shipped to Doug. The toast must say what to do in plain words.
+    expect(text).toContain("couldn't be applied");
+    expect(text).not.toMatch(/\bstaged\b|\bparse\b|\binvariant\b/i);
   });
 
   test("INVARIANT 5: no raw error codes leak into the DOM after an error response", async () => {

@@ -75,8 +75,7 @@ function AlreadyResolvedState() {
           This sheet is already taken care of.
         </h2>
         <p className="max-w-prose text-base text-text-subtle">
-          It was applied or set aside, possibly from another tab. Nothing else
-          is needed here.
+          It was applied or set aside, possibly from another tab. Nothing else is needed here.
         </p>
       </header>
       <nav aria-label="Wizard navigation" className="flex flex-wrap gap-x-6 gap-y-2">
@@ -99,9 +98,7 @@ function AlreadyResolvedState() {
   );
 }
 
-function summaryFromParseResult(
-  parseResult: WizardStagedRow["parse_result"],
-): string | undefined {
+function summaryFromParseResult(parseResult: WizardStagedRow["parse_result"]): string | undefined {
   if (!parseResult || typeof parseResult !== "object") return undefined;
   const title = parseResult.show?.title;
   return typeof title === "string" && title.length > 0 ? title : undefined;
@@ -179,7 +176,12 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
 
   const result = await fetchWizardStagedRowCached(wizardSessionId, driveFileId);
 
-  if (result !== null && typeof result === "object" && "kind" in result && result.kind === "infra_error") {
+  if (
+    result !== null &&
+    typeof result === "object" &&
+    "kind" in result &&
+    result.kind === "infra_error"
+  ) {
     return (
       <main
         data-testid="wizard-staged-reapply-infra-error"
@@ -190,8 +192,8 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
             We could not load that staged sheet.
           </h2>
           <p className="max-w-prose text-base text-text-subtle">
-            The admin database query failed. Refresh in a moment. If this
-            keeps happening, contact the developer.
+            This is usually temporary. Refresh in a moment. If it keeps happening, contact the
+            developer.
           </p>
         </header>
       </main>
@@ -255,12 +257,10 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
         >
           Setup
         </p>
-        <h2 className="text-2xl font-semibold text-text-strong">
-          Re-apply this sheet
-        </h2>
+        <h2 className="text-2xl font-semibold text-text-strong">Re-apply this sheet</h2>
         <p className="max-w-prose text-base text-text-subtle">
-          The last publish attempt could not finish this sheet. Re-make any
-          choices below and click Apply, or set the sheet aside.
+          The last publish attempt could not finish this sheet. Re-make any choices below and click
+          Apply, or set the sheet aside.
         </p>
       </header>
 

@@ -75,19 +75,19 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "AGENDA_ASSET_LOOKUP_FAILED": {
-    "crewFacing": "This agenda could not be loaded. Ask Doug if it keeps happening.",
+    "crewFacing": "This agenda could not be loaded. Text Doug if it keeps happening.",
     "dougFacing": "The agenda PDF could not be loaded. Refresh and try again.",
     "followUp": "Doug → retry; if persistent, Eric",
     "helpfulContext": "The agenda asset route could not resolve or stream the linked Drive PDF for the show.",
   },
   "AGENDA_GONE_FOR_CREW": {
-    "crewFacing": "This agenda isn't available anymore. Ask Doug for a fresh link.",
+    "crewFacing": "This agenda isn't available anymore. Text Doug for a fresh link.",
     "dougFacing": null,
     "followUp": "Crew → message Doug",
     "helpfulContext": null,
   },
   "AGENDA_UNAUTHENTICATED": {
-    "crewFacing": "Your link to this agenda expired. Reopen Doug's latest message to view it.",
+    "crewFacing": "This link has expired. Text Doug for the current agenda link.",
     "dougFacing": null,
     "followUp": "Crew → reopen signed link",
     "helpfulContext": null,
@@ -135,7 +135,7 @@ export const SPEC_CODES = {
     "helpfulContext": "Asset recovery fetched and verified diagram bytes against an older snapshot revision, but a newer Apply landed before recovery could write those bytes. The recovery run aborts so it does not attach old assets to the new approved revision.",
   },
   "BOOTSTRAP_GENERIC": {
-    "crewFacing": "Couldn't reach the server. Try signing in instead.",
+    "crewFacing": "Couldn't load the show. Refresh the page, or try signing in.",
     "dougFacing": null,
     "followUp": "Crew → try `/auth/sign-in`",
     "helpfulContext": null,
@@ -177,7 +177,7 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "CREW_LINK_UNAVAILABLE": {
-    "crewFacing": "This link isn't available. If you had a working link, it may have been reset. Ask Doug for the current link.",
+    "crewFacing": "This link isn't available. If you had a working link, it may have been reset. Text Doug for the current link.",
     "dougFacing": null,
     "followUp": "Crew → text Doug for the current link",
     "helpfulContext": null,
@@ -189,7 +189,7 @@ export const SPEC_CODES = {
     "helpfulContext": "The parser found day-restriction parentheticals in both the crew member's name cell and role cell. It uses the role-cell version because that is closer to the staffing assignment, but Doug should remove the duplicate marker to avoid conflicting instructions.",
   },
   "DIAGRAM_ASSET_LOOKUP_FAILED": {
-    "crewFacing": "This diagram could not be loaded. Ask Doug if it keeps happening.",
+    "crewFacing": "This diagram could not be loaded. Text Doug if it keeps happening.",
     "dougFacing": "A diagram could not be loaded. Refresh and try again.",
     "followUp": "Doug → retry; if persistent, Eric",
     "helpfulContext": "The diagram asset route could not resolve or stream the stored immutable diagram revision.",
@@ -297,13 +297,13 @@ export const SPEC_CODES = {
     "helpfulContext": "The bug-report recovery path needs to know the GitHub username of the bot account so it can find issues created by previous attempts. The `GITHUB_BOT_LOGIN` environment variable isn't set. Configure it on the deployment and redeploy.",
   },
   "GOOGLE_NO_CREW_MATCH": {
-    "crewFacing": "Your email isn't on the crew list for this show. Ask Doug to add you.",
+    "crewFacing": "Your email isn't on the crew list for this show. Text Doug to get added.",
     "dougFacing": null,
     "followUp": "Crew → text Doug",
     "helpfulContext": null,
   },
   "IDEMPOTENCY_IN_FLIGHT": {
-    "crewFacing": "Hold on — give it a sec.",
+    "crewFacing": "Hold on, your previous report is still processing. Try again in a moment.",
     "dougFacing": "Hold on — your previous report is still being submitted. Try again in a moment if it doesn't go through.",
     "followUp": "client retries after backoff",
     "helpfulContext": "Your previous report submission is still being processed by the developer's GitHub. Don't worry — clicking again won't create a duplicate, but it also won't speed things up. If the original doesn't go through within a minute, try once more.",
@@ -448,7 +448,7 @@ export const SPEC_CODES = {
   },
   "MI-7_SECTION_SHRINKAGE": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ lost more than half of its _<section>_ — _<prior*count>* before, _<new_count>_ now. Review before applying.",
+    "dougFacing": "_<sheet-name>_ lost more than half of its _<section>_ — _<prior_count>_ before, _<new_count>_ now. Review before applying.",
     "followUp": "Doug → review staged",
     "helpfulContext": "More than half of the rows in the named section disappeared since the last approved sync. Section collapses are usually accidental (often a half-finished paste). Open the staged review to confirm before applying.",
   },
@@ -735,13 +735,13 @@ export const SPEC_CODES = {
     "helpfulContext": "A picker form submitted malformed slug, share-token, show, epoch, or crew-member data. The server rejected the request before touching the picker cookie.",
   },
   "PICKER_INVALID_SHARE_TOKEN": {
-    "crewFacing": "This link is out of date. Ask Doug for the current show link.",
+    "crewFacing": "This link is out of date. Text Doug for the current show link.",
     "dougFacing": "A picker selection used a share link token that no longer resolves for this show.",
     "followUp": "Crew → ask Doug for latest link",
     "helpfulContext": "The selection action re-validated the slug and share token inside the show lock and found that the token no longer matches the show, usually because the share link was rotated.",
   },
   "PICKER_REMOVED_FROM_ROSTER_BANNER": {
-    "crewFacing": "Your previous selection was removed by Doug — pick yourself from the current roster.",
+    "crewFacing": "Your selection is no longer on the roster. Pick your name again.",
     "dougFacing": null,
     "followUp": "Crew → pick name or text Doug",
     "helpfulContext": null,
@@ -759,7 +759,7 @@ export const SPEC_CODES = {
     "helpfulContext": "A browser submitted cleanup for a picker cookie entry whose epoch or crew member no longer matched the current show state. The compare-and-delete path removed only the stale entry and left newer selections intact.",
   },
   "PICKER_SHOW_UNAVAILABLE": {
-    "crewFacing": "This show isn't available right now. Ask Doug for an updated link if you think this is a mistake.",
+    "crewFacing": "This show isn't available right now. Text Doug for an updated link if you think this is a mistake.",
     "dougFacing": null,
     "followUp": "Crew → text Doug",
     "helpfulContext": null,
@@ -795,7 +795,7 @@ export const SPEC_CODES = {
     "helpfulContext": "The clean-up-old-setup-leftovers action failed partway, usually a database or lock fault. Each old setup session is cleaned in its own transaction, so anything already cleaned stayed cleaned and nothing was left half-removed. Running it again is safe; if it keeps failing, contact the developer.",
   },
   "REEL_ASSET_LOOKUP_FAILED": {
-    "crewFacing": "This video could not be loaded. Ask Doug if it keeps happening.",
+    "crewFacing": "This video could not be loaded. Text Doug if it keeps happening.",
     "dougFacing": "The opening reel could not be loaded. Refresh and try again.",
     "followUp": "Doug → retry; if persistent, Eric",
     "helpfulContext": "The reel asset route could not resolve or stream the immutable Drive revision for the show.",
@@ -855,7 +855,7 @@ export const SPEC_CODES = {
     "helpfulContext": "To keep the developer's inbox under control, the admin report endpoint is capped at 10 reports per hour. The window resets on a rolling basis. Wait the indicated time, or message Eric directly if it's urgent.",
   },
   "REPORT_RATE_LIMITED_CREW": {
-    "crewFacing": "We've already heard from you a few times — give the developer a moment to look. Or message Doug directly for show-content questions.",
+    "crewFacing": "We've got your report and we're looking into it. Text Doug directly with show-content questions.",
     "dougFacing": null,
     "followUp": "Crew → wait or text Doug",
     "helpfulContext": null,
@@ -867,13 +867,13 @@ export const SPEC_CODES = {
     "helpfulContext": "A crew member's role flags changed in a way that doesn't affect LEAD status — for example, a department designation swap (A1 → V1), or an additive flag like BO. These changes affect which scope tile the crew member sees on their own page but don't grant or remove admin/ops access, so we apply them automatically and log this entry for your audit trail. No action needed; if you want to see the prior value, the audit page captures it.",
   },
   "SESSION_ABSOLUTE_TIMEOUT": {
-    "crewFacing": "Time to refresh — open the original link Doug shared again.",
+    "crewFacing": "Your session has expired. Open the original link Doug shared again.",
     "dougFacing": null,
     "followUp": "Crew → reopen link",
     "helpfulContext": null,
   },
   "SESSION_IDLE_TIMEOUT": {
-    "crewFacing": "Your session timed out. Open the original link Doug shared again.",
+    "crewFacing": "Your session has expired. Open the original link Doug shared again.",
     "dougFacing": null,
     "followUp": "Crew → reopen link",
     "helpfulContext": null,
@@ -922,9 +922,9 @@ export const SPEC_CODES = {
   },
   "SHOW_FIRST_PUBLISHED": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Use Undo auto-publish — the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; after that, archive the show from its page instead. Either way its crew link switches off until you republish.",
+    "dougFacing": "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** You have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its page instead. Either way its crew link switches off until you republish.",
     "followUp": null,
-    "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, use Undo auto-publish — the button appears on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; once it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
+    "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, you have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
   },
   "SHOW_PUBLISHED_BY_ADMIN": {
     "crewFacing": null,
@@ -1060,7 +1060,7 @@ export const SPEC_CODES = {
   },
   "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_ was edited again while we were finishing setup. Please re-review and Apply it, then click Finalize again.",
+    "dougFacing": "This sheet was edited again while we were finishing setup. Please re-review and Apply it, then click Finalize again.",
     "followUp": "Doug → re-Apply the affected sheet",
     "helpfulContext": "Doug edited this sheet again in Drive between when you clicked Apply (which staged your decisions) and when finalize tried to commit them. The snapshot we captured at Apply no longer represents the current head revision, and committing it would publish stale bytes. The other sheets in this finalize batch are unaffected and still committed; only the raced sheet needs your attention. Open the wizard, re-review the new edit, click Apply, then click Finalize.",
   },
@@ -1119,13 +1119,13 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "SYNC_DELAYED_MODERATE": {
-    "crewFacing": "Last synced *<time>* ago. Check with Doug if anything looks off.",
+    "crewFacing": "Last synced *<time>* ago. Text Doug if anything looks off.",
     "dougFacing": null,
     "followUp": "Crew → mention to Doug",
     "helpfulContext": null,
   },
   "SYNC_DELAYED_SEVERE": {
-    "crewFacing": "Couldn't sync recently — contact Doug.",
+    "crewFacing": "This page hasn't updated recently. Text Doug to check on it.",
     "dougFacing": "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard.",
     "followUp": "Crew → text Doug; Doug → check dashboard",
     "helpfulContext": "The crew page hasn't synced from Drive in over six hours. That's well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",

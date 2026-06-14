@@ -20,9 +20,31 @@ describe("renderRealtimeProblem — show level", () => {
     expect(out.text).toContain("FXAV Spring Tour");
     expect(out.text).not.toContain("<sheet-name>");
     expect(out.html).not.toContain("<sheet-name>");
+    // SHEET_UNAVAILABLE.dougFacing wraps the sheet name in "_…_". Email is
+    // plaintext/escaped-HTML with no Markdown rendering, so the emphasis
+    // markers must be stripped, never shown literally around the name.
+    expect(out.text).not.toContain("_FXAV Spring Tour_");
+    expect(out.html).not.toContain("_FXAV Spring Tour_");
+    expect(out.text).toContain("FXAV Spring Tour isn't in your folder anymore");
     // Absolute dashboard link via the injected origin (never a relative/localhost path).
     expect(out.text).toContain(`${ORIGIN}/admin/show/fxav-spring-tour`);
     expect(out.html).toContain(`href="${ORIGIN}/admin/show/fxav-spring-tour"`);
+  });
+
+  test("strips asterisk emphasis markers from the body (SYNC_DELAYED_SEVERE)", () => {
+    const out = renderRealtimeProblem({
+      kind: "show",
+      origin: ORIGIN,
+      slug: "fxav-spring-tour",
+      showTitle: "FXAV Spring Tour",
+      code: "SYNC_DELAYED_SEVERE",
+      contextSheetName: null,
+    });
+    // dougFacing = "*<sheet-name>*: crew page hasn't synced…" — markers gone.
+    expect(out.text).toContain("FXAV Spring Tour: crew page hasn't synced");
+    expect(out.text).not.toContain("*FXAV Spring Tour*");
+    expect(out.text).not.toContain("*<sheet-name>*");
+    expect(out.html).not.toContain("*FXAV Spring Tour*");
   });
 
   test("HTML-escapes a show title containing markup (no injection, no false placeholder throw)", () => {
@@ -44,7 +66,12 @@ describe("renderRealtimeProblem — ingestion level", () => {
     const code = "TOTALLY_UNKNOWN_CODE";
     const driveFileName = "New Sheet";
     const expectedCopy = resolveIngestionCopy({ code, driveFileName });
-    const out = renderRealtimeProblem({ kind: "ingestion", origin: ORIGIN, driveFileName, lastErrorCode: code });
+    const out = renderRealtimeProblem({
+      kind: "ingestion",
+      origin: ORIGIN,
+      driveFileName,
+      lastErrorCode: code,
+    });
     // Assert against the DATA SOURCE (resolveIngestionCopy), not the rendered container.
     expect(out.text).toContain(expectedCopy);
     expect(out.text).not.toContain(code);
@@ -70,9 +97,8 @@ describe("renderDigest — grouping, caps, overflow", () => {
     const shows = Array.from({ length: NUM_SHOWS }, (_, i) => ({
       showTitle: `Show ${i}`,
       slug: `show-${i}`,
-      items: i === 0
-        ? Array.from({ length: ITEMS_IN_FIRST }, (_, j) => `Item ${j}`)
-        : ["one issue"],
+      items:
+        i === 0 ? Array.from({ length: ITEMS_IN_FIRST }, (_, j) => `Item ${j}`) : ["one issue"],
     }));
     return { origin: ORIGIN, shows };
   }
@@ -168,7 +194,15 @@ describe("null/undefined template variables — fallbacks render, never the lite
 
 describe("em-dash audit (DESIGN.md §9 — no em dashes in any rendered copy)", () => {
   test.each([
-    () => renderRealtimeProblem({ kind: "show", origin: ORIGIN, slug: "s", showTitle: "S", code: "SHEET_UNAVAILABLE", contextSheetName: null }),
+    () =>
+      renderRealtimeProblem({
+        kind: "show",
+        origin: ORIGIN,
+        slug: "s",
+        showTitle: "S",
+        code: "SHEET_UNAVAILABLE",
+        contextSheetName: null,
+      }),
     () => renderRealtimeProblem({ kind: "global", origin: ORIGIN }),
     () => renderDigest({ origin: ORIGIN, shows: [{ showTitle: "S", slug: "s", items: ["one"] }] }),
   ])("rendered output %# has no em dash", (render) => {

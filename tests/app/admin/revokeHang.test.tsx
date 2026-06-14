@@ -32,8 +32,12 @@ import { AdminEmailsInfraError } from "@/lib/data/adminEmails";
 // requireAdminIdentity: pass the gate. revokeAdminEmail: throw the typed infra
 // fault so revokeAdminAction's catch maps it to { kind: "infra_error" } (6.4).
 // next/cache revalidatePath: no-op (success path not exercised by (a)).
+// Return a real admin identity: revokeAdminAction's M12.5 self-revoke guard
+// reads `canonicalize(identity.email)`, so `undefined` would throw before the
+// data call. The email differs from the revoked target ("x@example.com") so
+// the guard passes and the flow reaches revokeAdminEmail (mocked to throw).
 vi.mock("@/lib/auth/requireAdmin", () => ({
-  requireAdminIdentity: async () => undefined,
+  requireAdminIdentity: async () => ({ email: "admin@fxav.test" }),
 }));
 vi.mock("@/lib/data/adminEmails", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/data/adminEmails")>();
@@ -58,8 +62,7 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/app/admin/settings/admins/actions", async (importActual) => {
-  const actual =
-    await importActual<typeof import("@/app/admin/settings/admins/actions")>();
+  const actual = await importActual<typeof import("@/app/admin/settings/admins/actions")>();
   return {
     ...actual,
     revokeAdminAction: async (

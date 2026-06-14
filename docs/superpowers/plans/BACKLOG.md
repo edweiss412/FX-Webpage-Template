@@ -304,6 +304,25 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 - **BL-SYNCFEED-UI-2** — `ChangeFeedBadge`: `title` tooltips are hover-only (desktop); acceptable since the visible text label already carries meaning (color-blind floor met) — only act if touch-discoverability is raised.
 - **BL-SYNCFEED-UI-3** — `Disposition` test fixtures pass `{disposition:'removal', name:…}` where the canonical union has no `name` on `removal` (off-type but harmless at runtime; `dispositionName` returns null for removal). Tighten the fixtures if/when the `Disposition` type is hardened.
 
+### BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage
+
+**Filed:** 2026-06-13 from the Doug/crew copy audit. Owner decision (2026-06-13): **defer for future consideration after a full review** — do NOT sweep now.
+
+**The conflict:** `DESIGN.md` §9 (and the global `~/.claude/CLAUDE.md` Copy rule) state "No em dashes. Use commas, colons, semicolons, periods, parentheses. Also not `--`." But shipped copy uses em dashes widely and the rule has never been enforced:
+
+- **§12.4 catalog** (`lib/messages/catalog.ts` + the spec §12.4 prose): dozens of `dougFacing`/`crewFacing`/`helpfulContext`/`longExplanation` rows contain `—` (e.g. `SYNC_DELAYED_SEVERE` "Push or cron is stalled — check the dashboard.").
+- **Help MDX** (`app/help/**`): 25+ instances across multiple pages.
+- **Components**: test-pinned strings include em dashes, e.g. `"Held — not published"` (pinned in `tests/components/admin/ShowsTable.test.tsx`, `tests/app/admin/perShowPage.test.tsx`) and the archive-confirm copy `"Confirm archive — crew links stop working now…"` (pinned in `tests/components/admin/ArchiveShowButton.test.tsx`).
+
+**Two coherent resolutions (pick one during the full review):**
+
+1. **Ratify reality (recommended).** Amend DESIGN.md §9 to permit em dashes in prose copy (optionally keep the ban for headings/eyebrow labels, or drop it entirely). One-line doc change, zero code/test churn. The ban appears inherited from the impeccable skill's defaults rather than chosen for this product; the shipped copy reads well.
+2. **Enforce the ban.** A repo-wide sweep replacing every `—` with commas/periods/parentheses. This touches the §12.4 three-way lockstep across dozens of rows (spec prose + `gen:spec-codes` regen + `catalog.ts`), multiple test pins, help MDX, and possibly screenshot baselines if any captured surface renders a dash. Multi-hour, high-churn, and it relitigates copy that passed many M12 adversarial rounds.
+
+**Why backlog, not deferred:** no spec, no plan, no scheduled milestone, no concrete trigger beyond "if/when the owner runs the full copy-voice review." If resolution (2) is ever chosen it should be its own scoped task (lockstep + test-pin updates + a structural guard, e.g. a meta-test banning `—` in `lib/messages/catalog.ts` and `app/help/**`), authored after the §9 decision is made.
+
+**Promotion prerequisite:** owner decision on resolution (1) vs (2). (1) is a trivial DESIGN.md edit, not really a milestone; (2) needs a scoped task with the lockstep + meta-test.
+
 ---
 
 ## BL-LINT-DEBT-PREEXISTING — ~90 pre-existing eslint errors in unrelated files

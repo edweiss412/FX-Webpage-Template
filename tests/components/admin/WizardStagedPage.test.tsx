@@ -19,10 +19,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
-import type {
-  StagedRow,
-  StagedReviewCardProps,
-} from "@/components/admin/StagedReviewCard";
+import type { StagedRow, StagedReviewCardProps } from "@/components/admin/StagedReviewCard";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -83,12 +80,16 @@ describe("StagedReviewCard wizard_failed_reapply mode", () => {
     const { getByTestId, container } = renderWizardMode({
       lastFinalizeFailureCode: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
     });
+    // "_<sheet-name>_" in the catalog literal renders as <em>; textContent
+    // must carry the marker-free prose (test-local strip, anti-tautology).
     expect(getByTestId("staged-wizard-failure-code").textContent ?? "").toContain(
-      MESSAGE_CATALOG.STAGED_PARSE_REVISION_RACE_DURING_FINALIZE.dougFacing!,
+      MESSAGE_CATALOG.STAGED_PARSE_REVISION_RACE_DURING_FINALIZE.dougFacing!.replace(
+        /(^|[\s("'])_(\S(?:.*?\S)?)_(?=[\s)"'.,!?;:]|$)/g,
+        "$1$2",
+      ),
     );
-    expect(container.textContent ?? "").not.toContain(
-      "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
-    );
+    expect(getByTestId("staged-wizard-failure-code").textContent ?? "").not.toContain("_");
+    expect(container.textContent ?? "").not.toContain("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
   });
 
   test("Apply POSTs to the wizard-scoped apply route with the Pin-2 payload shape", async () => {
@@ -105,9 +106,7 @@ describe("StagedReviewCard wizard_failed_reapply mode", () => {
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
-    expect(url).toBe(
-      `/api/admin/onboarding/staged/${WIZARD_SESSION_ID}/${DRIVE_FILE_ID}/apply`,
-    );
+    expect(url).toBe(`/api/admin/onboarding/staged/${WIZARD_SESSION_ID}/${DRIVE_FILE_ID}/apply`);
     expect(init.method).toBe("POST");
     const body = JSON.parse(init.body as string) as {
       stagedId?: string;
@@ -136,9 +135,7 @@ describe("StagedReviewCard wizard_failed_reapply mode", () => {
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
-    expect(url).toBe(
-      `/api/admin/onboarding/staged/${WIZARD_SESSION_ID}/${DRIVE_FILE_ID}/discard`,
-    );
+    expect(url).toBe(`/api/admin/onboarding/staged/${WIZARD_SESSION_ID}/${DRIVE_FILE_ID}/discard`);
     const body = JSON.parse(init.body as string) as {
       stagedId?: string;
       kind?: string;
@@ -149,10 +146,7 @@ describe("StagedReviewCard wizard_failed_reapply mode", () => {
 
   test("on { ok: false, code } response surfaces the code via ErrorExplainer", async () => {
     fetchMock.mockResolvedValueOnce(
-      mockJsonResponse(
-        { ok: false, code: "WIZARD_SESSION_SUPERSEDED" },
-        { status: 409 },
-      ),
+      mockJsonResponse({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" }, { status: 409 }),
     );
     const { getByText, container } = renderWizardMode();
     await act(async () => {
