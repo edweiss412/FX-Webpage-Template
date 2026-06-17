@@ -75,14 +75,14 @@ Each `*Section` is a Server Component under `components/crew/sections/` consumin
 | **Today** | `RightNowHero`; `KeyTimesStrip`; Tonight (hotel name + shuttle); Where (venue + badge-in); Need-something (primary contact); Show notes | `RightNowContext`+rooms; `hotelReservations`; `venue`; `contacts`/`client_contact`; venue/show notes via `shouldHideGenericOptional` |
 | **Schedule** | Day phase cards (travel/set/show/strike, today pinned, viewer-date-restricted); Daily times (`KeyTimesStrip` — Set/Show/Strike, omitted if no anchors); Heads-up note (optional) | `dates` + `ShowRow.schedule_phases` (`Record<ISO, WorkPhase[]>`, `lib/parser/types.ts:105`) + viewer `dateRestriction`; rooms times; Heads-up from a show-level note, hidden-if-empty via `shouldHideGenericOptional` |
 | **Venue** | Address+room; loading dock; parking; Wi-Fi (Phase 2 parses; Phase 1 shows raw `event_details.internet` if present); notes; map link; diagrams | `venue`; `transportation.parking`; `event_details.internet`; `diagrams` |
-| **Travel** | Getting there (flights → empty state; ground transport); Where you're staying (hotel name/address/conf#/**dates**) | `crewMembers[].flight_info` (Phase 2 surfacing; Phase 1 empty-state); `transportation`; `hotelReservations` |
+| **Travel** | Getting there (ground transport; **flights are Phase 2**); Where you're staying (hotel name/address/conf#/**dates**) | `transportation` (ground); `hotelReservations`. Flights deferred — `flight_info` is parsed but **not in the `ShowForViewer` projection** (§8) |
 | **Crew** | Show crew (roster, role, lead tag, "you", tap-to-call/email); Key contacts | `crewMembers`; `contacts` + `client_contact` |
 | **Gear** | A/V/L scope (emphasis §4.5); Pack list; Opening Reel (if `openingReelHasVideo`) | `rooms.{audio,video,lighting}`; `pullSheet`; `openingReelHasVideo` |
 | **Budget** (conditional) | PO / proposal / invoice / notes | `financials` (renders only when `financialsVisible` true) |
 
 Lead-gating preserved: `financialsVisible(viewerFlags, isAdmin)` gates both the Budget **tab** (§4.1) and section. Date-restriction gates Schedule rows. Fetch-error gating (`tileErrors`) preserved: admin sees a degraded block, crew sees omission (§5).
 
-**Section-level empty states.** Every section (not just Gear) shows one section-level `EmptyState` when *all* its content blocks are empty/hidden (e.g. Venue with no address, dock, parking, wifi, notes, or diagrams). **Travel "Getting there":** flight rows render only when the viewer's `flight_info` is present (Phase 1: usually absent → flight rows omitted, never an empty shell); ground-transport rows render when present; if **neither** flights nor ground transport exist, the Getting-there card shows an `EmptyState` ("Travel details haven't been added"). The hotel block is independent (its own required→`EmptyState`).
+**Section-level empty states.** Every section (not just Gear) shows one section-level `EmptyState` when *all* its content blocks are empty/hidden (e.g. Venue with no address, dock, parking, wifi, notes, or diagrams). **Travel "Getting there":** ground-transport rows render when present; **flights are deferred to Phase 2** — `flight_info` is not in the Phase-1 projection, so Phase 1 renders **no** flight rows and makes no false "haven't been added" claim. If no ground transport exists, the Getting-there card shows an `EmptyState`. The hotel block is independent (its own required→`EmptyState`).
 
 ### 4.3 Right-Now hero across all 12 states — `RightNowHero`
 
@@ -222,6 +222,14 @@ Tailwind v4 has no implicit `align-items: stretch` — every equal-height relati
 
 No env-gated features; no new DB boolean columns. `data-theme` (dark/light) is the only theming attribute (unchanged).
 
+### 4.13 Section error containment
+
+Deleting the 14 content tiles must **not** lose the existing per-tile containment + observability. The shared infra is **reused, not deleted**: `WrappedTile` (`components/shared/WrappedTile.tsx`) = `TileErrorBoundary` (client render boundary) wrapping `TileServerFallback` (`components/shared/TileServerFallback.tsx:63-99`), which on a load/render throw logs, **upserts an `admin_alerts` row code `TILE_SERVER_RENDER_FAILED`** (best-effort, Supabase-call-boundary discipline), and renders a fallback. `tileId`/`showId`/`sheetName` feed `admin_alerts.context`.
+
+- **Per-block wrapping.** Every section block running a data load/transform that can throw is wrapped in `WrappedTile` (or a thin `WrappedSection` alias) with a stable `tileId` (`crew:<section>:<block>`), `showId`, `sheetName`. Preserves render-throw containment, load-throw catch, the `admin_alerts` upsert, and the fallback element — identical to today. No new alert code (reuses `TILE_SERVER_RENDER_FAILED`).
+- **`tileErrors` → block map** (fetch errors caught at projection time in `getShowForViewer`): `rooms` → Gear scope + Today/Schedule times; `contacts` → Crew + Today "Need something"; `hotel` → Travel + Today "Tonight"; `transportation` → Travel ground transport; `financials` → Budget. For each: **admin → inline degraded block; crew → omission** (existing posture).
+- **Error ≠ absent (key invariant).** An error path (`tileErrors[key]` set OR a wrapped block throws) ALWAYS records the admin signal (degraded UI for admin + the `admin_alerts` upsert) — **distinct** from genuinely-absent data, which is silent omission (§4.8). A `rooms` fetch failure is observable and never silently collapses into "no times."
+
 ---
 
 ## 5. Error handling summary
@@ -233,9 +241,11 @@ No env-gated features; no new DB boolean columns. `data-theme` (dark/light) is t
 | `resolveShowPageAccess` non-render kind | page | unchanged (existing terminal branches; `CrewShell` only renders on `admin`/`resolved`) |
 | invalid `?s=` | shell | falls back to `today` (no error) |
 | realtime bridge fault | none | unchanged (`ShowRealtimeBridge` already fail-quiet) |
-| rooms/dates absent | Today/Schedule | Set/Show/Strike + KeyTimesStrip omitted; hero stats omitted; no thrown error |
+| rooms/dates **absent** | Today/Schedule | Set/Show/Strike + KeyTimesStrip omitted; hero stats omitted; no thrown error (silent) |
+| `tileErrors[key]` **error** (rooms/contacts/hotel/transportation/financials) | mapped block (§4.13) | admin → inline degraded block; crew → omission — **always distinguishable from absent** |
+| per-block render/load **throw** | the wrapped block | `WrappedTile`/`TileServerFallback` (§4.13): admin fallback + `admin_alerts` `TILE_SERVER_RENDER_FAILED` upsert (best-effort); crew omission; never crashes the section |
 
-No raw error codes anywhere (invariant 5). No new §12.4 catalog rows → no `gen:spec-codes`/`catalog.ts` lockstep.
+No raw error codes anywhere (invariant 5). No new §12.4 catalog rows (reuses the existing `TILE_SERVER_RENDER_FAILED`) → no `gen:spec-codes`/`catalog.ts` lockstep.
 
 ---
 
@@ -266,6 +276,7 @@ Forward note (Phase 2): Wi-Fi SSID/PW split and AGENDA-title capture DO add pars
 10. **Sentinel meta-test extension is pre-flight.** `_metaSentinelHidingContract.test.ts:235-239` (`listTileFiles()`) must be extended to walk `components/crew/sections/` + `components/crew/primitives/` in the **same PR** that adds those components — else CI stays green while the sentinel-hiding contract goes silently unenforced for the new sections (they read venue/notes/contact/room fields). §9 declares it.
 11. **Preview-as route is in scope.** `app/admin/show/[slug]/preview/[crewId]/page.tsx:233` is the *second* `ShowBody` consumer; it moves to `CrewShell` too (§1, §3). Only `app/admin/show/[slug]/page.tsx` (the operational dashboard show page) is untouched.
 12. **Old scope/grid tiles are deleted in the same PR** as the gate→emphasis flip (§4.5, §10). The gate code path (the tiles' early-return-`null`) is removed, not left dangling — so the flip is safe.
+13. **Shared tile error infra is reused, not deleted.** `WrappedTile` / `TileServerFallback` / `TileErrorBoundary` (`components/shared/`) survive — the new sections wrap their data blocks in them (§4.13), preserving the `admin_alerts` `TILE_SERVER_RENDER_FAILED` upsert + fallback. Only the 14 *content* tiles under `components/tiles/` are deleted (§10). Do not read the deletion as losing per-block containment/observability.
 
 ---
 
@@ -274,7 +285,7 @@ Forward note (Phase 2): Wi-Fi SSID/PW split and AGENDA-title capture DO add pars
 - **AGENDA-tab run-of-show parsing** (rich timeline). Phase 1 ships the anchor-times strip only; Phase 2 adds the optional AGENDA-title parser as enrichment.
 - **Wi-Fi SSID/PW structured parse.** Phase 1 already shows the raw `event_details.internet` string in Venue (§4.2) — *raw display is in scope*; Phase 2 only adds the SSID/PW split.
 - **Room-within-venue name** structured capture (Phase 2).
-- **Per-crew flight surfacing** (Phase 1 = empty state; `flight_info` already parsed but usually null; Phase 2 surfaces it).
+- **Per-crew flight surfacing.** `flight_info` is parsed (`lib/parser/types.ts:71`) but **not in the `ShowForViewer` projection**; Phase 2 adds the projection + the Travel flight block + a non-null flight test. Phase 1 renders no flight UI (only ground transport + hotel).
 - v2 downloadable sheet template (`BL-CREW-SHEET-TEMPLATE-V2`).
 - Admin operational show page redesign.
 - Per-day call times (sheets store one show-wide value).
@@ -303,6 +314,7 @@ Real-browser (Playwright — extends `tests/e2e/crew-page.spec.ts`):
 13. **Nav addressability** — deep-link `?s=venue` SSRs Venue; tab tap updates URL + swaps section without full reload; mobile back-button returns to prior section (not off-page); refresh holds the section. _Catches: client-only state; broken back-button._
 14. **Transition audit** (§4.10): every `AnimatePresence`/ternary/conditional has `exit`/`initial`/`animate` or is deliberately instant; compound (theme toggle during nav; re-enter Today). _Catches: animating-from-hidden SSR; orphaned exit._
 15. **Preview-as parity** — the admin preview-as route (`app/admin/show/[slug]/preview/[crewId]`) renders `CrewShell` (same `data-testid=crew-shell`, same sections) for a seeded crew identity; `?s=venue` resolves there too. _Catches: preview-as left on the old flat-grid `ShowBody`._
+16. **Section error containment** (§4.13) — for each `tileErrors` key (`rooms`/`contacts`/`hotel`/`transportation`/`financials`): admin viewer → the mapped block renders a degraded inline state (not omission), crew viewer → the block is omitted; the **error** path carries a degraded/observable marker absent on the **no-data** path (assert both). Plus a render-throw injected into one wrapped block → `TileErrorBoundary` fallback renders and the `admin_alerts` `TILE_SERVER_RENDER_FAILED` upsert is attempted (mocked). _Catches: infra faults silently collapsing into empty states; lost admin observability when the tile wrappers were removed._
 
 Meta-test / structural-registry inventory (declared per plan rule; same-commit as the surface they pin):
 
@@ -320,7 +332,7 @@ Single milestone on `feat/crew-page-redesign`, ~4 phases:
 1. **Parser + context** — dates `loadIn` capture (TDD) + `buildRightNowContext` rooms-sourcing (TDD) + type/projection passthrough. No UI yet.
 2. **Shell + nav + primitives** — `CrewShell` (crew route **and** preview-as route), `?s=` routing, `CrewSubNav`, the shared primitives + `RightNowHero`; `_metaSentinelHidingContract` extended to walk `components/crew/`.
 3. **Sections** — the six sections + Budget; Gear emphasis; empty states; Today/Schedule wired to the new anchors.
-4. **Layout/transition/screenshots + close-out** — Playwright dimensions + nav + transition-audit; manifest entries + baselines (pinned docker); **delete superseded `components/tiles/*` presentation components + their imports, `_ShowBody.tsx`, and `selectTodayTiles`** once `CrewShell` is the sole renderer (the `lib/` data helpers stay); impeccable dual-gate; adversarial review; real-CI; merge.
+4. **Layout/transition/screenshots + close-out** — Playwright dimensions + nav + transition-audit; manifest entries + baselines (pinned docker); **delete superseded `components/tiles/*` presentation components + their imports, `_ShowBody.tsx`, and `selectTodayTiles`** once `CrewShell` is the sole renderer (the `lib/` data helpers **and** the `components/shared/` tile error infra stay — §4.13); impeccable dual-gate; adversarial review; real-CI; merge.
 
 UI throughout → Opus implements; Codex per-phase + whole-milestone adversarial review; impeccable v3 critique+audit external attestation before close-out.
 
