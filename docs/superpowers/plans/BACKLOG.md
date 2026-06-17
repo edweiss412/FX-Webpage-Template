@@ -324,6 +324,32 @@ bar (matches the existing per-task discipline). Capture the exact error list at 
 
 ---
 
+### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
+
+**Filed:** 2026-06-15, during the crew-show-page redesign audit (Claude Design handoff bundle `fxav-crew-pages`; design source at `/tmp/design_extract/...` ephemeral, intent recorded in milestone memory). Owner is considering a **downloadable, standardized sheet template** Doug (and future operators) would fill in, so the richer crew-page surfaces have a reliable source instead of depending on organic per-show sheet conventions.
+
+**Context — why this exists:** The redesign assumes a data-rich show page (live run-of-show timeline, call/doors stat strip, full travel itinerary, structured venue/wifi). An audit of **all 7 distinct real sheets** in the `fxav-test-shows` Drive folder (FinTech CTO Summit, Consultants Roundtable, + the 5 other `II -` shows; the `VB##`/`DRILL` sheets are same-size test copies of Consultants Roundtable) showed the organic sheets **do not reliably carry** much of what the design wants. The chosen v1 reconciliation is **Blend**: build on reliably-present data, render honest empty states for the variable fields, drop the truly-absent mock stats. This BACKLOG entry captures the fields a v2 standardized template could promote from "absent / unreliable" to "reliably present," making the full-fidelity design viable.
+
+**Scope — candidate fields for the v2 template (each tagged with its current source reality, verified across the 7 real sheets):**
+
+- **Crew CALL TIME** (labeled) — GENUINELY ABSENT in every sheet today; only Load-in/Set times exist. A template field would make the design's "call" stat real instead of a Load-in remap.
+- **DOORS time** (labeled) — GENUINELY ABSENT; only "Registration" prose appears. Template field needed for the doors stat.
+- **Hotel room-type** — ABSENT everywhere.
+- **Hotel check-in / check-out TIME-of-day** — ABSENT everywhere (only calendar DATES are ever present).
+- **Populated AGENDA tab (run-of-show titles/rooms)** — the AGENDA tab is **empty formula-driven scaffolding** in all 7 sheets: a horizontal grid of auto-generated START/FINISH/TRT time blocks (day banners rows 2–5, data row 6 down; TRAVEL A–C / SET D–F / 6-col day blocks every 6 cols from G), but the TITLE/ROOM/AV cells are essentially never filled. A template that prompts Doug to fill the title cells (the time scaffolding already exists) unlocks the design's signature minute-by-minute timeline. **This is the highest-value template addition.** See the phased-enrichment note in the redesign milestone (anchor-times timeline ships first; AGENDA-title parser is the optional enrichment that upgrades it).
+- **Per-crew FLIGHT details** (flight #, airport, arrive/depart time) — the AGENDA NAME/ARRIVAL/FLIGHT# columns are blank scaffolding; INFO-level flight data was filled in **exactly 1 of 7** sheets (East Coast SFO). `crew_members.flight_info` is already parsed (`lib/parser/types.ts:71`, `blocks/crew.ts:248`) but usually null and not projected to the crew page. A template field standardizes this.
+- **Crew Wi-Fi SSID + password** — reliable in only 2 of 7 (others say "Wifi from Encore" / speed-note only). Already captured as raw free-text under `event_details.internet` (`lib/parser/blocks/event.ts:71`). A template field with discrete SSID/PW cells would make it structured + reliable.
+- **Venue street address + loading dock** — present in the older INFO layout, **blank in the newer compact template**. Standardize so it's always filled.
+- **Room-within-venue name** — lives in EVENT DETAILS / section headers, not a clean field.
+- **Key contacts (client / venue / in-house AV) phone + email** — filled on the older template, blank on the newer compact one; the CONTACTS-tab NUMBER column is always empty. Standardize required contact fields.
+- **Parking detail** — present in ~4 of 5; standardize.
+
+**Why backlog, not deferred:** This is a likely-v2 product direction, not committed v1 work. It requires (a) a template-design pass (what the downloadable sheet looks like, how Doug adopts it, migration from organic sheets), (b) parser changes to read any new structured fields (notably a new AGENDA-tab run-of-show block), and (c) a product decision about mandating a template vs tolerating organic sheets. The v1 Blend reconciliation ships without any of it; the design simply drops/empty-states the unreliable fields. No spec, no plan, no scheduled milestone.
+
+**Promotion prerequisite:** EITHER (a) owner decides to formalize the downloadable template as a real v2 feature (template design + adoption plan), OR (b) the v1 redesign ships and operator feedback shows the empty-state surfaces (timeline, wifi, flights, contacts) are a real friction point worth closing at the source. Promotion starts with a brainstorming session on the template shape + the parser contract for any new structured tabs (the AGENDA run-of-show grid contract is already partially mapped in the redesign milestone's deep-read notes).
+
+---
+
 ## Promoted (was backlog, now scheduled)
 
 _(empty — no items have been promoted yet)_
