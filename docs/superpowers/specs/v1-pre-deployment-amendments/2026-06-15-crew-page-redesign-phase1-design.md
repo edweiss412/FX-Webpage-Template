@@ -2,7 +2,7 @@
 
 Phase 1 of the crew-facing show-page redesign. Reorganizes the single cramped tile scroll into a six-section sub-nav (Today · Schedule · Venue · Travel · Crew · Gear, plus a conditional Budget tab), faithful to the Claude Design mock, built **over the existing data/gating/state-machine infrastructure** (Approach B). Phase 2 (AGENDA-title parser + new-field surfacing) is a separate spec; this document draws the boundary at §11.
 
-Scope note: this redesigns the **crew route** `app/show/[slug]/[shareToken]` only — which serves crew members and admin **preview-as**. The admin *operational* show page (`app/admin/show/[slug]`) is untouched.
+Scope note: this redesigns the crew show experience rendered by the **two** routes that today both mount `ShowBody` — the crew route `app/show/[slug]/[shareToken]/page.tsx` (`:129`, `:166`) and the admin **preview-as** route `app/admin/show/[slug]/preview/[crewId]/page.tsx` (`:233`). Both move to `CrewShell`. The admin *operational* show page `app/admin/show/[slug]/page.tsx` is untouched.
 
 ---
 
@@ -31,6 +31,8 @@ Audit + source-data verification record: memory `project-crew-page-redesign`; v2
 
 ## 3. Current state (verified citations, 2026-06-17 @ base `a2884c3f`)
 
+> This section cites **existing** code only. New Phase 1 artifacts — `CrewShell`, `CrewSubNav`, `RightNowHero`, the `components/crew/` primitives, `resolveActiveSection`, the `dates.loadIn` field, and `buildRightNowContext`'s rooms-sourcing — are design (§4), not current code.
+
 **Route / body.** `resolveShowPageAccess` (`app/show/[slug]/[shareToken]/page.tsx:39`) returns an 11-kind union; the **admin** branch (`page.tsx:115-137`) and **resolved/crew** branch (`:139-174`) both render `ShowBody` (`_ShowBody.tsx:90-96`). Crew passes `identityChip` (roster lookup, `page.tsx:171`); admin passes `null`. `ShowBody` renders Header → `ShowRealtimeBridge` (`_ShowBody.tsx:469`) → `RightNowCard` → TODAY band (`selectTodayTiles`/`filterVisibleTodayTiles` at `:154`) → flat grid (`flatGridOrder`, 14 tiles, `:434-449`) → Footer.
 
 **State machine.** `selectRightNowState(today, dates, viewerDateRestriction, options?)` (`lib/time/rightNow.ts:196-201`) → `RightNowState` (`:57-77`) with **12 kinds**: `viewer_unconfirmed`, `viewer_after_last_day`, `viewer_off_day`, `viewer_off_day_pre`, `pre_travel`, `travel_in_day`, `set_day`, `show_day_n {n,total,isLast}`, `travel_out_day`, `post_show`, `unknown`, `dateless`. `transitionTreatment(from,to)` (`lib/time/rightNowTransitions.ts:594-606`) → `"crossfade-body" | "morph-to-last-good" | "instant" | "unreachable"`; 66 unordered pairs (`:564-566`). `nowDate()` (`lib/time/now.ts:23-74`) honors `X-Screenshot-Frozen-Now` under test auth.
@@ -47,7 +49,7 @@ Audit + source-data verification record: memory `project-crew-page-redesign`; v2
 
 **Parser dates.** `parseDates(markdown, version, _agg?)` (`lib/parser/blocks/dates.ts:48-72`) → `parseV2V4Dates` (`:157-238`, reads label `row[1]` + date `row[3]`, **discards `row[4]` TIME/AGENDA**) or `parseV1Dates` (`:104-153`, `extractAllDates` on `row[1]`, time discarded). `shows.dates` is **jsonb** (`supabase/migrations/20260501000000_initial_public_schema.sql:12`) — schemaless, **no table migration to add a load-in field**; reader decodes via `decodeJsonbColumn` (`getShowForViewer.ts:250-280`).
 
-**Tests / meta.** `_metaSentinelHidingContract.test.ts` walks `components/tiles/` via `listTileFiles()` (`:235-239`), asserts each tile reading a generic-optional field imports+calls `shouldHideGenericOptional` (`:245-287`; EXEMPTIONS empty `:225-228`). `selectTodayTiles.test.ts:27-91` pins phase→tile. `resolve-show-page-access-exhaustiveness.test.ts:93-235` (pure type contract). **`tests/e2e/crew-page.spec.ts:167-233 & 403-499`** already asserts real-browser `getBoundingClientRect()` today-band equal-height (mutates seeded state, mobile-safari single-writer `:397`). `help-screenshots.manifest.ts:10-87` (4 entries, **no crew-page entry**; MOBILE 390×844, DESKTOP 1280×800); `capture-launch-args.ts:1-29` (`CAPTURE_LAUNCH_ARGS`); `.github/workflows/screenshots-drift.yml:1-51` (Playwright `v1.59.1-jammy`).
+**Tests / meta.** `_metaSentinelHidingContract.test.ts` walks `components/tiles/` via `listTileFiles()` (`:235-239`), asserts each tile reading a generic-optional field imports+calls `shouldHideGenericOptional` (`:245-287`; EXEMPTIONS empty `:225-228`). `selectTodayTiles.test.ts:27-91` pins phase→tile. `resolve-show-page-access-exhaustiveness.test.ts:93-235` (pure type contract). **`tests/e2e/crew-page.spec.ts:167-233 & 403-499`** already asserts real-browser `getBoundingClientRect()` today-band equal-height (mutates seeded state, mobile-safari single-writer `:397`). `help-screenshots.manifest.ts` (type defs `:10-47`, `MANIFEST` array `:48-87`, 4 entries, **no crew-page entry**; MOBILE 390×844, DESKTOP 1280×800); `capture-launch-args.ts:1-29` (`CAPTURE_LAUNCH_ARGS`); `.github/workflows/screenshots-drift.yml:1-51` (Playwright `v1.59.1-jammy`).
 
 ---
 
@@ -57,9 +59,9 @@ Audit + source-data verification record: memory `project-crew-page-redesign`; v2
 
 `ShowBody` is replaced by `CrewShell` (same file slot, `app/show/[slug]/[shareToken]/_CrewShell.tsx`); `page.tsx` admin + resolved branches both render it (unchanged call shape, plus the active section). The active section is read **server-side** from `searchParams.s`:
 
-- `page.tsx` already receives `searchParams`; it passes `s` through to `CrewShell`. `CrewShell` validates against the section id set and falls back to `today` for absent/invalid values (`resolveActiveSection(raw): SectionId`).
+- `page.tsx` today awaits `searchParams: Promise<{ gate?: string }>` (`:71`, `:74`). Phase 1 widens it to `Promise<{ gate?: string; s?: string }>`, awaits `s`, and passes `activeSection={s}` to `CrewShell`, which validates against the section-id set and falls back to `today` for absent/invalid values (`resolveActiveSection(raw): SectionId`). The admin **preview-as** route (`app/admin/show/[slug]/preview/[crewId]/page.tsx:233`) likewise swaps `ShowBody`→`CrewShell`, reading its own `?s=` from `searchParams` (default `today`).
 - Section ids: `today | schedule | venue | travel | crew | gear` and (conditional) `budget`.
-- `CrewShell` renders: `Header` (with status pill + identity chip) → `CrewSubNav` → `ShowRealtimeBridge` (unchanged) → the active `*Section` → `Footer` (unchanged). Today additionally leads its section with `RightNowHero`.
+- `CrewShell` renders, inside a `data-testid="crew-shell"` wrapper: `Header` (with status pill + identity chip) → `CrewSubNav` → `ShowRealtimeBridge` (unchanged) → the active `*Section` → `Footer` (unchanged). Today additionally leads its section with `RightNowHero`.
 - All sections are **Server Components**; the only client islands are `CrewSubNav` (active-state + router push), `RightNowHero`'s minute-ticker (carried from `RightNowCard`), `ShowRealtimeBridge`, and `ThemeToggle`.
 
 **Navigation mechanics.** `CrewSubNav` is `'use client'`. Tab activation calls `router.push(`?s=${id}`, { scroll: false })` (App Router shallow URL update; the server re-renders the active section). `usePathname`/`useSearchParams` drive the active highlight. Mobile back-button traverses the `?s=` history entries; deep-link/refresh server-render the addressed section.
@@ -71,7 +73,7 @@ Each `*Section` is a Server Component under `components/crew/sections/` consumin
 | Section | Blocks | Data source |
 | --- | --- | --- |
 | **Today** | `RightNowHero`; `KeyTimesStrip`; Tonight (hotel name + shuttle); Where (venue + badge-in); Need-something (primary contact); Show notes | `RightNowContext`+rooms; `hotelReservations`; `venue`; `contacts`/`client_contact`; venue/show notes via `shouldHideGenericOptional` |
-| **Schedule** | Day phase cards (travel/set/show/strike, today pinned, viewer-date-restricted); Daily times (Set/Show/Strike); Heads-up note | `dates` + `schedule_phases` + viewer `dateRestriction`; rooms times; optional note |
+| **Schedule** | Day phase cards (travel/set/show/strike, today pinned, viewer-date-restricted); Daily times (`KeyTimesStrip` — Set/Show/Strike, omitted if no anchors); Heads-up note (optional) | `dates` + `ShowRow.schedule_phases` (`Record<ISO, WorkPhase[]>`, `lib/parser/types.ts:105`) + viewer `dateRestriction`; rooms times; Heads-up from a show-level note, hidden-if-empty via `shouldHideGenericOptional` |
 | **Venue** | Address+room; loading dock; parking; Wi-Fi (Phase 2 parses; Phase 1 shows raw `event_details.internet` if present); notes; map link; diagrams | `venue`; `transportation.parking`; `event_details.internet`; `diagrams` |
 | **Travel** | Getting there (flights → empty state; ground transport); Where you're staying (hotel name/address/conf#/**dates**) | `crewMembers[].flight_info` (Phase 2 surfacing; Phase 1 empty-state); `transportation`; `hotelReservations` |
 | **Crew** | Show crew (roster, role, lead tag, "you", tap-to-call/email); Key contacts | `crewMembers`; `contacts` + `client_contact` |
@@ -79,6 +81,8 @@ Each `*Section` is a Server Component under `components/crew/sections/` consumin
 | **Budget** (conditional) | PO / proposal / invoice / notes | `financials` (renders only when `financialsVisible` true) |
 
 Lead-gating preserved: `financialsVisible(viewerFlags, isAdmin)` gates both the Budget **tab** (§4.1) and section. Date-restriction gates Schedule rows. Fetch-error gating (`tileErrors`) preserved: admin sees a degraded block, crew sees omission (§5).
+
+**Section-level empty states.** Every section (not just Gear) shows one section-level `EmptyState` when *all* its content blocks are empty/hidden (e.g. Venue with no address, dock, parking, wifi, notes, or diagrams). **Travel "Getting there":** flight rows render only when the viewer's `flight_info` is present (Phase 1: usually absent → flight rows omitted, never an empty shell); ground-transport rows render when present; if **neither** flights nor ground transport exist, the Getting-there card shows an `EmptyState` ("Travel details haven't been added"). The hotel block is independent (its own required→`EmptyState`).
 
 ### 4.3 Right-Now hero across all 12 states — `RightNowHero`
 
@@ -108,7 +112,7 @@ Lead-gating preserved: `financialsVisible(viewerFlags, isAdmin)` gates both the 
 
 Two changes, both small and bounded:
 
-1. **`buildRightNowContext` reads `rooms`.** Extend its opts to accept `rooms: RoomRow[]`; derive Set/Show/Strike from the **GS room** (`kind==='gs'`, else first room) `set_time`/`show_time`/`strike_time` (free-text). The existing `event_details.*` reads become a fallback (kept for forward-compat, but real shows are null there). `loadInTime` = parsed dates load-in (change 2) **else** GS `set_time`. The unused `contacts` param is removed in the same change (dead-param cleanup, gotcha §3). Call site `_ShowBody.tsx`→`_CrewShell` passes `data.rooms`.
+1. **`buildRightNowContext` reads `rooms`.** New signature: `{ show, dateRestriction, hotelReservations, rooms }` — **drops the unused `contacts` param** (dead-param cleanup, gotcha §3) and **keeps `hotelReservations`** (travel-day hotel stats). Set/Show/Strike derive from the **GS room** (`kind==='gs'`, else first room) `set_time`/`show_time`/`strike_time` (free-text). The old `event_details.{call_time,load_in_time,strike_time,first_show_room}` reads are **dropped entirely** (always null for real shows, §7.1) — not kept as a fallback. **Set-anchor resolution order** (applied in `buildRightNowContext` and the shared `resolveKeyTimes(show, rooms)` helper that `KeyTimesStrip` + Schedule also call — never in the parser): (1) `dates.loadIn` if non-empty (change 2); (2) else GS `set_time`; (3) else omit the Set row. When `rooms` is null/empty, all three anchors are null and the strip is omitted (§4.8). The **sole call site** is `_CrewShell` (was `_ShowBody.tsx:122`; both ShowBody consumers now route through the shell — §3 scope note).
 2. **Dates parser captures the load-in TIME column.** `parseV2V4Dates` (`dates.ts:157-238`) currently discards `row[4]` (TIME/AGENDA). Capture it for the **set/load-in** row into a new optional `dates.loadIn: string | null` (free-text, e.g. "11:00 AM"), stored in the existing `shows.dates` **jsonb** (no table migration; §6). `parseV1Dates` best-effort (time often absent in v1; null is fine). `ShowRow.dates` type gains `loadIn?: string | null`. `getShowForViewer` passes it through (jsonb decode already generic).
 
 **`KeyTimesStrip`** (Today) and Schedule "Daily times" both render the same resolved anchors: **Set** (`dates.loadIn` ?? GS `set_time`), **Show** (GS `show_time`), **Strike** (GS `strike_time`) — labels per D-8, free-text values, `tabular-nums`. Zero anchors → strip omitted (not blank). Multi-day shows carry one show-wide Set/Show/Strike (sheets store one value, not per-day); matinee/final-day variance stays a best-effort "Heads up" note (often empty → hidden).
@@ -121,6 +125,8 @@ All three scope cards render to everyone. The viewer's discipline (derived from 
 - **Accented**: a "Your scope" eyebrow + an accent left-edge / accent-tint header on the viewer's card(s), within the ≤10% accent-coverage rule. Non-viewer cards are full-content, neutral.
 
 Guards: no scope flag → no emphasis, default order; multiple flags → all emphasized, flag order; a scope with **zero items is omitted** (including the viewer's own — never an empty "Your scope" shell). Pack list visible to all; Opening Reel only when `openingReelHasVideo`. All-empty (no scope + no pack list + no reel) → one section-level `EmptyState`.
+
+The current `components/tiles/{Audio,Video,Lighting}ScopeTile.tsx` (which early-return `null` on these predicates as a *gate*) are **deleted in the same PR** (§10); the predicates survive only as the emphasis signal here — so the gate→emphasis flip leaves no stale gate code path.
 
 ### 4.6 New presentational primitives
 
@@ -146,6 +152,7 @@ Under `components/crew/primitives/`, each a small pure unit (props in, markup ou
 | `RightNowHero` | ✓ (Today only) | ✓ (Today only) |
 | Header status pill + identity chip | ✓ | ✓ |
 | Budget tab | ✓ iff `financialsVisible` | ✓ iff `financialsVisible` |
+| Section primitives (`SectionCard`, `KeyValueRows`, `KeyTimesStrip`, `DayCard`, `PersonRow`) | ✓ (identical layout) | ✓ (identical layout) |
 
 Both nav renders exist in the DOM at all widths (CSS-only switching, the established dual-render pattern; no JS width detection). `720px` is the project's mobile/desktop seam (no `md` token; arbitrary `min-[720px]`).
 
@@ -163,17 +170,24 @@ Both nav renders exist in the DOM at all widths (CSS-only switching, the establi
 | generic-optional text (notes, parking, dock, internet, etc.) | hidden via `shouldHideGenericOptional` | hidden (incl. `TBD/N/A/TBA`) | — |
 | `financials` | Budget tab + section absent (gated) | — | — |
 | viewer `roleFlags` (no scope flag) | Gear: no emphasis, default order | — | — |
+| `SectionCard.{icon,title,action}` | that prop omitted from render | — | — |
+| `PersonRow.person.{name,role}` | name absent → row omitted; role absent → name alone | — | — |
+| `DayCard.{day,phase}` | malformed/absent → that day row omitted; `meta` null → phase line alone | — | — |
+| `RightNowHero.state` | unknown/unmatched kind → render as `dateless` (degraded, no stats) | — | — |
+
+Stat omission is **two-level**: each stat whose value is null/empty/non-finite is hidden individually; if **all** stats are hidden, the strip is omitted (a single rule — the empty list collapses the strip).
 
 ### 4.9 Dimensional invariants
 
 Tailwind v4 has no implicit `align-items: stretch` — every equal-height relationship is explicit (`items-stretch` parent + `h-full` child) and **Playwright-asserted** (jsdom insufficient). Extends `tests/e2e/crew-page.spec.ts`:
 
 1. **Today quick-cards row** (Tonight / Where / Need-something): equal heights == row height (`items-stretch` + `h-full`), ±0.5px, across the band sweep.
-2. **Crew two columns** (Show crew | Key contacts): equal column heights at ≥720px.
+2. **Crew two columns** (Show crew | Key contacts): equal column heights at ≥720px (`items-stretch` + `h-full`); **<720px they stack single-column**, height unconstrained (no equal-height constraint).
 3. **Gear scope cards**: equal heights within their row when ≥2 render.
 4. **RightNowHero**: `min-h` == 176px (`--spacing-right-now-min-h`) held constant through a state crossfade (assert height stable before/after a forced state change, ±0.5px).
 5. **Sub-nav**: bottom tab-bar full-viewport-width, bottom-anchored, each tab `flex-1` equal width + full-bar height (`self-stretch`); respects `env(safe-area-inset-bottom)`. Top tabs ≥44px tap height.
 6. **KeyTimesStrip** rows align (label left / value right, `tabular-nums` value column).
+7. **Single-column sections** — Schedule day cards, Venue blocks, and Travel blocks render in a **single column at all widths** (vertical stack, height unconstrained); no equal-height invariant applies. Any future multi-column variant must add its own invariant here.
 
 ### 4.10 Transition inventory
 
@@ -249,14 +263,16 @@ Forward note (Phase 2): Wi-Fi SSID/PW split and AGENDA-title capture DO add pars
 7. **Accent/density are not features** — only `data-theme` exists. Dropping the mock's accent/density tweaks is correct (D-10).
 8. **`dates.loadIn` goes in the jsonb** — no table migration is the intended design (§6), not an oversight.
 9. **One design for crew + admin-preview**; the admin operational page (`app/admin/show/[slug]`) is out of scope.
-10. **Sentinel meta-test must be extended** to walk `components/crew/` (the new primitives/sections read generic-optional fields) — declared in §9, not forgotten.
+10. **Sentinel meta-test extension is pre-flight.** `_metaSentinelHidingContract.test.ts:235-239` (`listTileFiles()`) must be extended to walk `components/crew/sections/` + `components/crew/primitives/` in the **same PR** that adds those components — else CI stays green while the sentinel-hiding contract goes silently unenforced for the new sections (they read venue/notes/contact/room fields). §9 declares it.
+11. **Preview-as route is in scope.** `app/admin/show/[slug]/preview/[crewId]/page.tsx:233` is the *second* `ShowBody` consumer; it moves to `CrewShell` too (§1, §3). Only `app/admin/show/[slug]/page.tsx` (the operational dashboard show page) is untouched.
+12. **Old scope/grid tiles are deleted in the same PR** as the gate→emphasis flip (§4.5, §10). The gate code path (the tiles' early-return-`null`) is removed, not left dangling — so the flip is safe.
 
 ---
 
 ## 8. Out of scope (Phase 2 or later)
 
 - **AGENDA-tab run-of-show parsing** (rich timeline). Phase 1 ships the anchor-times strip only; Phase 2 adds the optional AGENDA-title parser as enrichment.
-- **Wi-Fi SSID/PW structured parse** (Phase 1 shows raw `event_details.internet` if present; Phase 2 splits it).
+- **Wi-Fi SSID/PW structured parse.** Phase 1 already shows the raw `event_details.internet` string in Venue (§4.2) — *raw display is in scope*; Phase 2 only adds the SSID/PW split.
 - **Room-within-venue name** structured capture (Phase 2).
 - **Per-crew flight surfacing** (Phase 1 = empty state; `flight_info` already parsed but usually null; Phase 2 surfaces it).
 - v2 downloadable sheet template (`BL-CREW-SHEET-TEMPLATE-V2`).
@@ -271,8 +287,8 @@ Unit / component (jsdom where layout isn't asserted; every test states its failu
 
 1. **`resolveActiveSection`** — `undefined`/`""`/`"venue"`/`"bogus"`/`"budget"` (non-lead) → `today` for invalid + non-entitled; valid → that id. _Catches: invalid `?s=` rendering a broken/empty shell or leaking Budget._
 2. **Section→content mapping** — each `*Section` renders its declared blocks from a fixture; Today shows hero+KeyTimes+3 cards+notes. Anti-tautology: assert against the data source, and clone-and-strip sibling nodes before label scans. _Catches: a block silently dropped or duplicated._
-3. **`buildRightNowContext` rooms-sourcing** (TDD) — fixture with GS `set_time/show_time/strike_time` set and `event_details` time keys EMPTY → context Set/Show/Strike come from rooms; with `event_details` ALSO set → rooms still primary; no GS room → first room; no rooms → all null. _Catches: regression to the always-empty `event_details` path._
-4. **Dates-parser load-in** (TDD) — v2/v4 fixture with a TIME column on the set row ("11:00 AM LOAD IN") → `dates.loadIn === "11:00 AM"` (or the captured free-text); absent TIME column → `dates.loadIn === null` and the strip falls back to GS `set_time`; v1 fixture → null tolerated. Expected derived from the fixture cell, not hardcoded. _Catches: row[4] still discarded; fallback not wired._
+3. **`buildRightNowContext` rooms-sourcing** (TDD) — fixture with GS `set_time/show_time/strike_time` set → context Set/Show/Strike come from rooms; with `event_details.{load_in_time,strike_time}` ALSO set to *different* values → context still shows the rooms values (the `event_details` time path is dropped, not a fallback); no GS room → first room; **`rooms: []` → all three null and `KeyTimesStrip` omitted**. _Catches: regression to the always-empty `event_details` path; missing empty-rooms guard._
+4. **Dates-parser load-in** (TDD) — v2/v4 fixture: the **SET** row carries a TIME column ("11:00 AM LOAD IN") → `dates.loadIn === "11:00 AM"`; a **SHOW** or **TRAVEL** row's TIME column does **not** populate `dates.loadIn` (only the SET row, via the existing label classifier at `dates.ts:32-44`); absent TIME column → `dates.loadIn === null`; v1 fixture → null tolerated. Then resolution: **both** `dates.loadIn` and legacy `event_details.load_in_time` set to different values → resolved Set anchor uses `dates.loadIn`; `dates.loadIn` null but GS `set_time` present → uses GS `set_time`. Expected derived from the fixture cell, not hardcoded. _Catches: row[4] discarded; SET-row misclassification assigning a show-day time to load-in; fallback/priority not wired._
 5. **Hero 12-state mapping** — for each kind, the hero renders the mapped eyebrow/lead/progress/treatment; degraded kinds carry the stale tint and NO stats; `show_day_n` shows N progress segments derived from `total`. _Catches: a state missing/mis-skinned; fabricated stats on degraded states._
 6. **Stat-strip guards** — empty/all-null stats → no strip node; non-finite numeric → that stat omitted. _Catches: blank stat chips._
 7. **Gear emphasis** — viewer with A-flag → Audio card first + carries `[data-emphasis=you]`; no-flag viewer → default order, no emphasis; empty scope omitted (incl. viewer's own); all-empty → section EmptyState. Expected ordering derived from the flag fixture. _Catches: emphasis becoming a gate; empty "Your scope" shell._
@@ -286,6 +302,7 @@ Real-browser (Playwright — extends `tests/e2e/crew-page.spec.ts`):
 12. **Layout dimensions** (§4.9 invariants verbatim): Today quick-cards equal-height==row; Crew columns equal at ≥720px; Gear cards equal; hero `min-h`==176px stable through a forced state crossfade; bottom tab-bar full-width/bottom-anchored/`flex-1` equal + full-height + safe-area; top tabs ≥44px. _Catches: Tailwind-v4 stretch/collapse bugs jsdom can't see._
 13. **Nav addressability** — deep-link `?s=venue` SSRs Venue; tab tap updates URL + swaps section without full reload; mobile back-button returns to prior section (not off-page); refresh holds the section. _Catches: client-only state; broken back-button._
 14. **Transition audit** (§4.10): every `AnimatePresence`/ternary/conditional has `exit`/`initial`/`animate` or is deliberately instant; compound (theme toggle during nav; re-enter Today). _Catches: animating-from-hidden SSR; orphaned exit._
+15. **Preview-as parity** — the admin preview-as route (`app/admin/show/[slug]/preview/[crewId]`) renders `CrewShell` (same `data-testid=crew-shell`, same sections) for a seeded crew identity; `?s=venue` resolves there too. _Catches: preview-as left on the old flat-grid `ShowBody`._
 
 Meta-test / structural-registry inventory (declared per plan rule; same-commit as the surface they pin):
 
@@ -301,9 +318,9 @@ Gates: impeccable v3 dual-gate (critique + audit, external attestation) on the U
 
 Single milestone on `feat/crew-page-redesign`, ~4 phases:
 1. **Parser + context** — dates `loadIn` capture (TDD) + `buildRightNowContext` rooms-sourcing (TDD) + type/projection passthrough. No UI yet.
-2. **Shell + nav + primitives** — `CrewShell`, `?s=` routing, `CrewSubNav`, the shared primitives + `RightNowHero`; sentinel meta-test extension.
+2. **Shell + nav + primitives** — `CrewShell` (crew route **and** preview-as route), `?s=` routing, `CrewSubNav`, the shared primitives + `RightNowHero`; `_metaSentinelHidingContract` extended to walk `components/crew/`.
 3. **Sections** — the six sections + Budget; Gear emphasis; empty states; Today/Schedule wired to the new anchors.
-4. **Layout/transition/screenshots + close-out** — Playwright dimensions + nav + transition-audit; manifest entries + baselines (pinned docker); remove superseded `components/tiles/*`; impeccable dual-gate; adversarial review; real-CI; merge.
+4. **Layout/transition/screenshots + close-out** — Playwright dimensions + nav + transition-audit; manifest entries + baselines (pinned docker); **delete superseded `components/tiles/*` presentation components + their imports, `_ShowBody.tsx`, and `selectTodayTiles`** once `CrewShell` is the sole renderer (the `lib/` data helpers stay); impeccable dual-gate; adversarial review; real-CI; merge.
 
 UI throughout → Opus implements; Codex per-phase + whole-milestone adversarial review; impeccable v3 critique+audit external attestation before close-out.
 
