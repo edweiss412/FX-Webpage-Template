@@ -156,7 +156,7 @@ Under `components/crew/primitives/`, each a small pure unit (props in, markup ou
 | --- | --- | --- |
 | `SectionCard` | `{icon?, title?, action?, children}` | mock tile/card vocabulary |
 | `KeyValueRows` | `{rows: {k, v, sub?, icon?}[]}` | label→value stacks |
-| `PersonRow` | `{person: {name?, role?, fallbackLabel?, phone?, email?, you?, lead?, primary?}}` | crew/contact + tap-to-call/email; `name` absent → render `fallbackLabel` (contact `kind`/role), per §4.8 |
+| `PersonRow` | `{person: {name?, role?, fallbackLabel?, phone?, email?, notes?, you?, lead?, primary?}}` | crew/contact + tap-to-call/email; `name` absent → `fallbackLabel` (contact `kind`/role); `notes` shown via `shouldHideGenericOptional` (preserves `ContactsTile` contact notes), per §4.8 |
 | `DayCard` | `{day, phase, today, meta?}` | schedule day phase card |
 | `KeyTimesStrip` | `{anchors: {set?, show?, strike?}}` | Today/Schedule times |
 | `RightNowHero` | `{context}` | owns the live clock + `selectRightNowState` (reused from `RightNowCard`); re-skins the body slots (§4.3) — no precomputed `state` prop |
@@ -187,6 +187,7 @@ Both nav renders exist in the DOM at all widths (CSS-only switching, the establi
 | `rooms` null/empty/errored | Show/Strike omitted; **Set still renders from `dates.loadIn` if present** (else omitted); no GS room → first room for Show/Strike | — | — |
 | `KeyValueRows.rows[i].v` | row omitted | row omitted | — |
 | `PersonRow.phone`/`email` | that action button omitted; both absent → no action column | — | `tel:`/`mailto:` strips non-dialable chars (existing) |
+| `PersonRow.notes` | hidden via `shouldHideGenericOptional` (empty/sentinel) | hidden | — |
 | generic-optional text (notes, parking, dock, internet, etc.) | hidden via `shouldHideGenericOptional` | hidden (incl. `TBD/N/A/TBA`) | — |
 | `financials` | Budget tab + section absent (gated) | — | — |
 | viewer `roleFlags` (no scope flag) | Gear: no emphasis, default order | — | — |
@@ -306,7 +307,7 @@ A behavioral-contract sweep of all 14 tiles + `RightNowCard` enumerated the non-
 
 ### 4.17 Loading states
 
-- A **`loading.tsx` is required** at `app/show/[slug]/[shareToken]/loading.tsx` (the route has **none** today) — it renders during the initial `getShowForViewer` fetch + the picker/auth flow as a minimal skeleton **matching the shell** (Header band + `CrewSubNav` + an empty section frame at `min-h-(--spacing-right-now-min-h)`), so first paint is not a blank screen.
+- A **`loading.tsx` is required** at `app/show/[slug]/[shareToken]/loading.tsx` (the route has **none** today) — it renders during the initial `getShowForViewer` fetch + the picker/auth flow as a minimal skeleton **matching the shell** (Header band + `CrewSubNav` + an empty section frame at `min-h-(--spacing-right-now-min-h)`), so first paint is not a blank screen. The skeleton renders only the **6 base** section tabs (or unlabelled tab placeholders) — **never the conditional Budget tab**: its `financialsVisible` gate isn't known until the projection resolves, so a non-lead must not briefly see a Budget surface during load/auth/picker (preserves the single-predicate Budget gate, §4.1).
 - Per-section Suspense boundaries are **out of scope** for Phase 1 — sections server-render synchronously; the prior section stays mounted during a `?s=` round-trip (§4.1a). Phase 2 may add granular section fallbacks.
 - The skeleton consumes only existing tokens and is **not** in the screenshot manifest (baselines capture the hydrated page, §4.11).
 
@@ -426,7 +427,7 @@ Unit / component (jsdom where layout isn't asserted; every test states its failu
 7. **Gear emphasis** — viewer with A-flag → Audio card first + carries `[data-emphasis=you]`; no-flag viewer → default order, no emphasis; empty scope omitted (incl. viewer's own); all-empty → section EmptyState. Expected ordering derived from the flag fixture. _Catches: emphasis becoming a gate; empty "Your scope" shell._
 8. **Budget gating (single predicate)** — `financialsVisible(viewerFlags, isAdmin)` true → Budget tab present + section renders financials; false → tab absent AND `resolveActiveSection('budget', { budgetVisible: false })` → `today` (a non-lead direct-linking `?s=budget` cannot reach it). All three surfaces share the one predicate. _Catches: lead-only data leaking to non-leads via direct URL; a dead tab; a divergent gate._
 9. **Empty-state discipline** — venue/parking/dock/internet/notes sentinels (`""`,`TBD`,`N/A`,`TBA`) hidden; required-field-missing (venue.name) → `EmptyState`. _Catches: sentinel leak; blank required block._
-10. **PersonRow guards** — phone-only / email-only / neither / both; `tel:`/`mailto:` href sanitization; **a nameless contact (blank name) with phone/email → the row still renders with the `kind`/role fallback label + tap actions** (preserves `ContactsTile`'s operational-contact behavior); fully-empty → omitted. _Catches: empty action buttons; bad hrefs; dropping nameless-but-actionable contact rows during the tile→section port._
+10. **PersonRow guards** — phone-only / email-only / neither / both; `tel:`/`mailto:` href sanitization; **a nameless contact (blank name) with phone/email → the row still renders with the `kind`/role fallback label + tap actions** (preserves `ContactsTile`'s operational-contact behavior); a contact with `notes` → the note renders (sentinel-hidden), as `ContactsTile` does; fully-empty → omitted. _Catches: empty action buttons; bad hrefs; dropping nameless-but-actionable contact rows or contact notes during the tile→section port._
 11. **Today curation + date-awareness** — Today renders its **fixed** curated blocks (hero, key-times, Tonight, Where, Need-something, dress code, notes); date-awareness lives in the **hero** (12-state machine) + key-times, **not** the old `selectTodayTiles` tile-promotion (intentionally superseded — wp-18, §8). Assert the hero state drives Today across show/travel/off states, and the curated blocks render per their guards. _Catches: Today losing date-awareness; or accidentally retaining the deleted `selectTodayTiles` band._
 
 Real-browser (Playwright — extends `tests/e2e/crew-page.spec.ts`):
@@ -457,7 +458,7 @@ Real-browser (Playwright — extends `tests/e2e/crew-page.spec.ts`):
 32. **Schedule DateRestriction branches (privacy)** — `unknown_asterisk` viewer → the Schedule renders the unconfirmed placeholder and **zero** `schedule-day` rows / date text (cannot infer show days); `explicit` → only the viewer's assigned days (the intersection); `none` → all dates. _Catches: treating `unknown_asterisk` like `none` and leaking the show's dates to unconfirmed crew — a trust-boundary regression from `ScheduleTile`._
 33. **Dead-link / injection guards** (§4.16) — a contact with a sentinel/blank phone → no `tel:`; a non-`http(s)` or sentinel venue `googleLink` → no map link (`isParseableUrl`); actionable values → correct `tel:`/`mailto:`/map `href`. _Catches: dead or unsafe links surviving the tile→section port._
 34. **Today-highlight timezone** (§4.16) — with a `frozenNow` near a day boundary and a non-local `venue.timezone`, the Schedule "today" pin lands on the **show-timezone** date, not the server/UTC date. _Catches: day-boundary today-pin drift when the timezone derivation is dropped._
-35. **Loading skeleton + copy + a11y** (§4.17–4.19) — `loading.tsx` renders the shell skeleton (Header + `CrewSubNav` + section frame), no blank first paint; sub-nav tabs expose `aria-current` inside a labelled `<nav>` landmark and every tap target is ≥44px; focus moves into the new section on `?s=` change; **no em-dash or raw error code appears in any crew-facing string** (scan the rendered DOM) and the new `helpfulContext` carries no em-dash. _Catches: blank first paint; a11y omissions (unlabelled tabs, lost focus, sub-44px targets); em-dash / raw-code copy leaks._
+35. **Loading skeleton + copy + a11y** (§4.17–4.19) — `loading.tsx` renders the shell skeleton (Header + `CrewSubNav` + section frame), no blank first paint; sub-nav tabs expose `aria-current` inside a labelled `<nav>` landmark and every tap target is ≥44px; focus moves into the new section on `?s=` change; **no em-dash or raw error code appears in any crew-facing string** (scan the rendered DOM) and the new `helpfulContext` carries no em-dash; **the loading skeleton contains no `Budget` tab text/link** (gate unknown pre-projection). _Catches: blank first paint; a11y omissions (unlabelled tabs, lost focus, sub-44px targets); em-dash / raw-code copy leaks; a lead-gated Budget tab flashing during load._
 
 Meta-test / structural-registry inventory (declared per plan rule; same-commit as the surface they pin):
 
