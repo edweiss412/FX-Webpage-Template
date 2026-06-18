@@ -74,6 +74,19 @@ describe("exporter fidelity — event_details populates (v2 DETAILS col-B preser
   });
 });
 
+describe("exporter fidelity — East Coast v1 DATES (label in col 0 + trailing qualifiers)", () => {
+  it("parses dates despite the 3-col shape and trailing free-text (was all-null)", () => {
+    // East Coast DATES: `| Travel | 5/13/24 | - SAME DAY AS SET |`, `| Set | 5/13/24 - AFTER 8PM |`,
+    // `| Show | 5/14/24 …&#10;5/15/24 … |`. detectVersion says v2, but the block is v1-shaped
+    // with the label in col 0 + a trailing qualifier column.
+    const d = parse("east-coast").show.dates;
+    expect(d.travelIn).toBe("2024-05-13");
+    expect(d.set).toBe("2024-05-13");
+    expect(d.showDays).toEqual(["2024-05-14", "2024-05-15"]);
+    expect(d.travelOut).toBe("2024-05-15");
+  });
+});
+
 describe("exporter fidelity — stale 'OLD PULL SHEET' tab skipped", () => {
   it("redefining-fi no longer ingests the prior show's gear (RIA-Chicago 4/15/24)", () => {
     // Its only pull-sheet-named tab was "OLD PULL SHEET" carrying a DIFFERENT

@@ -89,11 +89,15 @@ function isV1ShapedDatesBlock(markdown: string): boolean {
       if (clean(row[0] ?? "").toUpperCase() === "DATES") found = true;
       continue;
     }
-    // First non-empty data row after DATES header
+    // First non-empty data row after DATES header.
     if (row.length === 0) continue;
-    // 2-col shape: row has exactly 2 cells, and cell[0] is a date label
-    if (row.length === 2) return true;
-    // 5-col shape: cell[0] is empty, cell[1] is the label
+    // v1 shape: the date LABEL sits in col 0 (e.g. "Travel"/"Set"/"Show").
+    // Don't gate on an exact 2-col width — the exporter emits a trailing
+    // qualifier column (e.g. `| Travel | 5/13/24 | - SAME DAY AS SET |`), so a
+    // v1 block can be 3 cells wide. Gate on col 0 being a date label instead.
+    const col0 = clean(row[0] ?? "").toUpperCase();
+    if (/^(TRAVEL|SET|SHOW)\b/.test(col0)) return true;
+    // 5-col (v2/v4) shape: cell[0] is empty, cell[1] is the label.
     return false;
   }
   return false;
