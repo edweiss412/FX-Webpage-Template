@@ -428,6 +428,21 @@ EXACT props (00-overview): `CrewShellProps = { data: ShowForViewer; viewer: View
 
 ---
 
+### Task 14: Header status-pill port (R11-MEDIUM-2 — D-2/wp-18, before `ShowStatusTile` is deleted)
+
+**Files:** Modify `components/layout/Header.tsx` (add the status-pill slot); Modify `app/show/[slug]/[shareToken]/_CrewShell.tsx` (compute + pass the pill); Test `tests/components/layout/headerStatusPill.test.tsx` + extend `tests/components/crew/crewShell.test.tsx`.
+
+> Spec D-2 / wp-18: **the show-status pill moves into the Header** (it is visible on EVERY section, complementing the Today-only hero). The live `Header` (`components/layout/Header.tsx:22-50`) takes only `{ show, identityChip }` — **no status-pill slot exists**, so the field-port is unimplemented + untested today; an implementer could finish the route swap, section wiring, and tile deletion while silently dropping the pill (the Venue COI/power/internet tests do NOT prove the header pill moved). This task lands it BEFORE Phase-4 deletes `ShowStatusTile`.
+>
+> **Pill source (confirm exact copy against the design mock + §4.3 hero-state map at implementation):** the compact show-lifecycle state — derive from the show's date-state (e.g. via `selectRightNowState(today, show.dates, dateRestriction)` collapsed to a short label: "Show day N", "Travel", "Set", "Upcoming in N", "Wrapped") — a **header-level, always-visible** complement to the Today-only hero. Degraded/`dateless`/`unknown` → a neutral "Show details" pill (or omit per the mock). The pill is **server-rendered** (no client clock — it uses the request-scoped `today` `Date` CrewShell already computes; it can be coarser than the hero's live-ticking state, so a server render is fine). Do NOT duplicate the hero's full treatment — this is a small badge.
+
+- [ ] **Step 1: failing test** — `tests/components/layout/headerStatusPill.test.tsx`: `Header` with a `statusPill` slot value → renders it (`data-testid="header-status-pill"`); without → no pill node. Then in `crewShell.test.tsx`: render `CrewShell` on a **non-Today** section (`rawSection="venue"`) for a `crew` viewer → the `[data-testid="header-status-pill"]` is present (proving it's header-level, not hero-level); same for an `admin_preview` viewer; a `dateless` show → the neutral/omitted state per the mock. _Failure mode: deleting `ShowStatusTile` silently dropping the status pill (a user-visible field-port regression hidden by the Venue field tests); the pill rendering only on Today (mis-placed in the hero)._
+- [ ] **Step 2: run to fail.**
+- [ ] **Step 3: implement** — add `statusPill?: ReactNode` to `HeaderProps` (`Header.tsx:22`); render it next to the title inside `data-testid="header-status-pill"` (omit when null). In `CrewShell`, compute the pill node from the show date-state (using `ctx.dateRestriction` + the `today` Date) and pass `statusPill={...}` to `Header`. Confirm the exact label copy + degraded behavior against the design mock (no em-dash, §4.18). Add `components/layout/Header.tsx` to the modified-files set.
+- [ ] **Step 4: run to pass.** **Step 5: `pnpm tsc --noEmit`.** **Step 6: commit** `feat(crew-page): Header status-pill port (D-2/wp-18, visible on every section)`. **Phase-4 tile deletion is gated on this being green** (the §10 field-coverage check — `ShowStatusTile`'s pill must have a home before deletion).
+
+---
+
 ## Phase exit criteria
 
 All of the following GREEN before Phase 3, and (per §4.13/§10 sequencing) BEFORE Phase 4 deletes the `_ShowBody.tsx` `notes-tile` alert path:
