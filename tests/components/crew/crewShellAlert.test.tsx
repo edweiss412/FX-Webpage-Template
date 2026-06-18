@@ -6,11 +6,40 @@
 // CONSTANT message, sorted failedKeys derived from the tileErrors map, and
 // context.sheet_name === data.show.title. A healthy projection fires no write,
 // and an upsert rejection is swallowed (fail-quiet — the shell still renders).
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 
 const upsertAdminAlert = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert }));
+
+// Task 11 fills CrewShell's body with real client islands: CrewSubNav reads
+// `useRouter`/`usePathname`/`useSearchParams`, and CrewSectionTransition reads
+// `window.matchMedia` via usePrefersReducedMotion. This suite asserts only the
+// section-independent projection-alert producer (which fires before any
+// render), so we provide the minimal jsdom scaffolding for those islands
+// without changing any alert assertion below.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/show/acme-2026/tok",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+beforeEach(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+});
 
 afterEach(() => {
   vi.clearAllMocks();
