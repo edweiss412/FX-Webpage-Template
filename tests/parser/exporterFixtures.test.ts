@@ -1,0 +1,44 @@
+/**
+ * Regression suite against the PRODUCTION-exporter markdown fixtures
+ * (fixtures/shows/exporter-xlsx/ — real Drive-XLSX -> synthesizeMarkdownFromXlsx
+ * output for the 7 live test shows). These pin the fixes for the end-to-end
+ * parser-fidelity defects found by the 2026-06-18 grounding audit. Unlike the
+ * fixtures/shows/raw/ corpus (Drive-MCP markdown), these are what production
+ * actually feeds parseSheet.
+ *
+ * See docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/sheet-data-grounding-audit-2026-06-18.md
+ * and DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY.
+ */
+import { parseSheet } from "@/lib/parser";
+import { readFileSync } from "node:fs";
+import { describe, it, expect } from "vitest";
+
+const DIR = "fixtures/shows/exporter-xlsx";
+const parse = (slug: string) => parseSheet(readFileSync(`${DIR}/${slug}.md`, "utf8"), `${slug}.md`);
+
+describe("exporter fidelity — agenda_links label (East Coast bare 'AGENDA')", () => {
+  it("captures East Coast's agenda link even though the label is 'AGENDA' not 'AGENDA LINK'", () => {
+    // East Coast INFO row: `| AGENDA | https://drive.google.com/file/d/1N0.../view |`
+    // parseAgendaLinks previously required the literal label "AGENDA LINK" -> dropped this.
+    const r = parse("east-coast");
+    expect(r.show.agenda_links.length).toBeGreaterThanOrEqual(1);
+    expect(r.show.agenda_links[0]!.fileId).toBe("1N0SNyciz0isLC_a-ivZhEow1-12mm0w0");
+  });
+
+  it("still captures the standard 'AGENDA LINK' shows (no regression)", () => {
+    expect(parse("fintech").show.agenda_links[0]!.fileId).toBe(
+      "1Lfncqubzk9x6gQH5Z7Sz_EQRJ_8BWtPF",
+    );
+    // Redefining carries two 'AGENDA LINK - RFI/PCF' rows (filename-only, no fileId)
+    expect(parse("redefining-fi").show.agenda_links.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not over-match: no spurious agenda_links on shows without an INFO agenda row pattern", () => {
+    // Sanity: every captured link's label starts with AGENDA (no false positives from the AGENDA tab grid)
+    for (const slug of ["east-coast", "fintech", "consultants", "ria", "fixed-income", "rpas"]) {
+      for (const link of parse(slug).show.agenda_links) {
+        expect(link.label.toUpperCase().startsWith("AGENDA")).toBe(true);
+      }
+    }
+  });
+});
