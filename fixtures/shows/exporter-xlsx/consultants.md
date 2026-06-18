@@ -60,27 +60,27 @@
 | :---: | :---: |
 | In House AV | Cesar Salazar 309-532-5534 <cesar.salazar@encoreglobal.com> |
 
-| DETAILS |
-| :---: |
-| Floor Plan |
-| Room Diagram |
-| LED |
-| Backdrop / Scenic |
-| Stage Size |
-| Opening Reel |
-| Keynote Requirements |
-| Virtual Speaker |
-| Virtual Audience |
-| GS Podium Type |
-| Record |
-| Polling |
-| Internet |
-| Power |
-| Equipment Storage |
-| Staff Office Room |
-| Test Pattern |
-| Fonts |
-| Notes |
+| DETAILS | DETAILS |
+| :---: | :---: |
+| Floor Plan | LINK |
+| Room Diagram | LINK |
+| LED | NO LED WALL |
+| Backdrop / Scenic | (1) II Logo Spandex (4) Sections Grey Spandex |
+| Stage Size | 8' x 24' x 2' |
+| Opening Reel | YES - LOOP VIDEO |
+| Keynote Requirements | TBD |
+| Virtual Speaker | N/A |
+| Virtual Audience | N/A |
+| GS Podium Type | (2) Acrylic Podium |
+| Record | N/A |
+| Polling | YES   |
+| Internet | Wifi for Polling Network: Institutional Investor Passcode: Investor2025 |
+| Power | 100-amp 3 phase service |
+| Equipment Storage | Behind LED Wall |
+| Staff Office Room | TBD |
+| Test Pattern | 16 x 9 Test Pattern |
+| Fonts | Aptos Font Folder |
+| Notes | N/A |
 
 | GS Setup | we anticipate approximately 160 in attendance. Room will be set in 23-25 rectangles of 7 per table; handheld mics at each table; panel will have goosenecks on stage. Number of panelists to be confirmed as we get closer to the meeting;  |
 | :---: | :---: |

@@ -54,3 +54,22 @@ describe("exporter fidelity — crew block boundary (East Coast phantom DOCUMENT
     expect(names).toEqual(["Doug Larson", "Carl Fenton", "Eric Weiss"]);
   });
 });
+
+describe("exporter fidelity — event_details populates (v2 DETAILS col-B preserved)", () => {
+  it("redefining-fi: DETAILS values are parsed (was {} when the exporter collapsed col B)", () => {
+    const ed = parse("redefining-fi").show.event_details;
+    expect(ed.stage_size).toBe("8' x 24' x 2'");
+    expect(ed.opening_reel).toBe("YES - LOOP VIDEO");
+    expect(ed.polling).toBe("YES");
+    expect(Object.keys(ed).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("every v2 'DETAILS'-header show now has a non-empty event_details", () => {
+    for (const slug of ["redefining-fi", "consultants", "ria", "east-coast"]) {
+      expect(
+        Object.keys(parse(slug).show.event_details).length,
+        `${slug} event_details should not be empty`,
+      ).toBeGreaterThan(0);
+    }
+  });
+});

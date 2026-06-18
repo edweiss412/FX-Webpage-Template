@@ -132,9 +132,15 @@ function normalizePullSheetGrid(sheetName: string, grid: CellGrid): CellGrid {
 }
 
 function normalizeBlock(block: CellGrid): CellGrid {
-  if (/^DETAILS\s*$/i.test(block[0]?.[0] ?? "")) {
-    return block.map((row) => [row[0] ?? ""]);
-  }
+  // NOTE: a bare "DETAILS" block was previously collapsed to label-only
+  // (`block.map((row) => [row[0]])`) on the premise that v2 DETAILS sections
+  // carry no values. The 2026-06-18 grounding audit disproved that premise:
+  // the live source sheets (incl. originals outside the test folder, e.g.
+  // Asset-Mgmt INFO!B53-72) populate col B (Stage Size, Opening Reel, Polling,
+  // Power, ...). The "label-only" shape was an artifact of the old Drive-MCP
+  // markdown converter, not the source. The value column is now preserved so
+  // parseEventDetails populates event_details + openingReel.
+  // See DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1.
   if (
     /^GENERAL SESSION/i.test(block[0]?.[0] ?? "") &&
     /^(?:GS|BO) Setup$/i.test(block[1]?.[0] ?? "")

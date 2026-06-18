@@ -41,22 +41,22 @@
 | :---: | :---: |
 | In House AV | Mark Kauffman <mark.kauffman@encoreglobal.com> |
 
-| DETAILS |
-| :---: |
-| Room Diagram |
-| LED |
-| Backdrop / Scenic |
-| Stage |
-| Opening Reel |
-| Keynote Requirements |
-| Truss Podium |
-| Record |
-| Live Streaming |
-| Polling |
-| Internet |
-| Power |
-| Storage |
-| Test Pattern |
+| DETAILS |  |
+| :---: | :---: |
+| Room Diagram |  |
+| LED | NO |
+| Backdrop / Scenic | (1) Section Printed Spandex (4) Sections Grey Spandex |
+| Stage | 8' x 24' x 2' |
+| Opening Reel | YES - LOOP VIDEO |
+| Keynote Requirements | NONE |
+| Truss Podium | YES |
+| Record | NO |
+| Live Streaming | NO |
+| Polling | YES |
+| Internet | The conference wifi has 20mb download speed.   |
+| Power | Only 2 circuits in Mabel Room - this setup needs additional power |
+| Storage | Back of house near kitchen area |
+| Test Pattern | 16 x 9 Test Pattern |
 
 | AGENDA | https://drive.google.com/file/d/1N0SNyciz0isLC_a-ivZhEow1-12mm0w0/view?usp=drive_link |
 | :---: | :---: |

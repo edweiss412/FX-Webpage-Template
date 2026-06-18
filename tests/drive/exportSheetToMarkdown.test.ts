@@ -117,7 +117,12 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
   });
 
-  test("keeps the DETAILS checklist label-only to match the fixture parser contract", () => {
+  test("preserves the DETAILS value column (col B) — label-only collapse removed", () => {
+    // The live source sheets populate col B for DETAILS (Stage Size, Opening
+    // Reel, Polling, Power, ...). The value column must survive so
+    // parseEventDetails fills event_details. Previously collapsed to label-only
+    // on a false premise (a Drive-MCP rendering artifact); see the 2026-06-18
+    // grounding audit / DEFERRED AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1.
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
@@ -132,7 +137,12 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
 
     expect(markdown).toBe(
-      ["| DETAILS |", "| :---: |", "| Floor Plan |", "| Room Diagram |"].join("\n"),
+      [
+        "| DETAILS |  |",
+        "| :---: | :---: |",
+        "| Floor Plan | LINK |",
+        "| Room Diagram | LINK |",
+      ].join("\n"),
     );
   });
 

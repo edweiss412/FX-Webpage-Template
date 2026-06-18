@@ -65,26 +65,26 @@
 | :---: | :---: |
 | In House AV | Chris Mercado chris.mercado@encoreglobal.com Danilo Scekic danilo.scekic@encoreglobal.com |
 
-| DETAILS |
-| :---: |
-| Floor Plan |
-| Room Diagram |
-| LED |
-| Backdrop / Scenic |
-| Stage Size |
-| Opening Reel |
-| Keynote Requirements |
-| Virtual Speaker |
-| Virtual Audience |
-| GS Podium Type |
-| Record |
-| Polling |
-| Internet |
-| Power |
-| Equipment Storage |
-| Staff Office Room |
-| Test Pattern |
-| Fonts |
+| DETAILS | DETAILS |
+| :---: | :---: |
+| Floor Plan | LINK |
+| Room Diagram | LINK |
+| LED | II LED BACKGROUND LOGO |
+| Backdrop / Scenic | (1) II Logo Spandex (2) Sections Grey Spandex |
+| Stage Size | 8' x 24' x 2' |
+| Opening Reel | YES - LOOP VIDEO |
+| Keynote Requirements | TBD |
+| Virtual Speaker | NO |
+| Virtual Audience | NO |
+| GS Podium Type | Truss Podium |
+| Record | NO |
+| Polling | YES |
+| Internet | SSID - Hyatt_Meeting Password: PHC2025 |
+| Power | Wall Outlets |
+| Equipment Storage | Sullivan Room / Back Room |
+| Staff Office Room | Sullivan Room (cover with black fabric) |
+| Test Pattern | 16 x 9 Test Pattern |
+| Fonts | Aptos Font Folder |
 
 | GS Setup | 16 Clusters of 6 ppl |
 | :---: | :---: |
