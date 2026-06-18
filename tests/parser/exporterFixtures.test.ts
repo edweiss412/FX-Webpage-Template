@@ -158,3 +158,15 @@ describe("exporter fidelity — B2 east-coast v1 vehicle", () => {
     expect(parse("east-coast").transportation!.vehicle).toBe("Van");
   });
 });
+
+describe("exporter fidelity — B3 ria v2 transport (col1='TRANSPORTATION', not 'NAME')", () => {
+  it("routes to v2 not v1: vehicle captured + no 'Vehicle' leaks into the schedule", () => {
+    // Header is `| TRANSPORTATION | TRANSPORTATION | PHONE |`; v2 required col1='NAME',
+    // so ria fell to v1 which has no Vehicle handling -> vehicle lost + 'Vehicle' row
+    // leaked in as a schedule stage.
+    const t = parse("ria").transportation!;
+    expect(t.driver_name).toBe("Connor Hester");
+    expect(t.vehicle ?? "").toContain("Mercedes Sprinter Van 2");
+    expect(t.schedule.map((e) => e.stage)).not.toContain("Vehicle");
+  });
+});

@@ -255,8 +255,11 @@ function parseV2Transport(
   markdown: string,
   crewMembers?: CrewMemberRow[],
 ): TransportationRow | null {
-  // Match: | TRANSPORTATION | NAME | PHONE |
-  const headerRe = /^\|\s*TRANSPORTATION\s*\|\s*NAME\s*\|\s*PHONE\s*\|/im;
+  // Match: | TRANSPORTATION | NAME | PHONE | (older) OR
+  //        | TRANSPORTATION | TRANSPORTATION | PHONE | (exporter column-dup, ria).
+  // Superset of the NAME form. Routing ria here (not v1) also captures its
+  // Vehicle row and stops the `| Vehicle | … |` row leaking in as a schedule stage.
+  const headerRe = /^\|\s*TRANSPORTATION\s*\|\s*(?:NAME|TRANSPORTATION)\s*\|\s*PHONE\s*\|/im;
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
 
