@@ -123,7 +123,7 @@ export async function ShowBody({
     show: data.show,
     dateRestriction: ctx.dateRestriction,
     hotelReservations: data.hotelReservations,
-    contacts: data.contacts,
+    rooms: data.rooms, // rooms-sourced anchors (§4.4); call site migrates to _CrewShell in Phase 2
   });
 
   // M11 Phase C Task C.2 / AC-11.38: render-time "today" reads through the
