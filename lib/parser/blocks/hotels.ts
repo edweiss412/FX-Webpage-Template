@@ -288,7 +288,7 @@ function parseInlineHotelRow(
   const raw = clean(m[1]!);
   if (!raw) return [];
 
-  return [buildInlineHotel(raw, 1, contextYear)];
+  return buildInlineReservations(raw, contextYear);
 }
 
 function parseHotelStaysRow(
@@ -303,7 +303,42 @@ function parseHotelStaysRow(
   const raw = clean(m[1]!);
   if (!raw) return [];
 
-  return [buildInlineHotel(raw, 1, contextYear)];
+  return buildInlineReservations(raw, contextYear);
+}
+
+/**
+ * A single inline hotel cell can hold multiple stays with DIFFERENT dates (e.g.
+ * consultants: three guests check out 10/10, one checks out 10/9). Split into
+ * per-group reservations when the cell carries 2+ "Check In" markers so each
+ * guest group keeps its own check-out; otherwise return one reservation. Groups
+ * after the first don't repeat the hotel name, so they inherit group 1's.
+ */
+function buildInlineReservations(raw: string, contextYear: string | null): HotelReservationRow[] {
+  const checkInCount = (raw.match(/check\s+in/gi) ?? []).length;
+  if (checkInCount < 2) return [buildInlineHotel(raw, 1, contextYear)];
+
+  const segments = splitInlineReservationGroups(raw);
+  const rows = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
+  const baseName = rows[0]?.hotel_name ?? null;
+  for (let i = 1; i < rows.length; i++) rows[i]!.hotel_name = baseName;
+  return rows;
+}
+
+function splitInlineReservationGroups(raw: string): string[] {
+  // Each reservation group ends at its own "Check Out: <date>".
+  const re = /check\s+out\s*[:\s]+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/gi;
+  const segments: string[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    const end = m.index + m[0].length;
+    const seg = raw.slice(last, end).trim();
+    if (seg) segments.push(seg);
+    last = end;
+  }
+  const tail = raw.slice(last).trim();
+  if (tail) segments.push(tail);
+  return segments.length > 0 ? segments : [raw];
 }
 
 /**

@@ -179,6 +179,21 @@ describe("exporter fidelity — A2 multi-reservation check-out (own per reservat
   });
 });
 
+describe("exporter fidelity — AR R4: multi-stay inline cell splits into per-group reservations", () => {
+  it("consultants: Eric Weiss keeps check-out 10/9 while the other guests keep 10/10", () => {
+    // One "Hotel Reservations" cell holds two date groups (Doug/John/Alexandre
+    // out 10/10; Eric Weiss out 10/9). A single-row parse mis-dated Eric.
+    const res = parse("consultants").hotelReservations;
+    expect(res.length).toBeGreaterThanOrEqual(2);
+    const eric = res.find((r) => r.names.includes("Eric Weiss"));
+    expect(eric?.check_in).toBe("2025-10-07");
+    expect(eric?.check_out).toBe("2025-10-09");
+    const doug = res.find((r) => r.names.includes("Doug Larson"));
+    expect(doug?.check_out).toBe("2025-10-10");
+    expect(doug?.names).not.toContain("Eric Weiss");
+  });
+});
+
 describe("exporter fidelity — B1 transport assigned_names ignores the col0 stage label", () => {
   it("redefining schedule maps real crew (col3), not the stage label (col0)", () => {
     // parseSheet threads crew into transport; redefining rows are
