@@ -177,7 +177,7 @@ Both nav renders exist in the DOM at all widths (CSS-only switching, the establi
 | `financials` | Budget tab + section absent (gated) | — | — |
 | viewer `roleFlags` (no scope flag) | Gear: no emphasis, default order | — | — |
 | `SectionCard.{icon,title,action}` | that prop omitted from render | — | — |
-| `PersonRow.person.{name,role}` | name absent → row omitted; role absent → name alone | — | — |
+| `PersonRow.person.{name,role}` | name absent **but phone/email present** → render with a **fallback label** (the contact `kind`/role, matching `ContactsTile`'s preserve-nameless-contact behavior); role absent → name alone; name AND kind/role AND phone AND email all absent → row omitted | — | — |
 | `DayCard.{day,phase}` | malformed/absent → that day row omitted; `meta` null → phase line alone | — | — |
 | `RightNowHero.state` | unknown/unmatched kind → render as `dateless` (degraded, no stats) | — | — |
 
@@ -367,7 +367,7 @@ Unit / component (jsdom where layout isn't asserted; every test states its failu
 7. **Gear emphasis** — viewer with A-flag → Audio card first + carries `[data-emphasis=you]`; no-flag viewer → default order, no emphasis; empty scope omitted (incl. viewer's own); all-empty → section EmptyState. Expected ordering derived from the flag fixture. _Catches: emphasis becoming a gate; empty "Your scope" shell._
 8. **Budget gating** — `financialsVisible` true → Budget tab present + section renders financials; false → tab absent + `?s=budget` falls back to `today`. _Catches: lead-only data leaking to non-leads or a dead tab._
 9. **Empty-state discipline** — venue/parking/dock/internet/notes sentinels (`""`,`TBD`,`N/A`,`TBA`) hidden; required-field-missing (venue.name) → `EmptyState`. _Catches: sentinel leak; blank required block._
-10. **PersonRow guards** — phone-only / email-only / neither / both; `tel:`/`mailto:` href sanitization. _Catches: empty action buttons; bad hrefs._
+10. **PersonRow guards** — phone-only / email-only / neither / both; `tel:`/`mailto:` href sanitization; **a nameless contact (blank name) with phone/email → the row still renders with the `kind`/role fallback label + tap actions** (preserves `ContactsTile`'s operational-contact behavior); fully-empty → omitted. _Catches: empty action buttons; bad hrefs; dropping nameless-but-actionable contact rows during the tile→section port._
 11. **Today curation + date-awareness** — Today renders its **fixed** curated blocks (hero, key-times, Tonight, Where, Need-something, dress code, notes); date-awareness lives in the **hero** (12-state machine) + key-times, **not** the old `selectTodayTiles` tile-promotion (intentionally superseded — wp-18, §8). Assert the hero state drives Today across show/travel/off states, and the curated blocks render per their guards. _Catches: Today losing date-awareness; or accidentally retaining the deleted `selectTodayTiles` band._
 
 Real-browser (Playwright — extends `tests/e2e/crew-page.spec.ts`):
