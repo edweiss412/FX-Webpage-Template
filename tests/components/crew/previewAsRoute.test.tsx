@@ -159,6 +159,35 @@ vi.mock("@/components/crew/RightNowHero", () => ({
   ),
 }));
 
+// Task 11 wires the REAL section components into CrewShell's dispatcher. This
+// suite pins the preview route's shell wiring (activeSection authority, showId
+// threading, banner placement) against a thin fixture whose `show` omits fields
+// the real sections dereference (e.g. `agenda_links`). Section CONTENT is pinned
+// elsewhere (section unit tests + crewShellSections.test.tsx), so each section is
+// mocked to a marker — mirroring the crewShell.test.tsx island-mock strategy.
+const previewSectionMarker = (testid: string) => () => <section data-testid={testid} />;
+vi.mock("@/components/crew/sections/TodaySection", () => ({
+  TodaySection: previewSectionMarker("section-today"),
+}));
+vi.mock("@/components/crew/sections/ScheduleSection", () => ({
+  ScheduleSection: previewSectionMarker("section-schedule"),
+}));
+vi.mock("@/components/crew/sections/VenueSection", () => ({
+  VenueSection: previewSectionMarker("section-venue"),
+}));
+vi.mock("@/components/crew/sections/TravelSection", () => ({
+  TravelSection: previewSectionMarker("section-travel"),
+}));
+vi.mock("@/components/crew/sections/CrewSection", () => ({
+  CrewSection: previewSectionMarker("section-crew"),
+}));
+vi.mock("@/components/crew/sections/GearSection", () => ({
+  GearSection: previewSectionMarker("section-gear"),
+}));
+vi.mock("@/components/crew/sections/BudgetSection", () => ({
+  BudgetSection: previewSectionMarker("section-budget"),
+}));
+
 vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
   ShowRealtimeBridge: ({
     showId,

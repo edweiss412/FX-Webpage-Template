@@ -24,6 +24,39 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+// Task 11 wires the REAL section components into CrewShell's dispatcher. This
+// suite asserts ONLY the section-INDEPENDENT projection-alert producer (which
+// fires before any section renders) against an intentionally-thin fixture
+// (`{ show: { title }, crewMembers: [], tileErrors }`). The real sections
+// dereference projection fields that the thin fixture omits (e.g.
+// `data.show.agenda_links`), which would crash the render OR fire a SECOND
+// (render-failure) upsert and break the single-call assertion. The active
+// section's CONTENT is out of scope here — it is pinned by the section unit
+// tests and crewShellSections.test.tsx — so we mock every section to a no-op
+// marker. The producer-under-test (the alert) is untouched.
+const mockSection = (testid: string) => () => <section data-testid={testid} />;
+vi.mock("@/components/crew/sections/TodaySection", () => ({
+  TodaySection: mockSection("section-today"),
+}));
+vi.mock("@/components/crew/sections/ScheduleSection", () => ({
+  ScheduleSection: mockSection("section-schedule"),
+}));
+vi.mock("@/components/crew/sections/VenueSection", () => ({
+  VenueSection: mockSection("section-venue"),
+}));
+vi.mock("@/components/crew/sections/TravelSection", () => ({
+  TravelSection: mockSection("section-travel"),
+}));
+vi.mock("@/components/crew/sections/CrewSection", () => ({
+  CrewSection: mockSection("section-crew"),
+}));
+vi.mock("@/components/crew/sections/GearSection", () => ({
+  GearSection: mockSection("section-gear"),
+}));
+vi.mock("@/components/crew/sections/BudgetSection", () => ({
+  BudgetSection: mockSection("section-budget"),
+}));
+
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
     writable: true,

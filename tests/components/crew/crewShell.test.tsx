@@ -89,6 +89,43 @@ vi.mock("@/components/crew/RightNowHero", () => ({
   ),
 }));
 
+// Task 11 wires the REAL section components into CrewShell's dispatcher. This
+// suite pins the shell's producer/wiring contracts (fail-closed, alert,
+// realtime-bridge, footer report props, budget gate, identityChip, status pill)
+// against hand-built thin fixtures whose `show` omits fields the real sections
+// dereference (e.g. `agenda_links`). Section CONTENT is out of scope here (it is
+// pinned by the section unit tests + crewShellSections.test.tsx), so each section
+// is mocked to a lightweight marker. The Today mock renders the (mocked)
+// RightNowHero so the existing "Today path → hero built from the projection"
+// assertion (data-show-title) is preserved — the shell still routes ?s=today to
+// a Today surface that leads with the hero.
+const sectionMarker = (testid: string) => () => <section data-testid={testid} />;
+vi.mock("@/components/crew/sections/TodaySection", () => ({
+  TodaySection: ({ data }: { data: ShowForViewer }) => (
+    <section data-testid="section-today">
+      <div data-testid="mock-right-now-hero" data-show-title={data.show.title ?? ""} />
+    </section>
+  ),
+}));
+vi.mock("@/components/crew/sections/ScheduleSection", () => ({
+  ScheduleSection: sectionMarker("section-schedule"),
+}));
+vi.mock("@/components/crew/sections/VenueSection", () => ({
+  VenueSection: sectionMarker("section-venue"),
+}));
+vi.mock("@/components/crew/sections/TravelSection", () => ({
+  TravelSection: sectionMarker("section-travel"),
+}));
+vi.mock("@/components/crew/sections/CrewSection", () => ({
+  CrewSection: sectionMarker("section-crew"),
+}));
+vi.mock("@/components/crew/sections/GearSection", () => ({
+  GearSection: sectionMarker("section-gear"),
+}));
+vi.mock("@/components/crew/sections/BudgetSection", () => ({
+  BudgetSection: sectionMarker("section-budget"),
+}));
+
 vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
   ShowRealtimeBridge: ({
     showId,

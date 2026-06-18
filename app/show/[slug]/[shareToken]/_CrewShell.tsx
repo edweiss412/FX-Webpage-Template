@@ -28,11 +28,19 @@
  * Sections are Phase 3 — every section is a minimal placeholder here; only the
  * Today section additionally leads with the live RightNowHero.
  */
+import type { JSX } from "react";
+
 import { IdentityChip } from "@/components/auth/IdentityChip";
 import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import { CrewSectionTransition } from "@/components/crew/CrewSectionTransition";
 import { CrewSubNav } from "@/components/crew/CrewSubNav";
-import { RightNowHero } from "@/components/crew/RightNowHero";
+import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import { CrewSection } from "@/components/crew/sections/CrewSection";
+import { GearSection } from "@/components/crew/sections/GearSection";
+import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
+import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
@@ -235,15 +243,36 @@ export async function CrewShell({
     </span>
   );
 
-  const sectionBody =
-    activeSection === "today" ? (
-      <>
-        {rightNowCtx ? <RightNowHero context={rightNowCtx} /> : null}
-        <section data-testid={`section-${activeSection}`}>{activeSection}</section>
-      </>
-    ) : (
-      <section data-testid={`section-${activeSection}`}>{activeSection}</section>
-    );
+  // ── Section dispatch (Task 11 / R8-HIGH-2) ──
+  // Render the REAL section component for the resolved `activeSection`, each on
+  // the uniform contract `({ data, viewer, today, showId })` (R10-HIGH-1:
+  // `showId` is the CrewShell prop, threaded uniformly so GearSection can mount
+  // `<OpeningReelVideo showId={showId}>`). `today` is the request-scoped
+  // `await nowDate()` Date, threaded so the section's timezone today-pin matches
+  // the frozen screenshot clock (R8-HIGH-1). The Today section owns its OWN
+  // RightNowHero internally (built from its own buildRightNowContext) — the
+  // shell no longer renders a separate hero; `rightNowCtx` survives ONLY for the
+  // Footer's report autocapture. `activeSection` is already gated for budget by
+  // resolveActiveSection, so a non-lead `?s=budget` arrives here as `today`.
+  const renderSection = (): JSX.Element => {
+    switch (activeSection) {
+      case "today":
+        return <TodaySection data={data} viewer={viewer} today={today} showId={showId} />;
+      case "schedule":
+        return <ScheduleSection data={data} viewer={viewer} today={today} showId={showId} />;
+      case "venue":
+        return <VenueSection data={data} viewer={viewer} today={today} showId={showId} />;
+      case "travel":
+        return <TravelSection data={data} viewer={viewer} today={today} showId={showId} />;
+      case "crew":
+        return <CrewSection data={data} viewer={viewer} today={today} showId={showId} />;
+      case "gear":
+        return <GearSection data={data} viewer={viewer} today={today} showId={showId} />;
+      case "budget":
+        return <BudgetSection data={data} viewer={viewer} today={today} showId={showId} />;
+    }
+  };
+  const sectionBody = renderSection();
 
   return (
     <div data-testid="crew-shell" data-active-section={activeSection}>
