@@ -56,6 +56,7 @@ export function parseDates(
     set: null,
     showDays: [],
     travelOut: null,
+    loadIn: null,
   };
 
   if (version === "v1") {
@@ -197,12 +198,17 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
         const iso = presence(rawDate) ? normalizeDate(rawDate) : null;
         result.set = iso;
         if (!result.travelIn) result.travelIn = iso;
+        const t = extractClockTime(row[4] ?? "");
+        if (t && !result.loadIn) result.loadIn = t; // travel_set fills loadIn only if unset
         break;
       }
 
-      case "set":
+      case "set": {
         result.set = presence(rawDate) ? normalizeDate(rawDate) : null;
+        const t = extractClockTime(row[4] ?? "");
+        if (t) result.loadIn = t; // explicit SET row overrides any travel_set value
         break;
+      }
 
       case "show_day": {
         const iso = presence(rawDate) ? normalizeDate(rawDate) : null;
@@ -238,6 +244,19 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
+
+/**
+ * Extract a clock time (HH:MM with optional AM/PM) from a free-text TIME cell.
+ * Position-independent: "12:30 PM LOAD IN" and "Load In: 7:00 PM" both match;
+ * cells with no HH:MM ("LOAD IN", "AFTER 8PM") → null. §4.4 / §9 test 4.
+ */
+function extractClockTime(raw: string): string | null {
+  const c = clean(raw);
+  if (!c) return null;
+  const m = c.match(/\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/);
+  if (!m) return null;
+  return m[0].replace(/\s+/g, " ").replace(/([AaPp][Mm])$/, (s) => s.toUpperCase()).trim();
+}
 
 function extractAllDates(text: string): string[] {
   const results: string[] = [];

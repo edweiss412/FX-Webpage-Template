@@ -298,6 +298,112 @@ describe("parseDates — v1 SHOW rows reject calendar-invalid dates", () => {
   });
 });
 
+// ── dates.loadIn capture (§9 test 4) ─────────────────────────────────────────
+// _Catches:_ row[4] discarded; combined TRAVEL/SET row dropped; SHOW/TRAVEL row
+// misclassified as load-in; clock-extraction position-dependent; false capture
+// from a no-clock TIME cell; absent TIME column not tolerated; v1 not tolerated.
+describe("parseDates — loadIn capture (§9 test 4)", () => {
+  function datesTable(rows: Array<[string, string, string, string]>): string {
+    const header = "| DATES | | | | |\n| --- | --- | --- | --- | --- |";
+    const body = rows
+      .map(([label, day, date, time]) => `| | ${label} | ${day} | ${date} | ${time} |`)
+      .join("\n");
+    return `${header}\n${body}\n`;
+  }
+
+  it("captures TIME from a plain SET row (time-first 'LOAD IN' suffix)", () => {
+    const time = "11:00 AM LOAD IN";
+    const md = datesTable([
+      ["TRAVEL IN", "Mon", "3/22/26", ""],
+      ["SET", "Tue", "3/23/26", time],
+      ["SHOW DAY 1", "Wed", "3/24/26", ""],
+    ]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBe(time.match(/\d{1,2}:\d{2}\s*(?:AM|PM)/i)?.[0]);
+    expect(d.loadIn).toBe("11:00 AM");
+    expect(d.set).toBe("2026-03-23");
+  });
+
+  it("captures TIME label-first ('Load In: 7:00 PM') — extraction is not position-dependent", () => {
+    const time = "Load In: 7:00 PM";
+    const md = datesTable([["SET", "Tue", "3/23/26", time]]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBe(time.match(/\d{1,2}:\d{2}\s*(?:AM|PM)/i)?.[0]);
+    expect(d.loadIn).toBe("7:00 PM");
+  });
+
+  it("captures TIME from the time-first live variant '12:30 PM LOAD IN'", () => {
+    const time = "12:30 PM LOAD IN";
+    const md = datesTable([["SET", "Tue", "3/23/26", time]]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBe("12:30 PM");
+  });
+
+  it("captures TIME from a combined TRAVEL / SET row (travel_set classification)", () => {
+    const time = "9:00 AM LOAD IN";
+    const md = datesTable([
+      ["TRAVEL / SET", "Mon", "3/22/26", time],
+      ["SHOW DAY 1", "Tue", "3/23/26", ""],
+    ]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBe("9:00 AM");
+    expect(d.set).toBe("2026-03-22");
+  });
+
+  it("explicit SET row wins over a TRAVEL / SET row when both carry a TIME", () => {
+    const md = datesTable([
+      ["TRAVEL / SET", "Mon", "3/22/26", "8:00 AM LOAD IN"],
+      ["SET", "Tue", "3/23/26", "10:30 AM LOAD IN"],
+    ]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBe("10:30 AM");
+  });
+
+  it("a SHOW row's TIME does NOT populate loadIn (only set-bearing rows)", () => {
+    const md = datesTable([
+      ["SET", "Tue", "3/23/26", ""],
+      ["SHOW DAY 1", "Wed", "3/24/26", "2:00 PM DOORS"],
+    ]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBeNull();
+  });
+
+  it("a plain TRAVEL row's TIME does NOT populate loadIn", () => {
+    const md = datesTable([
+      ["TRAVEL", "Mon", "3/22/26", "6:00 AM DEPART"],
+      ["SET", "Tue", "3/23/26", ""],
+    ]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBeNull();
+  });
+
+  it("a TIME cell with no recognizable clock time → null (no false capture)", () => {
+    const md = datesTable([["SET", "Tue", "3/23/26", "LOAD IN"]]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBeNull();
+  });
+
+  it("a coarse free-text TIME with no clock ('AFTER 8PM') → null", () => {
+    const md = datesTable([["SET", "Tue", "3/23/26", "AFTER 8PM"]]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBeNull();
+  });
+
+  it("absent TIME column (4-col row) → null", () => {
+    const header = "| DATES | | | |\n| --- | --- | --- | --- |";
+    const md = `${header}\n| | SET | Tue | 3/23/26 |\n`;
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBeNull();
+  });
+
+  it("v1 fixture tolerates null loadIn (no TIME column in v1 shape)", () => {
+    const md = readFileSync("fixtures/shows/raw/2024-05-east-coast-family-office.md", "utf8");
+    const version = detectVersion(md);
+    const d = parseDates(md, version!);
+    expect(d.loadIn ?? null).toBeNull();
+  });
+});
+
 // ── Edge case: duplicate show days (pin dedupe + sort) ────────────────────────
 //
 // PINS current behavior:
