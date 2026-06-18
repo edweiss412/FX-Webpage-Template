@@ -170,3 +170,23 @@ describe("exporter fidelity — B3 ria v2 transport (col1='TRANSPORTATION', not 
     expect(t.schedule.map((e) => e.stage)).not.toContain("Vehicle");
   });
 });
+
+describe("exporter fidelity — B4 v4 transport plain header (driver on a body row)", () => {
+  it("fintech/fixed-income/rpas parse (were null): driver + vehicle from body rows", () => {
+    const fin = parse("fintech").transportation!;
+    expect(fin.driver_name).toBe("Carlos Pineda");
+    expect(fin.vehicle ?? "").toContain("Mercedes Sprinter Van 3");
+    const fx = parse("fixed-income").transportation!;
+    expect(fx.driver_name).toBe("Carlos Pineda");
+    expect(fx.vehicle ?? "").toContain("16' Box Truck Rental");
+    const rp = parse("rpas").transportation!;
+    expect(rp.driver_name).toBe("Doug Larson");
+    expect(rp.vehicle ?? "").toContain("Mercedes Schnubby Van");
+  });
+  it("parses the dated schedule legs", () => {
+    const loadIn = parse("fixed-income").transportation!.schedule.find((e) =>
+      /Load In at Venue/i.test(e.stage),
+    );
+    expect(loadIn?.date).toBe("2025-10-19");
+  });
+});

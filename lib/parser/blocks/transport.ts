@@ -130,16 +130,15 @@ function parseV4Transport(
   markdown: string,
   crewMembers?: CrewMemberRow[],
 ): TransportationRow | null {
-  // Match: | TRANSPORTATION/Equipment Transporter | TRANSPORTATION/<name> | PHONE/<phone> | EMAIL/<email> |
+  // Accept BOTH the slash header (raw: `TRANSPORTATION/<name> | PHONE/<phone> |
+  // EMAIL/<email>`) AND the exporter's plain column-duplicated header
+  // (`| TRANSPORTATION | TRANSPORTATION | PHONE | EMAIL | …`). The EMAIL column
+  // is REQUIRED so this never claims ria's no-email 3-col header (B3 routes that
+  // to v2). Capture groups carry the slash content (undefined in the plain form).
   const headerRe =
-    /^\|\s*TRANSPORTATION\/[^|]+\|\s*TRANSPORTATION\/([^|]+?)\s*\|\s*PHONE\/([^|]*?)\s*\|\s*EMAIL\/([^|]*?)\s*\|/im;
+    /^\|\s*TRANSPORTATION(?:\/[^|]*)?\s*\|\s*TRANSPORTATION(?:\/([^|]*?))?\s*\|\s*PHONE(?:\/([^|]*?))?\s*\|\s*EMAIL(?:\/([^|]*?))?\s*\|/im;
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
-
-  const driverName = presence(clean(hm[1]!));
-  const driverPhone = presence(clean(hm[2]!));
-  const driverEmailRaw = clean(hm[3]!);
-  const driverEmail = canonicalize(driverEmailRaw);
 
   // Extract the table block starting from header
   const section = markdown.slice(hm.index);
@@ -148,6 +147,28 @@ function parseV4Transport(
   for (const line of lines) {
     if (!line.trim().startsWith("|") && tableLines.length > 0) break;
     if (line.trim().startsWith("|")) tableLines.push(line.trim());
+  }
+
+  // Driver, two sources: the slash header encodes it inline (hm[1] defined);
+  // the plain (exporter) header leaves it on the first Equipment Transporter /
+  // Load In: / Driver body row.
+  let driverName: string | null = null;
+  let driverPhone: string | null = null;
+  let driverEmail: string | null = null;
+  if (hm[1] !== undefined) {
+    driverName = presence(clean(hm[1]));
+    driverPhone = hm[2] !== undefined ? presence(clean(hm[2])) : null;
+    driverEmail = canonicalize(hm[3] !== undefined ? clean(hm[3]) : "");
+  } else {
+    for (const line of tableLines) {
+      const c = splitRow(line);
+      if (/^(?:equipment transporter|load in:?|driver)$/i.test(clean(c[0] ?? ""))) {
+        driverName = presence(clean(c[1] ?? ""));
+        driverPhone = presence(clean(c[2] ?? ""));
+        driverEmail = canonicalize(clean(c[3] ?? ""));
+        break;
+      }
+    }
   }
 
   // Detect column positions from the header row itself
