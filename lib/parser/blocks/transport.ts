@@ -448,8 +448,11 @@ function extractAssignedNames(
   // Only use crew-context-validated matches (without context, stage labels like
   // "Pick Up Warehouse" would false-positive as names).
   if (crewMembers && crewMembers.length > 0) {
-    for (const cell of cells) {
-      const raw = clean(cell ?? "");
+    // Skip col0 — it is the stage label ("Pick Up Warehouse" etc.), which
+    // isNameLike would accept as a multi-word Title-Case "name" and return
+    // before reaching the real assigned-crew column.
+    for (let ci = 1; ci < cells.length; ci++) {
+      const raw = clean(cells[ci] ?? "");
       if (!raw) continue;
       // Skip cells that look like dates, times, or single-word tokens
       if (/^\d{1,2}\/\d{1,2}/.test(raw)) continue;

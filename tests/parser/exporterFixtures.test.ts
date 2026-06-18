@@ -136,3 +136,19 @@ describe("exporter fidelity — A2 multi-reservation check-out (own per reservat
     }
   });
 });
+
+describe("exporter fidelity — B1 transport assigned_names ignores the col0 stage label", () => {
+  it("redefining schedule maps real crew (col3), not the stage label (col0)", () => {
+    // parseSheet threads crew into transport; redefining rows are
+    // `| Pick Up Warehouse | 5/10 @ TBD | | Eric Carroll | $… |`. The scan read
+    // col0 first, and isNameLike accepted "Pick Up Warehouse" (3 capitalized words).
+    const sched = parse("redefining-fi").transportation!.schedule;
+    for (const e of sched) {
+      expect(e.assigned_names ?? [], `echoed stage ${e.stage}`).not.toContain(e.stage);
+    }
+    const byStage = Object.fromEntries(sched.map((e) => [e.stage, e.assigned_names ?? []]));
+    expect(byStage["Pick Up Warehouse"]).toEqual(["Eric Carroll"]);
+    expect(byStage["Drop Off Venue"]).toEqual(["Eric Weiss"]);
+    expect(byStage["Pick Up Venue"]).toEqual(["Connor Hester"]);
+  });
+});
