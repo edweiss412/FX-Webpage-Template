@@ -43,8 +43,11 @@ vi.mock("@/lib/time/now", () => ({ nowDate }));
 // ---- Mock the composed islands so we can read the props CrewShell passes ----
 
 vi.mock("@/components/layout/Header", () => ({
-  Header: ({ identityChip }: { identityChip?: ReactNode }) => (
+  Header: ({ identityChip, statusPill }: { identityChip?: ReactNode; statusPill?: ReactNode }) => (
     <header data-testid="mock-header">
+      {statusPill !== undefined && statusPill !== null ? (
+        <div data-testid="header-status-pill">{statusPill}</div>
+      ) : null}
       {identityChip !== undefined && identityChip !== null ? identityChip : null}
     </header>
   ),
@@ -73,13 +76,7 @@ vi.mock("@/components/crew/CrewSubNav", () => ({
 }));
 
 vi.mock("@/components/crew/CrewSectionTransition", () => ({
-  CrewSectionTransition: ({
-    sectionId,
-    children,
-  }: {
-    sectionId: string;
-    children: ReactNode;
-  }) => (
+  CrewSectionTransition: ({ sectionId, children }: { sectionId: string; children: ReactNode }) => (
     <div data-testid="crew-section-transition" data-section-id={sectionId}>
       {children}
     </div>
@@ -176,22 +173,20 @@ function crewRow(id: string, role: string, roleFlags: CrewRow["roleFlags"]): Cre
 function makeData(opts?: {
   tileErrors?: Record<string, string>;
   crewMembersOverride?: unknown;
+  dates?: ShowForViewer["show"]["dates"];
 }): ShowForViewer {
   const base = {
     show: {
       title: "Acme Show",
       client_label: null,
       venue: { name: "Acme Arena" },
-      dates: { travelIn: null, set: null, showDays: [], travelOut: null },
+      dates: opts?.dates ?? { travelIn: null, set: null, showDays: [], travelOut: null },
       event_details: {},
     },
     crewMembers:
       opts && "crewMembersOverride" in opts
         ? opts.crewMembersOverride
-        : [
-            crewRow(LEAD_ID, "L1", ["LEAD"]),
-            crewRow(HAND_ID, "A2", ["A2"]),
-          ],
+        : [crewRow(LEAD_ID, "L1", ["LEAD"]), crewRow(HAND_ID, "A2", ["A2"])],
     hotelReservations: [],
     rooms: [],
     transportation: null,
@@ -485,5 +480,62 @@ describe("CrewShell Today section", () => {
     });
     expect(screen.getByTestId("section-venue")).toBeTruthy();
     expect(screen.queryByTestId("mock-right-now-hero")).toBeNull();
+  });
+});
+
+// ============================================================================
+// Header status pill (Task 14 — D-2 / wp-18): header-LEVEL, every section
+// ============================================================================
+// The pinned server clock (nowDate mock) is 2026-04-17T12:00:00Z which is
+// 2026-04-17 in America/New_York (the selectRightNowState default tz). A show
+// whose showDays include that date resolves to show_day_n — a non-degraded
+// lifecycle pill.
+describe("CrewShell Header status pill (Task 14 / D-2)", () => {
+  const datedShow: ShowForViewer["show"]["dates"] = {
+    travelIn: "2026-04-15",
+    set: "2026-04-16",
+    showDays: ["2026-04-17", "2026-04-18"],
+    travelOut: "2026-04-19",
+  };
+
+  it("renders the status pill in the Header on a NON-Today section for a crew viewer (header-level, not hero-level)", async () => {
+    await renderShell({
+      data: makeData({ dates: datedShow }),
+      viewer: { kind: "crew", crewMemberId: HAND_ID },
+      showId: "show-pill-crew",
+      rawSection: "venue", // NOT today — proves the pill is header-level, not in the Today hero
+    });
+    // Header-level: present even though the Today hero is unmounted on Venue.
+    expect(screen.queryByTestId("mock-right-now-hero")).toBeNull();
+    const pill = screen.getByTestId("header-status-pill");
+    expect(pill).toBeTruthy();
+    // The compact show-lifecycle label is derived from the show date-state.
+    expect(pill.textContent).toContain("Show day 1 of 2");
+  });
+
+  it("renders the status pill in the Header on a NON-Today section for an admin_preview viewer", async () => {
+    await renderShell({
+      data: makeData({ dates: datedShow }),
+      viewer: { kind: "admin_preview", crewMemberId: HAND_ID },
+      showId: "show-pill-preview",
+      rawSection: "crew", // NOT today
+    });
+    expect(screen.queryByTestId("mock-right-now-hero")).toBeNull();
+    const pill = screen.getByTestId("header-status-pill");
+    expect(pill).toBeTruthy();
+    expect(pill.textContent).toContain("Show day 1 of 2");
+  });
+
+  it("a dateless show renders the neutral 'Show details' pill (never blank), per the §4.3 degraded map", async () => {
+    await renderShell({
+      data: makeData(), // default fixture: all-null dates → dateless
+      viewer: { kind: "crew", crewMemberId: HAND_ID },
+      showId: "show-pill-dateless",
+      rawSection: "venue",
+    });
+    const pill = screen.getByTestId("header-status-pill");
+    expect(pill).toBeTruthy();
+    // Neutral lifecycle label — no invented vocabulary, matches §4.3 unknown/dateless eyebrow.
+    expect(pill.textContent).toContain("Show details");
   });
 });

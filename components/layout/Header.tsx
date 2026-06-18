@@ -28,6 +28,17 @@ type HeaderProps = {
    * the same viewports that hide the decorative wordmark.
    */
   identityChip?: ReactNode;
+  /**
+   * Optional compact show-lifecycle pill (crew redesign Task 14 / D-2 /
+   * wp-18). Ports the show-status surface out of the deleted
+   * `ShowStatusTile` so the lifecycle state is visible on EVERY section
+   * (it complements the Today-only RightNowHero). The pill node is
+   * server-rendered by `_CrewShell` from the request-scoped `today` —
+   * a small badge only, NOT the hero's full live-ticking treatment.
+   * Rendered next to the title. Omitted entirely when null/undefined so
+   * Header stays backward-compatible for consumers that never pass it.
+   */
+  statusPill?: ReactNode;
 };
 
 /** Pick the show's display date — same fallback as the slug derivation. */
@@ -47,7 +58,7 @@ function formatHeaderDate(iso: string): string {
   });
 }
 
-export function Header({ show, identityChip }: HeaderProps) {
+export function Header({ show, identityChip, statusPill }: HeaderProps) {
   const date = pickHeaderDate(show.dates);
   const venueLine = show.venue?.name ?? null;
 
@@ -60,13 +71,20 @@ export function Header({ show, identityChip }: HeaderProps) {
               {show.client_label}
             </p>
           ) : null}
-          <h1
-            className={`text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg ${
+          <div
+            className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${
               show.client_label ? "mt-1" : ""
             }`}
           >
-            {show.title}
-          </h1>
+            <h1 className="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg">
+              {show.title}
+            </h1>
+            {statusPill !== undefined && statusPill !== null ? (
+              <span data-testid="header-status-pill" className="shrink-0">
+                {statusPill}
+              </span>
+            ) : null}
+          </div>
           {(date || venueLine) && (
             <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-text-subtle">
               {date && (

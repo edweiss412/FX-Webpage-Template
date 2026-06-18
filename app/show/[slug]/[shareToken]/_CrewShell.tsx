@@ -46,7 +46,45 @@ import {
   type ViewerContext,
 } from "@/lib/data/viewerContext";
 import { nowDate } from "@/lib/time/now";
+import { selectRightNowState, type RightNowState } from "@/lib/time/rightNow";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
+
+/**
+ * Compact show-lifecycle label for the Header status pill (Task 14 / D-2 /
+ * wp-18). Ports the show-status surface out of the deleted `ShowStatusTile`
+ * into a single short badge visible on EVERY section (complements the
+ * Today-only hero). The vocabulary mirrors the §4.3 hero-state map's eyebrow
+ * column — no new lifecycle words are invented. The degraded set
+ * (`unknown`/`dateless`/`viewer_unconfirmed`) collapses to the neutral
+ * "Show details" pill (never blank), consistent with ShowStatusTile's
+ * always-render discipline and §4.3 (no em-dash in any label, DESIGN.md §9).
+ */
+function pillLabelForState(state: RightNowState): string {
+  switch (state.kind) {
+    case "show_day_n":
+      return `Show day ${state.n} of ${state.total}`;
+    case "travel_in_day":
+      return "Travel in";
+    case "set_day":
+      return "Set";
+    case "travel_out_day":
+      return "Travel out";
+    case "pre_travel":
+      return "Up next";
+    case "viewer_off_day":
+      return "Off day";
+    case "viewer_off_day_pre":
+      return "Up next";
+    case "viewer_after_last_day":
+      return "Wrapped";
+    case "post_show":
+      return "Show complete";
+    case "viewer_unconfirmed":
+    case "unknown":
+    case "dateless":
+      return "Show details";
+  }
+}
 
 export type CrewShellProps = {
   data: ShowForViewer;
@@ -131,7 +169,9 @@ export async function CrewShell({
   // Render-time "today" reads through the request-scoped clock so screenshot
   // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3; the
   // Today section's RightNowHero owns its own live clock and does not take it.
-  await nowDate();
+  // The Header status pill (Task 14) also derives from this request-scoped
+  // `today` — a coarse, server-rendered badge (the hero owns the live tick).
+  const today = await nowDate();
 
   // Today leads with the live RightNowHero, built from the projection exactly as
   // _ShowBody.tsx:122-127 does. Every other section is a Phase-3 placeholder.
@@ -178,6 +218,23 @@ export async function CrewShell({
     venue: data.show.venue ?? null,
   };
 
+  // Header status pill (Task 14 / D-2 / wp-18): the compact show-lifecycle
+  // state, derived from the show's date-state via the SAME selectRightNowState
+  // machine the hero uses — but server-rendered from the request-scoped `today`
+  // (coarser than the hero's live tick) and collapsed to a SHORT label. Visible
+  // on EVERY section (the hero is Today-only). Degraded/dateless collapses to
+  // the neutral "Show details" pill (pillLabelForState), never blank. Uses the
+  // normalized `headerShow.dates` so a degraded/partial projection can't throw.
+  const statusPillState = selectRightNowState(today, headerShow.dates, ctx.dateRestriction);
+  const statusPill = (
+    <span
+      className="inline-flex items-center rounded-pill border border-border bg-surface px-2 py-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-strong"
+      data-testid="header-status-pill-badge"
+    >
+      {pillLabelForState(statusPillState)}
+    </span>
+  );
+
   const sectionBody =
     activeSection === "today" ? (
       <>
@@ -192,6 +249,7 @@ export async function CrewShell({
     <div data-testid="crew-shell" data-active-section={activeSection}>
       <Header
         show={headerShow}
+        statusPill={statusPill}
         identityChip={
           identityChip ? (
             <IdentityChip
