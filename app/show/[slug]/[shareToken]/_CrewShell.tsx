@@ -145,6 +145,21 @@ export async function CrewShell({
   // than throwing.
   const canBuildRightNow = Boolean(data.show?.dates);
 
+  // Build the Right-Now context ONCE (when the projection is well-formed enough):
+  // the Today section leads with it (RightNowHero) AND the Footer's bug-report
+  // autocapture carries it as `rightNowState` for BOTH viewer kinds — verbatim
+  // parity with _ShowBody.tsx:520-531, where every report (crew or admin-preview)
+  // captures the server-built Right-Now context for triage. Null only in the
+  // degraded case the guard above protects.
+  const rightNowCtx = canBuildRightNow
+    ? buildRightNowContext({
+        show: data.show,
+        dateRestriction: ctx.dateRestriction,
+        hotelReservations: data.hotelReservations ?? [],
+        rooms: data.rooms ?? [],
+      })
+    : null;
+
   // Guard-condition discipline: Header dereferences `show.dates` (`.set` /
   // `.travelIn` / `.showDays[0]`) and `show.venue`. A well-formed ShowForViewer
   // always carries a full ShowRow, but a degraded/partial projection (or a
@@ -166,16 +181,7 @@ export async function CrewShell({
   const sectionBody =
     activeSection === "today" ? (
       <>
-        {canBuildRightNow ? (
-          <RightNowHero
-            context={buildRightNowContext({
-              show: data.show,
-              dateRestriction: ctx.dateRestriction,
-              hotelReservations: data.hotelReservations ?? [],
-              rooms: data.rooms ?? [],
-            })}
-          />
-        ) : null}
+        {rightNowCtx ? <RightNowHero context={rightNowCtx} /> : null}
         <section data-testid={`section-${activeSection}`}>{activeSection}</section>
       </>
     ) : (
@@ -217,13 +223,16 @@ export async function CrewShell({
         reportAutocapture={
           viewer.kind === "admin_preview"
             ? {
+                ...(rightNowCtx ? { rightNowState: rightNowCtx } : {}),
                 crewPreview: {
                   crewMemberId: viewer.crewMemberId,
                   name: ctx.viewerName,
                   role: ctx.viewerCrew?.role ?? null,
                 },
               }
-            : {}
+            : rightNowCtx
+              ? { rightNowState: rightNowCtx }
+              : {}
         }
         reportSurfaceOverride={viewer.kind === "admin_preview" ? "admin" : "crew"}
         {...(viewer.kind === "admin_preview"
