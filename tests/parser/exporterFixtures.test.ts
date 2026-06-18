@@ -152,3 +152,9 @@ describe("exporter fidelity — B1 transport assigned_names ignores the col0 sta
     expect(byStage["Pick Up Venue"]).toEqual(["Connor Hester"]);
   });
 });
+
+describe("exporter fidelity — B2 east-coast v1 vehicle", () => {
+  it("captures the `| Transportation | Van |` vehicle that sits above the Driver row", () => {
+    expect(parse("east-coast").transportation!.vehicle).toBe("Van");
+  });
+});

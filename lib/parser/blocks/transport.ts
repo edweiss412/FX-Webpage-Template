@@ -342,6 +342,25 @@ function parseV1Transport(
   const driverName = presence(clean(hm[1]!));
   const driverPhone = presence(clean(hm[2]!));
 
+  // The exporter emits a `| Transportation | <vehicle> |` row just above the
+  // Driver row (e.g. east-coast "Van"). The Driver-anchored slice below can't
+  // see it, so look back from the Driver row, skipping blanks/separators, for
+  // the first table row; capture col1 when its col0 is "Transportation". (Raw
+  // v1 fixtures lack this row, so vehicle stays null there.)
+  let vehicle: string | null = null;
+  const aboveLines = markdown.slice(0, hm.index).split("\n");
+  for (let i = aboveLines.length - 1; i >= 0; i--) {
+    const t = (aboveLines[i] ?? "").trim();
+    if (!t) continue;
+    if (!t.startsWith("|")) break;
+    const aboveCells = splitRow(t);
+    if (aboveCells.every((c) => /^[\s:|*-]*$/.test(c))) continue; // separator row
+    if (/^transportation$/i.test(clean(aboveCells[0] ?? ""))) {
+      vehicle = presence(clean(aboveCells[1] ?? ""));
+    }
+    break;
+  }
+
   const section = markdown.slice(hm.index);
   const lines = section.split("\n");
   const tableLines: string[] = [];
@@ -390,7 +409,7 @@ function parseV1Transport(
     driver_name: driverName,
     driver_phone: driverPhone,
     driver_email: null,
-    vehicle: null,
+    vehicle,
     license_plate: null,
     color: null,
     parking,
