@@ -111,6 +111,28 @@ describe("exporter fidelity — A1 inline hotel dates back-fill year", () => {
     expect(ria.check_in).toBe("2025-06-23");
     expect(ria.check_out).toBe("2025-06-26");
   });
+
+  it("AR R3: yearless inline dates take the year from the SHOW context, not a hard-coded era", () => {
+    const make = (yy: string) =>
+      [
+        "| DATES |  |",
+        `| Travel | 3/22/${yy} |`,
+        "| Hotel Reservations | Hilton Check In: 3/22 Check Out: 3/26 Doug --- 12345 |",
+      ].join("\n");
+    const h24 = parseHotels(make("24"), "v1");
+    expect([h24[0]!.check_in, h24[0]!.check_out]).toEqual(["2024-03-22", "2024-03-26"]);
+    const h26 = parseHotels(make("26"), "v4");
+    expect([h26[0]!.check_in, h26[0]!.check_out]).toEqual(["2026-03-22", "2026-03-26"]);
+  });
+
+  it("AR R3: yearless inline date with no inferable show year stays null (no guess)", () => {
+    const h = parseHotels(
+      "| Hotel Reservations | Hilton Check In: 3/22 Check Out: 3/26 Doug --- 12345 |",
+      "v1",
+    );
+    expect(h[0]!.check_in).toBeNull();
+    expect(h[0]!.check_out).toBeNull();
+  });
 });
 
 describe("exporter fidelity — A2 multi-reservation check-out (own per reservation, not shared)", () => {

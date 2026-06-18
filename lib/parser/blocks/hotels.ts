@@ -44,12 +44,16 @@ export function parseHotels(
   const fromTable = parseHotelTable(markdown);
   if (fromTable.length > 0) return cap(fromTable);
 
+  // Inline rows carry yearless "Check In: M/D"; infer the show's year from its
+  // dates so we don't hard-code an era (the cell alone lacks the year).
+  const contextYear = inferShowYear(markdown);
+
   // Try the inline "Hotel Reservations" row (v2 older layout, RIA forum, DCI RPAS)
-  const fromInline = parseInlineHotelRow(markdown);
+  const fromInline = parseInlineHotelRow(markdown, contextYear);
   if (fromInline.length > 0) return cap(fromInline);
 
   // Try v1 "Hotel Stays" row (2024-05 east coast family office)
-  const fromStays = parseHotelStaysRow(markdown);
+  const fromStays = parseHotelStaysRow(markdown, contextYear);
   if (fromStays.length > 0) return cap(fromStays);
 
   return [];
@@ -273,7 +277,10 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
  * - 2025-05: `| Hotel Reservations | The Drake Hotel ... Check In: 5/11 Check Out: 5/15 Eric Carroll Eric Weiss Connor Hester |`
  * - 2025-06: `| Hotel Reservations | Park Hyatt Chicago&#10;"800 N Michigan Ave...&#10;Check In: 6/23 Check Out: 6/26 Doug --- 104461566 Eric---104461567 |`
  */
-function parseInlineHotelRow(markdown: string): HotelReservationRow[] {
+function parseInlineHotelRow(
+  markdown: string,
+  contextYear: string | null,
+): HotelReservationRow[] {
   const ROW_RE = /^\|\s*Hotel\s*Reservations?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
   if (!m) return [];
@@ -281,10 +288,13 @@ function parseInlineHotelRow(markdown: string): HotelReservationRow[] {
   const raw = clean(m[1]!);
   if (!raw) return [];
 
-  return [buildInlineHotel(raw, 1)];
+  return [buildInlineHotel(raw, 1, contextYear)];
 }
 
-function parseHotelStaysRow(markdown: string): HotelReservationRow[] {
+function parseHotelStaysRow(
+  markdown: string,
+  contextYear: string | null,
+): HotelReservationRow[] {
   // v1 format: | Hotel Stays | <content> |
   const ROW_RE = /^\|\s*Hotel\s*Stays?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
@@ -293,10 +303,26 @@ function parseHotelStaysRow(markdown: string): HotelReservationRow[] {
   const raw = clean(m[1]!);
   if (!raw) return [];
 
-  return [buildInlineHotel(raw, 1)];
+  return [buildInlineHotel(raw, 1, contextYear)];
 }
 
-function buildInlineHotel(raw: string, ordinal: number): HotelReservationRow {
+/**
+ * Infer the show's calendar year from the first parseable date in the markdown
+ * (the DATES / travel block). Used to back-fill yearless inline hotel dates so
+ * the era is taken from the show context, not hard-coded.
+ */
+function inferShowYear(markdown: string): string | null {
+  const m = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.exec(markdown);
+  if (!m) return null;
+  const iso = normalizeDate(m[0]);
+  return iso ? iso.slice(0, 4) : null;
+}
+
+function buildInlineHotel(
+  raw: string,
+  ordinal: number,
+  contextYear: string | null,
+): HotelReservationRow {
   // Normalize HTML entities and line-break escapes
   const text = raw.replace(/&#10;/g, " ").replace(/\r/g, " ").replace(/\s+/g, " ").trim();
 
@@ -356,10 +382,13 @@ function buildInlineHotel(raw: string, ordinal: number): HotelReservationRow {
     // Year present only when there are TWO slashes (M/D/YY). The old `/\/\d{2,4}$/`
     // test matched the trailing "/11" of a yearless "5/11" and skipped back-fill.
     if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(raw2)) return normalizeDate(raw2);
-    // Add a likely year from the text (look for 4-digit year in the original text)
-    const yearMatch = /\b(202\d)\b/.exec(text);
-    const yearSuffix = yearMatch ? `/${yearMatch[1]}` : "/25";
-    return normalizeDate(raw2 + yearSuffix);
+    // Yearless M/D: back-fill the year from a 4-digit year in the cell, else from
+    // the show context (its DATES). Return null when no year can be inferred —
+    // never hard-code an era, which would silently mis-date non-current shows.
+    const cellYear = /\b(20\d\d)\b/.exec(text);
+    const year = cellYear ? cellYear[1] : contextYear;
+    if (!year) return null;
+    return normalizeDate(`${raw2}/${year}`);
   }
 
   return {
