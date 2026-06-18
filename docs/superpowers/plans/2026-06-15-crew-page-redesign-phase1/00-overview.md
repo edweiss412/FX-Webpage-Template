@@ -107,6 +107,7 @@ export type CrewShellProps = {
   rawSection: string | undefined; // the UNVALIDATED `?s=` — CrewShell resolves it ITSELF (R2-HIGH-1)
   slug: string;
   shareToken?: string;       // crew route only; preview-as omits
+  identityChip?: { name: string; role: string; shareToken: string } | null; // ported from ShowBody (_ShowBody.tsx:83-87) → Header; crew route derives from the resolved crew row, admin/preview pass null (R4-MEDIUM-2)
 };
 // CrewShell resolves the section AFTER it has the viewer context, so the gate and the
 // section selection can NEVER diverge (single authority):
