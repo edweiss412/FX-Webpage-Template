@@ -66,6 +66,43 @@ describe("upsertAdminAlert", () => {
     expect(sql).toMatch(/context\s*=\s*excluded\.context/i);
   });
 
+  test("failedKeys-merge migration adds union-merge + debounce + WHERE-gated no-op (references p_context, not excluded.context)", () => {
+    const rawSql = readFileSync(
+      "supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql",
+      "utf8",
+    );
+    // Strip `-- ...` line comments so the negative assertion below tests the SQL
+    // BODY, not the explanatory header (which names `excluded.context` to document
+    // why it is deliberately NOT used).
+    const sql = rawSql.replace(/--.*$/gm, "");
+
+    // backward-compatible create-or-replace of the SAME function signature
+    expect(sql).toMatch(
+      /create\s+or\s+replace\s+function\s+public\.upsert_admin_alert\s*\(\s*p_show_id\s+uuid\s*,\s*p_code\s+text\s*,\s*p_context\s+jsonb/i,
+    );
+    // failedKeys guard (only failedKeys producers get the merge/debounce path)
+    expect(sql).toMatch(/p_context\s*\?\s*'failedKeys'/);
+    // union-merge: sorted distinct aggregation of the stored + incoming failedKeys
+    expect(sql).toMatch(/jsonb_agg\s*\(\s*elem\s+order\s+by\s+elem\s*\)/i);
+    expect(sql).toMatch(/jsonb_array_elements_text/i);
+    // 10-minute lastCountedAt debounce window
+    expect(sql).toMatch(/lastCountedAt/);
+    expect(sql).toMatch(/interval\s+'10 minutes'/i);
+    // WHERE-gated true no-op (R39): a mergeable, in-window, no-new-domain sighting
+    expect(sql).toMatch(/where\s+not\s*\(/i);
+    // R40: the no-op WHERE / merge compares against p_context (the original arg),
+    // NEVER excluded.context (which carries the INSERT-appended lastCountedAt and
+    // would never compare equal). The new file must not reference excluded.context.
+    expect(sql).not.toMatch(/excluded\.context/i);
+    // backward-compat lockdown preserved (service_role-only execute)
+    expect(sql).toMatch(
+      /revoke\s+all\s+on\s+function\s+public\.upsert_admin_alert\s*\(\s*uuid\s*,\s*text\s*,\s*jsonb\s*\)\s+from\s+public\s*,\s*anon\s*,\s*authenticated/i,
+    );
+    expect(sql).toMatch(
+      /grant\s+execute\s+on\s+function\s+public\.upsert_admin_alert\s*\(\s*uuid\s*,\s*text\s*,\s*jsonb\s*\)\s+to\s+service_role/i,
+    );
+  });
+
   test("production admin_alerts producers route through the coalescing helper", () => {
     const files = ["lib/auth/validateGoogleSession.ts", "lib/sync/applyStaged.ts"];
 
