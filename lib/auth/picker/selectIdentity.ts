@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth/picker/cookieEnvelope";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -38,6 +39,12 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
   if (typeof slug !== "string" || typeof shareToken !== "string" || typeof crewMemberId !== "string") {
     return { ok: false, code: "PICKER_INVALID_INPUT" };
   }
+  // Task 12 (R4-HIGH-1): preserve the active-section deep-link through the
+  // claimed-row → sign-in recovery redirect. buildShowReturnUrl drops any
+  // non-allow-listed `s`; validateNextParamDetailed then carries the safe
+  // `s` back through the OAuth round-trip.
+  const sRaw = formData.get("s");
+  const s = typeof sRaw === "string" ? sRaw : undefined;
 
   const result = await selectIdentityCore({ slug, shareToken, crewMemberId });
   if (!result.ok && result.code === "PICKER_IDENTITY_CLAIMED") {
@@ -50,7 +57,9 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
         reason: "hand_crafted_post_bypassed_deactivated_row",
       }),
     );
-    redirect(`/auth/sign-in?next=${encodeURIComponent(`/show/${slug}/${shareToken}`)}`);
+    redirect(
+      `/auth/sign-in?next=${encodeURIComponent(buildShowReturnUrl(slug, shareToken, { s }))}`,
+    );
   }
   return result;
 }

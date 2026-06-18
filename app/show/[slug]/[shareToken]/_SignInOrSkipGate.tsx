@@ -29,6 +29,7 @@
 
 import { messageFor } from "@/lib/messages/lookup";
 import { clearIdentityAndSkip } from "@/lib/auth/picker/clearIdentity";
+import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 
 async function clearIdentityAndSkipFormAction(
   formData: FormData,
@@ -42,6 +43,13 @@ export type SignInOrSkipGateProps = {
   shareToken: string;
   showId: string;
   reason: "first_contact" | "google_mismatch";
+  /**
+   * Task 12 (R4-HIGH-1): the active-section deep-link, threaded into the
+   * sign-in `?next=` AND the `?gate=skip` CTA so the section survives an
+   * OAuth-first or skip path. Already allow-list-validated by page.tsx;
+   * buildShowReturnUrl re-validates and drops anything unexpected.
+   */
+  s?: string | undefined;
 };
 
 export function SignInOrSkipGate({
@@ -49,9 +57,13 @@ export function SignInOrSkipGate({
   shareToken,
   showId,
   reason,
+  s,
 }: SignInOrSkipGateProps) {
-  const tokenizedUrl = `/show/${slug}/${shareToken}`;
-  const encodedNext = encodeURIComponent(tokenizedUrl);
+  // `?next=` carries the section but NOT gate=skip — the OAuth return lands
+  // the user resolved, not back on the skip gate.
+  const encodedNext = encodeURIComponent(buildShowReturnUrl(slug, shareToken, { s }));
+  // The skip CTA carries BOTH the section and gate=skip.
+  const skipUrl = buildShowReturnUrl(slug, shareToken, { s, gate: "skip" });
 
   const isMismatch = reason === "google_mismatch";
   const promptCode = isMismatch
@@ -99,6 +111,7 @@ export function SignInOrSkipGate({
                 <input type="hidden" name="slug" value={slug} />
                 <input type="hidden" name="shareToken" value={shareToken} />
                 <input type="hidden" name="showId" value={showId} />
+                {s !== undefined && <input type="hidden" name="s" value={s} />}
                 <button
                   type="submit"
                   data-testid="sign-in-or-skip-gate-continue-as-guest-cta"
@@ -112,7 +125,7 @@ export function SignInOrSkipGate({
             <>
               <a
                 data-testid="sign-in-or-skip-gate-skip-cta"
-                href={`${tokenizedUrl}?gate=skip`}
+                href={skipUrl}
                 className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
                 Skip and pick your name
