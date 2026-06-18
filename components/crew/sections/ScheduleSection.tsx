@@ -38,6 +38,7 @@
 import type { JSX } from "react";
 
 import { DayCard } from "@/components/crew/primitives/DayCard";
+import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -93,9 +94,16 @@ export function ScheduleSection({
   // crew/admin_preview → matched row's dateRestriction; malformed projection
   // throws MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
   // route-level infra arm catches it, not the per-block fallback).
-  const { dateRestriction } = resolveViewerContext(viewer, data);
+  const { dateRestriction, isAdmin } = resolveViewerContext(viewer, data);
 
   const anchors = resolveKeyTimes(data.show, data.rooms);
+
+  // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
+  // KeyTimesStrip anchors are derived from data.rooms (scope shown to all →
+  // effectively ungated); a rooms fetch error surfaces an inline degraded block
+  // to admin and an omission to crew. NO upsertAdminAlert (the _CrewShell
+  // projection alert is the sole producer).
+  const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && isAdmin;
 
   // Privacy trust boundary — unknown_asterisk leaks ZERO dates. Render ONLY the
   // placeholder and STOP before building the day list (testid does NOT start
@@ -156,6 +164,8 @@ export function ScheduleSection({
                   })}
                 </div>
               )}
+
+              {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
 
               <KeyTimesStrip anchors={anchors} />
             </>

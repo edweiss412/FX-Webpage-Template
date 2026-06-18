@@ -37,6 +37,7 @@ import type { JSX } from "react";
 
 import { DiagramsTile } from "@/components/tiles/DiagramsTile";
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
@@ -132,11 +133,22 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
     (data.diagrams?.embeddedImages?.length ?? 0) + (data.diagrams?.linkedFolderItems?.length ?? 0) >
       0 || data.show.agenda_links.some((link) => Boolean(link.fileId));
 
+  // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The parking
+  // block reads transportation.parking, gated by transportTileVisible (the same
+  // gate _ShowBody applies: isAdmin || transportVisible). On a transportation
+  // fetch error, admin sees an inline degraded block; a non-assigned crew member
+  // (gate false) sees a silent omission — no boundary widening. NO
+  // upsertAdminAlert (the _CrewShell projection alert is the sole producer).
+  const transportFetchFailed =
+    Boolean(data.tileErrors["transportation"]) && (ctx.isAdmin || transportVisible);
+
   const allHidden = !hasWhere && !hasParking && !hasStatus && !hasDiagrams;
 
   return (
     <div data-testid="section-venue" className="flex flex-col gap-4">
-      {allHidden ? (
+      {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
+
+      {allHidden && !transportFetchFailed ? (
         <div data-testid="section-empty">
           <EmptyState label="No venue details on file yet." />
         </div>

@@ -37,6 +37,7 @@
 import type { JSX } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { SectionTileError } from "@/components/crew/SectionTileError";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -81,12 +82,19 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
   // crew/admin_preview → matched row; a malformed crewMembers projection throws
   // MalformedProjectionError (the page's existing infra arm catches it — this is
   // INTENTIONALLY outside WrappedSection so the route-level handler sees it).
-  resolveViewerContext(viewer, data);
+  const { isAdmin } = resolveViewerContext(viewer, data);
 
   // The viewer's own crew row id, used to stamp the "You" chip. Admin viewers
   // have no crewMemberId so nobody is highlighted as "You".
   const viewerCrewId =
     viewer.kind === "crew" || viewer.kind === "admin_preview" ? viewer.crewMemberId : null;
+
+  // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
+  // key-contacts column reads data.contacts; per _ShowBody §4.13 the contacts
+  // block is ungated (the gate is satisfied for all viewers), so the FETCH
+  // error surfaces an inline degraded block to admin and an omission to crew.
+  // NO upsertAdminAlert (the _CrewShell projection alert is the sole producer).
+  const contactsFetchFailed = Boolean(data.tileErrors["contacts"]) && isAdmin;
 
   return (
     <div data-testid="section-crew" className="flex flex-col gap-4">
@@ -111,7 +119,9 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
 
           return (
             <>
-              {bothEmpty ? (
+              {contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}
+
+              {bothEmpty && !contactsFetchFailed ? (
                 <div data-testid="section-empty">
                   <EmptyState label="No crew or contacts on file yet." />
                 </div>

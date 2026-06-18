@@ -20,11 +20,14 @@
 import type { JSX } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
+import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { financialsVisible } from "@/lib/visibility/scopeTiles";
 
 /** Sentinel-guarded read of an optional financials field (§8.3 contract). */
 function shown(value: string | null): string {
@@ -33,6 +36,7 @@ function shown(value: string | null): string {
 
 export function BudgetSection({
   data,
+  viewer,
   showId,
 }: {
   data: ShowForViewer;
@@ -40,6 +44,17 @@ export function BudgetSection({
   today: Date;
   showId: string;
 }): JSX.Element {
+  // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The Budget
+  // surface reads data.financials, gated by financialsVisible(viewerFlags,
+  // isAdmin) — the SAME single predicate that gates the Budget tab, the section
+  // selection, and the projection. On a financials fetch error, an entitled
+  // viewer (lead/admin) sees an inline degraded block; a non-lead crew member
+  // (gate false) sees a silent omission — no boundary widening. NO
+  // upsertAdminAlert (the _CrewShell projection alert is the sole producer).
+  const ctx = resolveViewerContext(viewer, data);
+  const financialsFetchFailed =
+    Boolean(data.tileErrors["financials"]) && financialsVisible(ctx.viewerFlags, ctx.isAdmin);
+
   // The rows transform is the section's throwable block — wrapped so a throw is
   // contained (fallback + TILE_SERVER_RENDER_FAILED upsert) instead of crashing
   // the page once the old FinancialsTile shell is deleted (§4.13 / wp-13).
@@ -49,6 +64,10 @@ export function BudgetSection({
       showId={showId}
       sheetName={data.show.title}
       render={() => {
+        if (financialsFetchFailed) {
+          return <SectionTileError domain="financials" />;
+        }
+
         const financials = data.financials;
 
         // Every financials field is sentinel-guarded at the read site (§8.3); a

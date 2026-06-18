@@ -30,6 +30,7 @@
 import type { JSX } from "react";
 
 import { RightNowHero } from "@/components/crew/RightNowHero";
+import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
@@ -198,9 +199,22 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
           const visibleNotes = noteEntries.slice(0, SOURCE_CAP);
           const overflowCount = Math.max(0, noteEntries.length - SOURCE_CAP);
 
+          // §4.13 mechanism #3 — active-section FETCH-error visual fallback.
+          // rooms feeds the KeyTimesStrip anchors (scope shown to all →
+          // effectively ungated); hotel feeds the Tonight card (gate = isAdmin).
+          // admin → inline degraded block; crew → omission. NO upsertAdminAlert
+          // (the _CrewShell projection alert is the sole producer). A false gate
+          // is a silent omission (no boundary widening). Composes with the
+          // WrappedSection render-throw arm.
+          const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && ctx.isAdmin;
+          const hotelFetchFailed = Boolean(data.tileErrors["hotel"]) && ctx.isAdmin;
+
           return (
             <>
               <RightNowHero context={rightNowContext} />
+
+              {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
+              {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
 
               <KeyTimesStrip anchors={anchors} />
 

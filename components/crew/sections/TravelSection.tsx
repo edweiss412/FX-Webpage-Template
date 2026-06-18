@@ -36,6 +36,7 @@
 import type { JSX } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -135,11 +136,26 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
           const reservations = [...data.hotelReservations].sort((a, b) => a.ordinal - b.ordinal);
           const hasHotels = reservations.length > 0;
 
+          // §4.13 mechanism #3 — active-section FETCH-error visual fallback.
+          // When the projection flagged a fetch error for a block this section
+          // owns AND that block's visibility gate is satisfied: admin sees an
+          // inline degraded block; crew sees omission. NO upsertAdminAlert (the
+          // _CrewShell projection alert is the sole producer). Gates mirror
+          // _ShowBody §4.13: hotel → isAdmin; transportation → isAdmin ||
+          // transportVisible. A FALSE gate → silent omission (no boundary
+          // widening). This composes with the WrappedSection render-throw arm.
+          const hotelFetchFailed = Boolean(data.tileErrors["hotel"]) && ctx.isAdmin;
+          const transportFetchFailed =
+            Boolean(data.tileErrors["transportation"]) && (ctx.isAdmin || transportVisible);
+
           const allHidden = !hasGettingThere && !hasHotels;
 
           return (
             <>
-              {allHidden ? (
+              {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
+              {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
+
+              {allHidden && !hotelFetchFailed && !transportFetchFailed ? (
                 <div data-testid="section-empty">
                   <EmptyState label="No travel details on file yet." />
                 </div>

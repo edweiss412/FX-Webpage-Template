@@ -39,6 +39,7 @@ import type { JSX, ReactNode } from "react";
 import { Lightbulb, Video, Volume2 } from "lucide-react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -174,11 +175,21 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
           const showReelPlayer = data.openingReelHasVideo;
           const hasReel = showReelPlayer || reelText !== null;
 
+          // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
+          // A/V/L scope cards read data.rooms; per _ShowBody §4.13 scope is shown
+          // to all viewers (effectively ungated), so a rooms fetch error surfaces
+          // an inline degraded block to admin and an omission to crew. NO
+          // upsertAdminAlert (the _CrewShell projection alert is the sole
+          // producer). Composes with the WrappedSection render-throw arm.
+          const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && ctx.isAdmin;
+
           const allHidden = scopeCards.length === 0 && !packVisible && keynote === null && !hasReel;
 
           return (
             <>
-              {allHidden ? (
+              {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
+
+              {allHidden && !roomsFetchFailed ? (
                 <div data-testid="section-empty">
                   <EmptyState label="No gear details on file yet." />
                 </div>
