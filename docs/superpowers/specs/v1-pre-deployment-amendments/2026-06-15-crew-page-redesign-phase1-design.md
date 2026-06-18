@@ -76,7 +76,7 @@ Each `*Section` is a Server Component under `components/crew/sections/` consumin
 
 | Section | Blocks | Data source |
 | --- | --- | --- |
-| **Today** | `RightNowHero`; `KeyTimesStrip`; Tonight (hotel name + shuttle); Where (venue + badge-in); Need-something (first `contacts[]` entry — **not** `client_contact`); **Dress code**; Show notes | `RightNowContext`+rooms; `hotelReservations`; `venue`; `contacts` (venue/in_house_av); `event_details` dress-code (keys `dress_code`/`dress`/`attire`, per `ShowStatusTile.tsx:69`); venue/show notes — all via `shouldHideGenericOptional` |
+| **Today** | `RightNowHero`; `KeyTimesStrip`; Tonight (hotel name + shuttle); Where (venue + badge-in); Need-something (primary `contacts[]` entry via deterministic `selectPrimaryContact` — **not** `client_contact`); **Dress code**; Show notes | `RightNowContext`+rooms; `hotelReservations`; `venue`; `contacts` (venue/in_house_av); `event_details` dress-code (keys `dress_code`/`dress`/`attire`, per `ShowStatusTile.tsx:69`); venue/show notes — all via `shouldHideGenericOptional` |
 | **Schedule** | Day phase cards (travel/set/show/strike, today pinned, viewer-date-restricted); Daily times (`KeyTimesStrip` — Set/Show/Strike, omitted if no anchors); Heads-up note (optional) | `dates` + `ShowRow.schedule_phases` (`Record<ISO, WorkPhase[]>`, `lib/parser/types.ts:105`) + viewer `dateRestriction`; rooms times; Heads-up from a show-level note, hidden-if-empty via `shouldHideGenericOptional` |
 | **Venue** | Address+room; loading dock; parking (**gated by `transportTileVisible`**, §4.13a); Wi-Fi (raw `event_details.internet` in Phase 1; Phase 2 parses); **COI status** (`data-testid="coi-status"`, AC-4.1); **power**; notes; map link; diagrams | `venue`; `transportation.parking` + viewer name/isAdmin; `event_details.internet`; `coi_status`; `event_details.power`; `diagrams` |
 | **Travel** | Getting there (ground transport **gated by `transportTileVisible`**; flights are Phase 2); Where you're staying (hotel name/address/conf#/**dates**) | `transportation` (ground) + viewer name/isAdmin; `hotelReservations`. Flights deferred — `flight_info` is parsed but **not in the `ShowForViewer` projection** (§8) |
@@ -85,6 +85,8 @@ Each `*Section` is a Server Component under `components/crew/sections/` consumin
 | **Budget** (conditional) | PO / proposal / invoice / notes | `financials` (renders only when `financialsVisible` true) |
 
 Lead-gating preserved: `financialsVisible(viewerFlags, isAdmin)` gates both the Budget **tab** (§4.1) and section. Date-restriction gates Schedule rows. Fetch-error gating (`tileErrors`) preserved: admin sees a degraded block, crew sees omission (§5).
+
+**Today "Need something" contact selection is deterministic.** `selectPrimaryContact(contacts)` (the `contacts` query has no `ORDER BY` and `ContactRow` has no ordinal) **prefers a contact with a non-sentinel `phone`/`email`** (actionable), tie-broken by `kind` then `name` (sorted) — so the prominent support contact is stable, actionable, and not DB-order-dependent; none actionable → hidden.
 
 **`client_contact` is NOT rendered in Phase 1.** It is parsed (`lib/parser/types.ts`) + projected but **never shown on the crew page today** (grep-verified: no `components/`/`app/show` reference). Today "Need something" and Crew "Key contacts" use the operational `contacts[]` (venue / in_house_av) **only**. Surfacing the client rep's phone/email to all crew would be a **new PII surface** needing a ratified decision — deferred (§8).
 
@@ -144,7 +146,7 @@ Under `components/crew/primitives/`, each a small pure unit (props in, markup ou
 | --- | --- | --- |
 | `SectionCard` | `{icon?, title?, action?, children}` | mock tile/card vocabulary |
 | `KeyValueRows` | `{rows: {k, v, sub?, icon?}[]}` | label→value stacks |
-| `PersonRow` | `{person: {name, role, phone?, email?, you?, lead?, primary?}}` | crew/contact + tap-to-call/email |
+| `PersonRow` | `{person: {name?, role?, fallbackLabel?, phone?, email?, you?, lead?, primary?}}` | crew/contact + tap-to-call/email; `name` absent → render `fallbackLabel` (contact `kind`/role), per §4.8 |
 | `DayCard` | `{day, phase, today, meta?}` | schedule day phase card |
 | `KeyTimesStrip` | `{anchors: {set?, show?, strike?}}` | Today/Schedule times |
 | `RightNowHero` | `{context, state}` | hero body (§4.3) |
@@ -397,6 +399,7 @@ Real-browser (Playwright — extends `tests/e2e/crew-page.spec.ts`):
 28. **Section deep-link through picker** — a not-yet-identified visitor opens `/show/<slug>/<token>?s=venue` → after the picker `selectIdentityFormAction` (and sign-in / `gate=skip` where applicable) they land on **Venue** (`?s=venue` preserved), not Today; an invalid `s` still falls back to Today. _Catches: the picker/auth redirects dropping `s` for shared-link users — the primary deep-link entry path._
 29. **Two distinct alert codes, no clobber** (§4.13) — a projection `tileErrors` (bridge → `TILE_PROJECTION_FETCH_FAILED`) AND a wrapped-block render throw (`TileServerFallback` → `TILE_SERVER_RENDER_FAILED`) in one render → **two** distinct unresolved rows, each retaining its full context (the bridge's `failedKeys`/`signature` AND the thrown `tileId` both survive). Then **repeated `?s=` navigation** with unchanged data → the bridge row's `occurrence_count` does **not** inflate (atomic signature dedup in `upsert_admin_alert`, §6). _Catches: a shared code clobbering one context; per-nav occurrence inflation in the mixed scenario._
 30. **`client_contact` not rendered** — a fixture with a populated `client_contact` (client rep phone/email) → it appears **nowhere** in the Today or Crew DOM (only `contacts[]` venue/in_house_av render). _Catches: a new client-PII exposure slipping in via the Today "Need something" / Crew "Key contacts" blocks._
+31. **Primary-contact selection determinism** — `selectPrimaryContact` over `contacts` in varying array order, with the first entry unactionable (no phone/email) and a later one actionable → the **actionable** contact is chosen, identically across orderings; all-unactionable → the card is hidden. _Catches: a nondeterministic or blank-phone "Need something" card; flaky screenshots._
 
 Meta-test / structural-registry inventory (declared per plan rule; same-commit as the surface they pin):
 
