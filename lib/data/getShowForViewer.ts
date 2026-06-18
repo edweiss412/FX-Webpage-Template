@@ -48,6 +48,7 @@ import { deriveSchedulePhases } from "@/lib/parser";
 import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
 import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import { projectOpeningReelHasVideo } from "@/lib/data/openingReel";
+import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 import type {
   ContactRow,
   DateRestriction,
@@ -118,7 +119,7 @@ export type ShowForViewer = {
     stageRestriction: StageRestriction;
   }>;
   hotelReservations: HotelReservationRow[];
-  rooms: RoomRow[];
+  rooms: ProjectedRoomRow[];
   transportation: TransportationRow | null;
   contacts: ContactRow[];
   pullSheet: PullSheetCase[] | null;
@@ -371,13 +372,14 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
         );
 
   // === Rooms (schedule + audio/video/lighting scope tiles + notes) ===
-  let rooms: RoomRow[] = [];
+  let rooms: ProjectedRoomRow[] = [];
   try {
     const roomRes = await supabase.from("rooms").select("*").eq("show_id", showId);
     if (roomRes.error) {
       tileErrors["rooms"] = roomRes.error.message;
     } else {
       rooms = (roomRes.data ?? []).map((row) => ({
+        id: row.id as string,
         kind: row.kind as RoomRow["kind"],
         name: row.name as string,
         dimensions: (row.dimensions as string | null) ?? null,
