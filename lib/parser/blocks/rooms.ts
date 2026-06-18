@@ -120,7 +120,12 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       continue;
     }
 
-    // v4 Breakout header: "BREAKOUT N ..." in ALL-CAPS, same col1/&#10;/lookahead rules.
+    // v4 Breakout header: "BREAKOUT N ..." in ALL-CAPS, same col1/&#10;/lookahead
+    // rules. Content-gated like ADDITIONAL ROOM: the exporter emits unfilled
+    // breakout template stubs ("BREAKOUT N BREAKOUT ROOM Dimensions Floor" with
+    // blank Setup/Set/Show/Strike and no real dimensions) which must not surface
+    // as phantom crew-visible rooms. A real breakout carries dimensions and/or
+    // populated fields.
     if (
       /^BREAKOUT \d/.test(col0) &&
       (!col1 || col1 === col0) &&
@@ -128,8 +133,8 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       hasBareV4DataRow(lines, i)
     ) {
       const result = parseV4RoomBlock(lines, i, col0, "breakout");
-      rooms.push(result.room);
       i = result.nextLine;
+      if (roomHasContent(result.room)) rooms.push(result.room);
       continue;
     }
 

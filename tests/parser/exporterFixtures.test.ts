@@ -260,4 +260,13 @@ describe("exporter fidelity — AR: v4 additional rooms (content-gated, not drop
     expect(add).toHaveLength(1);
     expect(add[0]!.setup).toBe("Lounge seating");
   });
+  it("R2: empty v4 breakout template stubs dropped; real breakouts kept", () => {
+    // fintech's "BREAKOUT N BREAKOUT ROOM Dimensions Floor" stubs have no dims/
+    // fields; fixed-income (SALON D) / rpas (STATE A/B) carry dims + Setup.
+    expect(parse("fintech").rooms.filter((r) => r.kind === "breakout")).toHaveLength(0);
+    expect(
+      parse("fixed-income").rooms.filter((r) => r.kind === "breakout").length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(parse("rpas").rooms.filter((r) => r.kind === "breakout").length).toBeGreaterThanOrEqual(2);
+  });
 });
