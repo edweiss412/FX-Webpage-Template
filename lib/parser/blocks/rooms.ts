@@ -57,6 +57,36 @@ export function parseRooms(
 
 type RoomRowInternal = RoomRow & { _nextLine?: number };
 
+// Bare v4 field labels (the rows under a v4 GENERAL SESSION / BREAKOUT header).
+// v2 blocks use "GS Setup" / "BO Setup" prefixes instead, so the presence of a
+// bare label discriminates a real v4 block from a v2 one (regardless of the
+// detected version, which is unreliable — raw fixed-income is "v2" but v4-shaped).
+const V4_BARE_LABELS = new Set([
+  "setup",
+  "set time",
+  "show time",
+  "strike time",
+  "audio",
+  "video",
+  "lighting",
+  "scenic",
+  "power",
+  "digital signage",
+  "other",
+  "notes",
+]);
+
+function hasBareV4DataRow(lines: string[], startLine: number): boolean {
+  for (let j = startLine; j < lines.length; j++) {
+    const t = (lines[j] ?? "").trim();
+    if (!t.startsWith("|")) continue;
+    const cells = splitRow(t);
+    if (cells.every((c) => /^[\s:|*-]*$/.test(c))) continue; // separator row
+    return V4_BARE_LABELS.has(clean(cells[0] ?? "").toLowerCase());
+  }
+  return false;
+}
+
 function parseV4Rooms(markdown: string): RoomRow[] {
   const rooms: RoomRowInternal[] = [];
   const lines = markdown.split("\n");
@@ -72,17 +102,31 @@ function parseV4Rooms(markdown: string): RoomRow[] {
     const col0 = clean(cells[0] ?? "");
     const col1 = clean(cells[1] ?? "");
 
-    // v4 GS header: col0 starts with "GENERAL SESSION" in ALL-CAPS, col1 is empty,
-    // and the header does NOT contain &#10; (which marks v2 multi-line cells).
-    if (/^GENERAL SESSION\b/.test(col0) && !col1 && !col0.includes("&#10;")) {
+    // v4 GS header: col0 starts with "GENERAL SESSION" in ALL-CAPS; col1 is
+    // either empty (raw) OR column-duplicated by the exporter (col1 === col0);
+    // it does NOT contain &#10; (which marks v2 multi-line cells); AND its first
+    // data row is a BARE v4 label (Setup/Set Time/…), not a v2 "GS Setup"-
+    // prefixed row. The lookahead keeps v2 shows on the v2 path without keying
+    // on the (unreliable) detected version.
+    if (
+      /^GENERAL SESSION\b/.test(col0) &&
+      (!col1 || col1 === col0) &&
+      !col0.includes("&#10;") &&
+      hasBareV4DataRow(lines, i)
+    ) {
       const result = parseV4RoomBlock(lines, i, col0, "gs");
       rooms.push(result.room);
       i = result.nextLine;
       continue;
     }
 
-    // v4 Breakout header: "BREAKOUT N ..." in ALL-CAPS, no &#10; (v2 uses embedded newlines)
-    if (/^BREAKOUT \d/.test(col0) && !col1 && !col0.includes("&#10;")) {
+    // v4 Breakout header: "BREAKOUT N ..." in ALL-CAPS, same col1/&#10;/lookahead rules.
+    if (
+      /^BREAKOUT \d/.test(col0) &&
+      (!col1 || col1 === col0) &&
+      !col0.includes("&#10;") &&
+      hasBareV4DataRow(lines, i)
+    ) {
       const result = parseV4RoomBlock(lines, i, col0, "breakout");
       rooms.push(result.room);
       i = result.nextLine;

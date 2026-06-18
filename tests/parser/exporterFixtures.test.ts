@@ -190,3 +190,19 @@ describe("exporter fidelity — B4 v4 transport plain header (driver on a body r
     expect(loadIn?.date).toBe("2025-10-19");
   });
 });
+
+describe("exporter fidelity — C1 v4 General Session captured (was dropped)", () => {
+  it("fintech/fixed-income/rpas each yield exactly 1 GS room with name + set_time", () => {
+    const cases = [
+      ["fintech", "ADLER BALLROOM", "5/3 @ 11:00 AM"],
+      ["fixed-income", "SALON ABC", "10/19 @ 12PM"],
+      ["rpas", "GRAND BALLROOM", "3/23 @ 8am"],
+    ] as const;
+    for (const [slug, name, setTime] of cases) {
+      const gs = parse(slug).rooms.filter((r) => r.kind === "gs");
+      expect(gs.length, `${slug} gs count`).toBe(1);
+      expect(gs[0]!.name).toContain(name);
+      expect(gs[0]!.set_time).toBe(setTime);
+    }
+  });
+});
