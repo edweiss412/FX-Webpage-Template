@@ -73,3 +73,14 @@ describe("exporter fidelity — event_details populates (v2 DETAILS col-B preser
     }
   });
 });
+
+describe("exporter fidelity — stale 'OLD PULL SHEET' tab skipped", () => {
+  it("redefining-fi no longer ingests the prior show's gear (RIA-Chicago 4/15/24)", () => {
+    // Its only pull-sheet-named tab was "OLD PULL SHEET" carrying a DIFFERENT
+    // show's data; the exporter now skips OLD tabs, so pullSheet is null rather
+    // than a wrong-show pack list.
+    const r = parse("redefining-fi");
+    expect(r.pullSheet).toBeNull();
+    expect(JSON.stringify(r)).not.toContain("RIA - CHICAGO");
+  });
+});

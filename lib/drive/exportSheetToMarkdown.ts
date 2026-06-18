@@ -194,6 +194,12 @@ export function synthesizeMarkdownFromXlsx(buffer: ArrayBuffer): string {
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
+    // Skip archived tabs (e.g. "OLD PULL SHEET"). Their body is often a stale
+    // PRIOR show's data — Redefining FI's "OLD PULL SHEET" holds RIA-Chicago
+    // gear from 4/15/24 — so ingesting it attributes one show's content to
+    // another. Owner decision (DEFERRED AUDIT-2026-06-18-PARSE-FIDELITY-DEF-2):
+    // skip any tab whose name contains the word "OLD".
+    if (/\bOLD\b/i.test(sheetName)) continue;
     const grid = normalizePullSheetGrid(sheetName, sheetGrid(sheet));
     for (const block of splitBlocks(grid).map(normalizeBlock)) {
       tables.push(tableMarkdown(block));

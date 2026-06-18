@@ -67,7 +67,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
-          name: "OLD PULL SHEET",
+          name: "PULL SHEET",
           rows: [["OLD PULL SHEET", "", ""], ["ITEM", "QTY", "NOTES"], ["Monitor", 2, ""]],
           merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }],
         },
@@ -88,7 +88,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
-          name: "OLD PULL SHEET",
+          name: "PULL SHEET",
           rows: [
             ["PULL SHEET", "", "", "", ""],
             [],
@@ -115,6 +115,19 @@ describe("synthesizeMarkdownFromXlsx", () => {
         "| 1 | FOH Rack |  | FOH | FALSE |",
       ].join("\n"),
     );
+  });
+
+  test("skips archived 'OLD …' tabs entirely (stale prior-show data)", () => {
+    const markdown = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        { name: "INFO", rows: [["CLIENT", "ACME Forum"]] },
+        { name: "OLD PULL SHEET", rows: [["PULL SHEET", ""], [1, "Stale Prior-Show Gear"]] },
+      ]),
+    );
+    // The OLD tab contributes nothing; only INFO survives.
+    expect(markdown).toContain("ACME Forum");
+    expect(markdown).not.toContain("Stale Prior-Show Gear");
+    expect(markdown).not.toContain("PULL SHEET");
   });
 
   test("preserves the DETAILS value column (col B) — label-only collapse removed", () => {
