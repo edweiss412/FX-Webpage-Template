@@ -366,7 +366,13 @@ function applyBoLabel(room: RoomRow, label: string, val: string | null): void {
 // ── Additional room parser ────────────────────────────────────────────────────
 
 function parseAdditionalRoom(markdown: string): RoomRow | null {
-  const re = /^\|\s*(ADDITIONAL\s+ROOM[^|]*?)\s*\|/im;
+  // Case-SENSITIVE: a real additional-room block header is ALL-CAPS
+  // "ADDITIONAL ROOM" (e.g. "ADDITIONAL ROOM\nDimensions\nFloor"). The mixed-case
+  // INFO metadata fields ("Additional Room Name(s)", "Additional Room Setup", …)
+  // are NOT block headers and must not become phantom all-null rooms. Discriminate
+  // by header shape (case), not content-emptiness — the latter also drops the
+  // legitimate empty raw block.
+  const re = /^\|\s*(ADDITIONAL\s+ROOM[^|]*?)\s*\|/m;
   const m = re.exec(markdown);
   if (!m) return null;
 

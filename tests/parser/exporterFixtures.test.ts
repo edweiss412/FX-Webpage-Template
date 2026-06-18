@@ -206,3 +206,16 @@ describe("exporter fidelity — C1 v4 General Session captured (was dropped)", (
     }
   });
 });
+
+describe("exporter fidelity — C2 phantom 'Additional Room Name(s)' suppressed", () => {
+  it("v2 shows emit no kind='additional' template stub (mixed-case field is not a block header)", () => {
+    // The mixed-case "Additional Room Name(s)" metadata field was matched like a
+    // real all-caps ADDITIONAL ROOM block header (case-insensitive regex).
+    for (const slug of ["redefining-fi", "consultants", "ria"]) {
+      expect(
+        parse(slug).rooms.filter((r) => r.kind === "additional"),
+        `${slug} additional rooms`,
+      ).toEqual([]);
+    }
+  });
+});
