@@ -192,6 +192,21 @@ describe("exporter fidelity — AR R4: multi-stay inline cell splits into per-gr
     expect(doug?.check_out).toBe("2025-10-10");
     expect(doug?.names).not.toContain("Eric Weiss");
   });
+
+  it("AR R5: multi-stay cell with guests AFTER each checkout keeps all guests (no detach/drop)", () => {
+    // Splitting at "Check Out" would strand the post-checkout guests; the splitter
+    // only keeps the split when every group attributed guests, else falls back to
+    // one reservation with everyone present.
+    const md = [
+      "| DATES |  |",
+      "| Travel | 5/11/25 |",
+      "| Hotel Reservations | The Drake Check In: 5/11 Check Out: 5/15 Eric Carroll Connor Hester Check In: 5/16 Check Out: 5/17 Doug Larson |",
+    ].join("\n");
+    const allNames = parseHotels(md, "v2").flatMap((r) => r.names);
+    expect(allNames).toContain("Eric Carroll");
+    expect(allNames).toContain("Connor Hester");
+    expect(allNames).toContain("Doug Larson");
+  });
 });
 
 describe("exporter fidelity — B1 transport assigned_names ignores the col0 stage label", () => {

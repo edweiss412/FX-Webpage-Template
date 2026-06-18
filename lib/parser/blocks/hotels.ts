@@ -319,6 +319,14 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
 
   const segments = splitInlineReservationGroups(raw);
   const rows = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
+  // The split cuts at "Check Out: <date>", which only attributes guests correctly
+  // when they PRECEDE their checkout (the consultants shape). If a group came out
+  // with no guests, the cell lists guests AFTER each checkout (the redefining
+  // shape) and splitting here would detach/mis-attribute them — fall back to a
+  // single reservation rather than corrupt the guest↔date mapping.
+  if (rows.length < 2 || !rows.every((r) => r.names.length > 0)) {
+    return [buildInlineHotel(raw, 1, contextYear)];
+  }
   const baseName = rows[0]?.hotel_name ?? null;
   for (let i = 1; i < rows.length; i++) rows[i]!.hotel_name = baseName;
   return rows;
@@ -384,9 +392,11 @@ function buildInlineHotel(
     }
   }
 
-  // Pattern 3: Names after "Check Out: <date>" — used in 2025-05
+  // Pattern 3: Names after "Check Out: <date>" — used in 2025-05. Strip up to the
+  // FIRST checkout (lazy `.*?`), not the last — a multi-checkout cell would
+  // otherwise drop every guest before the final checkout.
   if (names.length === 0) {
-    const postCheckout = text.replace(/.*check\s+out\s*[:\s]+\S+/i, "").trim();
+    const postCheckout = text.replace(/.*?check\s+out\s*[:\s]+\S+/i, "").trim();
     if (postCheckout) {
       // Split by whitespace runs; grab consecutive title-cased word pairs
       const tokens = postCheckout.split(/\s+/);
