@@ -136,25 +136,33 @@ test("client_contact never appears; Need-something uses the deterministic action
 
 - [ ] **Step 1: failing test — the three DateRestriction branches (test 32, privacy trust boundary)**
 
+**The visible day list is the FULL date domain (R6-HIGH — NOT just `showDays`).** Port `ScheduleTile.aggregateDays` (`ScheduleTile.tsx:93-107`): push `dates.travelIn`→`"Travel In"`, `dates.set`→`"Set"`, each `dates.showDays[]`→`"Show"`, `dates.travelOut`→`"Travel Out"`; dedup by date (first phase wins); sort ASC by ISO. The DateRestriction intersects against this **full aggregate**, not just show days — else travel-in / set / travel-out cards are dropped (a field-port regression) AND the `unknown_asterisk` privacy test would miss a travel/set leak.
+
 ```tsx
 import { render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
-const base = makeShowForViewer({ show: { dates: { travelIn: "2026-05-12", set: "2026-05-13", showDays: ["2026-05-14", "2026-05-15"], travelOut: "2026-05-16" }, schedule_phases: {} } });
-test("unknown_asterisk renders the unconfirmed placeholder and ZERO day cards / date text", () => {
-  const data = { ...base, crewMembers: [{ id: "c1", name: "X", email: null, phone: null, role: "", roleFlags: [], dateRestriction: { kind: "unknown_asterisk", days: null }, stageRestriction: { kind: "none" } }] };
-  const { container } = render(<ScheduleSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+// 5 aggregate days: 2026-05-12 Travel In, -13 Set, -14 Show, -15 Show, -16 Travel Out
+const DATES = { travelIn: "2026-05-12", set: "2026-05-13", showDays: ["2026-05-14", "2026-05-15"], travelOut: "2026-05-16" };
+const ALL_DATES = [DATES.travelIn, DATES.set, ...DATES.showDays, DATES.travelOut]; // 5 — derive expectations from this, not a literal
+const base = makeShowForViewer({ show: { dates: DATES, schedule_phases: {} } });
+function withRestriction(r) { return { ...base, crewMembers: [{ ...base.crewMembers[0], id: "c1", dateRestriction: r }] }; }
+
+test("unknown_asterisk → unconfirmed placeholder, ZERO day cards, NO date text for ANY of travelIn/set/showDays/travelOut", () => {
+  const { container } = render(<ScheduleSection data={withRestriction({ kind: "unknown_asterisk", days: null })} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
   expect(container.querySelector('[data-testid="schedule-unconfirmed"]')).toBeTruthy();
   expect(container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(0);
-  for (const d of base.show.dates.showDays) expect(container.textContent).not.toContain(d); // no show-day date leak
+  for (const d of ALL_DATES) expect(container.textContent).not.toContain(d); // NO travel/set/show/travelOut date leaks (full domain, not just show days)
 });
-test("explicit renders only the intersection; none renders all", () => {
-  const explicit = { ...base, crewMembers: [{ ...base.crewMembers[0], id: "c1", dateRestriction: { kind: "explicit", days: ["2026-05-14"] } }] };
-  expect(render(<ScheduleSection data={explicit} viewer={{ kind: "crew", crewMemberId: "c1" }} />).container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(1);
-  const none = { ...base, crewMembers: [{ ...base.crewMembers[0], id: "c1", dateRestriction: { kind: "none" } }] };
-  expect(render(<ScheduleSection data={none} viewer={{ kind: "crew", crewMemberId: "c1" }} />).container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(base.show.dates.showDays.length);
+test("explicit → intersection against the FULL aggregate; none → all aggregate days", () => {
+  // explicit days span a travel day + a show day → both render (proves intersection is over the full domain, not just showDays)
+  const explicit = render(<ScheduleSection data={withRestriction({ kind: "explicit", days: [DATES.travelIn, DATES.showDays[0]] })} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  expect(explicit.container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(2);
+  expect(explicit.container.textContent).toContain(DATES.travelIn); // the Travel In day IS shown when assigned
+  const none = render(<ScheduleSection data={withRestriction({ kind: "none" })} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  expect(none.container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(ALL_DATES.length); // all 5 aggregate days, NOT just showDays.length (2)
 });
-// _Catches: treating unknown_asterisk like none and leaking the show's dates to unconfirmed crew — a trust-boundary regression from ScheduleTile.
+// _Catches: narrowing the visible days to showDays only (dropping travel-in/set/travel-out cards — a field-port regression from ScheduleTile); the unknown_asterisk privacy check missing a travel/set date leak; treating unknown_asterisk like none.
 ```
 
 - [ ] **Step 2: run to fail.**
@@ -163,7 +171,7 @@ test("explicit renders only the intersection; none renders all", () => {
 
 - [ ] **Step 4: run to fail.**
 
-- [ ] **Step 5: implement `ScheduleSection`** — resolve `dateRestriction` from `data.crewMembers`; switch: `unknown_asterisk` → render only `<div data-testid="schedule-unconfirmed">` (no `DayCard`s, no date text); `explicit` → `DayCard` per `showDays ∩ dateRestriction.days`; `none` → all `showDays`. Pin today via `nowDate()` (server, `next/headers`) → `todayIsoInShowTimezone(now, resolveShowTimezone(<the field resolveShowTimezone actually reads>))`; mark the matching `DayCard` `data-testid="schedule-day-today"`. Render the Daily-times `<KeyTimesStrip anchors={resolveKeyTimes(data.show, data.rooms)} />` + optional sentinel-guarded Heads-up note.
+- [ ] **Step 5: implement `ScheduleSection`** — resolve `dateRestriction` from `data.crewMembers`. **Build `allDays` via the ported `aggregateDays(data.show.dates)`** (travelIn→"Travel In", set→"Set", showDays[]→"Show", travelOut→"Travel Out"; dedup first-phase-wins; sort ASC — `ScheduleTile.tsx:93-107`). Then switch: `unknown_asterisk` → render only `<div data-testid="schedule-unconfirmed">` (no `DayCard`s, **no date text at all** — STOP before building any day, matching `ScheduleTile.tsx:113-131`); `explicit` → `DayCard` per `allDays.filter(d => new Set(dateRestriction.days).has(d.date))` (intersection over the **full aggregate**); `none` → all `allDays`. Empty `visibleDays` → `EmptyState` ("Show dates haven't been confirmed yet.", `ScheduleTile.tsx:150-162`). Each `DayCard` gets `phase` from its aggregate entry and `data-testid="schedule-day-<date>"`. Pin today via `nowDate()` (server, `next/headers`) → `todayIsoInShowTimezone(now, resolveShowTimezone(<the field resolveShowTimezone actually reads>))`; mark the matching `DayCard` `data-testid="schedule-day-today"`. Render the Daily-times `<KeyTimesStrip anchors={resolveKeyTimes(data.show, data.rooms)} />` + optional sentinel-guarded Heads-up note. (`ScheduleTile`'s "Show+Strike compound day is PackListTile's domain" note holds — strike is not a separate aggregate day; the Strike *anchor* lives in the KeyTimesStrip.)
 
 - [ ] **Step 6: run to pass.** **Step 7: commit** `feat(crew-page): ScheduleSection (date-restriction privacy + timezone today-pin)`.
 
