@@ -210,6 +210,12 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
     }
 
     if (rowState === "check_in" && col0 === "") {
+      const col4 = clean(row[4] ?? "");
+      // 5-col exporter layout duplicates each reservation across two columns, so
+      // the value row is `in1 | out1 | in2 | out2` — each reservation has its OWN
+      // checkout (col4). The 4-col raw layout has no col4 and col2 is a checkout
+      // shared by both reservations in the group; keep that legacy behavior.
+      const wideLayout = col4 !== "" && col4 !== "\\-" && col4 !== "-";
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
         leftSlot.check_in = normalizeDate(col1);
       }
@@ -219,8 +225,9 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         rightSlot.check_in = normalizeDate(col3);
-        // Right reservation shares the same checkout date column
-        rightSlot.check_out = checkoutDate;
+        // 5-col: right reservation's own checkout is col4; 4-col legacy: the
+        // single shared checkout column (col2).
+        rightSlot.check_out = wideLayout ? normalizeDate(col4) : checkoutDate;
       }
       rowState = "idle";
       continue;

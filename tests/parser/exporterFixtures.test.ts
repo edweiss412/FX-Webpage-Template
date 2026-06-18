@@ -110,3 +110,29 @@ describe("exporter fidelity — A1 inline hotel dates back-fill year", () => {
     expect(ria.check_out).toBe("2025-06-26");
   });
 });
+
+describe("exporter fidelity — A2 multi-reservation check-out (own per reservation, not shared)", () => {
+  it("rpas: 4 reservations each keep their own check_out; none inverted", () => {
+    const h = parse("rpas").hotelReservations;
+    expect(h.map((r) => [r.check_in, r.check_out])).toEqual([
+      ["2026-03-22", "2026-03-26"],
+      ["2026-03-23", "2026-03-25"], // was 2026-03-26 (res#1's checkout, shared)
+      ["2026-03-21", "2026-03-22"],
+      ["2026-03-25", "2026-03-26"], // was 2026-03-22 (inverted: out < in)
+    ]);
+  });
+  it("fintech: res#2 gets its own 5/6 check-out, not res#1's 5/7", () => {
+    const h = parse("fintech").hotelReservations;
+    expect([h[0]!.check_in, h[0]!.check_out]).toEqual(["2026-05-02", "2026-05-07"]);
+    expect([h[1]!.check_in, h[1]!.check_out]).toEqual(["2026-05-03", "2026-05-06"]);
+  });
+  it("no returned hotel has check_out < check_in (inversion class)", () => {
+    for (const slug of ["rpas", "fintech", "fixed-income", "redefining-fi", "ria", "consultants", "east-coast"]) {
+      for (const r of parse(slug).hotelReservations) {
+        if (r.check_in && r.check_out) {
+          expect(r.check_out >= r.check_in, `${slug} ${r.hotel_name}`).toBe(true);
+        }
+      }
+    }
+  });
+});
