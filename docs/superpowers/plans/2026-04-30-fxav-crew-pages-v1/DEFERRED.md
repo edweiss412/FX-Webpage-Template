@@ -702,3 +702,23 @@ Empirically re-verified against `fixtures/shows/exporter-xlsx/` after each fix; 
 - **Fail-loud observability**: emit a warning / `raw_unrecognized` entry when a recognized section header yields zero mapped fields, so silent section drops surface.
 
 Queued for a focused parser pass after the cross-model adversarial review of this branch.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY — round 2 outcome (branch worktree-parser-fidelity-rooms-hotels-transport)
+
+Planned via a per-defect characterization workflow; executed TDD against `fixtures/shows/exporter-xlsx/`. Full parser+invariants+drive suite green (815) throughout.
+
+**Landed (8 fixes, regression-pinned):**
+- A1 hotels: yearless inline `Check In: M/D` back-fills the year (redefining/ria).
+- A2 hotels: 5-col multi-reservation per-reservation check-out (fixes rpas res#4 inversion + fintech/rpas shared-checkout) + `check_out >= check_in` invariant.
+- B1 transport: `assigned_names` skips the col0 stage label (redefining real crew).
+- B2 transport: v1 vehicle read from the `| Transportation | Van |` row above Driver (east-coast).
+- B3 transport: exporter v2 header (`TRANSPORTATION` in col1) routes to v2 (ria vehicle + no Vehicle-stage leak).
+- B4 transport: v4 plain (exporter) header + body-row driver (fintech/fixed-income/rpas were null).
+- C1 rooms: v4 General Session detected under the column-duplicated header + bare-label lookahead (fintech/fixed-income/rpas; also auto-suppresses their phantom additional room).
+- C2 rooms: phantom `Additional Room Name(s)` suppressed via case-sensitive block-header match (v2 shows).
+
+**Still deferred (attempted/assessed; each genuinely needs more than a clean edit):**
+- **A3 — east-coast "Hotel Stays" guest-name split.** REVERTED: the cell `Four Seasons Fort Lauderdale Doug--- 103317 …` is token-shape-ambiguous — `"Lauderdale Doug"` (hotel-word + name) is indistinguishable from consultants' `"Doug Larson"` (name + name) by any regex, and the corpus mixes 1-word (east-coast) and 2-word (consultants) name conventions. Needs a name/place dictionary or a structured source. Names collapse to 1 + glued hotel_name on east-coast remains (one v1 show; low impact).
+- **C1b — redefining `&#10;`/no-digit v2 breakouts (LASALLE A, WALTON).** `parseBoRooms` requires `BREAKOUT\s+\d+`; broadening to `/^BREAKOUT\b/` also requires a name-derivation change (post-`BREAKOUT` text) that risks the raw-2025-04 multi-line `BREAKOUT 1&#10;BREAKOUT ROOM&#10;…` pinned name. Needs its own cross-version TDD pass.
+- **Rooms DETAILS `Digital Signage` global-match leak (NEW, pre-existing).** `parseGsRoom`'s `dsRe = /^\|\s*Digital\s+Signage\s*\|([^|]*)/im` matches the FIRST "Digital Signage" row in the whole markdown, so the GS room absorbs a long DETAILS sentence (consultants GS `digital_signage` ≈ 300 chars). Same class as the `extractBoBlock` over-read. Fix = scope these to the room's own block, not a global regex; separate from C2's phantom.
+- **D1 — fail-loud `SECTION_HEADER_NO_FIELDS` warning.** Adds a §12.4 catalog code (three-lockstep + x1-catalog-parity); separable observability, not a data-fidelity fix. Author as admin-log-only per the plan; owner to confirm severity + code name.
