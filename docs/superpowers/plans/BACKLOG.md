@@ -366,17 +366,17 @@ bar (matches the existing per-task discipline). Capture the exact error list at 
 
 **Promotion prerequisite:** owner prioritization OR post-launch operator feedback that a specific field (most likely flights) is a real friction point. Promotion starts with a brainstorming session per field (the flight trust boundary is the load-bearing design question).
 
-### BL-CREW-AGENDA-ADMIN-CLEAR — Admin affordance to clear a stale/preserved run-of-show
+### BL-CREW-AGENDA-ADMIN-CLEAR — Admin affordance to manually clear a run-of-show (low-priority convenience)
 
-**Filed:** 2026-06-18, during the crew-page redesign Phase 2 spec adversarial review (R17-HIGH). The Phase-2 AGENDA `run_of_show` sync is **add-or-replace-only and never auto-clears** a previously-filled day: an all-blank parse of a day that previously had entries **preserves** the last-known-good entries and emits an `AGENDA_DAY_EMPTIED` parse warning, rather than wiping storage. This is the correct bias for a fragile sheet→markdown source (a transient title-cell drop is indistinguishable from an intentional removal, so silent data loss must be impossible — see Phase-2 spec §4.4 invariant 2 / D-2).
+**Filed:** 2026-06-18, crew-page redesign Phase 2 spec adversarial review (R17, then re-scoped at R21). **Re-scoped at R21 (do NOT treat as load-bearing):** the Phase-2 data-retention rule settled on **read-empty CLEARS, couldn't-read PRESERVES** (Phase-2 spec D-2 / §4.4 invariants 2-3 / watchpoint 12). A **read-empty** parse (the sheet's TITLE cells are blank — the form an intentional removal takes) **auto-clears** the day to the anchor strip on the very next sync, with an `AGENDA_DAY_EMPTIED` admin warning. So the **intentional-removal case self-resolves via sync** — there is **no** lingering-stale crew exposure (that was R17's earlier preserve-and-show stance, which R21 reversed precisely because it exposed stale operational session times).
 
-**Consequence this item closes:** because the sync never clears, a **genuinely-removed** agenda lingers as last-known-good on the crew page (with the admin `AGENDA_DAY_EMPTIED` warning as the only signal) until something clears it — and v1 ships **no** such clear action (the run-of-show is a read-only projection; there is no admin agenda-editor). So a deliberately-emptied agenda has no in-app remediation path in v1.
+**What's actually left for this item (narrow):** a convenience affordance only — an admin wanting to clear a run-of-show **without** blanking the source sheet (e.g. retract a wrongly-published agenda while leaving the sheet intact). That is a rare workflow; the normal path (blank the sheet → next sync clears) covers intentional removal.
 
-**Scope:** an admin affordance on the per-show panel (`app/admin/show/[slug]/`) to clear `shows_internal.run_of_show` (whole-column, or per-day). MUST flow through a SECURITY DEFINER RPC under the per-show advisory lock (the Phase-2 R16 lockdown REVOKEs anon/authenticated DML on `shows_internal`, so direct PostgREST DML is no longer a path) — the RPC is the only write surface besides the sync. Surfaced naturally next to the `ParsePanel` / `AGENDA_DAY_EMPTIED` warning display.
+**Scope (if promoted):** an admin affordance on the per-show panel (`app/admin/show/[slug]/`) to clear `shows_internal.run_of_show` (whole-column, or per-day) via a SECURITY DEFINER RPC under the per-show advisory lock (the Phase-2 R16 lockdown REVOKEs anon/authenticated DML on `shows_internal`, so the RPC is the only non-sync write surface).
 
-**Why backlog, not deferred:** no committed v1 trigger; the lingering-stale case is rare (it needs a genuinely-removed, previously-locked agenda) and the data shown is last-known-good (not known-wrong), so it is a low-severity polish gap, not a launch blocker. The admin warning already surfaces the condition. Needs a small spec/plan (RPC + lockdown-compatible write path + per-show-panel UI + tests).
+**Why backlog, not deferred:** no committed v1 trigger; crew-facing stale exposure is **already prevented** by the read-empty auto-clear (R21), so this is purely an admin convenience, not a correctness gap. Lowest priority.
 
-**Promotion prerequisite:** post-launch operator feedback that a removed agenda lingering as last-known-good is a real friction point, OR the per-show panel gets a broader agenda-management pass.
+**Promotion prerequisite:** post-launch operator request to retract an agenda without editing the sheet, OR a broader per-show agenda-management pass.
 
 ---
 
