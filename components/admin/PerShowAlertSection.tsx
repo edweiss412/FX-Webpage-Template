@@ -183,6 +183,19 @@ export async function PerShowAlertSection({
         {result.map((alert) => {
           const copy = safeDougFacing(alert.code, alert.context);
           const isHighlighted = highlightAlertId === alert.id;
+          // R5-HIGH-1: TILE_PROJECTION_FETCH_FAILED carries the curated set of
+          // crew-page data domains whose sub-query failed in context.failedKeys
+          // (a fixed server-side vocabulary — hotel, rooms, transportation,
+          // contacts, financials — NEVER raw pg error text). Surface it as a
+          // small detail line so the operator sees WHICH sources failed without
+          // the code's domain-neutral dougFacing having to enumerate them.
+          const failedKeys =
+            alert.code === "TILE_PROJECTION_FETCH_FAILED" &&
+            Array.isArray(alert.context?.failedKeys)
+              ? (alert.context.failedKeys as unknown[]).filter(
+                  (k): k is string => typeof k === "string",
+                )
+              : null;
           return (
             <li
               key={alert.id}
@@ -199,6 +212,14 @@ export async function PerShowAlertSection({
                 code={alert.code}
                 {...(alert.context ? { params: alert.context as MessageParams } : {})}
               />
+              {failedKeys && failedKeys.length > 0 ? (
+                <p
+                  data-testid={`per-show-alert-failed-sources-${alert.id}`}
+                  className="text-xs text-text-subtle"
+                >
+                  Failed sources: {failedKeys.join(", ")}
+                </p>
+              ) : null}
               <p className="text-xs text-text-subtle tabular-nums">
                 Raised{" "}
                 <time dateTime={alert.raised_at} suppressHydrationWarning>

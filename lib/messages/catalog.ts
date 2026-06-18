@@ -1700,6 +1700,19 @@ export const MESSAGE_CATALOG = {
       "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying; refresh in a minute. If this keeps happening, click Report so the developer can investigate.",
     helpHref: "/help/errors#TILE_SERVER_RENDER_FAILED",
   },
+  TILE_PROJECTION_FETCH_FAILED: {
+    code: "TILE_PROJECTION_FETCH_FAILED",
+    dougFacing:
+      "*<sheet-name>*: one or more crew-page data sources couldn't load (the failed sources are listed in the alert detail). The page rendered with the rest of the data; refresh in a minute. Tell the developer if this keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → refresh / Report; Eric → investigate",
+    helpfulContext:
+      "The crew page loaded, but one or more of its data sources failed to fetch from the server. The page rendered with the data that did load. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click 'Report' so the developer can investigate.",
+    title: "Some show data couldn't load",
+    longExplanation:
+      "The crew page rendered, but one or more of its data sources failed to fetch from the server. The page shows the data that did load; the affected sections fall back. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click Report so the developer can investigate.",
+    helpHref: "/help/errors#TILE_PROJECTION_FETCH_FAILED",
+  },
   STALE_DISCARD_REJECTED: {
     code: "STALE_DISCARD_REJECTED",
     dougFacing:
