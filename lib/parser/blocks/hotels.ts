@@ -436,14 +436,24 @@ function buildInlineHotel(
     return normalizeDate(`${raw2}/${year}`);
   }
 
+  const check_in = resolveDate(checkInMatch?.[1]);
+  let check_out = resolveDate(checkOutMatch?.[1]);
+  // Year rollover: a yearless checkout that resolves BEFORE check-in crossed the
+  // new year (e.g. "Check In: 12/31 Check Out: 1/2"). Re-resolve it with +1 year.
+  const checkOutHadYear = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(checkOutMatch?.[1] ?? "");
+  if (check_in && check_out && check_out < check_in && !checkOutHadYear) {
+    const rolled = normalizeDate(`${checkOutMatch![1]}/${Number(check_in.slice(0, 4)) + 1}`);
+    if (rolled) check_out = rolled;
+  }
+
   return {
     ordinal,
     hotel_name: presence(hotelNameRaw),
     hotel_address: null,
     names,
     confirmation_no: null,
-    check_in: resolveDate(checkInMatch?.[1]),
-    check_out: resolveDate(checkOutMatch?.[1]),
+    check_in,
+    check_out,
     notes: null,
   };
 }

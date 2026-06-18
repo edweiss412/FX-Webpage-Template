@@ -133,6 +133,17 @@ describe("exporter fidelity — A1 inline hotel dates back-fill year", () => {
     expect(h[0]!.check_in).toBeNull();
     expect(h[0]!.check_out).toBeNull();
   });
+
+  it("AR R6: yearless stay crossing the new year rolls the checkout into the next year", () => {
+    const md = [
+      "| DATES |  |",
+      "| Travel | 12/30/25 |",
+      "| Hotel Reservations | Hyatt Check In: 12/31 Check Out: 1/2 Doug --- 999 |",
+    ].join("\n");
+    const h = parseHotels(md, "v1")[0]!;
+    expect(h.check_in).toBe("2025-12-31");
+    expect(h.check_out).toBe("2026-01-02"); // NOT 2025-01-02 (which precedes check-in)
+  });
 });
 
 describe("exporter fidelity — A2 multi-reservation check-out (own per reservation, not shared)", () => {
