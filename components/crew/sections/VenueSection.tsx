@@ -1,0 +1,204 @@
+/**
+ * components/crew/sections/VenueSection.tsx — crew-redesign §9 "Venue" section.
+ *
+ * The single synchronous Server Component that homes every venue-facing field
+ * the deleted VenueTile / DiagramsTile / ShowStatusTile (venue half) used to
+ * carry, into one curated surface:
+ *
+ *   - Address + loading dock — ported from VenueTile (the address subheading +
+ *     `loadingDock` KeyValue, sentinel-guarded via `shouldHideGenericOptional`).
+ *   - Parking — `transportation.parking`, gated by `transportTileVisible` so a
+ *     non-assigned crew member never sees the lot/permit details (the parking
+ *     half of §9 test 17).
+ *   - Wi-Fi (`event_details.internet`) + power (`event_details.power`) — both
+ *     routed through `shouldHideGenericOptional`.
+ *   - COI status — the AC-4.1 `data-testid="coi-status"` surface, ported from
+ *     ShowStatusTile. Sentinel-guarded: when the value is a sentinel/empty the
+ *     `<span data-testid="coi-status">` is OMITTED entirely (no empty span).
+ *   - Venue notes — `venue.notes`, sentinel-guarded.
+ *   - Maps link — `venue.googleLink`, rendered as an `<a>` ONLY when it parses
+ *     as an http(s) URL (`isParseableUrl`, ported from VenueTile) so a sentinel
+ *     like "TBD" never becomes a dead `href="TBD"` navigation control (§9 test
+ *     33).
+ *   - Diagrams + agenda — the ported DiagramsTile, which owns embedded-first
+ *     ordering, the MIME allowlist + null-snapshotPath gating, and the
+ *     `agenda_links` PDF embed. Whole-block omission when there's nothing to
+ *     show is DiagramsTile's own `null` return.
+ *
+ * When ALL blocks are hidden, a section-level `<EmptyState data-testid=
+ * "section-empty">` renders so the surface is never blank.
+ *
+ * Synchronous Server Component (no `'use client'`, no `async`, no `new Date()`).
+ * `today` + `showId` are passed in; `viewer` flags resolve via
+ * `resolveViewerContext` (which throws MalformedProjectionError on a malformed
+ * crewMembers projection — this section does not swallow it).
+ */
+import type { JSX } from "react";
+
+import { DiagramsTile } from "@/components/tiles/DiagramsTile";
+import { EmptyState } from "@/components/atoms/EmptyState";
+import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { resolveViewerContext } from "@/lib/data/viewerContext";
+import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { transportTileVisible } from "@/lib/visibility/scopeTiles";
+
+type VenueSectionProps = {
+  data: ShowForViewer;
+  viewer: Viewer;
+  today: Date;
+  showId: string;
+};
+
+/**
+ * URL-validity guard for the Maps anchor. Byte-identical to VenueTile's
+ * `isParseableUrl` (components/tiles/VenueTile.tsx:44-52) — re-declared locally
+ * because that helper is not exported and the scope guard forbids touching
+ * VenueTile. Returns true only when the value parses as an `http(s):` URL so a
+ * sentinel like "TBD" never becomes a dead `href="TBD"` navigation control.
+ */
+function isParseableUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.Element {
+  // Single canonical viewer resolution. admin → all-flags + none-restriction;
+  // crew/admin_preview → matched row; malformed projection throws
+  // MalformedProjectionError (the page's existing infra arm catches it).
+  const ctx = resolveViewerContext(viewer, data);
+
+  const venue = data.show.venue;
+
+  // --- Where: address + loading dock (VenueTile idiom) -----------------------
+  const whereRows: KeyValueRow[] = [];
+  const address = venue?.address ?? null;
+  if (address !== null && address.trim() !== "") {
+    whereRows.push({ k: "Address", v: address });
+  }
+  // loadingDock is a §8.3 generic-optional text field — sentinels reflow out.
+  if (!shouldHideGenericOptional(venue?.loadingDock ?? null)) {
+    whereRows.push({ k: "Loading dock", v: venue!.loadingDock! });
+  }
+
+  // Maps link — only when the value parses as an http(s) URL. A sentinel like
+  // "TBD" is rejected by isParseableUrl so the anchor never becomes a dead
+  // navigation control (ported from VenueTile).
+  const mapHref = isParseableUrl(venue?.googleLink) ? venue!.googleLink! : null;
+
+  // --- Parking: transportTileVisible-gated -----------------------------------
+  const transportVisible = transportTileVisible({
+    transportation: data.transportation,
+    viewerName: data.viewerName,
+    isAdmin: ctx.isAdmin,
+  });
+  const rawParking = data.transportation?.parking ?? null;
+  const parking =
+    transportVisible && !shouldHideGenericOptional(rawParking) ? rawParking!.trim() : null;
+
+  // --- Connectivity: Wi-Fi (internet) + power --------------------------------
+  const rawInternet = data.show.event_details["internet"] ?? null;
+  const internet = shouldHideGenericOptional(rawInternet) ? null : rawInternet!.trim();
+  const rawPower = data.show.event_details["power"] ?? null;
+  const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
+
+  // --- COI status — sentinel-guarded; span omitted entirely when hidden ------
+  const rawCoi = data.show.coi_status ?? null;
+  const coi = shouldHideGenericOptional(rawCoi) ? null : rawCoi!.trim();
+
+  // --- Venue notes — sentinel-guarded ----------------------------------------
+  const rawNotes = venue?.notes ?? null;
+  const notes = shouldHideGenericOptional(rawNotes) ? null : rawNotes!.trim();
+
+  const statusRows: KeyValueRow[] = [];
+  if (internet) statusRows.push({ k: "Wi-Fi", v: internet });
+  if (power) statusRows.push({ k: "Power", v: power });
+  if (notes) statusRows.push({ k: "Venue notes", v: notes });
+
+  const hasWhere = whereRows.length > 0 || mapHref !== null;
+  const hasParking = parking !== null;
+  const hasStatus = coi !== null || statusRows.length > 0;
+
+  // DiagramsTile returns null when there's nothing to show; render it to a
+  // node up front so the section-level empty-state can account for it.
+  const diagrams = (
+    <DiagramsTile
+      showId={showId}
+      diagrams={data.diagrams}
+      agendaLinks={data.show.agenda_links}
+    />
+  );
+  // diagrams renders null only when shouldHideDiagrams is true — recompute the
+  // same predicate inputs to decide whether the block contributes content.
+  const hasDiagrams =
+    (data.diagrams?.embeddedImages?.length ?? 0) +
+      (data.diagrams?.linkedFolderItems?.length ?? 0) >
+      0 || data.show.agenda_links.some((link) => Boolean(link.fileId));
+
+  const allHidden = !hasWhere && !hasParking && !hasStatus && !hasDiagrams;
+
+  return (
+    <div data-testid="section-venue" className="flex flex-col gap-4">
+      {allHidden ? (
+        <div data-testid="section-empty">
+          <EmptyState label="No venue details on file yet." />
+        </div>
+      ) : null}
+
+      {hasWhere ? (
+        <div data-testid="venue-where">
+          <SectionCard title="Where">
+            <KeyValueRows rows={whereRows} />
+            {mapHref ? (
+              <a
+                href={mapHref}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg hover:underline"
+              >
+                Open in Maps
+              </a>
+            ) : null}
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {hasParking ? (
+        <div data-testid="venue-parking">
+          <SectionCard title="Parking">
+            <p className="text-sm text-text">{parking}</p>
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {hasStatus ? (
+        <div data-testid="venue-status">
+          <SectionCard title="Venue status">
+            {coi !== null ? (
+              <div className="flex flex-col gap-1">
+                <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+                  COI
+                </dt>
+                <span
+                  data-testid="coi-status"
+                  className="text-sm font-semibold tabular-nums text-text-strong"
+                >
+                  {coi}
+                </span>
+              </div>
+            ) : null}
+            {statusRows.length > 0 ? <KeyValueRows rows={statusRows} /> : null}
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {hasDiagrams ? <div data-testid="venue-diagrams">{diagrams}</div> : null}
+    </div>
+  );
+}
