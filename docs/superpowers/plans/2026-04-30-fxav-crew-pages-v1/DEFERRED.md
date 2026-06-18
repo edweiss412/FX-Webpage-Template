@@ -663,7 +663,9 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 
 **Trigger:** Clean-fix items: this branch (`worktree-parser-exporter-fidelity`), TDD against the new `fixtures/shows/exporter-xlsx/` fixtures. SPEC-DECISION items (DEF-1/DEF-2): owner decision, then a parser milestone. All remaining items: M13 launch-gate parser-fidelity review.
 
-## AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1 — v2 "DETAILS" block: exporter label-only collapse vs live col-B values
+## AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1 — v2 "DETAILS" block: exporter label-only collapse vs live col-B values — **RESOLVED 2026-06-18 (commit 5364c4c7)**
+
+**Resolution:** The "investigate first" decision led to reading the live ORIGINAL Doug sheets via gsheets MCP. Asset-Mgmt (an original OUTSIDE the test folder) populates DETAILS col B (Stage Size, Opening Reel "YES - LOOP VIDEO", Polling, Power, …) — "label-only" was a Drive-MCP `read_file_content` rendering artifact, not the source. Removed the `normalizeBlock` DETAILS collapse so the value column survives; the (unchanged) parser now fills `event_details` on all 4 affected shows. Re-baselined the pinned exporter test; regenerated the v2 fixtures. Original analysis retained below.
 
 **Found:** Same audit (end-to-end). On the 4 v2/v1 shows the parser returns `event_details: {}` and `openingReel: null`, dropping stage size, opening-reel mode, LED/scenic, podium, polling, internet, power — every show-level detail a crew member consults.
 
@@ -671,10 +673,32 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 
 **Trigger:** Owner decision on the v2 `DETAILS` contract; then a parser milestone implements it TDD against `fixtures/shows/exporter-xlsx/{redefining-fi,consultants,ria}.md`. Do NOT unilaterally change the exporter/parser until decided.
 
-## AUDIT-2026-06-18-PARSE-FIDELITY-DEF-2 — `OLD PULL SHEET` stale-tab ingestion (wrong-show gear)
+## AUDIT-2026-06-18-PARSE-FIDELITY-DEF-2 — `OLD PULL SHEET` stale-tab ingestion (wrong-show gear) — **RESOLVED 2026-06-18 (commit e2594e89)**
+
+**Resolution:** Owner chose "skip OLD tabs". The exporter now skips any tab whose name matches `/\bOLD\b/i` before processing, so Redefining `pullSheet` is `null` instead of RIA-Chicago's gear. Two existing exporter tests had borrowed an "OLD PULL SHEET" fixture name — repointed them to a non-archived "PULL SHEET" name (merge-expansion / title-band-collapse assertions intact) and added a skip test. Original analysis retained below.
 
 **Found:** Same audit. Redefining FI's `pullSheet` parses 91 items from a tab named **`OLD PULL SHEET`** whose body is a *different, prior* show (caseLabel `RIA - CHICAGO, IL … Set: 4/15/24` — 13 months before this May-2025 show). The exporter's `normalizePullSheetGrid` (`exportSheetToMarkdown.ts:109`) and the parser both match `/PULL SHEET/i`, which catches `OLD PULL SHEET`, so a crew member would see a wrong show's gear list.
 
 **What / why it's (partly) a spec decision:** Dropping/ignoring a tab because its name contains "OLD" is a heuristic with product judgment (what marks a tab stale?). The clean half — *not* attributing one show's gear to another — is real, but the disambiguation rule (tab-name denylist? freshest-tab-wins? require the case title to match the show?) needs an owner steer. Pairs with the RIA `pullSheet: null` and East-Coast `items: 0` defects (clean-fix in branch).
 
 **Trigger:** Owner steer on stale-tab disambiguation; then implement with the pull-sheet detection fixes. Until then, the linked agenda PDF + GEAR remain the gear sources for affected shows.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY — status (branch `worktree-parser-exporter-fidelity`)
+
+Empirically re-verified against `fixtures/shows/exporter-xlsx/` after each fix; full parser+invariants+drive suite green (804) throughout.
+
+**Landed (TDD, regression-pinned):**
+- DETAILS col-B preserved → `event_details` populated (DEF-1, `5364c4c7`).
+- `OLD PULL SHEET` skipped → no wrong-show gear (DEF-2, `e2594e89`).
+- Bare `AGENDA` agenda-link label captured (`ae6db66f`).
+- Phantom `DOCUMENTS` crew member dropped via TECH block boundary (`e98e5f0a`).
+- East Coast `dates` 3-col v1 routing (`571c0938`).
+
+**Still open — need a focused, cross-version TDD pass (attempted during drive-through; deferred because each is format-specific AND entangled with heavily-pinned existing tests — forcing them produced incomplete/regressive changes):**
+- **Rooms phantom "Additional Room Name(s)"** (6/7 shows): suppressing the contentless stub BREAKS the pre-existing `tests/parser/blocks/rooms.test.ts` "finds 1 additional room" contract, AND is incomplete — Consultants' stub carries leaked content because `extractBoBlock` over-reads into the following section. Fix the additional-room contract + the block-extraction over-read together.
+- **Rooms GS dropped on v4** (fintech/fixed-income/rpas): their GS header is multi-line (`GENERAL SESSION\n<name>\n<dims>\n<floor>` → `&#10;`); `parseV4Rooms`'s `!col0.includes("&#10;")` guard rejects it → falls to the v2/v1 path which only reads `GS Setup`-prefixed rows, not v4's bare `Setup`. Removing the guard risks v2 regressions — needs cross-version TDD. (redefining: breakouts LASALLE A / WALTON also dropped — related header-shape gap.)
+- **Hotels check_in/out null** on redefining + ria: `parseHotelTable` false-positive-matches the inline "Hotel Reservations" cell and returns first, pre-empting `parseInlineHotelRow` (whose `resolveDate` WOULD back-fill the yearless `5/11`). Fix is in the table-vs-inline routing, not the date logic. Also: rpas reservation #4 inverted check_in/out (multi-reservation grid col mis-map); east-coast "Hotel Stays" names parse to 1 (em-dash `–-` variants) instead of 3.
+- **Transport NULL on v4** (fintech/fixed-income/rpas): `parseV4Transport` requires a `TRANSPORTATION/…`-prefixed merged header, but these shows label the block `Load In:` / `Load Out:` with a `[label,value,PHONE,EMAIL,LICENSE]` header → no path matches → null. Also east-coast `vehicle` empty (`Transportation | Van` header-value not read).
+- **Fail-loud observability**: emit a warning / `raw_unrecognized` entry when a recognized section header yields zero mapped fields, so silent section drops surface.
+
+Queued for a focused parser pass after the cross-model adversarial review of this branch.
