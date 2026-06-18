@@ -104,10 +104,19 @@ export function buildRightNowContext(opts: {
 export type CrewShellProps = {
   data: ShowForViewer;
   viewer: Viewer;            // { kind: "crew"|"admin"|"admin_preview"; crewMemberId? }
-  activeSection: SectionId;  // already resolved by page.tsx via resolveActiveSection
+  rawSection: string | undefined; // the UNVALIDATED `?s=` — CrewShell resolves it ITSELF (R2-HIGH-1)
   slug: string;
   shareToken?: string;       // crew route only; preview-as omits
 };
+// CrewShell resolves the section AFTER it has the viewer context, so the gate and the
+// section selection can NEVER diverge (single authority):
+//   const ctx = resolveViewerContext(viewer, data);  // (inside the fail-closed try/catch)
+//   const budgetVisible = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
+//   const activeSection = resolveActiveSection(rawSection, { budgetVisible });
+// page.tsx / preview-as pass the RAW `s` (they do NOT pre-resolve activeSection, and do
+// NOT pass budgetVisible:true). The redirect builders still allow-list `s` for deep-link
+// preservation (carry a valid section id incl. "budget"); CrewShell does the entitlement
+// fallback. This is the spec's single-predicate Budget gate (§4.1) across tab + URL + section.
 
 // Each section: components/crew/sections/<Name>Section.tsx
 // export function <Name>Section(props: { data: ShowForViewer; viewer: Viewer }): JSX.Element

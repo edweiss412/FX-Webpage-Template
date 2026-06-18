@@ -182,7 +182,35 @@
 > 3. Nothing imports the deletion targets except the deletion targets themselves (grep before delete).
 
 - [ ] **Confirm the pre-delete gate.** Run: `pnpm vitest run tests/components/tiles/ tests/components/crew/crewShell.test.tsx tests/messages/_metaAdminAlertCatalog.test.ts tests/cross-cutting/codes.test.ts tests/admin/upsertAdminAlert.test.ts` and `TEST_DATABASE_URL=<validation> pnpm vitest run tests/db/upsert-admin-alert-dedup.test.ts`. ALL green. Then `grep -rln "selectTodayTiles\|_ShowBody\|from \"@/components/tiles/\(Audio\|Video\|Lighting\)ScopeTile\|ContactsTile\|CrewTile\|DiagramsTile\|FinancialsTile\|LodgingTile\|NotesTile\|OpeningReelTile\|PackListTile\|ScheduleTile\|ShowStatusTile\|TransportTile\|VenueTile" app components lib tests` — every remaining hit must be a deletion target or a test being deleted/retargeted in this task.
-- [ ] Write/confirm the failing-state first: temporarily nothing — deletion has no "test." Instead, the proof is **the build + the full suite stays green AFTER deletion** (test 29's "two distinct alert codes no clobber" is the post-migration verification — see below). Delete the 14 `*Tile.tsx` files + `_ShowBody.tsx` + `lib/show/selectTodayTiles.ts`. Delete `tests/show/selectTodayTiles.test.ts`. Retarget or delete the other three test files that referenced the deleted modules (retarget if they assert a contract the new components still own; delete if the contract is gone with the old TODAY-band promotion — e.g. `page-today-uses-now-utility.test.ts`'s `selectTodayTiles` coupling is superseded by the hero's client clock, wp-18).
+- [ ] **Write the failing structural-deletion test FIRST (R2-HIGH-2 — TDD-per-task, invariant 1).** Create `tests/migration/crew-redesign-cleanup.test.ts` as the pre-written contract the deletion satisfies:
+  ```ts
+  import { existsSync } from "node:fs";
+  import { execSync } from "node:child_process";
+  const DELETED = [
+    ...["AudioScope","VideoScope","LightingScope","Contacts","Crew","Diagrams","Financials","Lodging","Notes","OpeningReel","PackList","Schedule","ShowStatus","Transport","Venue"].map((t) => `components/tiles/${t}Tile.tsx`),
+    "app/show/[slug]/[shareToken]/_ShowBody.tsx", "lib/show/selectTodayTiles.ts",
+  ];
+  const RETAINED = [
+    "components/tiles/OpeningReelVideo.tsx", // (or its moved location — update if moved into components/crew/)
+    "components/shared/WrappedTile.tsx", "components/shared/TileServerFallback.tsx",
+  ];
+  test("obsolete tile shells / _ShowBody / selectTodayTiles are deleted", () => {
+    expect(DELETED.filter((p) => existsSync(p))).toEqual([]);
+  });
+  test("retained modules survive the migration (no over-deletion)", () => {
+    expect(RETAINED.filter((p) => !existsSync(p))).toEqual(RETAINED.filter(() => false)); // all present
+    for (const p of RETAINED) expect(existsSync(p)).toBe(true);
+  });
+  test("no source/test file imports a deleted module", () => {
+    // ripgrep returns non-zero (exit 1) when there are NO matches — that is the PASS condition.
+    let out = ""; try { out = execSync(`rg -l "selectTodayTiles|_ShowBody|components/tiles/(${["AudioScope","VideoScope","LightingScope","Contacts","Crew","Diagrams","Financials","Lodging","Notes","OpeningReel","PackList","Schedule","ShowStatus","Transport","Venue"].join("|")})Tile" app components lib tests`, { encoding: "utf8" }); } catch { out = ""; }
+    expect(out.trim()).toBe("");
+  });
+  ```
+  _Failure mode (what this catches): orphaned imports of a deleted module; accidental over-deletion of retained infra (`OpeningReelVideo`, `WrappedTile`, `TileServerFallback`); a tile shell left behind. This is the pre-written contract — it FAILS now (old files present) and turns green only when the deletion + retarget is complete and clean._
+- [ ] Run to verify it FAILS (old files still present): `pnpm vitest run tests/migration/crew-redesign-cleanup.test.ts` → FAIL (the `DELETED` files exist; imports remain).
+- [ ] Delete the 14 `*Tile.tsx` files + `_ShowBody.tsx` + `lib/show/selectTodayTiles.ts`. Delete `tests/show/selectTodayTiles.test.ts`. Retarget or delete the other test files that referenced the deleted modules (retarget if they assert a contract the new components still own — that retarget already happened in Task 7; delete if the contract is gone with the old TODAY-band promotion — e.g. `page-today-uses-now-utility.test.ts`'s `selectTodayTiles` coupling is superseded by the hero's client clock, wp-18). If `OpeningReelVideo.tsx` was moved, update the `RETAINED` path in the test.
+- [ ] Run to verify it PASSES: `pnpm vitest run tests/migration/crew-redesign-cleanup.test.ts` → PASS (deleted absent, retained present, no imports).
 - [ ] **Verify test 29 post-migration** (two distinct alert codes, no clobber): with `_ShowBody.tsx` gone and `_CrewShell` the sole projection-alert producer, render `_CrewShell` with BOTH a projection `tileErrors` AND a wrapped-block render throw in one render → **two** distinct unresolved `admin_alerts` rows (`TILE_PROJECTION_FETCH_FAILED` with its `failedKeys` + `TILE_SERVER_RENDER_FAILED` with its `tileId`), neither clobbering the other's context; repeated same-`failedKeys` renders do not inflate `occurrence_count` beyond the 10-min debounce window. If a `tests/components/crew/` test does not already pin this against the post-deletion code, add it here. _Failure mode: deleting `_ShowBody.tsx`'s `notes-tile` path silently losing the always-on projection alert; a shared code clobbering one context; occurrence inflation._
 - [ ] Run to pass: `pnpm vitest run` (full suite) + `pnpm tsc --noEmit` + `pnpm build` (no orphaned imports, no build break, no dropped Opening Reel media — wp-20). Confirm `tests/e2e/crew-page.spec.ts` still passes (`--project=mobile-safari`).
 - [ ] Commit `feat(crew-page): delete 14 tile shells + _ShowBody + selectTodayTiles (section-independent observability live)`.
