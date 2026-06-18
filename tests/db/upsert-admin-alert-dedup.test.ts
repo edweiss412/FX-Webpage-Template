@@ -38,8 +38,11 @@ async function cleanup(showId: string): Promise<void> {
   await sql!`delete from public.shows where id = ${showId}::uuid`;
 }
 
-function ctx(failedKeys: readonly string[] | null, message: string = MESSAGE): Record<string, unknown> {
-  const base: Record<string, unknown> = {
+function ctx(
+  failedKeys: readonly string[] | null,
+  message: string = MESSAGE,
+): Record<string, string | string[]> {
+  const base: Record<string, string | string[]> = {
     sheet_name: "TPFF Dedup",
     tileId: "crew:projection-alert",
     message,
@@ -48,7 +51,7 @@ function ctx(failedKeys: readonly string[] | null, message: string = MESSAGE): R
   return base;
 }
 
-async function upsert(showId: string, context: Record<string, unknown>): Promise<void> {
+async function upsert(showId: string, context: Record<string, string | string[]>): Promise<void> {
   await sql!`select public.upsert_admin_alert(${showId}::uuid, ${CODE}, ${sql!.json(context)})`;
 }
 
