@@ -34,6 +34,7 @@ import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { WrappedSection } from "@/components/crew/WrappedSection";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
@@ -131,161 +132,176 @@ type TodaySectionProps = {
   showId: string;
 };
 
-export function TodaySection({ data, viewer }: TodaySectionProps): JSX.Element {
+export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.Element {
   // Single canonical viewer resolution: flags / restriction / name / isAdmin.
   // admin → all-flags + none-restriction; crew/admin_preview → matched row;
-  // malformed projection throws MalformedProjectionError (the page's existing
-  // infra arm catches it — this section does not swallow it).
+  // malformed projection throws MalformedProjectionError (INTENTIONALLY outside
+  // WrappedSection so the route-level infra arm catches it, not the per-block
+  // fallback).
   const ctx = resolveViewerContext(viewer, data);
-
-  const rightNowContext = buildRightNowContext({
-    show: data.show,
-    dateRestriction: ctx.dateRestriction,
-    hotelReservations: data.hotelReservations,
-    rooms: data.rooms,
-  });
-
-  const anchors = resolveKeyTimes(data.show, data.rooms);
-
-  const firstHotel = data.hotelReservations[0] ?? null;
-  const tonightRows: KeyValueRow[] = firstHotel
-    ? [
-        { k: "Hotel", v: firstHotel.hotel_name ?? "" },
-        { k: "Check in", v: firstHotel.check_in ?? "" },
-        { k: "Check out", v: firstHotel.check_out ?? "" },
-      ]
-    : [];
-
-  const venue = data.show.venue;
-  const whereRows: KeyValueRow[] = venue
-    ? [
-        { k: "Venue", v: venue.name ?? "" },
-        { k: "Address", v: venue.address ?? "" },
-        ...(venue.loadingDock != null ? [{ k: "Loading dock", v: venue.loadingDock } as KeyValueRow] : []),
-      ]
-    : [];
-
-  const primaryContact = selectPrimaryContact(data.contacts);
-
-  // Dress code — first non-empty of dress_code / dress / attire, gated by the
-  // generic-optional sentinel predicate.
-  const dressRaw =
-    data.show.event_details.dress_code ??
-    data.show.event_details.dress ??
-    data.show.event_details.attire ??
-    null;
-  const showDress = !shouldHideGenericOptional(dressRaw);
-
-  // 5-source notes — transport source gated on transportTileVisible (the gate
-  // uses the projection's `viewerName`, per the NotesTile transport contract).
-  const transportVisible = transportTileVisible({
-    transportation: data.transportation,
-    viewerName: data.viewerName,
-    isAdmin: ctx.isAdmin,
-  });
-  const noteEntries = aggregateNotes(data, transportVisible);
-  const visibleNotes = noteEntries.slice(0, SOURCE_CAP);
-  const overflowCount = Math.max(0, noteEntries.length - SOURCE_CAP);
 
   return (
     <div data-testid="section-today" className="flex flex-col gap-4">
-      <RightNowHero context={rightNowContext} />
+      <WrappedSection
+        tileId="crew:today:notes"
+        showId={showId}
+        sheetName={data.show.title}
+        render={() => {
+          const rightNowContext = buildRightNowContext({
+            show: data.show,
+            dateRestriction: ctx.dateRestriction,
+            hotelReservations: data.hotelReservations,
+            rooms: data.rooms,
+          });
 
-      <KeyTimesStrip anchors={anchors} />
+          const anchors = resolveKeyTimes(data.show, data.rooms);
 
-      {firstHotel ? (
-        <div data-testid="today-tonight">
-          <SectionCard title="Tonight">
-            <KeyValueRows rows={tonightRows} />
-          </SectionCard>
-        </div>
-      ) : null}
+          const firstHotel = data.hotelReservations[0] ?? null;
+          const tonightRows: KeyValueRow[] = firstHotel
+            ? [
+                { k: "Hotel", v: firstHotel.hotel_name ?? "" },
+                { k: "Check in", v: firstHotel.check_in ?? "" },
+                { k: "Check out", v: firstHotel.check_out ?? "" },
+              ]
+            : [];
 
-      {venue ? (
-        <div data-testid="today-where">
-          <SectionCard title="Where">
-            <KeyValueRows rows={whereRows} />
-          </SectionCard>
-        </div>
-      ) : null}
+          const venue = data.show.venue;
+          const whereRows: KeyValueRow[] = venue
+            ? [
+                { k: "Venue", v: venue.name ?? "" },
+                { k: "Address", v: venue.address ?? "" },
+                ...(venue.loadingDock != null
+                  ? [{ k: "Loading dock", v: venue.loadingDock } as KeyValueRow]
+                  : []),
+              ]
+            : [];
 
-      {primaryContact ? (
-        <div data-testid="today-need-something">
-          <SectionCard title="Need something">
-            <ul className="flex flex-col gap-3">
-              <PersonRow
-                person={{
-                  ...(primaryContact.name != null ? { name: primaryContact.name } : {}),
-                  fallbackLabel: primaryContact.kind === "in_house_av" ? "In-house AV" : "Venue contact",
-                  ...(primaryContact.phone != null ? { phone: primaryContact.phone } : {}),
-                  ...(primaryContact.email != null ? { email: primaryContact.email } : {}),
-                  primary: true,
-                }}
-              />
-            </ul>
-          </SectionCard>
-        </div>
-      ) : null}
+          const primaryContact = selectPrimaryContact(data.contacts);
 
-      {showDress ? (
-        <div data-testid="today-dress">
-          <SectionCard title="Dress code">
-            <p className="text-sm text-text">{dressRaw}</p>
-          </SectionCard>
-        </div>
-      ) : null}
+          // Dress code — first non-empty of dress_code / dress / attire, gated by the
+          // generic-optional sentinel predicate.
+          const dressRaw =
+            data.show.event_details.dress_code ??
+            data.show.event_details.dress ??
+            data.show.event_details.attire ??
+            null;
+          const showDress = !shouldHideGenericOptional(dressRaw);
 
-      {visibleNotes.length > 0 ? (
-        <div data-testid="today-notes">
-          <SectionCard title="Show notes">
-            <ul className="flex flex-col gap-2">
-              {visibleNotes.map((entry, idx) => {
-                const { display, truncated } = truncate(entry.text, TRUNCATE_AT);
-                return (
-                  <li
-                    key={`${entry.source}-${idx}`}
-                    data-source={entry.source}
-                    {...(truncated ? { "data-truncated": "true" } : {})}
-                    className="rounded-sm border border-border bg-surface"
-                  >
-                    <details className="group">
-                      <summary className="flex min-h-tap-min cursor-pointer list-none flex-col gap-1 rounded-sm px-3 py-2 [&::-webkit-details-marker]:hidden">
-                        <span className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
-                          {entry.label}
-                        </span>
-                        <span
-                          className={[
-                            "text-sm leading-snug text-text",
-                            truncated ? "group-open:hidden" : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                        >
-                          {display}
-                        </span>
-                      </summary>
-                      {truncated ? (
-                        <div className="whitespace-pre-wrap border-t border-border px-3 py-3 text-sm leading-relaxed text-text">
-                          {entry.text}
-                        </div>
-                      ) : null}
-                    </details>
-                  </li>
-                );
-              })}
-            </ul>
-            {overflowCount > 0 ? (
-              <div
-                data-testid="today-notes-overflow"
-                className="mt-2 rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
-              >
-                <span className="tabular-nums">+{overflowCount}</span>{" "}
-                {overflowCount === 1 ? "more note" : "more notes"} on the source sheet
-              </div>
-            ) : null}
-          </SectionCard>
-        </div>
-      ) : null}
+          // 5-source notes — transport source gated on transportTileVisible (the gate
+          // uses the projection's `viewerName`, per the NotesTile transport contract).
+          const transportVisible = transportTileVisible({
+            transportation: data.transportation,
+            viewerName: data.viewerName,
+            isAdmin: ctx.isAdmin,
+          });
+          const noteEntries = aggregateNotes(data, transportVisible);
+          const visibleNotes = noteEntries.slice(0, SOURCE_CAP);
+          const overflowCount = Math.max(0, noteEntries.length - SOURCE_CAP);
+
+          return (
+            <>
+              <RightNowHero context={rightNowContext} />
+
+              <KeyTimesStrip anchors={anchors} />
+
+              {firstHotel ? (
+                <div data-testid="today-tonight">
+                  <SectionCard title="Tonight">
+                    <KeyValueRows rows={tonightRows} />
+                  </SectionCard>
+                </div>
+              ) : null}
+
+              {venue ? (
+                <div data-testid="today-where">
+                  <SectionCard title="Where">
+                    <KeyValueRows rows={whereRows} />
+                  </SectionCard>
+                </div>
+              ) : null}
+
+              {primaryContact ? (
+                <div data-testid="today-need-something">
+                  <SectionCard title="Need something">
+                    <ul className="flex flex-col gap-3">
+                      <PersonRow
+                        person={{
+                          ...(primaryContact.name != null ? { name: primaryContact.name } : {}),
+                          fallbackLabel:
+                            primaryContact.kind === "in_house_av" ? "In-house AV" : "Venue contact",
+                          ...(primaryContact.phone != null ? { phone: primaryContact.phone } : {}),
+                          ...(primaryContact.email != null ? { email: primaryContact.email } : {}),
+                          primary: true,
+                        }}
+                      />
+                    </ul>
+                  </SectionCard>
+                </div>
+              ) : null}
+
+              {showDress ? (
+                <div data-testid="today-dress">
+                  <SectionCard title="Dress code">
+                    <p className="text-sm text-text">{dressRaw}</p>
+                  </SectionCard>
+                </div>
+              ) : null}
+
+              {visibleNotes.length > 0 ? (
+                <div data-testid="today-notes">
+                  <SectionCard title="Show notes">
+                    <ul className="flex flex-col gap-2">
+                      {visibleNotes.map((entry, idx) => {
+                        const { display, truncated } = truncate(entry.text, TRUNCATE_AT);
+                        return (
+                          <li
+                            key={`${entry.source}-${idx}`}
+                            data-source={entry.source}
+                            {...(truncated ? { "data-truncated": "true" } : {})}
+                            className="rounded-sm border border-border bg-surface"
+                          >
+                            <details className="group">
+                              <summary className="flex min-h-tap-min cursor-pointer list-none flex-col gap-1 rounded-sm px-3 py-2 [&::-webkit-details-marker]:hidden">
+                                <span className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+                                  {entry.label}
+                                </span>
+                                <span
+                                  className={[
+                                    "text-sm leading-snug text-text",
+                                    truncated ? "group-open:hidden" : "",
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                                >
+                                  {display}
+                                </span>
+                              </summary>
+                              {truncated ? (
+                                <div className="whitespace-pre-wrap border-t border-border px-3 py-3 text-sm leading-relaxed text-text">
+                                  {entry.text}
+                                </div>
+                              ) : null}
+                            </details>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {overflowCount > 0 ? (
+                      <div
+                        data-testid="today-notes-overflow"
+                        className="mt-2 rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
+                      >
+                        <span className="tabular-nums">+{overflowCount}</span>{" "}
+                        {overflowCount === 1 ? "more note" : "more notes"} on the source sheet
+                      </div>
+                    ) : null}
+                  </SectionCard>
+                </div>
+              ) : null}
+            </>
+          );
+        }}
+      />
     </div>
   );
 }

@@ -22,6 +22,7 @@ import type { JSX } from "react";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { WrappedSection } from "@/components/crew/WrappedSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
@@ -32,39 +33,52 @@ function shown(value: string | null): string {
 
 export function BudgetSection({
   data,
+  showId,
 }: {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
   showId: string;
 }): JSX.Element {
-  const financials = data.financials;
-
-  // Every financials field is sentinel-guarded at the read site (§8.3); a blank
-  // or sentinel value yields "" → KeyValueRows omits that row, and an all-blank
-  // financials object collapses to zero rows → EmptyState.
-  const rows: KeyValueRow[] = financials
-    ? [
-        { k: "PO", v: shown(financials.po) },
-        { k: "Proposal", v: shown(financials.proposal) },
-        { k: "Invoice", v: shown(financials.invoice) },
-        { k: "Invoice notes", v: shown(financials.invoice_notes) },
-      ]
-    : [];
-
-  const hasAny = rows.some((r) => r.v.length > 0);
-
-  if (!hasAny) {
-    return (
-      <div data-testid="section-empty">
-        <EmptyState label="No budget details on file yet." />
-      </div>
-    );
-  }
-
+  // The rows transform is the section's throwable block — wrapped so a throw is
+  // contained (fallback + TILE_SERVER_RENDER_FAILED upsert) instead of crashing
+  // the page once the old FinancialsTile shell is deleted (§4.13 / wp-13).
   return (
-    <SectionCard title="Budget">
-      <KeyValueRows rows={rows} />
-    </SectionCard>
+    <WrappedSection
+      tileId="crew:budget:rows"
+      showId={showId}
+      sheetName={data.show.title}
+      render={() => {
+        const financials = data.financials;
+
+        // Every financials field is sentinel-guarded at the read site (§8.3); a
+        // blank or sentinel value yields "" → KeyValueRows omits that row, and an
+        // all-blank financials object collapses to zero rows → EmptyState.
+        const rows: KeyValueRow[] = financials
+          ? [
+              { k: "PO", v: shown(financials.po) },
+              { k: "Proposal", v: shown(financials.proposal) },
+              { k: "Invoice", v: shown(financials.invoice) },
+              { k: "Invoice notes", v: shown(financials.invoice_notes) },
+            ]
+          : [];
+
+        const hasAny = rows.some((r) => r.v.length > 0);
+
+        if (!hasAny) {
+          return (
+            <div data-testid="section-empty">
+              <EmptyState label="No budget details on file yet." />
+            </div>
+          );
+        }
+
+        return (
+          <SectionCard title="Budget">
+            <KeyValueRows rows={rows} />
+          </SectionCard>
+        );
+      }}
+    />
   );
 }

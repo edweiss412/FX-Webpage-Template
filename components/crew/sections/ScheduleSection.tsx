@@ -40,6 +40,7 @@ import type { JSX } from "react";
 import { DayCard } from "@/components/crew/primitives/DayCard";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -82,10 +83,16 @@ type ScheduleSectionProps = {
   showId: string;
 };
 
-export function ScheduleSection({ data, viewer, today }: ScheduleSectionProps): JSX.Element {
+export function ScheduleSection({
+  data,
+  viewer,
+  today,
+  showId,
+}: ScheduleSectionProps): JSX.Element {
   // Single canonical viewer resolution: admin → none-restriction;
   // crew/admin_preview → matched row's dateRestriction; malformed projection
-  // throws MalformedProjectionError (the page's existing infra arm catches it).
+  // throws MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
+  // route-level infra arm catches it, not the per-block fallback).
   const { dateRestriction } = resolveViewerContext(viewer, data);
 
   const anchors = resolveKeyTimes(data.show, data.rooms);
@@ -106,44 +113,55 @@ export function ScheduleSection({ data, viewer, today }: ScheduleSectionProps): 
     );
   }
 
-  // Intersect the restriction against the FULL aggregate (travel / set /
-  // showDays / travelOut — not just showDays).
-  const allDays = aggregateDays(data.show.dates);
-  const visibleDays =
-    dateRestriction.kind === "explicit"
-      ? ((): ScheduleDay[] => {
-          const allowed = new Set(dateRestriction.days);
-          return allDays.filter((d) => allowed.has(d.date));
-        })()
-      : allDays; // kind === 'none'
-
-  const todayIso = todayIsoInShowTimezone(data.show, today);
-
   return (
     <div data-testid="section-schedule" className="flex flex-col gap-4">
-      {visibleDays.length === 0 ? (
-        <EmptyState label="Show dates haven't been confirmed yet." />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {visibleDays.map((day) => {
-            const isToday = day.date === todayIso;
-            // DayCard's typed props don't forward `data-testid`, so the testid
-            // lives on a wrapper. The pinned-today card uses the dedicated
-            // testid; every other card carries its date. Both forms match the
-            // `^="schedule-day"` prefix selector the tests count.
-            return (
-              <div
-                key={day.date}
-                data-testid={isToday ? "schedule-day-today" : `schedule-day-${day.date}`}
-              >
-                <DayCard day={day.date} phase={day.phase} today={isToday} />
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <WrappedSection
+        tileId="crew:schedule:days"
+        showId={showId}
+        sheetName={data.show.title}
+        render={() => {
+          // Intersect the restriction against the FULL aggregate (travel / set /
+          // showDays / travelOut — not just showDays).
+          const allDays = aggregateDays(data.show.dates);
+          const visibleDays =
+            dateRestriction.kind === "explicit"
+              ? ((): ScheduleDay[] => {
+                  const allowed = new Set(dateRestriction.days);
+                  return allDays.filter((d) => allowed.has(d.date));
+                })()
+              : allDays; // kind === 'none'
 
-      <KeyTimesStrip anchors={anchors} />
+          const todayIso = todayIsoInShowTimezone(data.show, today);
+
+          return (
+            <>
+              {visibleDays.length === 0 ? (
+                <EmptyState label="Show dates haven't been confirmed yet." />
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {visibleDays.map((day) => {
+                    const isToday = day.date === todayIso;
+                    // DayCard's typed props don't forward `data-testid`, so the testid
+                    // lives on a wrapper. The pinned-today card uses the dedicated
+                    // testid; every other card carries its date. Both forms match the
+                    // `^="schedule-day"` prefix selector the tests count.
+                    return (
+                      <div
+                        key={day.date}
+                        data-testid={isToday ? "schedule-day-today" : `schedule-day-${day.date}`}
+                      >
+                        <DayCard day={day.date} phase={day.phase} today={isToday} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <KeyTimesStrip anchors={anchors} />
+            </>
+          );
+        }}
+      />
     </div>
   );
 }
