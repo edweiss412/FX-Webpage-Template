@@ -42,3 +42,15 @@ describe("exporter fidelity — agenda_links label (East Coast bare 'AGENDA')", 
     }
   });
 });
+
+describe("exporter fidelity — crew block boundary (East Coast phantom DOCUMENTS row)", () => {
+  it("does not parse the merged 'DOCUMENTS - …' banner as a 4th crew member", () => {
+    // East Coast uses a v1 TECH block (lines 21-24: 3 crew). parseTechBlock lacked
+    // termination and scanned to EOF, picking up the merged banner
+    // `| DOCUMENTS - Agendas, Diagrams, Presentations | …` as name="DOCUMENTS".
+    const r = parse("east-coast");
+    const names = r.crewMembers.map((c) => c.name);
+    expect(names).not.toContain("DOCUMENTS");
+    expect(names).toEqual(["Doug Larson", "Carl Fenton", "Eric Weiss"]);
+  });
+});
