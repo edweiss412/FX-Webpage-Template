@@ -132,9 +132,15 @@ function normalizePullSheetGrid(sheetName: string, grid: CellGrid): CellGrid {
 }
 
 function normalizeBlock(block: CellGrid): CellGrid {
-  if (/^DETAILS\s*$/i.test(block[0]?.[0] ?? "")) {
-    return block.map((row) => [row[0] ?? ""]);
-  }
+  // NOTE: a bare "DETAILS" block was previously collapsed to label-only
+  // (`block.map((row) => [row[0]])`) on the premise that v2 DETAILS sections
+  // carry no values. The 2026-06-18 grounding audit disproved that premise:
+  // the live source sheets (incl. originals outside the test folder, e.g.
+  // Asset-Mgmt INFO!B53-72) populate col B (Stage Size, Opening Reel, Polling,
+  // Power, ...). The "label-only" shape was an artifact of the old Drive-MCP
+  // markdown converter, not the source. The value column is now preserved so
+  // parseEventDetails populates event_details + openingReel.
+  // See DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1.
   if (
     /^GENERAL SESSION/i.test(block[0]?.[0] ?? "") &&
     /^(?:GS|BO) Setup$/i.test(block[1]?.[0] ?? "")
@@ -188,6 +194,12 @@ export function synthesizeMarkdownFromXlsx(buffer: ArrayBuffer): string {
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
+    // Skip archived tabs (e.g. "OLD PULL SHEET"). Their body is often a stale
+    // PRIOR show's data — Redefining FI's "OLD PULL SHEET" holds RIA-Chicago
+    // gear from 4/15/24 — so ingesting it attributes one show's content to
+    // another. Owner decision (DEFERRED AUDIT-2026-06-18-PARSE-FIDELITY-DEF-2):
+    // skip any tab whose name contains the word "OLD".
+    if (/\bOLD\b/i.test(sheetName)) continue;
     const grid = normalizePullSheetGrid(sheetName, sheetGrid(sheet));
     for (const block of splitBlocks(grid).map(normalizeBlock)) {
       tables.push(tableMarkdown(block));

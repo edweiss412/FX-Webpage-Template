@@ -230,7 +230,11 @@ function extractTitleFromMarkdown(
 function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
   const links: { label: string; fileId?: string; url?: string }[] = [];
   for (const line of markdown.split("\n")) {
-    const m = line.match(/^\s*\|\s*(AGENDA LINK[^|]*?)\s*\|\s*([^|]+?)\s*\|/i);
+    // Accept the standard "AGENDA LINK[ - suffix]" label AND a bare "AGENDA"
+    // label (the 2024 East Coast template labels the agenda Drive-URL row just
+    // "AGENDA"). The bare `AGENDA` alternative is exact-bounded by the trailing
+    // `\s*\|`, so "AGENDA DAY"/"AGENDA TAB"-style cells do NOT match.
+    const m = line.match(/^\s*\|\s*(AGENDA LINK[^|]*?|AGENDA)\s*\|\s*([^|]+?)\s*\|/i);
     if (!m) continue;
     const label = m[1]?.trim();
     const value = m[2]?.trim();

@@ -1,0 +1,272 @@
+| East Coast Family Office Wealth Conference | East Coast Family Office Wealth Conference | East Coast Family Office Wealth Conference | East Coast Family Office Wealth Conference |
+| :---: | :---: | :---: | :---: |
+
+| \#NUM\! | \#NUM\! | \#NUM\! | \#NUM\! |
+| :---: | :---: | :---: | :---: |
+| CLIENT   | Institutional Investor |  |  |
+| Client Contact | Maria Ferrer |  |  |
+
+| VENUE | Four Seasons Fort Lauderdale  |
+| :---: | :---: |
+| Hotel Address | 525 N Fort Lauderdale Beach Blvd |
+| Loading Dock | Viramar Street&#10;Dock has scissor lift for equipment, and it sucks. |
+
+| DATES |  |  |
+| :---: | :---: | :---: |
+| Travel | 5/13/24 | - SAME DAY AS SET |
+| Set | 5/13/24 - AFTER 8PM |  |
+| Show | 5/14/24 - 8:15am - 5:45pm&#10;5/15/24 - 8:00am - 1:00pm |  |
+| Travel | 5/15/24 - SAME DAY AS STRIKE |  |
+
+| TECH | PHONE | ARRIVAL | DEPARTURE |
+| :---: | :---: | :---: | :---: |
+| Doug Larson - Load In/Set/Strike/Load Out - Lead | 917-331-4885 | EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ |
+| Carl Fenton - Load In/Set/Strike/Load Out - V1 | 914-224-8834 | JFK-FLL JETBLUE 5/13 - 11:15am - 2:18pm CGTTLO | FLL-JFK JETBLUE 5/15 - 8:59pm - 11:55pm CGTTLO |
+| Eric Weiss - Load In/Set/Strke/Load Out - A1 | 508-404-4496 | ORD-FLL SPIRIT 5/13 - 10:58am - 3:05pm OWJ1PK | FLL-ORD SPIRIT 5/15 - 9:16pm - 11:29pm OWJ1PK |
+
+| Transportation | Van |  |
+| :---: | :---: | :---: |
+| Driver | James Wells | 936-230-2279 |
+| Parking | Confirmation \#45846091 HOLIDAY INN EXPRESS FT. LAUDERDALE AIRPORT/CRUISE 1150 State Road 84 Fort Lauderdale, FL  United States  33315 |  |
+
+| Hotel Stays | Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525 |
+| :---: | :---: |
+
+| COI | Sent |
+| :---: | :---: |
+| Proposal | Sent - Budget $17,500 |
+| PO\# |  |
+
+| Hotal Contact Info | Ashley Mullins <Ashley.Mullins@fourseasons.com> |
+| :---: | :---: |
+| In House AV | Mark Kauffman <mark.kauffman@encoreglobal.com> |
+
+| DETAILS |  |
+| :---: | :---: |
+| Room Diagram |  |
+| LED | NO |
+| Backdrop / Scenic | (1) Section Printed Spandex (4) Sections Grey Spandex |
+| Stage | 8' x 24' x 2' |
+| Opening Reel | YES - LOOP VIDEO |
+| Keynote Requirements | NONE |
+| Truss Podium | YES |
+| Record | NO |
+| Live Streaming | NO |
+| Polling | YES |
+| Internet | The conference wifi has 20mb download speed.   |
+| Power | Only 2 circuits in Mabel Room - this setup needs additional power |
+| Storage | Back of house near kitchen area |
+| Test Pattern | 16 x 9 Test Pattern |
+
+| AGENDA | https://drive.google.com/file/d/1N0SNyciz0isLC_a-ivZhEow1-12mm0w0/view?usp=drive_link |
+| :---: | :---: |
+
+| DOCUMENTS - Agendas, Diagrams, Presentations | DOCUMENTS - Agendas, Diagrams, Presentations | DOCUMENTS - Agendas, Diagrams, Presentations | DOCUMENTS - Agendas, Diagrams, Presentations |
+| :---: | :---: | :---: | :---: |
+
+| MABEL 1&#10;APPROXIMATELY 60' x 45' | MABEL 1&#10;APPROXIMATELY 60' x 45' |
+| :---: | :---: |
+| GS Setup | 18 Tables of 7ppl |
+| GS Set Time | 5/13 - AFTER 8PM |
+| GS Strike Time | 5/15 - 1PM |
+| GS Audio | (1) QU32 (1) AB168 (2) QSC KLA (2) QSC K8 (18) HH (2) LAV (5) Goosenecks |
+| GS Video | (2) Eiki Projectors (2) 6' x 10' Screen (2) 6' x 10' Frame (1) Countdown Clock (1) 43" Confidence Monitor |
+| GS Scenic | (1) Section Printed Logo Spandex (4) Sections Grey Spandex |
+|  | (2) Lekos for Stage Wash (6) Blizzard LED Uplights |
+| GS Other | (1) Truss Podium |
+
+| Digital Signage | NONE |
+| :---: | :---: |
+
+| MABEL 1&#10;DAY 1 & 2 | MABEL 1&#10;DAY 1 & 2 | MABEL 1&#10;DAY 1 & 2 | MABEL 2 FOOD |
+| :---: | :---: | :---: | :---: |
+| BO Setup | TBD |  |  |
+| BO Set Time | TBD |  |  |
+| BO Strike Time | TBD |  |  |
+| BO Audio | NONE |  |  |
+| BO Video | Projector & Screen |  |  |
+| BO Other |  |  |  |
+
+| LAUDERDALE 1, 2, 3&#10;DAY 1 & 2 | LAUDERDALE 1, 2, 3&#10;DAY 1 & 2 | LAUDERDALE 1, 2, 3&#10;DAY 1 & 2 |
+| :---: | :---: | :---: |
+| BO Setup | TBD |  |
+| BO Set Time | TBD |  |
+| BO Strike Time | TBD |  |
+| BO Audio | NONE |  |
+| BO Video | Projector & Screen |  |
+| BO Other |  |  |
+
+| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | SET DAY | SET DAY | SET DAY | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 2 | DAY 2 | DAY 2 | DAY 2 | DAY 2 | DAY 2 | TRAVEL DAY | TRAVEL DAY | TRAVEL DAY |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| 5/13/24 | 5/13/24 | 5/13/24 | 5/14/24 | 5/14/24 | 5/14/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/16/24 | 5/16/24 | 5/16/24 | 5/16/24 | 5/16/24 | 5/16/24 | 5/17/24 | 5/17/24 | 5/17/24 |
+| Monday | Monday | Monday | Tuesday | Tuesday | Tuesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Thursday | Thursday | Thursday | Thursday | Thursday | Thursday | Friday | Friday | Friday |
+| NAME | ARRIVAL | FLIGHT\# | TIME | TITLE | ROOM | START  | FINISH | TRT | TITLE | ROOM | AV | START  | FINISH | TRT | TITLE | ROOM | AV | TIME |  |  |
+|  |  |  |  |  |  | 7:15 AM | 7:30 AM | 0:15 | Family Office Only Breakfast |  | NONE | 8:00 AM | 9:00 AM | 1:00 | Closed Door Working Breakfast |  | NONE |  |  |  |
+|  |  |  |  |  |  | 8:15 AM | 8:30 AM | 0:15 | Welcome and Introductory Remarks | Mabel 1 | POD | 9:00 AM | 9:45 AM | 0:45 | To Own a Professional Sport Team: | Mabel 1 | Goosenecks |  |  |  |
+|  |  |  |  |  |  | 8:30 AM | 9:30 AM | 1:00 | Opening Keynote | Mabel 1 | LAV | 9:45 AM | 10:20 AM | 0:35 | Breakout G | Mabel 1 | Screen & Projector |  |  |  |
+|  |  |  |  |  |  | 9:30 AM | 10:15 AM | 0:45 | Managing Risk and Liquidity | Mabel 1 | 4 Goosenecks | 9:45 AM | 10:20 AM | 0:35 | Breakout H | Mabel 2 | Screen & Projector |  |  |  |
+|  |  |  |  |  |  | 10:15 AM | 10:45 AM | 0:30 | Coffee Break | Mabel 1 |  | 10:20 AM | 11:00 AM | 0:40 | Coffee Break & Family Office-led Breakout Roundtable Discussions, | Mable 1 |  |  |  |  |
+|  |  |  |  |  |  | 10:45 AM | 11:20 AM | 0:35 | Breakout A | Mabel 1 | Screen & Projector | 11:00 AM | 11:30 AM | 0:30 | An Interview: Energy (in) Transition | Mable 1 | Goosenecks |  |  |  |
+|  |  |  |  |  |  | 10:45 AM | 11:20 AM | 0:35 | Breakout B | Lauderdale | Screen & Projector | 11:30 AM | 12:15 PM | 0:45 | Unlocking Private Aviation | Mable 1 | Goosenecks |  |  |  |
+|  |  |  |  |  |  | 11:20 AM | 11:55 AM | 0:35 | Breakout C | Mabel 1 | Screen & Projector | 12:15 PM | 1:00 PM | 0:45 | Closing Keynote | Mable 1 | Lav |  |  |  |
+|  |  |  |  |  |  | 11:20 AM | 11:55 AM | 0:35 | Breakout D | Lauderdale | Screen & Projector | 1:00 PM |  |  | Lunch / Strike |  |  |  |  |  |
+|  |  |  |  |  |  | 11:55 AM | 12:35 PM | 0:40 | The Real State of Real Estate: | Mabel 1 | Goosenecks |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 12:35 PM | 2:00 PM | 1:25 | Lunch |  |  |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 2:00 PM | 2:40 PM | 0:40 | The Role of Outside Voices | Mabel 1 | Goosenecks |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 2:40 PM | 3:15 PM | 0:35 | Breakout E | Mabel 2 | Screen & Projector |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 2:40 PM | 3:15 PM | 0:35 | Breakout F | Club Room | Screen & Projector |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 3:15 PM | 3:40 PM | 0:25 | Coffee Break |  |  |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 3:40 PM | 4:20 PM | 0:40 | Unlocking Private Aviation | Mabel 1 | 5 Goosenecks |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 4:20 PM | 5:00 PM | 0:40 | Biotech, Healthcare & Life Science | Mabel 1 | 5 Goosenecks |  |  |  |  |  |  |  |  |  |
+|  |  |  |  | mONA |  | 5:00 PM | 5:45 PM | 0:45 | Family Office Perspectives: | Mabel 1 | 5 Goosenecks |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  |  |  |  | Loop video |  |  |  |  |  |  |  |  |  |  |  |
+
+| ROOM DIMENSIONS:&#10;4100 SQ FT TOTAL |
+| :---: |
+
+| 3600 |
+| :---: |
+| 4800 |
+| 4200 |
+| 4000 |
+
+| PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET |
+| :---: | :---: | :---: | :---: | :---: |
+
+| East Coast Single Family Office Symposium Ft Lauderdale Set 5/13/24 | East Coast Single Family Office Symposium Ft Lauderdale Set 5/13/24 | East Coast Single Family Office Symposium Ft Lauderdale Set 5/13/24 | East Coast Single Family Office Symposium Ft Lauderdale Set 5/13/24 | East Coast Single Family Office Symposium Ft Lauderdale Set 5/13/24 |  | TOTAL COUNT CORP & INS SALON 1 | TOTAL COUNT CORP & INS SALON 1 |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+
+|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1728 |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 960 |
+| FALSE | 1 | FOH Rack |  | FOH |  | 0 | 1 |  |  |  |  |  |  |  |  |
+| FALSE | 84 | Batteries |  | FOH |  | 0 | 2 |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Allen & Heath QU32 Mixer |  | AUDIO |  | 0 | 3 |  |  |  |  |  |  |  |  |
+| FALSE | 2 | QSC KLA  |  | AUDIO |  | 0 | 4 |  |  |  |  |  |  |  |  |
+| FALSE | 2 | QSC K8 |  | AUDIO |  | 0 | 5 |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Behringer Powered Speaker |  | AUDIO |  | 0 | 6 |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Ultimate Speaker Stands w Black Scrim | SPEAKERS / MONITOR | AUDIO |  | 0 | 8 |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Sennheiser Rack - 16 |  | AUDIO |  | 0 | 10 |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Sennheiser Rack - 4 |  | AUDIO |  | 0 | 20 |  |  |  |  |  |  |  |  |
+| FALSE | 1 | ASA |  | AUDIO |  |  | 84 |  |  |  |  |  |  |  |  |
+| FALSE | 1 | AB168 |  | AUDIO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Straight Mic Stand |  | AUDIO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Mic Stand Bases |  | AUDIO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 6 | Short Boom Mic Stands |  | AUDIO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Zoom Audio Recorder |  | AUDIO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | 30" Aluminum Double Base |  | BASES |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 30" Aluminum Screen Base |  | BASES |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 30" Aluminum Base |  | BASES |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 6 | 30" Aluminum Bases - Blank / No Couplers |  | BASES |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | AV Matrix Kit (Switcher / Converter / Preview / Perfect Cue) |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Countdown Clock Kit |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | Eiki Projector | GS / BREAKOUTS | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 6' x 10' Screen |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 6' x 10' Frame |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 3 | 11.4' I-Beam | SCREEN / LIGHTS | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 9' Screen Hanger |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Drape King Screen Clamps |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | PTZ Camera Kit (Camera / Interface / ATEM / Remote |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | PTZ Monfrotto Tripod Stand |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | PTZ Huddlecam Controller |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | Legion 5 |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | Asus Laptos |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | 43" Confidence Monitor |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Confidence Monitor Stand |  | VIDEO |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 7' Tripod Screens |  | VIDEO |  |  |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Tripod Skirts |  | VIDEO |  |  |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Slide Advancers |  | VIDEO |  |  |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Lekos  |  | LIGHTS |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 26 Degree Leko Lens |  | LIGHTS |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | Sandbags |  | LIGHTS |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Lightronics Light Board |  | LIGHTS |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 10 | Rockville LED Uplights |  | LIGHTS |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 3 | DMX Powercon Jumper - 3' |  | LIGHTS |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 3 | Powercon to Edison |  | LIGHTS |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Dark Blue Spandex with Logo |  | SCENIC |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 5 | Grey Spandex Sections |  | SCENIC |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 10 | 2.0 Ups |  | SCENIC |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 5 | 2.0 Cross |  | SCENIC |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 5 | No Hook Crosses |  | SCENIC |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 10 | PnD Pins |  | SCENIC |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Tool Kit |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Truss Podium Top |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Truss Podium Box Truss w Base |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Truss Podium Skirt & Couplers |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Black Gaff Tape |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | White Gaff |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Roll Plastic Wrap |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | Tech Drape Panel |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | Tech Upright |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | Tech Bases |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Crossbars with Hook |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Short Crossbar |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | Black Table Cloth |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 20 | Zip Ties Long |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | 8' Ladder |  | OTHER |  |  |  |  |  |  |  |  |  |  |  |
+| FALSE | 1 | Cases water |  | OTHER |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 8 | 25' XLR |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 6 | 50' XLR |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | 100' XLR |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 6 | XLR Right Angle |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 25' SDI |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 50' SDI |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 75' SDI |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 100' SDI |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 3 | 150' SDI |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 50' CAT6 |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 100' CAT6 |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 150' CAT6 |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 6 | 50' HDMI |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 5 | 10' POWER |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 10 | 25' POWER |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 10 | 50' POWER |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | 100' POWER |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 6 | Power Strip - Small |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | Power Strip - 4 Foot Long |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 6 | 10' DMX |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | 25' DMX |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | 50' DMX |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 4 | 100' DMX |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 25' ANTENNA |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+| FALSE | 2 | 50' ANTENNA |  | CABLE |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+|  |  |  |  |  |  | 0 |  |  |  |  |  |  |  |  |  |
+
+| ME |  | CHIP |  | JOANN |  | HOTEL |  | AV |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+|  |  | Dirver? |  | Details? |  | Send COI |  |  |
+|  |  | Create / Send Proposal |  | Setup Time? |  |  |  |  |
+|  |  |  |  | Diagrams? |  |  |  |  |
+|  |  |  |  | Budget? |  |  |  |  |
