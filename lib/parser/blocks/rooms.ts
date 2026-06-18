@@ -132,9 +132,45 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       i = result.nextLine;
       continue;
     }
+
+    // v4 Additional-room header: ALL-CAPS "ADDITIONAL ROOM ...", same rules. The
+    // v4 path short-circuits the v2 parseAdditionalRoom fallback, so a real v4
+    // additional room must be parsed here. Content-gate it: an unfilled template
+    // stub (e.g. fintech's "ADDITIONAL ROOM Dimensions Floor" with empty Setup
+    // rows) has no fields, so it is dropped rather than added as an all-null room.
+    if (
+      /^ADDITIONAL\s+ROOM\b/.test(col0) &&
+      (!col1 || col1 === col0) &&
+      !col0.includes("&#10;") &&
+      hasBareV4DataRow(lines, i)
+    ) {
+      const result = parseV4RoomBlock(lines, i, col0, "additional");
+      i = result.nextLine;
+      if (roomHasContent(result.room)) rooms.push(result.room);
+      continue;
+    }
   }
 
   return rooms.map(({ _nextLine: _n, ...rest }) => rest as RoomRow);
+}
+
+function roomHasContent(room: RoomRow): boolean {
+  return [
+    room.dimensions,
+    room.floor,
+    room.setup,
+    room.set_time,
+    room.show_time,
+    room.strike_time,
+    room.audio,
+    room.video,
+    room.lighting,
+    room.scenic,
+    room.power,
+    room.digital_signage,
+    room.other,
+    room.notes,
+  ].some((v) => v != null);
 }
 
 function parseV4RoomBlock(
@@ -169,7 +205,11 @@ function parseV4RoomBlock(
     if (cells.every((c) => /^[\s:|*-]*$/.test(c))) continue;
 
     // Stop at another room header (all-caps only, same rule as detection above)
-    if (/^GENERAL SESSION\b/.test(col0) || /^BREAKOUT \d/.test(col0)) {
+    if (
+      /^GENERAL SESSION\b/.test(col0) ||
+      /^BREAKOUT \d/.test(col0) ||
+      /^ADDITIONAL\s+ROOM\b/.test(col0)
+    ) {
       j--; // back up so the outer loop sees this
       break;
     }

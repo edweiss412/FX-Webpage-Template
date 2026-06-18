@@ -116,6 +116,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
   const slots = new Map<number, SlotData>();
   let currentGroupLeft = 0;
   let checkoutDate: string | null = null;
+  let wideCheckInLayout = false;
   // track what the last non-blank row type was for value-row detection
   type RowState = "idle" | "hotel_name" | "names" | "check_in";
   let rowState: RowState = "idle";
@@ -183,6 +184,10 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
     // "Check In Date" / "Check Out Date" label row
     if (/check\s+in\s+date/i.test(col1) || /check\s+in\s+date/i.test(col0)) {
       rowState = "check_in";
+      // Detect the 5-col layout from the HEADER shape (the label row carries a
+      // 4th "Check Out Date" for the right reservation), NOT from a value cell —
+      // so a blank right checkout stays null instead of inheriting the left date.
+      wideCheckInLayout = /check\s+out/i.test(clean(row[4] ?? ""));
       continue;
     }
 
@@ -211,11 +216,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
 
     if (rowState === "check_in" && col0 === "") {
       const col4 = clean(row[4] ?? "");
-      // 5-col exporter layout duplicates each reservation across two columns, so
-      // the value row is `in1 | out1 | in2 | out2` — each reservation has its OWN
-      // checkout (col4). The 4-col raw layout has no col4 and col2 is a checkout
-      // shared by both reservations in the group; keep that legacy behavior.
-      const wideLayout = col4 !== "" && col4 !== "\\-" && col4 !== "-";
+      const col4Present = col4 !== "" && col4 !== "\\-" && col4 !== "-";
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
         leftSlot.check_in = normalizeDate(col1);
       }
@@ -225,9 +226,15 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         rightSlot.check_in = normalizeDate(col3);
-        // 5-col: right reservation's own checkout is col4; 4-col legacy: the
-        // single shared checkout column (col2).
-        rightSlot.check_out = wideLayout ? normalizeDate(col4) : checkoutDate;
+        // 5-col (wide, from header shape): the right reservation has its OWN
+        // checkout (col4); when that cell is blank, leave it null rather than
+        // inheriting the left reservation's date. 4-col legacy: the single
+        // shared checkout column (col2).
+        rightSlot.check_out = wideCheckInLayout
+          ? col4Present
+            ? normalizeDate(col4)
+            : null
+          : checkoutDate;
       }
       rowState = "idle";
       continue;

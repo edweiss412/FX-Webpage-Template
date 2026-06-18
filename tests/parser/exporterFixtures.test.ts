@@ -10,6 +10,8 @@
  * and DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY.
  */
 import { parseSheet } from "@/lib/parser";
+import { parseHotels } from "@/lib/parser/blocks/hotels";
+import { parseRooms } from "@/lib/parser/blocks/rooms";
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 
@@ -135,6 +137,24 @@ describe("exporter fidelity — A2 multi-reservation check-out (own per reservat
       }
     }
   });
+
+  it("A2/AR: wide layout with a BLANK right checkout leaves it null (no inherited date)", () => {
+    // Wide-layout is detected from the label row's 4th "Check Out Date", not from
+    // a value cell — so a blank right checkout stays null instead of inheriting
+    // the left reservation's date.
+    const md = [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 | RESERVATION \\#2 | RESERVATION \\#2 |",
+      "| :---: | :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address | Hotel Name / Address | Hotel Name / Address |",
+      "|  | Hotel A | Hotel A | Hotel B | Hotel B |",
+      "|  | Check In Date | Check Out Date | Check In Date | Check Out Date |",
+      "|  | 1/1/26 | 1/5/26 | 1/2/26 |  |",
+    ].join("\n");
+    const h = parseHotels(md, "v4");
+    expect(h[0]!.check_out).toBe("2026-01-05");
+    expect(h[1]!.check_in).toBe("2026-01-02");
+    expect(h[1]!.check_out).toBeNull(); // NOT inherited "2026-01-05"
+  });
 });
 
 describe("exporter fidelity — B1 transport assigned_names ignores the col0 stage label", () => {
@@ -217,5 +237,27 @@ describe("exporter fidelity — C2 phantom 'Additional Room Name(s)' suppressed"
         `${slug} additional rooms`,
       ).toEqual([]);
     }
+  });
+});
+
+describe("exporter fidelity — AR: v4 additional rooms (content-gated, not dropped by short-circuit)", () => {
+  it("fintech's empty ADDITIONAL ROOM template stub is not emitted as a room", () => {
+    expect(parse("fintech").rooms.filter((r) => r.kind === "additional")).toEqual([]);
+  });
+  it("a v4 show WITH a real additional room captures it (not lost to the v4 short-circuit)", () => {
+    const md = [
+      "| GENERAL SESSION MAIN HALL 40' x 30' | GENERAL SESSION MAIN HALL 40' x 30' |",
+      "| :---: | :---: |",
+      "| Setup | Theater |",
+      "",
+      "| ADDITIONAL ROOM GREEN ROOM 12' x 12' | ADDITIONAL ROOM GREEN ROOM 12' x 12' |",
+      "| :---: | :---: |",
+      "| Setup | Lounge seating |",
+    ].join("\n");
+    const rooms = parseRooms(md, "v4");
+    expect(rooms.filter((r) => r.kind === "gs")).toHaveLength(1);
+    const add = rooms.filter((r) => r.kind === "additional");
+    expect(add).toHaveLength(1);
+    expect(add[0]!.setup).toBe("Lounge seating");
   });
 });
