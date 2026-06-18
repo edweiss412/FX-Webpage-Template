@@ -339,7 +339,9 @@ function buildInlineHotel(raw: string, ordinal: number): HotelReservationRow {
   // normalizeDate handles M/D/YY but not M/D — supply current-era year suffix when absent
   function resolveDate(raw2: string | undefined): string | null {
     if (!raw2) return null;
-    if (/\/\d{2,4}$/.test(raw2)) return normalizeDate(raw2);
+    // Year present only when there are TWO slashes (M/D/YY). The old `/\/\d{2,4}$/`
+    // test matched the trailing "/11" of a yearless "5/11" and skipped back-fill.
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(raw2)) return normalizeDate(raw2);
     // Add a likely year from the text (look for 4-digit year in the original text)
     const yearMatch = /\b(202\d)\b/.exec(text);
     const yearSuffix = yearMatch ? `/${yearMatch[1]}` : "/25";

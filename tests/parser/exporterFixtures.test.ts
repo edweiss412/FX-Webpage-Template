@@ -97,3 +97,16 @@ describe("exporter fidelity — stale 'OLD PULL SHEET' tab skipped", () => {
     expect(JSON.stringify(r)).not.toContain("RIA - CHICAGO");
   });
 });
+
+describe("exporter fidelity — A1 inline hotel dates back-fill year", () => {
+  it("redefining + ria resolve yearless 'Check In: M/D' to ISO (was null)", () => {
+    // resolveDate's `/\/\d{2,4}$/` guard matched the trailing '/11' of '5/11' and
+    // short-circuited the year back-fill -> normalizeDate('5/11') -> null.
+    const rf = parse("redefining-fi").hotelReservations[0]!;
+    expect(rf.check_in).toBe("2025-05-11");
+    expect(rf.check_out).toBe("2025-05-15");
+    const ria = parse("ria").hotelReservations[0]!;
+    expect(ria.check_in).toBe("2025-06-23");
+    expect(ria.check_out).toBe("2025-06-26");
+  });
+});
