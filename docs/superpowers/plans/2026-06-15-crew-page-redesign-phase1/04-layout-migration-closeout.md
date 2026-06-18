@@ -203,7 +203,18 @@
   });
   test("no source/test file imports a deleted module", () => {
     // ripgrep returns non-zero (exit 1) when there are NO matches — that is the PASS condition.
-    let out = ""; try { out = execSync(`rg -l "selectTodayTiles|_ShowBody|components/tiles/(${["AudioScope","VideoScope","LightingScope","Contacts","Crew","Diagrams","Financials","Lodging","Notes","OpeningReel","PackList","Schedule","ShowStatus","Transport","Venue"].join("|")})Tile" app components lib tests`, { encoding: "utf8" }); } catch { out = ""; }
+    // EXCLUDE this test's OWN file (R3-MEDIUM-2): it contains the module names in its DELETED list +
+    // this regex, so without the glob it would self-match forever after the real modules are deleted.
+    // Scan only IMPORT statements (`from "..."` / `import(...)`) so a stray mention can't false-positive.
+    const shells = ["AudioScope","VideoScope","LightingScope","Contacts","Crew","Diagrams","Financials","Lodging","Notes","OpeningReel","PackList","Schedule","ShowStatus","Transport","Venue"].join("|");
+    let out = ""; try {
+      out = execSync(
+        `rg -l --glob '!tests/migration/crew-redesign-cleanup.test.ts' ` +
+        `"(from\\s+['\\"]|import\\(['\\"])(@/)?(lib/show/selectTodayTiles|app/show/\\[slug\\]/\\[shareToken\\]/_ShowBody|components/tiles/(${shells})Tile)" ` +
+        `app components lib tests`,
+        { encoding: "utf8" }
+      );
+    } catch { out = ""; }
     expect(out.trim()).toBe("");
   });
   ```
