@@ -104,6 +104,7 @@ export function buildRightNowContext(opts: {
 export type CrewShellProps = {
   data: ShowForViewer;
   viewer: Viewer;            // { kind: "crew"|"admin"|"admin_preview"; crewMemberId? }
+  showId: string;            // R7-HIGH: ShowRow has NO `id` — showId is a SEPARATE prop (as _ShowBody.tsx:74); used for upsertAdminAlert({showId}) + ShowRealtimeBridge + wrapped-block alerts. page.tsx passes result.showId; preview-as passes showLookup.id. NEVER `data.show.id` (doesn't exist) or null (null coalesces alerts across shows in the RPC conflict key).
   rawSection: string | undefined; // the UNVALIDATED `?s=` — CrewShell resolves it ITSELF (R2-HIGH-1)
   slug: string;
   shareToken?: string;       // crew route only; preview-as omits
