@@ -636,3 +636,45 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Found:** WM-R8 fix follow-up (2026-06-12). A Phase D shadow resolved as `discarded_by_reviewer_choice` (MI-12 reject) writes no `sync_audit` row (ratified live reject contract), so on a published=false existing show it leaves no durable completion provenance. If a SIBLING shadow then blocks final-CAS, the retry's `ONBOARDING_LEGACY_ROW_AMBIGUOUS` preflight classifies the completed-by-reject row as legacy-ambiguous and 409s. **Recovery exists and is correct** (the cataloged copy: re-run setup → restage, or developer clears) — this is an availability annoyance on a narrow path (unpublished existing show + reject choice + partial batch + retry), not data loss; fail-closed is the safe direction. Proper fix needs a design decision: a durable per-row completion marker that doesn't violate the no-audit reject contract (e.g., manifest-row completion stamp written by Phase D for ALL terminal row outcomes).
 
 **Trigger:** M13 launch-gate checklist, or any milestone reopening finalize-cas / the reject contract.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY — End-to-end parser/exporter fidelity findings (consolidated)
+
+**Found:** Sheet-data grounding audit, 2026-06-18 (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/sheet-data-grounding-audit-2026-06-18.md`). The **end-to-end** layer ran the real production pipeline — Drive XLSX export → `synthesizeMarkdownFromXlsx` (`lib/drive/exportSheetToMarkdown.ts`) → `parseSheet` — against all 7 live `fxav-test-shows` workbooks (fixtures now committed at `fixtures/shows/exporter-xlsx/`). It surfaced a class of bugs invisible to the `fixtures/shows/raw/` (Drive-MCP) corpus: the parser silently loses or corrupts major sections on every show, with `warnings: []` / `raw_unrecognized: []` (fail-silent).
+
+**What — disposition of each bug class:**
+
+| Class | Severity | Disposition |
+|---|---|---|
+| `event_details` empty + `openingReel` null — exporter collapses 2-col DETAILS to label-only (4 shows: redefining/consultants/east-coast/ria) | CRITICAL | **SPEC DECISION → DEF-1 below** (intentional contract, contradicted by live data) |
+| `pullSheet` null (RIA, header rewrite) / empty (East Coast, block-orphan) / **stale `OLD PULL SHEET`** wrong-show data (redefining) | CRITICAL | **SPEC DECISION (stale-tab) → DEF-2**; null/empty are clean-fix in branch |
+| General Session room dropped (fintech/fixed-income/rpas); breakouts dropped (east-coast/redefining); phantom `Additional Room Name(s)` + FORM-harvest rooms | HIGH | **Clean-fix** (branch `worktree-parser-exporter-fidelity`) — `lib/parser/blocks/rooms.ts` |
+| `transportation` → null on v4 shows (header shape `[label,value,PHONE,EMAIL,LICENSE]` unrecognized); `vehicle` dropped (ria/east-coast); `assigned_names` echoes stage label | HIGH | **Clean-fix** — `lib/parser/blocks/transport.ts` |
+| Hotel `check_in`/`check_out` null or inverted; conf# dropped; address glued into `hotel_name`; raw `&#10;` | HIGH | **Clean-fix** — `lib/parser/blocks/hotels.ts` |
+| East Coast `dates` all-null (trailing free-text qualifiers like `- AFTER 8PM` defeat the label classifier) | HIGH | **Clean-fix** — `lib/parser/blocks/dates.ts` |
+| Phantom `DOCUMENTS` crew member (east-coast crew scanner over-reads into the DOCUMENTS section) | HIGH | **Clean-fix** — `lib/parser/blocks/crew.ts` boundary |
+| `agenda_links=[]` on East Coast (label `AGENDA`, regex requires `AGENDA LINK`) | MEDIUM | **Clean-fix** — `lib/parser/index.ts:233` |
+| Filename-only agenda links (2/7: redefining/ria) never resolve — no Drive fileId, so `AgendaEmbed` renders nothing | MEDIUM | Feature gap — Drive resolution of non-`/d/<id>` agenda entries is deferred per `parseAgendaLinks` docstring; leave as-is, track here |
+| Fail-silent: dropped sections emit no warning / `raw_unrecognized` | MEDIUM | **Clean-fix** — emit warnings when a recognized section header yields no mapped fields |
+| Embedded DIAGRAMS images unreachable via Sheets API | LOW | **Existing backlog** → `BL-DIAGRAMS-EMBEDDED-SOURCE`. The 2026-06-18 Drive probe **confirms its proposed fix**: the XLSX export carries the images as `xl/media/*` (2–7 per workbook, well under any cap — closes audit SP-040/042). |
+| Watermark: `headRevisionId`/`md5` null on native Sheets → binding token falls back to `modifiedTime`; Drive monotonic `version` unused | LOW | Design note (no current correctness gap); candidate `version`-as-watermark hardening — track here |
+| Reel/image byte-stability (SCH-29) | INFO | Inherently temporal (needs ≥2 captures over time) — still open; baseline captured |
+
+**Why deferred (the SPEC-DECISION items only — clean-fix items land in this branch):** Per invariant #7 (spec is canonical; open a question rather than silently fixing). The two DEF items below are *intentional, contract-pinned* behaviors that the live data contradicts — changing them needs an owner decision, not a code patch.
+
+**Trigger:** Clean-fix items: this branch (`worktree-parser-exporter-fidelity`), TDD against the new `fixtures/shows/exporter-xlsx/` fixtures. SPEC-DECISION items (DEF-1/DEF-2): owner decision, then a parser milestone. All remaining items: M13 launch-gate parser-fidelity review.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1 — v2 "DETAILS" block: exporter label-only collapse vs live col-B values
+
+**Found:** Same audit (end-to-end). On the 4 v2/v1 shows the parser returns `event_details: {}` and `openingReel: null`, dropping stage size, opening-reel mode, LED/scenic, podium, polling, internet, power — every show-level detail a crew member consults.
+
+**What / why it's a spec decision, not a bug:** The collapse is **intentional and contract-pinned**. `lib/drive/exportSheetToMarkdown.ts:135-137` (`normalizeBlock`) maps any block whose first cell is `DETAILS` to label-only single-column rows; `lib/parser/blocks/event.ts` documents variant 2 ("v2 'DETAILS' block … values do not appear in this block; return empty record for these"); and `tests/drive/exportSheetToMarkdown.test.ts:120` pins it ("keeps the DETAILS checklist label-only to match the fixture parser contract"). The premise is that a v2 `DETAILS` header is a label-only checklist. **The live v2 sheets contradict it:** Redefining/Consultants/RIA all carry real values in INFO col B alongside the DETAILS labels (verified live, e.g. `INFO!B62 = "YES - LOOP VIDEO"`). So the contract is wrong for these sheets, but it was deliberately authored — flipping it requires deciding (a) whether all v2 `DETAILS` blocks should now preserve col B (and re-baselining the exporter test + the `event.ts` variant-2 empty-record path), or (b) whether these specific sheets are atypical and the label-only assumption holds for the production corpus. Note: only the **`EVENT DETAILS`** (v4) and **`DETAILS/Room Diagram`** (v1) headers currently parse values; the bare **`DETAILS`** header is the label-only case.
+
+**Trigger:** Owner decision on the v2 `DETAILS` contract; then a parser milestone implements it TDD against `fixtures/shows/exporter-xlsx/{redefining-fi,consultants,ria}.md`. Do NOT unilaterally change the exporter/parser until decided.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY-DEF-2 — `OLD PULL SHEET` stale-tab ingestion (wrong-show gear)
+
+**Found:** Same audit. Redefining FI's `pullSheet` parses 91 items from a tab named **`OLD PULL SHEET`** whose body is a *different, prior* show (caseLabel `RIA - CHICAGO, IL … Set: 4/15/24` — 13 months before this May-2025 show). The exporter's `normalizePullSheetGrid` (`exportSheetToMarkdown.ts:109`) and the parser both match `/PULL SHEET/i`, which catches `OLD PULL SHEET`, so a crew member would see a wrong show's gear list.
+
+**What / why it's (partly) a spec decision:** Dropping/ignoring a tab because its name contains "OLD" is a heuristic with product judgment (what marks a tab stale?). The clean half — *not* attributing one show's gear to another — is real, but the disambiguation rule (tab-name denylist? freshest-tab-wins? require the case title to match the show?) needs an owner steer. Pairs with the RIA `pullSheet: null` and East-Coast `items: 0` defects (clean-fix in branch).
+
+**Trigger:** Owner steer on stale-tab disambiguation; then implement with the pull-sheet detection fixes. Until then, the linked agenda PDF + GEAR remain the gear sources for affected shows.
