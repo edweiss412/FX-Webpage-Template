@@ -121,8 +121,17 @@ export type CrewShellProps = {
 // fallback. This is the spec's single-predicate Budget gate (§4.1) across tab + URL + section.
 
 // Each section: components/crew/sections/<Name>Section.tsx
-// export function <Name>Section(props: { data: ShowForViewer; viewer: Viewer }): JSX.Element
+// export function <Name>Section(props: { data: ShowForViewer; viewer: Viewer; today: Date }): JSX.Element
 // Reads viewer roleFlags/restrictions off data.crewMembers (resolved for the viewer) — NOT a separate prop.
+// `today` (R8-HIGH-1): the raw request-scoped `Date` from `await nowDate()`, computed ONCE by CrewShell
+//   and passed down — so the sections stay SYNCHRONOUS + jsdom-testable (no `next/headers` async call
+//   inside a section). It is a `Date` (matching the live `ScheduleTile` `today?: Date` prop, `:81`), NOT
+//   an ISO string: ScheduleSection converts via `todayIsoInShowTimezone(data.show, today)` (from
+//   `lib/visibility/packList`, the same helper ScheduleTile uses, `:58`/`:170`) for the today-pin;
+//   GearSection passes it straight to `isPackListVisibleToday({ show, restriction, today })` (`today: Date`,
+//   `lib/visibility/packList.ts:122-127`). Each section does its own tz handling. Tests pass a deterministic
+//   `Date` literal (e.g. `today={new Date("2026-05-14T15:00:00Z")}`). The hero owns its OWN client clock
+//   (§4.3) and does NOT use this server `today`.
 
 // RightNowHero — components/crew/RightNowHero.tsx
 // export function RightNowHero(props: { context: RightNowContext }): JSX.Element  (no `state` prop)
