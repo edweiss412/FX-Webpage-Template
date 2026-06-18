@@ -350,16 +350,6 @@ bar (matches the existing per-task discipline). Capture the exact error list at 
 
 ---
 
-### BL-TILE-ALERT-CONTEXT-MERGE — richer simultaneous diagnostic context for coalesced TILE_SERVER_RENDER_FAILED
-
-**Filed:** 2026-06-15, during the crew-page-redesign Phase-1 spec adversarial review (R11). `admin_alerts` coalesces unresolved `TILE_SERVER_RENDER_FAILED` rows by `(show_id, code)` (`admin_alerts_one_unresolved_idx`) and replaces context on conflict. The redesign's `TileErrorAlertBridge` (projection `tileErrors` → `failedKeys`) and per-block `TileServerFallback` (render throws → thrown `tileId`) can both fire in one render; coalescing keeps one row (occurrence_count bumps, `sheet_name` preserved for §12.4 interpolation) but only the most-recent `context` survives, so the *specific* `failedKeys`-vs-`tileId` diagnostic of the other writer is lost.
-
-**Why backlog, not a Phase-1 gap:** the alert still fires (show-level "tile failures" signal + occurrence_count + interpolation key intact) — the operator is notified and can investigate. Preserving BOTH diagnostic payloads in one row needs either (a) an RPC context-merge on conflict for this code, or (b) a distinct alert code for projection-vs-render failures (a §12.4 catalog addition with its three-lockstep updates). Both exceed Phase-1 scope and neither is a correctness bug.
-
-**Promotion prerequisite:** operator feedback that the coalesced-context loss actually hampers tile-failure triage, OR a broader admin-observability milestone that revisits `admin_alerts` context handling.
-
----
-
 ## Promoted (was backlog, now scheduled)
 
 _(empty — no items have been promoted yet)_
