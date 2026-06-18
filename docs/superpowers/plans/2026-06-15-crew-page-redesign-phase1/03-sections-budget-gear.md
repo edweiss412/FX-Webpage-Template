@@ -4,7 +4,7 @@
 
 **Goal:** Build the seven `components/crew/sections/*Section.tsx` Server Components (`{ data, viewer }`) — Today · Schedule · Venue · Travel · Crew · Gear + conditional Budget — porting the **complete** field set of the 14 tiles they subsume (not a visual subset, wp-19), preserving every visibility gate and the Schedule date-restriction privacy contract, with the Gear scope gate→emphasis flip (D-5).
 
-**Tech Stack:** Next.js RSC, TypeScript strict, Tailwind v4 tokens. Vitest. Each section is `<Name>Section({ data, viewer, today })` — a **SYNCHRONOUS** Server Component (NO `async`/`next/headers` inside). It reads viewer `roleFlags`/restrictions off `data.crewMembers` (resolved for the viewer). **`today: Date` (R8-HIGH-1):** the raw request-scoped `Date` from `await nowDate()`, computed ONCE by `CrewShell` and passed down (a `Date`, matching `ScheduleTile`'s `today?: Date`, `:81` — NOT an ISO string). Schedule converts it via `todayIsoInShowTimezone(data.show, today)` (`lib/visibility/packList`, `:58`/`:170`) for the today-pin; Gear passes it straight to `isPackListVisibleToday({ show, restriction, today })` (`today: Date`, `packList.ts:122-127`); others ignore it. This keeps the request-scoped clock contract (frozen-clock screenshots, day-boundary correctness, §4.14) WITHOUT making sections async or calling `new Date()`/`nowDate()` inside them. **Every section test below renders with a deterministic `Date` literal** (e.g. `today={new Date("2026-05-14T15:00:00Z")}`), so the tests stay synchronous Testing-Library renders.
+**Tech Stack:** Next.js RSC, TypeScript strict, Tailwind v4 tokens. Vitest. Each section is `<Name>Section({ data, viewer, today })` — a **SYNCHRONOUS** Server Component (NO `async`/`next/headers` inside). It reads viewer `roleFlags`/restrictions off `data.crewMembers` (resolved for the viewer). **`today: Date` (R8-HIGH-1):** the raw request-scoped `Date` from `await nowDate()`, computed ONCE by `CrewShell` and passed down (a `Date`, matching `ScheduleTile`'s `today?: Date`, `:81` — NOT an ISO string). Schedule converts it via `todayIsoInShowTimezone(data.show, today)` (`lib/visibility/packList`, `:58`/`:170`) for the today-pin; Gear passes it straight to `isPackListVisibleToday({ show, restriction, today })` (`today: Date`, `packList.ts:122-127`); others ignore it. This keeps the request-scoped clock contract (frozen-clock screenshots, day-boundary correctness, §4.14) WITHOUT making sections async or calling `new Date()`/`nowDate()` inside them. **Every section test file defines `const TODAY = new Date("2026-05-14T15:00:00Z");` at the top and passes `today={TODAY}` on EVERY `render(<*Section ... />)`** (the snippets below already include `today={TODAY}` — `today: Date` is REQUIRED on the contract, so a render omitting it fails tsc; R9-HIGH). The today-pin test (Schedule test 34) and any test that exercises a specific day boundary defines its OWN boundary `Date` instead of `TODAY`; structural/privacy/cap tests use the shared `TODAY` (a show day, inert for them). Tests stay synchronous Testing-Library renders.
 
 ---
 
@@ -65,7 +65,7 @@ test("Today renders hero + key-times + Tonight/Where/Need-something + dress + no
     contacts: [{ kind: "venue", name: "Sam", phone: "555-111-2222", email: null, notes: null }],
     show: { venue: { name: "Center", address: "5 Ave" }, event_details: { dress_code: "Business casual" } },
   });
-  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
   expect(container.querySelector('[data-testid="right-now-hero"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="key-times-strip"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-tonight"]')).toBeTruthy();
@@ -90,12 +90,12 @@ test("Show notes aggregate all 5 sources in order; transport note gated by trans
     transportation: { driver_name: null, driver_phone: null, driver_email: null, vehicle: null, license_plate: null, color: null, parking: null, schedule: [], notes: "TRANSPORT_NOTE" },
     contacts: [{ kind: "venue", name: "C", notes: "CONTACT_NOTE", phone: "555-0000", email: null }],
   });
-  const admin = render(<TodaySection data={data} viewer={{ kind: "admin" }} />);
+  const admin = render(<TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} />);
   const notes = admin.container.querySelector('[data-testid="today-notes"]')!;
   const order = ["VENUE_NOTE", "HOTEL_NOTE", "ROOM_NOTE", "TRANSPORT_NOTE", "CONTACT_NOTE"].map((s) => notes.textContent!.indexOf(s));
   expect(order.every((i) => i >= 0)).toBe(true);
   expect([...order]).toEqual([...order].sort((a, b) => a - b)); // ascending = source order preserved
-  const crew = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} />);
+  const crew = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} />);
   expect(crew.container.querySelector('[data-testid="today-notes"]')!.textContent).not.toContain("TRANSPORT_NOTE");
 });
 // _Catches: dropping hotel/room/transport/contact notes when the aggregator tile is deleted; transport notes leaking to unassigned crew.
@@ -114,7 +114,7 @@ test("client_contact never appears; Need-something uses the deterministic action
       { kind: "in_house_av", name: "AV_LEAD", phone: "555-222-3333", email: null, notes: null },
     ],
   });
-  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
   expect(container.textContent).not.toContain("CLIENT_REP");
   expect(container.textContent).not.toContain("555-999-0000");
   expect(container.querySelector('[data-testid="today-need-something"]')!.textContent).toContain("AV_LEAD");
@@ -149,17 +149,17 @@ const base = makeShowForViewer({ show: { dates: DATES, schedule_phases: {} } });
 function withRestriction(r) { return { ...base, crewMembers: [{ ...base.crewMembers[0], id: "c1", dateRestriction: r }] }; }
 
 test("unknown_asterisk → unconfirmed placeholder, ZERO day cards, NO date text for ANY of travelIn/set/showDays/travelOut", () => {
-  const { container } = render(<ScheduleSection data={withRestriction({ kind: "unknown_asterisk", days: null })} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  const { container } = render(<ScheduleSection data={withRestriction({ kind: "unknown_asterisk", days: null })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
   expect(container.querySelector('[data-testid="schedule-unconfirmed"]')).toBeTruthy();
   expect(container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(0);
   for (const d of ALL_DATES) expect(container.textContent).not.toContain(d); // NO travel/set/show/travelOut date leaks (full domain, not just show days)
 });
 test("explicit → intersection against the FULL aggregate; none → all aggregate days", () => {
   // explicit days span a travel day + a show day → both render (proves intersection is over the full domain, not just showDays)
-  const explicit = render(<ScheduleSection data={withRestriction({ kind: "explicit", days: [DATES.travelIn, DATES.showDays[0]] })} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  const explicit = render(<ScheduleSection data={withRestriction({ kind: "explicit", days: [DATES.travelIn, DATES.showDays[0]] })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
   expect(explicit.container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(2);
   expect(explicit.container.textContent).toContain(DATES.travelIn); // the Travel In day IS shown when assigned
-  const none = render(<ScheduleSection data={withRestriction({ kind: "none" })} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  const none = render(<ScheduleSection data={withRestriction({ kind: "none" })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
   expect(none.container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(ALL_DATES.length); // all 5 aggregate days, NOT just showDays.length (2)
 });
 // _Catches: narrowing the visible days to showDays only (dropping travel-in/set/travel-out cards — a field-port regression from ScheduleTile); the unknown_asterisk privacy check missing a travel/set date leak; treating unknown_asterisk like none.
@@ -188,13 +188,13 @@ test("Venue homes coi_status (data-testid=coi-status), power, internet, venue no
   const data = makeShowForViewer({
     show: { venue: { name: "Center", address: "5 Ave", loadingDock: "Dock at rear", notes: "Quiet load-in" }, coi_status: "Received", event_details: { power: "200A 3-phase", internet: "SSID Guest / pw 1234" } },
   });
-  const { container } = render(<VenueSection data={data} viewer={{ kind: "admin" }} />);
+  const { container } = render(<VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} />);
   expect(container.querySelector('[data-testid="coi-status"]')!.textContent).toContain("Received");
   expect(container.textContent).toContain("200A 3-phase");
   expect(container.textContent).toContain("SSID Guest / pw 1234"); // raw internet string (Phase 1)
   expect(container.textContent).toContain("Dock at rear");
   const sentinel = makeShowForViewer({ show: { venue: { name: "C", address: "A" }, coi_status: "TBD" } });
-  expect(render(<VenueSection data={sentinel} viewer={{ kind: "admin" }} />).container.querySelector('[data-testid="coi-status"]')).toBeNull();
+  expect(render(<VenueSection data={sentinel} viewer={{ kind: "admin" }} today={TODAY} />).container.querySelector('[data-testid="coi-status"]')).toBeNull();
 });
 // _Catches: deleting ShowStatusTile silently dropping COI/power/internet/dock/notes from the crew page (AC-4.1).
 ```
@@ -209,10 +209,10 @@ test("parking renders only when transportTileVisible; map link only when isParse
     show: { venue: { name: "C", address: "A", googleLink: "TBD" } }, // sentinel → no map link
     transportation: { driver_name: null, driver_phone: null, driver_email: null, vehicle: null, license_plate: null, color: null, parking: "Lot B, $20", schedule: [], notes: null },
   });
-  const unassigned = render(<VenueSection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} />);
+  const unassigned = render(<VenueSection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} />);
   expect(unassigned.container.textContent).not.toContain("Lot B");           // parking gated out
   expect(unassigned.container.querySelector('a[href^="http"]')).toBeNull();  // sentinel googleLink → no map link
-  expect(render(<VenueSection data={data} viewer={{ kind: "admin" }} />).container.textContent).toContain("Lot B"); // admin passes the gate
+  expect(render(<VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} />).container.textContent).toContain("Lot B"); // admin passes the gate
 });
 // _Catches: parking leaking to unassigned crew (§4.13a); a dead/unsafe map href surviving the port.
 ```
@@ -240,9 +240,9 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
       { ordinal: 0, hotel_name: "First", hotel_address: null, names: [], confirmation_no: null, check_in: "2026-05-13", check_out: null, notes: null },
     ],
   });
-  const crew = render(<TravelSection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} />);
+  const crew = render(<TravelSection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} />);
   for (const pii of ["Pat", "555-7", "Van", "ABC123", "Lot A"]) expect(crew.container.textContent).not.toContain(pii);
-  const admin = render(<TravelSection data={data} viewer={{ kind: "admin" }} />);
+  const admin = render(<TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} />);
   for (const pii of ["Pat", "555-7", "Van", "ABC123", "Lot A"]) expect(admin.container.textContent).toContain(pii);
   const html = admin.container.textContent!;
   expect(html.indexOf("First")).toBeLessThan(html.indexOf("Second")); // ordinal 0 before ordinal 1, regardless of array order
@@ -268,7 +268,7 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
 import { CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection"; // re-export the cap for the test
 test.each([CREW_INLINE_CAP - 1, CREW_INLINE_CAP, CREW_INLINE_CAP + 1])("roster cap boundary at %i", (n) => {
   const crewMembers = Array.from({ length: n }, (_, i) => ({ id: `c${i}`, name: `Member ${i}`, email: null, phone: null, role: "", roleFlags: [], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }));
-  const { container } = render(<CrewSection data={makeShowForViewer({ crewMembers })} viewer={{ kind: "crew", crewMemberId: "c0" }} />);
+  const { container } = render(<CrewSection data={makeShowForViewer({ crewMembers })} viewer={{ kind: "crew", crewMemberId: "c0" }} today={TODAY} />);
   const shown = container.querySelectorAll('[data-testid="crew-person-row"]').length;
   const stub = container.querySelector('[data-tile-show-more]');
   if (n <= CREW_INLINE_CAP) { expect(shown).toBe(n); expect(stub).toBeNull(); }
@@ -297,7 +297,7 @@ test("all scope shown to everyone; viewer's discipline first + [data-emphasis=yo
     rooms: [{ id: "r1", kind: "gs", name: "GS", audio: "2x SM58", video: "1x PTZ", lighting: null }], // lighting empty (scalar strings)
     crewMembers: [{ id: "c1", name: "A", email: null, phone: null, role: "", roleFlags: ["A1"], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }], // A1 → audio discipline
   });
-  const { container } = render(<GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  const { container } = render(<GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
   const cards = [...container.querySelectorAll('[data-testid^="gear-scope-"]')];
   expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual(["gear-scope-audio", "gear-scope-video"]); // audio first (viewer's), video next; lighting omitted (empty)
   expect(cards[0].getAttribute("data-emphasis")).toBe("you");
@@ -305,9 +305,9 @@ test("all scope shown to everyone; viewer's discipline first + [data-emphasis=yo
 });
 test("no-flag viewer → default order, no emphasis; all-empty → section EmptyState", () => {
   const noFlag = makeShowForViewer({ rooms: [{ id: "r1", kind: "gs", name: "GS", audio: "mic", video: "cam", lighting: "par" }], crewMembers: [{ id: "c1", name: "A", email: null, phone: null, role: "", roleFlags: [], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }] });
-  expect([...render(<GearSection data={noFlag} viewer={{ kind: "crew", crewMemberId: "c1" }} />).container.querySelectorAll('[data-testid^="gear-scope-"]')].map((c) => c.getAttribute("data-emphasis"))).toEqual([null, null, null]);
+  expect([...render(<GearSection data={noFlag} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.querySelectorAll('[data-testid^="gear-scope-"]')].map((c) => c.getAttribute("data-emphasis"))).toEqual([null, null, null]);
   const empty = makeShowForViewer({ rooms: [], pullSheet: null, openingReelHasVideo: false });
-  expect(render(<GearSection data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} />).container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
+  expect(render(<GearSection data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
 });
 // _Catches: emphasis becoming a gate (audio tech can't see lighting); an empty "Your scope" shell; missing section EmptyState.
 ```
@@ -319,12 +319,12 @@ test("no-flag viewer → default order, no emphasis; all-empty → section Empty
 ```tsx
 test("opening-reel cell is text-only — no Drive URL in the DOM", () => {
   const data = makeShowForViewer({ show: { event_details: { opening_reel: "YES - https://drive.google.com/file/d/abc/view" } }, openingReelHasVideo: true });
-  const html = render(<GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} />).container.innerHTML;
+  const html = render(<GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.innerHTML;
   for (const leak of ["https://", "drive.google.com", "docs.google.com"]) expect(html).not.toContain(leak);
 });
 test("pack list omitted when isPackListVisibleToday is false", () => {
   const withheld = makeShowForViewer({ pullSheet: [{ caseLabel: "C1", items: [] }] /* set stage/phase so the gate is false; derive from fixture */ });
-  expect(render(<GearSection data={withheld} viewer={{ kind: "crew", crewMemberId: "c1" }} />).container.querySelector('[data-testid="gear-pack-list"]')).toBeNull();
+  expect(render(<GearSection data={withheld} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.querySelector('[data-testid="gear-pack-list"]')).toBeNull();
 });
 // _Catches: leaking raw Drive URLs off OpeningReelTile; pull-sheet details leaking on withheld days once the pack list lives in a persistent tab.
 ```
@@ -351,7 +351,7 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
     financials: { po: "PO-1", proposal: "P", invoice: "I", invoice_notes: "N" },
     crewMembers: [{ id: "c1", name: "L", email: null, phone: null, role: "", roleFlags: ["LEAD"], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }],
   });
-  expect(render(<BudgetSection data={lead} viewer={{ kind: "crew", crewMemberId: "c1" }} />).container.textContent).toContain("PO-1");
+  expect(render(<BudgetSection data={lead} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.textContent).toContain("PO-1");
   expect(resolveActiveSection("budget", { budgetVisible: financialsVisible([], false) })).toBe("today"); // non-lead direct ?s=budget → today
 });
 // _Catches: lead-only financials leaking to non-leads via direct URL; a dead tab; a divergent gate across the three Budget surfaces.
@@ -371,7 +371,7 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
 test.each([["VenueSection"], ["TravelSection"], ["CrewSection"], ["GearSection"]])("%s shows one EmptyState when all blocks empty/hidden", (name) => {
   const Section = require(`@/components/crew/sections/${name}`)[name];
   const empty = makeShowForViewer({ show: { venue: null }, rooms: [], transportation: null, hotelReservations: [], contacts: [], pullSheet: null, diagrams: null, openingReelHasVideo: false });
-  const { container } = render(<Section data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} />);
+  const { container } = render(<Section data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
   expect(container.querySelectorAll('[data-testid="section-empty"]').length).toBe(1);
 });
 // _Catches: a blank section with no empty-state, or multiple stray empty stubs.
