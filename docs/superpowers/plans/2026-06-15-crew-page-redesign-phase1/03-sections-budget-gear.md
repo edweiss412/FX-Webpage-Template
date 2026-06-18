@@ -31,6 +31,21 @@
 
 ---
 
+### Task 0: Create the typed `makeShowForViewer` fixture builder (R5-MEDIUM-3 — it does not exist yet)
+
+**Files:** Create `tests/fixtures/showForViewer.ts`; Test `tests/fixtures/showForViewer.test.ts`.
+
+> Every section test below imports `makeShowForViewer` and the anti-tautology rule forbids hand-rolled partial objects (excess-property drift bypasses tsc). **No such helper exists in the repo** (grep-confirmed) — build it FIRST so the section tests compile against the real `ShowForViewer` type.
+
+- [ ] **Step 1: failing test** — `tests/fixtures/showForViewer.test.ts`: `const d = makeShowForViewer({ show: { venue: { name: "V", address: "A" } }, rooms: [{ id: "r1", kind: "gs", name: "GS" }] });` → `expect(d.show.venue?.name).toBe("V")` (deep-merge into `show`), `expect(d.rooms[0].id).toBe("r1")` (rooms are `ProjectedRoomRow`), `expect(d.tileErrors).toEqual({})` (default), `expect(d.viewerName).toBeDefined()`. The return type is the real `ShowForViewer` (import it) so tsc rejects any override field that isn't on the type.
+- [ ] **Step 2: run to fail** — `pnpm vitest run tests/fixtures/showForViewer.test.ts` → FAIL (module missing).
+- [ ] **Step 3: implement `makeShowForViewer`** — `export function makeShowForViewer(overrides?: DeepPartial<ShowForViewer>): ShowForViewer`. Start from a COMPLETE valid default (every required field of `ShowForViewer` + a complete default `show: ShowRow` with `venue`, `event_details: {}`, `dates`, `coi_status: null`, `agenda_links: []`, etc., one default `crewMembers[0]` with `dateRestriction: { kind: "none" }`, empty `hotelReservations`/`contacts`/`rooms`, `transportation: null`, `pullSheet: null`, `diagrams: null`, `tileErrors: {}`, `financials: undefined`, `viewerName: "Test Crew"`, `viewerVersionToken: "v1"`). **Deep-merge** `overrides` so `{ show: { venue: {...} } }` patches only `show.venue` (use a small recursive merge or `structuredClone` + assign per top-level key with nested merge for `show`). Field names per the GROUND-TRUTH reference above — the default `show.venue`/`hotelReservations`/`transportation`/`rooms`/`financials` use the EXACT live field names (`hotel_name`, `driver_name`, `set_time`, `invoice_notes`, etc.) so a test override with a wrong name fails tsc.
+- [ ] **Step 4: run to pass.** **Step 5: commit** `test(crew-page): typed makeShowForViewer fixture builder for section tests`.
+
+> All section tasks (1–8) import `{ makeShowForViewer } from "@/tests/fixtures/showForViewer"`. This task is a HARD prerequisite — Tasks 1–8 do not compile without it.
+
+---
+
 ### Task 1: TodaySection — hero + key-times + curated cards + 5-source notes
 
 **Files:** Create `components/crew/sections/TodaySection.tsx`; Test `tests/components/crew/sections/TodaySection.test.tsx`.
