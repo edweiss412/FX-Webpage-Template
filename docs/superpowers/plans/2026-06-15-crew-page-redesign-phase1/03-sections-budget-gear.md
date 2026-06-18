@@ -4,7 +4,7 @@
 
 **Goal:** Build the seven `components/crew/sections/*Section.tsx` Server Components (`{ data, viewer }`) — Today · Schedule · Venue · Travel · Crew · Gear + conditional Budget — porting the **complete** field set of the 14 tiles they subsume (not a visual subset, wp-19), preserving every visibility gate and the Schedule date-restriction privacy contract, with the Gear scope gate→emphasis flip (D-5).
 
-**Tech Stack:** Next.js RSC, TypeScript strict, Tailwind v4 tokens. Vitest. Each section is `<Name>Section({ data, viewer, today })` — a **SYNCHRONOUS** Server Component (NO `async`/`next/headers` inside). It reads viewer `roleFlags`/restrictions off `data.crewMembers` (resolved for the viewer). **`today: Date` (R8-HIGH-1):** the raw request-scoped `Date` from `await nowDate()`, computed ONCE by `CrewShell` and passed down (a `Date`, matching `ScheduleTile`'s `today?: Date`, `:81` — NOT an ISO string). Schedule converts it via `todayIsoInShowTimezone(data.show, today)` (`lib/visibility/packList`, `:58`/`:170`) for the today-pin; Gear passes it straight to `isPackListVisibleToday({ show, restriction, today })` (`today: Date`, `packList.ts:122-127`); others ignore it. This keeps the request-scoped clock contract (frozen-clock screenshots, day-boundary correctness, §4.14) WITHOUT making sections async or calling `new Date()`/`nowDate()` inside them. **Every section test file defines `const TODAY = new Date("2026-05-14T15:00:00Z");` at the top and passes `today={TODAY}` on EVERY `render(<*Section ... />)`** (the snippets below already include `today={TODAY}` — `today: Date` is REQUIRED on the contract, so a render omitting it fails tsc; R9-HIGH). The today-pin test (Schedule test 34) and any test that exercises a specific day boundary defines its OWN boundary `Date` instead of `TODAY`; structural/privacy/cap tests use the shared `TODAY` (a show day, inert for them). Tests stay synchronous Testing-Library renders.
+**Tech Stack:** Next.js RSC, TypeScript strict, Tailwind v4 tokens. Vitest. Each section is `<Name>Section({ data, viewer, today, showId })` — a **SYNCHRONOUS** Server Component (NO `async`/`next/headers` inside). **`showId: string` (R10-HIGH-1):** the separate `showId` prop (`ShowRow` has no `id`), threaded uniformly; **GearSection needs it** for the retained `<OpeningReelVideo showId={showId}>` player; other sections ignore it. Every section test file defines `const SHOW_ID = "show-abc";` and passes `showId={SHOW_ID}` on every render. It reads viewer `roleFlags`/restrictions off `data.crewMembers` (resolved for the viewer). **`today: Date` (R8-HIGH-1):** the raw request-scoped `Date` from `await nowDate()`, computed ONCE by `CrewShell` and passed down (a `Date`, matching `ScheduleTile`'s `today?: Date`, `:81` — NOT an ISO string). Schedule converts it via `todayIsoInShowTimezone(data.show, today)` (`lib/visibility/packList`, `:58`/`:170`) for the today-pin; Gear passes it straight to `isPackListVisibleToday({ show, restriction, today })` (`today: Date`, `packList.ts:122-127`); others ignore it. This keeps the request-scoped clock contract (frozen-clock screenshots, day-boundary correctness, §4.14) WITHOUT making sections async or calling `new Date()`/`nowDate()` inside them. **Every section test file defines `const TODAY = new Date("2026-05-14T15:00:00Z");` at the top and passes `today={TODAY}` on EVERY `render(<*Section ... />)`** (the snippets below already include `today={TODAY}` — `today: Date` is REQUIRED on the contract, so a render omitting it fails tsc; R9-HIGH). The today-pin test (Schedule test 34) and any test that exercises a specific day boundary defines its OWN boundary `Date` instead of `TODAY`; structural/privacy/cap tests use the shared `TODAY` (a show day, inert for them). Tests stay synchronous Testing-Library renders.
 
 ---
 
@@ -65,7 +65,7 @@ test("Today renders hero + key-times + Tonight/Where/Need-something + dress + no
     contacts: [{ kind: "venue", name: "Sam", phone: "555-111-2222", email: null, notes: null }],
     show: { venue: { name: "Center", address: "5 Ave" }, event_details: { dress_code: "Business casual" } },
   });
-  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
+  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
   expect(container.querySelector('[data-testid="right-now-hero"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="key-times-strip"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-tonight"]')).toBeTruthy();
@@ -90,12 +90,12 @@ test("Show notes aggregate all 5 sources in order; transport note gated by trans
     transportation: { driver_name: null, driver_phone: null, driver_email: null, vehicle: null, license_plate: null, color: null, parking: null, schedule: [], notes: "TRANSPORT_NOTE" },
     contacts: [{ kind: "venue", name: "C", notes: "CONTACT_NOTE", phone: "555-0000", email: null }],
   });
-  const admin = render(<TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} />);
+  const admin = render(<TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />);
   const notes = admin.container.querySelector('[data-testid="today-notes"]')!;
   const order = ["VENUE_NOTE", "HOTEL_NOTE", "ROOM_NOTE", "TRANSPORT_NOTE", "CONTACT_NOTE"].map((s) => notes.textContent!.indexOf(s));
   expect(order.every((i) => i >= 0)).toBe(true);
   expect([...order]).toEqual([...order].sort((a, b) => a - b)); // ascending = source order preserved
-  const crew = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} />);
+  const crew = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} showId={SHOW_ID} />);
   expect(crew.container.querySelector('[data-testid="today-notes"]')!.textContent).not.toContain("TRANSPORT_NOTE");
 });
 // _Catches: dropping hotel/room/transport/contact notes when the aggregator tile is deleted; transport notes leaking to unassigned crew.
@@ -114,7 +114,7 @@ test("client_contact never appears; Need-something uses the deterministic action
       { kind: "in_house_av", name: "AV_LEAD", phone: "555-222-3333", email: null, notes: null },
     ],
   });
-  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
+  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
   expect(container.textContent).not.toContain("CLIENT_REP");
   expect(container.textContent).not.toContain("555-999-0000");
   expect(container.querySelector('[data-testid="today-need-something"]')!.textContent).toContain("AV_LEAD");
@@ -149,17 +149,17 @@ const base = makeShowForViewer({ show: { dates: DATES, schedule_phases: {} } });
 function withRestriction(r) { return { ...base, crewMembers: [{ ...base.crewMembers[0], id: "c1", dateRestriction: r }] }; }
 
 test("unknown_asterisk → unconfirmed placeholder, ZERO day cards, NO date text for ANY of travelIn/set/showDays/travelOut", () => {
-  const { container } = render(<ScheduleSection data={withRestriction({ kind: "unknown_asterisk", days: null })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
+  const { container } = render(<ScheduleSection data={withRestriction({ kind: "unknown_asterisk", days: null })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
   expect(container.querySelector('[data-testid="schedule-unconfirmed"]')).toBeTruthy();
   expect(container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(0);
   for (const d of ALL_DATES) expect(container.textContent).not.toContain(d); // NO travel/set/show/travelOut date leaks (full domain, not just show days)
 });
 test("explicit → intersection against the FULL aggregate; none → all aggregate days", () => {
   // explicit days span a travel day + a show day → both render (proves intersection is over the full domain, not just showDays)
-  const explicit = render(<ScheduleSection data={withRestriction({ kind: "explicit", days: [DATES.travelIn, DATES.showDays[0]] })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
+  const explicit = render(<ScheduleSection data={withRestriction({ kind: "explicit", days: [DATES.travelIn, DATES.showDays[0]] })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
   expect(explicit.container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(2);
   expect(explicit.container.textContent).toContain(DATES.travelIn); // the Travel In day IS shown when assigned
-  const none = render(<ScheduleSection data={withRestriction({ kind: "none" })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
+  const none = render(<ScheduleSection data={withRestriction({ kind: "none" })} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
   expect(none.container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(ALL_DATES.length); // all 5 aggregate days, NOT just showDays.length (2)
 });
 // _Catches: narrowing the visible days to showDays only (dropping travel-in/set/travel-out cards — a field-port regression from ScheduleTile); the unknown_asterisk privacy check missing a travel/set date leak; treating unknown_asterisk like none.
@@ -188,13 +188,13 @@ test("Venue homes coi_status (data-testid=coi-status), power, internet, venue no
   const data = makeShowForViewer({
     show: { venue: { name: "Center", address: "5 Ave", loadingDock: "Dock at rear", notes: "Quiet load-in" }, coi_status: "Received", event_details: { power: "200A 3-phase", internet: "SSID Guest / pw 1234" } },
   });
-  const { container } = render(<VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} />);
+  const { container } = render(<VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />);
   expect(container.querySelector('[data-testid="coi-status"]')!.textContent).toContain("Received");
   expect(container.textContent).toContain("200A 3-phase");
   expect(container.textContent).toContain("SSID Guest / pw 1234"); // raw internet string (Phase 1)
   expect(container.textContent).toContain("Dock at rear");
   const sentinel = makeShowForViewer({ show: { venue: { name: "C", address: "A" }, coi_status: "TBD" } });
-  expect(render(<VenueSection data={sentinel} viewer={{ kind: "admin" }} today={TODAY} />).container.querySelector('[data-testid="coi-status"]')).toBeNull();
+  expect(render(<VenueSection data={sentinel} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />).container.querySelector('[data-testid="coi-status"]')).toBeNull();
 });
 // _Catches: deleting ShowStatusTile silently dropping COI/power/internet/dock/notes from the crew page (AC-4.1).
 ```
@@ -209,10 +209,10 @@ test("parking renders only when transportTileVisible; map link only when isParse
     show: { venue: { name: "C", address: "A", googleLink: "TBD" } }, // sentinel → no map link
     transportation: { driver_name: null, driver_phone: null, driver_email: null, vehicle: null, license_plate: null, color: null, parking: "Lot B, $20", schedule: [], notes: null },
   });
-  const unassigned = render(<VenueSection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} />);
+  const unassigned = render(<VenueSection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} showId={SHOW_ID} />);
   expect(unassigned.container.textContent).not.toContain("Lot B");           // parking gated out
   expect(unassigned.container.querySelector('a[href^="http"]')).toBeNull();  // sentinel googleLink → no map link
-  expect(render(<VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} />).container.textContent).toContain("Lot B"); // admin passes the gate
+  expect(render(<VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />).container.textContent).toContain("Lot B"); // admin passes the gate
 });
 // _Catches: parking leaking to unassigned crew (§4.13a); a dead/unsafe map href surviving the port.
 ```
@@ -240,9 +240,9 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
       { ordinal: 0, hotel_name: "First", hotel_address: null, names: [], confirmation_no: null, check_in: "2026-05-13", check_out: null, notes: null },
     ],
   });
-  const crew = render(<TravelSection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} />);
+  const crew = render(<TravelSection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} showId={SHOW_ID} />);
   for (const pii of ["Pat", "555-7", "Van", "ABC123", "Lot A"]) expect(crew.container.textContent).not.toContain(pii);
-  const admin = render(<TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} />);
+  const admin = render(<TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />);
   for (const pii of ["Pat", "555-7", "Van", "ABC123", "Lot A"]) expect(admin.container.textContent).toContain(pii);
   const html = admin.container.textContent!;
   expect(html.indexOf("First")).toBeLessThan(html.indexOf("Second")); // ordinal 0 before ordinal 1, regardless of array order
@@ -268,7 +268,7 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
 import { CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection"; // re-export the cap for the test
 test.each([CREW_INLINE_CAP - 1, CREW_INLINE_CAP, CREW_INLINE_CAP + 1])("roster cap boundary at %i", (n) => {
   const crewMembers = Array.from({ length: n }, (_, i) => ({ id: `c${i}`, name: `Member ${i}`, email: null, phone: null, role: "", roleFlags: [], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }));
-  const { container } = render(<CrewSection data={makeShowForViewer({ crewMembers })} viewer={{ kind: "crew", crewMemberId: "c0" }} today={TODAY} />);
+  const { container } = render(<CrewSection data={makeShowForViewer({ crewMembers })} viewer={{ kind: "crew", crewMemberId: "c0" }} today={TODAY} showId={SHOW_ID} />);
   const shown = container.querySelectorAll('[data-testid="crew-person-row"]').length;
   const stub = container.querySelector('[data-tile-show-more]');
   if (n <= CREW_INLINE_CAP) { expect(shown).toBe(n); expect(stub).toBeNull(); }
@@ -297,7 +297,7 @@ test("all scope shown to everyone; viewer's discipline first + [data-emphasis=yo
     rooms: [{ id: "r1", kind: "gs", name: "GS", audio: "2x SM58", video: "1x PTZ", lighting: null }], // lighting empty (scalar strings)
     crewMembers: [{ id: "c1", name: "A", email: null, phone: null, role: "", roleFlags: ["A1"], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }], // A1 → audio discipline
   });
-  const { container } = render(<GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
+  const { container } = render(<GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
   const cards = [...container.querySelectorAll('[data-testid^="gear-scope-"]')];
   expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual(["gear-scope-audio", "gear-scope-video"]); // audio first (viewer's), video next; lighting omitted (empty)
   expect(cards[0].getAttribute("data-emphasis")).toBe("you");
@@ -305,9 +305,9 @@ test("all scope shown to everyone; viewer's discipline first + [data-emphasis=yo
 });
 test("no-flag viewer → default order, no emphasis; all-empty → section EmptyState", () => {
   const noFlag = makeShowForViewer({ rooms: [{ id: "r1", kind: "gs", name: "GS", audio: "mic", video: "cam", lighting: "par" }], crewMembers: [{ id: "c1", name: "A", email: null, phone: null, role: "", roleFlags: [], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }] });
-  expect([...render(<GearSection data={noFlag} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.querySelectorAll('[data-testid^="gear-scope-"]')].map((c) => c.getAttribute("data-emphasis"))).toEqual([null, null, null]);
+  expect([...render(<GearSection data={noFlag} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />).container.querySelectorAll('[data-testid^="gear-scope-"]')].map((c) => c.getAttribute("data-emphasis"))).toEqual([null, null, null]);
   const empty = makeShowForViewer({ rooms: [], pullSheet: null, openingReelHasVideo: false });
-  expect(render(<GearSection data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
+  expect(render(<GearSection data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />).container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
 });
 // _Catches: emphasis becoming a gate (audio tech can't see lighting); an empty "Your scope" shell; missing section EmptyState.
 ```
@@ -317,21 +317,25 @@ test("no-flag viewer → default order, no emphasis; all-empty → section Empty
 - [ ] **Step 3: failing test — opening-reel URL strip (test 26) + pack-list gate (test 18)**
 
 ```tsx
-test("opening-reel cell is text-only — no Drive URL in the DOM", () => {
+test("opening-reel cell is text-only (no Drive URL) AND the proxied player uses /api/asset/reel/<showId> (R10-HIGH-1)", () => {
   const data = makeShowForViewer({ show: { event_details: { opening_reel: "YES - https://drive.google.com/file/d/abc/view" } }, openingReelHasVideo: true });
-  const html = render(<GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.innerHTML;
+  const { container } = render(<GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
+  const html = container.innerHTML;
   for (const leak of ["https://", "drive.google.com", "docs.google.com"]) expect(html).not.toContain(leak);
+  // the retained OpeningReelVideo player renders <video src="/api/asset/reel/${showId}"> — proves showId is threaded, NOT data.show.id
+  expect(container.querySelector(`video[src="/api/asset/reel/${SHOW_ID}"]`)).toBeTruthy();
 });
+// _Catches: leaking raw Drive URLs off OpeningReelTile; AND dropping/breaking the proxied reel player when OpeningReelTile is deleted (showId not threaded → a user-visible regression: opening-reel videos disappear).
 test("pack list omitted when isPackListVisibleToday is false", () => {
   const withheld = makeShowForViewer({ pullSheet: [{ caseLabel: "C1", items: [] }] /* set stage/phase so the gate is false; derive from fixture */ });
-  expect(render(<GearSection data={withheld} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.querySelector('[data-testid="gear-pack-list"]')).toBeNull();
+  expect(render(<GearSection data={withheld} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />).container.querySelector('[data-testid="gear-pack-list"]')).toBeNull();
 });
 // _Catches: leaking raw Drive URLs off OpeningReelTile; pull-sheet details leaking on withheld days once the pack list lives in a persistent tab.
 ```
 
 - [ ] **Step 4: run to fail.**
 
-- [ ] **Step 5: implement `GearSection`** — derive the viewer's scope flags from `data.crewMembers`. Build the three scope cards (audio/video/lighting) by collecting each room's non-sentinel scalar value for that discipline (`shouldHideGenericOptional`-filtered), **omitting a card with zero non-empty values** (incl. the viewer's own); order = viewer's discipline card(s) first (flag order for multiple), else Audio→Video→Lighting; the viewer's card(s) get `data-emphasis="you"` + a "Your scope" eyebrow + accent left-edge (≤10% accent coverage); non-viewer cards neutral. Distinct glyphs (Volume2/Video/Lightbulb). Pack list: render only when `isPackListVisibleToday({ show: data.show, restriction: stageRestriction, today })` — passing the **`today: Date` PROP** straight through (R8-HIGH-1 — `isPackListVisibleToday` wants a `Date`, `packList.ts:122-127`; `CrewShell` passes `await nowDate()`; do NOT call `nowDate()` inside `GearSection`), cap 12 + `data-tile-show-more`. Keynote requirements (`data.show.event_details.keynote_requirements`, sentinel-guarded). Opening reel: `data.openingReelHasVideo && !shouldHideOpeningReel(...)` → text-only via `stripOpeningReelText(data.show.event_details.opening_reel)` + the proxied `OpeningReelVideo` player (kept module). All-empty → `<div data-testid="section-empty">EmptyState`.
+- [ ] **Step 5: implement `GearSection`** — derive the viewer's scope flags from `data.crewMembers`. Build the three scope cards (audio/video/lighting) by collecting each room's non-sentinel scalar value for that discipline (`shouldHideGenericOptional`-filtered), **omitting a card with zero non-empty values** (incl. the viewer's own); order = viewer's discipline card(s) first (flag order for multiple), else Audio→Video→Lighting; the viewer's card(s) get `data-emphasis="you"` + a "Your scope" eyebrow + accent left-edge (≤10% accent coverage); non-viewer cards neutral. Distinct glyphs (Volume2/Video/Lightbulb). Pack list: render only when `isPackListVisibleToday({ show: data.show, restriction: stageRestriction, today })` — passing the **`today: Date` PROP** straight through (R8-HIGH-1 — `isPackListVisibleToday` wants a `Date`, `packList.ts:122-127`; `CrewShell` passes `await nowDate()`; do NOT call `nowDate()` inside `GearSection`), cap 12 + `data-tile-show-more`. Keynote requirements (`data.show.event_details.keynote_requirements`, sentinel-guarded). Opening reel: `data.openingReelHasVideo && !shouldHideOpeningReel(...)` → text-only via `stripOpeningReelText(data.show.event_details.opening_reel)` + the proxied **`<OpeningReelVideo showId={showId} ... />`** player (kept module — **R10-HIGH-1: it requires `showId` for `/api/asset/reel/${showId}`, so GearSection uses the `showId` prop**, NOT `data.show.id`). All-empty → `<div data-testid="section-empty">EmptyState`.
 
 - [ ] **Step 6: run to pass.** **Step 7: commit** `feat(crew-page): GearSection (A/V/L emphasis + pack list gated + keynote + opening reel URL-strip)`.
 
@@ -351,7 +355,7 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
     financials: { po: "PO-1", proposal: "P", invoice: "I", invoice_notes: "N" },
     crewMembers: [{ id: "c1", name: "L", email: null, phone: null, role: "", roleFlags: ["LEAD"], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }],
   });
-  expect(render(<BudgetSection data={lead} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />).container.textContent).toContain("PO-1");
+  expect(render(<BudgetSection data={lead} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />).container.textContent).toContain("PO-1");
   expect(resolveActiveSection("budget", { budgetVisible: financialsVisible([], false) })).toBe("today"); // non-lead direct ?s=budget → today
 });
 // _Catches: lead-only financials leaking to non-leads via direct URL; a dead tab; a divergent gate across the three Budget surfaces.
@@ -371,7 +375,7 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
 test.each([["VenueSection"], ["TravelSection"], ["CrewSection"], ["GearSection"]])("%s shows one EmptyState when all blocks empty/hidden", (name) => {
   const Section = require(`@/components/crew/sections/${name}`)[name];
   const empty = makeShowForViewer({ show: { venue: null }, rooms: [], transportation: null, hotelReservations: [], contacts: [], pullSheet: null, diagrams: null, openingReelHasVideo: false });
-  const { container } = render(<Section data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} />);
+  const { container } = render(<Section data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
   expect(container.querySelectorAll('[data-testid="section-empty"]').length).toBe(1);
 });
 // _Catches: a blank section with no empty-state, or multiple stray empty stubs.
@@ -402,7 +406,7 @@ test.each([["VenueSection"], ["TravelSection"], ["CrewSection"], ["GearSection"]
   - **`today` derivation (R8-HIGH-1):** mock `nowDate` to a fixed `Date` near a day boundary → assert the rendered ScheduleSection pins the **show-timezone** `schedule-day-today` (the date `todayIsoInShowTimezone(show, <mocked now>)` yields), proving `CrewShell` threads the `await nowDate()` `Date` to the sections (the section unit tests use a literal `today` `Date`; THIS proves the shell supplies it).
   _Failure mode: the route rendering placeholder text for `?s=venue`/`?s=gear`/etc. while section unit tests pass green (a core user-visible failure + spec-coverage gap); the shell not deriving/threading `today` so the today-pin is wrong under frozen-clock screenshots._
 - [ ] **Step 2: run to fail.**
-- [ ] **Step 3: implement the dispatch in `_CrewShell.tsx`** — after `resolveViewerContext` + `activeSection`/`budgetVisible` resolution (R2-HIGH-1) + the projection-alert upsert: compute `const today = await nowDate()` ONCE (a `Date`; `next/headers`-backed, honors `X-Screenshot-Frozen-Now` — §4.14; the per-section tz conversion happens inside ScheduleSection via `todayIsoInShowTimezone(data.show, today)`). Replace the placeholder with a `renderSection(activeSection)` switch returning the real component, each `({ data, viewer, today })`: `today`→`TodaySection` (leads with `RightNowHero` inside the section), `schedule`→`ScheduleSection`, `venue`→`VenueSection`, `travel`→`TravelSection`, `crew`→`CrewSection`, `gear`→`GearSection`, `budget`→`BudgetSection` (only reachable when `budgetVisible` — `resolveActiveSection` already guarantees a non-lead never gets `"budget"`). Wrap the rendered section in `<CrewSectionTransition sectionId={activeSection}>{section}</CrewSectionTransition>` (keyed by id, `initial={false}`). The `today` prop flows to every section uniformly.
+- [ ] **Step 3: implement the dispatch in `_CrewShell.tsx`** — after `resolveViewerContext` + `activeSection`/`budgetVisible` resolution (R2-HIGH-1) + the projection-alert upsert: compute `const today = await nowDate()` ONCE (a `Date`; `next/headers`-backed, honors `X-Screenshot-Frozen-Now` — §4.14; the per-section tz conversion happens inside ScheduleSection via `todayIsoInShowTimezone(data.show, today)`). Replace the placeholder with a `renderSection(activeSection)` switch returning the real component, each `({ data, viewer, today, showId })` (R10-HIGH-1 — `showId` is the `CrewShell` prop, threaded uniformly so GearSection can render `<OpeningReelVideo showId={showId}>`): `today`→`TodaySection` (leads with `RightNowHero` inside the section), `schedule`→`ScheduleSection`, `venue`→`VenueSection`, `travel`→`TravelSection`, `crew`→`CrewSection`, `gear`→`GearSection`, `budget`→`BudgetSection` (only reachable when `budgetVisible` — `resolveActiveSection` already guarantees a non-lead never gets `"budget"`). Wrap the rendered section in `<CrewSectionTransition sectionId={activeSection}>{section}</CrewSectionTransition>` (keyed by id, `initial={false}`). Both `today` and `showId` flow to every section uniformly.
 - [ ] **Step 4: run to pass.** **Step 5: `pnpm tsc --noEmit`.** **Step 6: commit** `feat(crew-page): wire real sections into CrewShell dispatcher (today threaded, budget gated)`.
 
 ---

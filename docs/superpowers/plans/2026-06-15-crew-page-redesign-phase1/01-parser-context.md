@@ -581,15 +581,15 @@ Re-source the Right-Now hero's time anchors from `rooms` via `resolveKeyTimes`, 
     expect(out.rooms[0]?.set_time).toBe("9:00 AM");
   });
   ```
-  Also add a type-level assertion (compile-time) that `ShowForViewer["rooms"]` is assignable to `ProjectedRoomRow[]`:
+  Also add a **pure compile-time** assertion (R10-MEDIUM-2 — a runtime cast like `(null as unknown as ShowForViewer).rooms` would evaluate `null.rooms` at module load and throw `TypeError` before any test runs, masking the regression; type assertions are erased). Use a conditional type that touches NO object:
   ```typescript
   import type { ShowForViewer } from "@/lib/data/getShowForViewer";
   import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
-  // Compile-time check: rooms element carries `id`.
-  const _typecheck: ProjectedRoomRow[] = (null as unknown as ShowForViewer).rooms;
-  void _typecheck;
+  // Compile-time only (no runtime evaluation): fails `tsc` if ShowForViewer.rooms is not ProjectedRoomRow[].
+  type _RoomsCarryId = ShowForViewer["rooms"] extends ProjectedRoomRow[] ? true : never;
+  const _assertRoomsCarryId: _RoomsCarryId = true; // `never` (→ tsc error) until rooms is widened to ProjectedRoomRow[]
   ```
-- [ ] **Run-to-fail:** `pnpm vitest run tests/data/getShowForViewer-rooms-projection.test.ts` → **FAIL** (`out.rooms[0].id` is `undefined` — the current map at `:380-399` omits `id`; and `tsc` rejects the `ProjectedRoomRow[]` assignment because `ShowForViewer.rooms` is `RoomRow[]`).
+- [ ] **Run-to-fail:** `pnpm vitest run tests/data/getShowForViewer-rooms-projection.test.ts` → **FAIL** (`out.rooms[0].id` is `undefined` — the current map at `:380-399` omits `id`). And `pnpm tsc --noEmit` FAILS on `const _assertRoomsCarryId: _RoomsCarryId = true` because `_RoomsCarryId` resolves to `never` while `ShowForViewer.rooms` is still `RoomRow[]` (no `id`).
 - [ ] **Minimal implementation.** In `lib/data/getShowForViewer.ts`:
   1. Import the type: add `import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";` near the other type imports (`~:58`).
   2. Change the `ShowForViewer.rooms` field type (`:121`): `rooms: ProjectedRoomRow[];`.

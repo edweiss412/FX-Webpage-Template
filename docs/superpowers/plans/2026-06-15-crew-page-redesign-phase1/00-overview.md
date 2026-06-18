@@ -121,7 +121,10 @@ export type CrewShellProps = {
 // fallback. This is the spec's single-predicate Budget gate (§4.1) across tab + URL + section.
 
 // Each section: components/crew/sections/<Name>Section.tsx
-// export function <Name>Section(props: { data: ShowForViewer; viewer: Viewer; today: Date }): JSX.Element
+// export function <Name>Section(props: { data: ShowForViewer; viewer: Viewer; today: Date; showId: string }): JSX.Element
+// `showId` (R10-HIGH-1): the same separate `showId` CrewShell prop (ShowRow has no `id`) — threaded
+//   uniformly to every section; GearSection NEEDS it for the retained `<OpeningReelVideo showId={showId}>`
+//   player (`/api/asset/reel/${showId}`); other sections ignore it. CrewShell passes it; tests pass a literal.
 // Reads viewer roleFlags/restrictions off data.crewMembers (resolved for the viewer) — NOT a separate prop.
 // `today` (R8-HIGH-1): the raw request-scoped `Date` from `await nowDate()`, computed ONCE by CrewShell
 //   and passed down — so the sections stay SYNCHRONOUS + jsdom-testable (no `next/headers` async call
