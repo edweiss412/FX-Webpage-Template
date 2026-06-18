@@ -366,6 +366,18 @@ bar (matches the existing per-task discipline). Capture the exact error list at 
 
 **Promotion prerequisite:** owner prioritization OR post-launch operator feedback that a specific field (most likely flights) is a real friction point. Promotion starts with a brainstorming session per field (the flight trust boundary is the load-bearing design question).
 
+### BL-CREW-AGENDA-ADMIN-CLEAR — Admin affordance to clear a stale/preserved run-of-show
+
+**Filed:** 2026-06-18, during the crew-page redesign Phase 2 spec adversarial review (R17-HIGH). The Phase-2 AGENDA `run_of_show` sync is **add-or-replace-only and never auto-clears** a previously-filled day: an all-blank parse of a day that previously had entries **preserves** the last-known-good entries and emits an `AGENDA_DAY_EMPTIED` parse warning, rather than wiping storage. This is the correct bias for a fragile sheet→markdown source (a transient title-cell drop is indistinguishable from an intentional removal, so silent data loss must be impossible — see Phase-2 spec §4.4 invariant 2 / D-2).
+
+**Consequence this item closes:** because the sync never clears, a **genuinely-removed** agenda lingers as last-known-good on the crew page (with the admin `AGENDA_DAY_EMPTIED` warning as the only signal) until something clears it — and v1 ships **no** such clear action (the run-of-show is a read-only projection; there is no admin agenda-editor). So a deliberately-emptied agenda has no in-app remediation path in v1.
+
+**Scope:** an admin affordance on the per-show panel (`app/admin/show/[slug]/`) to clear `shows_internal.run_of_show` (whole-column, or per-day). MUST flow through a SECURITY DEFINER RPC under the per-show advisory lock (the Phase-2 R16 lockdown REVOKEs anon/authenticated DML on `shows_internal`, so direct PostgREST DML is no longer a path) — the RPC is the only write surface besides the sync. Surfaced naturally next to the `ParsePanel` / `AGENDA_DAY_EMPTIED` warning display.
+
+**Why backlog, not deferred:** no committed v1 trigger; the lingering-stale case is rare (it needs a genuinely-removed, previously-locked agenda) and the data shown is last-known-good (not known-wrong), so it is a low-severity polish gap, not a launch blocker. The admin warning already surfaces the condition. Needs a small spec/plan (RPC + lockdown-compatible write path + per-show-panel UI + tests).
+
+**Promotion prerequisite:** post-launch operator feedback that a removed agenda lingering as last-known-good is a real friction point, OR the per-show panel gets a broader agenda-management pass.
+
 ---
 
 ## Promoted (was backlog, now scheduled)
