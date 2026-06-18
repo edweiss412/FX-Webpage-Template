@@ -1,0 +1,174 @@
+/**
+ * components/crew/primitives/PersonRow.tsx — crew-redesign §4.6 primitive.
+ *
+ * A reusable person/contact row, ported from the CrewTile/ContactsTile
+ * contact-row idiom (components/tiles/CrewTile.tsx + ContactsTile.tsx) so
+ * the §6-section crew page renders crew, venue contacts, and in-house AV
+ * with one shared shape.
+ *
+ * Dead-link guard (port of the round-15/16 sentinel-on-actionable-link
+ * fix): a `tel:`/`mailto:` control renders ONLY when its value is a real,
+ * non-sentinel address — a `tel:TBD` / `mailto:N/A` link is a dead and
+ * misleading contact control. Phone routes through `digitsOnly`
+ * (lib/format/phone.ts) so the dialer opens cleanly; both phone and email
+ * are gated on `!shouldHideGenericOptional(value)` (lib/visibility/
+ * emptyState.ts) so `''`/`TBD`/`N/A`/`TBA` never produce an action.
+ *
+ * Nameless-but-actionable contacts (a venue/AV row with phone/email but no
+ * name) still render — using `fallbackLabel` as the heading — so the
+ * actionable contact is never dropped (preserves ContactsTile behavior).
+ *
+ * `notes` routes through the same `shouldHideGenericOptional` predicate so
+ * a sentinel note reflows out (this is the §8.3 generic-optional field that
+ * the sentinel-hiding meta-test enforces on this file).
+ *
+ * Whole-row omission: when name, role, phone, AND email are all absent the
+ * row has no identity and no action, so it omits entirely (returns null) —
+ * no empty band reflows in.
+ *
+ * `you` / `lead` / `primary` set role chips + `data-*` style hooks for the
+ * downstream highlight treatment (the orange accent stays text-paired per
+ * DESIGN.md §1 color-blind floor).
+ *
+ * Tap targets: each `tel:`/`mailto:` anchor is a standalone ≥44px tap
+ * target via `min-h-tap-min` (--spacing-tap-min) per DESIGN.md §3, and
+ * carries an `aria-label` so the icon-only control is named.
+ *
+ * Server Component (no `'use client'`) — props in, markup out.
+ */
+import { Avatar } from "@/components/atoms/Avatar";
+import { digitsOnly } from "@/lib/format/phone";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+
+type Person = {
+  /** Display name. Absent/blank → the row falls back to `fallbackLabel`. */
+  name?: string;
+  /** Role/title eyebrow (e.g. "Producer", "Venue contact"). */
+  role?: string;
+  /** Heading used when `name` is absent (e.g. "Venue contact"). */
+  fallbackLabel?: string;
+  /** Phone for the tap-to-call control. Sentinel/blank → no control. */
+  phone?: string;
+  /** Email for the tap-to-email control. Sentinel/blank → no control. */
+  email?: string;
+  /** Optional generic-optional note line. Sentinel → hidden. */
+  notes?: string;
+  /** The viewer is this person → "You" chip + data-you hook. */
+  you?: boolean;
+  /** Department lead → "Lead" chip + data-lead hook. */
+  lead?: boolean;
+  /** Primary contact for the row's domain → "Primary" chip + data-primary hook. */
+  primary?: boolean;
+};
+
+type PersonRowProps = {
+  person: Person;
+};
+
+/** Shared chip styling for the You/Lead/Primary badges. */
+const CHIP_CLASS = [
+  "inline-flex items-center rounded-sm px-1.5 py-0.5",
+  "text-xs font-semibold uppercase tracking-eyebrow",
+].join(" ");
+
+/** Shared action-anchor styling (tap-to-call / tap-to-email). */
+const ACTION_CLASS = [
+  "inline-flex min-h-tap-min items-center gap-1.5",
+  "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
+  "text-xs font-medium text-text",
+  "transition-colors duration-fast",
+  "hover:text-accent-on-bg hover:border-border-strong",
+].join(" ");
+
+export function PersonRow({ person }: PersonRowProps) {
+  const { role, fallbackLabel, you, lead, primary } = person;
+
+  const hasName = typeof person.name === "string" && person.name.trim().length > 0;
+  const heading = hasName ? person.name : fallbackLabel;
+
+  // Actionable only when the value is a real, non-sentinel address. Phone
+  // additionally requires ≥1 digit so a digit-less label can't make a
+  // `tel:` href with no number. Member access (`person.phone` / `.email` /
+  // `.notes`) is intentional so the §8.3 sentinel-hiding meta-test's
+  // field-access patterns enforce the predicate on THIS file.
+  const phoneActionable =
+    !shouldHideGenericOptional(person.phone ?? null) &&
+    digitsOnly(person.phone ?? "").length > 0;
+  const emailActionable = !shouldHideGenericOptional(person.email ?? null);
+
+  // §8.3 whole-row omission: no identity (name/role) AND no action
+  // (phone/email) → nothing to render.
+  const hasIdentity = hasName || (typeof role === "string" && role.trim().length > 0);
+  if (!hasIdentity && !phoneActionable && !emailActionable) {
+    return null;
+  }
+
+  // Accessible-name base for the tap controls: the heading if we have one,
+  // else a generic "contact" so the control is never unnamed.
+  const actionTarget = heading && heading.trim().length > 0 ? heading : "contact";
+  const showNotes = !shouldHideGenericOptional(person.notes ?? null);
+
+  return (
+    <li
+      data-testid="person-row"
+      {...(you ? { "data-you": "true" } : {})}
+      {...(lead ? { "data-lead": "true" } : {})}
+      {...(primary ? { "data-primary": "true" } : {})}
+      className="flex items-start gap-3"
+    >
+      <Avatar name={heading ?? ""} />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {heading !== undefined ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <p className="truncate text-sm/tight font-semibold text-text-strong">{heading}</p>
+            {you ? (
+              <span className={[CHIP_CLASS, "bg-stale-tint text-accent-on-bg"].join(" ")}>
+                You
+              </span>
+            ) : null}
+            {lead ? (
+              <span className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}>
+                Lead
+              </span>
+            ) : null}
+            {primary ? (
+              <span className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}>
+                Primary
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {role !== undefined && role.trim().length > 0 ? (
+          <p className="truncate text-xs uppercase tracking-eyebrow text-text-faint">{role}</p>
+        ) : null}
+        {phoneActionable || emailActionable ? (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {phoneActionable ? (
+              <a
+                href={`tel:${digitsOnly(person.phone ?? "")}`}
+                className={`${ACTION_CLASS} tabular-nums`}
+                aria-label={`Call ${actionTarget}`}
+              >
+                <span aria-hidden="true">{"☎"}</span>
+                <span>Call</span>
+              </a>
+            ) : null}
+            {emailActionable ? (
+              <a
+                href={`mailto:${person.email}`}
+                className={ACTION_CLASS}
+                aria-label={`Email ${actionTarget}`}
+              >
+                <span aria-hidden="true">{"✉"}</span>
+                <span>Email</span>
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+        {showNotes ? (
+          <p className="pt-1 text-xs/snug text-text-subtle">{person.notes}</p>
+        ) : null}
+      </div>
+    </li>
+  );
+}
