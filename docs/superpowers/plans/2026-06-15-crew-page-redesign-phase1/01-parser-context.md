@@ -188,7 +188,7 @@ Captures the load-in clock time from the DATES **TIME** column (currently discar
      ```
      Note: order in the sheet may put `travel_set` before or after `set`; the explicit `set` case assigns unconditionally (overriding `travel_set`), while `travel_set` only assigns when `result.loadIn` is still unset — so the explicit `set` row always wins regardless of row order.
   4. In `parseV1Dates`, leave `loadIn` at its initialized `null` (best-effort; v1 has no TIME column). No change needed — the init in step 1 covers it.
-- [ ] **Run-to-pass:** `pnpm vitest run tests/parser/blocks/dates.test.ts` → all green (the new block + the existing corpus/per-fixture assertions). `pnpm tsc --noEmit` → clean.
+- [ ] **Run-to-pass:** `pnpm vitest run tests/parser/blocks/dates.test.ts` → all green (the new block + the existing corpus/per-fixture assertions). `pnpm typecheck` → clean.
 - [ ] **Commit:** `feat(parser): capture DATES TIME load-in into dates.loadIn (set/travel_set rows)`
 
 ---
@@ -377,7 +377,7 @@ The shared anchor resolver consumed by `buildRightNowContext` (Task 3) and, late
     return anchors;
   }
   ```
-- [ ] **Run-to-pass:** `pnpm vitest run tests/crew/resolveKeyTimes.test.ts` → green. `pnpm tsc --noEmit` → clean.
+- [ ] **Run-to-pass:** `pnpm vitest run tests/crew/resolveKeyTimes.test.ts` → green. `pnpm typecheck` → clean.
 - [ ] **Commit:** `feat(crew-page): add resolveKeyTimes shared anchor resolver (deterministic GS pick + dates.loadIn precedence + sentinel guard)`
 
 ---
@@ -552,7 +552,7 @@ Re-source the Right-Now hero's time anchors from `rooms` via `resolveKeyTimes`, 
   Also delete the now-unused `event_details` destructuring (`ed`, `:72-82`) and the `ContactRow` import.
 - [ ] **Reconcile the existing call site (do NOT change `_ShowBody`'s behavior).** The old call site at `_ShowBody.tsx:122-127` passes `{ show, dateRestriction, hotelReservations, contacts }`. Since Phase 1 must NOT touch UI and must keep `_ShowBody` compiling, update **only** the call site's argument object (a mechanical type-fix, not a UI change): replace `contacts: data.contacts` with `rooms: data.rooms` at `_ShowBody.tsx:122-127`. `data.rooms` is already `ProjectedRoomRow[]` after Task 4 (run Task 4 before this step, or temporarily cast). This is the minimum to keep `tsc` green; the full `_ShowBody`→`_CrewShell` swap is Phase 2. Add an inline note at the call site: `// rooms-sourced anchors (§4.4); call site migrates to _CrewShell in Phase 2`.
   - **Dependency note for the orchestrator:** Task 4 (`ProjectedRoomRow` projection) must land **before** this reconciliation compiles cleanly, because `data.rooms` must already be `ProjectedRoomRow[]`. Sequence: Task 4 → Task 3 reconciliation. (Tasks 1–2 are independent.)
-- [ ] **Run-to-pass:** `pnpm vitest run tests/components/buildRightNowContext.test.ts` → green. Re-run the existing recovery test that builds a `RightNowContext` directly (no signature dependency): `pnpm vitest run tests/components/RightNowCardRecovery.test.tsx` → still green. `pnpm tsc --noEmit` → clean.
+- [ ] **Run-to-pass:** `pnpm vitest run tests/components/buildRightNowContext.test.ts` → green. Re-run the existing recovery test that builds a `RightNowContext` directly (no signature dependency): `pnpm vitest run tests/components/RightNowCardRecovery.test.tsx` → still green. `pnpm typecheck` → clean.
 - [ ] **Commit:** `feat(crew-page): re-source buildRightNowContext anchors from rooms via resolveKeyTimes (drop event_details time reads + contacts param)`
 
 ---
@@ -589,7 +589,7 @@ Re-source the Right-Now hero's time anchors from `rooms` via `resolveKeyTimes`, 
   type _RoomsCarryId = ShowForViewer["rooms"] extends ProjectedRoomRow[] ? true : never;
   const _assertRoomsCarryId: _RoomsCarryId = true; // `never` (→ tsc error) until rooms is widened to ProjectedRoomRow[]
   ```
-- [ ] **Run-to-fail:** `pnpm vitest run tests/data/getShowForViewer-rooms-projection.test.ts` → **FAIL** (`out.rooms[0].id` is `undefined` — the current map at `:380-399` omits `id`). And `pnpm tsc --noEmit` FAILS on `const _assertRoomsCarryId: _RoomsCarryId = true` because `_RoomsCarryId` resolves to `never` while `ShowForViewer.rooms` is still `RoomRow[]` (no `id`).
+- [ ] **Run-to-fail:** `pnpm vitest run tests/data/getShowForViewer-rooms-projection.test.ts` → **FAIL** (`out.rooms[0].id` is `undefined` — the current map at `:380-399` omits `id`). And `pnpm typecheck` FAILS on `const _assertRoomsCarryId: _RoomsCarryId = true` because `_RoomsCarryId` resolves to `never` while `ShowForViewer.rooms` is still `RoomRow[]` (no `id`).
 - [ ] **Minimal implementation.** In `lib/data/getShowForViewer.ts`:
   1. Import the type: add `import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";` near the other type imports (`~:58`).
   2. Change the `ShowForViewer.rooms` field type (`:121`): `rooms: ProjectedRoomRow[];`.
@@ -603,7 +603,7 @@ Re-source the Right-Now hero's time anchors from `rooms` via `resolveKeyTimes`, 
      }));
      ```
   - Do **not** change the rooms query (`.select("*")` already returns `id`; no `ORDER BY` is added — determinism lives in `resolveKeyTimes`, not the query, per §4.4).
-- [ ] **Run-to-pass:** `pnpm vitest run tests/data/getShowForViewer-rooms-projection.test.ts` → green. Re-run the existing projection tests: `pnpm vitest run tests/data/` → still green. `pnpm tsc --noEmit` → clean.
+- [ ] **Run-to-pass:** `pnpm vitest run tests/data/getShowForViewer-rooms-projection.test.ts` → green. Re-run the existing projection tests: `pnpm vitest run tests/data/` → still green. `pnpm typecheck` → clean.
 - [ ] **Commit:** `feat(crew-page): type ShowForViewer.rooms as ProjectedRoomRow[] and project the DB id`
 
 ---
@@ -615,7 +615,7 @@ All must be true before Phase 2 begins:
 - [ ] **§9 test 3** green — `buildRightNowContext` rooms-sourcing + sentinel guard (`tests/components/buildRightNowContext.test.ts`): GS-sourced Set/Show/Strike; `event_details` time path dropped (not a fallback); no-gs → first room; `rooms: []` with/without `dates.loadIn`; embedded-`TBD` → partial.
 - [ ] **§9 test 4** green — dates-parser load-in (`tests/parser/blocks/dates.test.ts`): time-first + label-first extraction; TRAVEL/SET combined row; SHOW/plain-TRAVEL does NOT populate; no-clock TIME → null; absent column → null; v1 → null tolerated.
 - [ ] **§9 test 20** green — `resolveKeyTimes` determinism (`tests/crew/resolveKeyTimes.test.ts`): multi-gs varying order; no-gs name-sorted-first; blank → omitted; same-name id-tiebreak.
-- [ ] `pnpm tsc --noEmit` clean across the repo (the `ShowForViewer.rooms` widening + the `buildRightNowContext` signature change + the `_ShowBody` call-site reconciliation all compile).
+- [ ] `pnpm typecheck` clean across the repo (the `ShowForViewer.rooms` widening + the `buildRightNowContext` signature change + the `_ShowBody` call-site reconciliation all compile).
 - [ ] **No UI touched** — no file under `app/` (the `_ShowBody.tsx` change is a mechanical call-site type-fix, NOT a UI/markup change), no file under `components/crew/` (none created), no `loading.tsx`, no CSS/token change. `RoomRow` in `lib/parser/types.ts` is unchanged (only `ShowRow.dates` gained `loadIn?`).
 - [ ] Existing suites still green: `pnpm vitest run tests/parser/blocks/dates.test.ts tests/components/RightNowCardRecovery.test.tsx tests/data/`.
 - [ ] Four commits landed, one per task, conventional-commits scoped (`feat(parser):` × 1, `feat(crew-page):` × 3).

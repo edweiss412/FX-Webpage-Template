@@ -54,7 +54,7 @@
     return raw as SectionId;
   }
   ```
-- [ ] Run to pass; `pnpm tsc --noEmit`. Commit `feat(crew-page): resolveActiveSection with single-predicate Budget gate`.
+- [ ] Run to pass; `pnpm typecheck`. Commit `feat(crew-page): resolveActiveSection with single-predicate Budget gate`.
 
 ---
 
@@ -110,7 +110,7 @@
     )[0] ?? null;
   }
   ```
-- [ ] Run to pass; `pnpm tsc --noEmit`. Commit `feat(crew-page): deterministic selectPrimaryContact (actionable-first)`.
+- [ ] Run to pass; `pnpm typecheck`. Commit `feat(crew-page): deterministic selectPrimaryContact (actionable-first)`.
 
 ---
 
@@ -128,7 +128,7 @@
 - [ ] Run to fail: `pnpm vitest run tests/components/crew/primitives.test.tsx`.
 - [ ] Implement the four primitives with EXACT 00-overview prop contracts. Use existing `@theme` tokens (no inline `tracking-[…]` — banned by `tests/styles/eyebrow-tracking.test.ts`). `KeyValueRows` omits a row when `shouldHideGenericOptional(v)`. `KeyTimesStrip` value column uses `tabular-nums`; each present anchor row carries `data-anchor="set|show|strike"`; returns `null` when all three absent. Add a `data-testid` per primitive for downstream layout asserts (Phase 4): `section-card`, `key-value-rows`, `day-card`, `key-times-strip`.
   - Props: `SectionCard {icon?, title?, action?, children}`; `KeyValueRows {rows: {k, v, sub?, icon?}[]}`; `DayCard {day, phase, today, meta?}`; `KeyTimesStrip {anchors: KeyTimeAnchors}` (import `KeyTimeAnchors` from `@/lib/crew/resolveKeyTimes`).
-- [ ] Run to pass; `pnpm tsc --noEmit`. Commit `feat(crew-page): SectionCard/KeyValueRows/DayCard/KeyTimesStrip primitives`.
+- [ ] Run to pass; `pnpm typecheck`. Commit `feat(crew-page): SectionCard/KeyValueRows/DayCard/KeyTimesStrip primitives`.
 
 ---
 
@@ -148,7 +148,7 @@
   _Failure mode: empty action buttons; bad hrefs; dropping a nameless-but-actionable contact or contact notes during the tile→section port._
 - [ ] Run to fail: `pnpm vitest run tests/components/crew/personRow.test.tsx tests/components/tiles/_metaSentinelHidingContract.test.ts`.
 - [ ] Implement `components/crew/primitives/PersonRow.tsx` (EXACT 00-overview props: `{person: {name?, role?, fallbackLabel?, phone?, email?, notes?, you?, lead?, primary?}}`). Port the dead-link guards from `CrewTile`/`ContactsTile`: render `tel:`/`mailto:` only when `digitsOnly(phone).length > 0` and non-sentinel; route `notes` through `shouldHideGenericOptional`; name-absent → render `fallbackLabel`; `you`/`lead`/`primary` set their badge/style hooks. Call/email buttons carry `aria-label` and `min-h-tap-min` (≥44px, §4.19). `data-testid="person-row"`.
-- [ ] Run to pass (BOTH the personRow test AND the meta-test). `pnpm tsc --noEmit`. Commit `feat(crew-page): PersonRow primitive + extend sentinel-hiding walk to components/crew`.
+- [ ] Run to pass (BOTH the personRow test AND the meta-test). `pnpm typecheck`. Commit `feat(crew-page): PersonRow primitive + extend sentinel-hiding walk to components/crew`.
 
 ---
 
@@ -166,7 +166,7 @@
   _Failure mode: a state missing/mis-skinned; fabricated stats on degraded states; out-of-scope flight/call stats; a hero that renders a precomputed SSR state and goes stale after a tab sits open; the hero depending on `nowDate()` breaking `RightNowCard` parity._
 - [ ] Run to fail: `pnpm vitest run tests/components/crew/rightNowHero.test.tsx`.
 - [ ] Implement `components/crew/RightNowHero.tsx` (`'use client'`, `export function RightNowHero(props: { context: RightNowContext }): JSX.Element`). Lift the `RightNowCard` clock + state-derivation + `lastGood`/`morph` + `AnimatePresence mode="wait" initial={false}` + `transitionTreatment` machinery; re-skin `renderBody` output into the 5 hero slots (eyebrow + live-dot, lead, detail, progress segments, stats ≤3 with one accented) per the §4.3 map. Container `min-h-(--spacing-right-now-min-h)` held constant through crossfade (Dimensional invariant #4, asserted in Phase 4). Stats two-level omission per §4.8/Task-6. `data-testid="right-now-hero"`; stat strip `data-testid="right-now-stats"`; degraded tint hook `data-degraded="true"`.
-- [ ] Run to pass; `pnpm tsc --noEmit`. Commit `feat(crew-page): RightNowHero (RightNowCard re-skinned to 5 hero slots)`.
+- [ ] Run to pass; `pnpm typecheck`. Commit `feat(crew-page): RightNowHero (RightNowCard re-skinned to 5 hero slots)`.
 
 ---
 
@@ -185,7 +185,7 @@
 - [ ] Run to fail: `pnpm vitest run tests/components/crew/crewSubNav.test.tsx`.
 - [ ] Implement `CrewSubNav.tsx`: props `{ activeSection: SectionId; budgetVisible: boolean }`. Tabs = `BASE_SECTION_IDS` (+ `budget` iff `budgetVisible`). On tab activation, **build a FRESH `URLSearchParams` carrying ONLY the allow-listed params (R13-MEDIUM-1 — do NOT clone all current params)**: `const next = new URLSearchParams(); next.set("s", id); const gate = useSearchParams().get("gate"); if (gate && ALLOWED_GATE_VALUES.includes(gate)) next.set("gate", gate); router.push(\`${pathname}?${next}\`, { scroll: false })` (reuse the same `gate` allow-list set as the auth-boundary builder `buildShowReturnUrl`, Task 12 — single source). This strips `evil`/`token`/any stale param from the section-nav URL, matching the §4.1a/wp-26 allow-list. `aria-current` from `activeSection`. After push, reset scroll region to top (§4.1a — `window.scrollTo(0,0)` in the click handler). Tap targets ≥44px (`min-h-tap-min`). Tab indicator transitions via `--duration-fast` `--ease-out-quart` (instant under reduced-motion, token-driven). `data-testid="crew-sub-nav"`, each tab `data-section={id}`.
 - [ ] Implement `CrewSectionTransition.tsx` (`'use client'`): props `{ sectionId: SectionId; children: ReactNode }`. `<AnimatePresence mode="wait" initial={false}><motion.div key={sectionId} ...>{children}</motion.div></AnimatePresence>`; crossfade + 4px translateY, `--duration-normal` (220ms) `--ease-out-quart`; reduced-motion via the shared `usePrefersReducedMotion()` (`lib/a11y/usePrefersReducedMotion.ts`) collapsing duration to 0. Render the wrapper unconditionally (never branch the tree SHAPE on reduced-motion — the M12.11 framer trap); `data-testid="crew-section-transition"`. On `sectionId` change, move focus into the section landmark (§4.19) — leave the focusable region to the section; the wrapper exposes the keyed boundary.
-- [ ] Run to pass; `pnpm tsc --noEmit`. Commit `feat(crew-page): CrewSubNav (gate-preserving ?s= push) + CrewSectionTransition crossfade`.
+- [ ] Run to pass; `pnpm typecheck`. Commit `feat(crew-page): CrewSubNav (gate-preserving ?s= push) + CrewSectionTransition crossfade`.
 
 ---
 
@@ -198,7 +198,7 @@
 - [ ] Write `tests/components/crew/loading.test.tsx`: render `Loading` (default export of `loading.tsx`), assert it contains a Header band placeholder, a sub-nav placeholder, and an empty section frame node; assert it renders the 6 base tab labels/placeholders and **no** node containing the text `Budget` (case-insensitive scan of the rendered DOM). Assert no em-dash and no raw error code appears in the skeleton (DESIGN.md §9 / invariant 5). _Failure mode: blank first paint; a lead-gated Budget tab flashing during load/auth/picker._
 - [ ] Run to fail: `pnpm vitest run tests/components/crew/loading.test.tsx`.
 - [ ] Implement `app/show/[slug]/[shareToken]/loading.tsx` (default-exported component). Skeleton: Header band + `CrewSubNav`-shaped placeholder rendering the 6 base tabs (or unlabelled placeholders) and an empty section frame at `min-h-(--spacing-right-now-min-h)`. Use only existing `@theme` tokens. Not in the screenshot manifest (§4.17). `data-testid="crew-loading-skeleton"`.
-- [ ] Run to pass; `pnpm tsc --noEmit`. Commit `feat(crew-page): loading.tsx shell skeleton (6 base tabs, never Budget)`.
+- [ ] Run to pass; `pnpm typecheck`. Commit `feat(crew-page): loading.tsx shell skeleton (6 base tabs, never Budget)`.
 
 ---
 
@@ -252,7 +252,7 @@
   ```
   Carry the inline `// not-subject-to-meta: best-effort observability write, fail-quiet` note OR add the call site to the relevant call-boundary audit (00-overview meta-inventory #7 — decide by checking which audit, if any, walks `app/show/**`).
   - **`PROJECTION_ALERT_MESSAGE` is a module-level CONSTANT (R3-HIGH-1 — viewer-independent):** `const PROJECTION_ALERT_MESSAGE = "One or more crew-page data sources failed to load; the affected domains are listed in the alert detail." ;` (no em-dash). **Do NOT** embed the per-render key count or `failedKeys.join(", ")` in `message` — the §4.13 "e.g. N sources: rooms, hotel" wording is **illustrative**, and taking it literally would VIOLATE the spec's own §4.13 invariants: (a) **viewer-independence** — a lead render's message ("3 sources: rooms, financials, transportation") vs an ordinary-crew render's ("2 sources: rooms, transportation") would store mutually-inconsistent prose against the same union'd `failedKeys`; (b) **the R39 no-op write-bound** — the `WHERE`-gated no-op compares the incoming non-`failedKeys` context to the stored one, so a per-render-varying `message` makes every mixed-viewer sighting a forced update (`last_seen_at` churn) even when the union didn't grow. A constant message keeps `failedKeys` the single source of domain detail (the admin UI renders the domains from `failedKeys`), so both invariants hold. (The §12.4 catalog `helpfulContext`/`dougFacing` `<sheet-name>` interpolation is a SEPARATE surface — the human-facing alert template — unaffected by this `context.message` constant.)
-- [ ] Run to pass: `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/cross-cutting/codes.test.ts tests/components/crew/crewShellAlert.test.tsx tests/components/admin/perShowAlertFailedKeys.test.tsx`; `pnpm tsc --noEmit`. All four lockstep layers + the producer + the failedKeys-render + both meta-tests green together.
+- [ ] Run to pass: `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/cross-cutting/codes.test.ts tests/components/crew/crewShellAlert.test.tsx tests/components/admin/perShowAlertFailedKeys.test.tsx`; `pnpm typecheck`. All four lockstep layers + the producer + the failedKeys-render + both meta-tests green together.
 - [ ] Commit `feat(crew-page): TILE_PROJECTION_FETCH_FAILED alert plumbing + minimal CrewShell producer (lockstep + meta-registration + producer, one commit)`.
 
 ---
@@ -377,7 +377,7 @@ EXACT props (00-overview): `CrewShellProps = { data: ShowForViewer; viewer: View
   - Compute once (single authority): `const budgetVisible = financialsVisible(ctx.viewerFlags, ctx.isAdmin); const activeSection = resolveActiveSection(rawSection, { budgetVisible });`.
   - Render `data-testid="crew-shell"` wrapper: `Header` (with status pill + identity chip — the chip prop comes from the caller as today via `identityChip`; preserve) → `CrewSubNav activeSection={activeSection} budgetVisible={budgetVisible}` → `ShowRealtimeBridge showId slug renderVersion={data.viewerVersionToken}` → `CrewSectionTransition sectionId={activeSection}`(placeholder active section; Today leads with `RightNowHero context={buildRightNowContext({ show, dateRestriction: ctx.dateRestriction, hotelReservations: data.hotelReservations, rooms: data.rooms })}`) → `Footer` with the verbatim per-viewer-kind report props (`reportSurfaceOverride`, conditional `reportSurfaceIdOverride`, `reportAutocapture.crewPreview` only for `admin_preview`, `lastSyncedAt`/`lastSyncStatus`). The **same `budgetVisible`** drives both the nav tab and the section resolution — never recomputed divergently.
   - Body `TerminalFailure` carries NO `retryHref` (the body lacks `shareToken` in exactly the malformed case; §4.14).
-- [ ] Run to pass; `pnpm tsc --noEmit`. Commit `feat(crew-page): CrewShell server component + section-independent projection-alert upsert`.
+- [ ] Run to pass; `pnpm typecheck`. Commit `feat(crew-page): CrewShell server component + section-independent projection-alert upsert`.
 
 ---
 
@@ -413,7 +413,7 @@ EXACT props (00-overview): `CrewShellProps = { data: ShowForViewer; viewer: View
   - `gate=skip` page-level honor (`:182`): unchanged guard; the `?gate=skip` CTA already lives in `_SignInOrSkipGate`; ensure the CTA carries `s`.
   - picker selection: `_PickerInterstitial.tsx` `selectIdentityFormAction` re-renders via `revalidatePath` (no redirect) — the post-selection render re-reads the SAME URL which already carries `?s=`; so the section is preserved automatically for the in-place picker. Add a hidden `s` input to the picker forms + the sign-in recovery form (`:77`, `:150`, `:188`) so any GET-form recovery route (claimed rows → `/auth/sign-in?next=`) carries `s` too. Pass `activeSection`/`s` as a prop to `PickerInterstitial` and `selectIdentityFormAction`'s `next`.
   - stale-cleanup (`_StaleCleanupAutoSubmit`): auto-submits + revalidates the current URL (no redirect) → `?s=` preserved in place; no change needed beyond confirming the test covers the in-place case.
-- [ ] Run to pass (incl. the validateNextParam test); `pnpm tsc --noEmit`. The full end-to-end auth-boundary proof (deep-link `?s=venue` surviving the real picker / sign-in / claimed-row recovery in a browser) lands as the Phase-4 real-browser test 13/28 (`04` Task 3) — this task pins the unit + integration mechanism (validator + builders + redirect threading). Commit `feat(crew-page): widen searchParams to {gate,s}; preserve s+gate through validateNextParam + picker/sign-in/gate=skip/claimed-row redirects (R4-HIGH-1)`.
+- [ ] Run to pass (incl. the validateNextParam test); `pnpm typecheck`. The full end-to-end auth-boundary proof (deep-link `?s=venue` surviving the real picker / sign-in / claimed-row recovery in a browser) lands as the Phase-4 real-browser test 13/28 (`04` Task 3) — this task pins the unit + integration mechanism (validator + builders + redirect threading). Commit `feat(crew-page): widen searchParams to {gate,s}; preserve s+gate through validateNextParam + picker/sign-in/gate=skip/claimed-row redirects (R4-HIGH-1)`.
 
 ---
 
@@ -426,7 +426,7 @@ EXACT props (00-overview): `CrewShellProps = { data: ShowForViewer; viewer: View
 - [ ] Write `tests/components/crew/previewAsRoute.test.tsx`: mock `requireAdmin`, `getShowForViewer`, the show/crew lookups, and `nowDate`; render the page with `searchParams` resolving `{ s: "venue" }` → assert `CrewShell` is rendered (`data-testid="crew-shell"` with `data-active-section="venue"`), `viewer.kind === "admin_preview"`, and `shareToken` undefined; default (no `s`) → `data-active-section="today"`. **Budget gate (R2-HIGH-1):** with `{ s: "budget" }` and the previewed crew a **non-LEAD** → `data-active-section="today"` (Budget not entered); with the previewed crew a **LEAD** → `data-active-section="budget"`. _Failure mode: preview-as left on the old flat-grid `ShowBody`; preview not reading its own `?s=`; an admin previewing a non-lead reaching Budget via `?s=budget`._
 - [ ] Run to fail: `pnpm vitest run tests/components/crew/previewAsRoute.test.tsx`.
 - [ ] Implement: widen `PageProps` (`:51-53`) to `{ params: Promise<{ slug; crewId }>; searchParams: Promise<{ s?: string }> }`; await `s`. Do NOT resolve `activeSection` or `budgetVisible` here — pass the **RAW `s`** to `CrewShell`, which is the single authority (R2-HIGH-1 — the previous `budgetVisible: true` shortcut let a non-LEAD-previewing admin reach `?s=budget`; removed). Swap `<ShowBody slug showId viewer data />` (`:233-238`) → `<CrewShell data viewer={{ kind: "admin_preview", crewMemberId: crewId }} showId={showId} rawSection={s} slug={slug} />` (no `shareToken`; pass `showId` = `showLookup.id` (`:154`), R7-HIGH). Keep `<PreviewBanner />` above. (CrewShell resolves `budgetVisible = financialsVisible(ctx.viewerFlags, ctx.isAdmin)` where `admin_preview` yields `isAdmin=false`, so Budget is gated on the **previewed crew's** `LEAD` flag — exactly what the admin should see when previewing-as.)
-- [ ] Run to pass; `pnpm tsc --noEmit`. Commit `feat(crew-page): preview-as route renders CrewShell + reads its own ?s=`.
+- [ ] Run to pass; `pnpm typecheck`. Commit `feat(crew-page): preview-as route renders CrewShell + reads its own ?s=`.
 
 ---
 
@@ -441,7 +441,7 @@ EXACT props (00-overview): `CrewShellProps = { data: ShowForViewer; viewer: View
 - [ ] **Step 1: failing test** — `tests/components/layout/headerStatusPill.test.tsx`: `Header` with a `statusPill` slot value → renders it (`data-testid="header-status-pill"`); without → no pill node. Then in `crewShell.test.tsx`: render `CrewShell` on a **non-Today** section (`rawSection="venue"`) for a `crew` viewer → the `[data-testid="header-status-pill"]` is present (proving it's header-level, not hero-level); same for an `admin_preview` viewer; a `dateless` show → the neutral/omitted state per the mock. _Failure mode: deleting `ShowStatusTile` silently dropping the status pill (a user-visible field-port regression hidden by the Venue field tests); the pill rendering only on Today (mis-placed in the hero)._
 - [ ] **Step 2: run to fail.**
 - [ ] **Step 3: implement** — add `statusPill?: ReactNode` to `HeaderProps` (`Header.tsx:22`); render it next to the title inside `data-testid="header-status-pill"` (omit when null). In `CrewShell`, compute the pill node from the show date-state (using `ctx.dateRestriction` + the `today` Date) and pass `statusPill={...}` to `Header`. Confirm the exact label copy + degraded behavior against the design mock (no em-dash, §4.18). Add `components/layout/Header.tsx` to the modified-files set.
-- [ ] **Step 4: run to pass.** **Step 5: `pnpm tsc --noEmit`.** **Step 6: commit** `feat(crew-page): Header status-pill port (D-2/wp-18, visible on every section)`. **Phase-4 tile deletion is gated on this being green** (the §10 field-coverage check — `ShowStatusTile`'s pill must have a home before deletion).
+- [ ] **Step 4: run to pass.** **Step 5: `pnpm typecheck`.** **Step 6: commit** `feat(crew-page): Header status-pill port (D-2/wp-18, visible on every section)`. **Phase-4 tile deletion is gated on this being green** (the §10 field-coverage check — `ShowStatusTile`'s pill must have a home before deletion).
 
 ---
 
@@ -451,7 +451,7 @@ All of the following GREEN before Phase 3, and (per §4.13/§10 sequencing) BEFO
 
 1. `pnpm vitest run tests/crew/ tests/components/crew/ tests/messages/_metaAdminAlertCatalog.test.ts tests/admin/upsertAdminAlert.test.ts tests/components/tiles/_metaSentinelHidingContract.test.ts tests/cross-cutting/codes.test.ts` all pass.
 2. `pnpm vitest run tests/db/upsert-admin-alert-dedup.test.ts` passes **against the validation project** (`TEST_DATABASE_URL` set) — proves the `failedKeys`-union-merge RPC is live in validation (the surgical apply landed; the function-drift guard the manifest can't provide).
-3. `pnpm tsc --noEmit` clean.
+3. `pnpm typecheck` clean.
 4. **The four lockstep layers moved together** in one commit (Task 8): §12.4 prose + regen `spec-codes.ts` + `catalog.ts` row + `AdminAlertCode` union — `x1-catalog-parity` (3 of 4) + the extended `_metaAdminAlertCatalog` registry⊆union assertion (the 4th) both green.
 5. **The server-side projection-alert upsert is live and section-independent** (Task 11, test 16): `failedKeys` = sorted keys of the render's `tileErrors`, no `signature`/`viewerVersionToken`, fail-quiet, one call per render. This MUST be green now — Phase 4 will delete the `_ShowBody.tsx:403-431` `notes-tile` alert path only after this section-independent observability is proven live.
 6. `_metaSentinelHidingContract` now walks `components/crew/` (Task 4) — the sentinel-hiding contract enforces on every new section/primitive.

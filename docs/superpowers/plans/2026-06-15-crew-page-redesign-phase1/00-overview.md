@@ -15,7 +15,7 @@
 - **One unit/component test file:** `pnpm vitest run <path/to/test.ts>` (or `npx vitest run <path>`). A single test by name: `pnpm vitest run <path> -t "<test name>"`.
 - **Watch a file while iterating:** `pnpm vitest <path>` (no `run`).
 - **One Playwright spec:** `pnpm exec playwright test <path/to/spec.ts> --project=mobile-safari` (projects: `mobile-safari`, `desktop-chromium`, `dev-build`, `prod-build`).
-- **Type check:** `pnpm tsc --noEmit` (or the repo's `pnpm typecheck` if present).
+- **Type check:** `pnpm typecheck` (or the repo's `pnpm typecheck` if present).
 - Expected-output discipline: derive every expected value from the fixture, never hardcode (AGENTS.md anti-tautology rule).
 
 ---
