@@ -306,8 +306,11 @@ describe("CrewShell threads today into the dispatched section (R8-HIGH-1)", () =
     const pinned = screen.getByTestId("schedule-day-today");
     expect(pinned).toBeTruthy();
     // The pinned card is the show-tz day (2026-05-14); the UTC day (2026-05-15)
-    // is a DIFFERENT, non-pinned card.
-    expect(pinned.textContent).toContain(expectedTodayIso);
+    // is a DIFFERENT, non-pinned card. (The crew-mock-fidelity DayCard renders a
+    // weekday+day-number BADGE, not the raw ISO, so the show-tz date is asserted
+    // via the `data-day` attribute the section sets — same contract the
+    // frozen-clock screenshot e2e reads — not the visible badge text.)
+    expect(pinned.getAttribute("data-day")).toBe(expectedTodayIso);
     expect(screen.getByTestId(`schedule-day-2026-05-15`)).toBeTruthy();
     expect(screen.queryByTestId(`schedule-day-2026-05-14`)).toBeNull(); // 05-14 is the pinned one
   });
