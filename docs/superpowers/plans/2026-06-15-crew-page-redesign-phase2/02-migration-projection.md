@@ -248,7 +248,9 @@ describe("decodeRunOfShow — total, deep per-layer validation (R14)", () => {
 - EDIT `lib/sync/applyStagedCore.ts` (R16/R17 — the staged apply core that runs `runPhase2`): `applyStagedCore` calls `runPhase2` at `:514` and builds its applied result at `:574-581` (copying `roleFlagsNotice`/`snapshotRevisionId` from `phase2` but NOT warnings). Add `parseWarnings` to the `ApplyStagedCoreResult` applied variant (`:434-441`) and **populate it from `phase2.parseWarnings ?? []`** at `:574-581` (the staged analogue of the cron `Phase2Result.applied.parseWarnings` thread). This is the SURFACING SOURCE — without it `coreResult` has no warnings to thread.
 - EDIT `lib/sync/applyStaged.ts` (R16/R17 — 3rd `emitSuccessfulPhase2Tail` caller): the inline applied result passed to the tail at `:1280` (`result: { outcome: "applied", showId: coreResult.showId }`) must add **`parseWarnings: coreResult.parseWarnings`** (the field `applyStagedCore` now surfaces — above). **EXACT source field = `coreResult.parseWarnings`** — NOT a literal `[]`. The R16 required field forces SOME value, but `[]` typechecks while silently LOSING `AGENDA_DAY_EMPTIED` on the staged first-published sync_log path; the R17 runtime-sourcing test below pins the correct source.
 - NEW `tests/sync/runOfShowConfirmedReplace.test.ts` (apply-core: `shows_internal.parse_warnings` + the R6 live-snapshot plumbing).
-- NEW `tests/sync/runOfShowSyncLogChannel.test.ts` (the D-7 `sync_log` channel — driven through `emitSuccessfulPhase2Tail`/`processOneFile`, the REAL logging surface; + a focused `insertSyncLog` structural pin; **+ the R16 manual-first-seen-path test + the R17 staged-first-published runtime-sourcing test**). See the retargeted tests below.
+- NEW `tests/sync/runOfShowSyncLogChannel.test.ts` (the D-7 `sync_log` channel — driven through `emitSuccessfulPhase2Tail` with a spy `logSync`, the REAL logging surface; + a focused `insertSyncLog` structural pin; **+ the R16 manual-first-seen-path test**). See the retargeted tests below.
+- EDIT `tests/sync/applyStaged.test.ts` (R17 — add the staged-first-published runtime-sourcing test, REUSING that file's `fakeTx`/`deps`/`pending`/`driveMeta` fixtures; a standalone snippet would reference undefined helpers — the R21 trap).
+- NEW `tests/sync/runOfShowLiveWiring.meta.test.ts` (R20 source-scan guards — `applyShowSnapshot` SELECTs `run_of_show`+returns `priorRunOfShow`, `upsertShowsInternal` writes it; inlines a `methodText` AST helper since `classMethodSource` is not exported).
 
 > **Snapshot-surface correction (R6 HIGH — the prior-run_of_show source).** The prior stored `run_of_show` MUST come through the **apply snapshot** (`ApplyParseResultSnapshot`, `applyParseResult.ts:13-17`), which `applyParseResult` actually consumes as `args.snapshot`. That snapshot is built by **`Phase2Tx.applyShowSnapshot`** (interface `phase2.ts:33-59`; Postgres impl `runScheduledCronSync.ts:938-1165`), which already resolves the existing show row and reads `previousCrew`. **The earlier plan pointed at `runScheduledCronSync.ts:532-543` — that is WRONG: that read populates the Phase-1 parse snapshot (`readShowForPhase1` → `priorParseResult`), a DIFFERENT surface that never reaches `applyParseResult`.** Wiring the prior `run_of_show` there would leave `AGENDA_DAY_EMPTIED` permanently undetectable on the live cron path (it would only ever fire in a fake unit-snapshot test). The correct seam is `applyShowSnapshot` → its return → `ApplyParseResultSnapshot.priorRunOfShow` → consumed in `applyParseResult`. **Do NOT touch `:532-543` for this.**
 
@@ -310,20 +312,47 @@ The `run_of_show` warnings flow through the existing `parse_warnings` channel an
 3. **Postgres producer:** in the `applyShowSnapshot` impl (`runScheduledCronSync.ts:938-1165`), after the existing-show lookup (`:939-942`, `existing.id`), add a prior-row read — `existing ? await this.one<{ run_of_show: Record<string, AgendaEntry[]> | null }>("select run_of_show from public.shows_internal where show_id = $1 limit 1", [existing.id]) : null` — and add `priorRunOfShow: prior?.run_of_show ?? null` to the `"updated"` return (`:1146-1164`). (A first-seen show has no prior `shows_internal` row → `priorRunOfShow: null`, the correct "nothing previously stored" signal.) Decode defensively if the column could be a double-encoded string (reuse the project's `decodeJsonbColumn` if the postgres.js driver returns a string for this jsonb; for the in-lock raw-tx path it typically returns the parsed object — match the existing `parse_warnings`/`financials` read shape at `:532-543`/`:485` for the decode convention).
 4. **Consumer:** in `applyParseResult` (`:80-128`), compute the `AGENDA_DAY_EMPTIED` set by comparing `parseResult.runOfShow` against `args.snapshot.priorRunOfShow` (a day is "previously stored" iff `priorRunOfShow?.[d]?.length > 0`), emit via the `agendaDayEmptied(index, iso)` helper, and **append to `parseResult.warnings` BEFORE the `upsertShowsInternal` payload is built at `:128`** (the ordering invariant above). On the unlocatable-grid path (`runOfShow === undefined`) the sync appends NOTHING — `AGENDA_GRID_MALFORMED` is already in `parseResult.warnings` from the parser; the sync never re-emits it and never adds EMPTIED there (keep the R1 split + the R10 single-owner rule).
 5. **Single concrete impl (verified):** there is exactly ONE `applyShowSnapshot` IMPLEMENTATION — the Postgres `PostgresPipelineTx.applyShowSnapshot` at `runScheduledCronSync.ts:938` (the staged/onboarding paths in `applyStaged.ts`/`applyStagedCore.ts` route through the SAME shared `Phase2Tx` via `makeSyncPipelineTx`, they do not re-implement it). So the step-3 edit covers all live apply paths. Still run `rg "applyShowSnapshot" lib/sync/` during execution to confirm no second impl was added since plan time; if one exists, add `priorRunOfShow` there too (the required field forces it). State what the grep found in the commit body.
-6. **LIVE-PRODUCER source-scan guard (R20 — pins the Postgres `select run_of_show`, NOT just the fake).** The required field (step 2) forces the impl to RETURN `priorRunOfShow`, but a buggy impl could still return `priorRunOfShow: null` UNCONDITIONALLY (never reading `shows_internal`) and pass tsc + the fake-seeded suite. Add a source-scan structural guard (mirrors the existing `classMethodSource("PostgresPipelineTx", "applyShowSnapshot")` pattern at `tests/sync/runScheduledCronSync.test.ts:216` + `:495`/`:599`) that reads the live method text and asserts the SQL + return wiring. Add to `tests/sync/runOfShowConfirmedReplace.test.ts` (or a new `tests/sync/runOfShowSnapshotSource.meta.test.ts`):
+6. **LIVE-PRODUCER source-scan guard (R20 — pins the Postgres `select run_of_show`, NOT just the fake).** The required field (step 2) forces the impl to RETURN `priorRunOfShow`, but a buggy impl could still return `priorRunOfShow: null` UNCONDITIONALLY (never reading `shows_internal`) and pass tsc + the fake-seeded suite. Add a source-scan structural guard in a new `tests/sync/runOfShowLiveWiring.meta.test.ts`. **NOTE (R21 executability):** `classMethodSource` is NOT exported from `runScheduledCronSync.test.ts` (it's a private `function` at `:216`), so INLINE a self-contained helper (the AST scope-narrowing prevents matching the `shows_internal` SELECT in OTHER methods like the snapshot-read or `upsertShowsInternal`). Complete, executable:
    ```ts
+   import { describe, it, expect } from "vitest";
    import { readFileSync } from "node:fs";
    import ts from "typescript";
-   // (lift classMethodSource from tests/sync/runScheduledCronSync.test.ts, or import a shared kit)
-   it("R20 producer guard — PostgresPipelineTx.applyShowSnapshot reads shows_internal.run_of_show and returns it as priorRunOfShow", () => {
-     const { method, sourceFile } = classMethodSource("PostgresPipelineTx", "applyShowSnapshot");
-     const src = method.getText(sourceFile);
-     expect(src).toMatch(/run_of_show[\s\S]*from\s+public\.shows_internal/i); // the LIVE select exists
-     expect(src).toMatch(/priorRunOfShow\s*:/);                                // it's wired into the return
-     // RED before impl: the method has no shows_internal.run_of_show select → production never emits AGENDA_DAY_EMPTIED.
+
+   // inlined from tests/sync/runScheduledCronSync.test.ts:216-248 (not exported there) — narrows to ONE method's text
+   function methodText(className: string, methodName: string): string {
+     const text = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
+     const sf = ts.createSourceFile("x.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+     let found: ts.MethodDeclaration | null = null;
+     const visit = (n: ts.Node): void => {
+       if (ts.isClassDeclaration(n) && n.name?.text === className) {
+         for (const m of n.members) {
+           if (ts.isMethodDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === methodName) { found = m; return; }
+         }
+       }
+       ts.forEachChild(n, visit);
+     };
+     visit(sf);
+     if (!found) throw new Error(`${className}.${methodName} not found`);
+     return (found as ts.MethodDeclaration).getText(sf);
+   }
+
+   describe("R20 live-wiring source-scan guards", () => {
+     it("applyShowSnapshot reads shows_internal.run_of_show and returns it as priorRunOfShow", () => {
+       const src = methodText("PostgresPipelineTx", "applyShowSnapshot");
+       expect(src).toMatch(/run_of_show[\s\S]*from\s+public\.shows_internal/i); // the LIVE select exists
+       expect(src).toMatch(/priorRunOfShow\s*:/);                                // wired into the return
+       // RED before impl: applyShowSnapshot has no shows_internal.run_of_show select → production never emits AGENDA_DAY_EMPTIED.
+     });
+     it("upsertShowsInternal writes run_of_show ($5::jsonb + excluded.run_of_show)", () => {
+       const src = methodText("PostgresPipelineTx", "upsertShowsInternal");
+       expect(src).toMatch(/run_of_show/);
+       expect(src).toMatch(/\$5::jsonb/);
+       expect(src).toMatch(/run_of_show\s*=\s*excluded\.run_of_show/i); // actually WRITTEN, not just SELECT-listed
+       // RED before impl: the upsert has no run_of_show column → the sync never persists the computed value.
+     });
    });
    ```
-   **Negative-regression:** stash the `select run_of_show` line (return `priorRunOfShow: null` unconditionally) → confirm THIS guard goes RED while the fake-seeded behavioral suite stays green — proving the guard catches the dead-live-producer that the fake cannot.
+   **Negative-regression:** stash the `select run_of_show` line in `applyShowSnapshot` (return `priorRunOfShow: null` unconditionally) → confirm the first guard goes RED while the fake-seeded behavioral suite stays green; stash the `run_of_show` column from `upsertShowsInternal` → the second goes RED. (Each catches a dead-live-producer the fake cannot.) The 3rd R20 guard — `getShowForViewer`'s `.select("run_of_show")` — lives in the projection test file (Task 02.5, `readFileSync`-based since `getShowForViewer` is a function, not a class method).
 
 **Payload type edit (`applyParseResult.ts:28-40`):** add `run_of_show: Record<string, import("@/lib/parser/types").AgendaEntry[]> | null;` to the `upsertShowsInternal` payload object type.
 
@@ -543,67 +572,69 @@ describe("D-7 sync_log channel — AGENDA_DAY_EMPTIED reaches sync_log via emitS
   });
 });
 
-describe("R16 — the MANUAL first-seen caller of emitSuccessfulPhase2Tail also threads parseWarnings to sync_log", () => {
-  // Proves caller #2 (runManualStageForFirstSeen.ts:113-121) copies parseWarnings onto its applied result before the
-  // tail — the R16 structural-defense forces this at tsc, this test pins the runtime behavior. Model the deps shape on
-  // tests/sync/runManualStageForFirstSeen.test.ts (FakeManualStageTx + injected deps.runPhase1/runPhase2/logSync).
+// Mock the snapshot-asset factory (the auto_publish_ready tail path reads it via tx.insertPendingSnapshotUpload).
+// Lifted from tests/sync/runManualStageForFirstSeen.test.ts:6-32 — required for the manual path to run end-to-end.
+vi.mock("@/lib/sync/defaultSnapshotAssetsForApply", () => ({
+  makeSnapshotAssetsForApply: vi.fn(() => async (args: { diagrams: unknown }) => ({
+    snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    tempPrefix: "diagram-snapshots/shows/show-1/_pending/run-1/", warnings: [],
+    pending: { revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      snapshot_status: "complete", linkedFolder: (args.diagrams as { linkedFolder: unknown }).linkedFolder, embeddedImages: [], linkedFolderItems: [] },
+  })),
+}));
+
+describe("R16 — the MANUAL first-seen caller of emitSuccessfulPhase2Tail threads parseWarnings to sync_log (runtime sourcing)", () => {
+  // Caller #2 (runManualStageForFirstSeen.ts:113-121). The REAL emitSuccessfulPhase2Tail runs (NOT injected — injecting it
+  // would bypass the very `applied.parseWarnings → tail → logSync` wiring under test); we spy ONLY deps.logSync.
+  // FakeManualStageTx satisfies assertShowLockHeld (queryOne→{held:true}) + the apply surface. runPhase2 is injected so
+  // applyShowSnapshot is never reached; the test isolates the manual caller's applied-result sourcing.
+  class FakeManualStageTx {
+    held = true;
+    async queryOne<T>() { return { held: this.held } as T; } // assertShowLockHeld reads this
+    async upsertAdminAlert() { return "alert-1"; }
+    async deleteLivePendingIngestion() {}
+    async upsertLivePendingSync() { return { stagedId: "staged-forced" }; }
+    async readShowId() { return null; }
+    async insertPendingSnapshotUpload() {}
+    async applyDiagramSnapshot() {}
+    async applyShowSnapshot() { return { outcome: "updated" as const, showId: "show-1", previousCrewNames: [], priorRunOfShow: null }; }
+    async deleteCrewMembersNotIn() {} async upsertCrewMembers() {}
+    async provisionAddedCrewAuth() {} async revokeRemovedCrewAuth() {}
+    async replaceHotelReservations() {} async replaceRooms() {}
+    async replaceTransportation() {} async replaceContacts() {}
+    async upsertShowsInternal() {}
+  }
+  // Minimal first-seen ParseResult (only fields the path reads).
+  const firstSeenParseResult = () => ({
+    show: { title: "First Seen", client_label: "c", client_contact: null, template_version: "v4", venue: null,
+      dates: { travelIn: null, set: "2026-05-08", showDays: [], travelOut: null },
+      schedule_phases: {}, event_details: {}, agenda_links: [], coi_status: null, po: null, proposal: null, invoice: null, invoice_notes: null },
+    crewMembers: [], hotelReservations: [], rooms: [], transportation: null, contacts: [], pullSheet: null,
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] }, openingReel: null,
+    raw_unrecognized: [], warnings: [], hardErrors: [],
+  });
+  const fmeta = () => ({ driveFileId: "file-1", name: "S", mimeType: "application/vnd.google-apps.spreadsheet", modifiedTime: "2026-05-08T12:00:00.000Z", parents: ["f"] });
+
   it("a manual first-seen auto_publish_ready apply whose runPhase2 returns AGENDA_DAY_EMPTIED logs it to sync_log", async () => {
     const { runManualStageForFirstSeen } = await import("@/lib/sync/runManualStageForFirstSeen");
     const logSync = vi.fn(async () => {});
-    // Drive the auto_publish_ready → applied path; inject runPhase1 (auto_publish_ready) + runPhase2 (applied + parseWarnings).
-    // Reuse the FakeManualStageTx + parseResult/fileMeta fixtures from tests/sync/runManualStageForFirstSeen.test.ts.
-    const result = await runManualStageForFirstSeen(makeManualStageTx() as never, "file-1", {
-      fileMeta: fileMeta(),
-      parseResult: firstSeenParseResult(),
-      runPhase1: vi.fn(async () => ({ outcome: "auto_publish_ready" as const })),
-      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", parseWarnings: [EMPTIED] })),
+    const result = await runManualStageForFirstSeen(new FakeManualStageTx() as never, "file-1", {
+      fileMeta: fmeta() as never,
+      parseResult: firstSeenParseResult() as never,
+      binding: { bindingToken: "tok-b", modifiedTime: "2026-05-08T12:00:00.000Z" }, // REQUIRED — omitting it throws the precondition (wrong-reason red)
+      runPhase1: vi.fn(async () => ({ outcome: "auto_publish_ready" as const })) as never,
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", parseWarnings: [EMPTIED] })) as never,
       logSync,
-      // stub the remaining injectable deps (createUnpublishToken/now/publishShowInvalidation/upsertAdminAlert) per the existing test.
-      createUnpublishToken: () => "tok", now: () => new Date("2026-05-08T12:00:00.000Z"),
-      upsertAdminAlert: vi.fn(async () => undefined),
-    } as never);
+      createUnpublishToken: () => "tok-u",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      upsertAdminAlert: vi.fn(async () => undefined) as never,
+    });
     expect((result as { outcome: string }).outcome).toBe("applied");
     const entry = logSync.mock.calls.at(-1)![0] as SyncLogEntry;
     expect((entry.parseWarnings ?? []).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
-    // RED before impl: the manual caller's `applied` (runManualStageForFirstSeen.ts:113-116) omits parseWarnings →
-    //   the tail logs an entry with no AGENDA_DAY_EMPTIED. (Helpers makeManualStageTx/firstSeenParseResult/fileMeta are
-    //   lifted from tests/sync/runManualStageForFirstSeen.test.ts — keep them local or import a shared test kit.)
-  });
-});
-
-describe("R17 — the STAGED first-published caller threads coreResult.parseWarnings to the tail (correct SOURCING, not just a supplied value)", () => {
-  // Caller #3: applyStaged.ts:1280. The R16 required field forces SOME value; this proves the value is the REAL
-  // source (coreResult.parseWarnings ← phase2.parseWarnings), NOT a literal []. Model the harness on the existing
-  // first-published test tests/sync/applyStaged.test.ts:339-384 (fakeTx + injected runPhase2 + emitSuccessfulPhase2Tail spy).
-  const EMPTIED2 = { severity: "warn" as const, code: "AGENDA_DAY_EMPTIED", message: "d went read-empty" };
-
-  it("a staged first-seen auto-publish apply whose runPhase2 returns AGENDA_DAY_EMPTIED passes it to the tail's applied result", async () => {
-    const { applyStaged_unlocked } = await import("@/lib/sync/applyStaged");
-    const tail = vi.fn(async () => undefined);
-    // runPhase2 returns the applied Phase2Result CARRYING parseWarnings (what applyStagedCore must surface onto coreResult).
-    const syncDeps = stagedDeps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }], baseModifiedTime: null }),
-      ),
-      readShowForApply: vi.fn(async () => null), // first-seen: no show row yet
-      liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
-      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new", parseWarnings: [EMPTIED2] })),
-      emitSuccessfulPhase2Tail: tail,
-      createUnpublishToken: () => "tok-1",
-      now: () => new Date("2026-05-08T12:00:00.000Z"),
-    });
-    await applyStaged_unlocked(
-      stagedFakeTx() as never,
-      { driveFileId: "drive-file-1", sourceScope: "live", stagedId: "staged-live",
-        reviewerChoices: [{ item_id: "fs-1", action: "apply" }], appliedByEmail: "doug@fxav.test" },
-      syncDeps as never,
-    );
-    expect(tail).toHaveBeenCalledTimes(1);
-    const tailArg = tail.mock.calls[0]![0] as { result: { parseWarnings?: Array<{ code: string }> } };
-    expect((tailArg.result.parseWarnings ?? []).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
-    // RED before impl: applyStaged.ts:1280 builds `result: { outcome:"applied", showId }` with no parseWarnings
-    //   (and applyStagedCore drops phase2.parseWarnings) → tailArg.result.parseWarnings is undefined.
-    // (stagedDeps/stagedFakeTx/pending/driveMeta are the applyStaged.test.ts fixtures — lift or share a kit.)
+    // EXPECTED RED (propagation, NOT precondition): with binding/fileMeta/parseResult all supplied the precondition
+    //   passes and runPhase1→auto_publish_ready reaches the tail; before impl, the manual `applied` (runManualStageForFirstSeen.ts:113-116)
+    //   omits parseWarnings, so the REAL tail's logSync entry has NO AGENDA_DAY_EMPTIED → this assertion fails for the RIGHT reason.
   });
 });
 
@@ -651,11 +682,42 @@ describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnin
 > - **`insertSyncLog` pin:** stash the `$5` union → the structural-pin test FAILS (the durable CI guard — fails if any future refactor drops `entry.parseWarnings` from the column write, independent of the tail).
 > Each stash-and-confirm-red proves the test exercises its real runtime surface, not just the type. (4th-touch structural-defense discipline.)
 
-**Run-fails:** `pnpm vitest run tests/sync/runOfShowConfirmedReplace.test.ts tests/sync/runOfShowSyncLogChannel.test.ts` → red. _Failure this catches: ANY non-confirmed shape (unresolved/unlocatable/read-empty) preserving-and-showing stale agenda (R17/R21/R22); a confirmed day wrongly dropped by a transient DATES drop (R12); a missing/spurious `AGENDA_DAY_EMPTIED`; **the unlocatable-grid path mis-emitting `AGENDA_DAY_EMPTIED` for prior-stored days** (case (ii)); **(PART B) the prior `run_of_show` never reaching `applyParseResult` because `applyShowSnapshot` didn't populate `priorRunOfShow` — the R6 dead-live-path class**; **(PART C) the D-7 `sync_log` channel being dead because the warning is lost at the `runPhase2`→tail boundary or `insertSyncLog` drops `parseWarnings` — the R7 wrong-surface class**; **and (R16) the MANUAL first-seen caller dropping `parseWarnings` from its applied result — the multi-caller class the required-field tsc defense + the manual-path test close**._
+**Failing test (CODE) — the R17 STAGED caller test goes in `tests/sync/applyStaged.test.ts`** (NOT `runOfShowSyncLogChannel.test.ts`), because it REUSES that file's existing fixtures — `fakeTx()` (`:107`, `queryOne`→`{held:true}`), `deps()` (`:149`, the `ApplyStagedDeps` builder supplying every required dep: `fetchDriveFileMetadata`/`readLivePendingSyncForApply`/`liveDriveReverify`/…), `pending()` (`:75`), `driveMeta()` (`:94`). Re-deriving those standalone is the R21 executability trap. Model on the EXISTING first-published test (`applyStaged.test.ts:339-384`) which already proves the tail is reached with the same token; this case ADDS the parseWarnings-sourcing assertion. `emitSuccessfulPhase2Tail` is injected as a spy `tail`; we assert the APPLIED RESULT `applyStaged` hands the tail carries `parseWarnings` (the staged caller's sourcing). Add inside `applyStaged.test.ts`'s existing `describe` (so `fakeTx`/`deps`/`pending`/`driveMeta` + the `FakeTx`/`LockedShowTx` imports are in scope):
+```ts
+// (added to tests/sync/applyStaged.test.ts — reuses its top-of-file fixtures + imports)
+const EMPTIED2 = { severity: "warn" as const, code: "AGENDA_DAY_EMPTIED", message: "d went read-empty" };
+test("R17: a staged first-seen auto-publish apply whose runPhase2 returns AGENDA_DAY_EMPTIED passes it to the tail's applied result", async () => {
+  const tail = vi.fn(async () => undefined);
+  const syncDeps = deps({                                 // applyStaged.test.ts:149 — supplies ALL required deps
+    readLivePendingSyncForApply: vi.fn(async () =>
+      pending({ triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }], baseModifiedTime: null })),
+    readShowForApply: vi.fn(async () => null),             // first-seen: no show row yet
+    liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
+    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new", parseWarnings: [EMPTIED2] })),
+    emitSuccessfulPhase2Tail: tail,
+    createUnpublishToken: () => "tok-1",
+    now: () => new Date("2026-05-08T12:00:00.000Z"),
+  });
+  await applyStaged_unlocked(
+    fakeTx() as LockedShowTx<FakeTx>,                      // applyStaged.test.ts:107 — queryOne→{held:true} satisfies the lock assert
+    { driveFileId: "drive-file-1", sourceScope: "live", stagedId: "staged-live",
+      reviewerChoices: [{ item_id: "fs-1", action: "apply" }], appliedByEmail: "doug@fxav.test" },
+    syncDeps,
+  );
+  expect(tail).toHaveBeenCalledTimes(1);
+  const tailArg = tail.mock.calls[0]![0] as { result: { parseWarnings?: Array<{ code: string }> } };
+  expect((tailArg.result.parseWarnings ?? []).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+  // EXPECTED RED (sourcing, NOT precondition/compile): all required deps + the first-seen pending row are supplied, so the
+  //   auto_publish_ready path reaches the tail; before impl, applyStaged.ts:1280 builds `result:{outcome:"applied",showId}`
+  //   with no parseWarnings (and applyStagedCore drops phase2.parseWarnings) → tailArg.result.parseWarnings is undefined → fails for the RIGHT reason.
+});
+```
+
+**Run-fails:** `pnpm vitest run tests/sync/runOfShowConfirmedReplace.test.ts tests/sync/runOfShowSyncLogChannel.test.ts tests/sync/applyStaged.test.ts` → red. _Failure this catches: ANY non-confirmed shape (unresolved/unlocatable/read-empty) preserving-and-showing stale agenda (R17/R21/R22); a confirmed day wrongly dropped by a transient DATES drop (R12); a missing/spurious `AGENDA_DAY_EMPTIED`; **the unlocatable-grid path mis-emitting `AGENDA_DAY_EMPTIED` for prior-stored days** (case (ii)); **(PART B) the prior `run_of_show` never reaching `applyParseResult` because `applyShowSnapshot` didn't populate `priorRunOfShow` — the R6 dead-live-path class**; **(PART C) the D-7 `sync_log` channel being dead because the warning is lost at the `runPhase2`→tail boundary or `insertSyncLog` drops `parseWarnings` — the R7 wrong-surface class**; **and (R16) the MANUAL first-seen caller dropping `parseWarnings` from its applied result — the multi-caller class the required-field tsc defense + the manual-path test close**._
 
 **Minimal impl (the full live path):** (1) extend `ApplyParseResultSnapshot` (`applyParseResult.ts:13-17`) with `priorRunOfShow`; (2) extend `Phase2Tx.applyShowSnapshot`'s `"updated"` return (`phase2.ts:49-59`) with `priorRunOfShow`; (3) in the Postgres `applyShowSnapshot` impl (`runScheduledCronSync.ts:938-1165`) add the `select run_of_show from public.shows_internal where show_id = existing.id` read + return `priorRunOfShow`; (4) in `applyParseResult` compute the confirmed-replace value and append `AGENDA_DAY_EMPTIED` (via the **`agendaDayEmptied` helper imported from `lib/parser`** — the ONLY warning the sync emits) ONLY for prior-stored days (`args.snapshot.priorRunOfShow?.[d]?.length > 0`) that parsed read-empty `[]` in a LOCATED grid; on the `parsed.runOfShow === undefined` path the sync appends NOTHING (the parser already put `AGENDA_GRID_MALFORMED` in `parseResult.warnings`; the sync carries it, never re-emits) — surfacing the appended warning to `runPhase2` (step 1a of the FIX-3 re-analysis) BEFORE building the `:128` `shows_internal.parse_warnings` payload; (5) thread `run_of_show` through the `upsertShowsInternal` payload + the SQL upsert (`:1318-1334`); (6) **the FIX-3 sync_log cross-boundary thread:** `Phase2Result.applied.parseWarnings` (`phase2.ts:114-118`/`:406-412`) → the applied `ProcessOneFileResult` + `result` (`:2469-2474`) → `emitSuccessfulPhase2Tail`'s `logSync` call (`:1750`) → `logSync` builder (`:1608-1623`, applied-only) → `SyncLogEntry.parseWarnings` (`:187-192`) → `insertSyncLog` `$5` union (`:794-808`). Keep everything inside the existing locked apply tx — add NO `pg_advisory*` call. **Do NOT touch `runScheduledCronSync.ts:532-543` (the Phase-1 parse snapshot — wrong surface) and do NOT wire warnings at `:2309` (the SKIP branch, not applied).**
 
-**Run-passes:** `pnpm vitest run tests/sync/runOfShowConfirmedReplace.test.ts tests/sync/runOfShowSyncLogChannel.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts` → green (topology unchanged). `pnpm typecheck` clean.
+**Run-passes:** `pnpm vitest run tests/sync/runOfShowConfirmedReplace.test.ts tests/sync/runOfShowSyncLogChannel.test.ts tests/sync/runOfShowLiveWiring.meta.test.ts tests/sync/applyStaged.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts` → green (topology unchanged). `pnpm typecheck` clean.
 
 **Commit:** `feat(sync): CONFIRMED-ONLY run_of_show write + AGENDA_DAY_EMPTIED dual-channel (shows_internal + sync_log) under the per-show lock`
 > Commit body must note the cross-boundary `Phase2Result`/`ProcessOneFileResult`/`SyncLogEntry` additive thread + the escalation gate outcome (wired, or scoped-to-DEFERRED if too invasive — see the FIX-3 escalation gate).
@@ -691,6 +753,7 @@ describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnin
 **Failing test (CODE) — `tests/data/getShowForViewerRunOfShow.test.ts`. Mocks `createSupabaseServiceRoleClient` (modeled EXACTLY on `tests/data/getShowForViewer-rooms-projection.test.ts:97-157` — per-table `tableResponses`, `vi.hoisted`, `vi.mock`, chainable stub) so each `shows_internal` fixture drives a real `getShowForViewer(...)` call. Anti-tautology: the date-intersection case asserts the STORED row still carries the dropped key (storage untouched) while the projection hides it. Complete, executable:**
 ```ts
 import { beforeEach, describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs"; // for the R20 live-read source-scan guard (bottom of file)
 
 const SHOW_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const CREW_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
@@ -861,9 +924,8 @@ describe("getShowForViewer.runOfShow projection (D-4)", () => {
 });
 
 // R20 LIVE-READ source-scan guard: the mock above keys off the TABLE NAME, but a structural assert pins that the
-// live read actually targets shows_internal.run_of_show (not only the mock). readFileSync (getShowForViewer is a
-// function, not a class method, so classMethodSource doesn't apply).
-import { readFileSync } from "node:fs";
+// live read actually targets shows_internal.run_of_show (not only the mock). Uses readFileSync (imported at top) —
+// getShowForViewer is a function, not a class method, so classMethodSource doesn't apply.
 describe("R20 producer guard — getShowForViewer reads shows_internal.run_of_show via the service-role client", () => {
   it("the source contains the live .select(\"run_of_show\") read on shows_internal", () => {
     const src = readFileSync("lib/data/getShowForViewer.ts", "utf8");
@@ -927,7 +989,7 @@ Run the full set; every item must be true before handing off to §03:
 - [ ] **Manifest committed:** `supabase/__generated__/schema-manifest.json` regenerated (`pnpm gen:schema-manifest`) with `run_of_show` on `shows_internal` and the `shows_internal` DML grants reflecting the REVOKE; staged + committed.
 - [ ] **REVOKE + registry same commit:** `20260619000001_lockdown_shows_internal.sql` (REVOKE insert/update/delete from anon,authenticated; SELECT + admin_only RLS + service_role all-privileges intact) AND the `shows_internal` row in `RPC_GATED_TABLES` landed in ONE commit; the bidirectional meta-test (`postgrest-dml-lockdown.test.ts:714`/`:738`) is green.
 - [ ] **Lockdown DML-rejection green:** `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` — `shows_internal` anon/authenticated INSERT/UPDATE/DELETE rejected, SELECT permitted.
-- [ ] **Projection + decoder + gating + sync + failedKeys green:** `pnpm vitest run tests/data/decodeRunOfShow.test.ts tests/data/getShowForViewerRunOfShow.test.ts tests/sync/runOfShowConfirmedReplace.test.ts tests/sync/runOfShowSyncLogChannel.test.ts tests/components/crew/crewShell.test.tsx`.
+- [ ] **Projection + decoder + gating + sync + failedKeys green:** `pnpm vitest run tests/data/decodeRunOfShow.test.ts tests/data/getShowForViewerRunOfShow.test.ts tests/sync/runOfShowConfirmedReplace.test.ts tests/sync/runOfShowSyncLogChannel.test.ts tests/sync/runOfShowLiveWiring.meta.test.ts tests/sync/applyStaged.test.ts tests/components/crew/crewShell.test.tsx`.
 - [ ] **AGENDA_DAY_EMPTIED live-path plumbing (R6) + live-producer pins (R20):** `priorRunOfShow` is threaded `ApplyParseResultSnapshot` (`applyParseResult.ts:13-17`) ← `Phase2Tx.applyShowSnapshot` return (`phase2.ts:49-59`, **REQUIRED field** — tsc forces every impl to populate it) ← the Postgres `applyShowSnapshot` `select run_of_show from public.shows_internal` (`runScheduledCronSync.ts:938-1165`); the PART-B live-path test asserts an emptied prior day fires `AGENDA_DAY_EMPTIED` through the REAL `runPhase2`→`applyParseResult` path. **The THREE R20 source-scan guards are green:** (1) `applyShowSnapshot` SELECTs `run_of_show` from `shows_internal` + returns `priorRunOfShow`; (2) `upsertShowsInternal` writes `run_of_show` (`$5::jsonb` + `excluded.run_of_show`); (3) `getShowForViewer` has the live `.select("run_of_show")` read — each with its stash-the-line→confirm-RED negative-regression run. NO `priorRunOfShow` wiring at the Phase-1 `:532-543` read.
 - [ ] **D-7 sync_log channel (R7) + multi-caller structural defense (R16) + per-caller runtime SOURCING (R17):** `parseWarnings` is a **REQUIRED** field on the applied `ProcessOneFileResult` variant (`:165-170`) — `pnpm typecheck` PASSES only because ALL THREE `emitSuccessfulPhase2Tail` callers supply it: `runScheduledCronSync.ts:2469-2474` (cron, source `phase2.parseWarnings`), `runManualStageForFirstSeen.ts:113-116` (manual, source `phase2.parseWarnings`), `applyStaged.ts:1280` (staged, source **`coreResult.parseWarnings`** ← `applyStagedCore.ts:574-581` surfaces `phase2.parseWarnings`). **Each caller has a RUNTIME SOURCING test** (required field proves supplied, not correctly sourced): PART-C suite-1 (cron, drives `emitSuccessfulPhase2Tail`), R16 test (manual, drives `runManualStageForFirstSeen`), **R17 test (staged, drives `applyStaged_unlocked` — asserts `tail`'s `result.parseWarnings` includes `AGENDA_DAY_EMPTIED`)** — each with a stash-source-to-`[]`→confirm-RED negative-regression. The `insertSyncLog` structural pin is green; the apply-core test is RELABELED CHANNEL-1-only. A `grep "outcome: \"applied\"" lib/sync` confirms no construction site omits `parseWarnings`. NO warning wiring at `:2309` (the SKIP branch). _(Escalation-gate fallbacks unchanged: optional field + CI grep-guard, or DEFERRED.md citing D-7, if the thread proved too invasive.)_
 - [ ] **Advisory-lock topology unchanged:** `pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts` green; no new `pg_advisory*` holder added.
