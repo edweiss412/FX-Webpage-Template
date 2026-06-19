@@ -145,12 +145,14 @@ And the identical block in `ParseResult` between its `warnings` (`:353`) and `ha
 
 ---
 
-### Task 1.3 — `parseAgenda` skeleton: locate grid by token-header (prefix-strip) → `undefined` + `AGENDA_GRID_MALFORMED`
+### Task 1.3 — `agendaWarnings.ts` (ALL 5 `AGENDA_*` `code:` helpers, lib/parser) + `parseAgenda` skeleton: locate grid → `undefined` + `AGENDA_GRID_MALFORMED`
 
-**Files:** `lib/parser/blocks/agenda.ts` (new) · `tests/parser/parseAgenda.test.ts` (new).
-**Interfaces — Produces:** `parseAgenda(markdown: string): { runOfShow: Record<string, AgendaEntry[]> | undefined; warnings: ParseWarning[] }`. **Consumes:** `parseTableRows` (`_helpers.ts:18`), `ParseWarning`/`AgendaEntry` (`types.ts`).
+**Files:** `lib/parser/blocks/agendaWarnings.ts` (new — holds all 5 `code:` literals) · `lib/parser/blocks/agenda.ts` (new) · `tests/parser/parseAgenda.test.ts` (new).
+**Interfaces — Produces:** the 5 `ParseWarning` factory helpers (`agendaGridMalformed`, `agendaBlockUnresolved`, `agendaDayAmbiguous`, `agendaDayTruncated`, `agendaDayEmptied`); `parseAgenda(markdown: string): { runOfShow: Record<string, AgendaEntry[]> | undefined; warnings: ParseWarning[] }`. **Consumes:** `parseTableRows` (`_helpers.ts:18`), `ParseWarning`/`AgendaEntry` (`types.ts`).
 
-Step 1 only (§4.1): find the markdown table whose rows include a **token-header** — a row whose cells, after `cell.replace(/^[^/]*\//, "").trim()` (strip an optional leading `<prefix>/` segment incl `#REF!/`) and uppercasing, include `NAME` AND `ARRIVAL` AND (`START` OR `FINISH` OR `TRT`). The trailing-space `"START "` is handled by `.trim()`. No token-header found → `{ runOfShow: undefined, warnings: [AGENDA_GRID_MALFORMED] }`. **Concrete failure mode caught:** a malformed/missing AGENDA grid throwing or returning a non-fail-soft value (must be `undefined` + warning, never crash).
+**Why a dedicated `agendaWarnings.ts` (extractor scoping — verified live):** the `internal-code-enums` extractor's `parse_warnings.code` pass scans `readFiles(["lib/parser"])` ONLY, gated on `/ParseWarning|warnings|hardErrors/`, matching `code:`-PROPERTY literals via `CODE_PROPERTY_RE` (`scripts/extract-internal-code-enums.ts:69-72`). A `code:"AGENDA_DAY_EMPTIED"` literal living only in `lib/sync` (where the §02 sync emits it) would **NOT** be extracted by that pass. So **all 5 `code:` literals must physically live under `lib/parser`** to be regenerated. The parser EMITS only 4 (grid-malformed, block-unresolved, day-ambiguous, day-truncated); the §02 sync IMPORTS `agendaDayEmptied` from this module and emits the 5th — but because the literal lives in `lib/parser/blocks/agendaWarnings.ts`, the extractor picks up **all 5 in §01**. This removes the §01↔§02 precondition deadlock (no "5th regens later").
+
+Step 1 of `parseAgenda` (§4.1): find the markdown table whose rows include a **token-header** — a row whose cells, after `cell.replace(/^[^/]*\//, "").trim()` (strip an optional leading `<prefix>/` segment incl `#REF!/`) and uppercasing, include `NAME` AND `ARRIVAL` AND (`START` OR `FINISH` OR `TRT`). The trailing-space `"START "` is handled by `.trim()`. No token-header found → `{ runOfShow: undefined, warnings: [agendaGridMalformed(0)] }`. **Concrete failure mode caught:** a malformed/missing AGENDA grid throwing or returning a non-fail-soft value (must be `undefined` + warning, never crash); AND the enum-extraction/precondition deadlock if `AGENDA_DAY_EMPTIED` lived only in `lib/sync`.
 
 - [ ] **Write failing test** — `tests/parser/parseAgenda.test.ts`:
 ```ts
@@ -187,12 +189,58 @@ describe("parseAgenda — step 1: grid location (fail-soft)", () => {
     expect(parseAgenda(md).runOfShow).not.toBeUndefined();
   });
 });
+
+describe("agendaWarnings — all 5 AGENDA_* codes are lib/parser code: literals", () => {
+  it("each factory carries its code + warn severity + agenda blockRef", () => {
+    expect(agendaGridMalformed(0).code).toBe("AGENDA_GRID_MALFORMED");
+    expect(agendaBlockUnresolved(1).code).toBe("AGENDA_BLOCK_UNRESOLVED");
+    expect(agendaDayAmbiguous(2).code).toBe("AGENDA_DAY_AMBIGUOUS");
+    expect(agendaDayTruncated(3).code).toBe("AGENDA_DAY_TRUNCATED");
+    expect(agendaDayEmptied(4, "2025-09-05").code).toBe("AGENDA_DAY_EMPTIED");
+    for (const w of [
+      agendaGridMalformed(0), agendaBlockUnresolved(1), agendaDayAmbiguous(2),
+      agendaDayTruncated(3), agendaDayEmptied(4, "2025-09-05"),
+    ]) {
+      expect(w.severity).toBe("warn");
+      expect(w.blockRef!.kind).toBe("agenda");
+    }
+  });
+});
 ```
-- [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 1'`. Expected: `parseAgenda` unresolved import → module-not-found.
-- [ ] **Minimal impl** — `lib/parser/blocks/agenda.ts`:
+Add the imports at the top of the test file:
+```ts
+import {
+  agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous,
+  agendaDayTruncated, agendaDayEmptied,
+} from "@/lib/parser/blocks/agendaWarnings";
+```
+- [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 1'` and `-t 'all 5 AGENDA'`. Expected: `parseAgenda` + `agendaWarnings` unresolved imports → module-not-found.
+- [ ] **Minimal impl (a)** — `lib/parser/blocks/agendaWarnings.ts` (ALL 5 `code:` literals live here so the extractor picks them all up; the parser emits 4, the §02 sync imports + emits `agendaDayEmptied`):
+```ts
+import type { ParseWarning } from "../types";
+
+export function agendaGridMalformed(index: number): ParseWarning {
+  return { severity: "warn", code: "AGENDA_GRID_MALFORMED", message: "AGENDA grid token-header not locatable", blockRef: { kind: "agenda", index } };
+}
+export function agendaBlockUnresolved(index: number): ParseWarning {
+  return { severity: "warn", code: "AGENDA_BLOCK_UNRESOLVED", message: "AGENDA block date/day-name could not be resolved", blockRef: { kind: "agenda", index } };
+}
+export function agendaDayAmbiguous(index: number): ParseWarning {
+  return { severity: "warn", code: "AGENDA_DAY_AMBIGUOUS", message: "AGENDA day-name matches multiple show days; block skipped", blockRef: { kind: "agenda", index } };
+}
+export function agendaDayTruncated(index: number): ParseWarning {
+  return { severity: "warn", code: "AGENDA_DAY_TRUNCATED", message: "AGENDA day hit a storage cap; entries/fields truncated", blockRef: { kind: "agenda", index } };
+}
+/** Emitted by the §02 SYNC write path (not the parser) when a previously-stored day is now read-empty. Defined here so its code: literal lives in lib/parser for the internal-code-enums extractor. */
+export function agendaDayEmptied(index: number, iso: string): ParseWarning {
+  return { severity: "warn", code: "AGENDA_DAY_EMPTIED", message: `AGENDA day ${iso} previously stored is now read-empty; not stored (anchors)`, blockRef: { kind: "agenda", index } };
+}
+```
+- [ ] **Minimal impl (b)** — `lib/parser/blocks/agenda.ts`:
 ```ts
 import type { AgendaEntry, ParseWarning } from "../types";
 import { parseTableRows } from "./_helpers";
+import { agendaGridMalformed } from "./agendaWarnings";
 
 export type ParseAgendaResult = {
   runOfShow: Record<string, AgendaEntry[]> | undefined;
@@ -214,25 +262,19 @@ function isTokenHeaderRow(cells: string[]): boolean {
   return has("NAME") && has("ARRIVAL") && (has("START") || has("FINISH") || has("TRT"));
 }
 
-function warn(code: string, message: string): ParseWarning {
-  return { severity: "warn", code, message, blockRef: { kind: "agenda", index: 0 } };
-}
-
 export function parseAgenda(markdown: string): ParseAgendaResult {
   const rows = parseTableRows(markdown);
   const headerIdx = rows.findIndex(isTokenHeaderRow);
   if (headerIdx === -1) {
-    return {
-      runOfShow: undefined,
-      warnings: [warn("AGENDA_GRID_MALFORMED", "AGENDA grid token-header not locatable")],
-    };
+    return { runOfShow: undefined, warnings: [agendaGridMalformed(0)] };
   }
   // Grid located. Day resolution + data walk land in Tasks 1.4–1.6.
   return { runOfShow: {}, warnings: [] };
 }
 ```
-- [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 1'`. Green.
-- [ ] **Commit** — `git add lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): parseAgenda step 1 — token-header grid location (prefix-strip, fail-soft)"`
+> Tasks 1.4-1.7 import the remaining helpers (`agendaBlockUnresolved`, `agendaDayAmbiguous`, `agendaDayTruncated`) from `agendaWarnings.ts` instead of an inline `warn()` — replace any `warn("CODE", …)` call shown in later tasks with the matching factory.
+- [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 1'` and `-t 'all 5 AGENDA'`. Green.
+- [ ] **Commit** — `git add lib/parser/blocks/agendaWarnings.ts lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): agendaWarnings (all 5 AGENDA_* codes) + parseAgenda step 1 grid location"`
 
 ---
 
@@ -437,7 +479,7 @@ function resolveBlock(block: Block, dates: ShowRow["dates"] | undefined): Resolv
   return { skip: "unresolved" };
 }
 ```
-Then in `parseAgenda` (signature `parseAgenda(markdown: string, dates?: ShowRow["dates"])`), iterate `blocks`, call `resolveBlock`, push `AGENDA_DAY_AMBIGUOUS`/`AGENDA_BLOCK_UNRESOLVED` warnings for skips, and create an (empty for now) array under the resolved ISO key. Data-row walk (entries) is Task 1.6.
+Then in `parseAgenda` (signature `parseAgenda(markdown: string, dates?: ShowRow["dates"])`), iterate `blocks`, call `resolveBlock`, and on a skip push `agendaDayAmbiguous(index)` (for `skip:"ambiguous"`) or `agendaBlockUnresolved(index)` (for `skip:"unresolved"`) — imported from `./agendaWarnings` (NOT an inline `warn()`); `index` is the block's ordinal — and create an (empty for now) array under the resolved ISO key. Data-row walk (entries) is Task 1.6.
 - [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 3'`. Green.
 - [ ] **Commit** — `git add lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): parseAgenda step 3 — ISO resolution vs showDays-only + ambiguity skip"`
 
@@ -605,7 +647,7 @@ function capDay(entries: AgendaEntry[]): { entries: AgendaEntry[]; truncated: bo
   return { entries: capped, truncated };
 }
 ```
-Call `capDay` on each day's collected entries in `parseAgenda`; push one `AGENDA_DAY_TRUNCATED` warning per truncated day.
+Call `capDay` on each day's collected entries in `parseAgenda`; push one `agendaDayTruncated(index)` (imported from `./agendaWarnings`) per truncated day.
 - [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts`. Green.
 - [ ] **Commit** — `git add lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): parseAgenda step 6 — storage caps (200/day, field-len, 32KB) + AGENDA_DAY_TRUNCATED"`
 
@@ -645,9 +687,15 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
   const agendaResult = parseAgenda(markdown, dates);
   agg.warnings.push(...agendaResult.warnings);
 ```
-(import `parseAgenda` at the top). In the return literal (`:407`), add `runOfShow: agendaResult.runOfShow,` as a sibling of `warnings: agg.warnings,`. Leave the early-return error literal (`:328-356`) untouched — it omits the optional field (absent ≠ defined), which is correct for a hard-error sheet.
-- [ ] **Run gen + verify passes** — `pnpm gen:internal-code-enums` (regenerates `lib/messages/__generated__/internal-code-enums.ts` with the 5 `AGENDA_*` codes, each `source: "ParseWarning.code"`), then `pnpm vitest run tests/parser/parseSheet.test.ts tests/cross-cutting/no-raw-codes.test.ts`. Both green. Also `pnpm tsc --noEmit`.
-- [ ] **Commit** — `git add lib/parser/index.ts lib/messages/__generated__/internal-code-enums.ts tests/parser/parseSheet.test.ts && git commit -m "feat(parser): wire parseAgenda into parseSheet; regen internal-code-enums for AGENDA_* codes"`
+(import `parseAgenda` at the top). In the return literal (`:407-419`), add `runOfShow` via **conditional spread** so an `undefined` is OMITTED (not assigned) — **required under `exactOptionalPropertyTypes: true` (`tsconfig.json:9`)**: assigning a possibly-`undefined` value to the optional `runOfShow?` property is a strict-mode type error. Place it adjacent to `warnings: agg.warnings,`:
+```ts
+    warnings: agg.warnings,
+    hardErrors,
+    ...(agendaResult.runOfShow !== undefined ? { runOfShow: agendaResult.runOfShow } : {}),
+```
+This keeps the no-grid case as an ABSENT property (so `parseSheet(...).runOfShow === undefined` still holds — `undefined` from a missing optional key). Leave the early-return error literal (`:328-356`) untouched — it omits the optional field, correct for a hard-error sheet.
+- [ ] **Run gen + verify passes** — `pnpm gen:internal-code-enums` (regenerates `lib/messages/__generated__/internal-code-enums.ts`; because all 5 `AGENDA_*` `code:` literals live in `lib/parser/blocks/agendaWarnings.ts`, **all 5** appear, each `source: "parse_warnings.code"`), then `pnpm vitest run tests/parser/parseSheet.test.ts tests/cross-cutting/no-raw-codes.test.ts`. Both green. **`pnpm typecheck` (`tsc --noEmit`, `package.json:24`) MUST pass at this commit** — the conditional spread is what makes it pass.
+- [ ] **Commit** — `git add lib/parser/index.ts lib/messages/__generated__/internal-code-enums.ts tests/parser/parseSheet.test.ts && git commit -m "feat(parser): wire parseAgenda into parseSheet (conditional spread); regen internal-code-enums for all 5 AGENDA_* codes"`
 
 ---
 
@@ -702,9 +750,9 @@ describe("parseAgenda — robustness (stale raw/ fixtures + empty skeletons, fai
 ## §01 exit checklist
 
 - [ ] **All parser tests green:** `pnpm vitest run tests/parser/` (incl. `parseAgenda.test.ts`, `agendaTypes.test.ts`, `agenda.fixtures.test.ts`, `parseSheet.test.ts`, `exporterFixtures.test.ts` — no regression).
-- [ ] **No-raw-codes gate green:** `pnpm vitest run tests/cross-cutting/no-raw-codes.test.ts` — the regenerated `lib/messages/__generated__/internal-code-enums.ts` (committed in Task 1.8's commit) carries the **4 parser-emitted** codes: `AGENDA_GRID_MALFORMED`, `AGENDA_BLOCK_UNRESOLVED`, `AGENDA_DAY_AMBIGUOUS`, `AGENDA_DAY_TRUNCATED`. **`AGENDA_DAY_EMPTIED` is OWNED BY §02, not §01:** the `lib/parser` extractor pass keys off `code:` PROPERTY literals (`CODE_PROPERTY_RE`, `scripts/extract-internal-code-enums.ts:71`), NOT bare const strings — and `AGENDA_DAY_EMPTIED` is emitted only by the §02 sync write path (which compares prior-stored vs newly-parsed days; the parser has no prior-state context). So `AGENDA_DAY_EMPTIED`'s enum row is generated by §02's `pnpm gen:internal-code-enums` run (the extractor also scans `lib/sync` for `code:` literals via the `pending_ingestions`/sync passes). §01 must NOT pre-declare it (a bare const wouldn't extract anyway, and an unused `code:` literal would be dead code). This is a clean §01/§02 boundary, not an ambiguity.
+- [ ] **No-raw-codes gate green:** `pnpm vitest run tests/cross-cutting/no-raw-codes.test.ts` — the regenerated `lib/messages/__generated__/internal-code-enums.ts` (committed in Task 1.8's commit) carries **ALL 5** `AGENDA_*` codes: `AGENDA_GRID_MALFORMED`, `AGENDA_BLOCK_UNRESOLVED`, `AGENDA_DAY_AMBIGUOUS`, `AGENDA_DAY_TRUNCATED`, `AGENDA_DAY_EMPTIED`. **All 5 are defined as `lib/parser` helpers** in `lib/parser/blocks/agendaWarnings.ts` (each a `code:`-property-bearing factory). The extractor's `parse_warnings.code` pass scans `readFiles(["lib/parser"])` ONLY, gated on `/ParseWarning|warnings|hardErrors/`, matching `code:` properties via `CODE_PROPERTY_RE` (`scripts/extract-internal-code-enums.ts:69-72`) — so co-locating all 5 literals under `lib/parser` is what makes them all extract in §01. The PARSER emits only 4 of them; the §02 sync merely **imports `agendaDayEmptied`** and emits the 5th — it does NOT define a new code literal, so there is no §01↔§02 precondition deadlock and no "5th regenerates in §02." The Task 1.3 `agendaWarnings` test asserts all 5 `code:` values exist.
 - [ ] **Typecheck clean:** `pnpm tsc --noEmit` — `runOfShow?` optional on both shapes did not break any existing `parseSheet` return site; `AgendaEntry` is not reachable from `ShowRow`.
 - [ ] **No DB / projection / UI touched:** `git diff --name-only main...HEAD` lists only `lib/parser/**`, `lib/messages/__generated__/internal-code-enums.ts`, and `tests/parser/**` (+ `tests/cross-cutting/no-raw-codes.test.ts` unchanged-but-passing). No `supabase/`, `lib/data/`, `components/`, or `app/` files.
 - [ ] **Positive expectations are clone-and-read:** every asserted East Coast/RIA value was grepped from the fixture, never hardcoded from the spec prose.
 
-> Next: `02-migration-projection.md` (the `shows_internal.run_of_show` column, sync CONFIRMED-ONLY write — which OWNS `AGENDA_DAY_EMPTIED` — and the `getShowForViewer.runOfShow` projection).
+> Next: `02-migration-projection.md` (the `shows_internal.run_of_show` column, sync CONFIRMED-ONLY write — which IMPORTS + EMITS `agendaDayEmptied` from `lib/parser/blocks/agendaWarnings.ts`, no new code literal — and the `getShowForViewer.runOfShow` projection).
