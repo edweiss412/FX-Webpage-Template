@@ -297,15 +297,38 @@ describe("exporter fidelity — C1 v4 General Session captured (was dropped)", (
   });
 });
 
-describe("exporter fidelity — C2 phantom 'Additional Room Name(s)' suppressed", () => {
-  it("v2 shows emit no kind='additional' template stub (mixed-case field is not a block header)", () => {
-    // The mixed-case "Additional Room Name(s)" metadata field was matched like a
-    // real all-caps ADDITIONAL ROOM block header (case-insensitive regex).
-    for (const slug of ["redefining-fi", "consultants", "ria"]) {
+describe("exporter fidelity — C2/R8 additional room: populated fields kept, empty stubs suppressed", () => {
+  it("populated 'Additional Room Name(s)/Setup' fields emit a real room (v2 + v4 shows)", () => {
+    const rf = parse("redefining-fi").rooms.filter((r) => r.kind === "additional");
+    expect(rf).toHaveLength(1);
+    expect(rf[0]!.name).toContain("Lunch in Adorn");
+    expect(rf[0]!.setup).toMatch(/Not currently contracted/);
+
+    const cons = parse("consultants").rooms.filter((r) => r.kind === "additional");
+    expect(cons).toHaveLength(1);
+    expect(cons[0]!.name).toContain("Lunch will be held");
+
+    // rpas is v4 — the field must be captured even though parseV4Rooms short-circuits.
+    const rp = parse("rpas").rooms.filter((r) => r.kind === "additional");
+    expect(rp).toHaveLength(1);
+    expect(rp[0]!.name).toContain("Ballroom C");
+  });
+
+  it("empty Additional Room fields stay suppressed — no phantom (ria/fintech/fixed-income)", () => {
+    for (const slug of ["ria", "fintech", "fixed-income"]) {
       expect(
         parse(slug).rooms.filter((r) => r.kind === "additional"),
         `${slug} additional rooms`,
       ).toEqual([]);
+    }
+  });
+
+  it("the emitted room is real content, not the 'Additional Room Name(s)' phantom or a DETAILS leak", () => {
+    for (const slug of ["redefining-fi", "consultants", "rpas"]) {
+      for (const r of parse(slug).rooms.filter((x) => x.kind === "additional")) {
+        expect(r.name).not.toBe("Additional Room Name(s)");
+        expect(r.digital_signage ?? "").not.toMatch(/DETAILS/i);
+      }
     }
   });
 });

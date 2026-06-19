@@ -36,21 +36,52 @@ export function parseRooms(
   // Try v4 structured block first. A v4 room block uses all-caps GENERAL SESSION /
   // BREAKOUT headers as standalone rows. If any are found, treat as v4 and skip v2/v1 parsers.
   const v4Rooms = parseV4Rooms(markdown);
-  if (v4Rooms.length > 0) return v4Rooms;
+  const rooms: RoomRow[] =
+    v4Rooms.length > 0 ? v4Rooms : collectV2V1Rooms(markdown);
 
-  // v2/v1: GS-prefix rows + BO-prefix block headers + ADDITIONAL ROOM
-  const rooms: RoomRow[] = [];
-
-  const gsRoom = parseGsRoom(markdown);
-  if (gsRoom) rooms.push(gsRoom);
-
-  const boRooms = parseBoRooms(markdown);
-  rooms.push(...boRooms);
-
-  const additionalRoom = parseAdditionalRoom(markdown);
-  if (additionalRoom) rooms.push(additionalRoom);
+  // Free-text "Additional Room Name(s) / Setup" FIELDS (distinct from the all-caps
+  // ADDITIONAL ROOM block) carry real crew instructions — meal/social rooms, setup
+  // notes — on both v2 (redefining/consultants) and v4 (rpas) shows. Emit a room
+  // from them when populated, unless an ADDITIONAL room was already captured. Empty
+  // template fields (ria/fintech/fixed-income) stay suppressed.
+  if (!rooms.some((r) => r.kind === "additional")) {
+    const fieldsRoom = parseAdditionalRoomFields(markdown);
+    if (fieldsRoom) rooms.push(fieldsRoom);
+  }
 
   return rooms;
+}
+
+function collectV2V1Rooms(markdown: string): RoomRow[] {
+  // v2/v1: GS-prefix rows + BO-prefix block headers + the all-caps ADDITIONAL ROOM block
+  const rooms: RoomRow[] = [];
+  const gsRoom = parseGsRoom(markdown);
+  if (gsRoom) rooms.push(gsRoom);
+  rooms.push(...parseBoRooms(markdown));
+  const additionalRoom = parseAdditionalRoom(markdown);
+  if (additionalRoom) rooms.push(additionalRoom);
+  return rooms;
+}
+
+function parseAdditionalRoomFields(markdown: string): RoomRow | null {
+  const nameVal = presence(clean(matchFieldValue(markdown, /^Additional\s+Room\s+Name\(s\)$/i) ?? ""));
+  const setupVal = presence(
+    clean(matchFieldValue(markdown, /^Additional\s+Room\s+Setup$/i) ?? ""),
+  );
+  if (!nameVal && !setupVal) return null;
+  const room = buildEmptyRoom("additional", nameVal ?? "Additional Room(s)");
+  room.setup = setupVal;
+  return room;
+}
+
+function matchFieldValue(markdown: string, labelRe: RegExp): string | null {
+  for (const line of markdown.split("\n")) {
+    const t = line.trim();
+    if (!t.startsWith("|")) continue;
+    const cells = splitRow(t);
+    if (labelRe.test(clean(cells[0] ?? ""))) return cells[1] ?? null;
+  }
+  return null;
 }
 
 // ── v4 structured block parser ────────────────────────────────────────────────
