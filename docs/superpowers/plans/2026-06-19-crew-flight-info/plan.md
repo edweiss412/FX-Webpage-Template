@@ -117,6 +117,7 @@ Modeled on `tests/data/getShowForViewerRunOfShow.test.ts` (the `makeChain` mock:
 ```typescript
 // tests/data/getShowForViewerFlight.test.ts
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 type Resp = { data: unknown; error: unknown };
 const mockState: { responses: Record<string, Resp> } = { responses: {} };
@@ -194,13 +195,49 @@ describe("getShowForViewer — viewerFlightInfo projection", () => {
     expect(out.viewerFlightInfo).toBeNull();
   });
 
-  it("does NOT carry flight on the crewMembers[] roster (presentation contract)", async () => {
+  it("sources the viewer's OWN flight, not a roster row; roster carries no flight key", async () => {
+    // Two crew rows: the viewer ([0]; the own-row lookup returns [0]) with flight
+    // A, and a second crew member ([1]) with a DIFFERENT flight B. The viewer must
+    // get A, and NO crewMembers[] element may carry a flight key.
+    setup({
+      crew_members: {
+        data: [
+          crewRow({ id: "crew-self", name: "Doug Larson", flight_info: "OWN-FLIGHT-A | RET-A" }),
+          crewRow({ id: "crew-other", name: "Carl Fenton", flight_info: "OTHER-FLIGHT-B | RET-B" }),
+        ],
+        error: null,
+      },
+    });
     const out = await getShowForViewer(SHOW_ID, CREW);
-    expect(out.crewMembers.length).toBeGreaterThan(0);
+    expect(out.viewerFlightInfo).toContain("OWN-FLIGHT-A");
+    expect(out.viewerFlightInfo).not.toContain("OTHER-FLIGHT-B");
+    expect(out.crewMembers.length).toBe(2);
     for (const m of out.crewMembers) {
       expect(m).not.toHaveProperty("flight_info");
       expect(m).not.toHaveProperty("flightInfo");
     }
+  });
+});
+
+// Static source-scan guard. The runtime mock above returns the full crew row
+// regardless of the .select() string, so it CANNOT catch "implementer added the
+// viewerFlightInfo assignment but forgot to add flight_info to the SELECT" — in
+// production that column would be absent and the Travel card would stay empty.
+// This scan catches it, and pins flight OFF the roster select (presentation
+// contract). This is the spec's "P-1 source-scan".
+describe("getShowForViewer source-scan — flight_info read on the own-row lookup, not the roster", () => {
+  const src = readFileSync("lib/data/getShowForViewer.ts", "utf8");
+
+  it("the own-row lookup SELECT includes flight_info", () => {
+    expect(src).toContain('.select("role_flags, name, flight_info")');
+  });
+
+  it("the roster SELECT does NOT include flight_info, and flight_info is in exactly one select", () => {
+    expect(src).toContain(
+      '.select("id, name, email, phone, role, role_flags, date_restriction, stage_restriction")',
+    );
+    const selectFlightHits = (src.match(/\.select\("[^"]*flight_info[^"]*"\)/g) ?? []).length;
+    expect(selectFlightHits).toBe(1);
   });
 });
 ```
@@ -208,7 +245,7 @@ describe("getShowForViewer — viewerFlightInfo projection", () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm vitest run tests/data/getShowForViewerFlight.test.ts`
-Expected: FAIL — `out.viewerFlightInfo` is `undefined` (the field doesn't exist yet).
+Expected: FAIL — `out.viewerFlightInfo` is `undefined` (the field doesn't exist yet), AND the source-scan tests fail (the own-row select still reads `"role_flags, name"`; zero selects contain `flight_info`).
 
 - [ ] **Step 3: Add the type field**
 
@@ -270,7 +307,7 @@ In the return object, add `viewerFlightInfo` immediately AFTER `viewerName,` (`g
 - [ ] **Step 7: Run the test to verify it passes**
 
 Run: `pnpm vitest run tests/data/getShowForViewerFlight.test.ts`
-Expected: PASS (4 tests).
+Expected: PASS (all projection + source-scan tests — the own-row select now reads `"role_flags, name, flight_info"`, exactly one select contains `flight_info`).
 
 - [ ] **Step 8: Typecheck**
 
@@ -300,12 +337,18 @@ git commit -m "feat(crew-page): project viewer's own flight_info as viewerFlight
 
 - [ ] **Step 1: Write the failing test**
 
+> **Test environment (mandatory):** the repo's `vitest.config.ts` defaults to `environment: "node"` and `tests/setup.ts` does NOT globally import jest-dom. So this DOM test MUST start with the `// @vitest-environment jsdom` pragma as **line 1** and `import "@testing-library/jest-dom/vitest"` before the matchers, with `afterEach(cleanup)` to clear `document.body` between renders — matching the existing pattern (`tests/components/layout/PageTransition.test.tsx:1-6`). Without these the red step fails on "document is not defined" / missing matchers, not on the intended missing `travel-flight` element.
+
 ```tsx
+// @vitest-environment jsdom
 // tests/components/crew/sections/TravelSection.flight.test.tsx
-import { describe, it, expect } from "vitest";
-import { render, within } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { afterEach, describe, it, expect } from "vitest";
+import { render, within, cleanup } from "@testing-library/react";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+
+afterEach(cleanup);
 
 const VIEWER: Viewer = { kind: "crew", crewMemberId: "crew-self" } as Viewer;
 const TODAY = new Date("2024-05-13T12:00:00Z");
