@@ -494,6 +494,25 @@ describe("parseAgenda — step 2: locateAgendaShowBlocks (boundaries + show-day 
     ].join("\n");
     expect(locateAgendaShowBlocks(md)).toEqual([]);
   });
+
+  it("R14: the EXPORTED helper applies cleanRows — escaped \\#REF\\! banner + FLIGHT\\# token-header still locate blocks; escaped banner is not a block row", () => {
+    // The exported testable path must clean EXACTLY like parseAgenda — else escaped
+    // fixture cells stay invisible to the post-clean detectors on the helper path.
+    const md = [
+      "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 |",
+      "| \\#REF\\! | \\#REF\\! | \\#REF\\! | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 |",
+      "| Monday | Monday | Monday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday |",
+      "| NAME | ARRIVAL | FLIGHT\\# | TIME | TITLE | ROOM | START  | FINISH | TRT |",
+      "|  |  |  |  |  |  | 7:15 AM | 7:30 AM | 0:15 |",
+    ].join("\n");
+    const blocks = locateAgendaShowBlocks(md);
+    // (a) token-header located post-clean (FLIGHT\# → FLIGHT#) → the DAY-1 block exists at START col 6
+    expect(blocks.map((b) => b.startCol)).toEqual([6]);
+    // (b) the cleaned date-banner cell at the block start is read as the real date (not "\#REF\!")
+    expect(blocks[0]!.dateCell).toBe("5/15/24");
+    // (c) no block carries an escaped-REF dateCell (the escaped banner cells are travel cols, no START → no block)
+    expect(blocks.every((b) => !/#?REF!?/i.test(b.dateCell ?? ""))).toBe(true);
+  });
 });
 ```
 - [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 2'`. Expected: `locateAgendaShowBlocks` is not exported from `@/lib/parser/blocks/agenda` → import resolves to `undefined` → `TypeError: locateAgendaShowBlocks is not a function` on first call. This is a genuine RED (the function does not exist), satisfying invariant 1.
@@ -577,11 +596,18 @@ function locateBlocks(rows: string[][], header: string[], headerIdx: number): Ag
  * grid is unlocatable OR carries no show-day span. (parseAgenda uses the same
  * locateBlocks internally; this thin wrapper pins the boundary/classification
  * contract for Task 1.4's red→green cycle.)
+ *
+ * R14 — this helper MUST apply the SAME `cleanRows` normalization boundary as
+ * parseAgenda (R13): it feeds rows into the post-clean detectors (REF_ERR_RE /
+ * weekday / date / token-header), so passing RAW rows would leave escaped fixture
+ * cells (`\#REF\!`, `FLIGHT\#`) invisible on the helper path and let a Task-1.4
+ * test green while the surface mishandles escaped fixtures. `cleanRows` is
+ * idempotent, so cleaning here AND in parseAgenda is safe.
  */
 export function locateAgendaShowBlocks(markdown: string): AgendaBlock[] {
   const block = isolateAgendaTable(markdown);
   if (block === undefined) return [];
-  const rows = parseTableRows(block);
+  const rows = cleanRows(parseTableRows(block)); // SAME normalization boundary as parseAgenda (R13/R14)
   const headerIdx = rows.findIndex(isTokenHeaderRow);
   if (headerIdx === -1) return [];
   return locateBlocks(rows, rows[headerIdx]!, headerIdx);
