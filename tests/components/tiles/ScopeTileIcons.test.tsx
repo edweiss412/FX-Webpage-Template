@@ -1,108 +1,98 @@
+// @vitest-environment jsdom
 /**
- * Unit tests for the scope-tile leading-icon differentiation
- * (Task 4.13.distill — Finding 8 close-out).
+ * tests/components/tiles/ScopeTileIcons.test.tsx
  *
- * Pre-distill, the three scope tiles (Audio / Video / Lighting) had
- * headings differing by one word and structurally identical bodies;
- * the critique flagged them as visually indistinguishable. The fix
- * routes a lucide-react glyph through the new Section `headingIcon`
- * slot so each tile carries a distinct affordance in the eyebrow.
+ * Crew-redesign retarget (wp-20 step b, test 14 glyph row): the scope-tile
+ * leading-icon differentiation (Task 4.13.distill — Finding 8), ported off the
+ * deleted AudioScopeTile / VideoScopeTile / LightingScopeTile onto the
+ * GearSection A/V/L scope cards (components/crew/sections/GearSection.tsx) that
+ * now own the disciplines.
  *
- * What we cover:
- *   - AudioScopeTile renders an SVG (the lucide-react icon mounts).
- *   - VideoScopeTile renders a different SVG path than AudioScopeTile.
- *   - LightingScopeTile renders a different SVG path than the other two.
- *   - The icon sits in source order BEFORE the heading text so it reads
- *     to the left.
+ * Pre-distill the three scope surfaces differed by one heading word and had
+ * structurally identical bodies; the fix routes a distinct lucide glyph
+ * (Volume2 / Video / Lightbulb) into each card's SectionCard `icon` slot so each
+ * discipline carries a visually distinct affordance.
  *
- * We verify by snapshotting only the heading region — extracting the
- * <header> from the rendered markup so the empty-state body's "Doug
- * hasn't filled this in yet" doesn't pollute the assertion (the
- * anti-tautology rule from AGENTS.md). Each tile's icon path-data is
- * its own private detail; we assert distinctness at the rendered-
- * markup level, not against any specific path string.
+ * Contract pinned: when all three disciplines have non-sentinel room values,
+ * GearSection renders one `[data-testid="gear-scope-{audio|video|lighting}"]`
+ * card each, each card's header carries an <svg> glyph, the glyph precedes the
+ * heading text, and the three glyphs are pairwise DISTINCT. We compare the
+ * <svg> markup pairwise (robust to lucide version path-data bumps) rather than
+ * against hardcoded path strings, and scope the comparison to each card's own
+ * subtree so a sibling card's glyph can't satisfy the assertion (anti-tautology).
  */
 import { describe, expect, test } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server";
-import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
-import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
-import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
-import type { RoleFlag } from "@/lib/parser/types";
+import { render } from "@testing-library/react";
 
-// All three scope tiles render only when the viewer carries the
-// matching atomic flag. LEAD covers Audio + Video + Financials per
-// scopeTiles.ts; L1 covers Lighting per the asymmetry documented in
-// LightingScopeTile.tsx. Render with the union so all three mount.
-const allScopesViewerFlags: RoleFlag[] = ["LEAD", "L1"];
+import { GearSection } from "@/components/crew/sections/GearSection";
+import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 
-/** Extract the rendered <header>...</header> region. */
-function extractHeader(html: string): string {
-  const m = html.match(/<header[\s\S]*?<\/header>/);
-  return m ? m[0] : "";
+const TODAY = new Date("2026-05-14T15:00:00Z");
+const SHOW_ID = "show-abc";
+// Admin viewer carries all flags, so every discipline is "owned" — but ordering
+// is irrelevant to glyph distinctness, which is what this file pins.
+const VIEWER = { kind: "admin" } as const;
+
+/** Render GearSection with all three disciplines populated by one room. */
+function renderAllScopes(): HTMLElement {
+  return render(
+    <GearSection
+      data={makeShowForViewer({
+        rooms: [
+          {
+            id: "r1",
+            kind: "gs",
+            name: "Main",
+            audio: "L-Acoustics K1",
+            video: "Christie 4K projector",
+            lighting: "MAC Aura XB wash",
+          },
+        ],
+      })}
+      viewer={VIEWER}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  ).container;
 }
 
-describe("Scope-tile leading icons (Task 4.13.distill — Finding 8)", () => {
-  test("AudioScopeTile heading region contains an SVG icon", () => {
-    const html = renderToStaticMarkup(
-      <AudioScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />,
-    );
-    const header = extractHeader(html);
-    expect(header).toMatch(/<svg/);
-    // Icon precedes heading text.
-    const svgIdx = header.indexOf("<svg");
-    const headIdx = header.indexOf("Audio");
-    expect(svgIdx).toBeGreaterThanOrEqual(0);
-    expect(headIdx).toBeGreaterThan(svgIdx);
+/** Extract a scope card's own subtree by discipline. */
+function scopeCard(container: HTMLElement, id: "audio" | "video" | "lighting"): HTMLElement {
+  const el = container.querySelector<HTMLElement>(`[data-testid="gear-scope-${id}"]`);
+  expect(el, `gear-scope-${id} card should render`).not.toBeNull();
+  return el!;
+}
+
+/** Extract the first <svg>...</svg> markup from an element subtree. */
+function svgMarkup(el: HTMLElement): string {
+  const svg = el.querySelector("svg");
+  return svg ? svg.outerHTML : "";
+}
+
+describe("Gear scope-card leading icons (Finding 8 — retargeted)", () => {
+  test("each discipline card renders an <svg> glyph preceding its heading", () => {
+    const c = renderAllScopes();
+    for (const [id, heading] of [
+      ["audio", "Audio"],
+      ["video", "Video"],
+      ["lighting", "Lighting"],
+    ] as const) {
+      const card = scopeCard(c, id);
+      const html = card.innerHTML;
+      expect(html).toMatch(/<svg/);
+      // Glyph precedes the heading text in source order.
+      const svgIdx = html.indexOf("<svg");
+      const headIdx = html.indexOf(heading);
+      expect(svgIdx).toBeGreaterThanOrEqual(0);
+      expect(headIdx).toBeGreaterThan(svgIdx);
+    }
   });
 
-  test("VideoScopeTile heading region contains an SVG icon", () => {
-    const html = renderToStaticMarkup(
-      <VideoScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />,
-    );
-    const header = extractHeader(html);
-    expect(header).toMatch(/<svg/);
-    const svgIdx = header.indexOf("<svg");
-    const headIdx = header.indexOf("Video");
-    expect(svgIdx).toBeGreaterThanOrEqual(0);
-    expect(headIdx).toBeGreaterThan(svgIdx);
-  });
-
-  test("LightingScopeTile heading region contains an SVG icon", () => {
-    const html = renderToStaticMarkup(
-      <LightingScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />,
-    );
-    const header = extractHeader(html);
-    expect(header).toMatch(/<svg/);
-    const svgIdx = header.indexOf("<svg");
-    const headIdx = header.indexOf("Lighting");
-    expect(svgIdx).toBeGreaterThanOrEqual(0);
-    expect(headIdx).toBeGreaterThan(svgIdx);
-  });
-
-  test("the three scope tiles render visually distinct icons", () => {
-    // The substantive Finding 8 contract: the three tiles MUST be
-    // visually distinguishable. Compare the <svg>...</svg> body of
-    // each tile's header — they MUST all differ pairwise. The
-    // assertion is robust to lucide-react version bumps that change
-    // path-data, since we compare bodies pairwise rather than against
-    // hardcoded path strings.
-    const audioHeader = extractHeader(
-      renderToStaticMarkup(<AudioScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />),
-    );
-    const videoHeader = extractHeader(
-      renderToStaticMarkup(<VideoScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />),
-    );
-    const lightingHeader = extractHeader(
-      renderToStaticMarkup(<LightingScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />),
-    );
-
-    const extractSvg = (s: string): string => {
-      const m = s.match(/<svg[\s\S]*?<\/svg>/);
-      return m ? m[0] : "";
-    };
-    const a = extractSvg(audioHeader);
-    const v = extractSvg(videoHeader);
-    const l = extractSvg(lightingHeader);
+  test("the three scope cards render visually distinct icons (pairwise)", () => {
+    const c = renderAllScopes();
+    const a = svgMarkup(scopeCard(c, "audio"));
+    const v = svgMarkup(scopeCard(c, "video"));
+    const l = svgMarkup(scopeCard(c, "lighting"));
     expect(a).not.toBe("");
     expect(v).not.toBe("");
     expect(l).not.toBe("");

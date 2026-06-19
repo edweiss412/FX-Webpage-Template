@@ -1,248 +1,386 @@
+// @vitest-environment jsdom
 /**
  * tests/components/tiles/CardinalityCapBoundary.test.tsx
  *
- * Pins the §8.4 / AC-4.4 cardinality-cap boundary on the two tiles
- * that render an overflow disclosure stub (`data-tile-show-more`):
+ * Crew-redesign retarget (wp-20 step b, test 27): the §8.4 / AC-4.4
+ * cardinality-cap boundary, ported off the deleted CrewTile / PackListTile
+ * onto the curated section surfaces that now own each cap:
  *
- *   - CrewTile      — CREW_INLINE_CAP = 8  (components/tiles/CrewTile.tsx:58)
- *   - PackListTile  — CASE_CAP        = 12 (components/tiles/PackListTile.tsx:67)
+ *   - Crew roster      — CREW_INLINE_CAP = 8  (CrewSection, exported)
+ *                        rows: [data-testid="crew-person-row"]
+ *                        overflow stub: [data-testid="crew-overflow-stub"]
+ *   - Key contacts     — CONTACTS_INLINE_CAP = 6 (CrewSection, exported)
+ *                        rows: [data-testid="contact-person-row"]
+ *                        overflow stub: [data-testid="contacts-overflow-stub"]
+ *   - Show notes       — SOURCE_CAP = 8 / TRUNCATE_AT = 280 (TodaySection,
+ *                        unexported → source-scan sync guard + behavioral)
+ *                        rows: li[data-source]
+ *                        overflow: [data-testid="today-notes-overflow"]
+ *   - Pack list        — CASE_CAP = 12 (GearSection, unexported → sync guard)
+ *                        rows: [data-testid="gear-pack-list-case"]
+ *                        overflow stub: [data-testid="gear-pack-list-overflow-stub"]
  *
- * Neither constant is exported, so each describe block mirrors the
- * value locally AND a source-scan sync test asserts the component
- * still declares the mirrored value — if the component cap drifts,
- * the sync test fails loudly instead of the boundary tests silently
- * testing the wrong threshold.
+ * Coverage split (anti-duplication per task brief):
+ *   - The Crew roster cap-1/cap/cap+1 matrix is ALREADY pinned by
+ *     tests/components/crew/sections/CrewSection.test.tsx ("roster cap
+ *     boundary at %i"). To avoid an identical duplicate, this file pins the
+ *     Crew roster overflow-COUNT formula + tail-trim direction (the parts the
+ *     section test asserts only loosely via `String(n - CAP)`), the Key
+ *     contacts cap (not covered elsewhere), the Notes SOURCE_CAP + TRUNCATE_AT
+ *     (not covered elsewhere), and the Pack-list cap (GearSection.test.tsx
+ *     pins gate-false omission, NOT the >12 overflow boundary).
  *
- * Boundary matrix per tile (cap-1 / cap / cap+1):
+ * Boundary contract per cap (cap-1 / cap / cap+1):
  *   - cap-1 → all rows inline, NO overflow affordance.
- *   - cap   → all rows inline, NO overflow affordance. [Catches the
- *             affordance-threshold flip: `>= cap` instead of `> cap`
- *             would show a "+0 more" stub at exactly-cap.]
- *   - cap+1 → exactly `cap` rows inline, affordance present, count
- *             text derived from fixture.length - cap. [Catches
- *             off-by-one in `.slice(0, CAP)` and a wrong overflow
- *             count formula.]
+ *   - cap   → all rows inline, NO overflow affordance. [affordance at `> cap`,
+ *             never `>= cap` — no "+0" stub at exactly-cap.]
+ *   - cap+1 → exactly `cap` rows inline + stub with count = length − cap,
+ *             DERIVED from fixture length (never hardcoded). The first
+ *             overflowed entry is asserted ABSENT to prove the slice trims the
+ *             tail, not the head.
  *
- * Anti-tautology guarantees:
- *   - Expected overflow counts are DERIVED from fixture dimensions
- *     (`fixture.length - CAP`), never hardcoded literals.
- *   - Row counts are counted via the per-row data-testid occurrences,
- *     not inferred from name presence alone.
- *   - The first-hidden entry's label is generated unique (zero-padded,
- *     no entry label is a substring of another) and asserted ABSENT
- *     inline at cap+1 — proving the slice trims the tail, not the head.
- *   - renderToStaticMarkup renders ONLY the tile under test, so every
- *     substring assertion is already scoped to the tile container (no
- *     sibling component can satisfy it).
- *
- * Driving strategy: `renderToStaticMarkup` server-render to an HTML
- * string — same pattern as tests/components/tiles/SentinelHidingClass.
- * test.tsx and ScopeTileIcons.test.tsx. No jsdom needed.
+ * Anti-tautology: expected overflow counts derive from fixture dimensions;
+ * row counts are DOM-node counts (not name-substring presence); the rendered
+ * tree is only the section under test, so substring assertions are scoped.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server";
-import { CrewTile } from "@/components/tiles/CrewTile";
-import { PackListTile } from "@/components/tiles/PackListTile";
-import type { PullSheetCase } from "@/lib/parser/types";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { cleanup, render } from "@testing-library/react";
 
-/** Count occurrences of a marker substring in rendered HTML. */
-function countOccurrences(html: string, marker: string): number {
-  return html.split(marker).length - 1;
-}
+import {
+  CrewSection,
+  CREW_INLINE_CAP,
+  CONTACTS_INLINE_CAP,
+} from "@/components/crew/sections/CrewSection";
+import { GearSection } from "@/components/crew/sections/GearSection";
+import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import type { ContactRow } from "@/lib/parser/types";
 
-function readComponentSource(filename: string): string {
-  return readFileSync(join(process.cwd(), "components", "tiles", filename), "utf8");
+const TODAY = new Date("2026-05-14T15:00:00Z");
+const SHOW_ID = "show-abc";
+const VIEWER = { kind: "admin" } as const;
+
+// The Notes block renders TodaySection, which mounts the RightNowHero client
+// island; the hero's usePrefersReducedMotion hook calls window.matchMedia in a
+// mount effect that jsdom lacks. Stub it (matches:false = no reduced-motion)
+// so the hero's REAL wiring runs — mirrors TodaySection.test.tsx.
+beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }),
+  );
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+/** Read a crew section/primitive source file for the cap sync guards. */
+function readSource(...parts: string[]): string {
+  return readFileSync(join(process.cwd(), ...parts), "utf8");
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// CrewTile — CREW_INLINE_CAP boundary (7 / 8 / 9)
+// Crew roster — CREW_INLINE_CAP = 8 (overflow formula + tail-trim)
+//
+// The cap-1/cap/cap+1 ROW-COUNT matrix is pinned in CrewSection.test.tsx;
+// this block pins the overflow-count formula (length − cap, derived) and
+// that the slice trims the TAIL (first overflowed member absent inline) —
+// the precise off-by-one guards that the section test only checks loosely.
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.4 cardinality-cap boundary — CrewTile (CREW_INLINE_CAP)", () => {
-  // Mirror of the unexported constant at components/tiles/CrewTile.tsx:58
-  // (`const CREW_INLINE_CAP = 8;`). The sync test below pins the mirror
-  // against the live source so drift cannot go unnoticed.
-  const CREW_INLINE_CAP = 8;
-
-  // Fixture names are zero-padded so no name is a substring of another
-  // ("Crew Member 01" vs "Crew Member 10") — substring assertions on the
-  // rendered HTML stay unambiguous.
+describe("§8.4 cardinality-cap — Crew roster (CREW_INLINE_CAP, CrewSection)", () => {
   function makeCrew(count: number) {
-    const members = [];
-    for (let i = 1; i <= count; i++) {
-      members.push({
-        id: `crew-${i}`,
-        name: `Crew Member ${String(i).padStart(2, "0")}`,
-        email: `crew${i}@example.com`,
-        phone: "555-0100",
-        role: "A1",
-        roleFlags: ["A1"] as const,
-        dateRestriction: { kind: "none" as const },
-        stageRestriction: { kind: "none" as const },
-      });
-    }
-    return members;
+    return Array.from({ length: count }, (_, i) => ({
+      id: `crew-${i}`,
+      // Zero-padded so "Crew Member 01" is never a substring of "Crew Member 10".
+      name: `Crew Member ${String(i + 1).padStart(2, "0")}`,
+      email: null,
+      phone: null,
+      role: "",
+      roleFlags: [] as never[],
+      dateRestriction: { kind: "none" as const },
+      stageRestriction: { kind: "none" as const },
+    }));
   }
 
-  test("sync guard — component still declares CREW_INLINE_CAP = mirrored value", () => {
-    // Catches: cap constant drifts in the component (e.g., tuned to 6
-    // or 10) without these boundary tests being updated — without this
-    // guard the suite would keep testing a stale threshold and pass
-    // vacuously.
-    const source = readComponentSource("CrewTile.tsx");
-    const match = source.match(/const CREW_INLINE_CAP\s*=\s*(\d+)\s*;/);
-    expect(match, "CREW_INLINE_CAP declaration not found in CrewTile.tsx").not.toBeNull();
-    expect(Number(match![1])).toBe(CREW_INLINE_CAP);
-  });
+  function renderCrew(count: number) {
+    return render(
+      <CrewSection
+        data={makeShowForViewer({ crewMembers: makeCrew(count) })}
+        viewer={VIEWER}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    ).container;
+  }
 
-  test(`cap-1 (${CREW_INLINE_CAP - 1} members) — all rows inline, NO overflow affordance`, () => {
-    // Catches: affordance threshold mis-wired to fire below the cap
-    // (e.g., `length >= CAP - 1`), or the slice trimming rows early.
-    const crew = makeCrew(CREW_INLINE_CAP - 1);
-    const html = renderToStaticMarkup(<CrewTile crewMembers={crew as never} />);
-    expect(countOccurrences(html, 'data-testid="crew-row"')).toBe(crew.length);
-    // Every member renders inline, including the last.
-    expect(html).toContain(crew[crew.length - 1]!.name);
-    // No overflow affordance in any form.
-    expect(html).not.toContain("data-tile-show-more");
-    expect(html).not.toContain("crew-overflow-stub");
-  });
-
-  test(`exactly cap (${CREW_INLINE_CAP} members) — all rows inline, NO overflow affordance`, () => {
-    // Catches: affordance-threshold flip — `overflowCount >= 0` or
-    // `length >= CAP` rendering a "+0 more" stub at exactly-cap. This
-    // is THE boundary the cap contract hinges on.
-    const crew = makeCrew(CREW_INLINE_CAP);
-    const html = renderToStaticMarkup(<CrewTile crewMembers={crew as never} />);
-    expect(countOccurrences(html, 'data-testid="crew-row"')).toBe(crew.length);
-    expect(html).toContain(crew[crew.length - 1]!.name);
-    expect(html).not.toContain("data-tile-show-more");
-    expect(html).not.toContain("crew-overflow-stub");
-    // Belt-and-braces against a "+0" stub leaking through a >= flip.
-    expect(html).not.toContain("+0");
-  });
-
-  test(`cap+1 (${CREW_INLINE_CAP + 1} members) — exactly cap rows inline + affordance with derived count`, () => {
-    // Catches: off-by-one in `.slice(0, CREW_INLINE_CAP)` (9 rows
-    // rendered, or only 7), and a wrong overflow formula (count not
-    // equal to fixture.length - cap).
-    const crew = makeCrew(CREW_INLINE_CAP + 1);
-    const expectedOverflow = crew.length - CREW_INLINE_CAP; // derived, never hardcoded
-    const html = renderToStaticMarkup(<CrewTile crewMembers={crew as never} />);
-    expect(countOccurrences(html, 'data-testid="crew-row"')).toBe(CREW_INLINE_CAP);
-    // The last inline member renders; the first overflowed member does NOT
+  test(`cap+1 (${CREW_INLINE_CAP + 1}) — exactly cap rows + stub count = length − cap (derived, tail-trim)`, () => {
+    const n = CREW_INLINE_CAP + 1;
+    const expectedOverflow = n - CREW_INLINE_CAP; // derived
+    const c = renderCrew(n);
+    expect(c.querySelectorAll('[data-testid="crew-person-row"]').length).toBe(CREW_INLINE_CAP);
+    const stub = c.querySelector('[data-testid="crew-overflow-stub"]');
+    expect(stub).not.toBeNull();
+    expect(stub!.getAttribute("data-tile-show-more")).toBe("true");
+    expect(stub!.textContent).toContain(`+${expectedOverflow}`);
+    // Singular copy at overflow=1.
+    expect(stub!.textContent).toContain(
+      expectedOverflow === 1 ? "more crew member" : "more crew members",
+    );
+    // The last inline member renders; the first OVERFLOWED member does NOT
     // (proves the slice trims the tail, not the head).
-    expect(html).toContain(crew[CREW_INLINE_CAP - 1]!.name);
-    expect(html).not.toContain(crew[CREW_INLINE_CAP]!.name);
-    // Affordance present with the derived count.
-    expect(html).toContain('data-tile-show-more="true"');
-    expect(html).toContain('data-testid="crew-overflow-stub"');
-    expect(html).toContain(`+${expectedOverflow}`);
-    // Singular/plural copy derived from the overflow count (CrewTile.tsx:178).
-    expect(html).toContain(
-      expectedOverflow === 1 ? "more crew member on the source sheet" : "more crew members on the source sheet",
+    const text = c.textContent ?? "";
+    expect(text).toContain(`Crew Member ${String(CREW_INLINE_CAP).padStart(2, "0")}`);
+    expect(text).not.toContain(`Crew Member ${String(CREW_INLINE_CAP + 1).padStart(2, "0")}`);
+  });
+
+  test(`larger overflow (${CREW_INLINE_CAP + 5}) — stub count tracks length − cap`, () => {
+    const n = CREW_INLINE_CAP + 5;
+    const c = renderCrew(n);
+    expect(c.querySelectorAll('[data-testid="crew-person-row"]').length).toBe(CREW_INLINE_CAP);
+    expect(c.querySelector('[data-testid="crew-overflow-stub"]')!.textContent).toContain(
+      `+${n - CREW_INLINE_CAP}`,
     );
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// PackListTile — CASE_CAP boundary (11 / 12 / 13)
+// Key contacts — CONTACTS_INLINE_CAP = 6 (full cap-1 / cap / cap+1 matrix)
+// Not covered by any Phase-3 section test — fully owned here.
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.4 cardinality-cap boundary — PackListTile (CASE_CAP)", () => {
-  // Mirror of the unexported constant at components/tiles/PackListTile.tsx:67
-  // (`const CASE_CAP = 12;`). Sync test below pins it against source.
+describe("§8.4 cardinality-cap — Key contacts (CONTACTS_INLINE_CAP, CrewSection)", () => {
+  function makeContacts(count: number): ContactRow[] {
+    return Array.from({ length: count }, (_, i) => ({
+      kind: "venue" as const,
+      name: `Venue Contact ${String(i + 1).padStart(2, "0")}`,
+      email: null,
+      phone: "555-0100",
+      notes: null,
+    }));
+  }
+
+  function renderContacts(count: number) {
+    return render(
+      <CrewSection
+        data={makeShowForViewer({ contacts: makeContacts(count) })}
+        viewer={VIEWER}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    ).container;
+  }
+
+  test.each([CONTACTS_INLINE_CAP - 1, CONTACTS_INLINE_CAP, CONTACTS_INLINE_CAP + 1])(
+    "contacts cap boundary at %i",
+    (n) => {
+      const c = renderContacts(n);
+      const rows = c.querySelectorAll('[data-testid="contact-person-row"]').length;
+      const stub = c.querySelector('[data-testid="contacts-overflow-stub"]');
+      if (n <= CONTACTS_INLINE_CAP) {
+        expect(rows).toBe(n);
+        expect(stub).toBeNull();
+        expect(c.textContent ?? "").not.toContain("+0");
+      } else {
+        const expectedOverflow = n - CONTACTS_INLINE_CAP; // derived
+        expect(rows).toBe(CONTACTS_INLINE_CAP);
+        expect(stub).not.toBeNull();
+        expect(stub!.getAttribute("data-tile-show-more")).toBe("true");
+        expect(stub!.textContent).toContain(`+${expectedOverflow}`);
+        expect(stub!.textContent).toContain(
+          expectedOverflow === 1 ? "more contact" : "more contacts",
+        );
+        // Tail-trim: last inline contact present, first overflowed absent.
+        const text = c.textContent ?? "";
+        expect(text).toContain(`Venue Contact ${String(CONTACTS_INLINE_CAP).padStart(2, "0")}`);
+        expect(text).not.toContain(
+          `Venue Contact ${String(CONTACTS_INLINE_CAP + 1).padStart(2, "0")}`,
+        );
+      }
+    },
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Show notes — SOURCE_CAP = 8 + TRUNCATE_AT = 280 (TodaySection)
+// Not covered by any Phase-3 section test — fully owned here.
+// The caps are unexported, so a source-scan sync guard pins the mirror.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, TodaySection)", () => {
+  const SOURCE_CAP = 8;
+  const TRUNCATE_AT = 280;
+
+  test("sync guard — TodaySection still declares SOURCE_CAP + TRUNCATE_AT = mirrored values", () => {
+    const source = readSource("components", "crew", "sections", "TodaySection.tsx");
+    const capMatch = source.match(/const SOURCE_CAP\s*=\s*(\d+)\s*;/);
+    const truncMatch = source.match(/const TRUNCATE_AT\s*=\s*(\d+)\s*;/);
+    expect(capMatch, "SOURCE_CAP declaration not found in TodaySection.tsx").not.toBeNull();
+    expect(truncMatch, "TRUNCATE_AT declaration not found in TodaySection.tsx").not.toBeNull();
+    expect(Number(capMatch![1])).toBe(SOURCE_CAP);
+    expect(Number(truncMatch![1])).toBe(TRUNCATE_AT);
+  });
+
+  // Notes aggregate across venue → hotel → room → transport → contact in that
+  // order. Build N distinct contact notes (one source family, zero-padded) so
+  // the count is deterministic and each note label is unique.
+  function makeContactsWithNotes(count: number): ContactRow[] {
+    return Array.from({ length: count }, (_, i) => ({
+      kind: "venue" as const,
+      name: `Note Contact ${String(i + 1).padStart(2, "0")}`,
+      email: null,
+      phone: null,
+      notes: `Note body ${String(i + 1).padStart(2, "0")}`,
+    }));
+  }
+
+  function renderNotes(count: number) {
+    return render(
+      <TodaySection
+        data={makeShowForViewer({ contacts: makeContactsWithNotes(count) })}
+        viewer={VIEWER}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    ).container;
+  }
+
+  test(`cap-1 (${SOURCE_CAP - 1} notes) — all notes inline, NO overflow`, () => {
+    const c = renderNotes(SOURCE_CAP - 1);
+    expect(c.querySelectorAll("li[data-source]").length).toBe(SOURCE_CAP - 1);
+    expect(c.querySelector('[data-testid="today-notes-overflow"]')).toBeNull();
+  });
+
+  test(`exactly cap (${SOURCE_CAP} notes) — all notes inline, NO overflow (no +0)`, () => {
+    const c = renderNotes(SOURCE_CAP);
+    expect(c.querySelectorAll("li[data-source]").length).toBe(SOURCE_CAP);
+    expect(c.querySelector('[data-testid="today-notes-overflow"]')).toBeNull();
+    expect(c.textContent ?? "").not.toContain("+0");
+  });
+
+  test(`cap+1 (${SOURCE_CAP + 1} notes) — exactly cap inline + overflow count = length − cap`, () => {
+    const n = SOURCE_CAP + 1;
+    const expectedOverflow = n - SOURCE_CAP; // derived
+    const c = renderNotes(n);
+    expect(c.querySelectorAll("li[data-source]").length).toBe(SOURCE_CAP);
+    const overflow = c.querySelector('[data-testid="today-notes-overflow"]');
+    expect(overflow).not.toBeNull();
+    expect(overflow!.textContent).toContain(`+${expectedOverflow}`);
+    expect(overflow!.textContent).toContain(expectedOverflow === 1 ? "more note" : "more notes");
+  });
+
+  test("TRUNCATE_AT — a note longer than TRUNCATE_AT is truncated with an ellipsis + data-truncated", () => {
+    // Derive the long body from TRUNCATE_AT so the test tracks the constant.
+    const longBody = "X".repeat(TRUNCATE_AT + 50);
+    const shortBody = "Y".repeat(10);
+    const c = render(
+      <TodaySection
+        data={makeShowForViewer({
+          contacts: [
+            { kind: "venue", name: "Long Note", email: null, phone: null, notes: longBody },
+            { kind: "venue", name: "Short Note", email: null, phone: null, notes: shortBody },
+          ],
+        })}
+        viewer={VIEWER}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    ).container;
+    const rows = [...c.querySelectorAll("li[data-source]")];
+    expect(rows.length).toBe(2);
+    const truncatedRow = rows.find((r) => r.getAttribute("data-truncated") === "true");
+    const plainRow = rows.find((r) => r.getAttribute("data-truncated") !== "true");
+    // The long note is flagged truncated; the short note is not.
+    expect(truncatedRow, "long note should be flagged data-truncated").toBeTruthy();
+    expect(plainRow, "short note should NOT be flagged data-truncated").toBeTruthy();
+    // The truncated summary contains the ellipsis; the full body still lives
+    // in the expandable <details> region (so nothing is lost), but the visible
+    // summary line is capped at TRUNCATE_AT codepoints (ellipsis replaces 1).
+    const summary = truncatedRow!.querySelector("summary");
+    expect(summary, "truncated row renders a <summary>").toBeTruthy();
+    expect(summary!.textContent ?? "").toContain("…");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Pack list — CASE_CAP = 12 (GearSection)
+// GearSection.test.tsx pins gate-false omission only — the >12 overflow
+// boundary is owned here. The cap is unexported → source-scan sync guard.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("§8.4 cardinality-cap — Pack list (CASE_CAP, GearSection)", () => {
   const CASE_CAP = 12;
 
-  // Visibility gate fixture — same fixed-date strategy as the round-17
-  // PackListTile block in SentinelHidingClass.test.tsx: "today" lands
-  // on a Set phase so isPackListVisibleToday() passes without time mocks.
+  // GearSection gates the pack list behind isPackListVisibleToday — the
+  // default fixture's empty schedule_phases makes that false. Provide a
+  // schedule_phase whose "today" lands on a Set phase so the list renders
+  // without time mocking (mirrors the deleted PackListTile fixture idiom).
   const TODAY_ISO = "2026-04-21";
-  const TODAY = new Date("2026-04-21T16:00:00Z");
-  const SHOW = {
-    schedule_phases: { [TODAY_ISO]: ["Set"] },
-    venue: null,
-  } as never;
+  const PACK_TODAY = new Date("2026-04-21T16:00:00Z");
 
-  // Case labels are zero-padded so no label is a substring of another.
-  function makeCases(count: number): PullSheetCase[] {
-    const cases: PullSheetCase[] = [];
-    for (let i = 1; i <= count; i++) {
-      cases.push({
-        caseLabel: `Road Case ${String(i).padStart(2, "0")}`,
-        items: [{ qty: 1, cat: null, subCat: null, item: `Cable Loom ${String(i).padStart(2, "0")}` }],
-      });
-    }
-    return cases;
+  function makeCases(count: number) {
+    return Array.from({ length: count }, (_, i) => ({
+      // Zero-padded so "Road Case 01" is never a substring of "Road Case 10".
+      caseLabel: `Road Case ${String(i + 1).padStart(2, "0")}`,
+      items: [{ qty: 1, cat: null, subCat: null, item: `Cable Loom ${String(i + 1).padStart(2, "0")}` }],
+    }));
   }
 
-  function renderTile(pullSheet: PullSheetCase[]): string {
-    return renderToStaticMarkup(
-      <PackListTile
-        pullSheet={pullSheet}
-        show={SHOW}
-        stageRestriction={{ kind: "none" }}
-        today={TODAY}
+  function renderPack(count: number) {
+    return render(
+      <GearSection
+        data={makeShowForViewer({
+          show: { schedule_phases: { [TODAY_ISO]: ["Set"] } },
+          pullSheet: makeCases(count),
+        })}
+        viewer={VIEWER}
+        today={PACK_TODAY}
+        showId={SHOW_ID}
       />,
-    );
+    ).container;
   }
 
-  test("sync guard — component still declares CASE_CAP = mirrored value", () => {
-    // Catches: cap constant drifts in the component without these
-    // boundary tests following — prevents the suite from silently
-    // pinning a stale threshold.
-    const source = readComponentSource("PackListTile.tsx");
+  test("sync guard — GearSection still declares CASE_CAP = mirrored value", () => {
+    const source = readSource("components", "crew", "sections", "GearSection.tsx");
     const match = source.match(/const CASE_CAP\s*=\s*(\d+)\s*;/);
-    expect(match, "CASE_CAP declaration not found in PackListTile.tsx").not.toBeNull();
+    expect(match, "CASE_CAP declaration not found in GearSection.tsx").not.toBeNull();
     expect(Number(match![1])).toBe(CASE_CAP);
   });
 
-  test(`cap-1 (${CASE_CAP - 1} cases) — all cases inline, NO overflow disclosure`, () => {
-    // Catches: disclosure firing below the cap, or the slice trimming
-    // cases before the threshold.
-    const cases = makeCases(CASE_CAP - 1);
-    const html = renderTile(cases);
-    expect(countOccurrences(html, 'data-testid="pack-list-case"')).toBe(cases.length);
-    expect(html).toContain(cases[cases.length - 1]!.caseLabel);
-    expect(html).not.toContain("data-tile-show-more");
-    expect(html).not.toContain("pack-list-overflow-stub");
+  test(`cap-1 (${CASE_CAP - 1} cases) — all cases inline, NO overflow`, () => {
+    const c = renderPack(CASE_CAP - 1);
+    expect(c.querySelectorAll('[data-testid="gear-pack-list-case"]').length).toBe(CASE_CAP - 1);
+    expect(c.querySelector('[data-testid="gear-pack-list-overflow-stub"]')).toBeNull();
   });
 
-  test(`exactly cap (${CASE_CAP} cases) — all cases inline, NO overflow disclosure`, () => {
-    // Catches: affordance-threshold flip (`length >= CASE_CAP`)
-    // rendering a "+0 more cases" stub at exactly-cap.
-    const cases = makeCases(CASE_CAP);
-    const html = renderTile(cases);
-    expect(countOccurrences(html, 'data-testid="pack-list-case"')).toBe(cases.length);
-    expect(html).toContain(cases[cases.length - 1]!.caseLabel);
-    expect(html).not.toContain("data-tile-show-more");
-    expect(html).not.toContain("pack-list-overflow-stub");
-    expect(html).not.toContain("+0");
+  test(`exactly cap (${CASE_CAP} cases) — all cases inline, NO overflow (no +0)`, () => {
+    const c = renderPack(CASE_CAP);
+    expect(c.querySelectorAll('[data-testid="gear-pack-list-case"]').length).toBe(CASE_CAP);
+    expect(c.querySelector('[data-testid="gear-pack-list-overflow-stub"]')).toBeNull();
+    expect(c.textContent ?? "").not.toContain("+0");
   });
 
-  test(`cap+1 (${CASE_CAP + 1} cases) — exactly cap cases inline + disclosure with derived count`, () => {
-    // Catches: off-by-one in `.slice(0, CASE_CAP)` (13 cases rendered,
-    // or only 11), and a wrong overflow formula (count not equal to
-    // pullSheet.length - cap).
-    const cases = makeCases(CASE_CAP + 1);
-    const expectedOverflow = cases.length - CASE_CAP; // derived, never hardcoded
-    const html = renderTile(cases);
-    expect(countOccurrences(html, 'data-testid="pack-list-case"')).toBe(CASE_CAP);
-    // Last inline case renders; first overflowed case does NOT
-    // (slice trims the tail, not the head).
-    expect(html).toContain(cases[CASE_CAP - 1]!.caseLabel);
-    expect(html).not.toContain(cases[CASE_CAP]!.caseLabel);
-    // Disclosure present with the derived count.
-    expect(html).toContain('data-tile-show-more="true"');
-    expect(html).toContain('data-testid="pack-list-overflow-stub"');
-    expect(html).toContain(`+${expectedOverflow}`);
-    // Singular/plural copy derived from the overflow count (PackListTile.tsx:270).
-    expect(html).toContain(
-      expectedOverflow === 1
-        ? "more case on the source pull sheet"
-        : "more cases on the source pull sheet",
-    );
+  test(`cap+1 (${CASE_CAP + 1} cases) — exactly cap inline + stub count = length − cap (tail-trim)`, () => {
+    const n = CASE_CAP + 1;
+    const expectedOverflow = n - CASE_CAP; // derived
+    const c = renderPack(n);
+    expect(c.querySelectorAll('[data-testid="gear-pack-list-case"]').length).toBe(CASE_CAP);
+    const stub = c.querySelector('[data-testid="gear-pack-list-overflow-stub"]');
+    expect(stub).not.toBeNull();
+    expect(stub!.getAttribute("data-tile-show-more")).toBe("true");
+    expect(stub!.textContent).toContain(`+${expectedOverflow}`);
+    expect(stub!.textContent).toContain(expectedOverflow === 1 ? "more case" : "more cases");
+    // Tail-trim: last inline case present, first overflowed case absent.
+    const text = c.textContent ?? "";
+    expect(text).toContain(`Road Case ${String(CASE_CAP).padStart(2, "0")}`);
+    expect(text).not.toContain(`Road Case ${String(CASE_CAP + 1).padStart(2, "0")}`);
   });
 });
