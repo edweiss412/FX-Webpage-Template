@@ -2748,7 +2748,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format matches the expected pattern (e.g. 'Mar 22 AA123 JFK→LAX').",
+      "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format starts each leg with an M/D date (e.g. '3/22 AA123 JFK - LAX').",
     title: "TRAVEL flight unparseable",
     longExplanation:
       "A crew member's TRAVEL-tab flight cell had no recognizable flight date and was skipped. Check the format matches the expected pattern.",

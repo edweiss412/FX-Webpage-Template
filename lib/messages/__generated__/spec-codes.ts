@@ -1224,7 +1224,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A crew member's TRAVEL-tab flight couldn't be read (no recognizable flight date) — check the format.",
     "followUp": "Doug → check sheet",
-    "helpfulContext": "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format matches the expected pattern (e.g. 'Mar 22 AA123 JFK→LAX').",
+    "helpfulContext": "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format starts each leg with an M/D date (e.g. '3/22 AA123 JFK - LAX').",
   },
   "TYPO_NORMALIZED": {
     "crewFacing": null,
