@@ -133,12 +133,28 @@ const mockState: { responses: Record<string, Resp> } = { responses: {} };
 function makeChain(table: string) {
   const response = mockState.responses[table] ?? { data: [], error: null };
   const chain: Record<string, unknown> = {};
+  // Record .eq() filters so .maybeSingle() HONORS the own-row lookup's
+  // .eq("id", viewer.crewMemberId).eq("show_id", showId). An implementation that
+  // drops either constraint (or reads the first crew row instead of the matched
+  // one) then resolves to the WRONG crew row here — the adversarial test below
+  // pins this. The roster read (.eq("show_id").then, no .maybeSingle) awaits the
+  // full array unfiltered, so all crew still project.
+  const filters: Record<string, unknown> = {};
   const self = () => chain;
   const single = (): Promise<Resp> => {
-    const d = response.data;
+    let d = response.data;
+    if (Array.isArray(d)) {
+      d = d.filter(
+        (r: Record<string, unknown>) =>
+          (filters.id === undefined || r.id === filters.id) &&
+          (filters.show_id === undefined || r.show_id === filters.show_id),
+      );
+    }
     return Promise.resolve({ data: Array.isArray(d) ? (d[0] ?? null) : d, error: response.error });
   };
-  chain.select = self; chain.eq = self; chain.order = self; chain.limit = self; chain.like = self;
+  chain.select = self;
+  chain.eq = (col: string, val: unknown) => { filters[col] = val; return chain; };
+  chain.order = self; chain.limit = self; chain.like = self;
   for (const w of ["insert", "update", "delete", "upsert"]) chain[w] = self;
   chain.maybeSingle = single;
   chain.single = single;
@@ -161,7 +177,7 @@ const CREW = { kind: "crew" as const, crewMemberId: "crew-self" };
 
 function crewRow(over: Record<string, unknown> = {}) {
   return {
-    id: "crew-self", name: "Doug Larson", email: null, phone: null,
+    id: "crew-self", show_id: SHOW_ID, name: "Doug Larson", email: null, phone: null,
     role: "Lead", role_flags: [], date_restriction: null, stage_restriction: null,
     flight_info: "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ",
     ...over,
@@ -215,15 +231,15 @@ describe("getShowForViewer — viewerFlightInfo projection", () => {
     expect(out.viewerFlightInfo).toBeNull();
   });
 
-  it("sources the viewer's OWN flight, not a roster row; roster carries no flight key", async () => {
-    // Two crew rows: the viewer ([0]; the own-row lookup returns [0]) with flight
-    // A, and a second crew member ([1]) with a DIFFERENT flight B. The viewer must
-    // get A, and NO crewMembers[] element may carry a flight key.
+  it("sources the viewer's OWN flight via .eq(id), NOT the first roster row; roster carries no flight key", async () => {
+    // ADVERSARIAL: the NON-viewer row is FIRST, the viewer's row SECOND. The
+    // query-aware mock honors .eq("id", "crew-self") → the viewer gets A. An impl
+    // that drops .eq("id") and reads crew[0] gets B and FAILS here.
     setup({
       crew_members: {
         data: [
-          crewRow({ id: "crew-self", name: "Doug Larson", flight_info: "OWN-FLIGHT-A | RET-A" }),
           crewRow({ id: "crew-other", name: "Carl Fenton", flight_info: "OTHER-FLIGHT-B | RET-B" }),
+          crewRow({ id: "crew-self", name: "Doug Larson", flight_info: "OWN-FLIGHT-A | RET-A" }),
         ],
         error: null,
       },
@@ -236,6 +252,26 @@ describe("getShowForViewer — viewerFlightInfo projection", () => {
       expect(m).not.toHaveProperty("flight_info");
       expect(m).not.toHaveProperty("flightInfo");
     }
+  });
+
+  it("plain admin → viewerFlightInfo null (needsCrewLookup is false; no own row)", async () => {
+    const out = await getShowForViewer(SHOW_ID, { kind: "admin" });
+    expect(out.viewerFlightInfo).toBeNull();
+  });
+
+  it("admin_preview → the PREVIEWED crew member's own flight (the lookup runs with the previewed id)", async () => {
+    setup({
+      crew_members: {
+        data: [
+          crewRow({ id: "crew-other", flight_info: "OTHER | RET-B" }),
+          crewRow({ id: "crew-self", flight_info: "PREVIEWED | RET-A" }),
+        ],
+        error: null,
+      },
+    });
+    const out = await getShowForViewer(SHOW_ID, { kind: "admin_preview", crewMemberId: "crew-self" });
+    expect(out.viewerFlightInfo).toContain("PREVIEWED");
+    expect(out.viewerFlightInfo).not.toContain("OTHER");
   });
 });
 
@@ -258,6 +294,14 @@ describe("getShowForViewer source-scan — flight_info read on the own-row looku
     );
     const selectFlightHits = (src.match(/\.select\("[^"]*flight_info[^"]*"\)/g) ?? []).length;
     expect(selectFlightHits).toBe(1);
+  });
+
+  it("the own-row lookup retains its id + show_id dual constraint", () => {
+    // The flight-carrying lookup must stay own-row-scoped. Pins the constraint
+    // statically (the query-aware mock honors it at runtime); catches a refactor
+    // that drops .eq("id") or .eq("show_id") on the lookup.
+    expect(src).toContain('.eq("id", viewer.crewMemberId)');
+    expect(src).toContain('.eq("show_id", showId)');
   });
 });
 ```
@@ -344,8 +388,8 @@ In the return object, add `viewerFlightInfo` immediately AFTER `viewerName,` (`g
 
 - [ ] **Step 8: Run the test to verify it passes**
 
-Run: `pnpm vitest run tests/data/getShowForViewerFlight.test.ts`
-Expected: PASS (all projection + source-scan tests — the own-row select now reads `"role_flags, name, flight_info"`, exactly one select contains `flight_info`).
+Run: `pnpm vitest run tests/data/getShowForViewerFlight.test.ts tests/data/getShowForViewer.test.ts tests/data/getShowForViewerRunOfShow.test.ts tests/data/show-page-role-spoof.test.ts tests/data/viewerContext.test.ts`
+Expected: PASS — the new flight tests (projection + source-scan + adversarial own-row + admin/admin_preview) AND the existing cross-show / wrong-show / admin projection tests (confirms the lookup's `id`+`show_id` filtering and admin behavior are unregressed by the select change and the fixture edits).
 
 - [ ] **Step 9: Typecheck (the whole repo — the fixture backs many tests)**
 
@@ -425,9 +469,23 @@ describe("TravelSection — flight card", () => {
     expect(within(getByTestId("travel-flight")).getAllByTestId("travel-flight-leg")).toHaveLength(1);
   });
 
-  it.each([null, "", "   ", "TBD", "N/A"])("hides the card for blank/sentinel %p", (v) => {
-    const { queryByTestId } = renderTravel(baseData({ viewerFlightInfo: v }));
+  it.each([null, "", "   ", "TBD", "N/A", "https://aa.com/checkin", "drive.google.com/file/d/abc123"])(
+    "hides the card for blank/sentinel/URL-only %p (strips/filters to empty → no card)",
+    (v) => {
+      // NB: a BARE airline domain (aa.com/checkin) is NOT here — it RENDERS
+      // (tested separately). These are schemed + scheme-less-Google URL-only.
+      const { queryByTestId } = renderTravel(baseData({ viewerFlightInfo: v }));
+      expect(queryByTestId("travel-flight")).toBeNull();
+    },
+  );
+
+  it("a URL-only flight + no transport/hotels → section-empty renders, NOT a titled empty card", () => {
+    // Catches an impl that computes showFlight BEFORE the strip/filter: it would
+    // render a titled-but-empty "Your flight" card AND wrongly suppress the
+    // section empty-state (since a present card would make allHidden false).
+    const { queryByTestId } = renderTravel(baseData({ viewerFlightInfo: "https://aa.com/checkin" }));
     expect(queryByTestId("travel-flight")).toBeNull();
+    expect(queryByTestId("section-empty")).toBeInTheDocument();
   });
 
   it("strips a schemed URL from a leg but keeps the real text", () => {
