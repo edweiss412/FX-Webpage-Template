@@ -284,7 +284,7 @@ export function ShowsTable({
           data-testid="admin-active-shows-empty"
           className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-4 text-base text-text-subtle"
         >
-          <p className="font-semibold text-text-strong">You do not have any shows yet.</p>
+          <p className="font-semibold text-text-strong">No shows yet.</p>
           <p>Share a sheet into your watched Drive folder and the sync will pick it up.</p>
         </div>
       ) : filtered.length === 0 ? (

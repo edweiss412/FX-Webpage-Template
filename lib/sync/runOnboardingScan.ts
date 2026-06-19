@@ -60,15 +60,15 @@ export type WizardIsolationIndexProbe = { ok: true } | { ok: false; missing: str
 
 export type OnboardingScanTx = Phase1Tx &
   LockableSyncTx & {
-  ensureWizardIsolationIndexes(): Promise<WizardIsolationIndexProbe>;
-  upsertManifest(row: OnboardingManifestRow): Promise<boolean>;
-  logSync(entry: {
-    code: string;
-    driveFileId?: string;
-    payload?: Record<string, unknown>;
-  }): Promise<void>;
-  upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
-};
+    ensureWizardIsolationIndexes(): Promise<WizardIsolationIndexProbe>;
+    upsertManifest(row: OnboardingManifestRow): Promise<boolean>;
+    logSync(entry: {
+      code: string;
+      driveFileId?: string;
+      payload?: Record<string, unknown>;
+    }): Promise<void>;
+    upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
+  };
 
 export type OnboardingScanResult =
   | {
@@ -345,6 +345,17 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
   async upsertLivePendingSync(
     row: Omit<Phase1PendingSyncRow, "stagedId"> & { stagedId?: string },
   ): Promise<{ stagedId: string }> {
+    // base_modified_time records the LIVE watermark this staged parse is based on — Phase D's
+    // equality preflight (finalize-cas applyShadow → revisionTimesMatch) refuses the shadow
+    // apply unless it still equals shows.last_seen_modified_time, and a NULL base only matches
+    // a NULL live watermark. This tx deliberately blinds readShowForPhase1 (first-seen
+    // semantics: full-parse onboarding review, no MI-6..14 diffs, no shows mutations), so
+    // runPhase1 always passes baseModifiedTime null here — for a RE-ONBOARDED existing show
+    // (live watermark non-null) a literal-null base made Phase D refuse EVERY row with
+    // STAGED_PARSE_OUTDATED_AT_PHASE_D (2026-06-12 validation onboarding drill). Stamp the
+    // live watermark at staging time instead, under the per-show advisory lock the scan
+    // already holds; a genuine first-seen file has no shows row → subselect yields NULL and
+    // the existing null-base contract is unchanged.
     const upserted = await this.one<{ staged_id: string }>(
       `
         insert into public.pending_syncs (
@@ -352,7 +363,12 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
           staged_id, source_kind, warning_summary, wizard_session_id
         )
-        select $1, $2::timestamptz, $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
+        select $1,
+               coalesce(
+                 $2::timestamptz,
+                 (select s.last_seen_modified_time from public.shows s where s.drive_file_id = $1)
+               ),
+               $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
                coalesce($8::uuid, gen_random_uuid()), $9, $10, $11::uuid
         where exists (
           select 1 from public.app_settings
@@ -546,9 +562,7 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -564,9 +578,7 @@ async function scanPreparedFileWithTx(
 
     if (result.outcome === "stage") {
       if (result.stagedId.length === 0) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -587,9 +599,7 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -622,9 +632,7 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -650,9 +658,7 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () =>
-          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-        );
+        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
         return {
           kind: "stop",
           result: {
@@ -675,42 +681,93 @@ async function scanPreparedFileWithTx(
       }
       throw error;
     }
-    await callTx("logSync", () =>
-      tx.logSync({
-        code: "onboarding_scan_live_row_conflict",
-        driveFileId: file.driveFileId,
-        payload: { drive_file_id: file.driveFileId, sqlstate: state, kind },
-      }),
-    );
-    await callTx("upsertAdminAlert", () =>
-      tx.upsertAdminAlert({
-        showId: null,
-        code: LIVE_ROW_CONFLICT,
-        context: {
-          drive_file_id: file.driveFileId,
-          file_name: file.name,
-          folder_id: folderId,
-          wizard_session_id: wizardSessionId,
-          sqlstate: state,
-          kind,
-        },
-      }),
-    );
-    await callTx("upsertManifest", () =>
-      tx.upsertManifest({
-        folderId,
-        wizardSessionId,
-        driveFileId: file.driveFileId,
-        mimeType: file.mimeType,
-        name: file.name,
-        status: "live_row_conflict",
-      }),
-    );
-    processed.push({ driveFileId: file.driveFileId, outcome: "live_row_conflict" });
-    return { kind: "continue" };
+    // 25P02 abort class: the 23505/42P10 was raised by a statement ON THIS
+    // per-file transaction, so the transaction is already aborted — any
+    // recovery write issued here would fail with 25P02
+    // in_failed_sql_transaction on real Postgres (live-reproduced; sibling of
+    // the first-seen slug-collision fix in runScheduledCronSync). Rethrow a
+    // typed control-flow error so the per-file transaction rolls back;
+    // scanPreparedFiles records the conflict in a FRESH transaction.
+    throw new OnboardingScanLiveRowConflictRollbackError(String(state), kind);
   }
 
   return { kind: "continue" };
+}
+
+/**
+ * Control-flow error: a live-row conflict (legacy-PK 23505 / arbiter-inference
+ * 42P10) aborted the per-file scan transaction. Thrown OUT of the transaction
+ * so it rolls back; the caller writes the live_row_conflict recovery rows
+ * (sync_log, admin alert, manifest) in a fresh transaction.
+ */
+class OnboardingScanLiveRowConflictRollbackError extends Error {
+  constructor(
+    readonly sqlstate: string,
+    readonly conflictKind: string,
+  ) {
+    super(`onboarding scan live-row conflict (sqlstate ${sqlstate}, ${conflictKind})`);
+    this.name = "OnboardingScanLiveRowConflictRollbackError";
+  }
+}
+
+/**
+ * Recovery writes for a live-row conflict — MUST run on a fresh transaction.
+ *
+ * Returns the upsertManifest boolean (false = app_settings
+ * .pending_wizard_session_id no longer matches this session, i.e. the session
+ * was superseded between the aborted per-file tx and this recovery tx). The
+ * manifest write runs FIRST so that nothing else emits when superseded: no
+ * onboarding_scan_live_row_conflict sync_log row, no LIVE_ROW_CONFLICT admin
+ * alert. Mirrors the normal scan paths, which convert upsertManifest=false
+ * into the WIZARD_SESSION_SUPERSEDED_DURING_SCAN stop result.
+ */
+async function recordLiveRowConflict(
+  folderId: string,
+  wizardSessionId: string,
+  tx: OnboardingScanTx,
+  file: DriveListedFile,
+  conflict: OnboardingScanLiveRowConflictRollbackError,
+): Promise<boolean> {
+  const wrote = await callTx("upsertManifest", () =>
+    tx.upsertManifest({
+      folderId,
+      wizardSessionId,
+      driveFileId: file.driveFileId,
+      mimeType: file.mimeType,
+      name: file.name,
+      status: "live_row_conflict",
+    }),
+  );
+  if (!wrote) {
+    await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+    return false;
+  }
+  await callTx("logSync", () =>
+    tx.logSync({
+      code: "onboarding_scan_live_row_conflict",
+      driveFileId: file.driveFileId,
+      payload: {
+        drive_file_id: file.driveFileId,
+        sqlstate: conflict.sqlstate,
+        kind: conflict.conflictKind,
+      },
+    }),
+  );
+  await callTx("upsertAdminAlert", () =>
+    tx.upsertAdminAlert({
+      showId: null,
+      code: LIVE_ROW_CONFLICT,
+      context: {
+        drive_file_id: file.driveFileId,
+        file_name: file.name,
+        folder_id: folderId,
+        wizard_session_id: wizardSessionId,
+        sqlstate: conflict.sqlstate,
+        kind: conflict.conflictKind,
+      },
+    }),
+  );
+  return true;
 }
 
 async function scanPreparedFiles(
@@ -725,25 +782,55 @@ async function scanPreparedFiles(
   const lock = deps.withShowLock ?? defaultWithShowLock;
 
   for (const prepared of preparedFiles) {
-    const step = await withTx(async (tx) => {
-      const locked = await lock(
-        prepared.file.driveFileId,
-        (lockedTx) =>
-          scanPreparedFileWithTx(
-            folderId,
-            wizardSessionId,
-            lockedTx,
-            prepared,
-            processed,
-            runPhase1Impl,
-          ),
-        { tx, tryOnly: false },
-      );
-      if ("skipped" in locked) {
-        throw new OnboardingScanInfraError("withShowLock", locked);
+    let step: OnboardingScanStep;
+    try {
+      step = await withTx(async (tx) => {
+        const locked = await lock(
+          prepared.file.driveFileId,
+          (lockedTx) =>
+            scanPreparedFileWithTx(
+              folderId,
+              wizardSessionId,
+              lockedTx,
+              prepared,
+              processed,
+              runPhase1Impl,
+            ),
+          { tx, tryOnly: false },
+        );
+        if ("skipped" in locked) {
+          throw new OnboardingScanInfraError("withShowLock", locked);
+        }
+        return locked;
+      });
+    } catch (error) {
+      if (!(error instanceof OnboardingScanLiveRowConflictRollbackError)) throw error;
+      // The conflicting per-file transaction rolled back above (its 23505/42P10
+      // left it aborted — writing the recovery rows there would 25P02). Record
+      // the live_row_conflict in a FRESH transaction, re-acquiring the same
+      // per-show lock (single-holder rule: the lock wrapper stays the one
+      // holder layer, same as the scan path).
+      const recorded = await withTx(async (tx) => {
+        const locked = await lock(
+          prepared.file.driveFileId,
+          (lockedTx) =>
+            recordLiveRowConflict(folderId, wizardSessionId, lockedTx, prepared.file, error),
+          { tx, tryOnly: false },
+        );
+        if (typeof locked !== "boolean") {
+          throw new OnboardingScanInfraError("withShowLock", locked);
+        }
+        return locked;
+      });
+      if (!recorded) {
+        // upsertManifest=false: the wizard session was superseded between the
+        // aborted per-file tx and the recovery tx. Mirror the normal scan
+        // paths' superseded stop — no recovery artifacts were emitted.
+        return { outcome: "superseded", code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, processed };
       }
-      return locked;
-    });
+      processed.push({ driveFileId: prepared.file.driveFileId, outcome: "live_row_conflict" });
+      continue;
+    }
     if (step.kind === "stop") return step.result;
   }
 

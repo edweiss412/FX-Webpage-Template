@@ -44,12 +44,16 @@ export function parseHotels(
   const fromTable = parseHotelTable(markdown);
   if (fromTable.length > 0) return cap(fromTable);
 
+  // Inline rows carry yearless "Check In: M/D"; infer the show's year from its
+  // dates so we don't hard-code an era (the cell alone lacks the year).
+  const contextYear = inferShowYear(markdown);
+
   // Try the inline "Hotel Reservations" row (v2 older layout, RIA forum, DCI RPAS)
-  const fromInline = parseInlineHotelRow(markdown);
+  const fromInline = parseInlineHotelRow(markdown, contextYear);
   if (fromInline.length > 0) return cap(fromInline);
 
   // Try v1 "Hotel Stays" row (2024-05 east coast family office)
-  const fromStays = parseHotelStaysRow(markdown);
+  const fromStays = parseHotelStaysRow(markdown, contextYear);
   if (fromStays.length > 0) return cap(fromStays);
 
   return [];
@@ -116,6 +120,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
   const slots = new Map<number, SlotData>();
   let currentGroupLeft = 0;
   let checkoutDate: string | null = null;
+  let wideCheckInLayout = false;
   // track what the last non-blank row type was for value-row detection
   type RowState = "idle" | "hotel_name" | "names" | "check_in";
   let rowState: RowState = "idle";
@@ -183,6 +188,10 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
     // "Check In Date" / "Check Out Date" label row
     if (/check\s+in\s+date/i.test(col1) || /check\s+in\s+date/i.test(col0)) {
       rowState = "check_in";
+      // Detect the 5-col layout from the HEADER shape (the label row carries a
+      // 4th "Check Out Date" for the right reservation), NOT from a value cell —
+      // so a blank right checkout stays null instead of inheriting the left date.
+      wideCheckInLayout = /check\s+out/i.test(clean(row[4] ?? ""));
       continue;
     }
 
@@ -210,6 +219,8 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
     }
 
     if (rowState === "check_in" && col0 === "") {
+      const col4 = clean(row[4] ?? "");
+      const col4Present = col4 !== "" && col4 !== "\\-" && col4 !== "-";
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
         leftSlot.check_in = normalizeDate(col1);
       }
@@ -219,8 +230,15 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         rightSlot.check_in = normalizeDate(col3);
-        // Right reservation shares the same checkout date column
-        rightSlot.check_out = checkoutDate;
+        // 5-col (wide, from header shape): the right reservation has its OWN
+        // checkout (col4); when that cell is blank, leave it null rather than
+        // inheriting the left reservation's date. 4-col legacy: the single
+        // shared checkout column (col2).
+        rightSlot.check_out = wideCheckInLayout
+          ? col4Present
+            ? normalizeDate(col4)
+            : null
+          : checkoutDate;
       }
       rowState = "idle";
       continue;
@@ -259,7 +277,10 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
  * - 2025-05: `| Hotel Reservations | The Drake Hotel ... Check In: 5/11 Check Out: 5/15 Eric Carroll Eric Weiss Connor Hester |`
  * - 2025-06: `| Hotel Reservations | Park Hyatt Chicago&#10;"800 N Michigan Ave...&#10;Check In: 6/23 Check Out: 6/26 Doug --- 104461566 Eric---104461567 |`
  */
-function parseInlineHotelRow(markdown: string): HotelReservationRow[] {
+function parseInlineHotelRow(
+  markdown: string,
+  contextYear: string | null,
+): HotelReservationRow[] {
   const ROW_RE = /^\|\s*Hotel\s*Reservations?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
   if (!m) return [];
@@ -267,10 +288,13 @@ function parseInlineHotelRow(markdown: string): HotelReservationRow[] {
   const raw = clean(m[1]!);
   if (!raw) return [];
 
-  return [buildInlineHotel(raw, 1)];
+  return buildInlineReservations(raw, contextYear);
 }
 
-function parseHotelStaysRow(markdown: string): HotelReservationRow[] {
+function parseHotelStaysRow(
+  markdown: string,
+  contextYear: string | null,
+): HotelReservationRow[] {
   // v1 format: | Hotel Stays | <content> |
   const ROW_RE = /^\|\s*Hotel\s*Stays?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
@@ -279,10 +303,91 @@ function parseHotelStaysRow(markdown: string): HotelReservationRow[] {
   const raw = clean(m[1]!);
   if (!raw) return [];
 
-  return [buildInlineHotel(raw, 1)];
+  return buildInlineReservations(raw, contextYear);
 }
 
-function buildInlineHotel(raw: string, ordinal: number): HotelReservationRow {
+/**
+ * A single inline hotel cell can hold multiple stays with DIFFERENT dates (e.g.
+ * consultants: three guests check out 10/10, one checks out 10/9). Split into
+ * per-group reservations when the cell carries 2+ "Check In" markers so each
+ * guest group keeps its own check-out; otherwise return one reservation. Groups
+ * after the first don't repeat the hotel name, so they inherit group 1's.
+ */
+function buildInlineReservations(raw: string, contextYear: string | null): HotelReservationRow[] {
+  const checkInCount = (raw.match(/check\s+in/gi) ?? []).length;
+  if (checkInCount < 2) return [buildInlineHotel(raw, 1, contextYear)];
+
+  const segments = splitInlineReservationGroups(raw);
+  const rows = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
+  // The split cuts at "Check Out: <date>", which only attributes guests correctly
+  // when they PRECEDE their checkout (the consultants shape). If a group came out
+  // with no guests, the cell lists guests AFTER each checkout (the redefining
+  // shape) and splitting here would detach/mis-attribute them — fall back to a
+  // single reservation rather than corrupt the guest↔date mapping.
+  if (rows.length < 2 || !rows.every((r) => r.names.length > 0)) {
+    // The cell has MULTIPLE date groups but names can't be cleanly attributed to
+    // each. A single buildInlineHotel keeps only the FIRST Check In/Out, so later
+    // guests would carry the first group's dates — wrong data. Preserve all names
+    // but NULL the dates rather than mis-map them (ambiguous → no date is safer
+    // than a wrong date).
+    const single = buildInlineHotel(raw, 1, contextYear);
+    single.check_in = null;
+    single.check_out = null;
+    return [single];
+  }
+  // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
+  // before the first "Check In" (consultants). Strip those guest/confirmation
+  // spans so the shared hotel name is the actual hotel/address, then apply it to
+  // every group (later groups carry only a divider + guest, not the hotel).
+  const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
+  for (const r of rows) r.hotel_name = baseName;
+  return rows;
+}
+
+function sanitizeHotelName(name: string | null): string | null {
+  if (!name) return null;
+  const cleaned = name
+    .replace(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*[-–—]{1,3}\s*#?\d+/g, "") // "Doug Larson—2035940"
+    .replace(/-{2,}/g, " ") // residual divider runs
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function splitInlineReservationGroups(raw: string): string[] {
+  // Each reservation group ends at its own "Check Out: <date>".
+  const re = /check\s+out\s*[:\s]+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/gi;
+  const segments: string[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    const end = m.index + m[0].length;
+    const seg = raw.slice(last, end).trim();
+    if (seg) segments.push(seg);
+    last = end;
+  }
+  const tail = raw.slice(last).trim();
+  if (tail) segments.push(tail);
+  return segments.length > 0 ? segments : [raw];
+}
+
+/**
+ * Infer the show's calendar year from the first parseable date in the markdown
+ * (the DATES / travel block). Used to back-fill yearless inline hotel dates so
+ * the era is taken from the show context, not hard-coded.
+ */
+function inferShowYear(markdown: string): string | null {
+  const m = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.exec(markdown);
+  if (!m) return null;
+  const iso = normalizeDate(m[0]);
+  return iso ? iso.slice(0, 4) : null;
+}
+
+function buildInlineHotel(
+  raw: string,
+  ordinal: number,
+  contextYear: string | null,
+): HotelReservationRow {
   // Normalize HTML entities and line-break escapes
   const text = raw.replace(/&#10;/g, " ").replace(/\r/g, " ").replace(/\s+/g, " ").trim();
 
@@ -309,9 +414,11 @@ function buildInlineHotel(raw: string, ordinal: number): HotelReservationRow {
     }
   }
 
-  // Pattern 3: Names after "Check Out: <date>" — used in 2025-05
+  // Pattern 3: Names after "Check Out: <date>" — used in 2025-05. Strip up to the
+  // FIRST checkout (lazy `.*?`), not the last — a multi-checkout cell would
+  // otherwise drop every guest before the final checkout.
   if (names.length === 0) {
-    const postCheckout = text.replace(/.*check\s+out\s*[:\s]+\S+/i, "").trim();
+    const postCheckout = text.replace(/.*?check\s+out\s*[:\s]+\S+/i, "").trim();
     if (postCheckout) {
       // Split by whitespace runs; grab consecutive title-cased word pairs
       const tokens = postCheckout.split(/\s+/);
@@ -339,11 +446,26 @@ function buildInlineHotel(raw: string, ordinal: number): HotelReservationRow {
   // normalizeDate handles M/D/YY but not M/D — supply current-era year suffix when absent
   function resolveDate(raw2: string | undefined): string | null {
     if (!raw2) return null;
-    if (/\/\d{2,4}$/.test(raw2)) return normalizeDate(raw2);
-    // Add a likely year from the text (look for 4-digit year in the original text)
-    const yearMatch = /\b(202\d)\b/.exec(text);
-    const yearSuffix = yearMatch ? `/${yearMatch[1]}` : "/25";
-    return normalizeDate(raw2 + yearSuffix);
+    // Year present only when there are TWO slashes (M/D/YY). The old `/\/\d{2,4}$/`
+    // test matched the trailing "/11" of a yearless "5/11" and skipped back-fill.
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(raw2)) return normalizeDate(raw2);
+    // Yearless M/D: back-fill the year from a 4-digit year in the cell, else from
+    // the show context (its DATES). Return null when no year can be inferred —
+    // never hard-code an era, which would silently mis-date non-current shows.
+    const cellYear = /\b(20\d\d)\b/.exec(text);
+    const year = cellYear ? cellYear[1] : contextYear;
+    if (!year) return null;
+    return normalizeDate(`${raw2}/${year}`);
+  }
+
+  const check_in = resolveDate(checkInMatch?.[1]);
+  let check_out = resolveDate(checkOutMatch?.[1]);
+  // Year rollover: a yearless checkout that resolves BEFORE check-in crossed the
+  // new year (e.g. "Check In: 12/31 Check Out: 1/2"). Re-resolve it with +1 year.
+  const checkOutHadYear = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(checkOutMatch?.[1] ?? "");
+  if (check_in && check_out && check_out < check_in && !checkOutHadYear) {
+    const rolled = normalizeDate(`${checkOutMatch![1]}/${Number(check_in.slice(0, 4)) + 1}`);
+    if (rolled) check_out = rolled;
   }
 
   return {
@@ -352,8 +474,8 @@ function buildInlineHotel(raw: string, ordinal: number): HotelReservationRow {
     hotel_address: null,
     names,
     confirmation_no: null,
-    check_in: resolveDate(checkInMatch?.[1]),
-    check_out: resolveDate(checkOutMatch?.[1]),
+    check_in,
+    check_out,
     notes: null,
   };
 }

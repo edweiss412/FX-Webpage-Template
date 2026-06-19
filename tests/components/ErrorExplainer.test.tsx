@@ -82,6 +82,49 @@ describe("ErrorExplainer", () => {
     expect(queryByTestId("error-explainer-helpful-context")).toBeNull();
   });
 
+  test("catalog Markdown emphasis renders styled (<em>/<strong>), never literal markers", () => {
+    // SYNC_DELAYED_SEVERE.dougFacing opens with "*<sheet-name>*: …" in the
+    // catalog. The markers must become <em>; Doug must never see literal "*"
+    // (before this contract, the AlertBanner comment claimed ErrorExplainer
+    // "renders them styled" but it actually emitted the raw string).
+    const { getByTestId } = render(
+      <ErrorExplainer
+        code="SYNC_DELAYED_SEVERE"
+        surface="admin"
+        params={{ "sheet-name": "RPAS Central 2026" }}
+      />,
+    );
+    const message = getByTestId("error-explainer-message");
+    expect(message.textContent).not.toContain("*");
+    expect(message.querySelector("em")?.textContent).toBe("RPAS Central 2026");
+    // Anti-tautology: the surrounding prose still matches the catalog
+    // literal with the placeholder substituted and markers removed
+    // (test-local stripping, not the production helper).
+    const expected = (MESSAGE_CATALOG.SYNC_DELAYED_SEVERE.dougFacing ?? "")
+      .replace("<sheet-name>", "RPAS Central 2026")
+      .replace(/\*([^*]+)\*/g, "$1");
+    expect(message.textContent).toBe(expected);
+  });
+
+  test("marker characters inside a param value are byte-preserved, never parsed as markup", () => {
+    // Codex R1 (MEDIUM): a sheet literally named "Foo *draft*" must come
+    // through byte-identical inside the styled <em>; parsing the interpolated
+    // string used to eat the asterisks and leak the outer markers instead.
+    const { getByTestId } = render(
+      <ErrorExplainer
+        code="SYNC_DELAYED_SEVERE"
+        surface="admin"
+        params={{ "sheet-name": "Foo *draft*" }}
+      />,
+    );
+    const message = getByTestId("error-explainer-message");
+    expect(message.querySelector("em")?.textContent).toBe("Foo *draft*");
+    const expected = (MESSAGE_CATALOG.SYNC_DELAYED_SEVERE.dougFacing ?? "")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace("<sheet-name>", "Foo *draft*");
+    expect(message.textContent).toBe(expected);
+  });
+
   test("DEFENSIVE: unknown code (user-controlled string) renders null — no DOM mount", () => {
     const { container } = render(
       <ErrorExplainer code="ARBITRARY_INJECTED_STRING" surface="crew" />,

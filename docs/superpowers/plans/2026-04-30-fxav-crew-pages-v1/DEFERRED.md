@@ -610,3 +610,115 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Why deferred:** M12.5 removed the self-Revoke UI control (the actor's own row renders no Revoke button) AND added the Server-Action enforcement (`revokeAdminAction` refuses a self-targeted revoke against the authenticated actor's canonical email, `app/admin/settings/admins/actions.ts`; tests in `tests/admin/admins-actions.test.ts`). That closes the realistic mutation path (the UI form + any Server-Action caller). The residual — a forged direct PostgREST RPC call — is reachable ONLY by an authenticated **admin** (the RPC gates on `is_admin()`) targeting **their own** email: i.e. self-harm (loss of one's own admin access, recoverable by another admin re-adding them), not a privilege escalation or an attack on others. The clean DB fix is a new migration redefining `revoke_admin_email_rpc` to return a self-revoke-forbidden status unconditionally + a new `SELF_REVOKE_FORBIDDEN` §12.4 catalog code (three-lockstep prose/regen/catalog + x1-catalog-parity) + flipping the `tests/db/admin-emails.test.ts:~501` "self-revoke ALLOWED when other actives exist" contract — a backend/catalog change disproportionate to land inside a cosmetic-fidelity batch.
 
 **Concrete trigger / home:** The next admin/auth backend milestone (or any milestone that already touches `revoke_admin_email_rpc` / the §12.4 admin-error catalog). Implement: RPC returns `self_revoke_forbidden` whenever `v_canonical = v_actor_canonical` (drop the peer-count condition); add the `SELF_REVOKE_FORBIDDEN` catalog code; map it through `lib/data/adminEmails.ts` + `revokeAdminAction` (accepting BOTH old `last_admin_lockout` and new status during the transitional apply window); flip the db-test contract to assert self-revoke is refused even with peers.
+
+## ONBOARDING-FIXUPS-DEF-1 — Scan-vs-finalize session exclusion (pre-existing race)
+
+**Found:** M-onboarding-fixups whole-milestone close-out review R2 (2026-06-12). **Pre-existing on main** (the `finalize-cas` sample-then-promote shape at `unresolvedManifestCount`/`approvedCount` predates this branch; `lib/sync/runOnboardingScan.ts` has zero diff in the milestone): a `runOnboardingScan` started before final-CAS can write `pending_syncs`/`onboarding_scan_manifest` rows for the same wizard session AFTER the unresolved check, leaving rows in a retired session while finalize returns `finalize_complete`. The scan's writes use a plain EXISTS currency check, not the `finalize:<session>` lock.
+
+**Why deferred, not fixed here:** scan spans multiple transactions with long Drive I/O, so the fix is a session-level exclusion design (scan acquiring/honoring the finalize lock or a DB-visible `finalizing` state), not a one-line guard — it needs its own reviewed task. The milestone REDUCES the blast radius to self-healing debris: F4's stale-session reap sweeps retired-session orphan rows (incl. `final_cas_done` supersessions), and F5's `WIZARD_SESSION_SUPERSEDED_RACE` alert surfaces stale-tab actions. Single-operator admin usage bounds the race window today.
+
+**Trigger:** MUST be resolved (fix or explicit accept-with-rationale) in the M13 launch-gate checklist, or sooner if any onboarding milestone reopens `runOnboardingScan`.
+
+## ONBOARDING-FIXUPS-DEF-2 — Per-row discard/recovery affordance for corrupt-retained Phase D shadow rows
+
+**Found:** External impeccable delta-critique of `8f5bf84d` (2026-06-12), HIGH: the corrupt-row catalog copy (`STAGED_PARSE_RESULT_CORRUPT` / `STAGED_REVIEW_ITEMS_CORRUPT`) promised "Discard this setup and start over," but where the per-row panels render that affordance is absent (`components/admin/ReadyToPublish.tsx:7-9` — no cleanup affordance on the fresh branch, per plan §M10 Task 10.1 finding 2) or 409-refused for up to 24h (`lib/onboarding/sessionLifecycle.ts` `session_too_fresh` gate). The copy was rewritten to the developer-escape register in the same fix; this entry tracks the real affordance.
+
+**What:** A per-row discard/recovery affordance for corrupt-retained Phase D shadow rows — let Doug clear a single corrupt `pending_syncs` shadow row (or the blocking session) from the finalize-cas per-row panel instead of contacting the developer.
+
+**Why deferred, not fixed here:** The corrupt-retained state is near-unreachable post-lockdown — migration `20260611000002_lockdown_wizard_staging_tables.sql` revoked the only forge path (direct PostgREST DML on the wizard staging tables), so a corrupt `parse_result` / `triggered_review_items` jsonb can no longer be planted by any supported write path. Recovery today is developer-side SQL, or "Discard this setup and start over" once the 24h freshness window lapses (`session_too_fresh` gate). Building a reachable per-row affordance is new UI + a new RPC surface, disproportionate to a copy-fidelity fixup.
+
+**Noted, not fixed (MEDIUMs from the same critique):** (a) outdated rows (`STAGED_PARSE_OUTDATED_AT_PHASE_D`) self-heal on the next finalize click, but the per-row panel gives no "click publish again" hint; (b) the per-row panel uses the raw `drive_file_id` as the row identifier rather than a human-readable sheet/show name. Fold both into whatever milestone picks this entry up.
+
+**Trigger:** M13 launch-gate checklist, or sooner if any milestone reopens the finalize-cas UI (`components/admin/RunFinalCASButton.tsx` / `components/admin/FinalizeButton.tsx` per-row panels).
+
+## ONBOARDING-FIXUPS-DEF-3 — Reject-discarded shadows lack completion provenance for the legacy preflight
+
+**Found:** WM-R8 fix follow-up (2026-06-12). A Phase D shadow resolved as `discarded_by_reviewer_choice` (MI-12 reject) writes no `sync_audit` row (ratified live reject contract), so on a published=false existing show it leaves no durable completion provenance. If a SIBLING shadow then blocks final-CAS, the retry's `ONBOARDING_LEGACY_ROW_AMBIGUOUS` preflight classifies the completed-by-reject row as legacy-ambiguous and 409s. **Recovery exists and is correct** (the cataloged copy: re-run setup → restage, or developer clears) — this is an availability annoyance on a narrow path (unpublished existing show + reject choice + partial batch + retry), not data loss; fail-closed is the safe direction. Proper fix needs a design decision: a durable per-row completion marker that doesn't violate the no-audit reject contract (e.g., manifest-row completion stamp written by Phase D for ALL terminal row outcomes).
+
+**Trigger:** M13 launch-gate checklist, or any milestone reopening finalize-cas / the reject contract.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY — End-to-end parser/exporter fidelity findings (consolidated)
+
+**Found:** Sheet-data grounding audit, 2026-06-18 (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/sheet-data-grounding-audit-2026-06-18.md`). The **end-to-end** layer ran the real production pipeline — Drive XLSX export → `synthesizeMarkdownFromXlsx` (`lib/drive/exportSheetToMarkdown.ts`) → `parseSheet` — against all 7 live `fxav-test-shows` workbooks (fixtures now committed at `fixtures/shows/exporter-xlsx/`). It surfaced a class of bugs invisible to the `fixtures/shows/raw/` (Drive-MCP) corpus: the parser silently loses or corrupts major sections on every show, with `warnings: []` / `raw_unrecognized: []` (fail-silent).
+
+**What — disposition of each bug class:**
+
+| Class | Severity | Disposition |
+|---|---|---|
+| `event_details` empty + `openingReel` null — exporter collapses 2-col DETAILS to label-only (4 shows: redefining/consultants/east-coast/ria) | CRITICAL | **SPEC DECISION → DEF-1 below** (intentional contract, contradicted by live data) |
+| `pullSheet` null (RIA, header rewrite) / empty (East Coast, block-orphan) / **stale `OLD PULL SHEET`** wrong-show data (redefining) | CRITICAL | **SPEC DECISION (stale-tab) → DEF-2**; null/empty are clean-fix in branch |
+| General Session room dropped (fintech/fixed-income/rpas); breakouts dropped (east-coast/redefining); phantom `Additional Room Name(s)` + FORM-harvest rooms | HIGH | **Clean-fix** (branch `worktree-parser-exporter-fidelity`) — `lib/parser/blocks/rooms.ts` |
+| `transportation` → null on v4 shows (header shape `[label,value,PHONE,EMAIL,LICENSE]` unrecognized); `vehicle` dropped (ria/east-coast); `assigned_names` echoes stage label | HIGH | **Clean-fix** — `lib/parser/blocks/transport.ts` |
+| Hotel `check_in`/`check_out` null or inverted; conf# dropped; address glued into `hotel_name`; raw `&#10;` | HIGH | **Clean-fix** — `lib/parser/blocks/hotels.ts` |
+| East Coast `dates` all-null (trailing free-text qualifiers like `- AFTER 8PM` defeat the label classifier) | HIGH | **Clean-fix** — `lib/parser/blocks/dates.ts` |
+| Phantom `DOCUMENTS` crew member (east-coast crew scanner over-reads into the DOCUMENTS section) | HIGH | **Clean-fix** — `lib/parser/blocks/crew.ts` boundary |
+| `agenda_links=[]` on East Coast (label `AGENDA`, regex requires `AGENDA LINK`) | MEDIUM | **Clean-fix** — `lib/parser/index.ts:233` |
+| Filename-only agenda links (2/7: redefining/ria) never resolve — no Drive fileId, so `AgendaEmbed` renders nothing | MEDIUM | Feature gap — Drive resolution of non-`/d/<id>` agenda entries is deferred per `parseAgendaLinks` docstring; leave as-is, track here |
+| Fail-silent: dropped sections emit no warning / `raw_unrecognized` | MEDIUM | **Clean-fix** — emit warnings when a recognized section header yields no mapped fields |
+| Embedded DIAGRAMS images unreachable via Sheets API | LOW | **Existing backlog** → `BL-DIAGRAMS-EMBEDDED-SOURCE`. The 2026-06-18 Drive probe **confirms its proposed fix**: the XLSX export carries the images as `xl/media/*` (2–7 per workbook, well under any cap — closes audit SP-040/042). |
+| Watermark: `headRevisionId`/`md5` null on native Sheets → binding token falls back to `modifiedTime`; Drive monotonic `version` unused | LOW | Design note (no current correctness gap); candidate `version`-as-watermark hardening — track here |
+| Reel/image byte-stability (SCH-29) | INFO | Inherently temporal (needs ≥2 captures over time) — still open; baseline captured |
+
+**Why deferred (the SPEC-DECISION items only — clean-fix items land in this branch):** Per invariant #7 (spec is canonical; open a question rather than silently fixing). The two DEF items below are *intentional, contract-pinned* behaviors that the live data contradicts — changing them needs an owner decision, not a code patch.
+
+**Trigger:** Clean-fix items: this branch (`worktree-parser-exporter-fidelity`), TDD against the new `fixtures/shows/exporter-xlsx/` fixtures. SPEC-DECISION items (DEF-1/DEF-2): owner decision, then a parser milestone. All remaining items: M13 launch-gate parser-fidelity review.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1 — v2 "DETAILS" block: exporter label-only collapse vs live col-B values — **RESOLVED 2026-06-18 (commit 5364c4c7)**
+
+**Resolution:** The "investigate first" decision led to reading the live ORIGINAL Doug sheets via gsheets MCP. Asset-Mgmt (an original OUTSIDE the test folder) populates DETAILS col B (Stage Size, Opening Reel "YES - LOOP VIDEO", Polling, Power, …) — "label-only" was a Drive-MCP `read_file_content` rendering artifact, not the source. Removed the `normalizeBlock` DETAILS collapse so the value column survives; the (unchanged) parser now fills `event_details` on all 4 affected shows. Re-baselined the pinned exporter test; regenerated the v2 fixtures. Original analysis retained below.
+
+**Found:** Same audit (end-to-end). On the 4 v2/v1 shows the parser returns `event_details: {}` and `openingReel: null`, dropping stage size, opening-reel mode, LED/scenic, podium, polling, internet, power — every show-level detail a crew member consults.
+
+**What / why it's a spec decision, not a bug:** The collapse is **intentional and contract-pinned**. `lib/drive/exportSheetToMarkdown.ts:135-137` (`normalizeBlock`) maps any block whose first cell is `DETAILS` to label-only single-column rows; `lib/parser/blocks/event.ts` documents variant 2 ("v2 'DETAILS' block … values do not appear in this block; return empty record for these"); and `tests/drive/exportSheetToMarkdown.test.ts:120` pins it ("keeps the DETAILS checklist label-only to match the fixture parser contract"). The premise is that a v2 `DETAILS` header is a label-only checklist. **The live v2 sheets contradict it:** Redefining/Consultants/RIA all carry real values in INFO col B alongside the DETAILS labels (verified live, e.g. `INFO!B62 = "YES - LOOP VIDEO"`). So the contract is wrong for these sheets, but it was deliberately authored — flipping it requires deciding (a) whether all v2 `DETAILS` blocks should now preserve col B (and re-baselining the exporter test + the `event.ts` variant-2 empty-record path), or (b) whether these specific sheets are atypical and the label-only assumption holds for the production corpus. Note: only the **`EVENT DETAILS`** (v4) and **`DETAILS/Room Diagram`** (v1) headers currently parse values; the bare **`DETAILS`** header is the label-only case.
+
+**Trigger:** Owner decision on the v2 `DETAILS` contract; then a parser milestone implements it TDD against `fixtures/shows/exporter-xlsx/{redefining-fi,consultants,ria}.md`. Do NOT unilaterally change the exporter/parser until decided.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY-DEF-2 — `OLD PULL SHEET` stale-tab ingestion (wrong-show gear) — **RESOLVED 2026-06-18 (commit e2594e89)**
+
+**Resolution:** Owner chose "skip OLD tabs". The exporter now skips any tab whose name matches `/\bOLD\b/i` before processing, so Redefining `pullSheet` is `null` instead of RIA-Chicago's gear. Two existing exporter tests had borrowed an "OLD PULL SHEET" fixture name — repointed them to a non-archived "PULL SHEET" name (merge-expansion / title-band-collapse assertions intact) and added a skip test. Original analysis retained below.
+
+**Found:** Same audit. Redefining FI's `pullSheet` parses 91 items from a tab named **`OLD PULL SHEET`** whose body is a *different, prior* show (caseLabel `RIA - CHICAGO, IL … Set: 4/15/24` — 13 months before this May-2025 show). The exporter's `normalizePullSheetGrid` (`exportSheetToMarkdown.ts:109`) and the parser both match `/PULL SHEET/i`, which catches `OLD PULL SHEET`, so a crew member would see a wrong show's gear list.
+
+**What / why it's (partly) a spec decision:** Dropping/ignoring a tab because its name contains "OLD" is a heuristic with product judgment (what marks a tab stale?). The clean half — *not* attributing one show's gear to another — is real, but the disambiguation rule (tab-name denylist? freshest-tab-wins? require the case title to match the show?) needs an owner steer. Pairs with the RIA `pullSheet: null` and East-Coast `items: 0` defects (clean-fix in branch).
+
+**Trigger:** Owner steer on stale-tab disambiguation; then implement with the pull-sheet detection fixes. Until then, the linked agenda PDF + GEAR remain the gear sources for affected shows.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY — status (branch `worktree-parser-exporter-fidelity`)
+
+Empirically re-verified against `fixtures/shows/exporter-xlsx/` after each fix; full parser+invariants+drive suite green (804) throughout.
+
+**Landed (TDD, regression-pinned):**
+- DETAILS col-B preserved → `event_details` populated (DEF-1, `5364c4c7`).
+- `OLD PULL SHEET` skipped → no wrong-show gear (DEF-2, `e2594e89`).
+- Bare `AGENDA` agenda-link label captured (`ae6db66f`).
+- Phantom `DOCUMENTS` crew member dropped via TECH block boundary (`e98e5f0a`).
+- East Coast `dates` 3-col v1 routing (`571c0938`).
+
+**Still open — need a focused, cross-version TDD pass (attempted during drive-through; deferred because each is format-specific AND entangled with heavily-pinned existing tests — forcing them produced incomplete/regressive changes):**
+- **Rooms phantom "Additional Room Name(s)"** (6/7 shows): suppressing the contentless stub BREAKS the pre-existing `tests/parser/blocks/rooms.test.ts` "finds 1 additional room" contract, AND is incomplete — Consultants' stub carries leaked content because `extractBoBlock` over-reads into the following section. Fix the additional-room contract + the block-extraction over-read together.
+- **Rooms GS dropped on v4** (fintech/fixed-income/rpas): their GS header is multi-line (`GENERAL SESSION\n<name>\n<dims>\n<floor>` → `&#10;`); `parseV4Rooms`'s `!col0.includes("&#10;")` guard rejects it → falls to the v2/v1 path which only reads `GS Setup`-prefixed rows, not v4's bare `Setup`. Removing the guard risks v2 regressions — needs cross-version TDD. (redefining: breakouts LASALLE A / WALTON also dropped — related header-shape gap.)
+- **Hotels check_in/out null** on redefining + ria: `parseHotelTable` false-positive-matches the inline "Hotel Reservations" cell and returns first, pre-empting `parseInlineHotelRow` (whose `resolveDate` WOULD back-fill the yearless `5/11`). Fix is in the table-vs-inline routing, not the date logic. Also: rpas reservation #4 inverted check_in/out (multi-reservation grid col mis-map); east-coast "Hotel Stays" names parse to 1 (em-dash `–-` variants) instead of 3.
+- **Transport NULL on v4** (fintech/fixed-income/rpas): `parseV4Transport` requires a `TRANSPORTATION/…`-prefixed merged header, but these shows label the block `Load In:` / `Load Out:` with a `[label,value,PHONE,EMAIL,LICENSE]` header → no path matches → null. Also east-coast `vehicle` empty (`Transportation | Van` header-value not read).
+- **Fail-loud observability**: emit a warning / `raw_unrecognized` entry when a recognized section header yields zero mapped fields, so silent section drops surface.
+
+Queued for a focused parser pass after the cross-model adversarial review of this branch.
+
+## AUDIT-2026-06-18-PARSE-FIDELITY — round 2 outcome (branch worktree-parser-fidelity-rooms-hotels-transport)
+
+Planned via a per-defect characterization workflow; executed TDD against `fixtures/shows/exporter-xlsx/`. Full parser+invariants+drive suite green (815) throughout.
+
+**Landed (8 fixes, regression-pinned):**
+- A1 hotels: yearless inline `Check In: M/D` back-fills the year (redefining/ria).
+- A2 hotels: 5-col multi-reservation per-reservation check-out (fixes rpas res#4 inversion + fintech/rpas shared-checkout) + `check_out >= check_in` invariant.
+- B1 transport: `assigned_names` skips the col0 stage label (redefining real crew).
+- B2 transport: v1 vehicle read from the `| Transportation | Van |` row above Driver (east-coast).
+- B3 transport: exporter v2 header (`TRANSPORTATION` in col1) routes to v2 (ria vehicle + no Vehicle-stage leak).
+- B4 transport: v4 plain (exporter) header + body-row driver (fintech/fixed-income/rpas were null).
+- C1 rooms: v4 General Session detected under the column-duplicated header + bare-label lookahead (fintech/fixed-income/rpas; also auto-suppresses their phantom additional room).
+- C2 rooms: phantom `Additional Room Name(s)` suppressed via case-sensitive block-header match (v2 shows).
+
+**Still deferred (attempted/assessed; each genuinely needs more than a clean edit):**
+- **A3 — east-coast "Hotel Stays" guest-name split.** REVERTED: the cell `Four Seasons Fort Lauderdale Doug--- 103317 …` is token-shape-ambiguous — `"Lauderdale Doug"` (hotel-word + name) is indistinguishable from consultants' `"Doug Larson"` (name + name) by any regex, and the corpus mixes 1-word (east-coast) and 2-word (consultants) name conventions. Needs a name/place dictionary or a structured source. Names collapse to 1 + glued hotel_name on east-coast remains (one v1 show; low impact).
+- ~~**C1b — redefining `&#10;`/no-digit v2 breakouts (LASALLE A, WALTON).**~~ **RESOLVED (AR R9/R10).** `parseBoRooms` now matches numberless `BREAKOUT` headers (case-SENSITIVE so it doesn't catch mixed-case `Breakout Room Setup…` field labels) and derives the name from the remaining header via `deriveBreakoutName` (drops the `BREAKOUT` word + `Dimensions Floor` suffix, flattens the in-cell newline). Numbered headers keep their `firstLine` name, so the raw-2025-04 pinned name is preserved. Numberless headers are content-gated (R10) so pull-sheet `BREAKOUT SESSION N - X` sections are rejected. redefining emits LASALLE A + WALTON ROOM with their real fields; regression in `tests/parser/exporterFixtures.test.ts`.
+- ~~**Rooms DETAILS `Digital Signage` global-match leak (NEW, pre-existing).**~~ **RESOLVED (AR R14).** `parseGsRoom` now scopes the bare `Digital Signage` row to the GS block via `extractGsBlock` (the contiguous `GS <label>` rows + trailing bare-field rows up to the next room/section header). consultants' GS `digital_signage` is now correctly `null` (the ~300-char DETAILS sentence at line 288 no longer leaks); redefining `N/A`, ria/east-coast `NONE` (adjacent in-block rows) are preserved. Regression in `tests/parser/exporterFixtures.test.ts` (AR R14 describe).
+- **D1 — fail-loud `SECTION_HEADER_NO_FIELDS` warning.** Adds a §12.4 catalog code (three-lockstep + x1-catalog-parity); separable observability, not a data-fidelity fix. Author as admin-log-only per the plan; owner to confirm severity + code name.

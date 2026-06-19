@@ -14,7 +14,7 @@ export const MESSAGE_CATALOG = {
   GOOGLE_NO_CREW_MATCH: {
     code: "GOOGLE_NO_CREW_MATCH",
     dougFacing: null,
-    crewFacing: "Your email isn't on the crew list for this show. Ask Doug to add you.",
+    crewFacing: "Your email isn't on the crew list for this show. Text Doug to get added.",
     followUp: "Crew → text Doug",
     helpfulContext: null,
     title: null,
@@ -37,7 +37,7 @@ export const MESSAGE_CATALOG = {
   SESSION_IDLE_TIMEOUT: {
     code: "SESSION_IDLE_TIMEOUT",
     dougFacing: null,
-    crewFacing: "Your session timed out. Open the original link Doug shared again.",
+    crewFacing: "Your session has expired. Open the original link Doug shared again.",
     followUp: "Crew → reopen link",
     helpfulContext: null,
     title: null,
@@ -47,7 +47,7 @@ export const MESSAGE_CATALOG = {
   SESSION_ABSOLUTE_TIMEOUT: {
     code: "SESSION_ABSOLUTE_TIMEOUT",
     dougFacing: null,
-    crewFacing: "Time to refresh — open the original link Doug shared again.",
+    crewFacing: "Your session has expired. Open the original link Doug shared again.",
     followUp: "Crew → reopen link",
     helpfulContext: null,
     title: null,
@@ -159,6 +159,41 @@ export const MESSAGE_CATALOG = {
       "Setup wizards run one at a time. Another wizard was started (probably from a different tab or device) and your session was retired. Refresh and start setup over in a single tab.",
     helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED",
   },
+  // F5 Task 5.3: durable operator signal for the wizard-session CAS turnover
+  // race. Copy is action-GENERIC ("retry, defer, ignore, or discard") and
+  // deliberately avoids absolute-rollback claims — retry's commit-window scan
+  // residue is ACCEPTED + swept (spec §7 R5-2 / §8), so "rolled back in full"
+  // would be false for retry. defer/ignore/discard DO roll back fully; the
+  // copy says the action was cancelled without asserting zero residue.
+  WIZARD_SESSION_SUPERSEDED_RACE: {
+    code: "WIZARD_SESSION_SUPERSEDED_RACE",
+    dougFacing:
+      "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
+    crewFacing: null,
+    followUp: "Doug → continue in the active wizard tab",
+    helpfulContext:
+      "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over, and we cancelled the older action before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — this alert exists so you know the old tab tried. Continue in the active wizard tab.",
+    title: "Stale wizard action cancelled",
+    longExplanation:
+      "Setup wizards run one at a time. An action from an older wizard tab (retry, defer, ignore, or discard) raced a newer wizard that had just taken over; the older action was cancelled before it could change the new wizard's state, and any setup-scan leftovers from the old tab are inert and cleaned up automatically. Continue working in the active wizard tab.",
+    helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED_RACE",
+  },
+  // Onboarding-fixups F4 (Task 4.5) — the admin clean-up-old-setup-leftovers
+  // action threw an unexpected infra error mid-reap. Per-session transactions:
+  // already-reaped sessions stay reaped; the failing session rolled back.
+  REAP_STALE_SESSIONS_FAILED: {
+    code: "REAP_STALE_SESSIONS_FAILED",
+    dougFacing:
+      "We couldn't clean up the old setup leftovers. Refresh and try again, or contact the developer if this keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → retry; if persistent, Eric",
+    helpfulContext:
+      "The clean-up-old-setup-leftovers action failed partway, usually a database or lock fault. Each old setup session is cleaned in its own transaction, so anything already cleaned stayed cleaned and nothing was left half-removed. Running it again is safe; if it keeps failing, contact the developer.",
+    title: "Setup-leftovers cleanup failed",
+    longExplanation:
+      "We couldn't finish cleaning up leftovers from old setup sessions. Each old session is cleaned in its own transaction, so anything already cleaned stayed cleaned and nothing was left half-removed. Refresh and run it again; if it keeps failing, the developer needs to investigate.",
+    helpHref: "/help/errors#REAP_STALE_SESSIONS_FAILED",
+  },
   WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
     code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
     dougFacing:
@@ -175,7 +210,7 @@ export const MESSAGE_CATALOG = {
   STAGED_PARSE_REVISION_RACE_DURING_FINALIZE: {
     code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
     dougFacing:
-      "_<sheet-name>_ was edited again while we were finishing setup. Please re-review and Apply it, then click Finalize again.",
+      "This sheet was edited again while we were finishing setup. Please re-review and Apply it, then click Finalize again.",
     crewFacing: null,
     followUp: "Doug → re-Apply the affected sheet",
     helpfulContext:
@@ -199,7 +234,7 @@ export const MESSAGE_CATALOG = {
     code: "IDEMPOTENCY_IN_FLIGHT",
     dougFacing:
       "Hold on — your previous report is still being submitted. Try again in a moment if it doesn't go through.",
-    crewFacing: "Hold on — give it a sec.",
+    crewFacing: "Hold on, your previous report is still processing. Try again in a moment.",
     followUp: "client retries after backoff",
     helpfulContext:
       "Your previous report submission is still being processed by the developer's GitHub. Don't worry — clicking again won't create a duplicate, but it also won't speed things up. If the original doesn't go through within a minute, try once more.",
@@ -418,7 +453,7 @@ export const MESSAGE_CATALOG = {
   AGENDA_GONE_FOR_CREW: {
     code: "AGENDA_GONE_FOR_CREW",
     dougFacing: null,
-    crewFacing: "This agenda isn't available anymore. Ask Doug for a fresh link.",
+    crewFacing: "This agenda isn't available anymore. Text Doug for a fresh link.",
     followUp: "Crew → message Doug",
     helpfulContext: null,
     title: null,
@@ -428,7 +463,7 @@ export const MESSAGE_CATALOG = {
   AGENDA_UNAUTHENTICATED: {
     code: "AGENDA_UNAUTHENTICATED",
     dougFacing: null,
-    crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
+    crewFacing: "This link has expired. Text Doug for the current agenda link.",
     followUp: "Crew → reopen signed link",
     helpfulContext: null,
     title: null,
@@ -661,7 +696,7 @@ export const MESSAGE_CATALOG = {
   "MI-7_SECTION_SHRINKAGE": {
     code: "MI-7_SECTION_SHRINKAGE",
     dougFacing:
-      "_<sheet-name>_ lost more than half of its _<section>_ — _<prior*count>* before, _<new_count>_ now. Review before applying.",
+      "_<sheet-name>_ lost more than half of its _<section>_ — _<prior_count>_ before, _<new_count>_ now. Review before applying.",
     crewFacing: null,
     followUp: "Doug → review staged",
     helpfulContext:
@@ -914,11 +949,11 @@ export const MESSAGE_CATALOG = {
     code: "SHOW_FIRST_PUBLISHED",
     severity: "info",
     dougFacing:
-      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Archive the show from its page — its crew link switches off until you unarchive and republish.",
+      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** You have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its page instead. Either way its crew link switches off until you republish.",
     crewFacing: null,
     followUp: null,
     helpfulContext:
-      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, archive the show from its per-show page — that stops the share-token URL from resolving until you unarchive and republish.",
+      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, you have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
     title: null,
     longExplanation: null,
     helpHref: null,
@@ -939,14 +974,14 @@ export const MESSAGE_CATALOG = {
   UNPUBLISH_TOKEN_CONSUMED: {
     code: "UNPUBLISH_TOKEN_CONSUMED",
     dougFacing:
-      "This unpublish link has already been used. The show is already unpublished, or someone else (or another tab) clicked it before you.",
+      "This undo has already been used. The show is already unpublished, or someone else (or another tab) got there first.",
     crewFacing: null,
     followUp: "Doug → check show status in admin",
     helpfulContext:
-      "The auto-publish unpublish link is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already clicked it. Check the admin dashboard to confirm the current state.",
-    title: "Unpublish link already used",
+      "The auto-publish undo is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already triggered it. You'll only ever see this message inside the admin — a spent emailed link shows a generic not-found page instead. Check the show's page to confirm the current state.",
+    title: "Undo already used",
     longExplanation:
-      "The auto-publish unpublish link is single-use and has already been used. Either the show is already unpublished, or another tab clicked it before you. Check the admin dashboard to confirm.",
+      "The auto-publish undo is single-use and has already been used. Either the show is already unpublished, or another tab or admin got there first. This message renders only inside the admin — spent emailed links show a generic not-found page. Check the show's page to confirm the current state.",
     helpHref: "/help/errors#UNPUBLISH_TOKEN_CONSUMED",
   },
   UNPUBLISH_TOKEN_EXPIRED: {
@@ -1199,7 +1234,7 @@ export const MESSAGE_CATALOG = {
     code: "REPORT_RATE_LIMITED_CREW",
     dougFacing: null,
     crewFacing:
-      "We've already heard from you a few times — give the developer a moment to look. Or message Doug directly for show-content questions.",
+      "We've got your report and we're looking into it. Text Doug directly with show-content questions.",
     followUp: "Crew → wait or text Doug",
     helpfulContext: null,
     title: null,
@@ -1243,6 +1278,19 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "Something on our end (not your sheet, not your folder) failed during the wizard. The developer has been notified and will fix the underlying issue. Try again in a few minutes.",
     helpHref: "/help/errors#ONBOARDING_OPERATOR_ERROR",
+  },
+  ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
+    code: "ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+    dougFacing:
+      "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
+    crewFacing: null,
+    followUp: "Doug → re-run setup; Eric if it persists",
+    helpfulContext:
+      "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets — or contact the developer if this keeps happening.",
+    title: "Sheets from an older setup run",
+    longExplanation:
+      "A previous setup run staged these sheets with an older version of the app that didn't record which setup created them, so we can't safely tell which pages to publish. Run setup again from the start — the wizard will re-scan your folder and re-stage those sheets. If this keeps happening, contact the developer.",
+    helpHref: "/help/errors#ONBOARDING_LEGACY_ROW_AMBIGUOUS",
   },
   ONBOARDING_NOT_RESOLVED: {
     code: "ONBOARDING_NOT_RESOLVED",
@@ -1372,7 +1420,7 @@ export const MESSAGE_CATALOG = {
   BOOTSTRAP_GENERIC: {
     code: "BOOTSTRAP_GENERIC",
     dougFacing: null,
-    crewFacing: "Couldn't reach the server. Try signing in instead.",
+    crewFacing: "Couldn't load the show. Refresh the page, or try signing in.",
     followUp: "Crew → try `/auth/sign-in`",
     helpfulContext: null,
     title: null,
@@ -1496,7 +1544,7 @@ export const MESSAGE_CATALOG = {
   STAGED_REVIEW_ITEMS_CORRUPT: {
     code: "STAGED_REVIEW_ITEMS_CORRUPT",
     dougFacing:
-      "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review.",
+      "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     crewFacing: null,
     followUp: "Doug → discard + re-sync the sheet",
     helpfulContext:
@@ -1509,7 +1557,7 @@ export const MESSAGE_CATALOG = {
   STAGED_PARSE_RESULT_CORRUPT: {
     code: "STAGED_PARSE_RESULT_CORRUPT",
     dougFacing:
-      "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it.",
+      "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     crewFacing: null,
     followUp: "Doug → discard + re-sync the sheet",
     helpfulContext:
@@ -1625,7 +1673,7 @@ export const MESSAGE_CATALOG = {
   SYNC_DELAYED_MODERATE: {
     code: "SYNC_DELAYED_MODERATE",
     dougFacing: null,
-    crewFacing: "Last synced *<time>* ago. Check with Doug if anything looks off.",
+    crewFacing: "Last synced *<time>* ago. Text Doug if anything looks off.",
     followUp: "Crew → mention to Doug",
     helpfulContext: null,
     title: null,
@@ -1636,7 +1684,7 @@ export const MESSAGE_CATALOG = {
     code: "SYNC_DELAYED_SEVERE",
     dougFacing:
       "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard.",
-    crewFacing: "Couldn't sync recently — contact Doug.",
+    crewFacing: "This page hasn't updated recently. Text Doug to check on it.",
     followUp: "Crew → text Doug; Doug → check dashboard",
     helpfulContext:
       "The crew page hasn't synced from Drive in over six hours. That's well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
@@ -1677,14 +1725,14 @@ export const MESSAGE_CATALOG = {
     code: "EMAIL_NOT_CONFIGURED",
     severity: "warning",
     dougFacing:
-      "Email notifications aren't set up yet, so alerts won't be emailed. Check that the email provider key, the sending address, and the site address are all configured.",
+      "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. Check that the email provider key, the sending address, and the site address are all configured.",
     crewFacing: null,
     followUp: "Doug → check email provider key, sending address, and site address",
     helpfulContext:
-      "Outbound email isn't fully configured, so sync-problem alerts and the daily digest won't be emailed. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts still work; set whichever is missing to enable email.",
+      "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and the in-app undo button still work; set whichever is missing to enable email.",
     title: "Email notifications not set up",
     longExplanation:
-      "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. You'll still see alerts in the dashboard, but they won't be emailed until all three are set.",
+      "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. Sync-problem alerts, the daily digest, and auto-publish undo emails all wait on the same three settings. You'll still see alerts — and the in-app undo button — in the dashboard.",
     helpHref: "/help/errors#EMAIL_NOT_CONFIGURED",
   },
   TILE_SERVER_RENDER_FAILED: {
@@ -1909,7 +1957,7 @@ export const MESSAGE_CATALOG = {
   AGENDA_ASSET_LOOKUP_FAILED: {
     code: "AGENDA_ASSET_LOOKUP_FAILED",
     dougFacing: "The agenda PDF could not be loaded. Refresh and try again.",
-    crewFacing: "This agenda could not be loaded. Ask Doug if it keeps happening.",
+    crewFacing: "This agenda could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
     helpfulContext:
       "The agenda asset route could not resolve or stream the linked Drive PDF for the show.",
@@ -1958,7 +2006,7 @@ export const MESSAGE_CATALOG = {
   DIAGRAM_ASSET_LOOKUP_FAILED: {
     code: "DIAGRAM_ASSET_LOOKUP_FAILED",
     dougFacing: "A diagram could not be loaded. Refresh and try again.",
-    crewFacing: "This diagram could not be loaded. Ask Doug if it keeps happening.",
+    crewFacing: "This diagram could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
     helpfulContext:
       "The diagram asset route could not resolve or stream the stored immutable diagram revision.",
@@ -2140,7 +2188,7 @@ export const MESSAGE_CATALOG = {
   REEL_ASSET_LOOKUP_FAILED: {
     code: "REEL_ASSET_LOOKUP_FAILED",
     dougFacing: "The opening reel could not be loaded. Refresh and try again.",
-    crewFacing: "This video could not be loaded. Ask Doug if it keeps happening.",
+    crewFacing: "This video could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
     helpfulContext:
       "The reel asset route could not resolve or stream the immutable Drive revision for the show.",
@@ -2390,7 +2438,7 @@ export const MESSAGE_CATALOG = {
     code: "PICKER_REMOVED_FROM_ROSTER_BANNER",
     dougFacing: null,
     crewFacing:
-      "Your previous selection was removed by Doug — pick yourself from the current roster.",
+      "Your selection is no longer on the roster. Pick your name again.",
     followUp: "Crew → pick name or text Doug",
     helpfulContext: null,
     title: null,
@@ -2411,7 +2459,7 @@ export const MESSAGE_CATALOG = {
     code: "PICKER_SHOW_UNAVAILABLE",
     dougFacing: null,
     crewFacing:
-      "This show isn't available right now. Ask Doug for an updated link if you think this is a mistake.",
+      "This show isn't available right now. Text Doug for an updated link if you think this is a mistake.",
     followUp: "Crew → text Doug",
     helpfulContext: null,
     title: null,
@@ -2422,7 +2470,7 @@ export const MESSAGE_CATALOG = {
     code: "CREW_LINK_UNAVAILABLE",
     dougFacing: null,
     crewFacing:
-      "This link isn't available. If you had a working link, it may have been reset. Ask Doug for the current link.",
+      "This link isn't available. If you had a working link, it may have been reset. Text Doug for the current link.",
     followUp: "Crew → text Doug for the current link",
     helpfulContext: null,
     title: null,
@@ -2471,7 +2519,7 @@ export const MESSAGE_CATALOG = {
   PICKER_INVALID_SHARE_TOKEN: {
     code: "PICKER_INVALID_SHARE_TOKEN",
     dougFacing: "A picker selection used a share link token that no longer resolves for this show.",
-    crewFacing: "This link is out of date. Ask Doug for the current show link.",
+    crewFacing: "This link is out of date. Text Doug for the current show link.",
     followUp: "Crew → ask Doug for latest link",
     helpfulContext:
       "The selection action re-validated the slug and share token inside the show lock and found that the token no longer matches the show, usually because the share link was rotated.",

@@ -133,7 +133,7 @@ describe("message catalog", () => {
     expect(messageFor("AGENDA_GONE_FOR_CREW")).toMatchObject({
       code: "AGENDA_GONE_FOR_CREW",
       dougFacing: null,
-      crewFacing: "This agenda isn't available anymore. Ask Doug for a fresh link.",
+      crewFacing: "This agenda isn't available anymore. Text Doug for a fresh link.",
       followUp: "Crew → message Doug",
       helpfulContext: null,
     });
@@ -190,7 +190,7 @@ describe("message catalog", () => {
     expect(messageFor("AGENDA_UNAUTHENTICATED")).toMatchObject({
       code: "AGENDA_UNAUTHENTICATED",
       dougFacing: null,
-      crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
+      crewFacing: "This link has expired. Text Doug for the current agenda link.",
       followUp: "Crew → reopen signed link",
       helpfulContext: null,
     });
@@ -226,7 +226,7 @@ describe("messageFor interpolation", () => {
   test("interpolates <placeholder> tokens with matching params", () => {
     const entry = messageFor("AGENDA_GONE_FOR_CREW", { name: "Doug" });
     expect(entry.crewFacing).toBe(
-      "This agenda isn't available anymore. Ask Doug for a fresh link.",
+      "This agenda isn't available anymore. Text Doug for a fresh link.",
     );
   });
 
@@ -235,7 +235,7 @@ describe("messageFor interpolation", () => {
     expect(
       // The template has no <foo>/<missing> placeholders, so all stay verbatim.
       messageFor("AGENDA_UNAUTHENTICATED", params).crewFacing,
-    ).toBe("Your link to this agenda expired. Reopen Doug's latest message to view it.");
+    ).toBe("This link has expired. Text Doug for the current agenda link.");
   });
 
   // C0 round-6 M1: pin the renderer-plumbing fix from R5. The R5 plumbing

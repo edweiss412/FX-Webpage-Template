@@ -1,12 +1,14 @@
 import { describe, expect, test, vi } from "vitest";
 import type { RetrySingleFileTx } from "@/lib/sync/retrySingleFile";
 import { retrySingleFile_unlocked } from "@/lib/sync/retrySingleFile";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 
 class FakeRetrySingleFileTx implements RetrySingleFileTx {
   activeWizardSessionId: string | null = W1;
   pendingFolderId: string | null = "folder-1";
+  deleteAffectsRow = true;
   pendingRow:
     | {
         drive_file_id: string;
@@ -33,6 +35,7 @@ class FakeRetrySingleFileTx implements RetrySingleFileTx {
     }
     if (normalized.startsWith("select drive_file_id")) return this.pendingRow as T;
     if (normalized.startsWith("delete from public.pending_ingestions")) {
+      if (!this.deleteAffectsRow) return null as T;
       this.deletedPendingIngestion = true;
       return { deleted: true } as T;
     }
@@ -115,6 +118,40 @@ describe("retrySingleFile_unlocked", () => {
       outcome: "retried",
       status: "hard_failed",
       code: "MI_2_INVALID_DATE",
+    });
+  });
+
+  // F5 Task 5.5 S5 (R12 HIGH): the up-front readWizardSettings is the ONLY
+  // session check; Drive I/O + runOnboardingScan open a LONG window before the
+  // pending_ingestions delete. Without the currency predicate + throw, a
+  // supersession in that window lets the stale-session delete COMMIT and the
+  // route 200s {status:"staged"} to a RETIRED wizard tab.
+  test("S5: a 0-row pending-ingestion delete after a staged scan throws the typed rollback error with attemptedAction retry", async () => {
+    const tx = new FakeRetrySingleFileTx();
+    tx.deleteAffectsRow = false; // supersession became visible at statement time
+    const runOnboardingScan = vi.fn(async () => ({
+      outcome: "completed" as const,
+      processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
+    }));
+
+    const call = retrySingleFile_unlocked(tx as never, "file-1", W1, {
+      runOnboardingScan,
+      fetchDriveFileMetadata: vi.fn(async () => ({
+        driveFileId: "file-1",
+        name: "file-1.xlsx",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["folder-1"],
+      })),
+    });
+
+    await expect(call).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+    await expect(call).rejects.toMatchObject({
+      context: {
+        attemptedAction: "retry",
+        supersededSessionId: W1,
+        driveFileId: "file-1",
+      },
     });
   });
 });

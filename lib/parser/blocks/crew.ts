@@ -154,15 +154,29 @@ function parseTechBlock(
 ): CrewMemberRow[] {
   const lines = markdown.slice(headerOffset).split("\n");
   const members: CrewMemberRow[] = [];
+  let inCrewSection = false;
 
   for (let i = 1; i < lines.length; i++) {
     const line = (lines[i] ?? "").trim();
-    if (!line || !line.startsWith("|")) continue;
+    if (!line) {
+      // A blank line ends the TECH table (the exporter separates blocks with a
+      // blank row). Without this the scan ran to EOF and swept later merged
+      // banners — e.g. "| DOCUMENTS - Agendas, Diagrams, Presentations | …" —
+      // in as phantom crew members (East Coast).
+      if (inCrewSection) break;
+      continue;
+    }
+    if (!line.startsWith("|")) continue;
     if (isSeparatorRow(line)) continue;
 
     const parts = line.split("|");
     const cells = parts.slice(1, parts.length - 1).map((s) => s.trim());
     const techCell = clean(cells[0] ?? "");
+    // Stop at the next section header (mirror parseCrewBlock's terminator).
+    if (techCell) {
+      const labelMatch = BLOCK_LABEL_RE.exec(`| ${techCell} |`);
+      if (labelMatch && TERMINATING_LABELS.has((labelMatch[1] ?? "").trim().toUpperCase())) break;
+    }
     const phoneRaw = clean(cells[1] ?? "");
     const arrivalRaw = clean(cells[2] ?? "");
     const departureRaw = clean(cells[3] ?? "");
@@ -178,6 +192,7 @@ function parseTechBlock(
     const flightParts = [arrivalRaw, departureRaw].filter(Boolean);
     const flightRaw = flightParts.length > 0 ? flightParts.join(" | ") : null;
 
+    inCrewSection = true;
     const localWarnings: ParseWarning[] = [];
     members.push(
       buildCrewMember({

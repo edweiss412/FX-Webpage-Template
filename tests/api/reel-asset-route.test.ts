@@ -32,9 +32,7 @@ const routeMock = vi.hoisted(() => ({
   google: { kind: "continue" } as { kind: string },
   linkCalls: 0,
   googleCalls: 0,
-  peek: { kind: "none" } as
-    | { kind: "none" }
-    | { kind: "envelope"; showId: string },
+  peek: { kind: "none" } as { kind: "none" } | { kind: "envelope"; showId: string },
   show: {
     published: true,
     opening_reel_drive_file_id: "reel-file-1",
@@ -81,6 +79,15 @@ const routeMock = vi.hoisted(() => ({
   omit206ContentRange: false as boolean,
   use206StarTotal: false as boolean,
   use206MalformedTotal: false as boolean,
+  // When true, the 206 media response omits the `content-length` header
+  // so the route must derive the slice length from the verified
+  // Content-Range (adversarial R3 — agenda-route parity).
+  omit206ContentLength: false as boolean,
+  // Adversarial R3: when true, the 206 media response reports the FULL
+  // FILE size (the Content-Range total) as Content-Length instead of the
+  // slice length (10 for bytes 0-9). The route must fail closed on the
+  // inconsistent pair, never forward it.
+  use206FullFileContentLength: false as boolean,
 }));
 
 function md5(bytes: Uint8Array): string {
@@ -171,9 +178,12 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/drive/client", () => ({
   getDriveClient: () => ({
     files: {
-      get: async (
-        args: { fileId: string; fields?: string; alt?: string; supportsAllDrives?: boolean },
-      ) => {
+      get: async (args: {
+        fileId: string;
+        fields?: string;
+        alt?: string;
+        supportsAllDrives?: boolean;
+      }) => {
         routeMock.driveCalls.push(args.alt === "media" ? "files.media" : "files.metadata");
         routeMock.lastDriveArgs = args;
         if (args.alt === "media") return { data: routeMock.fallbackBytes };
@@ -199,10 +209,17 @@ vi.mock("@/lib/drive/client", () => ({
           const total =
             routeMock.reel206TotalOverride !== null
               ? routeMock.reel206TotalOverride
-              : routeMock.revisionBytes?.byteLength ?? 0;
-          const headers: Record<string, string> = {
-            "content-length": String(routeMock.revisionBytes?.byteLength ?? 0),
-          };
+              : (routeMock.revisionBytes?.byteLength ?? 0);
+          const headers: Record<string, string> = {};
+          if (!routeMock.omit206ContentLength) {
+            // The synthetic Content-Range is always `bytes 0-9/...` — a
+            // 10-byte slice. A consistent upstream reports the SLICE
+            // length on a 206; use206FullFileContentLength reproduces the
+            // inconsistent full-file pair (adversarial R3).
+            headers["content-length"] = routeMock.use206FullFileContentLength
+              ? String(total)
+              : "10";
+          }
           if (!routeMock.omit206ContentRange) {
             if (routeMock.use206StarTotal) {
               headers["content-range"] = `bytes 0-9/*`;
@@ -212,7 +229,12 @@ vi.mock("@/lib/drive/client", () => ({
               headers["content-range"] = `bytes 0-9/${total}`;
             }
           }
-          return { data: routeMock.revisionBytes, status: 206, headers };
+          // Gaxios 7.x (googleapis dep) returns `response.headers` as a
+          // WHATWG `Headers` instance, NOT a plain object. The mock
+          // mirrors the live shape so plain index access on headers can
+          // never regress silently again (live-reproduced agenda-route
+          // bug, 2026-06-12; reel route shared the same class).
+          return { data: routeMock.revisionBytes, status: 206, headers: new Headers(headers) };
         }
         return { data: routeMock.revisionBytes, status: 200 };
       },
@@ -270,6 +292,8 @@ beforeEach(() => {
   routeMock.omit206ContentRange = false;
   routeMock.use206StarTotal = false;
   routeMock.use206MalformedTotal = false;
+  routeMock.omit206ContentLength = false;
+  routeMock.use206FullFileContentLength = false;
 });
 
 async function headReel(init?: { headers?: Record<string, string> }): Promise<Response> {
@@ -435,6 +459,36 @@ describe("/api/asset/reel/[show]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
+  test("gaxios 7.x regression: 206 whose headers are a WHATWG Headers instance forwards Content-Range/Content-Length (was 410 on every valid slice)", async () => {
+    // Same class as the live-reproduced agenda bug: plain index access on
+    // a Headers instance read null, so the R22/R23 fail-closed total-size
+    // guard 410'd every valid Range slice. The mock above now returns
+    // `new Headers(...)`; this test pins the end-to-end contract.
+    // Content-Length is the SLICE length (10 for bytes 0-9), never the
+    // full file size (adversarial R3).
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toMatch(/^bytes 0-9\/\d+$/);
+    expect(res.headers.get("content-length")).toBe("10");
+  });
+
+  test("adversarial R3: 206 whose upstream Content-Length disagrees with the Content-Range slice → fail-closed 410", async () => {
+    // Upstream says `Content-Range: bytes 0-9/22` (a 10-byte slice) but
+    // `Content-Length: 22` (the full file). Forwarding the pair verbatim
+    // hands the video client an impossible contract. Fail closed.
+    routeMock.reel206TotalOverride = 22; // under cap → bytes 0-9/22
+    routeMock.use206FullFileContentLength = true; // Content-Length: 22
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("adversarial R3: 206 without upstream Content-Length derives the slice length from the verified Content-Range", async () => {
+    routeMock.omit206ContentLength = true;
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-length")).toBe("10");
+  });
+
   test("Codex R19 P1: Drive metadata 404 → 410 (drift contract — not REEL_ASSET_LOOKUP_FAILED 500)", async () => {
     // Reel pinned to a now-deleted Drive file. Metadata `files.get`
     // throws { code: 404 }. Per AC-7.24's single-410 drift contract,
@@ -462,10 +516,9 @@ describe("/api/asset/reel/[show]", () => {
       configurable: true,
     });
     try {
-      const res = await GET(
-        new NextRequest(`https://crew.fxav.test/api/asset/reel/${showId}`),
-        { params: Promise.resolve({ show: showId }) },
-      );
+      const res = await GET(new NextRequest(`https://crew.fxav.test/api/asset/reel/${showId}`), {
+        params: Promise.resolve({ show: showId }),
+      });
       expect(res.status).toBe(410);
       // The metadata path WAS attempted (counted), then the error
       // surfaced from the route — not the fallback flow.
@@ -827,9 +880,10 @@ describe("/api/asset/reel/[show]", () => {
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
     // TS narrows lastRevisionsOptions to `null` after the reset above; widen on read.
-    const postGetOptionsA = routeMock.lastRevisionsOptions as
-      | { responseType: "stream"; headers?: Record<string, string> }
-      | null;
+    const postGetOptionsA = routeMock.lastRevisionsOptions as {
+      responseType: "stream";
+      headers?: Record<string, string>;
+    } | null;
     expect(postGetOptionsA?.headers).toBeUndefined();
     await expect(get.text()).resolves.toBe("reel-bytes");
   });
@@ -853,9 +907,10 @@ describe("/api/asset/reel/[show]", () => {
     expect(get.status).toBe(200);
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
-    const postGetOptionsB = routeMock.lastRevisionsOptions as
-      | { responseType: "stream"; headers?: Record<string, string> }
-      | null;
+    const postGetOptionsB = routeMock.lastRevisionsOptions as {
+      responseType: "stream";
+      headers?: Record<string, string>;
+    } | null;
     expect(postGetOptionsB?.headers).toBeUndefined();
     await expect(get.text()).resolves.toBe("reel-bytes");
   });

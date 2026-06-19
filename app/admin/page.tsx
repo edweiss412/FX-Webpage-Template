@@ -72,8 +72,8 @@ function CheckpointInfraErrorPlaceholder() {
           We could not read your setup state.
         </h2>
         <p className="max-w-prose text-base text-text-subtle">
-          The admin database query failed. Refresh in a moment. If this keeps
-          happening, contact the developer.
+          This is usually temporary. Refresh in a moment. If it keeps happening, contact the
+          developer.
         </p>
       </header>
     </main>
@@ -100,10 +100,7 @@ function CheckpointInfraErrorPlaceholder() {
 function DashboardWithHeader({ bucket }: { bucket?: "active" | "archived" }) {
   return (
     <>
-      <AdminPageHeader
-        title="Dashboard"
-        sub="Your live shows and anything that needs review."
-      />
+      <AdminPageHeader title="Dashboard" sub="Your live shows and anything that needs review." />
       <div id="alerts">
         <AlertBanner />
       </div>
@@ -121,15 +118,12 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   // §3.1 — the dashboard show-list segment is a URL search-param threaded into
   // <Dashboard>. Only "archived" is meaningful; anything else (incl. absent)
   // defaults to the Active segment.
-  const dashboardBucket: "active" | "archived" =
-    sp.bucket === "archived" ? "archived" : "active";
+  const dashboardBucket: "active" | "archived" = sp.bucket === "archived" ? "archived" : "active";
 
   // Precedence 1: wizard session minted — read the checkpoint to decide
   // which surface to render (finalize re-entry or wizard inline).
   if (settings.pending_wizard_session_id !== null) {
-    const checkpoint = await readFinalizeCheckpoint(
-      settings.pending_wizard_session_id,
-    );
+    const checkpoint = await readFinalizeCheckpoint(settings.pending_wizard_session_id);
     if (isInfraError(checkpoint)) {
       return <CheckpointInfraErrorPlaceholder />;
     }
@@ -151,15 +145,9 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         // requests produce deterministic surface choice.
         const now = await nowDate();
         if (isCheckpointStale(checkpoint.last_processed_at, now)) {
-          return (
-            <StaleReadyToPublish
-              sessionId={settings.pending_wizard_session_id}
-            />
-          );
+          return <StaleReadyToPublish sessionId={settings.pending_wizard_session_id} />;
         }
-        return (
-          <ReadyToPublish sessionId={settings.pending_wizard_session_id} />
-        );
+        return <ReadyToPublish sessionId={settings.pending_wizard_session_id} />;
       }
       if (checkpoint.status === "final_cas_done") {
         // Defensive — Phase D atomically clears pending_wizard_session_id,

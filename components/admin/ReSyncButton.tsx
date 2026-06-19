@@ -35,21 +35,21 @@ function summarizeResult(result: unknown): string {
     case "applied":
       return "Synced. Changes applied.";
     case "stage":
-      return "Synced. New change staged for review.";
+      return "Synced. A change is waiting for your review on this page.";
     case "skipped":
       return "Synced. Nothing new from Drive.";
     case "asset_recovery":
-      return "Synced. Recovering linked assets in the background.";
+      return "Synced. Fetching linked files in the background.";
     case "hard_fail":
-      return "Synced, but the parse failed an invariant. Review staged details.";
+      return "Synced, but the latest edit couldn't be applied automatically. Review it on this page.";
     case "stale":
-      return "Synced. A newer parse already won, no changes applied.";
+      return "Synced. A newer sync already finished; nothing changed.";
     case "revision_race":
-      return "Synced, but Drive changed mid-read. Will retry on next sync.";
+      return "Synced, but the sheet changed mid-sync. We'll retry on the next sync.";
     case "source_gone":
       return "Sheet is no longer available in Drive.";
     case "parse_error":
-      return "Synced, but the parse encountered an error. Review staged details.";
+      return "Synced, but part of the sheet couldn't be applied. Review the details on this page.";
     default:
       return "Sync complete.";
   }

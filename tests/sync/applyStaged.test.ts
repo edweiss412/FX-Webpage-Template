@@ -433,8 +433,10 @@ describe("applyStaged live-scope", () => {
     expect(typeof ctx).toBe("object");
     expect(ctx).toMatchObject({
       drive_file_id: "drive-file-1",
-      unpublish_token: "tok-1", // the SAME token runPhase2 persisted to shows.unpublish_token
     });
+    // M12.13: the raw bearer secret no longer persists in alert context; expiry stays.
+    expect(ctx).not.toHaveProperty("unpublish_token");
+    expect(ctx).toHaveProperty("unpublish_token_expires_at");
   });
 
   test("Task 4.4 negative-regression: a normal apply (no FIRST_SEEN_REVIEW) does NOT call emitSuccessfulPhase2Tail", async () => {

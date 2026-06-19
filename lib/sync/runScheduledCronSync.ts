@@ -26,7 +26,6 @@ import {
   enrichWithDrivePins,
   type DriveClient,
   type DriveFileMeta,
-  type SpreadsheetEmbeddedObject,
   type SpreadsheetSheet,
 } from "@/lib/sync/enrichWithDrivePins";
 import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
@@ -129,7 +128,9 @@ export type SyncPipelineTx = LockableSyncTx &
   Partial<RevisionRaceCooldownTx> &
   Partial<LiveDeferralTx>;
 
-export function syncProblemCodeForStatus(status: string | null | undefined): SyncProblemCode | null {
+export function syncProblemCodeForStatus(
+  status: string | null | undefined,
+): SyncProblemCode | null {
   if (status === "drive_error") return "DRIVE_FETCH_FAILED";
   if (status === "parse_error") return "PARSE_ERROR_LAST_GOOD";
   if (status === "sheet_unavailable") return "SHEET_UNAVAILABLE";
@@ -202,6 +203,7 @@ export type CronLiveShowRow = {
   /**
    * Show title (sheet name) — projected so SHEET_UNAVAILABLE admin
    * alerts can supply `sheet_name` in admin_alerts.context for the
+   * (live-partition:n/a — doc reference, no statement)
    * §12.4 `<sheet-name>` placeholder interpolation (M9 C0 round-7 fix).
    * Nullable for shows that haven't successfully parsed yet, or for
    * legacy rows that pre-date title population.
@@ -298,46 +300,55 @@ export const MAX_SHOW_SLUG_INSERT_ATTEMPTS = 20;
 
 export class ShowSlugCollisionRetryExhaustedError extends Error {
   readonly code = "SHOW_SLUG_COLLISION_RETRY_EXHAUSTED";
-  override readonly cause: unknown;
 
-  constructor(baseSlug: string, attempts: number, cause: unknown) {
+  constructor(baseSlug: string, attempts: number) {
     super(`Could not allocate a unique show slug for ${baseSlug} after ${attempts} attempts`);
     this.name = "ShowSlugCollisionRetryExhaustedError";
-    this.cause = cause;
   }
-}
-
-function isPostgresUniqueViolation(cause: unknown): boolean {
-  return (
-    typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    (cause as { code?: unknown }).code === "23505"
-  );
 }
 
 function slugCandidateForAttempt(baseSlug: string, attempt: number): string {
   return attempt === 1 ? baseSlug : `${baseSlug}-${attempt}`;
 }
 
+/**
+ * First-seen show INSERT with slug-collision retry (§6.9 collision policy).
+ *
+ * The retry is driven by EMPTY RETURNS from a conflict-free
+ * `INSERT … ON CONFLICT DO NOTHING RETURNING …` — NEVER by catching 23505.
+ * Catch-and-retry inside one transaction is broken on real Postgres: the first
+ * unique violation ABORTS the transaction, so attempt 2 fails with 25P02
+ * `in_failed_sql_transaction` (live-reproduced via wizard finalize 500 on a
+ * first-seen sheet whose derived slug collided with an existing show). With
+ * `ON CONFLICT DO NOTHING` no statement ever errors, so the transaction stays
+ * healthy across attempts.
+ *
+ * Because the conflict-free INSERT cannot name two arbiters, an empty return
+ * means SOME unique key conflicted — `shows_slug_key` (retry with the next
+ * suffix) or `shows_drive_file_id_key` (the caller's existing concurrent-insert
+ * stale path; see applyShowSnapshot's `if (!updated) return stale`).
+ * `isSlugTaken` disambiguates: under READ COMMITTED the follow-up SELECT runs
+ * on a fresh statement snapshot, so a concurrent insert that just committed
+ * (the ON CONFLICT speculative-insertion wait) is visible to it.
+ */
 export async function insertFirstSeenShowWithSlugRetry<T>(args: {
   baseSlug: string;
   insert: (slug: string) => Promise<T | null>;
+  isSlugTaken: (slug: string) => Promise<boolean>;
   maxAttempts?: number;
 }): Promise<T | null> {
   const maxAttempts = args.maxAttempts ?? MAX_SHOW_SLUG_INSERT_ATTEMPTS;
-  let lastUniqueViolation: unknown = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await args.insert(slugCandidateForAttempt(args.baseSlug, attempt));
-    } catch (cause) {
-      if (!isPostgresUniqueViolation(cause)) throw cause;
-      lastUniqueViolation = cause;
-    }
+    const candidate = slugCandidateForAttempt(args.baseSlug, attempt);
+    const inserted = await args.insert(candidate);
+    if (inserted !== null) return inserted;
+    // Empty return without a slug conflict → the drive_file_id key conflicted;
+    // preserve the caller's null → "stale" contract.
+    if (!(await args.isSlugTaken(candidate))) return null;
   }
 
-  throw new ShowSlugCollisionRetryExhaustedError(args.baseSlug, maxAttempts, lastUniqueViolation);
+  throw new ShowSlugCollisionRetryExhaustedError(args.baseSlug, maxAttempts);
 }
 
 function databaseUrl(): string {
@@ -594,6 +605,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
         select drive_file_id, wizard_session_id, base_modified_time, staged_modified_time,
                parse_result, triggered_review_items, prior_last_sync_status,
                prior_last_sync_error, staged_id, source_kind, warning_summary
+          -- live-partition:live-only — live pending_syncs read (wizard_session_id is null);
+          -- cron surface, not reachable from the wizard apply core (F1 Task 1.2/1.7)
           from public.pending_syncs
          where drive_file_id = $1
            and wizard_session_id is null
@@ -620,6 +633,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async upsertLivePendingIngestion(row: Parameters<Phase1Tx["upsertLivePendingIngestion"]>[0]) {
     await this.rows(
       `
+        -- live-partition:live-only — live pending_ingestions upsert (wizard_session_id null)
         insert into public.pending_ingestions (
           drive_file_id, drive_file_name, last_error_code, last_error_message,
           last_warnings, wizard_session_id, last_seen_modified_time
@@ -629,6 +643,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         do update set
           drive_file_name = excluded.drive_file_name,
           last_attempt_at = now(),
+          -- live-partition:live-only — live-row on-conflict arm (F1 Task 1.2/1.7)
           attempt_count = public.pending_ingestions.attempt_count + 1,
           last_error_code = excluded.last_error_code,
           last_error_message = excluded.last_error_message,
@@ -660,6 +675,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async upsertLivePendingSync(row: Parameters<Phase1Tx["upsertLivePendingSync"]>[0]) {
     const upserted = await this.one<{ staged_id: string }>(
       `
+        -- live-partition:live-only — live pending_syncs stage write (wizard_session_id null)
         insert into public.pending_syncs (
           drive_file_id, base_modified_time, staged_modified_time, parse_result,
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
@@ -746,6 +762,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       showId: row?.id ?? null,
       lastSeenModifiedTime: row?.last_seen_modified_time ?? null,
       // Returned so admin_alerts producers can supply `sheet_name` in
+      // (live-partition:n/a — doc reference, no statement)
       // context for the §12.4 SHEET_UNAVAILABLE placeholder (M9 C0 R7).
       title: row?.title ?? null,
     };
@@ -882,6 +899,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async readLiveDeferral(driveFileId: string): Promise<DeferredIngestionRow | null> {
     const row = await this.one<DeferredIngestionRow>(
       `
+        -- live-partition:live-only — live deferred_ingestions read (wizard_session_id is null)
         select deferred_kind, deferred_at_modified_time
           from public.deferred_ingestions
          where drive_file_id = $1
@@ -896,6 +914,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async deleteLiveDeferral(driveFileId: string): Promise<void> {
     await this.rows(
       `
+        -- live-partition:live-only — live deferred_ingestions delete (wizard_session_id is null)
         delete from public.deferred_ingestions
          where drive_file_id = $1
            and wizard_session_id is null
@@ -907,6 +926,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   async deleteWizardPendingSyncsExcept(wizardSessionId: string) {
     await this.rows(
       `
+        -- live-partition:wizard-only — wizard pending_syncs supersession cleanup
         delete from public.pending_syncs
          where wizard_session_id is not null
            and wizard_session_id <> $1::uuid
@@ -953,6 +973,12 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.staleGuard === "strict_less_than"
         ? "(last_seen_modified_time is null or last_seen_modified_time < $14::timestamptz)"
         : "(last_seen_modified_time is null or last_seen_modified_time <= $14::timestamptz)";
+    // NO autoPublish token entries in updateParams: the UPDATE arm references $1-$17 only (the
+    // tokens are first-seen INSERT columns). postgres.js sends every array entry as a wire
+    // parameter and real Postgres rejects an unreferenced one with 42P18 "could not determine
+    // data type of parameter $18" — latent since Amendment 9 (fda81c4d) because every prior
+    // suite faked this tx; surfaced by the first real-DB execution of the UPDATE arm (F1 Task
+    // 1.5 Phase D). Pinned by tests/sync/_insertParamsArityContract.test.ts (update-arm cases).
     const updateParams = [
       args.driveFileId,
       args.parseResult.show.title,
@@ -971,8 +997,6 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
-      args.autoPublishFirstSeen?.unpublishToken ?? null,
-      args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
     ];
     const skipDiagramsParams = [
       args.driveFileId,
@@ -1071,11 +1095,25 @@ class PostgresPipelineTx implements SyncPipelineTx {
           `,
           args.skipDiagramsWrite ? skipDiagramsParams : updateParams,
         )
-      : await insertFirstSeenShowWithSlugRetry({
-          baseSlug: args.slug,
-          insert: async (slug) =>
-            await this.one<{ id: string }>(
-              `
+      : await (() => {
+          // R30-1 + R65-1 (F1): wizard Phase B first-seen INSERT variants. When
+          // firstSeenPublished === false the column list gains `published` with literal false
+          // (overriding the DDL default true); when wizardCreatedSessionId is set the column
+          // list gains `wizard_created_session_id` ($21::uuid) — the show-side provenance
+          // discriminator every created_show_id consumer joins on. Both absent → the SQL is
+          // byte-identical to the pre-F1 statement.
+          const extraColumns =
+            (args.firstSeenPublished === false ? ", published" : "") +
+            (args.wizardCreatedSessionId ? ", wizard_created_session_id" : "");
+          const extraValues =
+            (args.firstSeenPublished === false ? ", false" : "") +
+            (args.wizardCreatedSessionId ? ", $21::uuid" : "");
+          const extraParams = args.wizardCreatedSessionId ? [args.wizardCreatedSessionId] : [];
+          return insertFirstSeenShowWithSlugRetry({
+            baseSlug: args.slug,
+            insert: async (slug) =>
+              await this.one<{ id: string }>(
+                `
                 insert into public.shows (
                   drive_file_id, slug, title, client_label, client_contact, template_version,
                   venue, dates, event_details, agenda_links, diagrams,
@@ -1083,18 +1121,26 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
                   unpublish_token, unpublish_token_expires_at,
-                  last_synced_at, last_sync_status, last_sync_error
+                  last_synced_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, now(), 'ok', null)
-                on conflict (drive_file_id) do nothing
+                        $19::uuid, $20::timestamptz, now(), 'ok', null${extraValues})
+                on conflict do nothing
                 returning id
               `,
-              insertParamsForSlug(slug),
-            ),
-        });
+                [...insertParamsForSlug(slug), ...extraParams],
+              ),
+            // Disambiguates the conflict-free INSERT's empty return: slug taken
+            // → next suffix; otherwise drive_file_id conflicted → null → stale.
+            isSlugTaken: async (slug) =>
+              (await this.one<{ taken: true }>(
+                "select true as taken from public.shows where slug = $1 limit 1",
+                [slug],
+              )) !== null,
+          });
+        })();
 
     if (!updated) return { outcome: "stale" as const };
     return {
@@ -1283,14 +1329,19 @@ class PostgresPipelineTx implements SyncPipelineTx {
           parse_warnings = excluded.parse_warnings,
           raw_unrecognized = excluded.raw_unrecognized
       `,
-      [
-        showId,
-        payload.financials,
-        payload.parse_warnings,
-        payload.raw_unrecognized,
-      ],
+      [showId, payload.financials, payload.parse_warnings, payload.raw_unrecognized],
     );
   }
+}
+
+/**
+ * F1 (shared apply core): expose the canonical pipeline tx over an EXISTING raw
+ * postgres.js transaction handle — the finalize routes' per-row transactions
+ * already hold the per-show advisory lock, and the shared apply core must run
+ * on the holder's transaction (acquire-free; single-holder rule, spec §3.3).
+ */
+export function makeSyncPipelineTx(tx: PostgresTransaction): SyncPipelineTx {
+  return new PostgresPipelineTx(tx);
 }
 
 class DriveMetadataMissingError extends Error {
@@ -1432,7 +1483,7 @@ async function defaultCaptureBinding(
   };
 }
 
-function defaultDriveClient(): DriveClient {
+export function defaultDriveClient(): DriveClient {
   return {
     async getFile(fileId) {
       return toDriveFileMeta(await fetchDriveFileMetadata(fileId));
@@ -1444,36 +1495,21 @@ function defaultDriveClient(): DriveClient {
       };
     },
     async listSpreadsheetSheets(spreadsheetId) {
+      // Sheets v4's Sheet schema exposes NO field that enumerates floating
+      // drawn/embedded images, so the projection is titles-only and embeddedObjects
+      // is always empty. extractEmbeddedImages degrades honestly (warning +
+      // linked-folder fallback). Feasible diagram sourcing is tracked in
+      // BACKLOG.md (BL-DIAGRAMS-EMBEDDED-SOURCE).
       const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
       const response = await sheetsClient.spreadsheets.get({
         spreadsheetId,
-        fields:
-          "sheets(properties(title),drawings(objectId,imageProperties(contentUrl,mimeType),embeddedObject(description,title)))",
+        fields: "sheets(properties(title))",
       });
       return ((response.data.sheets ?? []) as unknown[]).map((sheet) => {
-        const record = sheet as {
-          properties?: { title?: string | null };
-          drawings?: Array<{
-            objectId?: string | null;
-            imageProperties?: { contentUrl?: string | null; mimeType?: string | null };
-            embeddedObject?: { title?: string | null; description?: string | null };
-          }>;
-        };
-        const embeddedObjects: SpreadsheetEmbeddedObject[] = (record.drawings ?? [])
-          .filter((drawing) => drawing.objectId)
-          .map((drawing) => {
-            const alt =
-              drawing.embeddedObject?.title ?? drawing.embeddedObject?.description ?? null;
-            return {
-              objectId: drawing.objectId!,
-              mimeType: drawing.imageProperties?.mimeType ?? "image/png",
-              ...(alt ? { alt } : {}),
-              contentUrl: drawing.imageProperties?.contentUrl ?? null,
-            };
-          });
+        const record = sheet as { properties?: { title?: string | null } };
         return {
           title: record.properties?.title ?? "",
-          embeddedObjects,
+          embeddedObjects: [],
         } satisfies SpreadsheetSheet;
       });
     },
@@ -1665,7 +1701,8 @@ async function emitFirstPublishedNotice(args: {
   driveFileId: string;
   fileMeta: DriveListedFile;
   parseResult: ParseResult;
-  unpublishToken: string;
+  // M12.13: unpublishToken is intentionally NOT a parameter — the raw bearer secret never enters
+  // alert context. The token is still minted + persisted to shows.unpublish_token upstream.
   unpublishTokenExpiresAt: string;
 }): Promise<void> {
   await args.deps.upsertAdminAlert({
@@ -1676,7 +1713,9 @@ async function emitFirstPublishedNotice(args: {
       sheet_name: args.fileMeta.name,
       crew_count: args.parseResult.crewMembers.length,
       show_date: showDateForAlert(args.parseResult),
-      unpublish_token: args.unpublishToken,
+      // M12.13: the raw bearer secret is no longer persisted in alert context (a table every
+      // admin session reads). Only the non-secret expiry window stays; the in-app alert-row
+      // action re-reads shows.unpublish_token service-role-side when it needs the secret.
       unpublish_token_expires_at: args.unpublishTokenExpiresAt,
     },
   });
@@ -1705,7 +1744,6 @@ export async function emitSuccessfulPhase2Tail(args: {
       driveFileId: args.driveFileId,
       fileMeta: args.fileMeta,
       parseResult: args.parseResult,
-      unpublishToken: args.autoPublishFirstSeen.unpublishToken,
       unpublishTokenExpiresAt: args.autoPublishFirstSeen.unpublishTokenExpiresAt,
     });
   }
@@ -1733,7 +1771,10 @@ function timestampMs(value: string | Date | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function modifiedTimeAdvanced(left: string | Date, right: string | Date | null | undefined): boolean {
+function modifiedTimeAdvanced(
+  left: string | Date,
+  right: string | Date | null | undefined,
+): boolean {
   const leftMs = timestampMs(left);
   const rightMs = timestampMs(right);
   if (leftMs === null) return false;
@@ -1946,7 +1987,8 @@ async function handleFetchFailure_unlocked(
       });
     } else {
       // B3 §4.1: show-level DRIVE_FETCH_FAILED producer. Realtime email
-      // consumes admin_alerts, while `code` here is the raw drive failure.
+      // consumes admin_alerts (live-partition:n/a — doc reference, no statement),
+      // while `code` here is the raw drive failure.
       await recoveryTx.upsertAdminAlert({
         showId,
         code: "DRIVE_FETCH_FAILED",
@@ -1961,7 +2003,9 @@ async function handleFetchFailure_unlocked(
     await resolveStaleSyncProblemAlerts_unlocked(
       tx,
       showId,
-      syncProblemCodeForStatus(code === STAGED_PARSE_SOURCE_GONE ? "sheet_unavailable" : "drive_error"),
+      syncProblemCodeForStatus(
+        code === STAGED_PARSE_SOURCE_GONE ? "sheet_unavailable" : "drive_error",
+      ),
     );
     return result;
   }

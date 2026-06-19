@@ -96,11 +96,17 @@ const ADMIN_ALERTS_CODES = [
   "TILE_PROJECTION_FETCH_FAILED", //    Crew-page projection sub-source fetch failure (_CrewShell producer)
   "BRANCH_PROTECTION_DRIFT", //         X.6 branch-protection drift detector
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED", // X.6 branch-protection monitor auth failure
+  "WIZARD_SESSION_SUPERSEDED_RACE", //  F5 wizard-session CAS race post-rollback producer
 ] as const;
 
+type WriteSite = { path: string; pattern: RegExp };
+
+// A code may have MULTIPLE production write sites (F5: the retry route AND
+// the discard route both produce WIZARD_SESSION_SUPERSEDED_RACE). Every
+// listed site must match.
 const ADMIN_ALERTS_WRITE_SITES: Record<
   (typeof ADMIN_ALERTS_CODES)[number],
-  { path: string; pattern: RegExp }
+  WriteSite | WriteSite[]
 > = {
   AMBIGUOUS_EMAIL_BINDING: {
     path: "lib/auth/validateGoogleSession.ts",
@@ -266,6 +272,17 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
     path: "scripts/verify-branch-protection.ts",
     pattern: /code:\s*"BRANCH_PROTECTION_MONITOR_AUTH_FAILED"/,
   },
+  WIZARD_SESSION_SUPERSEDED_RACE: [
+    {
+      path: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+      pattern: /code:\s*"WIZARD_SESSION_SUPERSEDED_RACE"/,
+    },
+    {
+      // F5 Task 5.5 R51-1: the discard route is a producer too.
+      path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts",
+      pattern: /code:\s*"WIZARD_SESSION_SUPERSEDED_RACE"/,
+    },
+  ],
 };
 
 describe("META admin_alerts catalog contract", () => {
@@ -305,11 +322,15 @@ describe("META admin_alerts catalog contract", () => {
     (code) => {
       const writeSite = ADMIN_ALERTS_WRITE_SITES[code];
       expect(writeSite, `${code} is registered without a write-site assertion`).toBeDefined();
-      const source = readFileSync(join(process.cwd(), writeSite.path), "utf8");
-      expect(
-        source,
-        `${code} is registered as an admin_alerts producer, but ${writeSite.path} does not contain the expected upsertAdminAlert write site`,
-      ).toMatch(writeSite.pattern);
+      const sites = Array.isArray(writeSite) ? writeSite : [writeSite];
+      expect(sites.length).toBeGreaterThan(0);
+      for (const site of sites) {
+        const source = readFileSync(join(process.cwd(), site.path), "utf8");
+        expect(
+          source,
+          `${code} is registered as an admin_alerts producer, but ${site.path} does not contain the expected upsertAdminAlert write site`,
+        ).toMatch(site.pattern);
+      }
     },
   );
 

@@ -164,10 +164,15 @@ describe("advisory-lock RPC deadlock guard", () => {
 
   test("claim_oauth_identity acquires multi-show locks in deterministic drive_file_id order", () => {
     const source = stripComments(
-      readFileSync(join(ROOT, "supabase/migrations/20260524000002_claim_oauth_identity.sql"), "utf8"),
+      readFileSync(
+        join(ROOT, "supabase/migrations/20260524000002_claim_oauth_identity.sql"),
+        "utf8",
+      ),
     );
 
-    expect(source).toMatch(/for\s+r\s+in[\s\S]*?order\s+by\s+s\.drive_file_id[\s\S]*?loop[\s\S]*?pg_advisory_xact_lock\(hashtext\('show:'\s*\|\|\s*r\.drive_file_id\)\)/i);
+    expect(source).toMatch(
+      /for\s+r\s+in[\s\S]*?order\s+by\s+s\.drive_file_id[\s\S]*?loop[\s\S]*?pg_advisory_xact_lock\(hashtext\('show:'\s*\|\|\s*r\.drive_file_id\)\)/i,
+    );
     expect(source).toMatch(/end\s+loop;\s*v_claim_at\s*:=\s*clock_timestamp\(\);/i);
   });
 
@@ -181,6 +186,95 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(source).not.toMatch(/\.rpc\(/);
   });
 
+  test("stale-session reap uses direct SQL locks (finalize then show), no lock-taking RPC, no rotation", () => {
+    // F4 Task 4.3 — sibling of the cleanup pin above, for reapStaleOnboardingSessions
+    // (spec §3.3 row "F4 stale-session reap": same layer as cleanup, single holder).
+    const source = stripComments(
+      readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"),
+    );
+    // DEVIATION from the plan's literal slice point ("async function reapOneSession"):
+    // the show-lock acquisition lives in the lockReapDriveFiles helper, which is
+    // defined BEFORE reapOneSession — slicing at reapOneSession would exclude it
+    // and the show-lock assertion below could never pass. The slice starts at the
+    // first reap helper instead; everything from there to EOF is reap-only code.
+    const reapBody = source.slice(source.indexOf("async function collectReapDriveFileIds"));
+    expect(reapBody.length).toBeGreaterThan(0);
+    expect(reapBody).toMatch(/pg_advisory_xact_lock\(hashtext\('finalize:' \|\| \$1\)\)/);
+    expect(reapBody).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
+    expect(reapBody).not.toMatch(/\.rpc\(/);
+    // Single-holder + no-rotation pins: the reap never re-acquires inside a
+    // nested layer and never touches app_settings beyond the plain read.
+    expect(reapBody).not.toMatch(/update\s+public\.app_settings/i);
+    expect(reapBody).not.toMatch(
+      /for update[\s\S]*?app_settings|app_settings[\s\S]{0,200}for update/i,
+    );
+    // R15 HIGH — advisory-before-row: drive-id collection must take NO row
+    // locks. A FOR UPDATE before the show: advisory locks inverts the order
+    // pending-ingestion actions use (advisory via withPostgresSyncPipelineLock
+    // first, retry/route.ts; FOR UPDATE second) — AB-BA deadlock with a
+    // stale-tab retry. The same applies to the reap's eligibility re-checks.
+    const collectBody = source.slice(
+      source.indexOf("async function collectReapDriveFileIds"),
+      source.indexOf("async function lockReapDriveFiles"),
+    );
+    expect(collectBody.length).toBeGreaterThan(0);
+    expect(collectBody).not.toMatch(/for\s+update/i);
+    // Stronger than the plan's literal check: the ENTIRE reap surface is
+    // row-lock-free (the 1-hour recency check deliberately drops cleanup's
+    // FOR UPDATE — under the finalize advisory lock no finalize worker can
+    // advance the checkpoint concurrently).
+    expect(reapBody).not.toMatch(/for\s+update/i);
+  });
+
+  test("finalize routes acquire the finalize advisory lock BEFORE any app_settings FOR UPDATE row lock (R25-1/R29-1: global total order vs cleanupAbandonedFinalize)", () => {
+    // cleanupAbandonedFinalize's order is finalize-lock → app_settings FOR UPDATE
+    // (lib/onboarding/sessionLifecycle.ts cleanupAbandonedFinalize). A finalize route that takes
+    // the app_settings row lock FIRST and only then touches the finalize lock inverts that order
+    // (AB-BA) — cleanup clicked while a finalize batch is mid-flight can deadlock both, stranding
+    // the wizard at the exact moment the operator is trying to recover it. Pin: in each route's
+    // handler body, every call to a helper whose SQL does `from public.app_settings … for update`
+    // must appear AFTER the `tryFinalizeLock(` call site.
+    for (const { file, handlerName } of [
+      {
+        file: "app/api/admin/onboarding/finalize/route.ts",
+        handlerName: "handleOnboardingFinalize",
+      },
+      { file: "app/api/admin/onboarding/finalize-cas/route.ts", handlerName: "runFinalizeCas" },
+    ]) {
+      const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+
+      // Top-level function bodies (closing brace at column 0).
+      const fnBodies = new Map<string, string>();
+      for (const m of source.matchAll(
+        /(?:^|\n)(?:export\s+)?async function ([A-Za-z0-9_]+)\s*(?:<[^>]*>)?\(([\s\S]*?)\n\}/g,
+      )) {
+        const [, name, body] = m;
+        if (name && body) fnBodies.set(name, body);
+      }
+
+      const appSettingsForUpdateHelpers = [...fnBodies.entries()]
+        .filter(([, body]) => /from\s+public\.app_settings[\s\S]*?\bfor\s+update\b/i.test(body))
+        .map(([name]) => name);
+
+      const handlerBody = fnBodies.get(handlerName);
+      expect(handlerBody, `${file}: could not extract ${handlerName} body`).toBeTruthy();
+      const lockAt = handlerBody!.search(/\btryFinalizeLock\s*\(/);
+      expect(lockAt, `${file}: ${handlerName} never calls tryFinalizeLock`).toBeGreaterThan(-1);
+
+      for (const helper of appSettingsForUpdateHelpers) {
+        const callRe = new RegExp(`\\b${helper}\\s*\\(`, "g");
+        for (const call of handlerBody!.matchAll(callRe)) {
+          expect(
+            call.index! > lockAt,
+            `${file}: ${handlerName} calls ${helper} (app_settings FOR UPDATE) at idx ${call.index} ` +
+              `BEFORE tryFinalizeLock at idx ${lockAt} — inverts cleanupAbandonedFinalize's ` +
+              `finalize-lock→app_settings order (AB-BA deadlock under cleanup/finalize overlap)`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
   test("onboarding finalize routes use direct SQL advisory locks and no lock-taking RPC boundary", () => {
     for (const file of [
       "app/api/admin/onboarding/finalize/route.ts",
@@ -191,6 +285,43 @@ describe("advisory-lock RPC deadlock guard", () => {
       expect(source).toMatch(/pg_try_advisory_xact_lock\(hashtext\('finalize:' \|\| \$1\)\)/);
       expect(source).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
       expect(source).not.toMatch(/\.rpc\(/);
+    }
+  });
+});
+
+describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)", () => {
+  test("applyStagedCore.ts contains zero advisory-lock acquisitions and adopts via assertion only", () => {
+    const core = stripComments(readFileSync(join(ROOT, "lib/sync/applyStagedCore.ts"), "utf8"));
+    // Acquire-free: any pg_advisory* in the core is a second holder under the Phase B/D/dashboard
+    // holders — deadlock under burst (M5 R20 class, invariant 2).
+    expect(core).not.toMatch(/pg_(?:try_)?advisory_xact_lock/i);
+    expect(core).not.toMatch(/withPostgresSyncPipelineLock|withShowLock\s*\(/);
+    // Adoption, not acquisition: the core asserts the caller already holds the lock.
+    expect(core).toMatch(/assertShowLockHeld|adoptShowLockHeld/);
+  });
+
+  test("finalize routes hold the documented per-show advisory-lock topology (single holder per surface)", () => {
+    // Plan 01-f1 §"Advisory-lock holder topology": the per-row tx wrapper (defaultWithRowTx) is
+    // the ONLY holder for the apply surfaces. DEVIATION from the plan's literal `toHaveLength(1)`
+    // for both files: live finalize-cas ALSO contains the publish-flip's sorted per-show lock
+    // loop inside publishAppliedWizardShows (plan R49-2 — acquired LAST in the OUTER transaction,
+    // after the per-row apply transactions have committed and released their locks, so the
+    // single-holder-at-a-time rule still holds). Pin the exact counts so a NEW acquisition on
+    // either surface fails review here.
+    const expected: ReadonlyArray<{ file: string; acquisitions: number }> = [
+      // defaultWithRowTx only (Phase B per-row holder).
+      { file: "app/api/admin/onboarding/finalize/route.ts", acquisitions: 1 },
+      // defaultWithRowTx (Phase D per-row holder) + publishAppliedWizardShows sorted flip loop.
+      { file: "app/api/admin/onboarding/finalize-cas/route.ts", acquisitions: 2 },
+    ];
+    for (const { file, acquisitions } of expected) {
+      const src = stripComments(readFileSync(join(ROOT, file), "utf8"));
+      const found = src.match(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/g) ?? [];
+      expect(
+        found,
+        `${file}: expected exactly ${acquisitions} per-show advisory-lock acquisition(s); a new ` +
+          `acquisition needs a topology review (single-holder rule, invariant 2)`,
+      ).toHaveLength(acquisitions);
     }
   });
 });

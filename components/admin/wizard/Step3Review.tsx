@@ -38,15 +38,25 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
+import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
   if (!(code in MESSAGE_CATALOG)) return null;
   return messageFor(code as MessageCode).dougFacing ?? null;
 }
+
+// Surface-appropriate generic for hard-fail wizard rows whose producer code is
+// non-catalog/unresolvable. The shared SHEET_PROCESS_FAILED generic says "Open
+// the show…", but a phase-1 hard-fail may have produced no show, and this row's
+// only controls are Retry/Defer/Ignore below — so point Doug at those instead
+// (Codex R6). Exported for the surface-appropriateness regression test.
+export const WIZARD_HARD_FAIL_GENERIC =
+  "We couldn't read this sheet. Fix it in Drive and Retry, or choose Defer or Permanently ignore below.";
 
 export type Step3ManifestStatus =
   | "staged"
@@ -122,24 +132,14 @@ function toneClasses(tone: "ok" | "warn" | "info" | "blocked"): string {
 
 function endpointForAction(action: ActionLabel, pendingIngestionId: string): string {
   const slug =
-    action === "retry"
-      ? "retry"
-      : action === "defer"
-        ? "defer_until_modified"
-        : "permanent_ignore";
+    action === "retry" ? "retry" : action === "defer" ? "defer_until_modified" : "permanent_ignore";
   return `/api/admin/onboarding/pending_ingestions/${pendingIngestionId}/${slug}`;
 }
 
-function HardFailedActions({
-  row,
-}: {
-  row: Step3Row & { pendingIngestionId: string };
-}) {
+function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: string } }) {
   const router = useRouter();
   const [pending, setPending] = useState<ActionLabel | null>(null);
-  const [error, setError] = useState<{ copy: string; code: string | null } | null>(
-    null,
-  );
+  const [error, setError] = useState<{ copy: string; code: string | null } | null>(null);
 
   async function run(action: ActionLabel) {
     if (pending) return;
@@ -149,9 +149,7 @@ function HardFailedActions({
       const response = await fetch(endpointForAction(action, row.pendingIngestionId), {
         method: "POST",
       });
-      const body = (await response.json()) as
-        | { status: string }
-        | { ok: false; code: string };
+      const body = (await response.json()) as { status: string } | { ok: false; code: string };
       if ("ok" in body && body.ok === false) {
         setError({
           copy:
@@ -164,8 +162,7 @@ function HardFailedActions({
       router.refresh();
     } catch {
       setError({
-        copy:
-          "We could not reach the server. Check your connection and try again.",
+        copy: "We could not reach the server. Check your connection and try again.",
         code: null,
       });
     } finally {
@@ -210,7 +207,7 @@ function HardFailedActions({
           data-testid={`wizard-step3-error-${row.driveFileId}`}
           className="flex flex-col gap-1 text-sm text-warning-text"
         >
-          <p>{error.copy}</p>
+          <p>{renderEmphasis(error.copy)}</p>
           <HelpAffordance code={error.code} />
         </div>
       ) : null}
@@ -218,17 +215,25 @@ function HardFailedActions({
   );
 }
 
-function RowItem({
-  row,
-  wizardSessionId,
-}: {
-  row: Step3Row;
-  wizardSessionId: string;
-}) {
+function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: string }) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
+  // Hard-fail rows ARE pending_ingestions rows (row.errorCode = last_error_code).
+  // Route through the SHARED resolver the needs-attention inbox + emails use, not
+  // the catalog-only lookupDougFacing: the real phase-1 producer codes include
+  // non-catalog values (MI-2_EMPTY_TITLE, MI-3_NO_VALID_DATES, PARSE_HARD_FAIL)
+  // for which lookupDougFacing returned null, leaving the row's reason blank
+  // (Codex R5). resolveIngestionCopy falls back to GENERIC copy (never empty),
+  // strips emphasis markers, and fills the sheet name — one resolver, three
+  // surfaces. Always non-null, so the render guard below only filters non-hard-fail.
   const hardFailCopy =
-    row.status === "hard_failed" ? lookupDougFacing(row.errorCode) : null;
+    row.status === "hard_failed"
+      ? resolveIngestionCopy({
+          code: row.errorCode ?? null,
+          driveFileName: row.driveFileName ?? null,
+          genericFallback: WIZARD_HARD_FAIL_GENERIC,
+        })
+      : null;
 
   return (
     <article
@@ -267,12 +272,12 @@ function RowItem({
       {row.status === "hard_failed" && row.pendingIngestionId ? (
         <>
           {hardFailCopy ? (
+            // resolveIngestionCopy already filled the sheet name and stripped
+            // emphasis markers (plaintext), so render it directly.
             <p className="text-sm text-text-subtle">{hardFailCopy}</p>
           ) : null}
           {row.errorCode ? <HelpAffordance code={row.errorCode} /> : null}
-          <HardFailedActions
-            row={row as Step3Row & { pendingIngestionId: string }}
-          />
+          <HardFailedActions row={row as Step3Row & { pendingIngestionId: string }} />
         </>
       ) : null}
 
@@ -284,17 +289,17 @@ function RowItem({
 
       {row.status === "discard_retryable" ? (
         <p className="text-sm text-warning-text">
-          This sheet has been set aside for the next sync. You still need to
-          decide whether to defer it until modified or permanently ignore it
-          before finishing setup.
+          This sheet has been set aside for the next sync. You still need to decide whether to defer
+          it until modified or permanently ignore it before finishing setup.
         </p>
       ) : null}
 
       {row.status === "live_row_conflict" ? (
         <div className="flex flex-col gap-1 text-sm text-warning-text">
           <p>
-            {liveConflictCopy ??
-              "This sheet conflicts with a live row. Resolve it from the dashboard and re-run setup."}
+            {liveConflictCopy
+              ? renderEmphasis(liveConflictCopy)
+              : "This sheet conflicts with a live row. Resolve it from the dashboard and re-run setup."}
           </p>
           <HelpAffordance code="LIVE_ROW_CONFLICT" />
         </div>
@@ -322,10 +327,7 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           Step 3 of 3
         </p>
         <div className="flex items-center gap-2">
-          <h2
-            id="wizard-step3-heading"
-            className="text-2xl font-semibold text-text-strong"
-          >
+          <h2 id="wizard-step3-heading" className="text-2xl font-semibold text-text-strong">
             Review your sheets
           </h2>
           <HelpTooltip
@@ -333,11 +335,10 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
             testId="help-affordance--wizard-step3--tooltip"
           >
             <p>
-              Each row below is one sheet from your folder. Approve good
-              ones, set aside any we could not read, and ignore anything
-              that does not belong. Setup will not finish until every row
-              has a decision. Tap What does this mean on any error for a
-              plain-language explanation.
+              Each row below is one sheet from your folder. Approve good ones, set aside any we
+              could not read, and ignore anything that does not belong. Setup will not finish until
+              every row has a decision. Tap What does this mean on any error for a plain-language
+              explanation.
             </p>
             <p className="mt-2">
               <a
@@ -351,8 +352,8 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           </HelpTooltip>
         </div>
         <p className="max-w-prose text-base text-text-subtle">
-          Every sheet we found in your folder is listed below. Approve, set
-          aside, or defer each one. Setup finishes once every row is resolved.
+          Every sheet we found in your folder is listed below. Approve, set aside, or defer each
+          one. Setup finishes once every row is resolved.
         </p>
         <p
           data-testid="wizard-step3-resolution-status"
@@ -371,12 +372,10 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           data-testid="wizard-step3-empty"
           className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
         >
-          <p className="font-semibold text-text-strong">
-            We did not find any sheets to review.
-          </p>
+          <p className="font-semibold text-text-strong">We did not find any sheets to review.</p>
           <p>
-            The folder you shared is empty or has no Google Sheets in it. Add
-            sheets in Drive and click &quot;Start over&quot; to scan again.
+            The folder you shared is empty or has no Google Sheets in it. Add sheets in Drive and
+            click &quot;Start over&quot; to scan again.
           </p>
         </div>
       ) : (

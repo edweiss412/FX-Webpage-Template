@@ -95,17 +95,26 @@ describe("B3 email_deliveries ledger schema", () => {
         "email_deliveries_recipient_email_canonical c CHECK (((recipient = lower(TRIM(BOTH FROM recipient))) AND (recipient <> ''::text)))",
       ),
     );
+    // M12.13 §4.4: the kind CHECK widened to admit the auto_publish_undo email kind.
     expect(normalize(constraints)).toContain(
-      normalize("email_deliveries_kind_check c CHECK ((kind = ANY (ARRAY['realtime_problem'::text, 'digest'::text])))"),
+      normalize(
+        "email_deliveries_kind_check c CHECK ((kind = ANY (ARRAY['realtime_problem'::text, 'digest'::text, 'auto_publish_undo'::text])))",
+      ),
     );
     expect(normalize(constraints)).toContain(
-      normalize("email_deliveries_channel_check c CHECK ((channel = ANY (ARRAY['email'::text, 'sms'::text, 'webhook'::text])))"),
+      normalize(
+        "email_deliveries_channel_check c CHECK ((channel = ANY (ARRAY['email'::text, 'sms'::text, 'webhook'::text])))",
+      ),
     );
     expect(normalize(constraints)).toContain(
-      normalize("email_deliveries_status_check c CHECK ((status = ANY (ARRAY['sent'::text, 'failed'::text])))"),
+      normalize(
+        "email_deliveries_status_check c CHECK ((status = ANY (ARRAY['sent'::text, 'failed'::text])))",
+      ),
     );
     expect(normalize(constraints)).toContain(
-      normalize("email_deliveries_show_id_fkey f FOREIGN KEY (show_id) REFERENCES shows(id) ON DELETE SET NULL"),
+      normalize(
+        "email_deliveries_show_id_fkey f FOREIGN KEY (show_id) REFERENCES shows(id) ON DELETE SET NULL",
+      ),
     );
 
     const indexes = runPsql(`

@@ -35,12 +35,21 @@ const STALE_FOOTER_CODES = [
   "PARSE_ERROR_LAST_GOOD",
 ] as const;
 
+// Expected rendered text: placeholders interpolated, then the catalog's
+// Markdown emphasis markers removed — StaleFooter renders them as <em>/
+// <strong> via renderEmphasis, so the literal `*` / `_` characters must
+// never reach textContent (crew used to see "Last synced *2 hours* ago.").
+// The stripping below is a test-local re-implementation, NOT the production
+// helper (anti-tautology: both sides drifting together would not pass).
 function interpolate(template: string, params: Record<string, string>): string {
   let out = template;
   for (const [key, value] of Object.entries(params)) {
     out = out.split(`<${key}>`).join(value);
   }
-  return out;
+  return out
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/(^|[\s("'])_(\S(?:.*?\S)?)_(?=[\s)"'.,!?;:]|$)/g, "$1$2");
 }
 
 function assertNoRawCodes(container: HTMLElement) {
@@ -98,6 +107,10 @@ describe("StaleFooter — age tier ladder (last_sync_status='ok')", () => {
       time: formatRelative(twoHrAgo, now),
     });
     expect(node?.textContent).toContain(expected);
+    // The catalog string is "Last synced *<time>* ago. …" — the emphasis
+    // markers must render as <em>, never as literal asterisks.
+    expect(node?.textContent).not.toContain("*");
+    expect(node?.querySelector("em")?.textContent).toBe(formatRelative(twoHrAgo, now));
     assertNoRawCodes(container);
   });
 
@@ -128,6 +141,8 @@ describe("StaleFooter — status precedence over age tiers", () => {
       time: formatRelative(oneMinAgo, now),
     });
     expect(node?.textContent).toContain(expected);
+    // "_<time>_" in the catalog renders as <em>, never literal underscores.
+    expect(node?.textContent).not.toContain("_");
     assertNoRawCodes(container);
   });
 

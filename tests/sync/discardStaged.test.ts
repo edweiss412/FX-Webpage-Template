@@ -12,6 +12,7 @@ import {
   type DiscardStagedDeps,
   type PendingSyncForDiscard,
 } from "@/lib/sync/discardStaged";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -240,7 +241,7 @@ describe("discardStaged live-scope", () => {
     const readWizardPendingSyncForDiscard = vi.fn(async () =>
       pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
     );
-    const deleteWizardPendingSync = vi.fn(async () => undefined);
+    const deleteWizardPendingSync = vi.fn(async () => true);
     const markWizardManifestDiscarded = vi.fn(async () => true);
     const syncDeps = {
       ...deps(),
@@ -283,7 +284,7 @@ describe("discardStaged live-scope", () => {
         pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
       ),
       readActiveWizardSession: vi.fn(async () => W2),
-      deleteWizardPendingSync: vi.fn(async () => undefined),
+      deleteWizardPendingSync: vi.fn(async () => true),
       upsertWizardDeferral: vi.fn(async () => true),
       markWizardManifestDiscarded: vi.fn(async () => true),
     } as DiscardStagedDeps;
@@ -314,7 +315,7 @@ describe("discardStaged live-scope", () => {
         pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
       ),
       readActiveWizardSession: vi.fn(async () => W1),
-      deleteWizardPendingSync: vi.fn(async () => undefined),
+      deleteWizardPendingSync: vi.fn(async () => true),
       upsertWizardDeferral: vi.fn(async () => false),
       markWizardManifestDiscarded: vi.fn(async () => true),
     } as DiscardStagedDeps;
@@ -354,7 +355,7 @@ describe("discardStaged live-scope", () => {
           }),
         ),
         readActiveWizardSession: vi.fn(async () => W1),
-        deleteWizardPendingSync: vi.fn(async () => undefined),
+        deleteWizardPendingSync: vi.fn(async () => true),
         upsertWizardDeferral: vi.fn(async () => true),
         markWizardManifestDiscarded: vi.fn(async () => true),
       } as DiscardStagedDeps;
@@ -403,7 +404,7 @@ describe("discardStaged live-scope", () => {
         ),
         readActiveWizardSession: vi.fn(async () => W1),
         markWizardManifestDiscarded: vi.fn(async () => true),
-        deleteWizardPendingSync: vi.fn(async () => undefined),
+        deleteWizardPendingSync: vi.fn(async () => true),
       } as DiscardStagedDeps;
 
       const result = await discardStaged_unlocked(
@@ -441,7 +442,7 @@ describe("discardStaged live-scope", () => {
         pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
       ),
       readActiveWizardSession: vi.fn(async () => W1),
-      deleteWizardPendingSync: vi.fn(async () => undefined),
+      deleteWizardPendingSync: vi.fn(async () => true),
       upsertWizardDeferral: vi.fn(async () => true),
       markWizardManifestDiscarded: vi.fn(async () => false),
     } as DiscardStagedDeps;
@@ -465,6 +466,101 @@ describe("discardStaged live-scope", () => {
       W1,
       "discard_retryable",
     );
+    expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
+  });
+
+  // F5 Task 5.5 class-sweep (S3/S4 — same statement-vs-commit window as the
+  // retry route): a 0-row currency miss AFTER the first mutation must THROW
+  // the typed rollback error so the enclosing per-show-locked tx ABORTS.
+  // Returning { outcome: "wizard_superseded" } commits the deferral row
+  // written for a retired session (the R9-1 partial-commit shape).
+  test("S3: manifest miss AFTER the wizard deferral wrote throws the typed rollback error (no partial commit)", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForDiscard: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W1),
+      upsertWizardDeferral: vi.fn(async () => true), // first mutation succeeded
+      markWizardManifestDiscarded: vi.fn(async () => false), // supersession became visible
+      deleteWizardPendingSync: vi.fn(async () => true),
+    } as DiscardStagedDeps;
+
+    await expect(
+      discardStaged_unlocked(
+        tx,
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "wizard",
+          wizardSessionId: W1,
+          stagedId: "staged-wizard",
+          variant: "permanent_ignore",
+        },
+        syncDeps,
+      ),
+    ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+    expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
+  });
+
+  test("S4: deleteWizardPendingSync carries the currency predicate and throws on a 0-row miss", async () => {
+    // Real-DB variant lives in tests/onboarding/discardStagedCasRaceDb.test.ts —
+    // this mocked case only pins the control flow; the SQL itself is exercised there.
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForDiscard: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W1),
+      upsertWizardDeferral: vi.fn(async () => true),
+      markWizardManifestDiscarded: vi.fn(async () => true),
+      deleteWizardPendingSync: vi.fn(async () => false), // predicate miss
+    } as DiscardStagedDeps;
+
+    await expect(
+      discardStaged_unlocked(
+        tx,
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "wizard",
+          wizardSessionId: W1,
+          stagedId: "staged-wizard",
+          variant: "permanent_ignore",
+        },
+        syncDeps,
+      ),
+    ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+  });
+
+  // S3 nuance: try_again writes NO deferral first, so a manifest miss there is
+  // PRE-mutation → the returned outcome stays correct (empty-tx commit, benign).
+  test("try_again manifest miss is pre-mutation and still RETURNS wizard_superseded (no throw)", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForDiscard: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W1),
+      upsertWizardDeferral: vi.fn(async () => true),
+      markWizardManifestDiscarded: vi.fn(async () => false),
+      deleteWizardPendingSync: vi.fn(async () => true),
+    } as DiscardStagedDeps;
+
+    const result = await discardStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        variant: "try_again",
+      },
+      syncDeps,
+    );
+    expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
+    expect(syncDeps.upsertWizardDeferral).not.toHaveBeenCalled();
     expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
   });
 

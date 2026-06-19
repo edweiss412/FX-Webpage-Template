@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import { useActionState } from "react";
 
 import { getDougFacing, getRequiredDougFacing } from "@/lib/messages/lookup";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 
 import { addAdminAction, type AdminEmailActionResult } from "./actions";
 
@@ -159,9 +160,7 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
           role="status"
           className="rounded-sm bg-info-bg px-2 py-1 text-sm font-medium text-text-strong"
         >
-          {result.email
-            ? `Added ${result.email}.`
-            : "Added."}
+          {result.email ? `Added ${result.email}.` : "Added."}
         </p>
       )}
 
@@ -171,7 +170,7 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
           role="alert"
           className="text-sm text-warning-text"
         >
-          {getDougFacing("ADMIN_EMAIL_INVALID")}
+          {renderCatalogEmphasis(getDougFacing("ADMIN_EMAIL_INVALID") ?? "")}
         </p>
       )}
       {result?.kind === "already_active" && (
@@ -180,7 +179,9 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
           role="alert"
           className="text-sm text-text-subtle"
         >
-          {getDougFacing("ADMIN_EMAIL_ALREADY_ACTIVE", { email: result.email })}
+          {renderCatalogEmphasis(getDougFacing("ADMIN_EMAIL_ALREADY_ACTIVE") ?? "", {
+            email: result.email,
+          })}
         </p>
       )}
       {/* Task 6.4: transient DB / permissions fault on the add RPC,

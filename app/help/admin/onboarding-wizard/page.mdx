@@ -13,15 +13,17 @@ The wizard opens on a single screen showing a long-looking email address. That e
 What you do on this step:
 
 <Step n={1}>
-**Find the Drive folder where you keep your show sheets, or make a new one.** Anything inside this folder is fair game for the app to read; anything outside it is invisible.
+  **Find the Drive folder where you keep your show sheets, or make a new one.** Anything inside this
+  folder is fair game for the app to read; anything outside it is invisible.
 </Step>
 
 <Step n={2}>
-**Click Share on the folder, paste the service-account email shown on the wizard, and give it Viewer access.** Viewer is enough; the app never writes to your Drive.
+  **Click Share on the folder, paste the service-account email shown on the wizard, and give it
+  Viewer access.** Viewer is enough; the app never writes to your Drive.
 </Step>
 
 <Step n={3}>
-**Come back to the wizard tab and click "I've shared the folder."** That moves you to step 2.
+  **Come back to the wizard tab and click "I've shared the folder."** That moves you to step 2.
 </Step>
 
 If you want to know more about the email itself, the wizard has a small "What's this email?" disclosure inline; it's the same explanation as the first paragraph of this section.
@@ -35,24 +37,33 @@ The second screen asks for the folder URL and runs a one-shot check that the app
 What you do on this step:
 
 <Step n={1}>
-**Paste the folder URL into the input labeled "Folder link."** Drive folder URLs look like `https://drive.google.com/drive/folders/...`. Grab the URL from your browser's address bar while the folder is open in Drive.
+  **Paste the folder URL into the input labeled "Folder link."** Drive folder URLs look like
+  `https://drive.google.com/drive/folders/...`. Grab the URL from your browser's address bar while
+  the folder is open in Drive.
 </Step>
 
 <Step n={2}>
-**Click the Verify and scan button.** While the scan runs the wizard shows "Looking through your folder…" plus an elapsed-seconds counter, and the button label flips to "Verifying…" so you know it is in flight. Large folders can take a minute.
+  **Click the Verify and scan button.** While the scan runs the wizard shows "Looking through your
+  folder…" plus an elapsed-seconds counter, and the button label flips to "Verifying…" so you know
+  it is in flight. Large folders can take a minute.
 </Step>
 
 <Step n={3}>
-**When the scan returns, you'll see a summary of what was found in the folder, with counts of sheets ready for review, sheets that could not be parsed, non-sheet files we skipped, and any live-row conflicts. Click "Continue to Step 3" to move on.**
+  **When the scan returns, you'll see a summary of what was found in the folder, with counts of
+  sheets ready for review, sheets that could not be parsed, non-sheet files we skipped, and any
+  live-row conflicts. Click "Continue to Step 3" to move on.**
 </Step>
 
-If the check doesn't come back green, one of these is why:
+If verification doesn't succeed, one of these is why:
 
 - **"That doesn't look like a Google Drive folder URL."** What you pasted isn't a Drive folder link. Drive folder URLs look like `https://drive.google.com/drive/folders/...`. Grab the URL from your browser's address bar while the folder is open in Drive, not a link copied from somewhere else.
 - **"We can't see this folder yet."** The folder exists, but the service-account email doesn't have access to it. Go back to Drive, double-check that you shared the folder with the email exactly as shown in step 1, and try again. The most common cause is sharing a different folder by accident, or pasting the email into a "Notify people" field instead of the "Share" field.
 
 <Callout type="warning">
-There's a fourth, rare outcome where the app's own credentials are misconfigured. If that happens, the wizard tells you "Something is wrong on our end. The developer has been notified." That's an Eric-side problem, not a Doug-side problem; the wizard will not move forward until it's fixed, and you don't have to do anything from your end.
+  There's a fourth, rare outcome where the app's own credentials are misconfigured. If that happens,
+  the wizard tells you "Something is wrong on our end. The developer has been notified." That's an
+  Eric-side problem, not a Doug-side problem; the wizard will not move forward until it's fixed, and
+  you don't have to do anything from your end.
 </Callout>
 
 The wizard never shows raw error codes on this step. If a screen ever does, that's a bug, not a feature.
@@ -65,8 +76,8 @@ Each row carries a status badge. You start with three first-contact statuses and
 
 First-contact statuses:
 
-- **Ready for review.** The sheet parsed cleanly. Click **Review and apply** to walk through what the parser extracted and approve it.
-- **Couldn't parse.** Yellow badge with a plain-English explanation of what went wrong. Most of the time this is "the sheet has a column we don't recognize" or "a date cell didn't read as a date." The row offers three buttons: **Retry now** (re-runs the parser, useful after you fix a cell in Drive), **Defer until modified** (we'll re-check the next time the sheet changes), and **Permanently ignore** (the sheet stays out of the system).
+- **Ready for review.** The sheet parsed cleanly. Click **Review and apply** to walk through what the app extracted and approve it.
+- **Couldn't parse.** Yellow badge with a plain-English explanation of what went wrong. Most of the time this is "the sheet has a column we don't recognize" or "a date cell didn't read as a date." The row offers three buttons: **Retry now** (re-reads the sheet, useful after you fix a cell in Drive), **Defer until modified** (we'll re-check the next time the sheet changes), and **Permanently ignore** (the sheet stays out of the system).
 - **Skipped: not a Google Sheet.** The folder contained something that isn't a Google Sheet (a doc, a PDF, an image). The app ignores it; the row is informational and counts as resolved automatically.
 - **Live row conflict.** This only happens in an unusual recovery situation where the same sheet exists in your live data already; the wizard won't promote it again. You resolve the live row from the dashboard, then re-run setup.
 
@@ -75,15 +86,20 @@ After you act on a row, its badge flips to one of these resolved states: **Appli
 What you do on this step:
 
 <Step n={1}>
-**Open each row and review what the parser extracted.** "Parsed and ready" rows are the ones that need your eyeballs; the other statuses are informational.
+  **Open each row and review what the app extracted.** "Parsed and ready" rows are the ones that
+  need your eyeballs; the other statuses are informational.
 </Step>
 
 <Step n={2}>
-**Approve or discard each row.** Approving stages the sheet for promotion; discarding has three flavors (try again next sync, defer until the sheet changes, or permanently ignore). The wizard will not let you finish until every row reaches a resolved state.
+  **Approve or discard each row.** Approving stages the sheet for promotion; discarding has three
+  flavors (try again next sync, defer until the sheet changes, or permanently ignore). The wizard
+  will not let you finish until every row reaches a resolved state.
 </Step>
 
 <Step n={3}>
-**Click Finalize once every row is resolved.** This promotes every approved sheet into the live system, makes them visible to crew, and points cron at the folder for ongoing sync. From that moment on, the dashboard at `/admin` replaces the wizard, and your day-to-day work happens there.
+  **Click Finalize once every row is resolved.** This promotes every approved sheet into the live
+  system, makes them visible to crew, and points cron at the folder for ongoing sync. From that
+  moment on, the dashboard at `/admin` replaces the wizard, and your day-to-day work happens there.
 </Step>
 
 If something goes wrong during finalize (the most common cause is someone editing one of the sheets in Drive between approval and finalize), the wizard tells you which specific rows failed and gives you a link to re-approve them. The rest of the batch still goes through; you don't have to start over.

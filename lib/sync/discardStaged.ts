@@ -11,6 +11,7 @@ import {
   WIZARD_SESSION_SUPERSEDED,
 } from "@/lib/sync/applyStaged";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 export { INVALID_REVIEWER_ACTION, PENDING_SYNC_NOT_FOUND, WIZARD_SESSION_SUPERSEDED };
 export const STALE_DISCARD_REJECTED = "STALE_DISCARD_REJECTED" as const;
@@ -116,7 +117,7 @@ export type DiscardStagedDeps = {
     driveFileId: string,
     wizardSessionId: string,
     stagedId: string,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 };
 
 async function defaultReadLivePendingSyncForDiscard(
@@ -351,23 +352,42 @@ async function defaultMarkWizardManifestDiscarded(
   return Boolean(updated?.updated);
 }
 
+// F5 Task 5.5 S4: the wizard pending_syncs delete carries the same
+// wizard-session currency EXISTS predicate as the deferral upsert and the
+// manifest CAS — a supersession visible at its statement time must 0-row the
+// delete (the wizard branch throws). Boolean-returning per the R39-1 contract.
 async function defaultDeleteWizardPendingSync(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
   wizardSessionId: string,
   stagedId: string,
-): Promise<void> {
-  await tx.queryOne<{ deleted: boolean }>(
+): Promise<boolean> {
+  const deleted = await tx.queryOne<{ deleted: boolean } | null>(
     `
       delete from public.pending_syncs
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
          and staged_id = $3::uuid
+         and exists (
+           select 1 from public.app_settings
+            where id = 'default'
+              and pending_wizard_session_id = $2::uuid
+         )
       returning true as deleted
     `,
     [driveFileId, wizardSessionId, stagedId],
   );
+  return Boolean(deleted?.deleted);
 }
+
+// F5 Task 5.5: exported for the real-DB race regression
+// (tests/onboarding/discardStagedCasRaceDb.test.ts) — the SQL under test must
+// be the PRODUCTION default, not a fake.
+export {
+  defaultUpsertWizardDeferral,
+  defaultMarkWizardManifestDiscarded,
+  defaultDeleteWizardPendingSync,
+};
 
 function depsWithDefaults(deps: DiscardStagedDeps): Required<DiscardStagedDeps> {
   return {
@@ -439,14 +459,36 @@ export async function discardStaged_unlocked(
       variant === "try_again" ? "discard_retryable" : variant,
     );
     if (!markedManifest) {
+      // F5 Task 5.5 S3: for defer/ignore a deferral row was ALREADY written
+      // above — a returned outcome would COMMIT it for a retired session (the
+      // enclosing withPostgresSyncPipelineLock commits on normal return).
+      // THROW so the tx aborts. try_again writes no deferral first, so its
+      // manifest miss is pre-mutation → the returned outcome stays (an
+      // empty-tx commit is benign — the S1/S2 reasoning).
+      if (variant !== "try_again") {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: "discard",
+          supersededSessionId: args.wizardSessionId,
+          driveFileId: args.driveFileId,
+        });
+      }
       return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
     }
-    await deps.deleteWizardPendingSync(
+    const deletedPendingSync = await deps.deleteWizardPendingSync(
       tx,
       pending.driveFileId,
       args.wizardSessionId,
       pending.stagedId,
     );
+    if (!deletedPendingSync) {
+      // F5 Task 5.5 S4: the manifest UPDATE above already executed — a 0-row
+      // currency miss here is always post-mutation, for EVERY variant. Throw.
+      throw new WizardSessionSupersededRollbackError({
+        attemptedAction: "discard",
+        supersededSessionId: args.wizardSessionId,
+        driveFileId: args.driveFileId,
+      });
+    }
     return { outcome: "discarded", variant };
   }
 

@@ -32,7 +32,8 @@ export type AdminAlertCode =
   | "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED"
   | "CALLBACK_CLAIM_THREW"
   | "PICKER_SELECTION_RACE"
-  | "PICKER_EPOCH_RESET";
+  | "PICKER_EPOCH_RESET"
+  | "WIZARD_SESSION_SUPERSEDED_RACE";
 
 export type UpsertAdminAlertInput = {
   showId: string | null;

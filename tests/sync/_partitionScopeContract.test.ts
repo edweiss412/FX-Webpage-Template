@@ -34,7 +34,10 @@ describe("M6 pending-row partition scope contract", () => {
   });
 
   test("Apply live-scope SELECT and DELETE carry wizard_session_id IS NULL", () => {
-    const applyStaged = source("lib/sync/applyStaged.ts");
+    // F1 Task 1.1: defaultDeleteLivePendingSync moved to lib/sync/applyStagedCore.ts (SQL
+    // unchanged) — the Apply surface now spans both files.
+    const applyStaged =
+      source("lib/sync/applyStaged.ts") + "\n" + source("lib/sync/applyStagedCore.ts");
     const windows = [
       ...windowsAround(applyStaged, "from public\\.pending_syncs"),
       ...windowsAround(applyStaged, "delete from public\\.pending_syncs"),

@@ -130,16 +130,15 @@ function parseV4Transport(
   markdown: string,
   crewMembers?: CrewMemberRow[],
 ): TransportationRow | null {
-  // Match: | TRANSPORTATION/Equipment Transporter | TRANSPORTATION/<name> | PHONE/<phone> | EMAIL/<email> |
+  // Accept BOTH the slash header (raw: `TRANSPORTATION/<name> | PHONE/<phone> |
+  // EMAIL/<email>`) AND the exporter's plain column-duplicated header
+  // (`| TRANSPORTATION | TRANSPORTATION | PHONE | EMAIL | …`). The EMAIL column
+  // is REQUIRED so this never claims ria's no-email 3-col header (B3 routes that
+  // to v2). Capture groups carry the slash content (undefined in the plain form).
   const headerRe =
-    /^\|\s*TRANSPORTATION\/[^|]+\|\s*TRANSPORTATION\/([^|]+?)\s*\|\s*PHONE\/([^|]*?)\s*\|\s*EMAIL\/([^|]*?)\s*\|/im;
+    /^\|\s*TRANSPORTATION(?:\/[^|]*)?\s*\|\s*TRANSPORTATION(?:\/([^|]*?))?\s*\|\s*PHONE(?:\/([^|]*?))?\s*\|\s*EMAIL(?:\/([^|]*?))?\s*\|/im;
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
-
-  const driverName = presence(clean(hm[1]!));
-  const driverPhone = presence(clean(hm[2]!));
-  const driverEmailRaw = clean(hm[3]!);
-  const driverEmail = canonicalize(driverEmailRaw);
 
   // Extract the table block starting from header
   const section = markdown.slice(hm.index);
@@ -148,6 +147,28 @@ function parseV4Transport(
   for (const line of lines) {
     if (!line.trim().startsWith("|") && tableLines.length > 0) break;
     if (line.trim().startsWith("|")) tableLines.push(line.trim());
+  }
+
+  // Driver, two sources: the slash header encodes it inline (hm[1] defined);
+  // the plain (exporter) header leaves it on the first Equipment Transporter /
+  // Load In: / Driver body row.
+  let driverName: string | null = null;
+  let driverPhone: string | null = null;
+  let driverEmail: string | null = null;
+  if (hm[1] !== undefined) {
+    driverName = presence(clean(hm[1]));
+    driverPhone = hm[2] !== undefined ? presence(clean(hm[2])) : null;
+    driverEmail = canonicalize(hm[3] !== undefined ? clean(hm[3]) : "");
+  } else {
+    for (const line of tableLines) {
+      const c = splitRow(line);
+      if (/^(?:equipment transporter|load in:?|driver)$/i.test(clean(c[0] ?? ""))) {
+        driverName = presence(clean(c[1] ?? ""));
+        driverPhone = presence(clean(c[2] ?? ""));
+        driverEmail = canonicalize(clean(c[3] ?? ""));
+        break;
+      }
+    }
   }
 
   // Detect column positions from the header row itself
@@ -255,8 +276,11 @@ function parseV2Transport(
   markdown: string,
   crewMembers?: CrewMemberRow[],
 ): TransportationRow | null {
-  // Match: | TRANSPORTATION | NAME | PHONE |
-  const headerRe = /^\|\s*TRANSPORTATION\s*\|\s*NAME\s*\|\s*PHONE\s*\|/im;
+  // Match: | TRANSPORTATION | NAME | PHONE | (older) OR
+  //        | TRANSPORTATION | TRANSPORTATION | PHONE | (exporter column-dup, ria).
+  // Superset of the NAME form. Routing ria here (not v1) also captures its
+  // Vehicle row and stops the `| Vehicle | … |` row leaking in as a schedule stage.
+  const headerRe = /^\|\s*TRANSPORTATION\s*\|\s*(?:NAME|TRANSPORTATION)\s*\|\s*PHONE\s*\|/im;
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
 
@@ -342,6 +366,25 @@ function parseV1Transport(
   const driverName = presence(clean(hm[1]!));
   const driverPhone = presence(clean(hm[2]!));
 
+  // The exporter emits a `| Transportation | <vehicle> |` row just above the
+  // Driver row (e.g. east-coast "Van"). The Driver-anchored slice below can't
+  // see it, so look back from the Driver row, skipping blanks/separators, for
+  // the first table row; capture col1 when its col0 is "Transportation". (Raw
+  // v1 fixtures lack this row, so vehicle stays null there.)
+  let vehicle: string | null = null;
+  const aboveLines = markdown.slice(0, hm.index).split("\n");
+  for (let i = aboveLines.length - 1; i >= 0; i--) {
+    const t = (aboveLines[i] ?? "").trim();
+    if (!t) continue;
+    if (!t.startsWith("|")) break;
+    const aboveCells = splitRow(t);
+    if (aboveCells.every((c) => /^[\s:|*-]*$/.test(c))) continue; // separator row
+    if (/^transportation$/i.test(clean(aboveCells[0] ?? ""))) {
+      vehicle = presence(clean(aboveCells[1] ?? ""));
+    }
+    break;
+  }
+
   const section = markdown.slice(hm.index);
   const lines = section.split("\n");
   const tableLines: string[] = [];
@@ -390,7 +433,7 @@ function parseV1Transport(
     driver_name: driverName,
     driver_phone: driverPhone,
     driver_email: null,
-    vehicle: null,
+    vehicle,
     license_plate: null,
     color: null,
     parking,
@@ -448,8 +491,11 @@ function extractAssignedNames(
   // Only use crew-context-validated matches (without context, stage labels like
   // "Pick Up Warehouse" would false-positive as names).
   if (crewMembers && crewMembers.length > 0) {
-    for (const cell of cells) {
-      const raw = clean(cell ?? "");
+    // Skip col0 — it is the stage label ("Pick Up Warehouse" etc.), which
+    // isNameLike would accept as a multi-word Title-Case "name" and return
+    // before reaching the real assigned-crew column.
+    for (let ci = 1; ci < cells.length; ci++) {
+      const raw = clean(cells[ci] ?? "");
       if (!raw) continue;
       // Skip cells that look like dates, times, or single-word tokens
       if (/^\d{1,2}\/\d{1,2}/.test(raw)) continue;

@@ -348,7 +348,7 @@ describe("runManualStageForFirstSeen", () => {
         sheet_name: "First Seen Sheet.xlsx",
         crew_count: 2,
         show_date: "2026-05-08",
-        unpublish_token: "11111111-1111-4111-8111-111111111111",
+        // M12.13: the raw bearer secret no longer persists in alert context; expiry stays.
         unpublish_token_expires_at: "2026-05-09T12:00:00.000Z",
       },
     });
@@ -361,11 +361,13 @@ describe("runManualStageForFirstSeen", () => {
           sheet_name: "First Seen Sheet.xlsx",
           crew_count: 2,
           show_date: "2026-05-08",
-          unpublish_token: "11111111-1111-4111-8111-111111111111",
+          // M12.13: the raw bearer secret no longer persists in alert context; expiry stays.
           unpublish_token_expires_at: "2026-05-09T12:00:00.000Z",
         },
       },
     ]);
+    // M12.13: assert the secret is absent (the exact-match assertions above already pin shape).
+    expect(tx.alerts[0]!.context).not.toHaveProperty("unpublish_token");
     expect(events).toEqual(["broadcast", "alert:first-published"]);
     expect(tx.autoPublishFirstSeen).toEqual({
       unpublishToken: "11111111-1111-4111-8111-111111111111",

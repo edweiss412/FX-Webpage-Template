@@ -15,6 +15,13 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
+
+// WM-R3: finalize-cas 409s carry per_row entries ({ drive_file_id, code })
+// for retained shadow rows (app/api/admin/onboarding/finalize-cas/route.ts
+// errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row })).
+// OK rows ride along in the array and are filtered before rendering.
+type CasPerRowEntry = { drive_file_id: string; code: string };
 
 type FinalizeCasResponse =
   | {
@@ -22,13 +29,14 @@ type FinalizeCasResponse =
       wizard_session_id: string;
       watched_folder_id: string;
     }
-  | { ok: false; code: string };
+  | { ok: false; code: string; per_row?: CasPerRowEntry[] };
 
 type Props = { sessionId: string };
 
 type State =
   | { kind: "idle" }
   | { kind: "running" }
+  | { kind: "per_row"; rows: CasPerRowEntry[] }
   | { kind: "error"; copy: string; code: string | null }
   | { kind: "complete" };
 
@@ -55,6 +63,17 @@ export function RunFinalCASButton({ sessionId: _sessionId }: Props) {
       });
       const body = (await response.json()) as FinalizeCasResponse;
       if ("ok" in body && body.ok === false) {
+        // WM-R3: per-row entries (retained shadow rows) get their own
+        // catalog copy INSTEAD OF the generic top-level line — a
+        // corrupt-retained shadow blocks finalize on every retry, so the
+        // operator needs the per-file recovery copy (cleanup for corrupt
+        // rows; outdated rows self-heal on the next finalize click per the
+        // master-spec contract).
+        const failedRows = (body.per_row ?? []).filter((row) => row.code !== "OK");
+        if (failedRows.length > 0) {
+          setState({ kind: "per_row", rows: failedRows });
+          return;
+        }
         setState({
           kind: "error",
           copy: lookupDougFacing(body.code) ?? GENERIC_ERROR,
@@ -81,13 +100,34 @@ export function RunFinalCASButton({ sessionId: _sessionId }: Props) {
         {state.kind === "running" ? "Publishing…" : "Publish all"}
       </button>
 
+      {state.kind === "per_row" ? (
+        <div
+          role="alert"
+          data-testid="run-final-cas-per-row"
+          className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
+        >
+          <p className="text-sm font-semibold">Some sheets are blocking the final publish step.</p>
+          <ul className="flex flex-col gap-2">
+            {state.rows.map((row) => (
+              <li key={row.drive_file_id} className="flex flex-col gap-1 text-sm">
+                <span className="font-medium">{row.drive_file_id}</span>
+                <span className="text-text-subtle">
+                  {lookupDougFacing(row.code) ?? GENERIC_ERROR}
+                </span>
+                <HelpAffordance code={row.code} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {state.kind === "error" ? (
         <div
           role="alert"
           data-testid="run-final-cas-error"
           className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
         >
-          <p>{state.copy}</p>
+          <p>{renderEmphasis(state.copy)}</p>
           <HelpAffordance code={state.code} />
         </div>
       ) : null}

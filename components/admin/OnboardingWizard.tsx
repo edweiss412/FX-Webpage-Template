@@ -41,9 +41,7 @@ type OnboardingWizardProps = {
   searchParams: { step?: string };
 };
 
-type ServiceAccountResult =
-  | { ok: true; email: string }
-  | { ok: false };
+type ServiceAccountResult = { ok: true; email: string } | { ok: false };
 
 function readServiceAccountEmail(): ServiceAccountResult {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -100,9 +98,7 @@ function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
             aria-current={isActive ? "step" : undefined}
             className={[
               "flex size-7 items-center justify-center rounded-pill text-xs font-semibold tabular-nums",
-              isActive
-                ? "bg-accent text-accent-text"
-                : "bg-surface-sunken text-text-subtle",
+              isActive ? "bg-accent text-accent-text" : "bg-surface-sunken text-text-subtle",
             ].join(" ")}
           >
             {n}
@@ -258,8 +254,8 @@ async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) 
       >
         <p className="font-semibold">We could not load your sheets.</p>
         <p className="text-sm">
-          The admin database query failed. Refresh in a moment. If this keeps
-          happening, contact the developer.
+          This is usually temporary. Refresh in a moment. If it keeps happening, contact the
+          developer.
         </p>
       </section>
     );
@@ -268,10 +264,7 @@ async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) 
     <div className="flex flex-col gap-section-gap">
       <Step3Review wizardSessionId={wizardSessionId} rows={result.rows} />
       {result.rows.length > 0 ? (
-        <FinalizeButton
-          wizardSessionId={wizardSessionId}
-          disabled={!result.allResolved}
-        />
+        <FinalizeButton wizardSessionId={wizardSessionId} disabled={!result.allResolved} />
       ) : null}
     </div>
   );
@@ -285,18 +278,13 @@ function OperatorErrorBlock() {
       aria-labelledby="wizard-operator-error-heading"
       className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
     >
-      <h2
-        id="wizard-operator-error-heading"
-        className="text-lg font-semibold"
-      >
+      <h2 id="wizard-operator-error-heading" className="text-lg font-semibold">
         Setup is paused
       </h2>
       <p className="max-w-prose text-base">{entry.dougFacing}</p>
       {entry.helpfulContext ? (
         <details className="text-sm">
-          <summary className="cursor-pointer font-medium">
-            What does this mean?
-          </summary>
+          <summary className="cursor-pointer font-medium">What does this mean?</summary>
           <p className="mt-2 max-w-prose">{entry.helpfulContext}</p>
         </details>
       ) : null}
@@ -304,10 +292,7 @@ function OperatorErrorBlock() {
   );
 }
 
-export async function OnboardingWizard({
-  settings,
-  searchParams,
-}: OnboardingWizardProps) {
+export async function OnboardingWizard({ settings, searchParams }: OnboardingWizardProps) {
   const service = readServiceAccountEmail();
   const step = pickStep(searchParams.step);
 
@@ -344,12 +329,10 @@ export async function OnboardingWizard({
               data-testid="wizard-step3-no-session"
               className="flex flex-col gap-3 rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
             >
-              <p className="font-semibold text-text-strong">
-                Nothing scanned yet.
-              </p>
+              <p className="font-semibold text-text-strong">Nothing scanned yet.</p>
               <p>
-                Go back to step 2 and verify your folder. Once the scan
-                finishes we will list every sheet here for review.
+                Go back to step 2 and verify your folder. Once the scan finishes we will list every
+                sheet here for review.
               </p>
             </section>
           ) : null}

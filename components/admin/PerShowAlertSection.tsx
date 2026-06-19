@@ -18,10 +18,13 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
+import { UndoAutoPublishButton } from "@/components/admin/UndoAutoPublishButton";
+import type { UndoAutoPublishOutcome } from "@/app/admin/show/[slug]/_actions/undoAutoPublish";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 
 const UNRESOLVED_PLACEHOLDER_RE = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
 
@@ -49,20 +52,45 @@ type PerShowAlertSectionProps = {
   slug: string;
   /** Optional ?alert_id query param value — highlights the matching row. */
   highlightAlertId?: string | null;
+  /**
+   * M12.13 §6.3 — auto-publish undo window state (computed on the page from
+   * `unpublish_token_expires_at`). When true, SHOW_FIRST_PUBLISHED rows render
+   * the shared undo action after the message. Optional/false-default so existing
+   * call sites and tests that don't thread it keep their behavior (no undo
+   * action). The bound (slug-bound, useActionState-shaped) undo action is
+   * required only when the flag can be true.
+   */
+  undoWindowOpen?: boolean;
+  undoAutoPublishAction?: (
+    prevState: UndoAutoPublishOutcome | null,
+    formData: FormData,
+  ) => UndoAutoPublishOutcome | Promise<UndoAutoPublishOutcome>;
 };
+
+/** §6.3 — the only alert code that carries an in-app undo action. */
+const UNDO_ALERT_CODE = "SHOW_FIRST_PUBLISHED";
 
 // §7 fix: interpolate the alert's context so placeholders like `<sheet-name>`
 // resolve to the real value instead of leaking literally. Guards not-in-catalog
 // codes AND any still-unresolved `<…>` placeholder (missing context key) → null,
 // so the caller's Doug-facing fallback shows rather than a leaked token
 // (invariant 5). Call-site-only change; lookup.ts's contract is untouched.
-function safeDougFacing(code: string, context: Record<string, unknown> | null): string | null {
+// Returns the RAW catalog template when (a) the code is cataloged, (b) it
+// has dougFacing copy, and (c) interpolating the alert's context leaves no
+// unresolved <placeholder> token. The caller renders the template via
+// renderCatalogEmphasis so param values (sheet names!) are inserted as
+// opaque text after emphasis parsing, never parsed as markup (Codex R1).
+function safeDougFacingTemplate(
+  code: string,
+  context: Record<string, unknown> | null,
+): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
-  const doug = messageFor(code as MessageCode, (context as MessageParams | null) ?? undefined)
-    .dougFacing;
-  if (!doug) return null;
-  if (UNRESOLVED_PLACEHOLDER_RE.test(doug)) return null;
-  return doug;
+  const params = (context as MessageParams | null) ?? undefined;
+  const template = messageFor(code as MessageCode).dougFacing;
+  if (!template) return null;
+  const interpolated = messageFor(code as MessageCode, params).dougFacing;
+  if (!interpolated || UNRESOLVED_PLACEHOLDER_RE.test(interpolated)) return null;
+  return template;
 }
 
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row
@@ -110,6 +138,8 @@ export async function PerShowAlertSection({
   showId,
   slug,
   highlightAlertId,
+  undoWindowOpen = false,
+  undoAutoPublishAction,
 }: PerShowAlertSectionProps) {
   const result = await fetchPerShowAlerts(showId);
 
@@ -120,13 +150,10 @@ export async function PerShowAlertSection({
         aria-labelledby="per-show-alert-section-heading"
         className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
       >
-        <h2
-          id="per-show-alert-section-heading"
-          className="text-base font-semibold"
-        >
+        <h2 id="per-show-alert-section-heading" className="text-base font-semibold">
           Could not load alerts
         </h2>
-        <p>The admin database query failed. Refresh in a moment.</p>
+        <p>This is usually temporary. Refresh in a moment.</p>
       </section>
     );
   }
@@ -147,10 +174,7 @@ export async function PerShowAlertSection({
       className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
     >
       <div className="flex items-center gap-2">
-        <h2
-          id="per-show-alert-section-heading"
-          className="text-lg font-semibold"
-        >
+        <h2 id="per-show-alert-section-heading" className="text-lg font-semibold">
           Alerts for this show ({result.length})
         </h2>
         <HelpTooltip
@@ -158,12 +182,10 @@ export async function PerShowAlertSection({
           testId="help-affordance--per-show-alerts--tooltip"
         >
           <p>
-            Alerts collect anything we noticed about this show that you
-            should know about: parse warnings, ambiguous crew rows, sync
-            issues, and the like. Tap What does this mean on any alert
-            for a plain-language explanation. Mark resolved once you have
-            looked into it; the alert will return if the underlying
-            problem reappears.
+            Alerts collect anything we noticed about this show that you should know about: parse
+            warnings, ambiguous crew rows, sync issues, and the like. Tap What does this mean on any
+            alert for a plain-language explanation. Mark resolved once you have looked into it; the
+            alert will return if the underlying problem reappears.
           </p>
           <p className="mt-2">
             {/* aria-label drops the decorative "→" from the accessible name
@@ -181,7 +203,7 @@ export async function PerShowAlertSection({
       </div>
       <ul className="flex flex-col gap-3">
         {result.map((alert) => {
-          const copy = safeDougFacing(alert.code, alert.context);
+          const copyTemplate = safeDougFacingTemplate(alert.code, alert.context);
           const isHighlighted = highlightAlertId === alert.id;
           // R5-HIGH-1: TILE_PROJECTION_FETCH_FAILED carries the curated set of
           // crew-page data domains whose sub-query failed in context.failedKeys
@@ -206,7 +228,12 @@ export async function PerShowAlertSection({
               }`}
             >
               <p className="text-sm font-semibold text-text-strong">
-                {copy ?? "Something needs your attention on this show."}
+                {copyTemplate
+                  ? renderCatalogEmphasis(
+                      copyTemplate,
+                      (alert.context as MessageParams | null) ?? undefined,
+                    )
+                  : "Something needs your attention on this show."}
               </p>
               <HelpAffordance
                 code={alert.code}
@@ -219,6 +246,18 @@ export async function PerShowAlertSection({
                 >
                   Failed sources: {failedKeys.join(", ")}
                 </p>
+              ) : null}
+              {/* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows carry the shared in-app
+                  undo action while the token window is open. The SAME component +
+                  bound server action as the footer button (copy/behavior cannot
+                  drift). When the window closes (24h lapse or manual publish →
+                  no token), this disappears and the alert remains as history. */}
+              {undoWindowOpen && alert.code === UNDO_ALERT_CODE && undoAutoPublishAction ? (
+                <UndoAutoPublishButton
+                  slug={slug}
+                  undoAction={undoAutoPublishAction}
+                  testId="undo-auto-publish-alert"
+                />
               ) : null}
               <p className="text-xs text-text-subtle tabular-nums">
                 Raised{" "}

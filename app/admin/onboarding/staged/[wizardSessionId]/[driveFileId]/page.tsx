@@ -12,7 +12,9 @@
  *     requireAdmin here defensively).
  *   - SELECT pending_syncs WHERE wizard_session_id = $wsid AND
  *     drive_file_id = $dfid AND wizard_approved = FALSE.
- *   - Row-not-found → 404 with STALE_DISCARD_REJECTED context.
+ *   - Row-not-found / malformed session id → rendered "already resolved"
+ *     state page (F3, onboarding-fixups spec §5) — the normal post-Apply
+ *     state, not a 404.
  *   - Row-found → render <StagedReviewCard mode='wizard_failed_reapply' />
  *     with last_finalize_failure_code surfaced via messageFor.
  *
@@ -21,15 +23,22 @@
  * `shows` row exists yet for failed wizard rows; existing-show
  * re-applies have their own /admin/show/[slug] entry point).
  */
-import { notFound } from "next/navigation";
+import { cache } from "react";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Re-apply staged sheet · Admin · FXAV" };
+
+// Tab titles follow the sibling-page "X · Admin · FXAV" form (e.g.
+// app/admin/show/staged/[stagedId]/page.tsx:34). The resolved branch gets its
+// own title — a static "Re-apply staged sheet" tab label is misleading when
+// the body says nothing is left to re-apply (impeccable MEDIUM).
+const REAPPLY_TITLE = "Re-apply staged sheet · Admin · FXAV";
+const RESOLVED_TITLE = "Sheet already resolved · Admin · FXAV";
 
 type PageProps = {
   params: Promise<{ wizardSessionId: string; driveFileId: string }>;
@@ -46,9 +55,50 @@ type WizardStagedRow = {
   source_kind: "cron" | "push" | "manual" | "onboarding_scan";
 };
 
-function summaryFromParseResult(
-  parseResult: WizardStagedRow["parse_result"],
-): string | undefined {
+// pending_syncs.wizard_session_id is uuid — a malformed id would 400 at PostgREST
+// and surface as a FAKE infra error. Treat it as indistinguishable-from-consumed
+// (spec §5 guard conditions; no row-existence leak). Local-const convention per
+// lib/auth/picker/cookieEnvelope.ts:6.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// F3 (spec §5): the row being gone is the NORMAL post-Apply state (stale tab /
+// back-nav) — render a calm resolved page, not a 404. State page, not an error
+// code: no §12.4 row (invariant 5 vacuously satisfied).
+function AlreadyResolvedState() {
+  return (
+    <main
+      data-testid="wizard-staged-reapply-resolved"
+      className="mx-auto flex max-w-2xl flex-col gap-section-gap"
+    >
+      <header className="flex flex-col gap-2">
+        <h2 className="text-2xl font-semibold text-text-strong">
+          This sheet is already taken care of.
+        </h2>
+        <p className="max-w-prose text-base text-text-subtle">
+          It was applied or set aside, possibly from another tab. Nothing else is needed here.
+        </p>
+      </header>
+      <nav aria-label="Wizard navigation" className="flex flex-wrap gap-x-6 gap-y-2">
+        <Link
+          href="/admin/onboarding"
+          data-testid="wizard-staged-resolved-back-to-setup"
+          className="inline-flex min-h-tap-min items-center text-sm text-text-subtle hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Back to setup
+        </Link>
+        <Link
+          href="/admin"
+          data-testid="wizard-staged-resolved-go-to-dashboard"
+          className="inline-flex min-h-tap-min items-center text-sm text-text-subtle hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Go to dashboard
+        </Link>
+      </nav>
+    </main>
+  );
+}
+
+function summaryFromParseResult(parseResult: WizardStagedRow["parse_result"]): string | undefined {
   if (!parseResult || typeof parseResult !== "object") return undefined;
   const title = parseResult.show?.title;
   return typeof title === "string" && title.length > 0 ? title : undefined;
@@ -95,13 +145,43 @@ export async function fetchWizardStagedRow(
   }
 }
 
+// Per-request dedupe so generateMetadata + the page body share ONE
+// pending_syncs query (React request cache; passthrough outside a request).
+const fetchWizardStagedRowCached = cache(fetchWizardStagedRow);
+
+export async function generateMetadata({ params }: PageProps) {
+  const { wizardSessionId, driveFileId } = await params;
+  // Mirrors the page's branch logic: malformed id short-circuits pre-query
+  // (uuid column — PostgREST would 400); row gone = resolved. Infra errors
+  // keep the re-apply title — the body renders the retry cue.
+  if (!UUID_RE.test(wizardSessionId)) {
+    return { title: RESOLVED_TITLE };
+  }
+  const result = await fetchWizardStagedRowCached(wizardSessionId, driveFileId);
+  if (result === null) {
+    return { title: RESOLVED_TITLE };
+  }
+  return { title: REAPPLY_TITLE };
+}
+
 export default async function WizardStagedReapplyPage({ params }: PageProps) {
   await requireAdmin();
   const { wizardSessionId, driveFileId } = await params;
 
-  const result = await fetchWizardStagedRow(wizardSessionId, driveFileId);
+  // Malformed session id: indistinguishable from consumed without leaking row
+  // existence — same state page, and never sent to PostgREST (uuid column).
+  if (!UUID_RE.test(wizardSessionId)) {
+    return <AlreadyResolvedState />;
+  }
 
-  if (result !== null && typeof result === "object" && "kind" in result && result.kind === "infra_error") {
+  const result = await fetchWizardStagedRowCached(wizardSessionId, driveFileId);
+
+  if (
+    result !== null &&
+    typeof result === "object" &&
+    "kind" in result &&
+    result.kind === "infra_error"
+  ) {
     return (
       <main
         data-testid="wizard-staged-reapply-infra-error"
@@ -112,8 +192,8 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
             We could not load that staged sheet.
           </h2>
           <p className="max-w-prose text-base text-text-subtle">
-            The admin database query failed. Refresh in a moment. If this
-            keeps happening, contact the developer.
+            This is usually temporary. Refresh in a moment. If it keeps happening, contact the
+            developer.
           </p>
         </header>
       </main>
@@ -121,13 +201,24 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
   }
 
   if (result === null) {
-    // Row not found — likely re-applied by a sibling tab or discarded.
-    notFound();
+    // Row gone = applied or set aside (possibly another tab) — the normal
+    // post-Apply state, not an error (F3, spec §5).
+    return <AlreadyResolvedState />;
   }
 
   const row = result as WizardStagedRow;
 
+  // WM-R7 finding 2: array-level `ok` is not enough — bare-cast ELEMENTS
+  // (`[null]`, missing-field objects) crash StagedReviewCard's
+  // `item.id`/`item.invariant` derefs and kill the recovery page. Run the
+  // shared element guard (lib/staging/reviewPayloadGuards.ts) and fail closed
+  // into the card's existing corrupt state, mirroring the Apply-path
+  // STAGED_REVIEW_ITEMS_CORRUPT posture.
   const parsedReviewItems = parseTriggeredReviewItems(row.triggered_review_items);
+  const reviewItems =
+    parsedReviewItems.ok && parsedReviewItems.items.every(isStructurallyValidReviewItem)
+      ? parsedReviewItems.items
+      : null;
   const stagedRow: StagedRow = {
     driveFileId: row.drive_file_id,
     stagedId: row.staged_id,
@@ -135,8 +226,8 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
     stagedModifiedTime: row.staged_modified_time,
     baseModifiedTime: row.base_modified_time,
     warningSummary: "",
-    triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
-    reviewItemsCorrupt: !parsedReviewItems.ok,
+    triggeredReviewItems: reviewItems ?? [],
+    reviewItemsCorrupt: reviewItems === null,
     ...(summaryFromParseResult(row.parse_result) !== undefined
       ? { parseSummaryLine: summaryFromParseResult(row.parse_result)! }
       : {}),
@@ -166,12 +257,10 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
         >
           Setup
         </p>
-        <h2 className="text-2xl font-semibold text-text-strong">
-          Re-apply this sheet
-        </h2>
+        <h2 className="text-2xl font-semibold text-text-strong">Re-apply this sheet</h2>
         <p className="max-w-prose text-base text-text-subtle">
-          The last publish attempt could not finish this sheet. Re-make any
-          choices below and click Apply, or set the sheet aside.
+          The last publish attempt could not finish this sheet. Re-make any choices below and click
+          Apply, or set the sheet aside.
         </p>
       </header>
 

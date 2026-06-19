@@ -35,6 +35,7 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 
 type PerRowFailure = {
   drive_file_id: string;
@@ -59,7 +60,13 @@ type FinalizeBatchResponse = {
   per_row: PerRowEntry[];
 };
 
-type FinalizeErrorResponse = { ok: false; code: string };
+// WM-R3: finalize-cas 409s carry per_row entries ({ drive_file_id, code })
+// for retained shadow rows (app/api/admin/onboarding/finalize-cas/route.ts
+// errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row })).
+// OK rows ride along in the array and are filtered before rendering.
+type CasPerRowEntry = { drive_file_id: string; code: string };
+
+type FinalizeErrorResponse = { ok: false; code: string; per_row?: CasPerRowEntry[] };
 
 type FinalizeResponse = FinalizeBatchResponse | FinalizeErrorResponse;
 
@@ -80,6 +87,7 @@ type ButtonState =
   | { kind: "idle" }
   | { kind: "running"; phase: "batch" | "cas"; batchIndex: number }
   | { kind: "race_row"; failures: PerRowFailure[] }
+  | { kind: "cas_per_row"; rows: CasPerRowEntry[] }
   | { kind: "error"; copy: string; code: string | null }
   | { kind: "complete" };
 
@@ -93,7 +101,10 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 const GENERIC_ERROR =
   "The publish step could not complete. Refresh and try again, or contact the developer if this keeps happening.";
 
-export function FinalizeButton({ wizardSessionId: _wizardSessionId, disabled }: FinalizeButtonProps) {
+export function FinalizeButton({
+  wizardSessionId: _wizardSessionId,
+  disabled,
+}: FinalizeButtonProps) {
   const router = useRouter();
   const [state, setState] = useState<ButtonState>({ kind: "idle" });
 
@@ -162,6 +173,16 @@ export function FinalizeButton({ wizardSessionId: _wizardSessionId, disabled }: 
     }
     const casBody = (await casResponse.json()) as FinalizeCasResponse;
     if ("ok" in casBody && casBody.ok === false) {
+      // WM-R3: per-row entries (retained shadow rows) get their own catalog
+      // copy INSTEAD OF the generic top-level line — a corrupt-retained
+      // shadow blocks finalize on every retry, so the operator needs the
+      // per-file recovery copy (cleanup for corrupt rows; outdated rows
+      // self-heal on the next finalize click per the master-spec contract).
+      const casFailedRows = (casBody.per_row ?? []).filter((row) => row.code !== "OK");
+      if (casFailedRows.length > 0) {
+        setState({ kind: "cas_per_row", rows: casFailedRows });
+        return;
+      }
       setState({
         kind: "error",
         copy: lookupDougFacing(casBody.code) ?? GENERIC_ERROR,
@@ -203,10 +224,7 @@ export function FinalizeButton({ wizardSessionId: _wizardSessionId, disabled }: 
           </p>
           <ul className="flex flex-col gap-2">
             {state.failures.map((failure) => (
-              <li
-                key={failure.drive_file_id}
-                className="flex flex-col gap-1 text-sm"
-              >
+              <li key={failure.drive_file_id} className="flex flex-col gap-1 text-sm">
                 <span className="font-medium">{failure.drive_file_id}</span>
                 <span className="text-text-subtle">
                   {lookupDougFacing(failure.code) ??
@@ -226,13 +244,34 @@ export function FinalizeButton({ wizardSessionId: _wizardSessionId, disabled }: 
         </div>
       ) : null}
 
+      {state.kind === "cas_per_row" ? (
+        <div
+          role="alert"
+          data-testid="wizard-finalize-cas-per-row"
+          className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
+        >
+          <p className="text-sm font-semibold">Some sheets are blocking the final publish step.</p>
+          <ul className="flex flex-col gap-2">
+            {state.rows.map((row) => (
+              <li key={row.drive_file_id} className="flex flex-col gap-1 text-sm">
+                <span className="font-medium">{row.drive_file_id}</span>
+                <span className="text-text-subtle">
+                  {lookupDougFacing(row.code) ?? GENERIC_ERROR}
+                </span>
+                <HelpAffordance code={row.code} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {state.kind === "error" ? (
         <div
           role="alert"
           data-testid="wizard-finalize-error"
           className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
         >
-          <p>{state.copy}</p>
+          <p>{renderEmphasis(state.copy)}</p>
           <HelpAffordance code={state.code} />
         </div>
       ) : null}

@@ -1,6 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { ParsedSheet } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
 import {
@@ -98,13 +96,12 @@ describe("sha256Base64Url", () => {
 });
 
 describe("embedded image extraction in enrichWithDrivePins", () => {
-  test("production Sheets client requests and preserves drawing MIME type", () => {
-    const source = readFileSync(join(process.cwd(), "lib/sync/runScheduledCronSync.ts"), "utf8");
-
-    expect(source).toContain("imageProperties(contentUrl,mimeType)");
-    expect(source).toContain("drawing.imageProperties?.mimeType");
-    expect(source).not.toMatch(/mimeType:\s*"image\/png"/);
-  });
+  // NOTE: the former "production Sheets client requests and preserves drawing
+  // MIME type" source pin asserted a `sheets.drawings.*` fields mask that the
+  // Sheets v4 schema does not define — the live API rejected it with 400
+  // INVALID_ARGUMENT, failing every cron full re-parse. The inverse contract
+  // (mask is exactly `sheets(properties(title))`, no drawn-image enumeration)
+  // is pinned in tests/sync/defaultDriveClientSheetsFieldsMask.test.ts.
 
   test("extracts DIAGRAMS tab embedded images case-insensitively with revision id and content fingerprint", async () => {
     const result = await enrichWithDrivePins(

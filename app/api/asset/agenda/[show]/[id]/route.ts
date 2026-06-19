@@ -31,6 +31,7 @@ import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getDriveClient } from "@/lib/drive/client";
+import { pickStringHeader, type GaxiosResponseHeaders } from "@/lib/drive/responseHeaders";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validatePickerAssetSession } from "@/lib/auth/picker/validatePickerAssetSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -55,17 +56,6 @@ const DRIVE_FILE_ID_RE = /^[A-Za-z0-9_-]{10,128}$/;
 //   - `bytes=-<suffix>` (last N bytes; PDF.js may use this)
 // Multi-range / malformed → 416.
 const SINGLE_RANGE_RE = /^bytes=(?:\d+-\d*|-\d+)$/;
-
-function pickStringHeader(
-  headers: Record<string, string | string[] | undefined> | undefined,
-  name: string,
-): string | null {
-  if (!headers) return null;
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  if (typeof value === "string") return value;
-  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
-  return null;
-}
 
 type RouteContext = {
   params: Promise<{ show: string; id: string }>;
@@ -267,7 +257,9 @@ async function authorizeAgendaRequest(
       ): Promise<{
         data: unknown;
         status?: number;
-        headers?: Record<string, string | string[] | undefined>;
+        // Gaxios 7.x returns a WHATWG Headers instance; older shapes are
+        // plain objects. Read ONLY via pickStringHeader.
+        headers?: GaxiosResponseHeaders;
       }>;
     };
   };
@@ -294,7 +286,14 @@ async function authorizeAgendaRequest(
     return { ok: false, response: gone() };
   }
 
-  return { ok: true, show, id, meta, reportedSize, drive: drive as ReturnType<typeof getDriveClient> };
+  return {
+    ok: true,
+    show,
+    id,
+    meta,
+    reportedSize,
+    drive: drive as ReturnType<typeof getDriveClient>,
+  };
 }
 
 // Codex R23 P2: explicit HEAD handler. Next's App Router auto-implements
@@ -333,7 +332,8 @@ export async function HEAD(request: NextRequest, context: RouteContext): Promise
   if (satisfiableRange && Number.isFinite(authz.reportedSize)) {
     const sliceLen = satisfiableRange.end - satisfiableRange.start + 1;
     headers["Content-Length"] = String(sliceLen);
-    headers["Content-Range"] = `bytes ${satisfiableRange.start}-${satisfiableRange.end}/${authz.reportedSize}`;
+    headers["Content-Range"] =
+      `bytes ${satisfiableRange.start}-${satisfiableRange.end}/${authz.reportedSize}`;
     return new Response(null, { status: 206, headers });
   }
   if (Number.isFinite(authz.reportedSize)) {
@@ -503,9 +503,23 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       // Fail-closed unless we can affirmatively prove total <= cap;
       // destroy the upstream Node stream to release the socket.
       if (driveStatus === 206) {
-        const totalMatch = contentRange?.match(/^bytes \d+-\d+\/(\d+)$/);
-        const total = totalMatch ? Number(totalMatch[1]) : NaN;
-        if (!Number.isFinite(total) || total > MAX_AGENDA_BYTES) {
+        const rangeMatch = contentRange?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+        const total = rangeMatch ? Number(rangeMatch[3]) : NaN;
+        // Adversarial R3 (gaxios-headers follow-up): the verified
+        // Content-Range is authoritative for THIS response's byte count —
+        // sliceLen = e-s+1. An upstream Content-Length that disagrees
+        // (e.g. full-file `22` alongside `bytes 0-9/22`) would forward an
+        // inconsistent pair; per Codex R20 P1 that tells PDF.js a 10-byte
+        // slice is the entire file — it stalls or corrupts the
+        // incremental load. Fail closed on mismatch (or a degenerate
+        // slice); derive from Content-Range when Content-Length is absent.
+        const sliceLen = rangeMatch ? Number(rangeMatch[2]) - Number(rangeMatch[1]) + 1 : NaN;
+        if (
+          !Number.isFinite(total) ||
+          total > MAX_AGENDA_BYTES ||
+          !(sliceLen >= 1) ||
+          (!!driveContentLength && Number(driveContentLength) !== sliceLen)
+        ) {
           const data = bytesResult.data;
           if (data instanceof Readable) {
             data.destroy();
@@ -514,27 +528,20 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           }
           return gone();
         }
-      }
-      if (contentRange) headers["Content-Range"] = contentRange;
-      // Codex R20 P1: Content-Length must reflect THIS response's byte
-      // count, not the full file size. Reporting the full size on a
-      // 206 partial tells PDF.js a 10-byte slice is the entire file —
-      // it stalls or corrupts the incremental load.
-      if (driveContentLength) {
-        headers["Content-Length"] = driveContentLength;
-      } else if (driveStatus === 206 && contentRange) {
-        // Derive slice length from `Content-Range: bytes <s>-<e>/<total>`
-        // when upstream omitted Content-Length.
-        const match = contentRange.match(/^bytes (\d+)-(\d+)\//);
-        if (match) {
-          const sliceLen = Number(match[2]) - Number(match[1]) + 1;
-          if (Number.isFinite(sliceLen) && sliceLen >= 0) {
-            headers["Content-Length"] = String(sliceLen);
-          }
+        // rangeMatch is non-null here (the guard above failed closed on
+        // any unparseable Content-Range), so contentRange is a string.
+        headers["Content-Range"] = contentRange as string;
+        // Codex R20 P1: Content-Length must reflect THIS response's byte
+        // count, not the full file size.
+        headers["Content-Length"] = String(sliceLen);
+      } else {
+        if (contentRange) headers["Content-Range"] = contentRange;
+        if (driveContentLength) {
+          headers["Content-Length"] = driveContentLength;
+        } else if (driveStatus === 200 && Number.isFinite(reportedSize)) {
+          // Only use metadata size on a FULL 200 response. Never on 206.
+          headers["Content-Length"] = String(reportedSize);
         }
-      } else if (driveStatus === 200 && Number.isFinite(reportedSize)) {
-        // Only use metadata size on a FULL 200 response. Never on 206.
-        headers["Content-Length"] = String(reportedSize);
       }
       return new Response(stream, { status: driveStatus, headers });
     } catch (err) {

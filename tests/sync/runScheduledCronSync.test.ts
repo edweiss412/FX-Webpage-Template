@@ -227,10 +227,7 @@ function classMethodSource(
   );
   let method: ts.MethodDeclaration | null = null;
   const visit = (node: ts.Node): void => {
-    if (
-      ts.isClassDeclaration(node) &&
-      node.name?.text === className
-    ) {
+    if (ts.isClassDeclaration(node) && node.name?.text === className) {
       for (const member of node.members) {
         if (
           ts.isMethodDeclaration(member) &&
@@ -505,21 +502,27 @@ describe("processOneFile", () => {
     const inserted = await insertFirstSeenShowWithSlugRetry({
       baseSlug: "client-show-2026-05",
       insert: async (slug) => ({ id: "show-1", slug }),
+      isSlugTaken: async () => {
+        throw new Error("isSlugTaken must not be called when the insert returns a row");
+      },
     });
 
     expect(inserted).toEqual({ id: "show-1", slug: "client-show-2026-05" });
   });
 
-  test("first-seen show insert retries slug collisions with numeric suffixes", async () => {
+  test("first-seen show insert retries empty-return slug collisions with numeric suffixes", async () => {
     const attempted: string[] = [];
 
     const inserted = await insertFirstSeenShowWithSlugRetry({
       baseSlug: "client-show-2026-05",
+      // ON CONFLICT DO NOTHING surfaces a collision as an EMPTY RETURN, never a
+      // thrown 23505 — a thrown 23505 would have aborted the real transaction.
       insert: async (slug) => {
         attempted.push(slug);
-        if (attempted.length < 3) throw pgUniqueViolation();
+        if (attempted.length < 3) return null;
         return { id: "show-1", slug };
       },
+      isSlugTaken: async () => true,
     });
 
     expect(attempted).toEqual([
@@ -528,6 +531,24 @@ describe("processOneFile", () => {
       "client-show-2026-05-3",
     ]);
     expect(inserted).toEqual({ id: "show-1", slug: "client-show-2026-05-3" });
+  });
+
+  test("first-seen show insert returns null (caller's stale path) when the empty return was a drive_file_id conflict", async () => {
+    const attempted: string[] = [];
+
+    const inserted = await insertFirstSeenShowWithSlugRetry({
+      baseSlug: "client-show-2026-05",
+      insert: async (slug) => {
+        attempted.push(slug);
+        return null;
+      },
+      isSlugTaken: async () => false,
+    });
+
+    // Single attempt: the conflict was NOT on the slug key, so retrying suffixes
+    // would loop pointlessly — null preserves applyShowSnapshot's stale contract.
+    expect(attempted).toEqual(["client-show-2026-05"]);
+    expect(inserted).toBeNull();
   });
 
   test("first-seen show insert stops after the bounded slug-collision retry budget", async () => {
@@ -539,8 +560,9 @@ describe("processOneFile", () => {
         maxAttempts: 3,
         insert: async (slug) => {
           attempted.push(slug);
-          throw pgUniqueViolation();
+          return null;
         },
+        isSlugTaken: async () => true,
       }),
     ).rejects.toMatchObject({
       code: "SHOW_SLUG_COLLISION_RETRY_EXHAUSTED",
@@ -551,6 +573,36 @@ describe("processOneFile", () => {
       "client-show-2026-05-3",
     ]);
     expect(MAX_SHOW_SLUG_INSERT_ATTEMPTS).toBeGreaterThanOrEqual(5);
+  });
+
+  test("first-seen show insert NEVER catch-and-continues a thrown unique violation (25P02 abort class)", async () => {
+    // Catching 23505 and issuing the next INSERT on the SAME transaction is the
+    // exact bug this contract pins: real Postgres aborts the transaction on the
+    // first error, so attempt 2 dies with 25P02 in_failed_sql_transaction. Any
+    // thrown error — INCLUDING 23505 — must propagate on the first attempt.
+    const attempted: string[] = [];
+
+    await expect(
+      insertFirstSeenShowWithSlugRetry({
+        baseSlug: "client-show-2026-05",
+        insert: async (slug) => {
+          attempted.push(slug);
+          throw pgUniqueViolation();
+        },
+        isSlugTaken: async () => true,
+      }),
+    ).rejects.toMatchObject({ code: "23505" });
+    expect(attempted).toEqual(["client-show-2026-05"]);
+  });
+
+  test("first-seen INSERT SQL is conflict-free for EVERY unique key (bare ON CONFLICT DO NOTHING)", () => {
+    const { method, sourceFile } = classMethodSource("PostgresPipelineTx", "applyShowSnapshot");
+    const source = method.getText(sourceFile);
+
+    // Negative-regression pin: a single-arbiter clause re-opens the 25P02 abort
+    // for the OTHER unique key (shows_slug_key vs shows_drive_file_id_key).
+    expect(source).toMatch(/on conflict do nothing/i);
+    expect(source).not.toMatch(/on conflict \(/i);
   });
 
   test("production SQL adapter writes parse_error for existing-show hard failures", () => {
@@ -749,7 +801,7 @@ describe("processOneFile", () => {
         sheet_name: "file-1 Sheet",
         crew_count: 1,
         show_date: "2026-05-09",
-        unpublish_token: "11111111-1111-4111-8111-111111111111",
+        // M12.13: the raw bearer secret no longer persists in alert context; expiry stays.
         unpublish_token_expires_at: "2026-05-09T12:00:00.000Z",
       },
     });
@@ -909,9 +961,7 @@ describe("processOneFile", () => {
         deferredAtModifiedTime: new Date(INSTANT) as unknown as string,
       },
     ];
-    const withShowLock = vi.fn(async (_driveFileId, fn) =>
-      fn(fakeTx as LockedShowTx<PipelineTx>),
-    );
+    const withShowLock = vi.fn(async (_driveFileId, fn) => fn(fakeTx as LockedShowTx<PipelineTx>));
     const runPhase1 = vi.fn(async () => ({ outcome: "pass" as const }));
     const syncDeps = deps({
       withShowLock,
@@ -949,9 +999,7 @@ describe("processOneFile", () => {
         deferredAtModifiedTime: new Date("2026-05-09T03:44:06.040Z") as unknown as string,
       },
     ];
-    const withShowLock = vi.fn(async (_driveFileId, fn) =>
-      fn(fakeTx as LockedShowTx<PipelineTx>),
-    );
+    const withShowLock = vi.fn(async (_driveFileId, fn) => fn(fakeTx as LockedShowTx<PipelineTx>));
     const syncDeps = deps({
       withShowLock,
       perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "cron" as const })),

@@ -41,6 +41,11 @@ export type Phase2Tx = ApplyParseResultTx & {
       unpublishToken: string;
       unpublishTokenExpiresAt: string;
     };
+    // F1 (R30-1): wizard Phase B first-seen INSERT writes published=false (DDL default is true).
+    firstSeenPublished?: false;
+    // F1 (R60-1/R65-1): wizard Phase B first-seen INSERT writes shows.wizard_created_session_id —
+    // the show-side provenance discriminator every created_show_id consumer joins on.
+    wizardCreatedSessionId?: string;
   }): Promise<
     | {
         outcome: "updated";
@@ -79,6 +84,12 @@ export type Phase2Args = {
     unpublishToken: string;
     unpublishTokenExpiresAt: string;
   };
+  // F1 (R30-1): wizard Phase B first-seen apply only — forwarded into applyShowSnapshot so the
+  // first-seen INSERT writes published=false. Absent for cron/push/manual/live callers.
+  firstSeenPublished?: false;
+  // F1 (R60-1/R65-1): wizard Phase B first-seen apply only — forwarded into applyShowSnapshot so
+  // the first-seen INSERT writes shows.wizard_created_session_id (provenance discriminator).
+  wizardCreatedSessionId?: string;
   // Phase 2: MI-11 items from the decision rule (Phase1 outcome 'auto_apply_with_holds'). Each is
   // written as a mi11_pending hold AFTER the snapshot (so liveCrewByName is the prior snapshot) and
   // BEFORE the hold-aware applyParseResult sees the open holds.
@@ -259,6 +270,10 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       slug: deriveSlug(parseResult, []),
       skipDiagramsWrite: args.skipDiagramsWrite ?? false,
       ...(args.autoPublishFirstSeen ? { autoPublishFirstSeen: args.autoPublishFirstSeen } : {}),
+      ...(args.firstSeenPublished === false ? { firstSeenPublished: args.firstSeenPublished } : {}),
+      ...(args.wizardCreatedSessionId
+        ? { wizardCreatedSessionId: args.wizardCreatedSessionId }
+        : {}),
     }),
   );
 
