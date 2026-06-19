@@ -383,15 +383,17 @@ export function DayCard({ day, phase, today, meta }: DayCardProps) {
 
 (Verify `bg-accent-wash` exists in `@theme`; if absent, use `bg-stale-tint` or add the token. The implementer confirms via grep before committing — undefined tokens silently fall back, caught only by the impeccable real-browser gate.)
 
-- [ ] **Step 5:** ScheduleSection already passes `day={day.date}` (ISO) + `phase={day.phase}` + `today={isToday}` (`:315`) — confirm the `phase` union type matches; no call-site change beyond the prop type.
+- [ ] **Step 5:** ScheduleSection already passes `day={day.date}` (ISO) + `phase={day.phase}` + `today={isToday}` (`:315`) — confirm the `phase` union type matches; no day-card call-site change beyond the prop type.
 
-- [ ] **Step 6: Run — verify pass + Schedule unregressed.** `pnpm vitest run tests/components/crew/DayCard.test.tsx <ScheduleSection test>` + `pnpm tsc --noEmit`.
+- [ ] **Step 6: Schedule right column → "Daily call times" SectionCard (Codex plan R2 MEDIUM — a spec delta).** The right column is currently a NAKED `<KeyTimesStrip anchors={anchors} />` + the rooms-error tile (`ScheduleSection.tsx:330-337`). Per the spec, wrap the key-times in a `SectionCard title="Daily call times"` so it reads as the mock's `Tile "Daily call times"` card (and the split-wide equal-height invariant holds — a bare strip vs a card breaks the `items-stretch` parity). Preserve the empty-anchor behavior: when `KeyTimesStrip` returns null (all anchors absent), render NO card (no empty "Daily call times" shell). **Class-sweep with the Crew one-sided fix (Codex plan R2):** when the right column would have NO content (no "Daily call times" card AND no rooms-error tile), collapse the section to a single full-width days column (don't render the 2-track grid with a blank right track) — same rule as Task 8. Do NOT invent the mock's separate "Heads up" card (fixture-only — no real data source). Write failing tests first: (a) anchors present → the right column renders a `SectionCard` titled "Daily call times" containing the key-times; (b) all anchors absent + no rooms error → no card AND the grid collapses to single-column (no blank right track); the existing §9 tests (which use shows WITH anchors) stay green.
 
-- [ ] **Step 7: Commit.**
+- [ ] **Step 7: Run — verify pass + Schedule unregressed.** `pnpm vitest run tests/components/crew/DayCard.test.tsx <ScheduleSection test>` + `pnpm tsc --noEmit`.
+
+- [ ] **Step 8: Commit.**
 
 ```bash
 git add components/crew/primitives/DayCard.tsx lib/format/date.ts components/crew/sections/ScheduleSection.tsx tests/components/crew/DayCard.test.tsx
-git commit -m "feat(crew): Schedule day cards → mock date badge + phase dot + Today pill"
+git commit -m "feat(crew): Schedule date badge + phase dot + Today pill + Daily-call-times card"
 ```
 
 ---
@@ -507,9 +509,13 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 
 **Files:** Modify `components/crew/sections/CrewSection.tsx`; extend its test.
 
-**Interfaces:** the 2-col wrapper `min-[720px]:flex-row` (50/50 flex, `:131`) → a `min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch` grid (Show-crew wide-left, Key-contacts narrow-right); each column a `min-w-0` grid child (drop `flex-1`). Avatars are colored via Task 2 (no change here).
+**Interfaces:** the 2-col wrapper `min-[720px]:flex-row` (50/50 flex, `:131`) → a split-wide grid, **but conditional on BOTH columns being present** (Codex plan R2 MEDIUM). Crew can render with only roster (`hasCrew`) OR only contacts (`hasContacts`) — the current branch suppresses the wrapper only when BOTH are empty, so each column renders independently. A fixed `grid-cols-[1.6fr_1fr]` with one child would occupy the left 1.6fr track and leave a BLANK right column at ≥720px. So: `const bothColumns = hasCrew && hasContacts;` and the wrapper class is `bothColumns ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch" : "flex flex-col gap-4"` (single full-width column when only one side has data). Each grid child is `min-w-0` (drop `flex-1` in the two-column case). Avatars are colored via Task 2 (no change here).
 
-- [ ] **Step 1: Write the failing test** — assert the wrapper uses the grid `[1.6fr_1fr]` class (not `flex-row`). - [ ] **Step 2: fail.** - [ ] **Step 3: Implement** the grid swap. - [ ] **Step 4: pass + tsc.** - [ ] **Step 5: Commit.** `feat(crew): Crew section split-wide column ratio`
+- [ ] **Step 1: Write the failing tests** — (1) BOTH columns present → wrapper uses `grid-cols-[1.6fr_1fr]` (not `flex-row`); (2) crew-only fixture (contacts empty) → wrapper is NOT a 2-track grid (no `grid-cols-[1.6fr_1fr]`), the single Show-crew column renders full-width; (3) contacts-only fixture → same single-column treatment. (Class-level asserts; the real-browser one-sided check is added in Task 10's fixtures.)
+- [ ] **Step 2: Run — verify fail.**
+- [ ] **Step 3: Implement** the conditional wrapper (`bothColumns` branch). Keep each column's existing `hasCrew`/`hasContacts` gate + `min-w-0`.
+- [ ] **Step 4: Run — verify pass + tsc + sentinel meta-test.**
+- [ ] **Step 5: Commit.** `feat(crew): Crew split-wide ratio (two-sided) with full-width fallback for one-sided data`
 
 ---
 
