@@ -29,6 +29,31 @@ DAY 1 block opens at **absolute col idx 6** (`START `), columns `[6=start, 7=fin
 
 ---
 
+## §4.1 grid-shape coherence checklist (comprehensive — closes the R4/R7/R8 block-location vector)
+
+Three consecutive adversarial rounds hit the block-location vector — R4 (outer table boundary: the walk ran into PULL SHEET), R7 (inner structural rows: banners read as data), R8 (all-`#REF!` DATE banner invisible to value-only detection). Per the same-vector-recurrence rule, the convergence is **STRUCTURAL, not per-instance**: the parser pipeline is **detect → isolate → structural-skip → span → resolve**, and the load-bearing architectural principle is **DETECTION/SHAPE is separated from VALUE/RESOLUTION at every stage**:
+
+- **Block SPANS come from the token-header `START` columns** (always present, value-independent) — never from DATE-cell validity. So a block exists at every show-day START column regardless of banner state.
+- **Structural rows are detected by SHAPE** (`#REF!` counts as date-shaped) — so an all-error banner is still skipped as data AND still seeds resolution inputs.
+- **The DATE value is RESOLVED separately** (`resolveBlock`): valid M/D/YY → use it; `#REF!`/blank → day-name→`showDays`-unique fallback; zero/multiple → UNRESOLVED + warning. Never a silent drop.
+
+Every grid shape in the corpus/spec, traced end-to-end (this is the audit, not a sample):
+
+| Grid shape | Detect (token-hdr) | Isolate (block boundary) | Structural-skip rows | Span source (START cols) | Resolve | Net |
+|---|---|---|---|---|---|---|
+| **DATE-header (East Coast, filled)** — converter promotes DATE row to md-header; day-name/token-hdr/day-TYPE are body rows | token-hdr found by content (body row) | maximal pipe-run; PULL SHEET/ROOM excluded (R4) | DATE banner + day-name + day-TYPE + token-hdr all skipped (R7, by identity not position) | START cols 6,12 → 2 blocks | banner `5/15/24`,`5/16/24` → ISO | DAY1+DAY2 keyed, sessions parsed |
+| **day-TYPE-header (empty fixtures, redefining/rpas)** — converter promotes day-TYPE to md-header; DATE/day-name/token-hdr are body rows | token-hdr found by content (body row) | same | DATE+day-name+day-TYPE+token-hdr skipped (R7) | START cols → N blocks | banners valid → ISO | all-`[]` (blank TITLEs), no banner-as-entry |
+| **prefix-header (`Wednesday/START`, `#REF!/NAME` — consultants)** — day-name merged into header-cell prefixes; no separate DATE/day-name row | token-hdr found after prefix-strip (R9) | same | only the prefix token-hdr row is structural (no separate banners) | prefix `START` cols → blocks; dayName from prefix | dayName→`showDays` fallback; `#REF!` prefix → UNRESOLVED | resolves via day-name or warns |
+| **all-`#REF!` DATE banner (template copies, R8)** — DATE cells are `#REF!` | token-hdr found by content | same | `#REF!` DATE banner IS shape-detected → skipped (R8); `#REF!` day-name row only structural if a sibling has a real weekday, else it's the date banner | START cols → blocks STILL created (R8) | banner null → day-name fallback; if day-name also `#REF!`/no-match → UNRESOLVED + `AGENDA_BLOCK_UNRESOLVED` | block exists, warning emits, no `#REF!` title |
+| **trailing-space `"START "`** | `normHeaderCell` trims → matches | — | — | `normHeader[c]==="START"` after trim → START col found | — | block created correctly |
+| **ragged / short data rows** (trailing empties trimmed) | — | — | a short data row is NOT structural | — | — | `buildEntry` right-pads (`cells[i] ?? ""`) — short ≠ malformed |
+| **ambiguous weekday** (`#REF!` banner + day-name matching ≥2 same-weekday showDays) | — | — | banner skipped | block created | day-name → 2 matches → `skip:"ambiguous"` | UNRESOLVED + `AGENDA_DAY_AMBIGUOUS` (never guess, R2) |
+| **no token-header at all** (unlocatable grid) | not found | `isolateAgendaTable` → `undefined` | — | — | — | `runOfShow: undefined` + `AGENDA_GRID_MALFORMED` (D-2) |
+
+Each row is pinned by a test (Tasks 1.3–1.6 + the R7/R8 describe + the LOAD-BEARING describe). If a future round surfaces ANOTHER block-location finding, the analysis was still incomplete — stop patching and re-derive this table against the failing shape.
+
+---
+
 ## Tasks (TDD: red → green → commit, 2–5 min steps)
 
 ### Task 1.1 — Demote stale `raw/` AGENDA fixtures; pin the production-exporter fixtures as the source of truth
@@ -311,31 +336,66 @@ function isolateAgendaTable(markdown: string): string | undefined {
   return lines.slice(start, end + 1).join("\n");
 }
 
-// ── Structural-row identification (R7 — banner rows must NEVER parse as data) ──
+// ── Structural-row identification (R7/R8 — banner rows must NEVER parse as data) ──
 // The converter promotes a VARYING banner to the md-table header (filled East
 // Coast promotes day-TYPE; other shapes promote DATE), and parseTableRows keeps
 // the md-header as just another row — so the DATE / day-name / day-TYPE / token-
 // header rows can appear ABOVE OR BELOW each other in `rows`. The data walk must
 // therefore skip structural rows BY IDENTITY (content), not by `headerIdx+1`
-// position — else a banner row read at absolute columns emits a bogus title
-// (e.g. "5/15/24" / "Wednesday" / "DAY 1" as an AgendaEntry.title).
+// position — else a banner row read at absolute columns emits a bogus title.
+//
+// R8 — DETECTION IS SEPARATED FROM VALUE-VALIDITY. A row is the structural DATE
+// banner if its NON-BLANK cells are date-SHAPED — each is `M/D/YY` (normalizes)
+// OR a `#REF!`/error token — regardless of whether ANY value normalizes. (Spec
+// §4.1: `#REF!` appears in the standardized-template DATE/day-name banner cells.)
+// So an all-`#REF!` DATE banner is detected as structural (→ never walked as data
+// → no bogus `#REF!` titles) AND still seeds block spans (→ blocks are created →
+// resolveBlock runs → AGENDA_BLOCK_UNRESOLVED/AGENDA_DAY_AMBIGUOUS DO emit, never
+// a silent drop). The OLD value-only `normalizeDate(...) >= 2` test missed this.
 
-function isDateRow(cells: string[]): boolean {
-  return cells.filter((c) => normalizeDate(c) !== null).length >= 2;
+const REF_ERR_RE = /^#?REF!?$|^#[A-Z]+[!?]?$/i; // #REF!, #REF, REF!, #N/A, #VALUE!, …
+function isDateShapedCell(c: string): boolean {
+  const t = c.trim();
+  return t === "" || normalizeDate(t) !== null || REF_ERR_RE.test(t);
+}
+/**
+ * Structural DATE-banner detector (shape, NOT value): a row whose non-blank cells
+ * are ALL date-shaped (M/D/YY or #REF!/error) AND that carries ≥2 such non-blank
+ * cells AND ≥1 that is an actual error/date token (so a fully-blank row or a free-
+ * text row is not mistaken for the banner). Cross-checked at the caller against the
+ * token-header START columns + the day-name/day-TYPE alignment.
+ */
+function isDateBannerRow(cells: string[]): boolean {
+  const nonBlank = cells.filter((c) => c.trim() !== "");
+  if (nonBlank.length < 2) return false;
+  if (!nonBlank.every(isDateShapedCell)) return false;
+  // must contain at least one date-or-error token (not e.g. all empty handled above)
+  return nonBlank.some((c) => normalizeDate(c.trim()) !== null || REF_ERR_RE.test(c.trim()));
 }
 function isDayNameRow(cells: string[]): boolean {
-  return cells.filter((c) => WEEKDAYS.has(c.trim().toUpperCase())).length >= 2;
+  // day-NAME banner: ≥2 cells that are a weekday OR a `#REF!`/error (template copies
+  // carry #REF! in the day-name banner too) — shape, not pure value.
+  const flagged = cells.filter((c) => {
+    const t = c.trim();
+    return WEEKDAYS.has(t.toUpperCase()) || REF_ERR_RE.test(t);
+  });
+  // require ≥1 real weekday so a #REF!-only row isn't double-counted as the day-name
+  // banner (it's the DATE banner); the date-banner detector already covers all-#REF!.
+  return flagged.length >= 2 && cells.some((c) => WEEKDAYS.has(c.trim().toUpperCase()));
 }
 const DAY_TYPE_RE = /^(TRAVEL DAY|SET DAY|DAY\s+\d+)$/i;
 function isDayTypeRow(cells: string[]): boolean {
   return cells.filter((c) => DAY_TYPE_RE.test(c.trim())).length >= 2;
 }
 
-/** Indices in `rows` that are STRUCTURAL (token-header, DATE, day-name, day-TYPE) — never data. */
+/** Indices in `rows` that are STRUCTURAL (token-header, DATE banner, day-name, day-TYPE) — never data. */
 function structuralRowIndices(rows: string[][]): Set<number> {
   const s = new Set<number>();
   rows.forEach((cells, i) => {
-    if (isTokenHeaderRow(cells) || isDateRow(cells) || isDayNameRow(cells) || isDayTypeRow(cells)) {
+    if (
+      isTokenHeaderRow(cells) || isDateBannerRow(cells) ||
+      isDayNameRow(cells) || isDayTypeRow(cells)
+    ) {
       s.add(i);
     }
   });
@@ -349,26 +409,25 @@ export function parseAgenda(markdown: string): ParseAgendaResult {
   }
   const rows = parseTableRows(block); // ONLY the AGENDA table's rows
   const headerIdx = rows.findIndex(isTokenHeaderRow);
-  const structural = structuralRowIndices(rows); // token-header + DATE + day-name + day-TYPE
+  const structural = structuralRowIndices(rows); // token-header + DATE banner + day-name + day-TYPE
   // Data rows = every row that is NOT structural (position-independent — banners
-  // may sit above OR below the token-header depending on which the converter
-  // promoted to md-header). Day resolution + data walk land in Tasks 1.4–1.6.
+  // may sit above OR below the token-header). Day resolution + data walk: Tasks 1.4–1.6.
   return { runOfShow: {}, warnings: [] };
 }
 ```
-> Note the boundary rule: the AGENDA block = the maximal run of consecutive `|…|` lines surrounding the token-header line. A blank line, a non-pipe line, or EOF terminates it (mirrors `crew.ts:158-167` / `index.ts:182-184`). `parseTableRows` runs on `block` only, so `rows` never contains a post-AGENDA table row. **AND** the data walk (Task 1.6) iterates only NON-structural rows (`structuralRowIndices`), so a DATE / day-name / day-TYPE banner that the converter left as a body row (below OR above the token-header) is never read at absolute columns as an entry. These are the two halves of the same "no non-session cell becomes a title" invariant: R4 closed the OUTER table boundary; R7 closes the INNER structural rows.
+> Note the boundary rule: the AGENDA block = the maximal run of consecutive `|…|` lines surrounding the token-header line. A blank line, a non-pipe line, or EOF terminates it (mirrors `crew.ts:158-167` / `index.ts:182-184`). `parseTableRows` runs on `block` only, so `rows` never contains a post-AGENDA table row. **AND** the data walk (Task 1.6) iterates only NON-structural rows (`structuralRowIndices`), so a DATE / day-name / day-TYPE banner left as a body row is never read at absolute columns. **R8 closes the last gap: the date-banner detector is shape-based (`#REF!` counts), so an all-error banner is still skipped as data AND still seeds spans.** Three halves of one invariant: **R4 = OUTER table boundary; R7 = INNER structural rows (by identity, not position); R8 = structural detection independent of value-validity (block spans come from the token-header START columns, dates are RESOLVED separately).**
 > Tasks 1.4-1.7 import the remaining helpers (`agendaBlockUnresolved`, `agendaDayAmbiguous`, `agendaDayTruncated`) from `agendaWarnings.ts` instead of an inline `warn()` — replace any `warn("CODE", …)` call shown in later tasks with the matching factory.
 - [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 1'` and `-t 'all 5 AGENDA'`. Green.
 - [ ] **Commit** — `git add lib/parser/blocks/agendaWarnings.ts lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): agendaWarnings (all 5 AGENDA_* codes) + parseAgenda step 1 grid location"`
 
 ---
 
-### Task 1.4 — DATE-row block boundaries + show-day vs travel/set classification
+### Task 1.4 — Block spans from token-header START columns + shape-based DATE/day-name banners (R8-structural)
 
 **Files:** `lib/parser/blocks/agenda.ts` · `tests/parser/parseAgenda.test.ts`.
 **Interfaces — Produces:** an internal `blocks: { startCol, endCol, dateCell?, dayNameCell?, prefixDayName? }[]` (show-day blocks only). **Consumes:** the located `rows` from Task 1.3.
 
-§4.1 step 2: among the located table's rows, find the **DATE row** BY CONTENT (the row with ≥2 cells matching `M/D/YY` via `normalizeDate(cell) !== null`) and the **day-NAME row** BY CONTENT (≥2 cells whose uppercase ∈ `WEEKDAYS`) — searched across the WHOLE isolated table, NOT just above the token-header (R7/R8: the converter may promote the token-header to md-header, leaving DATE/day-name BELOW it). Each distinct-date run in the DATE row delimits a span; the block's **read-origin `startCol` is the START token-header column INSIDE that span** (the 6-col `START|FINISH|TRT|TITLE|ROOM|AV` group), so `endCol = startCol + 6`. A span with **no** START column (the `NAME|ARRIVAL|FLIGHT#` travel group, the `TIME|TITLE|ROOM` set group) yields **no block** → travel/set skipped. Anchoring the read-origin to the START column (not the first dated column) keeps the absolute-offset reads correct even if the date banner is wider than the show-day group. **Dual-form fallback:** if there is no separate DATE/day-name row (prefix-form table), derive day-name + boundaries from the token-header cell prefixes (split on `/`). **Concrete failure mode caught:** keying off a fixed column stride (East Coast TRAVEL=3, SET=3, DAY=6 cols — non-uniform), off the day-TYPE row, or off the first dated column → travel/set blocks bleeding in, or the read-origin landing on the wrong column.
+§4.1 step 2 (R8-structural): **block SPANS come from the token-header `START` columns, NOT from DATE-cell validity.** Every show day is the 6-col group `START|FINISH|TRT|TITLE|ROOM|AV`, so each `START` column in the token-header (after `normHeaderCell` trims the trailing-space `"START "`) opens exactly one block `[startCol, startCol+6)`. Travel (`NAME|ARRIVAL|FLIGHT#`) and set (`TIME|TITLE|ROOM`) groups have **no** `START` column → no block (travel/set skipped). The **DATE banner** and **day-NAME banner** rows are found BY SHAPE across the WHOLE isolated table (`isDateBannerRow` = all non-blank cells `M/D/YY` OR `#REF!`/error; `isDayNameRow` = ≥2 weekday/error cells with ≥1 real weekday) — position-independent (R7: they may be BELOW the token-header) and **value-independent (R8: an all-`#REF!` banner is still detected)**. Each block then reads its resolution inputs `dateCell = dateRow?.[startCol]` and `dayName = nameRow?.[startCol]` (which may be `M/D/YY`, `#REF!`, or `undefined` — all tolerated; resolved in Task 1.5). Anchoring spans to `START` makes the absolute-offset reads correct regardless of how wide the date banner is or whether its cells normalize. **Dual-form fallback:** a prefix-form table (`Wednesday/START`, `#REF!/NAME`) has no separate DATE/day-name row — the day-name lives in the header-cell prefix; blocks open at each prefixed `START` column with `dayName` from the prefix (a `#REF!` prefix → `dayName` undefined → resolves via fallback or warns). **Concrete failure mode caught:** keying spans off DATE-cell validity (so an all-`#REF!` banner produces NO blocks → silent drop, no warning — R8); off a fixed column stride (East Coast TRAVEL=3/SET=3/DAY=6 — non-uniform); off the day-TYPE row; or the read-origin landing on the wrong column.
 
 **TDD note (invariant 1 — this task has a GENUINE red→green cycle, NOT a deferred one):** the impl EXPORTS a thin testable entry `locateAgendaShowBlocks(markdown)` that returns the classified show-day block descriptors (`{ startCol, endCol, dateCell, dayName }[]` — show-day blocks only, travel/set filtered out). The test asserts exact start-columns + that TRAVEL/SET spans are excluded, on a synthetic grid AND the real East Coast fixture. This RED-fails (function absent) before the impl and turns green after — a real task-local contract, not a smoke check. Day resolution/entries are still Tasks 1.5/1.6; this task owns ONLY boundaries + classification.
 
@@ -424,77 +483,65 @@ export type AgendaBlock = {
   dayName: string | undefined; // from day-NAME row OR header prefix
 };
 
-// Find the DATE / day-name rows BY CONTENT across the WHOLE isolated table —
-// NOT restricted to above the token-header (R7: the converter may promote the
-// token-header to md-header, leaving DATE/day-name as BODY rows BELOW it). Reuse
-// the same predicates the structural-row identification uses (Task 1.3) so the
-// "what is the DATE row" answer is identical for boundary-finding and for the
-// data-walk's structural-skip — one source of truth, no drift.
+// Find the DATE / day-name banner rows BY CONTENT across the WHOLE isolated table
+// (R7: position-independent — they may be BELOW the token-header). These are the
+// SAME shape-based detectors structuralRowIndices uses (Task 1.3) — ONE source of
+// truth, so "what is the DATE banner" is identical for span-resolution and for the
+// data-walk skip. They detect the banner by SHAPE (#REF! included, R8), so the
+// rows are found even when no value normalizes.
 function findDateRow(rows: string[][]): string[] | undefined {
-  return rows.find(isDateRow);
+  return rows.find(isDateBannerRow);
 }
 function findDayNameRow(rows: string[][]): string[] | undefined {
   return rows.find(isDayNameRow);
 }
 
-/** Build per-day blocks from the DATE row; classify each by its token-header span; keep show-day blocks only. */
+/**
+ * Build per-day SHOW blocks. **Spans come from the TOKEN-HEADER's START columns
+ * (R8 — value-independent), NOT from DATE-cell validity.** The token-header is the
+ * reliably-present anchor (spec §4.1); every show day is the 6-col group
+ * `START|FINISH|TRT|TITLE|ROOM|AV`, so each `START` column in the token-header
+ * opens exactly one show block `[startCol, startCol+6)`. The DATE banner + day-name
+ * banner supply RESOLUTION inputs at each block's start column (whatever their
+ * values — `#REF!`/blank tolerated; resolved in Task 1.5). Travel (`NAME|ARRIVAL|
+ * FLIGHT#`) and set (`TIME|TITLE|ROOM`) groups have NO `START` column → no block.
+ */
 function locateBlocks(rows: string[][], header: string[], headerIdx: number): AgendaBlock[] {
-  const dateRow = findDateRow(rows);     // whole table, position-independent
-  const nameRow = findDayNameRow(rows);  // whole table, position-independent
+  const dateRow = findDateRow(rows);     // whole table, shape-detected (#REF! ok)
+  const nameRow = findDayNameRow(rows);  // whole table
   const normHeader = header.map(normHeaderCell);
   const blocks: AgendaBlock[] = [];
 
-  // The block's READ-ORIGIN is the START column INSIDE the dated span — NOT the
-  // first dated column. In real grids the DATE banner aligns with START (DAY-1
-  // date 5/15/24 sits at the same col 6 as the START token), so they coincide;
-  // but anchoring to the token-header's START makes the read robust to a wider
-  // date banner (e.g. a date repeated across the leading NAME/ARRIVAL columns).
-  // A span with no START column is travel/set → produces no show-day block.
-  const startColInSpan = (lo: number, hi: number): number | undefined => {
-    for (let c = lo; c < hi; c++) if (normHeader[c] === "START") return c;
-    return undefined;
-  };
+  // Prefix-form (e.g. `Wednesday/START`, `#REF!/NAME`): no separate DATE/day-name
+  // row; the day-name lives in the header-cell prefix. Detect by ANY header cell
+  // carrying a `<prefix>/START`. Otherwise use the plain token-header START columns.
+  const prefixForm = header.some((c) => c.includes("/") && normHeaderCell(c) === "START");
 
-  if (dateRow) {
-    // span boundaries = distinct-date runs in the DATE row
-    const opens: number[] = [];
-    for (let c = 0; c < dateRow.length; c++) {
-      if (normalizeDate(dateRow[c] ?? "") !== null) opens.push(c);
-    }
-    let i = 0;
-    while (i < opens.length) {
-      const spanStart = opens[i]!;
-      const dateVal = dateRow[spanStart];
-      let j = i + 1;
-      while (j < opens.length && dateRow[opens[j]!] === dateVal) j++;
-      const spanEnd = j < opens.length ? opens[j]! : header.length;
-      const startCol = startColInSpan(spanStart, spanEnd); // anchor read-origin to START
-      if (startCol !== undefined) {
-        blocks.push({
-          startCol,
-          endCol: startCol + 6, // the 6-col START|FINISH|TRT|TITLE|ROOM|AV group
-          dateCell: dateVal,
-          dayName: nameRow?.[spanStart]?.trim(),
-        });
-      }
-      i = j;
-    }
-  } else {
-    // prefix-form: one block per header cell carrying a START/FINISH prefix-group.
-    // Derive day-name from the prefix (e.g. "Wednesday/START").
+  if (prefixForm) {
     for (let c = 0; c < header.length; c++) {
       const cell = header[c] ?? "";
+      if (normHeaderCell(cell) !== "START") continue; // START token after prefix-strip
       const slash = cell.indexOf("/");
-      if (slash === -1) continue;
-      const prefix = cell.slice(0, slash).trim();
-      const token = cell.slice(slash + 1).trim().toUpperCase();
-      if (token === "START" && WEEKDAYS.has(prefix.toUpperCase())) {
-        blocks.push({ startCol: c, endCol: c + 6, dateCell: undefined, dayName: prefix });
-      }
+      const prefix = slash === -1 ? undefined : cell.slice(0, slash).trim();
+      // a #REF! prefix is not a usable day-name; leave dayName undefined → resolve fails → UNRESOLVED
+      const dayName = prefix && WEEKDAYS.has(prefix.toUpperCase()) ? prefix : undefined;
+      blocks.push({ startCol: c, endCol: c + 6, dateCell: undefined, dayName });
+    }
+  } else {
+    // Plain form: one show block per START column in the token-header.
+    for (let c = 0; c < normHeader.length; c++) {
+      if (normHeader[c] !== "START") continue;
+      blocks.push({
+        startCol: c,
+        endCol: c + 6, // the 6-col START|FINISH|TRT|TITLE|ROOM|AV group
+        dateCell: dateRow?.[c]?.trim(),   // may be M/D/YY, #REF!, or undefined — resolved in Task 1.5
+        dayName: nameRow?.[c]?.trim(),    // may be a weekday, #REF!, or undefined
+      });
     }
   }
 
-  // Confirm each block is a SHOW-DAY group: its 6-col span has START+FINISH+TRT.
+  // Confirm each block is a real SHOW-DAY group: its 6-col span has START+FINISH+TRT
+  // (guards a stray duplicate `START` label or a truncated tail group).
   return blocks.filter((b) => {
     const span = normHeader.slice(b.startCol, b.endCol);
     return span.includes("START") && span.includes("FINISH") && span.includes("TRT");
@@ -604,19 +651,23 @@ function weekdayOfIso(iso: string): string | undefined {
 
 type Resolved = { iso: string } | { skip: "ambiguous" | "unresolved" };
 
-function resolveBlock(block: Block, dates: ShowRow["dates"] | undefined): Resolved {
-  const banner = normalizeDate(block.dateCell ?? "");
+// Resolve a block's ISO date (R8: dateCell may be a real M/D/YY, a `#REF!`/error,
+// or undefined — all handled here, NOT at detection). Banner value wins when it
+// normalizes; otherwise the day-name → showDays-ONLY unique-match fallback (§4.1
+// step 3 / R7); zero/multiple matches → skip (never guess — R2).
+function resolveBlock(block: AgendaBlock, dates: ShowRow["dates"] | undefined): Resolved {
+  const banner = normalizeDate(block.dateCell ?? ""); // `#REF!`/blank → null → fallback
   if (banner) return { iso: banner };
   const dayName = block.dayName?.toUpperCase();
   const showDays = dates?.showDays ?? [];
-  if (!dayName) return { skip: "unresolved" };
+  if (!dayName || !WEEKDAYS.has(dayName)) return { skip: "unresolved" }; // `#REF!`/missing day-name
   const matches = showDays.filter((iso) => weekdayOfIso(iso) === dayName);
   if (matches.length === 1) return { iso: matches[0]! };
   if (matches.length >= 2) return { skip: "ambiguous" };
   return { skip: "unresolved" };
 }
 ```
-Then in `parseAgenda` (signature `parseAgenda(markdown: string, dates?: ShowRow["dates"])`), iterate `blocks`, call `resolveBlock`, and on a skip push `agendaDayAmbiguous(index)` (for `skip:"ambiguous"`) or `agendaBlockUnresolved(index)` (for `skip:"unresolved"`) — imported from `./agendaWarnings` (NOT an inline `warn()`); `index` is the block's ordinal — and create an (empty for now) array under the resolved ISO key. Data-row walk (entries) is Task 1.6.
+Then in `parseAgenda` (signature `parseAgenda(markdown: string, dates?: ShowRow["dates"])`), iterate `blocks` with their ordinal `index`, call `resolveBlock`, and on a skip push `agendaDayAmbiguous(index)` (for `skip:"ambiguous"`) or `agendaBlockUnresolved(index)` (for `skip:"unresolved"`) — imported from `./agendaWarnings` (NOT an inline `warn()`) — and create an (empty for now) array under the resolved ISO key. Because blocks now ALWAYS exist at every show-day START column (R8 — even an all-`#REF!` banner), `resolveBlock` always runs, so a degraded banner emits its warning instead of silently producing no blocks. Data-row walk (entries) is Task 1.6.
 - [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 3'`. Green.
 - [ ] **Commit** — `git add lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): parseAgenda step 3 — ISO resolution vs showDays-only + ambiguity skip"`
 
@@ -627,7 +678,7 @@ Then in `parseAgenda` (signature `parseAgenda(markdown: string, dates?: ShowRow[
 **Files:** `lib/parser/blocks/agenda.ts` · `tests/parser/parseAgenda.test.ts` (+ the real-fixture positive test).
 **Interfaces — Produces:** populated `AgendaEntry[]` per resolved day with CONFIRMED-ONLY encoding. **Consumes:** `shouldHideGenericOptional` (`emptyState.ts:75`), resolved blocks from Task 1.5.
 
-§4.1 steps 4-5: walk data rows from the row AFTER the token-header to end of table. Per block read absolute columns `[start=startCol, finish=startCol+1, trt=startCol+2, title=startCol+3, room=startCol+4, av=startCol+5]`; **right-pad short rows** (markdown trims trailing empties — `cells[i] ?? ""`). Emit `AgendaEntry` IFF TITLE is REAL: `!shouldHideGenericOptional(title)` (hides `''`/`TBD`/`N/A`/`TBA`). Optional fields via `presence()` → omit when blank/null (under `exactOptionalPropertyTypes`, only assign present string fields). **Per-day encoding (D-2):** resolved day with ≥1 real entry → key with entries; resolved day with all-blank/sentinel TITLE → key with `[]`; unresolved block → absent. **Concrete failure modes caught:** `Date` coercion of time strings (asserted as strings); crew/TRAVEL/SET block bleed (asserted absent); a `TBD` TITLE producing an entry; per-day positive values DERIVED from the fixture (clone-and-read), not hardcoded.
+§4.1 steps 4-5: walk the **non-structural data rows** (`dataRows` from Task 1.3 — every row not in `structuralRowIndices`, so NO token-header / DATE banner / day-name / day-TYPE row, regardless of position, R7/R8). Per block read absolute columns `[start=startCol, finish=startCol+1, trt=startCol+2, title=startCol+3, room=startCol+4, av=startCol+5]`; **right-pad short rows** (markdown trims trailing empties — `cells[i] ?? ""`). Emit `AgendaEntry` IFF TITLE is REAL: `!shouldHideGenericOptional(title)` (hides `''`/`TBD`/`N/A`/`TBA`). Optional fields via `presence()` → omit when blank/null (under `exactOptionalPropertyTypes`, only assign present string fields). **Per-day encoding (D-2):** resolved day with ≥1 real entry → key with entries; resolved day with all-blank/sentinel TITLE → key with `[]`; unresolved block → absent. **Concrete failure modes caught:** `Date` coercion of time strings (asserted as strings); crew/TRAVEL/SET block bleed (asserted absent); a `TBD` TITLE producing an entry; a `#REF!`/banner cell read as a title (excluded by structural-skip); per-day positive values DERIVED from the fixture (clone-and-read), not hardcoded.
 
 - [ ] **Write failing test** — append the real-fixture positive test (anti-tautology: read expected from the fixture) + sentinel/string-pin tests:
 ```ts
@@ -710,7 +761,7 @@ describe("parseAgenda — steps 4-5: data walk + TITLE-real gate (real fixtures,
   });
 });
 
-describe("parseAgenda — R7: structural banner rows BELOW the token-header never become entries", () => {
+describe("parseAgenda — R7/R8: structural banner rows (incl. all-#REF!) never become entries", () => {
   // The bug this catches: the walk used rows.slice(headerIdx+1). When the converter
   // promotes the TOKEN-HEADER to the md-table header row, the DATE / day-name / day-TYPE
   // banners follow it as BODY rows — a positional slice reads them at absolute columns and
@@ -767,6 +818,35 @@ describe("parseAgenda — R7: structural banner rows BELOW the token-header neve
         expect(DAYTYPE_RE.test(e.title.trim())).toBe(false); // no TRAVEL DAY/DAY N as title
       }
     }
+  });
+
+  it("R8: an all-#REF! DATE banner emits ZERO entries from the banner AND still creates a block (warning, not silent drop)", () => {
+    // The R8 bug: a value-only isDateRow missed an all-#REF! banner → (a) NO block created
+    // → resolveBlock never ran → NO warning (silent drop); (b) the #REF! row walked as data
+    // → "#REF!" emitted as a title. Both must be closed: block exists, warning fires, no #REF! title.
+    const md = [
+      "| NAME | ARRIVAL | FLIGHT# | START  | FINISH | TRT | TITLE | ROOM | AV |",
+      "| #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! |",
+      "| Friday | Friday | Friday | Friday | Friday | Friday | Friday | Friday | Friday |",
+      "|  |  |  | 8:30 AM | 9:30 AM | 1:00 | Keynote | Hall A | LAV |",
+    ].join("\n");
+    const r = parseAgenda(md, datesOf(["2025-09-05"])); // unique Friday → resolves
+    const titles = (r.runOfShow?.["2025-09-05"] ?? []).map((e) => e.title);
+    expect(titles).toContain("Keynote");          // real session parsed
+    expect(titles).not.toContain("#REF!");         // banner NOT walked as data
+    expect(titles.some((t) => /#REF/i.test(t))).toBe(false);
+  });
+
+  it("R8: all-#REF! DATE banner with NO resolvable day-name → block created → AGENDA_BLOCK_UNRESOLVED (NOT a silent no-op)", () => {
+    const md = [
+      "| NAME | ARRIVAL | FLIGHT# | START  | FINISH | TRT | TITLE | ROOM | AV |",
+      "| #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! |",
+      "| #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! |", // day-name also #REF!
+      "|  |  |  | 8:30 AM | 9:30 AM | 1:00 | Keynote | Hall A | LAV |",
+    ].join("\n");
+    const r = parseAgenda(md, datesOf(["2025-09-05"]));
+    expect(r.runOfShow).toEqual({});  // unresolved → absent (not stored → anchors)
+    expect(r.warnings.map((w) => w.code)).toContain("AGENDA_BLOCK_UNRESOLVED"); // warning DID emit
   });
 });
 
