@@ -46,6 +46,7 @@ import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import { resolveActiveSection } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import {
@@ -313,7 +314,13 @@ export async function CrewShell({
         // Reserve a bottom gutter that clears the ≥44px bar PLUS the iOS home
         // indicator (`env(safe-area-inset-bottom)`) PLUS a 1rem breathing margin.
         // At ≥720px the bar is gone, so normal `pb-8` applies.
-        className="mx-auto flex w-full max-w-300 flex-1 flex-col gap-section-gap px-4 pt-6 pb-[calc(theme(spacing.tap-min)+env(safe-area-inset-bottom)+1rem)] sm:px-8 sm:pt-8 min-[720px]:pb-8"
+        // The centering utilities (`mx-auto w-full max-w-300 px-4 sm:px-8`) come
+        // from the SHARED `CREW_PAGE_CONTAINER` constant so the desktop sub-nav
+        // (which composes the same constant) aligns its first tab's left edge
+        // with this content edge (Task 8.5). The remaining utilities are
+        // page-container-specific (flex column, section gap, vertical rhythm,
+        // mobile bottom-bar clearance).
+        className={`${CREW_PAGE_CONTAINER} flex flex-1 flex-col gap-section-gap pt-6 pb-[calc(theme(spacing.tap-min)+env(safe-area-inset-bottom)+1rem)] sm:pt-8 min-[720px]:pb-8`}
       >
         <CrewSectionTransition sectionId={activeSection}>{sectionBody}</CrewSectionTransition>
       </main>

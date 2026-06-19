@@ -10,8 +10,10 @@
  *
  * Exported here: `DockIcon` (loading dock), `CarIcon` (parking/ground),
  * `WifiIcon` (crew Wi-Fi) — the three Venue fact-row mini-icons — and
- * `PlaneIcon` (flight legs / Travel section). Additional glyphs (nav/section
- * icons) can join this file as those surfaces adopt them.
+ * `PlaneIcon` (flight legs / Travel section). Task 8.5 adds the seven sub-nav
+ * section glyphs: `HomeIcon` (Today), `CalendarIcon` (Schedule), `MapPinIcon`
+ * (Venue), `PlaneIcon` (Travel — reused), `UsersIcon` (Crew), `BoxIcon` (Gear),
+ * `ReceiptIcon` (Budget). Additional glyphs can join as surfaces adopt them.
  */
 import type { SVGProps } from "react";
 
@@ -73,6 +75,64 @@ export function WifiIcon({ className }: GlyphProps) {
     <svg {...baseProps} className={className} aria-hidden="true">
       <path d="M2 8.8a16 16 0 0 1 20 0M5 12.2a11 11 0 0 1 14 0M8 15.6a6 6 0 0 1 8 0" />
       <circle cx="12" cy="19" r="0.8" />
+    </svg>
+  );
+}
+
+/** Today — a house roof + walls with a doorway (sub-nav: Today section). */
+export function HomeIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M3 10.5 12 3l9 7.5M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5M9.5 21v-6h5v6" />
+    </svg>
+  );
+}
+
+/** Schedule — a wall calendar (sub-nav: Schedule section). */
+export function CalendarIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <rect x="3" y="4.5" width="18" height="16" rx="2.5" />
+      <path d="M3 9h18M8 2.5v4M16 2.5v4" />
+    </svg>
+  );
+}
+
+/** Venue — a map pin (sub-nav: Venue section). */
+export function MapPinIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
+      <circle cx="12" cy="10" r="2.6" />
+    </svg>
+  );
+}
+
+/** Crew — two people (sub-nav: Crew section). */
+export function UsersIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M16 20v-1.5a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20" />
+      <circle cx="9" cy="7.5" r="3.2" />
+      <path d="M22 20v-1.5a4 4 0 0 0-3-3.86M15.5 4.36a3.2 3.2 0 0 1 0 6.28" />
+    </svg>
+  );
+}
+
+/** Gear — a shipping box / case (sub-nav: Gear section). */
+export function BoxIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M21 8 12 3 3 8l9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8" />
+    </svg>
+  );
+}
+
+/** Budget — a receipt with a torn zig-zag foot (sub-nav: Budget section). */
+export function ReceiptIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M5 3h14v18l-2.3-1.4L14.4 21 12 19.6 9.6 21l-2.3-1.4L5 21zM8.5 8h7M8.5 12h7" />
     </svg>
   );
 }
