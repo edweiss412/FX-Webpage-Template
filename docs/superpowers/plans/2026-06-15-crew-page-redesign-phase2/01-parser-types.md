@@ -311,6 +311,37 @@ function isolateAgendaTable(markdown: string): string | undefined {
   return lines.slice(start, end + 1).join("\n");
 }
 
+// ── Structural-row identification (R7 — banner rows must NEVER parse as data) ──
+// The converter promotes a VARYING banner to the md-table header (filled East
+// Coast promotes day-TYPE; other shapes promote DATE), and parseTableRows keeps
+// the md-header as just another row — so the DATE / day-name / day-TYPE / token-
+// header rows can appear ABOVE OR BELOW each other in `rows`. The data walk must
+// therefore skip structural rows BY IDENTITY (content), not by `headerIdx+1`
+// position — else a banner row read at absolute columns emits a bogus title
+// (e.g. "5/15/24" / "Wednesday" / "DAY 1" as an AgendaEntry.title).
+
+function isDateRow(cells: string[]): boolean {
+  return cells.filter((c) => normalizeDate(c) !== null).length >= 2;
+}
+function isDayNameRow(cells: string[]): boolean {
+  return cells.filter((c) => WEEKDAYS.has(c.trim().toUpperCase())).length >= 2;
+}
+const DAY_TYPE_RE = /^(TRAVEL DAY|SET DAY|DAY\s+\d+)$/i;
+function isDayTypeRow(cells: string[]): boolean {
+  return cells.filter((c) => DAY_TYPE_RE.test(c.trim())).length >= 2;
+}
+
+/** Indices in `rows` that are STRUCTURAL (token-header, DATE, day-name, day-TYPE) — never data. */
+function structuralRowIndices(rows: string[][]): Set<number> {
+  const s = new Set<number>();
+  rows.forEach((cells, i) => {
+    if (isTokenHeaderRow(cells) || isDateRow(cells) || isDayNameRow(cells) || isDayTypeRow(cells)) {
+      s.add(i);
+    }
+  });
+  return s;
+}
+
 export function parseAgenda(markdown: string): ParseAgendaResult {
   const block = isolateAgendaTable(markdown);
   if (block === undefined) {
@@ -318,11 +349,14 @@ export function parseAgenda(markdown: string): ParseAgendaResult {
   }
   const rows = parseTableRows(block); // ONLY the AGENDA table's rows
   const headerIdx = rows.findIndex(isTokenHeaderRow);
-  // Grid located. Day resolution + data walk (within `rows`) land in Tasks 1.4–1.6.
+  const structural = structuralRowIndices(rows); // token-header + DATE + day-name + day-TYPE
+  // Data rows = every row that is NOT structural (position-independent — banners
+  // may sit above OR below the token-header depending on which the converter
+  // promoted to md-header). Day resolution + data walk land in Tasks 1.4–1.6.
   return { runOfShow: {}, warnings: [] };
 }
 ```
-> Note the boundary rule: the AGENDA block = the maximal run of consecutive `|…|` lines surrounding the token-header line. A blank line, a non-pipe line, or EOF terminates it (mirrors `crew.ts:158-167` / `index.ts:182-184`). `parseTableRows` then runs on `block` only, so `rows` never contains a post-AGENDA table row. Tasks 1.4-1.6 operate entirely within this isolated `rows` array.
+> Note the boundary rule: the AGENDA block = the maximal run of consecutive `|…|` lines surrounding the token-header line. A blank line, a non-pipe line, or EOF terminates it (mirrors `crew.ts:158-167` / `index.ts:182-184`). `parseTableRows` runs on `block` only, so `rows` never contains a post-AGENDA table row. **AND** the data walk (Task 1.6) iterates only NON-structural rows (`structuralRowIndices`), so a DATE / day-name / day-TYPE banner that the converter left as a body row (below OR above the token-header) is never read at absolute columns as an entry. These are the two halves of the same "no non-session cell becomes a title" invariant: R4 closed the OUTER table boundary; R7 closes the INNER structural rows.
 > Tasks 1.4-1.7 import the remaining helpers (`agendaBlockUnresolved`, `agendaDayAmbiguous`, `agendaDayTruncated`) from `agendaWarnings.ts` instead of an inline `warn()` — replace any `warn("CODE", …)` call shown in later tasks with the matching factory.
 - [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 1'` and `-t 'all 5 AGENDA'`. Green.
 - [ ] **Commit** — `git add lib/parser/blocks/agendaWarnings.ts lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): agendaWarnings (all 5 AGENDA_* codes) + parseAgenda step 1 grid location"`
@@ -334,7 +368,7 @@ export function parseAgenda(markdown: string): ParseAgendaResult {
 **Files:** `lib/parser/blocks/agenda.ts` · `tests/parser/parseAgenda.test.ts`.
 **Interfaces — Produces:** an internal `blocks: { startCol, endCol, dateCell?, dayNameCell?, prefixDayName? }[]` (show-day blocks only). **Consumes:** the located `rows` from Task 1.3.
 
-§4.1 step 2: among the located table's rows, find the **DATE row** BY CONTENT (the row with ≥2 cells matching `M/D/YY` via `normalizeDate(cell) !== null`) and the **day-NAME row** BY CONTENT (≥2 cells whose uppercase ∈ `WEEKDAYS`) — NOT by which row the converter promoted to header (R8). Each non-empty dated cell in the DATE row **opens a block** spanning `[col, nextDatedCol)`. Classify by the token-header columns inside the span: a span whose token-header cells include `START`+`FINISH`+`TRT` (the 6-col `START|FINISH|TRT|TITLE|ROOM|AV`) = **show day**; `NAME|ARRIVAL|FLIGHT#` or `TIME|TITLE|ROOM` = travel/set → **skip**. **Dual-form fallback:** if there is no separate DATE/day-name row (prefix-form table), derive day-name + boundaries from the token-header cell prefixes (split on `/`). **Concrete failure mode caught:** keying off a fixed column stride (East Coast TRAVEL=3, SET=3, DAY=6 cols — non-uniform) or off the day-TYPE row → travel/set blocks bleeding into the run-of-show.
+§4.1 step 2: among the located table's rows, find the **DATE row** BY CONTENT (the row with ≥2 cells matching `M/D/YY` via `normalizeDate(cell) !== null`) and the **day-NAME row** BY CONTENT (≥2 cells whose uppercase ∈ `WEEKDAYS`) — searched across the WHOLE isolated table, NOT just above the token-header (R7/R8: the converter may promote the token-header to md-header, leaving DATE/day-name BELOW it). Each distinct-date run in the DATE row delimits a span; the block's **read-origin `startCol` is the START token-header column INSIDE that span** (the 6-col `START|FINISH|TRT|TITLE|ROOM|AV` group), so `endCol = startCol + 6`. A span with **no** START column (the `NAME|ARRIVAL|FLIGHT#` travel group, the `TIME|TITLE|ROOM` set group) yields **no block** → travel/set skipped. Anchoring the read-origin to the START column (not the first dated column) keeps the absolute-offset reads correct even if the date banner is wider than the show-day group. **Dual-form fallback:** if there is no separate DATE/day-name row (prefix-form table), derive day-name + boundaries from the token-header cell prefixes (split on `/`). **Concrete failure mode caught:** keying off a fixed column stride (East Coast TRAVEL=3, SET=3, DAY=6 cols — non-uniform), off the day-TYPE row, or off the first dated column → travel/set blocks bleeding in, or the read-origin landing on the wrong column.
 
 **TDD note (invariant 1 — this task has a GENUINE red→green cycle, NOT a deferred one):** the impl EXPORTS a thin testable entry `locateAgendaShowBlocks(markdown)` that returns the classified show-day block descriptors (`{ startCol, endCol, dateCell, dayName }[]` — show-day blocks only, travel/set filtered out). The test asserts exact start-columns + that TRAVEL/SET spans are excluded, on a synthetic grid AND the real East Coast fixture. This RED-fails (function absent) before the impl and turns green after — a real task-local contract, not a smoke check. Day resolution/entries are still Tasks 1.5/1.6; this task owns ONLY boundaries + classification.
 
@@ -390,40 +424,59 @@ export type AgendaBlock = {
   dayName: string | undefined; // from day-NAME row OR header prefix
 };
 
+// Find the DATE / day-name rows BY CONTENT across the WHOLE isolated table —
+// NOT restricted to above the token-header (R7: the converter may promote the
+// token-header to md-header, leaving DATE/day-name as BODY rows BELOW it). Reuse
+// the same predicates the structural-row identification uses (Task 1.3) so the
+// "what is the DATE row" answer is identical for boundary-finding and for the
+// data-walk's structural-skip — one source of truth, no drift.
 function findDateRow(rows: string[][]): string[] | undefined {
-  return rows.find((r) => r.filter((c) => normalizeDate(c) !== null).length >= 2);
+  return rows.find(isDateRow);
 }
 function findDayNameRow(rows: string[][]): string[] | undefined {
-  return rows.find((r) => r.filter((c) => WEEKDAYS.has(c.trim().toUpperCase())).length >= 2);
+  return rows.find(isDayNameRow);
 }
 
 /** Build per-day blocks from the DATE row; classify each by its token-header span; keep show-day blocks only. */
 function locateBlocks(rows: string[][], header: string[], headerIdx: number): AgendaBlock[] {
-  const dateRow = findDateRow(rows.slice(0, headerIdx + 1)) ?? findDateRow(rows);
-  const nameRow = findDayNameRow(rows.slice(0, headerIdx + 1)) ?? findDayNameRow(rows);
+  const dateRow = findDateRow(rows);     // whole table, position-independent
+  const nameRow = findDayNameRow(rows);  // whole table, position-independent
+  const normHeader = header.map(normHeaderCell);
   const blocks: AgendaBlock[] = [];
 
+  // The block's READ-ORIGIN is the START column INSIDE the dated span — NOT the
+  // first dated column. In real grids the DATE banner aligns with START (DAY-1
+  // date 5/15/24 sits at the same col 6 as the START token), so they coincide;
+  // but anchoring to the token-header's START makes the read robust to a wider
+  // date banner (e.g. a date repeated across the leading NAME/ARRIVAL columns).
+  // A span with no START column is travel/set → produces no show-day block.
+  const startColInSpan = (lo: number, hi: number): number | undefined => {
+    for (let c = lo; c < hi; c++) if (normHeader[c] === "START") return c;
+    return undefined;
+  };
+
   if (dateRow) {
-    // boundary columns = non-empty dated cells in the DATE row
+    // span boundaries = distinct-date runs in the DATE row
     const opens: number[] = [];
     for (let c = 0; c < dateRow.length; c++) {
       if (normalizeDate(dateRow[c] ?? "") !== null) opens.push(c);
     }
-    // collapse runs of the SAME date (banner anchored only to the block-start column;
-    // trailing columns repeat OR are blank) into one block per distinct value.
     let i = 0;
     while (i < opens.length) {
-      const startCol = opens[i]!;
-      const dateVal = dateRow[startCol];
+      const spanStart = opens[i]!;
+      const dateVal = dateRow[spanStart];
       let j = i + 1;
       while (j < opens.length && dateRow[opens[j]!] === dateVal) j++;
-      const nextStart = j < opens.length ? opens[j]! : header.length;
-      blocks.push({
-        startCol,
-        endCol: nextStart,
-        dateCell: dateVal,
-        dayName: nameRow?.[startCol]?.trim(),
-      });
+      const spanEnd = j < opens.length ? opens[j]! : header.length;
+      const startCol = startColInSpan(spanStart, spanEnd); // anchor read-origin to START
+      if (startCol !== undefined) {
+        blocks.push({
+          startCol,
+          endCol: startCol + 6, // the 6-col START|FINISH|TRT|TITLE|ROOM|AV group
+          dateCell: dateVal,
+          dayName: nameRow?.[spanStart]?.trim(),
+        });
+      }
       i = j;
     }
   } else {
@@ -441,9 +494,9 @@ function locateBlocks(rows: string[][], header: string[], headerIdx: number): Ag
     }
   }
 
-  // Keep only SHOW-DAY blocks: token-header span includes START+FINISH+TRT.
+  // Confirm each block is a SHOW-DAY group: its 6-col span has START+FINISH+TRT.
   return blocks.filter((b) => {
-    const span = header.slice(b.startCol, b.endCol).map(normHeaderCell);
+    const span = normHeader.slice(b.startCol, b.endCol);
     return span.includes("START") && span.includes("FINISH") && span.includes("TRT");
   });
 }
@@ -657,6 +710,66 @@ describe("parseAgenda — steps 4-5: data walk + TITLE-real gate (real fixtures,
   });
 });
 
+describe("parseAgenda — R7: structural banner rows BELOW the token-header never become entries", () => {
+  // The bug this catches: the walk used rows.slice(headerIdx+1). When the converter
+  // promotes the TOKEN-HEADER to the md-table header row, the DATE / day-name / day-TYPE
+  // banners follow it as BODY rows — a positional slice reads them at absolute columns and
+  // emits "5/15/24" / "Wednesday" / "DAY 1" as bogus AgendaEntry titles. The structural-skip
+  // (skip DATE/day-name/day-TYPE/token-header rows BY IDENTITY) must exclude them.
+
+  it("token-header FIRST, then DATE + day-name + day-TYPE as body rows → those banners emit NO entry", () => {
+    // Markdown order: token-header (md-header), DATE, day-name, day-TYPE, then real data.
+    // After parseTableRows (separator dropped): rows = [token-hdr, DATE, day-name, day-TYPE, data].
+    // headerIdx=0; the OLD slice(1) would emit DATE/day-name/day-TYPE rows as titles.
+    const md = [
+      "| NAME | ARRIVAL | FLIGHT# | TIME | TITLE | ROOM | START  | FINISH | TRT | TITLE | ROOM | AV |",
+      "| 5/13/24 | 5/13/24 | 5/13/24 | 5/14/24 | 5/14/24 | 5/14/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 |",
+      "| Monday | Monday | Monday | Tuesday | Tuesday | Tuesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday |",
+      "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | SET DAY | SET DAY | SET DAY | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 |",
+      "|  |  |  |  |  |  | 8:30 AM | 9:30 AM | 1:00 | Opening Keynote | Mabel 1 | LAV |",
+    ].join("\n");
+    const r = parseAgenda(md, datesOf(["2024-05-15"]));
+    const day = r.runOfShow?.["2024-05-15"] ?? [];
+    const titles = day.map((e) => e.title);
+    // ONLY the real session — no banner cell leaked as a title.
+    expect(titles).toEqual(["Opening Keynote"]);
+    expect(titles).not.toContain("5/15/24");
+    expect(titles).not.toContain("Wednesday");
+    expect(titles).not.toContain("DAY 1");
+  });
+
+  it("real East Coast (day-TYPE-header promotion) still parses correctly — banners above header", () => {
+    // East Coast promotes the day-TYPE row to md-header; DATE/day-name/token-header are body
+    // rows ABOVE the data. Confirms the structural-skip handles BOTH promotion shapes.
+    const md = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
+    const titles = (parseAgenda(md, datesOf(["2024-05-15", "2024-05-16"])).runOfShow?.["2024-05-15"] ?? [])
+      .map((e) => e.title);
+    expect(titles).toContain("Family Office Only Breakfast");
+    expect(titles).not.toContain("5/15/24");
+    expect(titles).not.toContain("DAY 1");
+    expect(titles).not.toContain("Wednesday");
+  });
+
+  it("empty fixture (day-TYPE-header promotion, blank TITLEs) → all-[] keys, no banner-as-entry", () => {
+    // The OTHER promotion shape with empty titles: still must not emit DATE/day-name banners.
+    // Assert with inline patterns (the parser's WEEKDAYS/DAY_TYPE_RE are module-internal).
+    const md = readFileSync("fixtures/shows/exporter-xlsx/rpas.md", "utf8");
+    const r = parseAgenda(md, datesOf([
+      "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27",
+    ]));
+    const WEEKDAY_RE = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i;
+    const DAYTYPE_RE = /^(travel day|set day|day\s+\d+)$/i;
+    const MDY_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
+    for (const day of Object.values(r.runOfShow ?? {})) {
+      for (const e of day) {
+        expect(MDY_RE.test(e.title.trim())).toBe(false);     // no M/D/YY banner as title
+        expect(WEEKDAY_RE.test(e.title.trim())).toBe(false); // no weekday banner as title
+        expect(DAYTYPE_RE.test(e.title.trim())).toBe(false); // no TRAVEL DAY/DAY N as title
+      }
+    }
+  });
+});
+
 describe("parseAgenda — LOAD-BEARING: post-AGENDA tables never leak as run-of-show entries", () => {
   // The bug this catches: parseTableRows flattens the WHOLE doc; without isolating the
   // AGENDA table's contiguous block, the absolute-column walk reads PULL SHEET / ROOM
@@ -724,7 +837,7 @@ function buildEntry(row: string[], startCol: number): AgendaEntry | null {
   return entry;
 }
 ```
-In `parseAgenda`: for each resolved block, walk `rows.slice(headerIdx + 1)`, call `buildEntry(dataRow, block.startCol)`, collect non-null entries, and set `out[iso] = entries` (entries may be `[]` when every TITLE was blank/sentinel). Keep the resolved key even when `[]` (D-2 step 5 — the sync's CONFIRMED-ONLY filter drops `[]` later, §02).
+In `parseAgenda`: compute the data rows as **every row that is NOT structural** — `const dataRows = rows.filter((_, i) => !structural.has(i));` (using the `structural` set from Task 1.3). Do **NOT** use `rows.slice(headerIdx + 1)` — the converter can promote the token-header to the md-header row, leaving DATE / day-name / day-TYPE banners BELOW it as body rows; a positional slice would read those banner cells at absolute columns and emit `"5/15/24"` / `"Wednesday"` / `"DAY 1"` as bogus titles (R7). For each resolved block, walk `dataRows`, call `buildEntry(dataRow, block.startCol)`, collect non-null entries, and set `out[iso] = entries` (entries may be `[]` when every TITLE was blank/sentinel). Keep the resolved key even when `[]` (D-2 step 5 — the sync's CONFIRMED-ONLY filter drops `[]` later, §02).
 - [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts`. Green. The `start: ""` fallback only occurs if a START cell is blank on a real-TITLE row — acceptable per spec (display string).
 - [ ] **Commit** — `git add lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): parseAgenda steps 4-5 — data walk, right-pad, TITLE-real gate, per-day encoding"`
 
