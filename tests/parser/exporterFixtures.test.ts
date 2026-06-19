@@ -614,16 +614,32 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     for (const h of [...accented, ...slashy]) expect(h.confirmation_no).toBeNull();
   });
 
-  it("#4 PRIVACY: no conf# survives in ANY show-wide-readable lodging field (names / hotel_name / hotel_address)", () => {
-    // A confirmation token is a "<dash> #?<4+ digits>" run. Names must carry no
-    // digit-run at all (people names); hotel_name/hotel_address use the dash-token
-    // shape so legit address numbers / ZIPs (e.g. "Chicago, IL 60611") don't trip.
-    const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}/;
-    for (const s of SLUGS) {
-      for (const h of parse(s).hotelReservations) {
-        for (const n of h.names) expect(n, `${s} name "${n}"`).not.toMatch(/[#]|\d{4,}/);
-        expect(h.hotel_name ?? "", `${s} hotel_name`).not.toMatch(confTok);
-        expect(h.hotel_address ?? "", `${s} hotel_address`).not.toMatch(confTok);
+  it("#4 PRIVACY (meta): no conf# survives in ANY show-wide-readable lodging field, exporter + raw corpora", () => {
+    // Structural defense for the conf#-leak vector: every string lodging field
+    // (hotel_name / hotel_address / notes / names) on EVERY reservation, across the
+    // exporter AND raw fixtures, must be free of a confirmation token, and
+    // confirmation_no must be null. A token is a "<dash> #?<4+ digits>" run; ZIPs
+    // ("Chicago, IL 60611") aren't dash-prefixed so they don't trip it. Names also
+    // carry no bare digit-run (people names).
+    const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}|#\s*\d{4,}/;
+    const all = [
+      ...SLUGS.map((s) => parse(s)),
+      parseSheet(
+        readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8"),
+        "raw.md",
+      ),
+      parseSheet(
+        readFileSync("fixtures/shows/raw/2024-05-east-coast-family-office.md", "utf8"),
+        "raw.md",
+      ),
+    ];
+    for (const r of all) {
+      for (const h of r.hotelReservations) {
+        expect(h.confirmation_no).toBeNull();
+        for (const n of h.names) expect(n, `name "${n}"`).not.toMatch(/[#]|\d{4,}/);
+        for (const v of [h.hotel_name, h.hotel_address, h.notes]) {
+          expect(v ?? "", `lodging field "${v}"`).not.toMatch(confTok);
+        }
       }
     }
   });
