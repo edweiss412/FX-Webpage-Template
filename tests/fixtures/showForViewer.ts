@@ -101,6 +101,7 @@ const DEFAULT: ShowForViewer = {
   lastSyncedAt: null,
   lastSyncStatus: null,
   tileErrors: {},
+  runOfShow: null,
   viewerName: "Test Crew",
   viewerVersionToken: "v1",
 };

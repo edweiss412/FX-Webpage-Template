@@ -44,12 +44,14 @@
  */
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { decodeJsonbColumn } from "@/lib/db/coerceJsonbObject";
+import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
 import { deriveSchedulePhases } from "@/lib/parser";
 import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
 import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import { projectOpeningReelHasVideo } from "@/lib/data/openingReel";
 import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 import type {
+  AgendaEntry,
   ContactRow,
   DateRestriction,
   HotelReservationRow,
@@ -167,6 +169,21 @@ export type ShowForViewer = {
    * cannot render without them.
    */
   tileErrors: Record<string, string>;
+  /**
+   * Per-day run-of-show (agenda) projection, keyed by ISO `YYYY-MM-DD` day.
+   * Read UNCONDITIONALLY from `shows_internal.run_of_show` for every viewer
+   * (NOT lead-gated — `run_of_show` is date-gated, not financial). The keys
+   * emitted are the intersection of (decoded stored days) ∩ (current
+   * `show.dates.showDays`) ∩ (the active viewer's normalized
+   * `DateRestriction`): `unknown_asterisk` drops all days, `explicit` keeps
+   * only assigned days, `none`/admin keeps all current show days. The
+   * date-gating happens at READ only — stored storage is never mutated.
+   * `null` when no agenda survives (no-row, corrupt-and-empty, or all days
+   * gated out). Corrupt stored shape → `null` + a FIXED-string
+   * `tileErrors["run_of_show"]` (never raw infra text). §03's Schedule UI
+   * keys off `runOfShow[isoDate]?.length > 0`.
+   */
+  runOfShow: Record<string, AgendaEntry[]> | null;
   financials?: FinancialsRow;
   /**
    * Resolved viewer name for the active crew / admin_preview viewer, or
@@ -468,6 +485,79 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     tileErrors["contacts"] = e instanceof Error ? e.message : String(e);
   }
 
+  // === Run-of-show (agenda) — UNCONDITIONAL read for every viewer (D-4) ===
+  // NOT lead-gated: `run_of_show` is DATE-gated, not financial. The read is
+  // service-role + fail-soft (returned-error AND thrown exception both →
+  // runOfShow=null + a FIXED tileErrors string, never raw infra text). The
+  // date∩DateRestriction intersection below happens at READ only — the stored
+  // shows_internal.run_of_show object is never mutated.
+  let runOfShow: Record<string, AgendaEntry[]> | null = null;
+  try {
+    // not-subject-to-meta: lib/data is outside _metaInfraContract's auth-domain scan
+    // (tests/auth/_metaInfraContract.test.ts:258-259 walks lib/auth/app/auth/app/api/auth/app/api/show only);
+    // the { data, error } boundary is pinned by the behavioral returned-error + thrown-exception tests below.
+    const r = await supabase
+      .from("shows_internal")
+      .select("run_of_show")
+      .eq("show_id", showId)
+      .maybeSingle();
+    if (r.error) {
+      tileErrors["run_of_show"] = "run_of_show read failed";
+    } else {
+      // `?? null` is LOAD-BEARING: .maybeSingle() returns { data: null } for the
+      // common no-row (no-agenda) case → r.data?.run_of_show is `undefined`.
+      // Without the coercion the decoder flags `undefined` as corrupt and fires
+      // a FALSE alert on every no-row show. `null` hits the decoder's
+      // legitimate-empty branch (no tileErrors).
+      const decoded = decodeRunOfShow(
+        (r.data as { run_of_show?: unknown } | null)?.run_of_show ?? null,
+      );
+      if (decoded.corrupt) {
+        tileErrors["run_of_show"] = "run_of_show decode: corrupt stored shape";
+      }
+      runOfShow = decoded.value;
+    }
+  } catch (e) {
+    void e;
+    tileErrors["run_of_show"] = "run_of_show read failed";
+  }
+
+  // Intersection (D-4): emit only days that survive (decoded keys) ∩
+  // (current show.dates.showDays) ∩ (the ACTIVE viewer's normalized
+  // DateRestriction). The active viewer's restriction is the one ALREADY
+  // computed for the matching crewMembers[] row (normalizeDateRestriction at
+  // the projection boundary above) — reuse it, do NOT re-query. Admin /
+  // admin_preview with no per-day restriction → treated as `none` (all current
+  // show days), matching the Schedule day-set behavior.
+  if (runOfShow !== null) {
+    const showDaySet = new Set(show.dates.showDays ?? []);
+    const activeRestriction: DateRestriction =
+      needsCrewLookup
+        ? (crewMembers.find((m) => m.id === (viewer as { crewMemberId: string }).crewMemberId)
+            ?.dateRestriction ?? { kind: "none" })
+        : { kind: "none" };
+
+    let allowed: Set<string>;
+    if (activeRestriction.kind === "unknown_asterisk") {
+      // Cannot infer show days for this viewer → drop everything.
+      allowed = new Set<string>();
+    } else if (activeRestriction.kind === "explicit") {
+      // restriction.days are already ISO (normalizeDateRestriction) ∩ showDays.
+      allowed = new Set(activeRestriction.days.filter((d) => showDaySet.has(d)));
+    } else {
+      // `none` (or admin) → all current show days.
+      allowed = showDaySet;
+    }
+
+    const gated: Record<string, AgendaEntry[]> = {};
+    for (const key of Object.keys(runOfShow)) {
+      if (allowed.has(key)) {
+        gated[key] = runOfShow[key]!;
+      }
+    }
+    runOfShow = Object.keys(gated).length > 0 ? gated : null;
+  }
+
   // === Pull sheet (JSONB on shows) ===
   const pullSheet: PullSheetCase[] | null =
     decodeJsonbColumn<PullSheetCase[]>(showRowDb.pull_sheet) ?? null;
@@ -551,6 +641,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     lastSyncedAt: (showRowDb.last_synced_at as string | null | undefined) ?? null,
     lastSyncStatus: (showRowDb.last_sync_status as string | null | undefined) ?? null,
     tileErrors,
+    runOfShow,
     ...(financials ? { financials } : {}),
   };
 }
