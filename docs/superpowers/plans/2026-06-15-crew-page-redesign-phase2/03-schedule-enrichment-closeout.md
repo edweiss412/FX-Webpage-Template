@@ -372,7 +372,11 @@ function displayableEntries(entries: AgendaEntry[] | undefined): AgendaEntry[] {
   return (entries ?? []).filter(isDisplayableEntry);
 }
 
-/** One run-of-show row: START–FINISH · TITLE, with ROOM + AV badge when present. */
+/**
+ * One run-of-show row (spec §4.3 shape). Surfaces ALL six AgendaEntry fields:
+ * the time group `START–FINISH · TRT` (each part sentinel-guarded), the required
+ * real TITLE, then the ROOM + AV-badge metadata when present.
+ */
 function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   // Title is URL-stripped (free text could paste a link). The caller only passes
   // DISPLAYABLE entries (isDisplayableEntry — stripped title is real), so the
@@ -381,15 +385,24 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   const isLong = title.length > TITLE_TRUNCATE_AT;
   const start = resolveOptionalField(entry.start) ?? "";
   const finish = resolveOptionalField(entry.finish);
+  const trt = resolveOptionalField(entry.trt);
   const room = resolveOptionalField(entry.room);
   const av = resolveOptionalField(entry.av);
-  const timeLabel = finish ? `${start}–${finish}` : start;
+  // Time group (spec §4.3 row shape): START–FINISH with the TRT duration as a
+  // middot-joined suffix when present (e.g. "7:15 AM–7:30 AM · 0:15"). Each part
+  // is sentinel-guarded via resolveOptionalField, so a TBD/blank trt/finish drops
+  // out without leaving an orphan separator.
+  const range = finish ? `${start}–${finish}` : start;
+  const timeLabel = trt ? (range ? `${range} · ${trt}` : trt) : range;
 
   return (
     <li data-testid="agenda-entry" className="flex flex-col gap-0.5 py-1">
       <div className="flex items-baseline gap-2">
         {timeLabel ? (
-          <span className="shrink-0 text-xs font-semibold tabular-nums text-text-subtle">
+          <span
+            data-agenda-field="time"
+            className="shrink-0 text-xs font-semibold tabular-nums text-text-subtle"
+          >
             {timeLabel}
           </span>
         ) : null}
@@ -674,10 +687,37 @@ describe("Schedule run-of-show — sentinel hiding per optional field (test 8a)"
     expect(list.textContent).not.toContain("N/A");
     expect(list.textContent).not.toContain("–"); // no range dash when finish is sentinel
   });
+
+  // FIX (R15) — trt (session duration) MUST be surfaced. The data source carries
+  // it; the render must read entry.trt (sentinel-guarded) and show it in the time
+  // group as `START–FINISH · TRT`. Catches the silent-drop where entry.trt is
+  // never read (every crew row loses the duration).
+  test("trt='0:15' present → the duration renders in the time group", () => {
+    const TRT = "0:15";
+    const c = renderEntries([{ start: "7:15 AM", finish: "7:30 AM", trt: TRT, title: "Breakfast" }]);
+    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    const time = list.querySelector('[data-agenda-field="time"]')!;
+    // Assert against the DATA SOURCE value (anti-tautology), inside the time cell.
+    expect(time.textContent).toContain(TRT);
+    expect(time.textContent).toContain("7:15 AM");
+    expect(time.textContent).toContain("7:30 AM");
+    expect(list.textContent).toContain("Breakfast");
+  });
+
+  test("trt='TBD' / '' hidden → trt dropped, entry still shows (title real), no orphan middot", () => {
+    const c = renderEntries([{ start: "9:00", finish: "9:30", trt: "TBD", title: "Session" }]);
+    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    const time = list.querySelector('[data-agenda-field="time"]')!;
+    expect(time.textContent).toContain("9:00");
+    expect(time.textContent).toContain("9:30");
+    expect(time.textContent).not.toContain("TBD");
+    expect(time.textContent).not.toContain("·"); // no orphan middot separator when trt is sentinel
+    expect(list.textContent).toContain("Session");
+  });
 });
 ```
 
-- [ ] Write the test. **Run → MUST PASS** (Task 2 already wired it; if it fails, fix `resolveOptionalField`): `pnpm vitest run tests/components/crew/sections/ScheduleSection.sentinel.test.tsx`. **Failure mode caught:** a `TBD`/blank `room`/`av`/`finish` leaking into the run-of-show row as if real content; an `N/A` finish producing a `9:00–N/A` range.
+- [ ] Write the test. **Run → MUST PASS** (Task 2 already wired it; if it fails, fix `resolveOptionalField`/the trt read): `pnpm vitest run tests/components/crew/sections/ScheduleSection.sentinel.test.tsx`. **Failure mode caught:** a `TBD`/blank `room`/`av`/`finish`/`trt` leaking into the run-of-show row as if real content; an `N/A` finish producing a `9:00–N/A` range; **a present `trt` duration being silently dropped (never read) — R15** — or a sentinel `trt` leaving an orphan `·` middot.
 
 > **Note on test 8 "sentinel TITLE → anchor strip":** the spec's test 8b (a row whose TITLE is a sentinel → no entry; a day of all-sentinel titles → `[]` → anchor strip) is a **PARSER/decoder contract** owned by §01 (parser step-4 emit gate) and §02 (`decodeRunOfShow` title gate) — by the time data reaches `ScheduleSection`, a sentinel-title day is already `runOfShow[d] = []` or the key is absent, so the UI's `?.length > 0` branch falls to anchor-only. The §03-side assertion is: **a day projected with zero entries renders no run-of-show element** — already covered by Task 2's "runOfShow=null" + the per-day "D2 absent → null" assertions, and re-pinned by test 6a below. **No additional §03 test is needed for 8b** beyond confirming the empty-day → anchor-only path (Task 2). State this in the commit body so the reviewer doesn't expect a parser test here.
 
@@ -696,7 +736,31 @@ describe("Schedule run-of-show — sentinel hiding per optional field (test 8a)"
 ```
 
 - [ ] **Run → MUST PASS**: `pnpm vitest run tests/components/tiles/_metaSentinelHidingContract.test.ts`. (Because `ScheduleSection.tsx` reads `entry.room`/`entry.av`/`entry.finish`/`entry.trt` AND imports+calls `shouldHideGenericOptional`, the new pattern matches and the structural contract is satisfied. **Negative-regression check:** temporarily comment out the `shouldHideGenericOptional` import in `ScheduleSection.tsx`, re-run → the meta-test MUST FAIL; restore. Note the negative-regression result in the commit body.)
-- [ ] **Commit:** `test(crew-page): pin run-of-show sentinel hiding; extend _metaSentinelHidingContract pattern`
+
+**Failing test C — ALL-six-fields completeness guard (R15 — catches a SILENTLY-DROPPED field).** The `_metaSentinelHidingContract` pattern is conditional ("IF a field is read, guard it") — it does NOT catch a field that is simply never read (the R15 bug: `entry.trt` parsed/stored/projected but never rendered). Add a source-scan sync guard to `tests/components/crew/sections/ScheduleSection.sentinel.test.tsx` asserting `ScheduleSection.tsx` reads EVERY `AgendaEntry` field, so a future impl that drops one fails at CI:
+
+```ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+test("ScheduleSection reads ALL six AgendaEntry fields (no silent field drop — R15)", () => {
+  const src = readFileSync(
+    join(process.cwd(), "components", "crew", "sections", "ScheduleSection.tsx"),
+    "utf8",
+  );
+  // Every AgendaEntry field must be read off `entry.` in the run-of-show render.
+  // (title is the required real field; the other five are sentinel-guarded.)
+  for (const field of ["start", "finish", "trt", "title", "room", "av"] as const) {
+    expect(
+      new RegExp(`\\bentry\\??\\.${field}\\b`).test(src),
+      `ScheduleSection.tsx never reads entry.${field} — a surfaced AgendaEntry field was dropped`,
+    ).toBe(true);
+  }
+});
+```
+
+- [ ] **Run → MUST PASS** (the impl reads all six). **Negative-regression:** temporarily delete the `entry.trt` read in `ScheduleSection.tsx`, re-run → this guard MUST FAIL on `entry.trt`; restore. _Catches: any of the 6 `AgendaEntry` fields (start/finish/trt/title/room/av) silently never rendered — the exact R15 class._
+- [ ] **Commit:** `test(crew-page): pin run-of-show sentinel hiding + all-6-field completeness; extend _metaSentinelHidingContract pattern`
 
 ---
 
