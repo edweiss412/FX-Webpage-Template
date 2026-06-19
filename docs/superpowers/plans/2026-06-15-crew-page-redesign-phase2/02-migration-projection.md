@@ -452,7 +452,7 @@ describe("sync run_of_show CONFIRMED-ONLY full replace + AGENDA_DAY_EMPTIED live
 ```
 > **Negative-regression check (mandatory):** temporarily make the fake `applyShowSnapshot` return OMIT `priorRunOfShow` (return `priorRunOfShow: undefined`) and confirm cases (iii)/(iv)/CHANNEL-1/R6-cross-boundary FAIL — proving the suite exercises the live `priorRunOfShow` plumbing, not a hand-built snapshot. Restore, then commit. (R6 class: a test green with the plumbing dead is worse than no test.)
 
-**Failing test (CODE) — `tests/sync/runOfShowSyncLogChannel.test.ts`: the D-7 `sync_log.parse_warnings` channel, driven through the REAL logging surface (R7).** The CONFIRMED-replace suite above does NOT write sync_log (the apply core + `runPhase2` are upstream of logging). The cron-success row is written by `emitSuccessfulPhase2Tail` → `logSync` → `deps.logSync`, and persisted by `insertSyncLog`. So suite 1 drives `emitSuccessfulPhase2Tail` (exported, `runScheduledCronSync.ts:1724`) with a SPY `deps.logSync` and asserts the captured `SyncLogEntry.parseWarnings` includes `AGENDA_DAY_EMPTIED`; suite 2 is a structural pin on `insertSyncLog` via `makeSyncPipelineTx` (exported, `:1343`) with a fake `PostgresTransaction` (`{ unsafe }`, `:295-297`) capturing the `$5` param. Complete, executable:**
+**Failing test (CODE) — `tests/sync/runOfShowSyncLogChannel.test.ts`: the D-7 `sync_log.parse_warnings` channel, driven through the REAL logging surface (R7).** The CONFIRMED-replace suite above does NOT write sync_log (the apply core + `runPhase2` are upstream of logging). The cron-success row is written by `emitSuccessfulPhase2Tail` → `logSync` → `deps.logSync`, and persisted by `insertSyncLog`. So suite 1 drives `emitSuccessfulPhase2Tail` (exported, `runScheduledCronSync.ts:1724`) with a SPY `deps.logSync` and asserts the captured `SyncLogEntry.parseWarnings` includes `AGENDA_DAY_EMPTIED`; suite 2 is a structural pin on `insertSyncLog` via `makeSyncPipelineTx` (exported, `:1343`) with a fake `PostgresTransaction` (`{ unsafe }`, `:295-297`) capturing the `$5` param. **NOTE:** `insertSyncLog` is a concrete-class method surfaced only via the UNEXPORTED `CronRecoveryTx` type (`:214-229`); `makeSyncPipelineTx` declares the `SyncPipelineTx` return type (`:124-129`) which OMITS it, so suite 2 narrows the runtime instance back with a documented TEST-ONLY local interface cast (the method exists at runtime — the cast is sound). Complete, executable:**
 ```ts
 import { describe, it, expect, vi } from "vitest";
 import {
@@ -503,6 +503,13 @@ describe("D-7 sync_log channel — AGENDA_DAY_EMPTIED reaches sync_log via emitS
 });
 
 describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnings into the persisted $5 JSONB (R7)", () => {
+  // insertSyncLog is a METHOD on the concrete PostgresPipelineTx (runScheduledCronSync.ts:794), surfaced only via
+  // the UNEXPORTED CronRecoveryTx type (:214-229). makeSyncPipelineTx returns the concrete instance but DECLARES
+  // SyncPipelineTx (:124-129), which OMITS insertSyncLog — so a plain pipe.insertSyncLog(...) fails tsc
+  // (property-does-not-exist). The method exists at runtime; a test-only local interface narrows it back for the cast.
+  // (CronRecoveryTx is not exported, so we re-declare just the surface this pin needs.)
+  type SyncLogWriter = { insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void> };
+
   function capturingTx() {
     const calls: Array<{ sql: string; params: unknown[] }> = [];
     return {
@@ -512,16 +519,16 @@ describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnin
   }
   it("insertSyncLog writes entry.parseWarnings into the parse_warnings $5 array", async () => {
     const { tx, calls } = capturingTx();
-    const pipe = makeSyncPipelineTx(tx);
+    const pipe = makeSyncPipelineTx(tx) as unknown as SyncLogWriter; // test-only cast: method exists at runtime, hidden by SyncPipelineTx
     await pipe.insertSyncLog({ driveFileId: "file-1", outcome: "applied", parseWarnings: [EMPTIED] }, "show-1");
     const syncLogCall = calls.find((c) => c.sql.includes("insert into public.sync_log"))!;
     const fifth = syncLogCall.params[4] as Array<{ code?: string }>;
     expect(fifth.some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
-    // RED before impl: insertSyncLog ignores entry.parseWarnings → $5 has no AGENDA_DAY_EMPTIED.
+    // RED before impl: insertSyncLog does NOT union entry.parseWarnings → $5 omits AGENDA_DAY_EMPTIED (the real behavior under test).
   });
   it("insertSyncLog keeps the per-outcome payload row when BOTH payload and parseWarnings are present", async () => {
     const { tx, calls } = capturingTx();
-    const pipe = makeSyncPipelineTx(tx);
+    const pipe = makeSyncPipelineTx(tx) as unknown as SyncLogWriter; // test-only cast (see note above)
     await pipe.insertSyncLog(
       { driveFileId: "file-1", outcome: "applied", payload: { kind: "x" }, parseWarnings: [EMPTIED] },
       "show-1",

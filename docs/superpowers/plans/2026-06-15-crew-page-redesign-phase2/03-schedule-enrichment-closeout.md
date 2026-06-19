@@ -41,7 +41,7 @@
 ## Meta-test inventory (this file)
 
 - **EXTENDS `_metaSentinelHidingContract`** (`tests/components/tiles/_metaSentinelHidingContract.test.ts`) — already walks `components/crew/sections/` (CREW_DIRS, `:100-103`). The new `ScheduleSection` run-of-show field reads (`entry.room`/`entry.av`/`entry.finish`/`entry.trt`) must import AND call `shouldHideGenericOptional`. The contract test requires a `GENERIC_OPTIONAL_FIELDS` pattern that matches the new read path (Task 5 adds the `entry.(room|av|finish|trt)` pattern row + extends the behavioral test) so the structural walk catches a future unguarded refactor.
-- **EXTENDS the `CardinalityCapBoundary` TEST matrix** (`tests/components/tiles/CardinalityCapBoundary.test.tsx`) — this is a **TEST, not a reusable component**; the cap (`20`) is a per-section const in `ScheduleSection.tsx`. Add a run-of-show `describe` block pinning cap-1/cap/cap+1 with the row testid (`run-of-show-entry`) + overflow stub testid (`run-of-show-overflow-stub`), count `= length − 20`, tail-trim.
+- **EXTENDS the `CardinalityCapBoundary` TEST matrix** (`tests/components/tiles/CardinalityCapBoundary.test.tsx`) — this is a **TEST, not a reusable component**; the cap (`20`) is a per-section const in `ScheduleSection.tsx`. Add a run-of-show `describe` block pinning cap-1/cap/cap+1 with the row testid (`agenda-entry`) + overflow stub testid (`agenda-overflow-stub`), count `= length − 20`, tail-trim.
 - **NO new Supabase meta-test work in §03.** `RPC_GATED_TABLES`, `internal-code-enums`, `validation-schema-parity`, the `failedKeys` 6th-domain test — all owned by §01/§02. The new `getShowForViewer` `shows_internal.run_of_show` read is a new Supabase call site, so per invariant 9 it EITHER registers in a structural meta-test OR carries an inline `// not-subject-to-meta: <reason>` waiver; because `lib/data` is outside `_metaInfraContract`'s auth-domain scan (`tests/auth/_metaInfraContract.test.ts:258-259` walks only `lib/auth`/`app/auth`/`app/api/auth`/`app/api/show`), the **inline `// not-subject-to-meta:` waiver is the applicable branch, and it is added in §02 Task 02.5** at the read site. §03 adds NO Supabase call-boundary artifact itself; the §03 close-out (Task 7 self-review) VERIFIES that inline waiver is present on the read.
 
 ---
@@ -223,10 +223,19 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
     const dayWrapper = c.querySelector(`[data-day="${D1}"]`);
     expect(dayWrapper).not.toBeNull();
     const clone = dayWrapper!.cloneNode(true) as HTMLElement;
-    // Exactly one run-of-show list inside the day.
+    // Exactly one per-day run-of-show CONTAINER inside the day. The container
+    // testid is `run-of-show-<isoDate>`; entry rows / overflow stub use the
+    // `agenda-*` namespace (NOT the `run-of-show-` prefix), so the prefix
+    // selector counts ONLY the per-day container — exactly 1 for a correct
+    // render, regardless of entry count. (A `^="run-of-show-"` selector would
+    // otherwise also match every entry row + the stub and read 3+, going red
+    // for the wrong reason.)
     expect(clone.querySelectorAll('[data-testid^="run-of-show-"]').length).toBe(1);
+    // Belt-and-braces: the exact container testid is present exactly once, and
+    // there is no second per-day container of a different ISO date in this day.
+    expect(clone.querySelectorAll(`[data-testid="run-of-show-${D1}"]`).length).toBe(1);
     // The DayCard header still renders (the run-of-show is the body, not a replacement).
-    expect(clone.querySelector('[data-testid="run-of-show-overflow-stub"]')).toBeNull(); // only 2 entries < cap
+    expect(clone.querySelector('[data-testid="agenda-overflow-stub"]')).toBeNull(); // only 2 entries < cap
   });
 
   test("runOfShow = null → NO run-of-show element on any day (Phase-1 identical)", () => {
@@ -239,7 +248,7 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
     const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`);
     expect(list!.textContent).toContain("Closing Remarks");
     // Exactly one entry row.
-    expect(list!.querySelectorAll('[data-testid="run-of-show-entry"]').length).toBe(1);
+    expect(list!.querySelectorAll('[data-testid="agenda-entry"]').length).toBe(1);
   });
 });
 ```
@@ -286,7 +295,7 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   const timeLabel = finish ? `${start}–${finish}` : start;
 
   return (
-    <li data-testid="run-of-show-entry" className="flex flex-col gap-0.5 py-1">
+    <li data-testid="agenda-entry" className="flex flex-col gap-0.5 py-1">
       <div className="flex items-baseline gap-2">
         {timeLabel ? (
           <span className="shrink-0 text-xs font-semibold tabular-nums text-text-subtle">
@@ -334,7 +343,7 @@ function RunOfShowList({ entries, isoDate }: { entries: AgendaEntry[]; isoDate: 
       </ul>
       {overflow > 0 ? (
         <div
-          data-testid="run-of-show-overflow-stub"
+          data-testid="agenda-overflow-stub"
           data-tile-show-more="true"
           className="pt-1 text-xs text-text-subtle"
         >
@@ -409,8 +418,8 @@ describe("Schedule run-of-show — display cap + truncation + URL-strip (test 7a
     const n = RUN_OF_SHOW_DISPLAY_CAP + 1;
     const expectedOverflow = n - RUN_OF_SHOW_DISPLAY_CAP; // derived
     const c = renderEntries(mkEntries(n));
-    expect(c.querySelectorAll('[data-testid="run-of-show-entry"]').length).toBe(RUN_OF_SHOW_DISPLAY_CAP);
-    const stub = c.querySelector('[data-testid="run-of-show-overflow-stub"]');
+    expect(c.querySelectorAll('[data-testid="agenda-entry"]').length).toBe(RUN_OF_SHOW_DISPLAY_CAP);
+    const stub = c.querySelector('[data-testid="agenda-overflow-stub"]');
     expect(stub).not.toBeNull();
     expect(stub!.textContent).toContain(`+${expectedOverflow}`);
     // Tail-trim: last shown present, first overflowed absent.
@@ -421,8 +430,8 @@ describe("Schedule run-of-show — display cap + truncation + URL-strip (test 7a
 
   test(`exactly cap (${RUN_OF_SHOW_DISPLAY_CAP}) → all rows, NO stub (no +0 at >= cap)`, () => {
     const c = renderEntries(mkEntries(RUN_OF_SHOW_DISPLAY_CAP));
-    expect(c.querySelectorAll('[data-testid="run-of-show-entry"]').length).toBe(RUN_OF_SHOW_DISPLAY_CAP);
-    expect(c.querySelector('[data-testid="run-of-show-overflow-stub"]')).toBeNull();
+    expect(c.querySelectorAll('[data-testid="agenda-entry"]').length).toBe(RUN_OF_SHOW_DISPLAY_CAP);
+    expect(c.querySelector('[data-testid="agenda-overflow-stub"]')).toBeNull();
     expect(c.textContent ?? "").not.toContain("+0");
   });
 
@@ -462,8 +471,8 @@ New block:
 ```tsx
 // ─────────────────────────────────────────────────────────────────────
 // Run-of-show — RUN_OF_SHOW_DISPLAY_CAP = 20 (ScheduleSection, exported)
-//   rows: [data-testid="run-of-show-entry"]
-//   overflow stub: [data-testid="run-of-show-overflow-stub"]
+//   rows: [data-testid="agenda-entry"]
+//   overflow stub: [data-testid="agenda-overflow-stub"]
 // Cap is exported, so this asserts the live const (not a mirrored literal).
 // ─────────────────────────────────────────────────────────────────────
 describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, ScheduleSection)", () => {
@@ -492,8 +501,8 @@ describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, Schedu
     "run-of-show cap boundary at %i",
     (n) => {
       const c = renderRunOfShow(n);
-      const rows = c.querySelectorAll('[data-testid="run-of-show-entry"]').length;
-      const stub = c.querySelector('[data-testid="run-of-show-overflow-stub"]');
+      const rows = c.querySelectorAll('[data-testid="agenda-entry"]').length;
+      const stub = c.querySelector('[data-testid="agenda-overflow-stub"]');
       if (n <= RUN_OF_SHOW_DISPLAY_CAP) {
         expect(rows).toBe(n);
         expect(stub).toBeNull();
