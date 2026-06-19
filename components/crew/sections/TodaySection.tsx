@@ -179,14 +179,24 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
 
           const primaryContact = selectPrimaryContact(data.contacts);
 
-          // Dress code — first non-empty of dress_code / dress / attire, gated by the
-          // generic-optional sentinel predicate.
-          const dressRaw =
-            data.show.event_details.dress_code ??
-            data.show.event_details.dress ??
-            data.show.event_details.attire ??
-            null;
-          const showDress = !shouldHideGenericOptional(dressRaw);
+          // Dress code — first NON-SENTINEL of the candidate keys (ported verbatim
+          // from ShowStatusTile.pickDressCode, ShowStatusTile.tsx:66-77). A plain
+          // `??` chain is WRONG: a sentinel `dress_code:"N/A"` is non-null, so `??`
+          // would stop there and the real `attire:"Black tie"` would be dropped.
+          // Iterate candidates (case-insensitive, incl. the spaced "dress code"
+          // variant) and skip sentinels so a meaningful later key still surfaces.
+          const dressLower = new Map(
+            Object.entries(data.show.event_details).map(([k, v]) => [k.toLowerCase(), v]),
+          );
+          let dressRaw: string | null = null;
+          for (const key of ["dress_code", "dress code", "dress", "attire"]) {
+            const v = dressLower.get(key);
+            if (typeof v === "string" && !shouldHideGenericOptional(v)) {
+              dressRaw = v;
+              break;
+            }
+          }
+          const showDress = dressRaw !== null;
 
           // 5-source notes — transport source gated on transportTileVisible (the gate
           // uses the projection's `viewerName`, per the NotesTile transport contract).

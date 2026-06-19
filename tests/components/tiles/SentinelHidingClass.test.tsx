@@ -202,19 +202,14 @@ describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
     expect(html(c)).not.toContain("N/A");
   });
 
-  test("KNOWN DELTA — cross-key fallback does NOT skip a sentinel earlier key (regression vs M4 pickDressCode)", () => {
+  test("cross-key fallback skips a sentinel earlier key and surfaces the real later key (M4 pickDressCode parity)", () => {
     // M4 ShowStatusTile.pickDressCode (components/tiles/ShowStatusTile.tsx:66-77)
     // probed candidate keys [dress_code, "dress code", dress, attire] IN ORDER
     // and SKIPPED any whose value was a sentinel, so `dress_code:"N/A"` +
-    // `attire:"Black tie"` rendered "Black tie".
-    //
-    // TodaySection.tsx:184-189 resolves dress via a plain `??` chain
-    // (`dress_code ?? dress ?? attire`), which stops at the first NON-NULL key
-    // regardless of whether it's a sentinel — so a sentinel `dress_code` SHADOWS
-    // a real `attire` and the whole Dress code block is omitted. The real value
-    // is dropped. This test PINS the current (regressed) behavior so the delta
-    // is visible; it is reported to the orchestrator as a real contract gap, not
-    // silently weakened. (It does NOT leak the sentinel — fail-safe direction.)
+    // `attire:"Black tie"` rendered "Black tie". TodaySection now ports that
+    // iterate-and-skip-sentinels logic verbatim (it previously used a plain `??`
+    // chain that stopped at the first non-null key and dropped the real value —
+    // a regression caught by the tile-test retarget and fixed in TodaySection.tsx).
     const c = render(
       <TodaySection
         data={makeShowForViewer({
@@ -225,11 +220,10 @@ describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
         showId={SHOW_ID}
       />,
     ).container;
-    // Current behavior: sentinel dress_code shadows attire → block omitted.
-    expect(c.querySelector('[data-testid="today-dress"]')).toBeNull();
-    // The real attire value is (regrettably) dropped — documents the delta.
-    expect(c.textContent ?? "").not.toContain("Black tie");
-    // No sentinel leaks (the only fail-SAFE part of the delta).
+    // The sentinel dress_code is skipped; the real attire surfaces.
+    expect(c.querySelector('[data-testid="today-dress"]')).toBeTruthy();
+    expect(c.textContent ?? "").toContain("Black tie");
+    // The sentinel itself never leaks.
     expect(html(c)).not.toContain("N/A");
   });
 });
