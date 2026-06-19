@@ -61,8 +61,8 @@ Called in `parseSheet` (`lib/parser/index.ts`) **immediately after** `const crew
 
 **Algorithm:**
 
-1. **Locate the table.** Split the markdown into pipe-table rows. Find the **header row**: a row whose first cell (trimmed, upper-cased) is `NAME` and which contains a cell equal to `FLIGHT DETAILS` somewhere to its right. Record the 0-based column index of `NAME` (the first cell) and of the first `FLIGHT DETAILS` cell. If no such header row exists → **return** (no TRAVEL flight table; the common case for the 5 non-TRAVEL shows). Use the same `cleanRows`/markdown-escape-strip boundary the agenda parser uses (`lib/parser/blocks/agenda.ts`) so escaped `\|`/`\#` don't corrupt cell splitting.
-2. **Crew window.** Iterate data rows after the header. **Stop** at the first row whose NAME cell is blank (the legend/template row, or end of the contiguous crew block) — OR at a row that does not start with `|` (table ended). A row with a non-blank NAME is a candidate flyer.
+1. **Isolate the contiguous flight pipe-block FIRST** (mirror `isolateAgendaTable`, `lib/parser/blocks/agenda.ts:63` — the blank-line-boundary pattern). Split the markdown into raw lines; find the **header line**: a pipe-row whose first cell (trimmed, upper-cased) is `NAME` and which contains a cell equal to `FLIGHT DETAILS` to its right. The block is that header line + the **contiguous following pipe-rows, bounded below by the first blank line** (or a non-pipe line, or EOF). **This blank-line isolation is load-bearing, not a stop-on-blank-NAME or stop-on-non-pipe-row rule:** RPAS has **no** blank-NAME terminator after its last crew row — only a blank line before later pipe tables — so a row-level stop condition would walk the scan into unrelated later tables (the agenda grid, address blocks) and attach a date-shaped cell at the bound column index or emit bogus warnings. The blank-line block boundary is the only reliable terminator. If no header line is found → **return** (no TRAVEL flight table; the common case for the 5 non-TRAVEL shows). Apply `cleanRows` (`agenda.ts:30`, the markdown-escape-strip boundary) ONCE to the isolated block's parsed rows so escaped `\|`/`\#` don't corrupt cell splitting.
+2. **Bind columns + crew window (within the isolated block only).** From the header row, record the 0-based column index of `NAME` (its first cell) and of the **first** `FLIGHT DETAILS` cell (bind by LABEL — the column index varies I-vs-H and the duplicate FLIGHT DETAILS header holds identical text). The candidate flyer rows are the block's data rows after the header; **additionally stop at a blank-NAME row** within the block (the FinTech legend/template row; RPAS has none) — but the block's blank-line lower bound is the primary terminator, so the scan can never reach a later table.
 3. **Per candidate row:** read `nameRaw = cells[nameIdx]`, `flightRaw = cells[flightIdx] ?? ""` (tolerate a row shorter than `flightIdx` — trailing-empty trim → treat missing as empty).
    - **Exclude non-flyers:** if `flightRaw` is blank, OR `isNonFlyerSentinel(flightRaw)` (case-insensitive exact match against `{"DRIVING","LOCAL","N/A","TBD","TBA"}` after trim), OR `looksLikeLegendCell(flightRaw)` (contains a placeholder token `XXX - XXX` / `FLIGHT #` / bare `CODE`/`DATE`/`TIME` skeleton — secondary guard) → skip (emit no flight, no warning; a non-flyer is normal).
    - Otherwise **normalize** `flightRaw` → `flightInfo` (§2).
@@ -93,13 +93,16 @@ GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am 3/26 AA2723 ORD - LGA 7:23am - 10:3
 
 The render (`TravelSection.tsx`) splits on `" | "` and maps each leg to a line — so a round-trip → 2 lines (conf on the first), a one-way (single date) → 1 line (no `" | "`), a multi-segment (N dates) → N lines. **No card rework.** The `" | "` separator never collides with the in-leg `" - "` (route/times) — they are distinct substrings.
 
-**Guard: a cell with NO date token** (e.g. a free-text note that survived the sentinel filter) → `legs` is empty → `flight_info` would be just the raw text with no `" | "`. To avoid storing junk: if **no** date token is found, treat the cell as a non-flyer (skip, no flight) — a real itinerary always has ≥1 date. This also covers a stray sentinel the exact-match filter missed.
+**Guard: a non-empty cell with NO recognized leg date → WARN (do not silently drop).** A real itinerary always has ≥1 `^\d{1,2}\/\d{1,2}$` date token. A FLIGHT DETAILS cell that is **non-blank, non-sentinel, non-legend** yet has **no** recognized date token is **format-drift** — a date written `3/22/26` or `Mar 22`, an itinerary missing its date, or a note that slipped the sentinel filter — NOT a normal non-flyer. The parser MUST NOT store junk AND MUST NOT drop it silently: **skip the mutation** but emit a **`TRAVEL_FLIGHT_UNPARSEABLE`** warning (§3) naming the crew member + the raw cell, so Doug/admin can fix the source data. (Contrast: a blank / sentinel / legend cell is a *normal* non-flyer → skip with **no** warning. Only a non-empty, non-sentinel, non-legend, date-less cell warns.)
 
-## §3 — §12.4 warning code (the 3-lockstep)
+## §3 — §12.4 warning codes (the 3-lockstep, ×2)
 
-One new code: **`TRAVEL_FLIGHT_NAME_UNMATCHED`** — a **quiet parser warning** (best-effort, like the `AGENDA_*` codes), `crewFacing: null`, emitted when a TRAVEL flyer's name has zero or >1 roster matches (a flight that exists but couldn't be attached). It is NOT a loud `admin_alert`; it flows to `shows_internal.parse_warnings` + `sync_log` + `/admin/dev` like the other parser warnings.
+**Two** new **quiet parser warnings** (best-effort, like the `AGENDA_*` codes), each `crewFacing: null` — NOT loud `admin_alert`s; they flow to `shows_internal.parse_warnings` + `sync_log` + `/admin/dev` like the other parser warnings. Both surface a TRAVEL flight that exists but couldn't be attached, so Doug/admin can fix the source:
 
-The §12.4 catalog requires the **three lockstep updates in one commit** (the M12.1 / Phase-2 lesson): (a) the master-spec §12.4 prose row in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, (b) regen `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts`, (c) the matching `lib/messages/catalog.ts` `MESSAGE_CATALOG` row (`crewFacing: null`). The `x1-catalog-parity` + `codes.test.ts` orphan gate enforce all three. Copy fields: `dougFacing` ≈ "A crew member's flight on the TRAVEL tab couldn't be matched to a roster name — check the spelling matches.", `helpfulContext` naming the show + the unmatched name.
+1. **`TRAVEL_FLIGHT_NAME_UNMATCHED`** — the flyer's NAME has **zero or >1** roster matches (the join failed/ambiguous). `dougFacing` ≈ "A flight on the TRAVEL tab couldn't be matched to a crew name — check the name spelling matches the roster."
+2. **`TRAVEL_FLIGHT_UNPARSEABLE`** — a non-empty, non-sentinel, non-legend FLIGHT DETAILS cell has **no recognized leg date** (format-drift, §2 guard). `dougFacing` ≈ "A crew member's TRAVEL-tab flight couldn't be read (no recognizable flight date) — check the format."
+
+Each code's `helpfulContext` names the show + the crew member + (for UNPARSEABLE) the raw cell. Each requires the **three lockstep updates in one commit** (the M12.1 / Phase-2 lesson): (a) the master-spec §12.4 prose row in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, (b) regen `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts`, (c) the matching `lib/messages/catalog.ts` `MESSAGE_CATALOG` row (`crewFacing: null`). The `x1-catalog-parity` + `codes.test.ts` orphan gate enforce all three for BOTH codes.
 
 ## Guard conditions (every input state)
 
@@ -112,15 +115,16 @@ The §12.4 catalog requires the **three lockstep updates in one commit** (the M1
 | Multi-segment (≥3 date tokens) | N legs joined by `" | "` (render shows N lines) |
 | Blank FLIGHT DETAILS cell / row shorter than the bound col | non-flyer; skip |
 | Sentinel cell (`DRIVING`/`LOCAL`/`Local`/`N/A`, any case) | non-flyer; skip |
-| Legend/template row (blank NAME, or `XXX - XXX`/`CODE` skeleton) | excluded; skip |
-| Cell with no date token (junk/free-text) | non-flyer; skip |
+| Legend/template row (blank NAME, or `XXX - XXX`/`CODE` skeleton) | excluded; skip, no warning |
+| **Non-empty, non-sentinel, non-legend cell with NO recognized date** (`3/22/26`, `Mar 22`, missing date) | **`TRAVEL_FLIGHT_UNPARSEABLE` warning; no mutation** (format-drift — not silently dropped) |
+| A later pipe table (after a blank line) with date-shaped text at the flight column index | **NOT scanned** — the blank-line block isolation (§1.1) stops before it |
 | Name matches exactly one roster crew member, `flight_info` null | enrich that row |
 | Name matches one row but `flight_info` already set (TECH path) | skip (TECH precedence; no warning) |
 | Name matches zero or >1 roster crew members | `TRAVEL_FLIGHT_NAME_UNMATCHED` warning; no mutation |
 
 ## Meta-test inventory (mandatory declaration)
 
-- **`tests/cross-cutting/codes.test.ts` (orphan-codes / `x1-catalog-parity`) — EXTENDED.** The new `code: "TRAVEL_FLIGHT_NAME_UNMATCHED"` literal in `travelFlights.ts` is a producer the orphan gate scans; it MUST appear in §12.4 + the catalog (the §3 3-lockstep). This is the gate that fails if the code is added without the catalog rows.
+- **`tests/cross-cutting/codes.test.ts` (orphan-codes / `x1-catalog-parity`) — EXTENDED.** BOTH new `code:` literals (`TRAVEL_FLIGHT_NAME_UNMATCHED`, `TRAVEL_FLIGHT_UNPARSEABLE`) in `travelFlights.ts` are producers the orphan gate scans; each MUST appear in §12.4 + the catalog (the §3 3-lockstep per code). This is the gate that fails if a code is added without the catalog rows.
 - **Parser fixture-backed test (NEW): `tests/parser/travelFlights.test.ts`** — `parseSheet(rpas.md)`/`parseSheet(fintech.md)` → the John Carleo row gets the normalized `flight_info`; the join, exclusions, precedence, and the unmatched-name warning are pinned (the parser equivalent of the Phase-3 `crewFlightFixture` guard).
 - **`postgrest-dml-lockdown` / advisory-lock topology — N/A** (no DB/table/RPC/lock surface; parser-only).
 - **`_metaSentinelHidingContract` — N/A** (no UI surface; the card already ships).
@@ -132,8 +136,10 @@ The §12.4 catalog requires the **three lockstep updates in one commit** (the M1
 3. **Synthetic legend row** (blank NAME + `CODE`/`XXX - XXX` cell) → produces no flight + no warning. Catches: legend leakage.
 4. **Synthetic sentinel** (`LOCAL` / `DRIVING`, mixed case) in the FLIGHT DETAILS cell → non-flyer, no flight, no warning. Catches: sentinel case/location.
 5. **Synthetic unmatched name** (a TRAVEL flyer `Jane Doe` not on the roster) → exactly one `TRAVEL_FLIGHT_NAME_UNMATCHED` warning; no crew row mutated. **Synthetic ambiguous name** (two roster `John Carleo` rows) → warning, no mutation. Catches: silent-drop / mis-assignment.
-6. **Precedence:** a row whose `flight_info` is pre-set (simulating the TECH path) is NOT overwritten by a TRAVEL match. Catches: clobbering the authoritative TECH flight.
-7. **`code: "TRAVEL_FLIGHT_NAME_UNMATCHED"`** is present in §12.4 + `catalog.ts` (the orphan gate passes). Catches: the missing 3-lockstep.
+6. **Format-drift cell** (a matched flyer whose FLIGHT DETAILS is non-empty, non-sentinel, non-legend, but has NO `M/D` date — e.g. `Mar 22` or `3/22/26 AA3002 …`) → exactly one `TRAVEL_FLIGHT_UNPARSEABLE` warning; the row's `flight_info` stays null (not junk). Catches: the silent-drop of unreadable real flights (Codex R1).
+7. **Following-table regression** (a fixture where, after the flight block and a blank line, a later pipe table has date-shaped text at the same column index) → the flight block isolation stops at the blank line; the later table is NOT scanned, no bogus flight or warning. Catches: the table-window walking into later tables (Codex R1).
+8. **Precedence:** a row whose `flight_info` is pre-set (simulating the TECH path) is NOT overwritten by a TRAVEL match. Catches: clobbering the authoritative TECH flight.
+9. **Both `code:` literals** (`TRAVEL_FLIGHT_NAME_UNMATCHED`, `TRAVEL_FLIGHT_UNPARSEABLE`) are present in §12.4 + `catalog.ts` (the orphan gate passes). Catches: the missing 3-lockstep.
 
 ## Existing-code citations (verified 2026-06-19 against the worktree)
 
