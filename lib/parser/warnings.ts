@@ -22,9 +22,11 @@ export function newAggregator(): ParseAggregator {
 }
 
 /**
- * D1 — fail-loud "recognized section header but parsed zero fields" code. A bare
- * string (no §12.4 catalog code): parser warnings render from `.message`, never
- * through lib/messages/lookup.ts, so this literal lives only at the emit sites.
+ * D1 — fail-loud "recognized section header but parsed zero fields" code. Exported
+ * for tests; the emit site below uses the STRING LITERAL (matching every other
+ * parser warning code) so `scripts/extract-internal-code-enums.ts`'s
+ * `code: "..."` scanner records it in the internal-code manifest (invariant 5 /
+ * x2 no-raw-codes coverage). The test pins `SECTION_HEADER_NO_FIELDS === the literal`.
  */
 export const SECTION_HEADER_NO_FIELDS = "SECTION_HEADER_NO_FIELDS";
 
@@ -39,7 +41,7 @@ export function emitEmptySection(agg: ParseAggregator | undefined, section: stri
   if (!agg) return;
   agg.warnings.push({
     severity: "warn",
-    code: SECTION_HEADER_NO_FIELDS,
+    code: "SECTION_HEADER_NO_FIELDS",
     message: `Recognized "${section}" section header but parsed zero fields — section dropped.`,
     blockRef: { kind: section },
   });

@@ -11,6 +11,7 @@
  * from `.message`, never through lib/messages/lookup.ts.
  */
 import { newAggregator, emitEmptySection, SECTION_HEADER_NO_FIELDS } from "@/lib/parser/warnings";
+import { INTERNAL_CODE_ENUMS } from "@/lib/messages/__generated__/internal-code-enums";
 import { parseEventDetails } from "@/lib/parser/blocks/event";
 import { parseTransportation } from "@/lib/parser/blocks/transport";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
@@ -41,6 +42,16 @@ describe("D1 — emitEmptySection helper", () => {
 
   it("is a no-op (no throw) when the aggregator is undefined (agg is optional in block signatures)", () => {
     expect(() => emitEmptySection(undefined, "rooms")).not.toThrow();
+  });
+
+  it("the code is recorded in the internal-code manifest (invariant 5 / x2 coverage)", () => {
+    // The emit uses a string literal so extract-internal-code-enums.ts records it.
+    // If a future refactor swaps it back to the constant, this + no-raw-codes fail.
+    expect(SECTION_HEADER_NO_FIELDS).toBe("SECTION_HEADER_NO_FIELDS");
+    expect(INTERNAL_CODE_ENUMS).toHaveProperty(SECTION_HEADER_NO_FIELDS);
+    expect((INTERNAL_CODE_ENUMS as Record<string, { source: string }>)[SECTION_HEADER_NO_FIELDS]?.source).toBe(
+      "parse_warnings.code",
+    );
   });
 });
 
