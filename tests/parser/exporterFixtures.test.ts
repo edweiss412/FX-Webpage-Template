@@ -395,6 +395,27 @@ describe("exporter fidelity — AR R9: numberless v2 breakout headers are emitte
     expect(mabel!.dimensions).toBe("60' x 45'");
     expect(mabel!.setup ?? mabel!.set_time, "MABEL 1 must carry merged content").not.toBeNull();
   });
+
+  it("R15: adjacent breakout blocks (NO blank separator) don't bleed fields into each other", () => {
+    const md = [
+      "| BREAKOUT 1 ROOM A | BREAKOUT 1 ROOM A |",
+      "| :---: | :---: |",
+      "| BO Setup | Setup A |",
+      "| BO Set Time | 1/1 @ 9am |",
+      "| BREAKOUT 2 ROOM B | BREAKOUT 2 ROOM B |",
+      "| :---: | :---: |",
+      "| BO Setup | Setup B |",
+      "| BO Set Time | 1/2 @ 10am |",
+    ].join("\n");
+    const bo = parseRooms(md, "v2").filter((r) => r.kind === "breakout");
+    const a = bo.find((r) => /ROOM A/.test(r.name));
+    const b = bo.find((r) => /ROOM B/.test(r.name));
+    expect(a, "ROOM A").toBeDefined();
+    expect(b, "ROOM B").toBeDefined();
+    expect(a!.setup).toBe("Setup A"); // NOT "Setup B" — the over-read would have leaked it
+    expect(a!.set_time).toBe("1/1 @ 9am");
+    expect(b!.setup).toBe("Setup B");
+  });
 });
 
 describe("exporter fidelity — AR: v4 additional rooms (content-gated, not dropped by short-circuit)", () => {

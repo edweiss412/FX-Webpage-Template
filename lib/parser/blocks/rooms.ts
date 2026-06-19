@@ -531,13 +531,22 @@ function mergeBoFields(room: RoomRowInternal, blockText: string): void {
   }
 }
 
+// Header of the NEXT room/section — extraction must stop here so an adjacent block
+// (no blank separator) doesn't bleed its fields into the current room.
+const NEXT_ROOM_HEADER_RE =
+  /^\|\s*(GENERAL\s+SESSION|BREAKOUT|ADDITIONAL\s+ROOM|LUNCH\s+ROOM|MABEL|LAUDERDALE|DETAILS)\b/i;
+
 function extractBoBlock(markdown: string, startOffset: number): string {
   const slice = markdown.slice(startOffset);
   const lines = slice.split("\n");
   const blockLines: string[] = [];
 
-  for (const line of lines) {
+  for (let k = 0; k < lines.length; k++) {
+    const line = lines[k]!;
     if (!line.trim().startsWith("|") && blockLines.length > 0) break;
+    // Stop at the next room/section header — but not the current block's own header
+    // on line 0 (which also matches NEXT_ROOM_HEADER_RE).
+    if (k > 0 && NEXT_ROOM_HEADER_RE.test(line.trim())) break;
     blockLines.push(line);
   }
 
