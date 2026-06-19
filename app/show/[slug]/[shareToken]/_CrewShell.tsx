@@ -121,6 +121,9 @@ export type CrewShellProps = {
 // in context.failedKeys. Keeping the message constant makes the alert
 // dedupe-stable (the upsert keys on show_id + code) and carries no
 // viewer/version identifiers.
+// not-subject:M5-D8 — this is the admin_alerts context.message stored in the DB
+// (observability payload), NOT user-facing error UI; the human-facing copy IS
+// routed through the catalog (TILE_PROJECTION_FETCH_FAILED dougFacing/messageFor).
 const PROJECTION_ALERT_MESSAGE =
   "One or more crew-page data sources failed to load; the affected domains are listed in the alert detail.";
 

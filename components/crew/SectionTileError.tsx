@@ -45,6 +45,11 @@ const DEGRADED_COPY: Record<string, string> = {
   financials: "Couldn't load budget details for this show.",
 };
 
+// Curated per-domain degraded copy (§4.13): the active-section fetch-error
+// fallback has no error CODE (the admin_alerts producer
+// TILE_PROJECTION_FETCH_FAILED is domain-neutral), so this is a human-readable,
+// no-raw-code, no-em-dash inline block per the §4.13 contract.
+// not-subject:M5-D8
 const GENERIC_COPY = "Couldn't load this part of the show.";
 
 export function SectionTileError({ domain }: { domain: string }): JSX.Element {

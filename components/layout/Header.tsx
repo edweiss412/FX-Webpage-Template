@@ -71,20 +71,33 @@ export function Header({ show, identityChip, statusPill }: HeaderProps) {
               {show.client_label}
             </p>
           ) : null}
-          <div
-            className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${
-              show.client_label ? "mt-1" : ""
-            }`}
-          >
-            <h1 className="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg">
-              {show.title}
-            </h1>
-            {statusPill !== undefined && statusPill !== null ? (
+          {statusPill !== undefined && statusPill !== null ? (
+            // Pill present (crew page): h1 + pill share a flex title row. The
+            // mt-1 (when an eyebrow is above) lives on this wrapper.
+            <div
+              className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${
+                show.client_label ? "mt-1" : ""
+              }`}
+            >
+              <h1 className="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg">
+                {show.title}
+              </h1>
               <span data-testid="header-status-pill" className="shrink-0">
                 {statusPill}
               </span>
-            ) : null}
-          </div>
+            </div>
+          ) : (
+            // No pill (admin surfaces): the h1 is the direct first child of the
+            // inner div, carrying its own mt-1 — preserving the M4-D3 rebalance
+            // contract (no orphan eyebrow whitespace; title carries alone).
+            <h1
+              className={`text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg${
+                show.client_label ? " mt-1" : ""
+              }`}
+            >
+              {show.title}
+            </h1>
+          )}
           {(date || venueLine) && (
             <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-text-subtle">
               {date && (
