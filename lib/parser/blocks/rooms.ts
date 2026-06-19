@@ -24,14 +24,14 @@
  */
 
 import type { RoomRow, RoomKind } from "../types";
-import type { ParseAggregator } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
 
 export function parseRooms(
   markdown: string,
   _version: "v1" | "v2" | "v4",
    
-  _agg?: ParseAggregator,
+  agg?: ParseAggregator,
 ): RoomRow[] {
   // Parse BOTH the v4 structured layout and the v2/v1 layout, then merge — a
   // version-skewed sheet can carry a real v4 General Session alongside v2
@@ -51,6 +51,17 @@ export function parseRooms(
     if (fieldsRoom) rooms.push(fieldsRoom);
   }
 
+  // D1: a recognized room-block header (GENERAL SESSION / BREAKOUT N / ADDITIONAL
+  // ROOM) whose body was content-gated out, leaving zero rooms, is a silent
+  // section-drop — fail loud. (No room header = absent section, no warning.)
+  if (
+    rooms.length === 0 &&
+    (/^\|?\s*GENERAL SESSION\b/m.test(markdown) ||
+      /^\|?\s*BREAKOUT[\s&]/m.test(markdown) ||
+      /^\|?\s*ADDITIONAL\s+ROOM\b/m.test(markdown))
+  ) {
+    emitEmptySection(agg, "rooms");
+  }
   return rooms;
 }
 

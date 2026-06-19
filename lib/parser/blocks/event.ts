@@ -31,7 +31,7 @@
  */
 
 import { clean, presence, splitRow } from "./_helpers";
-import type { ParseAggregator } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 
 // The EVENT DETAILS block header labels (all variants found in corpus)
 const EVENT_DETAILS_HEADER_RE =
@@ -89,7 +89,7 @@ export function parseEventDetails(
   markdown: string,
   _version: "v1" | "v2" | "v4",
    
-  _agg?: ParseAggregator,
+  agg?: ParseAggregator,
 ): Record<string, string> {
   const result: Record<string, string> = {};
 
@@ -140,6 +140,10 @@ export function parseEventDetails(
     // Single-column row (label only, no value) — skip
   }
 
+  // D1: the no-header case already returned above, so reaching here with an empty
+  // result means a recognized EVENT DETAILS header parsed zero fields (label-only
+  // / exporter-collapsed block) — fail loud instead of dropping it silently.
+  if (Object.keys(result).length === 0) emitEmptySection(agg, "event_details");
   return result;
 }
 

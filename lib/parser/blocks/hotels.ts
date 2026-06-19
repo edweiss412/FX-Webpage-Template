@@ -21,7 +21,7 @@
  */
 
 import type { HotelReservationRow } from "../types";
-import type { ParseAggregator } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate } from "./_helpers";
 
 const MAX_HOTELS = 4; // cardinality cap §10
@@ -38,7 +38,7 @@ export function parseHotels(
   markdown: string,
   _version: "v1" | "v2" | "v4",
    
-  _agg?: ParseAggregator,
+  agg?: ParseAggregator,
 ): HotelReservationRow[] {
   // Try the structured HOTEL table first (v4 + v2 newer layouts)
   const fromTable = parseHotelTable(markdown);
@@ -56,6 +56,16 @@ export function parseHotels(
   const fromStays = parseHotelStaysRow(markdown, contextYear);
   if (fromStays.length > 0) return cap(fromStays);
 
+  // D1: a recognized HOTEL / "Hotel Reservations" / "Hotel Stays" header that
+  // parsed zero reservations (sub-parsers content-gate to []) is a silent
+  // section-drop — fail loud. (No such header = absent section, no warning.)
+  if (
+    /^\|\s*HOTEL\s*\|/m.test(markdown) ||
+    /Hotel\s*Reservations?/i.test(markdown) ||
+    /Hotel\s*Stays?/i.test(markdown)
+  ) {
+    emitEmptySection(agg, "hotels");
+  }
   return [];
 }
 
