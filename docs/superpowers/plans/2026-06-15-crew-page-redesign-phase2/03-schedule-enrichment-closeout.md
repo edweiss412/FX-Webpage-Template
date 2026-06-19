@@ -19,7 +19,7 @@
 ## Binding facts (LIVE-cited — use THESE, do not re-derive)
 
 - **The component to enrich:** `components/crew/sections/ScheduleSection.tsx`. The **per-day render site** is the `visibleDays.map((day) => …)` block, `ScheduleSection.tsx:160-179`. Each iteration returns a wrapper `<div>` (`:170-175`) keyed by `day.date`, carrying `data-testid={isToday ? "schedule-day-today" : \`schedule-day-${day.date}\`}` + `data-day={day.date}` + (today only) `data-today="true"`, wrapping `<DayCard day={day.date} phase={day.phase} today={isToday} />` (`:176`). **The run-of-show branch is inserted INSIDE this wrapper, replacing/conditioning the `<DayCard>` content per day.** The wrapper `data-testid`/`data-day`/`data-today` attributes are NOT changed (Phase-1 today-pin + clock-pipeline e2e read them — `:163-168`).
-- **The anchor strip** is the Phase-1 floor, rendered TODAY in the RIGHT column via `<KeyTimesStrip anchors={anchors} />` (`:189`), where `anchors = resolveKeyTimes(data.show, data.rooms)` (`:99`). **CRITICAL — do not move/remove it.** `resolveKeyTimes` (`lib/crew/resolveKeyTimes.ts:43`) returns show-wide `{ set?, show?, strike? }` anchors (NOT per-day). The Phase-1 Schedule layout already renders these once for the show in the times column. The per-day run-of-show enrichment is a NEW per-day element in the LEFT (`data-schedule-column="days"`, `:155`) column's day card; it does NOT replace the show-wide `KeyTimesStrip`. **"Anchor strip fallback" for §03 = the existing Phase-1 day rendering (`<DayCard>` + the show-wide `KeyTimesStrip`) is unchanged; the run-of-show list is an ADD-ON inside the day card when `runOfShow[isoDate]?.length > 0`, and is simply absent otherwise.** A day without a confirmed run-of-show is byte-identical to Phase-1 (test 6a pins this).
+- **The anchor strip** is the Phase-1 floor, rendered TODAY in the RIGHT column via `<KeyTimesStrip anchors={anchors} />` (`:189`), where `anchors = resolveKeyTimes(data.show, data.rooms)` (`:99`). **CRITICAL — do not move/remove it.** `resolveKeyTimes` (`lib/crew/resolveKeyTimes.ts:43`) returns show-wide `{ set?, show?, strike? }` anchors (NOT per-day). The Phase-1 Schedule layout already renders these once for the show in the times column. The per-day run-of-show enrichment is a NEW per-day element in the LEFT (`data-schedule-column="days"`, `:155`) column's day card; it does NOT replace the show-wide `KeyTimesStrip`. **"Anchor strip fallback" for §03 = the existing Phase-1 day rendering (`<DayCard>` + the show-wide `KeyTimesStrip`) is unchanged; the run-of-show list is an ADD-ON inside the day card when `runOfShow[isoDate]?.length > 0`, and is simply absent otherwise.** A day without a confirmed run-of-show is identical to Phase-1 — pinned non-tautologically by test 6a, which enumerates the ABSENCE of every Phase-2 agenda element/affordance on the null path (not a render-to-itself byte-compare).
 - **Sentinel predicate:** `shouldHideGenericOptional(value: string | null): boolean` (`lib/visibility/emptyState.ts:75`) — hides trimmed `""`/`TBD`/`N/A`/`TBA` (case-insensitive). Import from `@/lib/visibility/emptyState`.
 - **URL-strip reuse:** `stripOpeningReelText` (`lib/visibility/openingReelText.ts:56`) uses `DRIVE_URL_RE = /(https?:\/\/)?(drive\.google\.com|docs\.google\.com)\/[^\s]+/g` (`:54`) then the orphan-connector + whitespace cleanup chain (`:62-68`): `.replace(/\s*-\s*$/, "").replace(/^\s*-\s*/, "").replace(/\s+/g, " ").trim()`. `stripAgendaUrls` reuses that exact cleanup chain but a BROADER URL regex (schemed-anything + scheme-less Google).
 - **`makeShowForViewer`** (`tests/fixtures/showForViewer.ts`) — typed builder; array overrides REPLACE wholesale; `show.*` overrides DEEP-merge. After §02 it has a `runOfShow` override key (DEFAULT `null`).
@@ -306,11 +306,14 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
         },
       ],
     });
+    // Negative URL assertions on the WHOLE container (strictly stronger — a leak
+    // anywhere fails). The positive "title survived" check is SCOPED to the
+    // run-of-show list so a sibling rendering "Keynote" can't satisfy it.
     const dom = (c.textContent ?? "").toLowerCase();
     for (const f of ["https://", "http://", "drive.google.com", "docs.google.com"]) {
       expect(dom).not.toContain(f);
     }
-    expect(c.textContent).toContain("Keynote");
+    expect(c.querySelector(`[data-testid="run-of-show-${D1}"]`)!.textContent).toContain("Keynote");
   });
 
   test("runOfShow = null → NO run-of-show element on any day (Phase-1 identical)", () => {
@@ -601,10 +604,12 @@ describe("Schedule run-of-show — display cap + 80-char title truncation (test 
     const stub = c.querySelector('[data-testid="agenda-overflow-stub"]');
     expect(stub).not.toBeNull();
     expect(stub!.textContent).toContain(`+${expectedOverflow}`);
-    // Tail-trim: last shown present, first overflowed absent.
-    const text = c.textContent ?? "";
-    expect(text).toContain(`Session ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`);
-    expect(text).not.toContain(`Session ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`);
+    // Tail-trim: last shown present, first overflowed absent. Positive presence is
+    // SCOPED to the run-of-show list (anti-tautology); the absence check on the
+    // whole container is strictly stronger.
+    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    expect(list.textContent ?? "").toContain(`Session ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`);
+    expect(c.textContent ?? "").not.toContain(`Session ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`);
   });
 
   test(`exactly cap (${RUN_OF_SHOW_DISPLAY_CAP}) → all rows, NO stub (no +0 at >= cap)`, () => {
@@ -749,9 +754,11 @@ describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, Schedu
         expect(stub).not.toBeNull();
         expect(stub!.getAttribute("data-tile-show-more")).toBe("true");
         expect(stub!.textContent).toContain(`+${expectedOverflow}`);
-        const text = c.textContent ?? "";
-        expect(text).toContain(`Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`);
-        expect(text).not.toContain(`Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`);
+        // Positive tail-trim presence SCOPED to the run-of-show list (anti-
+        // tautology); the absence check on the whole container is stronger.
+        const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+        expect(list.textContent ?? "").toContain(`Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`);
+        expect(c.textContent ?? "").not.toContain(`Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`);
       }
     },
   );
@@ -820,7 +827,7 @@ test("ScheduleSection reads ALL six AgendaEntry fields (no silent field drop —
 
 **Files:** create `tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`.
 
-> **Scope note:** test 6's parts (b)/(c)/(d) are the **storage/sync/observability** contract — those are pinned end-to-end by §01/§02's parser + sync + projection tests (tests 4b, 6 in those files), where the sync write + `ParseWarning` emission + projection live. **§03's slice of test 6 is the UI half: given a `ShowForViewer.runOfShow` projection value, the Schedule section renders the anchor floor for every non-confirmed shape and is byte-identical to Phase-1 when `runOfShow` is null/empty.** The CONFIRMED-ONLY *retention* (storage drops non-confirmed days) happens upstream — by the time it reaches §03, a non-confirmed day is simply absent / `[]` in `runOfShow`. This task proves §03 never resurrects a stale entry from anywhere and never cannibalizes the floor.
+> **Scope note:** test 6's parts (b)/(c)/(d) are the **storage/sync/observability** contract — those are pinned end-to-end by §01/§02's parser + sync + projection tests (tests 4b, 6 in those files), where the sync write + `ParseWarning` emission + projection live. **§03's slice of test 6 is the UI half: given a `ShowForViewer.runOfShow` projection value, the Schedule section renders the anchor floor for every non-confirmed shape and adds ZERO Phase-2 markup when `runOfShow` is null/empty (pinned non-tautologically via enumerated absence — test 6a — NOT a render-to-itself byte-compare).** The CONFIRMED-ONLY *retention* (storage drops non-confirmed days) happens upstream — by the time it reaches §03, a non-confirmed day is simply absent / `[]` in `runOfShow`. This task proves §03 never resurrects a stale entry from anywhere and never cannibalizes the floor.
 
 **Failing test:** `tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`
 
@@ -851,15 +858,46 @@ function renderRos(runOfShow: Record<string, AgendaEntry[]> | null, extra?: Part
 }
 
 describe("Schedule anchor floor + CONFIRMED-ONLY (test 6 — UI half)", () => {
-  test("6a — runOfShow=null → byte-identical to the no-agenda render (no run-of-show element, day cards + key-times strip intact)", () => {
-    const withNull = renderRos(null).innerHTML;
-    // The Phase-1 floor: day cards present, key-times strip column present, no run-of-show element.
+  test("6a — runOfShow=null → the Phase-1 floor with ZERO Phase-2 agenda markup injected (non-tautological: enumerated absence, not a self-compare)", () => {
     const c = renderRos(null);
-    expect(c.querySelectorAll('[data-testid^="run-of-show-"]').length).toBe(0);
+    // The Phase-1 floor is intact: both day cards + the key-times strip column.
     expect(c.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(2);
     expect(c.querySelector('[data-schedule-column="times"]')).not.toBeNull();
-    // Idempotent floor: re-render is identical (guards accidental nondeterminism).
-    expect(renderRos(null).innerHTML).toBe(withNull);
+    // NON-tautological anchor-floor pin: assert ABSENCE of EVERY Phase-2 agenda
+    // element/affordance for the no-agenda day, so a Phase-2 impl that injects ANY
+    // null-state agenda wrapper / row / stub / <details> / placeholder FAILS here
+    // (the prior self-compare only proved deterministic rendering, not that Phase 2
+    // added nothing to the null path).
+    for (const sel of [
+      '[data-testid^="run-of-show-"]', // the per-day container (run-of-show-<iso>)
+      '[data-testid="agenda-entry"]', // entry rows
+      '[data-testid="agenda-overflow-stub"]', // +N more stub
+      '[data-testid="agenda-title-truncated"]', // <details> truncation
+      '[data-agenda-field]', // any agenda field span (time/room/av)
+    ]) {
+      expect(c.querySelectorAll(sel).length, `no Phase-2 agenda markup on the null path: ${sel}`).toBe(0);
+    }
+    // No agenda-specific empty/placeholder copy injected on the null path.
+    expect(c.textContent ?? "").not.toMatch(/run[- ]?of[- ]?show/i);
+    expect(c.textContent ?? "").not.toMatch(/agenda/i);
+  });
+
+  test("6a-cross-check — the null-path day subtree contains ONLY the Phase-1 DayCard (no extra child element)", () => {
+    // Stronger than a self-compare: scope to ONE day wrapper and assert its ONLY
+    // element child is the DayCard — Phase 2 appends the run-of-show list as a
+    // SIBLING after <DayCard> (Task 2 placement), so on the null path the wrapper
+    // must have exactly one element child and it must be the DayCard, not an
+    // injected agenda node. Cross-checks 6a's absence enumeration against the
+    // wrapper's actual child shape (asserted against the DOM structure, not a
+    // self-rendered baseline).
+    const c = renderRos(null);
+    const wrapper = c.querySelector(`[data-day="${D1}"]`)!;
+    expect(wrapper).not.toBeNull();
+    // Exactly one element child (the DayCard); no appended agenda sibling.
+    expect(wrapper.children.length).toBe(1);
+    // That single child is NOT any agenda node (defensive — agenda testids live on
+    // the appended sibling that must be absent here).
+    expect(wrapper.children[0]!.matches('[data-testid^="run-of-show-"]')).toBe(false);
   });
 
   test("6a' — runOfShow={} (empty object) → treated as no-agenda (all anchor-only)", () => {
@@ -893,7 +931,7 @@ describe("Schedule anchor floor + CONFIRMED-ONLY (test 6 — UI half)", () => {
 });
 ```
 
-- [ ] Write the test. **Run → MUST PASS (verification-only — green by construction):** Task 2's null/empty/`[]` guard + `displayableEntries` gate already make every non-confirmed shape fall to the floor, so this regression pin passes the moment Task 2 lands (no red→green; it would only go red if a future change regressed the floor — exactly what it guards). Run: `pnpm vitest run tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`. **Negative-regression (proves the pin bites):** temporarily make the per-day branch render `RunOfShowList` for a `[]` day (drop the `displayableEntries(...).length > 0` gate), re-run → 6c MUST FAIL; restore. **Failure mode caught:** Phase 2 cannibalizing the Phase-1 anchor floor (day cards / times strip disappearing when `runOfShow` is null or a fetch fault fires); a `{}`-or-`[]` day rendering an empty run-of-show element; a non-confirmed day resurrecting stale entries; raw infra text (`"boom"`) leaking into the crew DOM. **This is the R22 / wp-12 UI guard — do-not-relitigate the CONFIRMED-ONLY retention; §03 only proves the UI never resurrects what §02 dropped.**
+- [ ] Write the test. **Run → MUST PASS (verification-only — green by construction):** Task 2's null/empty/`[]` guard + `displayableEntries` gate already make every non-confirmed shape fall to the floor, so this regression pin passes the moment Task 2 lands (no red→green; it would only go red if a future change regressed the floor — exactly what it guards). Run: `pnpm vitest run tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`. **Negative-regression (proves the pins bite, TWO independent injections):** (1) temporarily make the per-day branch render `RunOfShowList` for a `[]` day (drop the `displayableEntries(...).length > 0` gate), re-run → 6c MUST FAIL; restore. (2) temporarily inject ANY null-state agenda node (e.g. an always-rendered `<div data-testid="run-of-show-placeholder">No agenda</div>` after `<DayCard>`), re-run → **6a MUST FAIL** on the enumerated-absence assertion (this is the R22-fix proof: the prior self-compare would have PASSED this injection because both renders contained the same placeholder); restore. **Failure mode caught:** Phase 2 cannibalizing the Phase-1 anchor floor (day cards / times strip disappearing when `runOfShow` is null or a fetch fault fires); **Phase 2 injecting ANY null-state agenda wrapper / row / stub / `<details>` / placeholder copy onto the no-agenda day (6a enumerated absence — the non-tautological fix)**; a `{}`-or-`[]` day rendering an empty run-of-show element; a non-confirmed day resurrecting stale entries; raw infra text (`"boom"`) leaking into the crew DOM. **This is the R22 / wp-12 UI guard — do-not-relitigate the CONFIRMED-ONLY retention; §03 only proves the UI never resurrects what §02 dropped.**
 - [ ] **Commit:** `test(crew-page): pin Schedule anchor floor + CONFIRMED-ONLY non-regression (R22 UI half, verification-only)`
 
 ---
@@ -969,7 +1007,7 @@ The review-focus brief MUST include this **EXPLICITLY DO NOT RELITIGATE** block 
 ## §03 exit checklist
 
 - [ ] **Per-day mode tests green** — day with entries → `run-of-show-<iso>` list; day without → anchor-only; exactly one mode per day (Task 2).
-- [ ] **Anchor floor byte-identical** — `runOfShow = null` renders the Phase-1 Schedule output unchanged; day cards + times strip intact under a `run_of_show` fetch fault (Task 5, test 6a/6b).
+- [ ] **Anchor floor — Phase-1 unchanged on the null path (non-tautological)** — test 6a enumerates the ABSENCE of every Phase-2 agenda element/affordance/copy when `runOfShow = null` (NOT a render-to-itself compare), + the day-wrapper child-shape cross-check; day cards + times strip intact under a `run_of_show` fetch fault (Task 5, test 6a/6b).
 - [ ] **All 3 non-confirmed shapes → anchors (UI half)** — absent / `[]` / null projected day renders anchor-only, never resurrects entries (Task 5, 6c); the storage-side R22 pins live in §02.
 - [ ] **URL-strip green (Task 2) + caps green (Task 3)** — Drive / non-Google schemed / scheme-less-Google URLs in title/room/av absent from crew DOM (Task 2, wired into `RunOfShowEntry`); 20-cap + `+N more` (count = displayable `length − 20`) + 80-char `<details>` (Task 3, test 7a).
 - [ ] **Sentinel hiding + trt behavior green (Task 2)** — `room`/`av`/`finish`/`trt` sentinel values hidden, entry still shows; `trt='0:15'` renders in the time group; all six fields surfaced — behavioral tests ship in Task 2 alongside the impl (invariant 1).

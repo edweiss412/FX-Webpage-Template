@@ -1113,14 +1113,26 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     expect(r.runOfShow!["2025-06-25"]![0]!.start).toBe("7:30 AM");
   });
 
-  it("a sheet with no AGENDA grid → runOfShow undefined + AGENDA_GRID_MALFORMED warning, never throws", () => {
-    const r = parseSheet("| FOO |\n| :-: |\n| x |\n", "nogrid.md");
-    expect(r.runOfShow).toBeUndefined();
+  it("a VERSION-VALID sheet whose AGENDA tab has NO token-header → runOfShow undefined + AGENDA_GRID_MALFORMED (parseAgenda runs)", () => {
+    // R22: must use a VERSION-DETECTABLE input — a bare `| FOO |` table fails detectVersion
+    // (schema.ts:102) → parseSheet returns EARLY at index.ts:320-356 (MI-1_VERSION_DETECTION_FAILED)
+    // BEFORE any block parser → parseAgenda never runs → AGENDA_GRID_MALFORMED can NEVER fire.
+    // So take a REAL fixture (version detection passes on all its other markers) and remove ONLY
+    // the AGENDA token-header line, so parseSheet proceeds to parseAgenda, which finds no grid.
+    const full = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
+    const noGrid = full
+      .split("\n")
+      .filter((line) => !/NAME\s*\|\s*ARRIVAL\s*\|\s*FLIGHT/i.test(line))
+      .join("\n");
+    const r = parseSheet(noGrid, "east-coast-no-agenda.md");
+    expect(r.hardErrors).toEqual([]); // version STILL detected — not the MI-1 early-return path
+    expect(r.runOfShow).toBeUndefined(); // grid unlocatable → omitted optional property
     expect(r.warnings.map((w) => w.code)).toContain("AGENDA_GRID_MALFORMED");
   });
 });
 ```
-- [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseSheet.test.ts -t 'runOfShow wiring'`. Expected: `parseSheet` doesn't call `parseAgenda` → `r.runOfShow` is `undefined` for East Coast (and no warning) → both assertions fail.
+> Note (R22): the parseSheet **version-detection early-return / hard-error gate is UNTOUCHED** — this test feeds version-VALID input so `parseAgenda` actually runs; the expected-RED is the AGENDA warning, NOT a version hard-error. The bare-`| FOO |` "unlocatable grid" contract is pinned at the UNIT level in the Task 1.3 `parseAgenda` test ("no token-header anywhere → undefined + AGENDA_GRID_MALFORMED"), which calls `parseAgenda` directly and so legitimately bypasses the version gate — the correct home for the malformed-grid contract.
+- [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseSheet.test.ts -t 'runOfShow wiring'`. Expected: before the impl wires `parseAgenda` into `parseSheet`, `r.runOfShow` is `undefined` for the positive East Coast/RIA fixtures (no `runOfShow` field set) → those `toBeDefined()`/key assertions fail; the no-grid case's `AGENDA_GRID_MALFORMED` also absent. (The version-valid no-grid input reaches the block-parser section once wired — it does NOT hit the early return, because version detection passes on the fixture's other markers.)
 - [ ] **Minimal impl** — in `lib/parser/index.ts`, after `const dates = parseDates(markdown, version, agg);` (`:365`), add:
 ```ts
   const agendaResult = parseAgenda(markdown, dates);
