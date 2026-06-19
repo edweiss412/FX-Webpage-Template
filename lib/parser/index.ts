@@ -15,6 +15,7 @@ import { parseClient } from "./blocks/client";
 import { parseVenue } from "./blocks/venue";
 import { parseDates } from "./blocks/dates";
 import { parseCrew } from "./blocks/crew";
+import { parseTravelFlights } from "./blocks/travelFlights";
 import { parseHotels } from "./blocks/hotels";
 import { parseRooms } from "./blocks/rooms";
 import { parseTransportation } from "./blocks/transport";
@@ -367,6 +368,7 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const agendaResult = parseAgenda(markdown, dates);
   agg.warnings.push(...agendaResult.warnings);
   const crewMembers = parseCrew(markdown, version, agg);
+  parseTravelFlights(markdown, crewMembers, agg);
   const hotelReservations = parseHotels(markdown, version, agg);
   const rooms = parseRooms(markdown, version, agg);
   const transportation = parseTransportation(markdown, version, crewMembers, agg);

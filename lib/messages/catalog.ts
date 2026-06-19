@@ -2728,6 +2728,45 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  TRAVEL_FLIGHT_NAME_UNMATCHED: {
+    code: "TRAVEL_FLIGHT_NAME_UNMATCHED",
+    dougFacing:
+      "A flight on the TRAVEL tab couldn't be matched to a crew name — check the name spelling matches the roster.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because its crew name didn't exactly match a roster name (zero or multiple matches). The flight is skipped (never mis-assigned); fix the name spelling so it matches the roster.",
+    title: "TRAVEL flight name unmatched",
+    longExplanation:
+      "A flight in the TRAVEL tab couldn't be matched to any roster crew member. The flight is skipped to avoid mis-assigning it; correct the name spelling so it matches the roster.",
+    helpHref: "/help/errors#TRAVEL_FLIGHT_NAME_UNMATCHED",
+  },
+  TRAVEL_FLIGHT_UNPARSEABLE: {
+    code: "TRAVEL_FLIGHT_UNPARSEABLE",
+    dougFacing:
+      "A crew member's TRAVEL-tab flight couldn't be read (no recognizable flight date) — check the format.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format starts each leg with an M/D date (e.g. '3/22 AA123 JFK - LAX').",
+    title: "TRAVEL flight unparseable",
+    longExplanation:
+      "A crew member's TRAVEL-tab flight cell had no recognizable flight date and was skipped. Check the format matches the expected pattern.",
+    helpHref: "/help/errors#TRAVEL_FLIGHT_UNPARSEABLE",
+  },
+  TRAVEL_FLIGHT_AMBIGUOUS_TABLE: {
+    code: "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+    dougFacing:
+      "Found more than one TRAVEL flight table — remove or rename the duplicate/old one so flights can be read.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "The parser found more than one TRAVEL flight table in the sheet export. Because the tables could represent different shows or states, flights are not attached from any of them. Remove or rename the duplicate/old table so only one remains and flights can be read.",
+    title: "Multiple TRAVEL flight tables",
+    longExplanation:
+      "More than one TRAVEL flight table was found in the sheet. Flights are not attached from any of them; remove or rename the duplicate so only one remains.",
+    helpHref: "/help/errors#TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+  },
   WEBHOOK_HEADERS_MISSING: {
     code: "WEBHOOK_HEADERS_MISSING",
     dougFacing: "A Drive webhook request was missing required Google headers.",

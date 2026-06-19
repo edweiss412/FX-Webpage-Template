@@ -1208,6 +1208,24 @@ export const SPEC_CODES = {
     "followUp": "Doug → refresh / Report; Eric → investigate",
     "helpfulContext": "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying — refresh in a minute. If this keeps happening, click 'Report' so the developer can investigate.",
   },
+  "TRAVEL_FLIGHT_AMBIGUOUS_TABLE": {
+    "crewFacing": null,
+    "dougFacing": "Found more than one TRAVEL flight table — remove or rename the duplicate/old one so flights can be read.",
+    "followUp": "Doug → check sheet",
+    "helpfulContext": "The parser found more than one TRAVEL flight table in the sheet export. Because the tables could represent different shows or states, flights are not attached from any of them. Remove or rename the duplicate/old table so only one remains and flights can be read.",
+  },
+  "TRAVEL_FLIGHT_NAME_UNMATCHED": {
+    "crewFacing": null,
+    "dougFacing": "A flight on the TRAVEL tab couldn't be matched to a crew name — check the name spelling matches the roster.",
+    "followUp": "Doug → check sheet",
+    "helpfulContext": "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because its crew name didn't exactly match a roster name (zero or multiple matches). The flight is skipped (never mis-assigned); fix the name spelling so it matches the roster.",
+  },
+  "TRAVEL_FLIGHT_UNPARSEABLE": {
+    "crewFacing": null,
+    "dougFacing": "A crew member's TRAVEL-tab flight couldn't be read (no recognizable flight date) — check the format.",
+    "followUp": "Doug → check sheet",
+    "helpfulContext": "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format starts each leg with an M/D date (e.g. '3/22 AA123 JFK - LAX').",
+  },
   "TYPO_NORMALIZED": {
     "crewFacing": null,
     "dougFacing": null,
