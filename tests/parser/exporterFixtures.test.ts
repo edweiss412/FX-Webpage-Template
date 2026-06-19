@@ -589,4 +589,38 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     expect(synth[0]!.names).toEqual(["Ann Lee", "Bob Fox"]);
     expect(synth[0]!.confirmation_no).toBeNull();
   });
+
+  it("#4 PRIVACY: a conf# never survives in a name — accented + unmatched-alphabet fallback", () => {
+    const mk = (cell: string) =>
+      parseHotels(
+        [
+          "| HOTEL | RESERVATION \\#1 |  |",
+          "| :---: | :---: | :---: |",
+          "|  | Names on Reservation |  |",
+          `|  | ${cell} |  |`,
+          "|  | Hotel Name / Address |  |",
+          "|  | The Drake |  |",
+          "|  | Check In Date | Check Out Date |",
+          "|  | 1/1/26 | 1/3/26 |",
+        ].join("\n"),
+        "v4",
+      );
+    // accented name — Unicode-aware matcher splits the conf# out of the name
+    const accented = mk("José Núñez - #123456");
+    expect(accented[0]!.names).toEqual(["José Núñez"]);
+    // a name with a character outside the matcher (slash) still must not keep the conf#
+    const slashy = mk("A/B Group - #987654");
+    for (const n of slashy[0]!.names) expect(n, `name "${n}"`).not.toMatch(/[#]|\d{4,}/);
+    for (const h of [...accented, ...slashy]) expect(h.confirmation_no).toBeNull();
+  });
+
+  it("#4 PRIVACY: NO hotel name on any show contains a conf# digit-run or '#' (names is show-wide readable)", () => {
+    for (const s of SLUGS) {
+      for (const h of parse(s).hotelReservations) {
+        for (const n of h.names) {
+          expect(n, `${s} name "${n}"`).not.toMatch(/[#]|\d{4,}/);
+        }
+      }
+    }
+  });
 });

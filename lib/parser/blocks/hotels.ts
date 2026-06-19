@@ -109,8 +109,9 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
   // Every "<name> <dash> #?<conf>" token. Guests may be &#10;- OR space-delimited
   // (the exporter flattens in-cell line breaks; raw sheets glue guests with a
   // space), so match GLOBALLY rather than per-&#10;-line — otherwise a space-only
-  // multi-guest cell collapses to one "guest" and its conf# leaks at row level.
-  const tokenRe = /([A-Za-z][A-Za-z.'\- ]*?)\s*[-–—]{1,3}\s*#?\s*(\d{4,})/g;
+  // multi-guest cell collapses to one "guest". Unicode-aware (\p{L}\p{M}) so
+  // accented names ("José Núñez") match instead of falling through.
+  const tokenRe = /([\p{L}][\p{L}\p{M}.'\- ]*?)\s*[-–—]{1,3}\s*#?\s*(\d{4,})/gu;
   let consumedEnd = 0;
   let m: RegExpExecArray | null;
   while ((m = tokenRe.exec(flat)) !== null) {
@@ -122,9 +123,19 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
     names.push(flat); // no conf# tokens — the cell is just guest name(s)
   } else {
     const tail = clean(flat.slice(consumedEnd));
-    if (/[A-Za-z]/.test(tail)) names.push(tail); // a trailing un-numbered guest
+    if (/\p{L}/u.test(tail)) names.push(tail); // a trailing un-numbered guest
   }
-  return { names, confs };
+  // Belt-and-suspenders: a conf# must NEVER survive in a persisted name, even on
+  // the fallback / unmatched-alphabet path — `names` is also show-wide readable.
+  return { names: names.map(stripConfTokens).filter((n) => n.length > 0), confs };
+}
+
+/** Remove any "<dash> #?<digits>" confirmation suffix from a name, alphabet-agnostic. */
+function stripConfTokens(name: string): string {
+  return name
+    .replace(/\s*[-–—]{1,3}\s*#?\s*\d{4,}/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -521,7 +532,8 @@ function buildInlineHotel(
     ordinal,
     hotel_name: presence(hotelNameRaw),
     hotel_address: null,
-    names,
+    // strip any conf# suffix from each name too — `names` is show-wide readable.
+    names: names.map(stripConfTokens).filter((n) => n.length > 0),
     // confirmation_no is intentionally NOT persisted — see parseGuestCell / the
     // DEFERRED.md privacy note: hotel_reservations is show-wide crew-readable, so a
     // row-level conf# would be readable by any crew member on the show.
