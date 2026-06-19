@@ -33,6 +33,7 @@
 
 import { messageFor } from "@/lib/messages/lookup";
 import { selectIdentity } from "@/lib/auth/picker/selectIdentity";
+import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { StaleCleanupAutoSubmit } from "./_StaleCleanupAutoSubmit";
 
 export type PickerInterstitialRoster = ReadonlyArray<{
@@ -58,6 +59,14 @@ export type PickerInterstitialProps = {
     expectedEpoch: number;
     expectedCrewMemberId: string;
   } | null;
+  /**
+   * Task 12 (R4-HIGH-1): the active-section deep-link. Threaded into the
+   * select-identity form (hidden input → selectIdentity's claimed-row
+   * sign-in recovery) AND the claimed-row GET recovery URL, so a tap on a
+   * claimed row routes through OAuth recovery WITHOUT dropping the section.
+   * Already allow-list-validated by page.tsx; buildShowReturnUrl re-checks.
+   */
+  s?: string | undefined;
 };
 
 async function selectIdentityFormAction(formData: FormData): Promise<void> {
@@ -72,9 +81,11 @@ export function PickerInterstitial({
   roster,
   banner,
   staleCleanupHint,
+  s,
 }: PickerInterstitialProps) {
-  const tokenizedUrl = `/show/${slug}/${shareToken}`;
-  const signInRecoveryUrl = `/auth/sign-in?next=${encodeURIComponent(tokenizedUrl)}`;
+  const signInRecoveryUrl = `/auth/sign-in?next=${encodeURIComponent(
+    buildShowReturnUrl(slug, shareToken, { s }),
+  )}`;
 
   return (
     <main
@@ -189,6 +200,7 @@ export function PickerInterstitial({
                     <input type="hidden" name="slug" value={slug} />
                     <input type="hidden" name="shareToken" value={shareToken} />
                     <input type="hidden" name="crewMemberId" value={c.id} />
+                    {s !== undefined && <input type="hidden" name="s" value={s} />}
                     <button
                       type="submit"
                       data-testid="picker-roster-row"

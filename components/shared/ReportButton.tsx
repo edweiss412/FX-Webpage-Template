@@ -77,6 +77,15 @@ export function ReportButton(props: ReportButtonProps) {
         type="button"
         data-testid="report-button-trigger"
         data-surface={surface}
+        // Surface the per-instance scope id into the DOM so the rendered footer
+        // report metadata is observable WITHOUT opening the modal. The admin
+        // preview-as footer overrides this to
+        // `admin-preview-footer-<slug>-<crewId>` (CrewShell), and the
+        // §9.3/report-routing contract is that the report files under that
+        // surface id; a real-browser test asserts the override reaches the DOM
+        // here (the surfaceId otherwise only existed inside the open modal +
+        // sessionStorage, where it could not be inspected pre-interaction).
+        data-surface-id={surfaceId}
         onClick={() => setOpen(true)}
         className={className}
       >

@@ -13,8 +13,9 @@
  * Server-safe (pure function; no environment reads, no side effects,
  * no React imports).
  */
-import type { ContactRow, DateRestriction, HotelReservationRow, ShowRow } from "@/lib/parser/types";
+import type { DateRestriction, HotelReservationRow, ShowRow } from "@/lib/parser/types";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
+import { resolveKeyTimes, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 
 /**
  * Everything the card needs to render any of the 12 §8.2 states.
@@ -52,9 +53,11 @@ export type RightNowContext = {
  *
  *   - hotelReservations is already filtered by viewer.name in
  *     getShowForViewer for crew/admin_preview viewers (admin sees all).
- *   - event_details may carry call_time / load_in_time / strike_time /
- *     first_show_room keys when the sheet captured them; all are
- *     optional. We guard typeof === 'string' && length > 0.
+ *   - Time anchors (Set/Show/Strike) are rooms-sourced via the shared
+ *     `resolveKeyTimes` resolver (§4.4). The legacy
+ *     event_details.{call_time,load_in_time,strike_time,first_show_room}
+ *     reads are DROPPED ENTIRELY (always empty for real shows, §7.1) —
+ *     this is a removal, not a fallback.
  *   - venue.timezone is read defensively (current ShowRow.venue type
  *     does not declare it; the projection passes the venue object
  *     through verbatim, so a future M-task that populates
@@ -64,22 +67,19 @@ export function buildRightNowContext(opts: {
   show: Pick<ShowRow, "dates" | "title" | "venue" | "event_details">;
   dateRestriction: DateRestriction;
   hotelReservations: HotelReservationRow[];
-  contacts: ContactRow[];
+  rooms: ProjectedRoomRow[] | null; // NEW — replaces the dropped `contacts` param
 }): RightNowContext {
-  const { show, dateRestriction, hotelReservations } = opts;
+  const { show, dateRestriction, hotelReservations, rooms } = opts;
   const firstHotel = hotelReservations[0] ?? null;
 
-  const ed = show.event_details ?? {};
-  const callTime =
-    typeof ed.call_time === "string" && ed.call_time.length > 0 ? ed.call_time : null;
-  const loadInTime =
-    typeof ed.load_in_time === "string" && ed.load_in_time.length > 0 ? ed.load_in_time : null;
-  const strikeTime =
-    typeof ed.strike_time === "string" && ed.strike_time.length > 0 ? ed.strike_time : null;
-  const roomName =
-    typeof ed.first_show_room === "string" && ed.first_show_room.length > 0
-      ? ed.first_show_room
-      : null;
+  // Time anchors are rooms-sourced via the shared resolver (§4.4). The old
+  // event_details.{call_time,load_in_time,strike_time,first_show_room} reads
+  // are DROPPED ENTIRELY (always empty for real shows, §7.1) — not a fallback.
+  const anchors = resolveKeyTimes(show, rooms);
+  const loadInTime = anchors.set ?? null; // Set anchor (dates.loadIn ?? GS set_time)
+  const callTime = anchors.show ?? null; // Show anchor
+  const strikeTime = anchors.strike ?? null; // Strike anchor
+  const roomName = null; // first_show_room dropped (§7.1); no Phase-1 source
 
   // Shared show-tz resolver (lib/time/showTimezone.ts) — the same helper crew
   // pack-list and the admin dashboard live compute use, so "today" is derived

@@ -1,100 +1,115 @@
 /**
- * tests/components/tiles/_pureRenderCompliance.test.ts (M9 Task 9.2 — §12.1)
+ * tests/components/tiles/_pureRenderCompliance.test.ts (crew-redesign retarget
+ * of M9 Task 9.2 — §12.1)
  *
- * Static-analysis assertion for the tile-View pure-render contract that
- * <TileServerFallback> depends on. Each `*TileView` export MUST be pure:
- * no `await` in its body, no imports from throwing infrastructure modules
- * (lib/db, lib/drive, lib/sync, lib/supabase server clients), no calls
- * to functions whose name matches /^(load|fetch|query|read)/ from outside
- * the component module.
+ * Static-analysis assertion for the pure-render contract that <WrappedSection>
+ * (the crew-redesign successor to <TileServerFallback>) depends on. Each crew
+ * section + primitive is a SYNCHRONOUS Server Component that <WrappedSection>
+ * INVOKES via `render()` inside its try/catch — React then calls the returned
+ * element's component function LATER, outside the wrapper's try/catch. So any
+ * `await` in the render body, or any import from throwing infrastructure
+ * (lib/db, lib/drive, lib/sync, lib/supabase server clients), would let a
+ * synchronous throw escape to the route-level error boundary and defeat the
+ * per-section fallback guarantee.
  *
- * Why this exists: <TileServerFallback> INVOKES `render(data)` inside its
- * try/catch (not just returning a JSX element). React then calls the
- * returned element's component function LATER, outside the wrapper's
- * try/catch — so throws inside the View body that happen synchronously
- * during the component function escape to the route-level error boundary,
- * defeating the whole "per-tile fallback" guarantee.
+ * RETARGET NOTE: the deleted M4 tiles used a `*TileView` alias + `load*Data`
+ * loader split so <TileServerFallback> could separate the pure view from the
+ * throwable loader. The crew sections DON'T use that split — they receive an
+ * already-resolved `ShowForViewer` projection as a prop and render
+ * synchronously, with the throwable transform wrapped INSIDE <WrappedSection>'s
+ * `render` callback. So this retarget KEEPS the substantive purity assertions
+ * (no forbidden infra imports, no `await` / direct Supabase client construction
+ * in the render path) and DROPS the tile-only `*TileView` / `load*Data` alias
+ * assertions, which no longer apply.
  *
- * This test scans each tile file's whole text (the `*TileView` symbol is
- * an alias of the tile's component, so the contract applies to the file).
- * The static analysis is a regex sweep — sufficient for catching the
- * common mistakes the plan calls out (top-level `await` in render, DB
- * imports, throwing helper calls). Future polish can swap for an AST pass.
+ * The static analysis is a regex sweep — sufficient for the common mistakes the
+ * plan calls out. Future polish can swap for an AST pass.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-const TILES_DIR = "components/tiles";
+// Crew section + primitive trees (the new homes of the deleted tiles).
+const CREW_DIRS = [
+  join("components", "crew", "sections"),
+  join("components", "crew", "primitives"),
+];
 
-function listTileFiles(): string[] {
-  return readdirSync(TILES_DIR)
-    .filter((f) => /Tile(View)?\.tsx$/.test(f))
-    .map((f) => join(TILES_DIR, f));
+/** Recursively collect `.tsx` files under `dir` (repo-relative). [] if absent. */
+function walkTsx(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...walkTsx(full));
+    else if (entry.endsWith(".tsx")) out.push(full);
+  }
+  return out;
 }
 
-// Forbidden import paths — any module that can throw on data fetch.
+function listSectionFiles(): string[] {
+  return CREW_DIRS.flatMap((d) => walkTsx(d)).sort();
+}
+
+// Forbidden import paths — any module that can throw on data fetch. A section
+// receives a pre-resolved projection; it must never reach into these.
 const FORBIDDEN_IMPORT_PATTERNS = [
-  /from\s+["']@\/lib\/db\b/, //          DB calls — must live in loaders, not views
-  /from\s+["']@\/lib\/drive\b/, //       Drive API calls
-  /from\s+["']@\/lib\/sync\b/, //        sync engine internals
+  /from\s+["']@\/lib\/db\b/, //              DB calls — must live in the loader
+  /from\s+["']@\/lib\/drive\b/, //           Drive API calls
+  /from\s+["']@\/lib\/sync\b/, //            sync engine internals
   /from\s+["']@\/lib\/supabase\/server\b/, // Supabase service client
 ];
 
-// Forbidden function-name patterns at call sites — these signal data work
-// that should live in a loader, not a view. The test is conservative:
-// we look at the second half of each tile file (the view body) only, so
-// helper definitions named `loadXxxTileData` at the top of the file don't
-// trip it; only CALLS to such helpers from inside the view region do.
+// Forbidden call-site patterns — async work / direct client construction in the
+// synchronous render path.
 const FORBIDDEN_CALL_PATTERNS = [
-  /\bawait\b/, //                                async work in the render path
-  /\bcreateSupabaseServiceRoleClient\(/, //      direct Supabase client construction
-  /\bcreateSupabaseServerClient\(/, //           ditto
+  /\bawait\b/, //                            async work in the render path
+  /\bcreateSupabaseServiceRoleClient\(/, //  direct Supabase client construction
+  /\bcreateSupabaseServerClient\(/, //       ditto
 ];
 
-describe("META tile-view pure-render compliance", () => {
-  const files = listTileFiles();
+describe("META crew section/primitive pure-render compliance", () => {
+  const files = listSectionFiles();
 
-  test("at least one tile file is registered (sanity)", () => {
+  test("the walk reaches the crew section + primitive trees (sanity)", () => {
+    // If this fails, the directories moved or the walk regressed to empty —
+    // which would let an impure section slip through with green CI.
     expect(files.length).toBeGreaterThanOrEqual(10);
+    expect(files.some((f) => f.includes(join("crew", "sections")))).toBe(true);
+    expect(files.some((f) => f.includes(join("crew", "primitives")))).toBe(true);
   });
 
-  test.each(files)("%s has no forbidden imports", (file) => {
+  test.each(listSectionFiles())("%s has no forbidden infra imports", (file) => {
     const source = readFileSync(file, "utf8");
     for (const pattern of FORBIDDEN_IMPORT_PATTERNS) {
       expect(
         pattern.test(source),
-        `${file} imports forbidden module matching ${pattern} — must move to a *TileLoader.ts`,
+        `${file} imports forbidden module matching ${pattern} — a section must receive a resolved projection, not fetch`,
       ).toBe(false);
     }
   });
 
-  test.each(files)("%s view region has no await / direct Supabase client construction", (file) => {
-    const source = readFileSync(file, "utf8");
-    // View region: from the first `export function XxxTile` / `export const XxxTileView`
-    // to the start of the loader (`async function load…`). The loader is allowed
-    // to use `await` and Supabase clients; the view region must be pure.
-    const viewStart = source.search(/export (function|const) [A-Z][a-zA-Z]*Tile(View)?\b/);
-    const loaderStart = source.search(/export async function load[A-Z][a-zA-Z]*Data\b/);
-    const viewRegion =
-      loaderStart > viewStart
-        ? source.slice(viewStart, loaderStart)
-        : source.slice(viewStart);
-    for (const pattern of FORBIDDEN_CALL_PATTERNS) {
-      expect(
-        pattern.test(viewRegion),
-        `${file} view region contains forbidden pattern ${pattern} — must move to a *TileLoader.ts`,
-      ).toBe(false);
-    }
-  });
+  test.each(listSectionFiles())(
+    "%s render path has no await / direct Supabase client construction",
+    (file) => {
+      const source = readFileSync(file, "utf8");
+      for (const pattern of FORBIDDEN_CALL_PATTERNS) {
+        expect(
+          pattern.test(source),
+          `${file} contains forbidden pattern ${pattern} in the synchronous render path`,
+        ).toBe(false);
+      }
+    },
+  );
 
-  test.each(files)("%s exports a *TileView alias (Task 9.2 contract)", (file) => {
+  test.each(listSectionFiles())("%s is not a client component (no 'use client')", (file) => {
+    // A section/primitive that <WrappedSection> direct-invokes must be a Server
+    // Component — a 'use client' directive would change the invocation contract
+    // (the throwable transform must run synchronously inside the wrapper).
     const source = readFileSync(file, "utf8");
-    expect(/export const [A-Z][a-zA-Z]*TileView\b/.test(source), file).toBe(true);
-  });
-
-  test.each(files)("%s exports a load*Data loader (Task 9.2 contract)", (file) => {
-    const source = readFileSync(file, "utf8");
-    expect(/export async function load[A-Z][a-zA-Z]*Data\b/.test(source), file).toBe(true);
+    expect(
+      /^\s*["']use client["']/m.test(source),
+      `${file} declares 'use client' — sections/primitives in the WrappedSection render path must be Server Components`,
+    ).toBe(false);
   });
 });

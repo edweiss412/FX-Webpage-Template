@@ -146,6 +146,11 @@ const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> =
     file: "components/shared/TileServerFallback.tsx",
     reason: "Produces admin_alerts rows; renders crew fallback via TileErrorFallback.",
   },
+  {
+    file: "components/crew/WrappedSection.tsx",
+    reason:
+      "Crew-section analog of TileServerFallback: produces admin_alerts rows (TILE_SERVER_RENDER_FAILED) and renders the static crew fallback via TileErrorFallback; the dougFacing it references is the upsert context, never rendered to the DOM.",
+  },
 ];
 
 function walk(dir: string, out: string[] = []): string[] {

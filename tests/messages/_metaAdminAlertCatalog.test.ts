@@ -93,6 +93,7 @@ const ADMIN_ALERTS_CODES = [
   "REPORT_LEASE_THRASHING", //          M8 repeated retry/lease race fail-closed recovery
   "STALE_ORPHAN_REPORT", //             M8 report reaper stale reservation audit
   "TILE_SERVER_RENDER_FAILED", //       M9 Task 9.2: per-tile server-render failure
+  "TILE_PROJECTION_FETCH_FAILED", //    Crew-page projection sub-source fetch failure (_CrewShell producer)
   "BRANCH_PROTECTION_DRIFT", //         X.6 branch-protection drift detector
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED", // X.6 branch-protection monitor auth failure
   "WIZARD_SESSION_SUPERSEDED_RACE", //  F5 wizard-session CAS race post-rollback producer
@@ -259,6 +260,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
     path: "components/shared/TileServerFallback.tsx",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"TILE_SERVER_RENDER_FAILED"/,
   },
+  TILE_PROJECTION_FETCH_FAILED: {
+    path: "app/show/[slug]/[shareToken]/_CrewShell.tsx",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"TILE_PROJECTION_FETCH_FAILED"/,
+  },
   BRANCH_PROTECTION_DRIFT: {
     path: "scripts/verify-branch-protection.ts",
     pattern: /code:\s*"BRANCH_PROTECTION_DRIFT"/,
@@ -355,6 +360,7 @@ describe("META admin_alerts catalog contract", () => {
     "SHOW_FIRST_PUBLISHED", //      lib/sync/runScheduledCronSync.ts supplies sheet_name / crew_count / show_date
     "SHOW_UNPUBLISHED", //          lib/sync/unpublishShow.ts supplies sheet_name
     "TILE_SERVER_RENDER_FAILED", // components/shared/TileServerFallback.tsx supplies sheet_name
+    "TILE_PROJECTION_FETCH_FAILED", // app/show/[slug]/[shareToken]/_CrewShell.tsx supplies sheet_name
   ];
 
   test.each(ADMIN_ALERTS_CODES)(
@@ -395,5 +401,37 @@ describe("META admin_alerts catalog contract", () => {
     const orphanCodes = adminAlertCodeUnionMembers().filter((code) => !registered.has(code));
 
     expect(orphanCodes).toEqual([]);
+  });
+
+  // Registered admin_alerts codes that are produced WITHOUT the typed
+  // `upsertAdminAlert()` entry point — raw `INSERT INTO admin_alerts`
+  // (the M8 bug-report pipeline / report-reaper) or a standalone script
+  // (X.6 branch-protection monitor). These legitimately are NOT members
+  // of the `AdminAlertCode` union because they never call upsertAdminAlert,
+  // so the registry⊆union assertion below exempts them. Anything NOT on
+  // this list MUST be a union member: that is the contract that catches a
+  // future typed producer (e.g. the _CrewShell projection alert) that
+  // registers a code but forgets to widen the union.
+  const NON_UPSERT_ADMIN_ALERTS_PRODUCERS = new Set<string>([
+    "REPORT_ORPHANED_LOST_LEASE", //          lib/reports/submit.ts raw INSERT
+    "REPORT_LOOKUP_INCONCLUSIVE", //          lib/reports/submit.ts raw INSERT
+    "GITHUB_BOT_LOGIN_MISSING", //            lib/reports/submit.ts raw INSERT
+    "REPORT_DUPLICATE_LIVE_MATCHES", //       lib/reports/submit.ts raw INSERT
+    "REPORT_OPEN_ORPHAN_LABEL", //            lib/reports/submit.ts raw INSERT
+    "REPORT_LEASE_THRASHING", //              lib/reports/submit.ts raw INSERT
+    "STALE_ORPHAN_REPORT", //                 app/api/cron/report-reaper/route.ts raw INSERT
+    "BRANCH_PROTECTION_DRIFT", //             scripts/verify-branch-protection.ts
+    "BRANCH_PROTECTION_MONITOR_AUTH_FAILED", // scripts/verify-branch-protection.ts
+  ]);
+
+  test("every upsertAdminAlert-routed registered code is admitted by the AdminAlertCode union", () => {
+    const union = new Set(adminAlertCodeUnionMembers());
+    const missing = ADMIN_ALERTS_CODES.filter(
+      (c) => !NON_UPSERT_ADMIN_ALERTS_PRODUCERS.has(c) && !union.has(c),
+    );
+    expect(
+      missing,
+      `these registered admin_alerts codes call upsertAdminAlert() but are not members of the AdminAlertCode union in lib/adminAlerts/upsertAdminAlert.ts — widen the union (or, if a code is produced via raw SQL / a script, add it to NON_UPSERT_ADMIN_ALERTS_PRODUCERS): ${missing.join(", ")}`,
+    ).toEqual([]);
   });
 });

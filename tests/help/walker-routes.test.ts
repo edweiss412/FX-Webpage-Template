@@ -85,7 +85,10 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     ["admin-nav-layout-dimensions.spec.ts", 2],
     ["admin-parse-panel.spec.ts", 2],
     ["admin-route-boundaries.spec.ts", 2],
-    ["crew-page.spec.ts", 2],
+    // crew-page.spec.ts: the crew-redesign §4.9/§4.10/nav rewrite (Phase 4) replaced
+    // the legacy today-band blocks that carried the 2 frozen locked-table fixture
+    // writes with seeded-slug + signInAs flows that perform NO unlocked PostgREST
+    // DML, so the count dropped to 0 and the (now-stale) exemption is removed.
     ["empty-state-reachability.spec.ts", 7],
     ["empty-state.spec.ts", 2],
     ["me-page.spec.ts", 8],

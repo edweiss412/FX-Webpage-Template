@@ -1166,6 +1166,12 @@ export const SPEC_CODES = {
     "followUp": "Eric → inspect Drive latency if recurring",
     "helpfulContext": "A Drive read or enrichment step exceeded the per-step timeout while the show sync lock was held.",
   },
+  "TILE_PROJECTION_FETCH_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "*<sheet-name>*: one or more crew-page data sources couldn't load (the failed sources are listed in the alert detail). The page rendered with the rest of the data; refresh in a minute. Tell the developer if this keeps happening.",
+    "followUp": "Doug → refresh / Report; Eric → investigate",
+    "helpfulContext": "The crew page loaded, but one or more of its data sources failed to fetch from the server. The page rendered with the data that did load. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click 'Report' so the developer can investigate.",
+  },
   "TILE_SERVER_RENDER_FAILED": {
     "crewFacing": "This section couldn't load — last good data shown.",
     "dougFacing": "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening.",

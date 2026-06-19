@@ -22,7 +22,10 @@ describe("META picker role chip contract", () => {
   });
 
   test("show body passes IdentityChip into Header's right slot", () => {
-    const source = readFileSync("app/show/[slug]/[shareToken]/_ShowBody.tsx", "utf8");
+    // The crew-page body migrated from _ShowBody.tsx to _CrewShell.tsx (the
+    // redesigned section shell); the Header→IdentityChip right-slot wiring moved
+    // verbatim (_CrewShell.tsx Header block).
+    const source = readFileSync("app/show/[slug]/[shareToken]/_CrewShell.tsx", "utf8");
     expect(source).toMatch(/<Header[\s\S]*identityChip=\{/);
     expect(source).toMatch(/<IdentityChip[\s\S]*name=\{identityChip\.name\}/);
     expect(source).toMatch(/role=\{identityChip\.role\}/);
