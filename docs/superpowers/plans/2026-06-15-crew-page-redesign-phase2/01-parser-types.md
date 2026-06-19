@@ -29,28 +29,29 @@ DAY 1 block opens at **absolute col idx 6** (`START `), columns `[6=start, 7=fin
 
 ---
 
-## §4.1 grid-shape coherence checklist (comprehensive — closes the R4/R7/R8 block-location vector)
+## §4.1 grid-shape coherence checklist (comprehensive — closes the R4/R7/R8/R13 cell-detection vector)
 
-Three consecutive adversarial rounds hit the block-location vector — R4 (outer table boundary: the walk ran into PULL SHEET), R7 (inner structural rows: banners read as data), R8 (all-`#REF!` DATE banner invisible to value-only detection). Per the same-vector-recurrence rule, the convergence is **STRUCTURAL, not per-instance**: the parser pipeline is **detect → isolate → structural-skip → span → resolve**, and the load-bearing architectural principle is **DETECTION/SHAPE is separated from VALUE/RESOLUTION at every stage**:
+Four consecutive adversarial rounds hit the cell-detection vector — R4 (outer table boundary: the walk ran into PULL SHEET), R7 (inner structural rows: banners read as data), R8 (all-`#REF!` DATE banner invisible to value-only detection), R13 (markdown-ESCAPED cells `\#REF\!`/`\#N/A`/`FLIGHT\#` invisible to every detector because `parseTableRows` doesn't unescape). Per the same-vector-recurrence + structural-defense-calibration rules, the convergence is **STRUCTURAL, not per-instance**. The parser pipeline is **normalize → detect → isolate → structural-skip → span → resolve**, and the load-bearing principles are:
 
-- **Block SPANS come from the token-header `START` columns** (always present, value-independent) — never from DATE-cell validity. So a block exists at every show-day START column regardless of banner state.
-- **Structural rows are detected by SHAPE** (`#REF!` counts as date-shaped) — so an all-error banner is still skipped as data AND still seeds resolution inputs.
-- **The DATE value is RESOLVED separately** (`resolveBlock`): valid M/D/YY → use it; `#REF!`/blank → day-name→`showDays`-unique fallback; zero/multiple → UNRESOLVED + warning. Never a silent drop.
+- **ONE normalization boundary (R13):** `cleanRows(parseTableRows(block))` runs `clean()` (`s.replace(/\\(.)/g,"$1").trim()`, `_helpers.ts:45`) over EVERY cell ONCE, immediately after isolation — so NO detector ever sees a raw escaped cell. `normHeaderCell` also cleans (it runs on raw lines during isolation, pre-`cleanRows`). The live exporter emits `\#REF\!` / `\#N/A` / `\#NUM\!` banners (consultants.md:236-237, rpas.md:237, east-coast.md:4) and `FLIGHT\#` token-headers (consultants:238) — all collapse to `#REF!`/`#N/A`/`FLIGHT#` before detection.
+- **DETECTION/SHAPE is separated from VALUE/RESOLUTION at every stage:** block SPANS come from the token-header `START` columns (value-independent); structural rows are detected by SHAPE (`#REF!` counts); the DATE value is RESOLVED separately (`resolveBlock`): valid M/D/YY → use it; `#REF!`/blank → day-name→`showDays`-unique fallback; zero/multiple → UNRESOLVED + warning. Never a silent drop, never a banner-cell-as-title.
 
-Every grid shape in the corpus/spec, traced end-to-end (this is the audit, not a sample):
+Every grid shape in the corpus/spec, traced end-to-end against the REAL committed `fixtures/shows/exporter-xlsx/*` (this is the audit, not a sample):
 
-| Grid shape | Detect (token-hdr) | Isolate (block boundary) | Structural-skip rows | Span source (START cols) | Resolve | Net |
-|---|---|---|---|---|---|---|
-| **DATE-header (East Coast, filled)** — converter promotes DATE row to md-header; day-name/token-hdr/day-TYPE are body rows | token-hdr found by content (body row) | maximal pipe-run; PULL SHEET/ROOM excluded (R4) | DATE banner + day-name + day-TYPE + token-hdr all skipped (R7, by identity not position) | START cols 6,12 → 2 blocks | banner `5/15/24`,`5/16/24` → ISO | DAY1+DAY2 keyed, sessions parsed |
-| **day-TYPE-header (empty fixtures, redefining/rpas)** — converter promotes day-TYPE to md-header; DATE/day-name/token-hdr are body rows | token-hdr found by content (body row) | same | DATE+day-name+day-TYPE+token-hdr skipped (R7) | START cols → N blocks | banners valid → ISO | all-`[]` (blank TITLEs), no banner-as-entry |
-| **prefix-header (`Wednesday/START`, `#REF!/NAME` — consultants)** — day-name merged into header-cell prefixes; no separate DATE/day-name row | token-hdr found after prefix-strip (R9) | same | only the prefix token-hdr row is structural (no separate banners) | prefix `START` cols → blocks; dayName from prefix | dayName→`showDays` fallback; `#REF!` prefix → UNRESOLVED | resolves via day-name or warns |
-| **all-`#REF!` DATE banner (template copies, R8)** — DATE cells are `#REF!` | token-hdr found by content | same | `#REF!` DATE banner IS shape-detected → skipped (R8); `#REF!` day-name row only structural if a sibling has a real weekday, else it's the date banner | START cols → blocks STILL created (R8) | banner null → day-name fallback; if day-name also `#REF!`/no-match → UNRESOLVED + `AGENDA_BLOCK_UNRESOLVED` | block exists, warning emits, no `#REF!` title |
-| **trailing-space `"START "`** | `normHeaderCell` trims → matches | — | — | `normHeader[c]==="START"` after trim → START col found | — | block created correctly |
-| **ragged / short data rows** (trailing empties trimmed) | — | — | a short data row is NOT structural | — | — | `buildEntry` right-pads (`cells[i] ?? ""`) — short ≠ malformed |
-| **ambiguous weekday** (`#REF!` banner + day-name matching ≥2 same-weekday showDays) | — | — | banner skipped | block created | day-name → 2 matches → `skip:"ambiguous"` | UNRESOLVED + `AGENDA_DAY_AMBIGUOUS` (never guess, R2) |
-| **no token-header at all** (unlocatable grid) | not found | `isolateAgendaTable` → `undefined` | — | — | — | `runOfShow: undefined` + `AGENDA_GRID_MALFORMED` (D-2) |
+| Grid shape (real fixture) | Normalize | Detect (token-hdr) | Isolate | Structural-skip rows | Span (START cols) | Resolve | Net |
+|---|---|---|---|---|---|---|---|
+| **DATE-header filled (east-coast.md:99-122)** — DATE row promoted to md-header; day-name/token-hdr/day-TYPE body rows; trailed by ROOM/PULL SHEET | no escapes in agenda block | token-hdr by content | maximal pipe-run; PULL SHEET/ROOM excluded (R4) | DATE+day-name+day-TYPE+token-hdr skipped by identity (R7) | START 6,12 → 2 blocks | banner `5/15/24`,`5/16/24` → ISO | DAY1+DAY2 keyed, sessions parsed |
+| **DATE-header filled (ria.md:316-322)** | no escapes | token-hdr by content | same | same | START 6,12 | banner `6/25/25`,`6/26/25` → ISO | both days keyed |
+| **day-TYPE-header empty (rpas.md:210-213)** — day-TYPE promoted; DATE/day-name/token-hdr body rows; `\#N/A` further down | `\#N/A` cleaned | token-hdr by content | same | DATE+day-name+day-TYPE+token-hdr skipped (R7) | START cols → 3 blocks | banners valid → ISO | all-`[]` (blank TITLEs), no banner-as-entry |
+| **ESCAPED-error banners (consultants.md:235-238, R13)** — day-TYPE header; DATE banner `\#REF\! … 10/8/25`; day-name `\#REF\! … Wednesday`; token-hdr `…FLIGHT\#…` | **`\#REF\!`→`#REF!`, `FLIGHT\#`→`FLIGHT#` (cleanRows)** | token-hdr by content (cleaned) | same | cleaned DATE banner IS shape-detected → skipped; cleaned day-name banner skipped (R8 detector on cleaned cells) | START 6,12,18 → 3 blocks | DAY cols have real `10/8/25` etc → ISO; travel `#REF!` cols are SET/travel (no START) | 3 days, blank TITLEs → all-`[]`; **no `10/8/25`/weekday/`#REF!` title** |
+| **all-`#REF!` DATE banner (synthetic + template copies, R8)** — DATE cells all `#REF!` | cleaned (idempotent) | token-hdr by content | same | `#REF!` DATE banner shape-detected → skipped; day-name row structural only if it has a real weekday, else it too is a date banner | START cols → blocks STILL created | banner null → day-name fallback; both `#REF!`/no-match → UNRESOLVED + `AGENDA_BLOCK_UNRESOLVED` | block exists, warning emits, no `#REF!` title |
+| **prefix-header (`Wednesday/START`, `#REF!/NAME` — spec §4.1 variant)** — day-name merged into header-cell prefixes; no separate DATE/day-name row | cleaned | token-hdr after prefix-strip (R9) | same | only the prefix token-hdr row is structural | prefix `START` cols → blocks; dayName from prefix | dayName→`showDays` fallback; `#REF!` prefix → UNRESOLVED | resolves via day-name or warns |
+| **trailing-space `"START "`** | clean trims | `normHeaderCell` trims → matches | — | — | `normHeader[c]==="START"` → START col | — | block created correctly |
+| **ragged / short data rows** (trailing empties trimmed) | — | — | — | a short data row is NOT structural | — | `buildEntry` right-pads (`cells[i] ?? ""`) — short ≠ malformed |
+| **ambiguous weekday** (`#REF!` banner + day-name matching ≥2 same-weekday showDays) | — | — | — | banner skipped | block created | day-name → 2 matches → `skip:"ambiguous"` | UNRESOLVED + `AGENDA_DAY_AMBIGUOUS` (never guess, R2) |
+| **no token-header at all** (unlocatable grid) | — | not found | `isolateAgendaTable` → `undefined` | — | — | — | `runOfShow: undefined` + `AGENDA_GRID_MALFORMED` (D-2) |
 
-Each row is pinned by a test (Tasks 1.3–1.6 + the R7/R8 describe + the LOAD-BEARING describe). If a future round surfaces ANOTHER block-location finding, the analysis was still incomplete — stop patching and re-derive this table against the failing shape.
+Each row is pinned by a test (Tasks 1.3–1.6 + the R7/R8/R13 describe + the LOAD-BEARING describe). If a future round surfaces ANOTHER cell-detection finding, the analysis was still incomplete — stop patching and re-derive this table against the failing shape. **Residual honesty:** the one shape NOT in the committed corpus is a true `Wednesday/START` prefix-header (the spec §4.1 cites `2025-10-consultants-roundtable.md:210` from the stale `raw/` corpus; the current exporter emits consultants as the plain ESCAPED-error shape above, NOT prefix-form). The prefix-form branch is retained as defensive (it harms nothing if never hit) and is pinned only by synthetics — flagged so a reviewer doesn't expect a real-fixture prefix-form test.
 
 ---
 
@@ -283,7 +284,7 @@ export function agendaDayEmptied(index: number, iso: string): ParseWarning {
 - [ ] **Minimal impl (b)** — `lib/parser/blocks/agenda.ts`:
 ```ts
 import type { AgendaEntry, ParseWarning } from "../types";
-import { normalizeDate, parseTableRows } from "./_helpers";
+import { clean, normalizeDate, parseTableRows } from "./_helpers";
 import { agendaGridMalformed } from "./agendaWarnings";
 
 export type ParseAgendaResult = {
@@ -295,9 +296,26 @@ const WEEKDAYS = new Set([
   "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
 ]);
 
-/** Strip a leading `<prefix>/` segment (incl `#REF!/`, `Wednesday/`) and trailing ws, uppercase. */
+// ── SINGLE NORMALIZATION BOUNDARY (R13 — closes the markdown-escape class) ──
+// parseTableRows returns cells that are trimmed but NOT unescaped — the live
+// exporter emits backslash-escaped cells: `\#REF\!` / `\#N/A` / `\#NUM\!` in DATE
+// & day-name banners (fixtures/shows/exporter-xlsx/consultants.md:236-237,
+// rpas.md:237, east-coast.md:4) and `FLIGHT\#` in the token-header (consultants:238).
+// EVERY downstream detector + value read MUST operate on cells passed through
+// `clean()` (strips `\(.)` escapes + trims) so NO detector ever sees a raw escaped
+// cell. `cleanRows` is applied ONCE, right after parseTableRows; `normHeaderCell`
+// also cleans (it runs on raw LINES during isolation, before cleanRows). This is the
+// structural defense for the whole escape class — not a per-token REF_ERR_RE patch.
+function cleanCell(cell: string): string {
+  return clean(cell); // `s.replace(/\\(.)/g, "$1").trim()` — _helpers.ts:45
+}
+function cleanRows(rows: string[][]): string[][] {
+  return rows.map((r) => r.map(cleanCell));
+}
+
+/** Strip a leading `<prefix>/` segment (incl `#REF!/`, `Wednesday/`), unescape, trim, uppercase. */
 function normHeaderCell(cell: string): string {
-  return cell.replace(/^[^/]*\//, "").trim().toUpperCase();
+  return clean(cell).replace(/^[^/]*\//, "").trim().toUpperCase();
 }
 
 function isTokenHeaderRow(cells: string[]): boolean {
@@ -353,9 +371,12 @@ function isolateAgendaTable(markdown: string): string | undefined {
 // resolveBlock runs → AGENDA_BLOCK_UNRESOLVED/AGENDA_DAY_AMBIGUOUS DO emit, never
 // a silent drop). The OLD value-only `normalizeDate(...) >= 2` test missed this.
 
-const REF_ERR_RE = /^#?REF!?$|^#[A-Z]+[!?]?$/i; // #REF!, #REF, REF!, #N/A, #VALUE!, …
+// Spreadsheet error tokens (POST-clean — backslashes already stripped by cleanRows).
+// Liberal: covers #REF!, #N/A, #VALUE!, #DIV/0!, #NAME?, #NUM!, #NULL!, with or
+// without the trailing !/?. (cleanRows turns `\#REF\!` → `#REF!` before this runs.)
+const REF_ERR_RE = /^#(REF|N\/A|VALUE|DIV\/0|NAME|NUM|NULL)[!?]?$/i;
 function isDateShapedCell(c: string): boolean {
-  const t = c.trim();
+  const t = c.trim(); // cells already cleaned at the boundary; trim is belt-and-suspenders
   return t === "" || normalizeDate(t) !== null || REF_ERR_RE.test(t);
 }
 /**
@@ -407,7 +428,10 @@ export function parseAgenda(markdown: string): ParseAgendaResult {
   if (block === undefined) {
     return { runOfShow: undefined, warnings: [agendaGridMalformed(0)] };
   }
-  const rows = parseTableRows(block); // ONLY the AGENDA table's rows
+  // THE normalization boundary (R13): clean ONCE here. Everything below — structural
+  // detection, span location, date resolution, the data walk — consumes `rows`, so
+  // no detector ever sees a raw escaped cell (`\#REF\!` → `#REF!`, `FLIGHT\#` → `FLIGHT#`).
+  const rows = cleanRows(parseTableRows(block)); // ONLY the AGENDA table's rows, cleaned
   const headerIdx = rows.findIndex(isTokenHeaderRow);
   const structural = structuralRowIndices(rows); // token-header + DATE banner + day-name + day-TYPE
   // Data rows = every row that is NOT structural (position-independent — banners
@@ -431,8 +455,9 @@ export function parseAgenda(markdown: string): ParseAgendaResult {
 
 **TDD note (invariant 1 — this task has a GENUINE red→green cycle, NOT a deferred one):** the impl EXPORTS a thin testable entry `locateAgendaShowBlocks(markdown)` that returns the classified show-day block descriptors (`{ startCol, endCol, dateCell, dayName }[]` — show-day blocks only, travel/set filtered out). The test asserts exact start-columns + that TRAVEL/SET spans are excluded, on a synthetic grid AND the real East Coast fixture. This RED-fails (function absent) before the impl and turns green after — a real task-local contract, not a smoke check. Day resolution/entries are still Tasks 1.5/1.6; this task owns ONLY boundaries + classification.
 
-- [ ] **Write failing test** — append:
+- [ ] **Write failing test** — append (the `readFileSync` import lands HERE in Task 1.4, the first task that reads a fixture; Task 1.6 reuses the same already-imported symbol — do not re-import):
 ```ts
+import { readFileSync } from "node:fs";
 import { locateAgendaShowBlocks } from "@/lib/parser/blocks/agenda";
 
 describe("parseAgenda — step 2: locateAgendaShowBlocks (boundaries + show-day classification)", () => {
@@ -678,10 +703,8 @@ Then in `parseAgenda` (signature `parseAgenda(markdown: string, dates?: ShowRow[
 
 §4.1 steps 4-5: walk the **non-structural data rows** (`dataRows` from Task 1.3 — every row not in `structuralRowIndices`, so NO token-header / DATE banner / day-name / day-TYPE row, regardless of position, R7/R8). Per block read absolute columns `[start=startCol, finish=startCol+1, trt=startCol+2, title=startCol+3, room=startCol+4, av=startCol+5]`; **right-pad short rows** (markdown trims trailing empties — `cells[i] ?? ""`). Emit `AgendaEntry` IFF TITLE is REAL: `!shouldHideGenericOptional(title)` (hides `''`/`TBD`/`N/A`/`TBA`). Optional fields via `presence()` → omit when blank/null (under `exactOptionalPropertyTypes`, only assign present string fields). **Per-day encoding (D-2):** resolved day with ≥1 real entry → key with entries; resolved day with all-blank/sentinel TITLE → key with `[]`; unresolved block → absent. **Concrete failure modes caught:** `Date` coercion of time strings (asserted as strings); crew/TRAVEL/SET block bleed (asserted absent); a `TBD` TITLE producing an entry; a `#REF!`/banner cell read as a title (excluded by structural-skip); per-day positive values DERIVED from the fixture (clone-and-read), not hardcoded.
 
-- [ ] **Write failing test** — append the real-fixture positive test (anti-tautology: read expected from the fixture) + sentinel/string-pin tests:
+- [ ] **Write failing test** — append the real-fixture positive test (anti-tautology: read expected from the fixture) + sentinel/string-pin tests (`readFileSync` already imported in Task 1.4's snippet — do not re-import):
 ```ts
-import { readFileSync } from "node:fs";
-
 describe("parseAgenda — steps 4-5: data walk + TITLE-real gate (real fixtures, clone-and-read)", () => {
   it("East Coast Day 1 entries match the fixture rows IN ORDER (derived, not hardcoded)", () => {
     const md = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
@@ -759,7 +782,7 @@ describe("parseAgenda — steps 4-5: data walk + TITLE-real gate (real fixtures,
   });
 });
 
-describe("parseAgenda — R7/R8: structural banner rows (incl. all-#REF!) never become entries", () => {
+describe("parseAgenda — R7/R8/R13: structural banner rows (incl. all-#REF! and ESCAPED \\#REF\\!) never become entries", () => {
   // The bug this catches: the walk used rows.slice(headerIdx+1). When the converter
   // promotes the TOKEN-HEADER to the md-table header row, the DATE / day-name / day-TYPE
   // banners follow it as BODY rows — a positional slice reads them at absolute columns and
@@ -845,6 +868,38 @@ describe("parseAgenda — R7/R8: structural banner rows (incl. all-#REF!) never 
     const r = parseAgenda(md, datesOf(["2025-09-05"]));
     expect(r.runOfShow).toEqual({});  // unresolved → absent (not stored → anchors)
     expect(r.warnings.map((w) => w.code)).toContain("AGENDA_BLOCK_UNRESOLVED"); // warning DID emit
+  });
+
+  it("R13 REAL FIXTURE: consultants.md ESCAPED \\#REF\\! DATE/day-name banners are structural — no banner cell becomes a title", () => {
+    // consultants.md:235-238 — day-TYPE header, DATE banner `\#REF\! | … | 10/8/25 …`,
+    // day-name banner `\#REF\! | … | Wednesday …`, token-header `NAME|ARRIVAL|FLIGHT\#|…`.
+    // Without clean() normalization the escaped banners stay in dataRows → 10/8/25 / weekday
+    // cells emit as bogus titles. After clean() they are structural-skipped.
+    const md = readFileSync("fixtures/shows/exporter-xlsx/consultants.md", "utf8");
+    // consultants is an EMPTY-agenda fixture (blank TITLE cells) → all-[] days, no entries.
+    const r = parseAgenda(md, datesOf(["2025-10-08", "2025-10-09", "2025-10-10"]));
+    const MDY_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
+    const WEEKDAY_RE = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i;
+    for (const day of Object.values(r.runOfShow ?? {})) {
+      for (const e of day) {
+        expect(MDY_RE.test(e.title.trim())).toBe(false);     // no 10/8/25 banner as a title
+        expect(WEEKDAY_RE.test(e.title.trim())).toBe(false); // no Wednesday banner as a title
+        expect(/#?REF!?/i.test(e.title)).toBe(false);        // no (escaped) #REF! as a title
+      }
+    }
+  });
+
+  it("R13 SYNTHETIC: escaped \\#REF\\! DATE cells are detected as the date-banner (cleaned) → block + warning, no escaped-REF title", () => {
+    const md = [
+      "| NAME | ARRIVAL | FLIGHT\\# | START  | FINISH | TRT | TITLE | ROOM | AV |", // escaped FLIGHT\#
+      "| \\#REF\\! | \\#REF\\! | \\#REF\\! | \\#REF\\! | \\#REF\\! | \\#REF\\! | \\#REF\\! | \\#REF\\! | \\#REF\\! |",
+      "| Friday | Friday | Friday | Friday | Friday | Friday | Friday | Friday | Friday |",
+      "|  |  |  | 8:30 AM | 9:30 AM | 1:00 | Keynote | Hall A | LAV |",
+    ].join("\n");
+    const r = parseAgenda(md, datesOf(["2025-09-05"])); // unique Friday → resolves via day-name
+    const titles = (r.runOfShow?.["2025-09-05"] ?? []).map((e) => e.title);
+    expect(titles).toContain("Keynote");                 // real session parsed
+    expect(titles.some((t) => /#?REF!?/i.test(t))).toBe(false); // escaped banner NOT a title
   });
 });
 
