@@ -460,6 +460,30 @@ describe("CrewShell projection alert is section-independent (Test 16)", () => {
     expect(arg.context.failedKeys).toEqual(["transportation"]);
     expect(arg.context.failedKeys).not.toContain("financials");
   });
+
+  // VERIFICATION-ONLY (Task 02.6 — green by construction).
+  // CrewShell already forwards the render's OWN unfiltered tileErrors keys into
+  // context.failedKeys (line 142: `Object.keys(data.tileErrors).sort()`), and
+  // Task 02.5 sets tileErrors["run_of_show"] on projection failure. This pin is
+  // a durable regression guard against a future allowlist that drops run_of_show.
+  //
+  // Negative-regression procedure (mandatory per AGENTS.md anti-tautology rule):
+  //   1. In _CrewShell.tsx, temporarily replace line 142 with:
+  //      const ALLOWED = ["contacts","financials","hotel","rooms","transportation"];
+  //      const failedKeys = Object.keys(data.tileErrors).filter(k => ALLOWED.includes(k)).sort();
+  //   2. Run: pnpm vitest run tests/components/crew/crewShell.test.tsx --reporter=verbose
+  //   3. THIS assertion fails: Expected ["run_of_show"] to include "run_of_show" (received [])
+  //   4. Revert the stub — the pass-through is unfiltered and this pin is real.
+  it("run_of_show is a first-class failedKeys domain (viewer-independent — present on a plain crew render)", async () => {
+    upsertAdminAlert.mockResolvedValue("alert-ros");
+    await renderShell({
+      data: makeData({ tileErrors: { run_of_show: "boom" } }),
+      viewer: { kind: "crew", crewMemberId: HAND_ID }, // a NON-lead crew member
+      showId: "show-ros-keys",
+    });
+    const arg = upsertAdminAlert.mock.calls[0]![0] as { context: { failedKeys: string[] } };
+    expect(arg.context.failedKeys).toContain("run_of_show");
+  });
 });
 
 // ============================================================================
