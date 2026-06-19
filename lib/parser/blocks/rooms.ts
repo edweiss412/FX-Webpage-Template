@@ -340,23 +340,43 @@ function applyGsLabel(room: RoomRow, label: string, val: string | null): void {
 
 // ── Breakout room parser ──────────────────────────────────────────────────────
 
+// Derive a numberless breakout's name: drop the leading "BREAKOUT" word and the
+// "Dimensions Floor" template suffix, flattening any in-cell newline. Falls back
+// to "Breakout" if nothing real remains.
+function deriveBreakoutName(rawHeader: string): string {
+  const name = rawHeader
+    .replace(/\n/g, " ")
+    .replace(/^\s*BREAKOUT\s*/i, "")
+    .replace(/\bDimensions\s+Floor\b/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return name.length > 0 ? name : "Breakout";
+}
+
 function parseBoRooms(markdown: string): RoomRow[] {
   const rooms: RoomRow[] = [];
   const seen = new Set<string>();
 
-  // v2 format: | BREAKOUT N&#10;... | <fields> |
-  const boBlockRe = /^\|\s*(BREAKOUT\s+\d+[^|]*?)\s*\|/gim;
+  // v2 format: numbered "| BREAKOUT N&#10;… |" AND numberless "| BREAKOUT&#10;LASALLE A |"
+  // / "| BREAKOUT WALTON ROOM Dimensions Floor |" (redefining exporter) — the name
+  // rides on the next line or after the word, with no number.
+  // Case-SENSITIVE (uppercase BREAKOUT) so it matches real headers but not
+  // mixed-case template field labels like "Breakout Room Setup Date / Time".
+  const boBlockRe = /^\|\s*(BREAKOUT(?:&#10;|\s)[^|]*?)\s*\|/gm;
   let m: RegExpExecArray | null;
 
   while ((m = boBlockRe.exec(markdown)) !== null) {
     const rawHeader = m[1]!.replace(/&#10;/g, "\n").replace(/\r/g, "");
     const firstLine = rawHeader.split("\n")[0]!.trim();
-    const headerKey = firstLine.toUpperCase();
+    // Numbered "BREAKOUT N…" keeps its full header as the name (existing behavior);
+    // numberless "BREAKOUT" derives the name from the remaining header text.
+    const name = /^BREAKOUT\s+\d/i.test(firstLine) ? firstLine : deriveBreakoutName(rawHeader);
+    const headerKey = name.toUpperCase();
 
     if (seen.has(headerKey)) continue;
     seen.add(headerKey);
 
-    const room = buildEmptyRoom("breakout", firstLine);
+    const room = buildEmptyRoom("breakout", name);
     const headerLines = rawHeader.split("\n");
     for (let k = 1; k < headerLines.length; k++) {
       const hl = (headerLines[k] ?? "").trim();

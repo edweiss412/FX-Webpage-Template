@@ -333,6 +333,20 @@ describe("exporter fidelity — C2/R8 additional room: populated fields kept, em
   });
 });
 
+describe("exporter fidelity — AR R9: numberless v2 breakout headers are emitted", () => {
+  it("redefining emits LASALLE A + WALTON ROOM breakouts (numberless headers, real fields)", () => {
+    const bo = parse("redefining-fi").rooms.filter((r) => r.kind === "breakout");
+    const lasalle = bo.find((r) => /LASALLE A/i.test(r.name));
+    const walton = bo.find((r) => /WALTON ROOM/i.test(r.name));
+    expect(lasalle, "LASALLE A breakout").toBeDefined();
+    expect(walton, "WALTON ROOM breakout").toBeDefined();
+    expect(lasalle!.setup).toMatch(/Theater set up/);
+    expect(walton!.set_time).toBe("5/13 @ 6:30 AM");
+    // the numberless name must not be the bare word "BREAKOUT"
+    expect(lasalle!.name).not.toBe("BREAKOUT");
+  });
+});
+
 describe("exporter fidelity — AR: v4 additional rooms (content-gated, not dropped by short-circuit)", () => {
   it("fintech's empty ADDITIONAL ROOM template stub is not emitted as a room", () => {
     expect(parse("fintech").rooms.filter((r) => r.kind === "additional")).toEqual([]);
