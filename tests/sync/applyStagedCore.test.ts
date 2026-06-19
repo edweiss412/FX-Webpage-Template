@@ -235,6 +235,7 @@ describe("firstSeenPublished + wizardCreatedSessionId threading (R30-1 + R65-1)"
           showId: "show-1",
           previousCrewNames: [],
           previousCrewMembers: [],
+          priorRunOfShow: null,
         };
       },
       async deleteCrewMembersNotIn() {},

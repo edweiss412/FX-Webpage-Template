@@ -139,7 +139,7 @@ describe("runPushSyncForShow", () => {
       const show = fake.db.shows[0];
       if (!show) throw new Error("missing show fixture");
       show.last_seen_modified_time = meta.modifiedTime;
-      return { outcome: "applied" as const, showId: "show-1" };
+      return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
     });
     const { runPushSyncForShow } = await importPushSync();
 
@@ -150,7 +150,7 @@ describe("runPushSyncForShow", () => {
         isShowArchived: async () => false,
         withPipelineLock: lockWithArchived(false),
       }),
-    ).resolves.toEqual({ outcome: "applied", showId: "show-1" });
+    ).resolves.toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
     await expect(
       runPushSyncForShow("file-1", {
         fileMeta: meta,

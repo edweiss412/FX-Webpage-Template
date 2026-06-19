@@ -85,7 +85,7 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
   }) {
     this.operations.push(`applyShowSnapshot:${args.driveFileId}:${args.staleGuard}`);
     this.autoPublishFirstSeen = args.autoPublishFirstSeen;
-    return { outcome: "updated" as const, showId: "show-1", previousCrewNames: [] };
+    return { outcome: "updated" as const, showId: "show-1", previousCrewNames: [], priorRunOfShow: null };
   }
   async deleteCrewMembersNotIn() {
     this.operations.push("deleteCrewMembersNotIn");

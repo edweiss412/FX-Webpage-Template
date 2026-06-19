@@ -69,7 +69,7 @@ function deps(
       outcome: "parsed_pending_review" as const,
       stagedId: "staged-1",
     })),
-    runManualSyncForShowUnlocked: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+    runManualSyncForShowUnlocked: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", parseWarnings: [] })),
     readFinalizeOwnershipGuardUnlocked: vi.fn(async () => false),
     prepareFirstSeenStage: vi.fn(async (fileMeta) => ({
       fileMeta,

@@ -162,7 +162,7 @@ describe("Postgres sync pipeline adapter", () => {
       },
     );
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
     expect(calls.defaultAdminAlerts).toEqual([]);
     expect(calls.txAdminAlerts).toEqual([
       {

@@ -113,6 +113,9 @@ async function toResult(
     const applied: Extract<ProcessOneFileResult, { outcome: "applied" }> = {
       outcome: "applied",
       showId: phase2.showId,
+      // §02 (FIX-3 / R16): source the sync_log parse_warnings from this apply's outcome (manual
+      // first-seen caller #2). tsc-FORCED by the required ProcessOneFileResult.applied.parseWarnings.
+      parseWarnings: phase2.parseWarnings ?? [],
     };
     if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
     if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;

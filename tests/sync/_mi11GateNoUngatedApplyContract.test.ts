@@ -129,7 +129,7 @@ describe("MI-11 gate — runtime: both live-apply entry points fail closed on MI
     // A Phase2Tx WITHOUT holdPort (the unsafe direction P2-F6 closed).
     const tx = {
       async applyShowSnapshot() {
-        return { outcome: "updated" as const, showId: "show-1", previousCrewNames: [], previousCrewMembers: [] };
+        return { outcome: "updated" as const, showId: "show-1", previousCrewNames: [], previousCrewMembers: [], priorRunOfShow: null };
       },
       async deleteCrewMembersNotIn() {},
       async upsertCrewMembers() {

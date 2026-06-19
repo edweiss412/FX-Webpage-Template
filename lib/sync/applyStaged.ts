@@ -1277,7 +1277,14 @@ export async function applyStaged_unlocked(
     const tail = deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail;
     await tail({
       tx,
-      result: { outcome: "applied", showId: coreResult.showId },
+      // §02 (FIX-3 / R16/R17): source the sync_log parse_warnings from coreResult.parseWarnings (the
+      // field applyStagedCore surfaces from phase2.parseWarnings) — NOT a literal []. tsc-FORCED by
+      // the required ProcessOneFileResult.applied.parseWarnings; the R17 runtime test pins the source.
+      result: {
+        outcome: "applied",
+        showId: coreResult.showId,
+        parseWarnings: coreResult.parseWarnings,
+      },
       // R3 fix: write SHOW_FIRST_PUBLISHED through THIS apply tx (via tx.queryOne → upsert_admin_alert
       // RPC) so the alert lands in the SAME transaction as the just-created show. The standalone
       // service-role writer runs on a separate connection and FK-fails on the uncommitted shows.id

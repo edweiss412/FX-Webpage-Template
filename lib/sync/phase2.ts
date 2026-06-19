@@ -1,6 +1,6 @@
 import type { DriveListedFile } from "@/lib/drive/list";
 import { deriveSlug } from "@/lib/parser/slug";
-import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { AgendaEntry, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
 import { readOpenHolds } from "@/lib/sync/holds/holdPort";
 import {
@@ -52,6 +52,12 @@ export type Phase2Tx = ApplyParseResultTx & {
         showId: string;
         previousCrewNames: string[];
         previousCrewMembers?: PreviousCrewMember[];
+        // §02 (D-2 / R6 / R20 producer-side required-field defense): the prior stored
+        // shows_internal.run_of_show. REQUIRED (not optional) so every applyShowSnapshot impl — the
+        // Postgres one AND every fake — must populate it; an impl that extends the type but forgets
+        // the live `select run_of_show` cannot silently typecheck-and-pass while production never
+        // emits AGENDA_DAY_EMPTIED (the R20 dead-producer class). first-seen / nothing prior = null.
+        priorRunOfShow: Record<string, AgendaEntry[]> | null;
       }
     | {
         outcome: "stale";
@@ -114,6 +120,12 @@ export type Phase2Result =
       showId: string;
       roleFlagsNotice?: RoleFlagsNotice;
       snapshotRevisionId?: string;
+      // §02 (FIX-3 cross-boundary thread): the post-apply parseResult.warnings (including any
+      // AGENDA_DAY_EMPTIED the apply appended). runPhase2 works on LOCAL rebound parseResult copies,
+      // so the apply-appended warning is LOST at this boundary unless carried explicitly. The cron /
+      // manual / staged tail callers source sync_log's parse_warnings from here. Optional: callers
+      // default to []; the REQUIRED field is on ProcessOneFileResult (the tail-caller surface).
+      parseWarnings?: ParseResult["warnings"];
     }
   | {
       outcome: "stale";
@@ -406,6 +418,10 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   const applied: Extract<Phase2Result, { outcome: "applied" }> = {
     outcome: "applied",
     showId: snapshot.showId,
+    // §02 (FIX-3): carry the post-apply warnings (incl. any AGENDA_DAY_EMPTIED applyParseResult
+    // appended to THIS parseResult.warnings reference) out of the runPhase2 boundary so the tail
+    // callers can log them to sync_log. applyParseResult mutates parseResult.warnings in place.
+    parseWarnings: parseResult.warnings,
   };
   if (snapshotRevisionId) applied.snapshotRevisionId = snapshotRevisionId;
   if (roleFlagsNotice) applied.roleFlagsNotice = roleFlagsNotice;

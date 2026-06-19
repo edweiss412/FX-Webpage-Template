@@ -113,6 +113,7 @@ export function spyTx(): SpyTx {
         showId: "show-1",
         previousCrewNames: ["Ada"],
         previousCrewMembers: [],
+        priorRunOfShow: null,
       };
     },
     async deleteCrewMembersNotIn() {
