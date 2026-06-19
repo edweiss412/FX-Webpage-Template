@@ -218,6 +218,13 @@ describe("exporter fidelity — AR R4: multi-stay inline cell splits into per-gr
     expect(allNames).toContain("Connor Hester");
     expect(allNames).toContain("Doug Larson");
   });
+
+  it("AR R7: split reservation hotel_name is the hotel/address, not glued guest names", () => {
+    for (const r of parse("consultants").hotelReservations) {
+      expect(r.hotel_name, "hotel_name should not carry guest names").not.toMatch(/Doug Larson|Eric Weiss|\d{6,}/);
+      expect(r.hotel_name).toContain("Four Seasons");
+    }
+  });
 });
 
 describe("exporter fidelity — B1 transport assigned_names ignores the col0 stage label", () => {
@@ -331,5 +338,19 @@ describe("exporter fidelity — AR: v4 additional rooms (content-gated, not drop
       parse("fixed-income").rooms.filter((r) => r.kind === "breakout").length,
     ).toBeGreaterThanOrEqual(1);
     expect(parse("rpas").rooms.filter((r) => r.kind === "breakout").length).toBeGreaterThanOrEqual(2);
+  });
+  it("AR R7: a real name-only v4 room is kept; only template-named stubs are dropped", () => {
+    const md = [
+      "| BREAKOUT 1 SALON D | BREAKOUT 1 SALON D |",
+      "| :---: | :---: |",
+      "| Setup |  |",
+      "",
+      "| BREAKOUT 2 BREAKOUT ROOM Dimensions Floor | BREAKOUT 2 BREAKOUT ROOM Dimensions Floor |",
+      "| :---: | :---: |",
+      "| Setup |  |",
+    ].join("\n");
+    const breakouts = parseRooms(md, "v4").filter((r) => r.kind === "breakout");
+    expect(breakouts).toHaveLength(1); // SALON D kept; template stub dropped
+    expect(breakouts[0]!.name).toContain("SALON D");
   });
 });

@@ -134,7 +134,8 @@ function parseV4Rooms(markdown: string): RoomRow[] {
     ) {
       const result = parseV4RoomBlock(lines, i, col0, "breakout");
       i = result.nextLine;
-      if (roomHasContent(result.room)) rooms.push(result.room);
+      if (roomHasContent(result.room) || !isPlaceholderRoomName(result.room.name))
+        rooms.push(result.room);
       continue;
     }
 
@@ -151,12 +152,27 @@ function parseV4Rooms(markdown: string): RoomRow[] {
     ) {
       const result = parseV4RoomBlock(lines, i, col0, "additional");
       i = result.nextLine;
-      if (roomHasContent(result.room)) rooms.push(result.room);
+      if (roomHasContent(result.room) || !isPlaceholderRoomName(result.room.name))
+        rooms.push(result.room);
       continue;
     }
   }
 
   return rooms.map(({ _nextLine: _n, ...rest }) => rest as RoomRow);
+}
+
+// A v4 room header is a placeholder template ("BREAKOUT 1 BREAKOUT ROOM
+// Dimensions Floor", "ADDITIONAL ROOM Dimensions Floor") when, after stripping the
+// kind prefix and the template words, nothing real remains. A filled name like
+// "BREAKOUT 1 SALON D" leaves "SALON D" and is therefore a real room even with no
+// other populated fields.
+function isPlaceholderRoomName(name: string): boolean {
+  const rest = name
+    .replace(/^(?:BREAKOUT\s+\d+|ADDITIONAL\s+ROOM|GENERAL\s+SESSION)\s*/i, "")
+    .replace(/BREAKOUT\s+ROOM|ADDITIONAL\s+ROOM|Dimensions|Floor|Name\(s\)/gi, "")
+    .replace(/\s+/g, "")
+    .trim();
+  return rest.length === 0;
 }
 
 function roomHasContent(room: RoomRow): boolean {

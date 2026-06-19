@@ -327,9 +327,23 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
   if (rows.length < 2 || !rows.every((r) => r.names.length > 0)) {
     return [buildInlineHotel(raw, 1, contextYear)];
   }
-  const baseName = rows[0]?.hotel_name ?? null;
-  for (let i = 1; i < rows.length; i++) rows[i]!.hotel_name = baseName;
+  // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
+  // before the first "Check In" (consultants). Strip those guest/confirmation
+  // spans so the shared hotel name is the actual hotel/address, then apply it to
+  // every group (later groups carry only a divider + guest, not the hotel).
+  const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
+  for (const r of rows) r.hotel_name = baseName;
   return rows;
+}
+
+function sanitizeHotelName(name: string | null): string | null {
+  if (!name) return null;
+  const cleaned = name
+    .replace(/[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*[-–—]{1,3}\s*#?\d+/g, "") // "Doug Larson—2035940"
+    .replace(/-{2,}/g, " ") // residual divider runs
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 function splitInlineReservationGroups(raw: string): string[] {
