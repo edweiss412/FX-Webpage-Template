@@ -78,9 +78,9 @@ describe("agenda fixtures — production-exporter filled grids are the source of
 ### Task 1.2 — `AgendaEntry` type + `runOfShow?` on `ParsedSheet` and `ParseResult`
 
 **Files:** `lib/parser/types.ts` · `tests/parser/agendaTypes.test.ts` (new, type-level).
-**Interfaces — Produces:** `AgendaEntry` (`{ start, finish?, trt?, title, room?, av? }`); `ParsedSheet.runOfShow?: Record<string, AgendaEntry[]>`; `ParseResult.runOfShow?: Record<string, AgendaEntry[]>`. **Consumes:** nothing (leaf types).
+**Interfaces — Produces:** `AgendaEntry` (`{ start, finish?, trt?, title, room?, av? }`); `ParsedSheet.runOfShow?: Record<string, AgendaEntry[]>`; `ParseResult.runOfShow?: Record<string, AgendaEntry[]>`. **Consumes:** nothing (leaf types). **NOTE the data flow:** declaring `ParseResult.runOfShow?` does NOT auto-populate it — `ParseResult` is built by `enrichWithDrivePins`'s field-by-field return literal, which must be edited to copy the field (Task 1.9). The §02 sync reads `parseResult.runOfShow` (the consumer), so Task 1.9's copy is load-bearing — without it the parsed agenda is silently dropped at the bridge.
 
-`runOfShow` is OPTIONAL on both shapes (sibling of `warnings`, between `warnings` and `hardErrors`) so it survives sync enrichment `ParsedSheet → ParseResult` and does NOT break the ~30 existing `parseSheet` return sites. Under `exactOptionalPropertyTypes` an absent field ≠ `undefined`; `parseAgenda` returns `undefined` for unlocatable, but `parseSheet` (Task 1.8) sets the field to the parser's `Record | undefined`, so the field type stays `Record<...> | undefined` via `?`. **It is NOT a `ShowRow` field** (R18 — `ShowRow` is the crew-readable `public.shows` projection at `types.ts:82`; `run_of_show` must never ride it).
+`runOfShow` is OPTIONAL on both shapes (sibling of `warnings`, between `warnings` and `hardErrors`) so it survives sync enrichment `ParsedSheet → ParseResult` (carried by Task 1.9's explicit copy) and does NOT break the ~30 existing `parseSheet` return sites. Under `exactOptionalPropertyTypes` an absent field ≠ `undefined`; `parseAgenda` returns `undefined` for unlocatable, but `parseSheet` (Task 1.8) sets the field to the parser's `Record | undefined`, so the field type stays `Record<...> | undefined` via `?`. **It is NOT a `ShowRow` field** (R18 — `ShowRow` is the crew-readable `public.shows` projection at `types.ts:82`; `run_of_show` must never ride it).
 
 - [ ] **Write failing test** — `tests/parser/agendaTypes.test.ts`:
 ```ts
@@ -699,7 +699,75 @@ This keeps the no-grid case as an ABSENT property (so `parseSheet(...).runOfShow
 
 ---
 
-### Task 1.9 — Robustness: stale `raw/` fixtures + empty-skeleton + prefix-day variant never crash
+### Task 1.9 — Carry `runOfShow` across the `enrichWithDrivePins` bridge (`ParsedSheet → ParseResult`)
+
+**Files:** `lib/sync/enrichWithDrivePins.ts` (the `ParseResult` return literal at `:262-279`) · `tests/sync/enrichWithDrivePins.runOfShow.test.ts` (new — the existing `tests/sync/enrichWithDrivePins.test.ts` harness is reused for the builders).
+**Interfaces — Consumes:** `ParsedSheet.runOfShow` (Task 1.2). **Produces:** `ParseResult.runOfShow` populated from `parsed.runOfShow` — this is the field the §02 sync actually reads.
+
+**Why this task exists (HIGH data-flow gap — verified live):** the production sync pipeline does NOT consume `ParsedSheet` directly — it consumes `ParseResult`, built by `enrichWithDrivePins(parsed: ParsedSheet, driveClient, ctx): Promise<ParseResult>` (`lib/sync/enrichWithDrivePins.ts:211`). That function constructs the `ParseResult` via a **field-by-field return literal** (`:262-279`) that copies 12 named fields (`show`/`crewMembers`/`hotelReservations`/`rooms`/`transportation`/`contacts`/`pullSheet`/`diagrams`/`openingReel`/`raw_unrecognized`/`warnings`/`hardErrors`) — it does NOT spread `parsed`, and as authored does NOT copy `runOfShow`. Because `ParseResult.runOfShow` is OPTIONAL, typecheck will NOT force the copy. So without this task: `parseSheet` fills `ParsedSheet.runOfShow` (Task 1.8), the enrich bridge silently drops it, the §02 sync sees `parseResult.runOfShow === undefined` → treats it as an unlocatable grid → writes `null` + `AGENDA_GRID_MALFORMED` → **the run-of-show never reaches crew on the real pipeline.** This is a parser-side wiring fix (the bridge is in `lib/sync`, but it's the producer half of the §01 parser contract — §02 only reads), so it lands here.
+
+- [ ] **Write failing test** — `tests/sync/enrichWithDrivePins.runOfShow.test.ts`:
+```ts
+import { describe, expect, test } from "vitest";
+import { enrichWithDrivePins } from "@/lib/sync/enrichWithDrivePins";
+import { mockDriveClient } from "@/lib/sync/mocks/mockDriveClient";
+import type { ParsedSheet } from "@/lib/parser/types";
+
+// Mirror the emptyParsed builder + baseCtx from tests/sync/enrichWithDrivePins.test.ts.
+function emptyParsed(overrides: Partial<ParsedSheet> = {}): ParsedSheet {
+  return {
+    show: {
+      title: "", client_label: "", client_contact: null, template_version: "v4",
+      venue: null, dates: { travelIn: null, set: null, showDays: [], travelOut: null },
+      schedule_phases: {}, event_details: {}, agenda_links: [],
+      coi_status: null, po: null, proposal: null, invoice: null, invoice_notes: null,
+    },
+    crewMembers: [], hotelReservations: [], rooms: [], transportation: null, contacts: [],
+    pullSheet: null,
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null, raw_unrecognized: [], warnings: [], hardErrors: [],
+    ...overrides,
+  };
+}
+const baseCtx = {
+  driveFileId: "show-file-id-1",
+  fileMeta: {
+    driveFileId: "show-file-id-1", headRevisionId: "show-head-1",
+    md5Checksum: "x".repeat(32),
+    mimeType: "application/vnd.google-apps.spreadsheet",
+    modifiedTime: "2026-05-01T00:00:00.000Z",
+  },
+};
+
+describe("enrichWithDrivePins — runOfShow survives the ParsedSheet→ParseResult bridge", () => {
+  test("a filled runOfShow deep-equals on the ParseResult (NOT dropped)", async () => {
+    const runOfShow = { "2026-05-14": [{ start: "8:00 AM", title: "X" }] };
+    const parsed = emptyParsed({ runOfShow });
+    const result = await enrichWithDrivePins(parsed, mockDriveClient, baseCtx);
+    expect(result.runOfShow).toEqual(runOfShow);
+  });
+
+  test("undefined runOfShow → omitted on the ParseResult (exactOptionalPropertyTypes)", async () => {
+    const parsed = emptyParsed(); // no runOfShow key
+    const result = await enrichWithDrivePins(parsed, mockDriveClient, baseCtx);
+    expect(result.runOfShow).toBeUndefined();
+    expect("runOfShow" in result).toBe(false); // truly absent, not present-as-undefined
+  });
+});
+```
+- [ ] **Run, verify fails** — `pnpm vitest run tests/sync/enrichWithDrivePins.runOfShow.test.ts -t 'survives the ParsedSheet'`. Expected: the return literal (`:262-279`) never copies `runOfShow` → `result.runOfShow` is `undefined` → the deep-equal `toEqual(runOfShow)` fails (the data-loss bug, red). The undefined-case passes trivially (which is correct — it's the regression guard for the conditional spread).
+- [ ] **Minimal impl** — in `lib/sync/enrichWithDrivePins.ts`, add to the return literal (`:262-279`), alongside the existing fields (e.g. directly after `hardErrors: parsed.hardErrors,`), a **conditional spread** (required under `exactOptionalPropertyTypes: true`, `tsconfig.json:9` — assigning a possibly-`undefined` to the optional `runOfShow?` is a strict-mode error):
+```ts
+    hardErrors: parsed.hardErrors,
+    ...(parsed.runOfShow !== undefined ? { runOfShow: parsed.runOfShow } : {}),
+```
+No other change — `runOfShow` is pass-through (the enrich step pins Drive assets; it neither parses nor transforms the agenda).
+- [ ] **Run, verify passes** — `pnpm vitest run tests/sync/enrichWithDrivePins.runOfShow.test.ts` + `pnpm vitest run tests/sync/enrichWithDrivePins.test.ts` (no regression to the 12 existing fields) + `pnpm typecheck` (`tsc --noEmit`) — MUST pass.
+- [ ] **Commit** — `git add lib/sync/enrichWithDrivePins.ts tests/sync/enrichWithDrivePins.runOfShow.test.ts && git commit -m "feat(sync): carry runOfShow across the enrichWithDrivePins ParsedSheet→ParseResult bridge"`
+
+---
+
+### Task 1.10 — Robustness: stale `raw/` fixtures + empty-skeleton + prefix-day variant never crash
 
 **Files:** `tests/parser/parseAgenda.test.ts` (append robustness suite).
 **Interfaces — Consumes:** the stale `fixtures/shows/raw/*.md` (demoted) + production empty fixtures. **Produces:** fail-soft pins (no new production code expected — if any crashes, fix `agenda.ts` minimally).
@@ -749,10 +817,11 @@ describe("parseAgenda — robustness (stale raw/ fixtures + empty skeletons, fai
 
 ## §01 exit checklist
 
-- [ ] **All parser tests green:** `pnpm vitest run tests/parser/` (incl. `parseAgenda.test.ts`, `agendaTypes.test.ts`, `agenda.fixtures.test.ts`, `parseSheet.test.ts`, `exporterFixtures.test.ts` — no regression).
+- [ ] **All parser + bridge tests green:** `pnpm vitest run tests/parser/ tests/sync/enrichWithDrivePins.runOfShow.test.ts tests/sync/enrichWithDrivePins.test.ts` (incl. `parseAgenda.test.ts`, `agendaTypes.test.ts`, `agenda.fixtures.test.ts`, `parseSheet.test.ts`, `exporterFixtures.test.ts` — no regression; the 12-field enrich pass-through still green).
+- [ ] **`runOfShow` survives the enrich bridge (Task 1.9):** `enrichWithDrivePins` copies `runOfShow` (conditional spread) from `ParsedSheet` → `ParseResult`, so the §02 sync reads a populated field — a filled agenda is NOT silently dropped at the `ParsedSheet→ParseResult` boundary.
 - [ ] **No-raw-codes gate green:** `pnpm vitest run tests/cross-cutting/no-raw-codes.test.ts` — the regenerated `lib/messages/__generated__/internal-code-enums.ts` (committed in Task 1.8's commit) carries **ALL 5** `AGENDA_*` codes: `AGENDA_GRID_MALFORMED`, `AGENDA_BLOCK_UNRESOLVED`, `AGENDA_DAY_AMBIGUOUS`, `AGENDA_DAY_TRUNCATED`, `AGENDA_DAY_EMPTIED`. **All 5 are defined as `lib/parser` helpers** in `lib/parser/blocks/agendaWarnings.ts` (each a `code:`-property-bearing factory). The extractor's `parse_warnings.code` pass scans `readFiles(["lib/parser"])` ONLY, gated on `/ParseWarning|warnings|hardErrors/`, matching `code:` properties via `CODE_PROPERTY_RE` (`scripts/extract-internal-code-enums.ts:69-72`) — so co-locating all 5 literals under `lib/parser` is what makes them all extract in §01. The PARSER emits only 4 of them; the §02 sync merely **imports `agendaDayEmptied`** and emits the 5th — it does NOT define a new code literal, so there is no §01↔§02 precondition deadlock and no "5th regenerates in §02." The Task 1.3 `agendaWarnings` test asserts all 5 `code:` values exist.
 - [ ] **Typecheck clean:** `pnpm tsc --noEmit` — `runOfShow?` optional on both shapes did not break any existing `parseSheet` return site; `AgendaEntry` is not reachable from `ShowRow`.
-- [ ] **No DB / projection / UI touched:** `git diff --name-only main...HEAD` lists only `lib/parser/**`, `lib/messages/__generated__/internal-code-enums.ts`, and `tests/parser/**` (+ `tests/cross-cutting/no-raw-codes.test.ts` unchanged-but-passing). No `supabase/`, `lib/data/`, `components/`, or `app/` files.
+- [ ] **No DB / projection / UI touched:** `git diff --name-only main...HEAD` lists only `lib/parser/**`, `lib/messages/__generated__/internal-code-enums.ts`, `lib/sync/enrichWithDrivePins.ts` (Task 1.9 — the producer-side `ParseResult` bridge; NOT the §02 sync WRITE path), `tests/parser/**`, and `tests/sync/enrichWithDrivePins.runOfShow.test.ts` (+ `tests/cross-cutting/no-raw-codes.test.ts` unchanged-but-passing). No `supabase/`, `lib/data/`, `components/`, or `app/` files; no §02 sync-write or §03 UI surface.
 - [ ] **Positive expectations are clone-and-read:** every asserted East Coast/RIA value was grepped from the fixture, never hardcoded from the spec prose.
 
 > Next: `02-migration-projection.md` (the `shows_internal.run_of_show` column, sync CONFIRMED-ONLY write — which IMPORTS + EMITS `agendaDayEmptied` from `lib/parser/blocks/agendaWarnings.ts`, no new code literal — and the `getShowForViewer.runOfShow` projection).

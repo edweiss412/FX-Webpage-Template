@@ -331,6 +331,13 @@ describe("sync run_of_show CONFIRMED-ONLY full replace (D-2 / R17/R21/R22)", () 
 **Interfaces (from `00-overview.md` line 52-63; verified live):**
 - Add to `ShowForViewer` (sibling of `show:` at `:96` / `financials?:` at `:170`): `runOfShow: Record<string, AgendaEntry[]> | null;` (NON-optional — always emitted, `null` when empty/no-agenda).
 - Read `shows_internal.run_of_show` via the service-role client (`createSupabaseServiceRoleClient()`, `:201`) **UNCONDITIONALLY for every viewer** — NOT `if (isLead)` (that gate at `:481` is financials-only; `run_of_show` is date-gated, not lead-gated). Put it in a NEW `try/catch` alongside hotel (`:342-366`) / rooms (`:374-403`): `const r = await supabase.from("shows_internal").select("run_of_show").eq("show_id", showId).maybeSingle();` then `if (r.error) tileErrors["run_of_show"] = r.error.message; else { decode … }`, with `catch (e) { tileErrors["run_of_show"] = e instanceof Error ? e.message : String(e); }`. `tileErrors` is built at `:336` (the existing 5 domains hotel/rooms/transportation/contacts/financials).
+- **Invariant 9 (Supabase call-boundary) — inline waiver REQUIRED.** This is a NEW Supabase call site, so invariant 9 demands EITHER a structural-meta-test registry row OR an inline `// not-subject-to-meta: <reason>` comment. The registry branch does NOT apply (`_metaInfraContract` is auth-domain-scoped — its orphan scan at `tests/auth/_metaInfraContract.test.ts:258-259` walks only `lib/auth`/`app/auth`/`app/api/auth`/`app/api/show`, NOT `lib/data`), so the **inline-waiver branch is the applicable option** — it is NOT exempt. Place the waiver comment immediately above the `.from("shows_internal").select("run_of_show")` read (verbatim):
+  ```ts
+  // not-subject-to-meta: lib/data is outside _metaInfraContract's auth-domain scan
+  // (tests/auth/_metaInfraContract.test.ts:258-259 walks lib/auth/app/auth/app/api/auth/app/api/show only);
+  // the { data, error } boundary is pinned by the behavioral returned-error + thrown-exception tests below.
+  ```
+  The behavioral tests below (returned `error` AND thrown exception each → `runOfShow=null` + `tileErrors["run_of_show"]`, no raw infra text in the crew DOM) are the ENFORCEMENT; the comment is the invariant-9 marker. NOTE: file `BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST` in `docs/superpowers/plans/BACKLOG.md` as a future structural guard for `lib/data` Supabase reads (out of Phase-2 scope — the waiver is the in-scope discharge).
 - Decode via `decodeRunOfShow(r.data?.run_of_show)` (Task 02.3): `corrupt === true` → also set `tileErrors["run_of_show"]` (a fixed string like `"run_of_show decode: corrupt stored shape"` — NOT raw infra text); `value` is the decoded `Record | null`.
 - **Intersection (D-4):** emit `runOfShow` = decoded keys ∩ **current `dates.showDays`** ∩ **viewer `DateRestriction`**. Compute the allowed-ISO-day set from the show's `dates.showDays` (the decoded `show.dates`, `:251-256`) and the ACTIVE viewer's normalized `DateRestriction`:
   - `unknown_asterisk` → allowed = `∅` (cannot infer show days) → `runOfShow` keys all dropped.
@@ -383,7 +390,7 @@ describe("getShowForViewer.runOfShow projection (D-4)", () => {
 
 **Run-fails:** `pnpm vitest run tests/data/getShowForViewerRunOfShow.test.ts` → red. _Failure this catches: a lead-gated (wrong) read; an ungated projection leaking other-day session content to restricted crew; the new internal-table read swallowing an error (missing `tileErrors`) or leaking raw infra text; a corrupt shape crashing the projection; `run_of_show` accidentally riding `ShowRow`/`public.shows`._
 
-**Minimal impl:** add the type field, the unconditional service-role read block + decode + `tileErrors` hook, the date∩DateRestriction intersection, and the return-literal emission as specified. Import `decodeRunOfShow`.
+**Minimal impl:** add the type field, the unconditional service-role read block + decode + `tileErrors` hook, the date∩DateRestriction intersection, and the return-literal emission as specified. Import `decodeRunOfShow`. **Add the inline `// not-subject-to-meta:` waiver comment (verbatim above) immediately above the `.from("shows_internal").select("run_of_show")` read — invariant 9 requires the marker even though `lib/data` is outside `_metaInfraContract`'s scan.** The behavioral returned-error + thrown-exception tests are the boundary enforcement.
 
 **Run-passes:** `pnpm vitest run tests/data/getShowForViewerRunOfShow.test.ts` → green. `pnpm typecheck` clean.
 
