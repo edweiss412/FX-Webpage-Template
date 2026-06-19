@@ -621,17 +621,16 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     // confirmation_no must be null. A token is a "<dash> #?<4+ digits>" run; ZIPs
     // ("Chicago, IL 60611") aren't dash-prefixed so they don't trip it. Names also
     // carry no bare digit-run (people names).
-    const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}|#\s*\d{4,}/;
+    // dash/#-prefixed conf token OR a bare 6+ digit run (the legacy
+    // "Eric Weiss 2004173 In on the 6th" shape) — a US ZIP is 5 digits, so it survives.
+    const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}|#\s*\d{4,}|\b\d{6,}\b/;
+    const rawFile = (name: string) =>
+      parseSheet(readFileSync(`fixtures/shows/raw/${name}`, "utf8"), "raw.md");
     const all = [
       ...SLUGS.map((s) => parse(s)),
-      parseSheet(
-        readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8"),
-        "raw.md",
-      ),
-      parseSheet(
-        readFileSync("fixtures/shows/raw/2024-05-east-coast-family-office.md", "utf8"),
-        "raw.md",
-      ),
+      rawFile("2026-03-rpas-central-four-seasons.md"), // space-delimited multi-guest
+      rawFile("2024-05-east-coast-family-office.md"), // Hotel Stays, no Check-In marker
+      rawFile("2025-04-asset-mgmt-cfo-coo.md"), // legacy BARE conf# ("Eric Weiss 2004173")
     ];
     for (const r of all) {
       for (const h of r.hotelReservations) {

@@ -130,10 +130,17 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
   return { names: names.map(stripConfTokens).filter((n) => n.length > 0), confs };
 }
 
-/** Remove any "<dash> #?<digits>" confirmation suffix from a name, alphabet-agnostic. */
+/**
+ * Remove any confirmation number from a string, alphabet-agnostic. Covers all
+ * inline shapes in the corpus: dash/#-prefixed ("Doug--- 103317", "Eric - #2069853")
+ * AND the legacy BARE form ("Eric Weiss 2004173 In on the 6th"). Bare runs are
+ * gated at 6+ digits so a US ZIP (5) or street number survives.
+ */
 function stripConfTokens(name: string): string {
   return name
-    .replace(/\s*[-–—]{1,3}\s*#?\s*\d{4,}/g, " ")
+    .replace(/\s*[-–—]{1,3}\s*#?\s*\d{4,}/g, " ") // dash-prefixed (#optional)
+    .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
+    .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
     .replace(/\s+/g, " ")
     .trim();
 }
