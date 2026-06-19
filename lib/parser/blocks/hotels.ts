@@ -22,7 +22,7 @@
 
 import type { HotelReservationRow } from "../types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
-import { clean, presence, normalizeDate } from "./_helpers";
+import { clean, presence, normalizeDate, parseTableRows } from "./_helpers";
 
 const MAX_HOTELS = 4; // cardinality cap §10
 
@@ -58,14 +58,15 @@ export function parseHotels(
 
   // D1: a recognized HOTEL / "Hotel Reservations" / "Hotel Stays" header that
   // parsed zero reservations (sub-parsers content-gate to []) is a silent
-  // section-drop — fail loud. (No such header = absent section, no warning.)
-  if (
-    /^\|\s*HOTEL\s*\|/m.test(markdown) ||
-    /Hotel\s*Reservations?/i.test(markdown) ||
-    /Hotel\s*Stays?/i.test(markdown)
-  ) {
-    emitEmptySection(agg, "hotels");
-  }
+  // section-drop — fail loud. Match the EXACT first cell (what the sub-parsers'
+  // anchored regexes recognize), NOT a substring — else control rows like
+  // "Get Hotel Reservations | FALSE" / "Driver Hotel Stays | FALSE" on a genuinely
+  // no-hotel show would emit a spurious warning.
+  const hasHotelHeader = parseTableRows(markdown).some((r) => {
+    const c = clean(r[0] ?? "").toUpperCase();
+    return c === "HOTEL" || /^HOTEL\s+RESERVATIONS?$/.test(c) || /^HOTEL\s+STAYS?$/.test(c);
+  });
+  if (hasHotelHeader) emitEmptySection(agg, "hotels");
   return [];
 }
 

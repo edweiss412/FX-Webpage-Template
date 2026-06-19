@@ -116,6 +116,18 @@ describe("D1 — hotels hook", () => {
     parseHotels("| SOMETHING | x |", "v2", none);
     expect(none.warnings).toHaveLength(0);
   });
+
+  it("does NOT warn on intake CONTROL rows that merely contain the words (no hotel section)", () => {
+    // The detector matches the EXACT first cell, not a substring — these are real
+    // corpus control rows on shows that have no hotel block.
+    const agg = newAggregator();
+    parseHotels(
+      "| Get Hotel Reservations | FALSE |\n| Book Driver Hotel Stays | FALSE |\n| Driver Hotel Stays | FALSE |",
+      "v2",
+      agg,
+    );
+    expect(emptyOf(agg, "hotels")).toHaveLength(0);
+  });
 });
 
 describe("D1 — rooms hook", () => {
