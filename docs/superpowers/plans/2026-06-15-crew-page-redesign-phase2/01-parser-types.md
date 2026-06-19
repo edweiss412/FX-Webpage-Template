@@ -13,7 +13,7 @@ These were grep-verified against the live tree at `feat/crew-page-phase2-agenda`
 - **The regen mechanism already exists and is deterministic — no script to write.** Production does NOT feed `parseSheet` the `fixtures/shows/raw/*.md` corpus (that's the Drive-MCP `read_file_content` renderer). Production feeds the output of **`synthesizeMarkdownFromXlsx(buffer: ArrayBuffer): string`** (`lib/drive/exportSheetToMarkdown.ts:186`). That production-exporter output for all 7 live test shows was **already captured on 2026-06-18** into `fixtures/shows/exporter-xlsx/*.md` (`fixtures/shows/exporter-xlsx/README.md:1-31`), regression-pinned by `tests/parser/exporterFixtures.test.ts`. **The filled AGENDA grids the spec demands "regenerated from the current converter" ARE these files** — `east-coast.md` (token-header `:103`) and `ria.md` (token-header `:319`). The spec §3/§6 cites `2024-05-east-coast-family-office.md` and `2025-06-ria-investment-forum.md` from `raw/`; those are the **stale** Drive-MCP shapes → demote to fail-soft robustness inputs. **The prompt's "RIA = `2025-03-dci-rpas-central.md`" is wrong** — `2025-03-dci-rpas-central.md` is a stale RPAS robustness fixture, not RIA. The real filled RIA production fixture is `fixtures/shows/exporter-xlsx/ria.md`. **Re-capture command** (only if the exporter changes; not needed for this milestone since the 2026-06-18 capture is current): export each test-show XLSX from Drive folder `1iU80Y2mqYmkCuBQYer0TEF1fta6fDp1C` via the `fxav-reader` SA and run the bytes through `synthesizeMarkdownFromXlsx` (per `fixtures/shows/exporter-xlsx/README.md:21`).
 - **Line citations corrected vs 00-overview** (post-merge shift): `ParsedSheet` = `lib/parser/types.ts:315-331` (`warnings:330`, `hardErrors:331`); `ParseResult` = `:338-354` (`warnings:353`, `hardErrors:354`); `ParseWarning` = `:1-7`. `parseSheet` = `lib/parser/index.ts:315`; aggregator init `:360`; block-call list `:363-381`; `ShowRow` literal `:388-401`; return literal `:407-419` (`warnings: agg.warnings` at `:418`). `parseAgendaLinks` (unchanged, distinct surface) = `:230`. `deriveSchedulePhases` = `:276`.
 - **`shouldHideGenericOptional(value: string | null): boolean`** = `lib/visibility/emptyState.ts:75` — hides `''`/`TBD`/`N/A`/`TBA` (uppercased trim against `GENERIC_OPTIONAL_HIDE`). This is the step-4 TITLE-real emit gate.
-- **Reusable parser helpers** (`lib/parser/blocks/_helpers.ts`): `parseTableRows(markdown): string[][]` (`:18` — splits all `|…|` lines into trimmed cell arrays, **drops separator rows**, so the DATE/day-name/token-header/data rows are consecutive `string[][]` entries with NO separator gaps); `splitRow`, `clean` (`:45`), `presence` (`:65` — entity-decode + trim → `string|null`), `normalizeDate(raw): string|null` (`:80` — already parses `M/D/YY`→ISO and strips weekday prefixes). `newAggregator(): { warnings, rawUnrecognized }` from `lib/parser/warnings.ts:20`.
+- **Reusable parser helpers** (`lib/parser/blocks/_helpers.ts`): `parseTableRows(markdown): string[][]` (`:18` — splits all `|…|` lines into trimmed cell arrays, **drops separator rows**, so the DATE/day-name/token-header/data rows are consecutive `string[][]` entries with NO separator gaps). **CAUTION — `parseTableRows` flattens the WHOLE document** (it `continue`s past non-pipe lines, never `break`s): it does NOT preserve table boundaries, so calling it on full markdown sweeps the ROOM DIMENSIONS / PULL SHEET tables that FOLLOW the AGENDA table into the same array. Task 1.3 therefore isolates the AGENDA table's contiguous pipe-line block FIRST (blank-line / non-pipe / EOF bounded, the `crew.ts:158-167` / `index.ts:182-184` repo pattern) and runs `parseTableRows` on that block only. Also: `splitRow`, `clean` (`:45`), `presence` (`:65` — entity-decode + trim → `string|null`), `normalizeDate(raw): string|null` (`:80` — already parses `M/D/YY`→ISO and strips weekday prefixes). `newAggregator(): { warnings, rawUnrecognized }` from `lib/parser/warnings.ts:20`.
 - **`dates.showDays`** is `ShowRow["dates"].showDays: string[]` (ISO) from `parseDates` (`lib/parser/blocks/dates.ts:48`); `dates` also has `loadIn` (`:59`). Show-day fallback resolves against `dates.showDays` ONLY (never `set`/`travelIn`/`travelOut` — spec §4.1 step 3 / R7).
 - **`extract-internal-code-enums.ts`** scans every file under `lib/parser` whose source matches `/\bParseWarning\b|\bwarnings\b|hardErrors/` for `code:` literals (`scripts/extract-internal-code-enums.ts:70-71`). So the new `lib/parser/blocks/agenda.ts` is auto-scanned once it references `ParseWarning`; `pnpm gen:internal-code-enums` must regenerate `lib/messages/__generated__/internal-code-enums.ts` in the SAME commit (else `tests/cross-cutting/no-raw-codes.test.ts` `expect(INTERNAL_CODE_ENUMS).toEqual(extracted)` at `:34` fails — that's the x2 gate, double-counted by package script `:30`).
 
@@ -152,7 +152,9 @@ And the identical block in `ParseResult` between its `warnings` (`:353`) and `ha
 
 **Why a dedicated `agendaWarnings.ts` (extractor scoping — verified live):** the `internal-code-enums` extractor's `parse_warnings.code` pass scans `readFiles(["lib/parser"])` ONLY, gated on `/ParseWarning|warnings|hardErrors/`, matching `code:`-PROPERTY literals via `CODE_PROPERTY_RE` (`scripts/extract-internal-code-enums.ts:69-72`). A `code:"AGENDA_DAY_EMPTIED"` literal living only in `lib/sync` (where the §02 sync emits it) would **NOT** be extracted by that pass. So **all 5 `code:` literals must physically live under `lib/parser`** to be regenerated. The parser EMITS only 4 (grid-malformed, block-unresolved, day-ambiguous, day-truncated); the §02 sync IMPORTS `agendaDayEmptied` from this module and emits the 5th — but because the literal lives in `lib/parser/blocks/agendaWarnings.ts`, the extractor picks up **all 5 in §01**. This removes the §01↔§02 precondition deadlock (no "5th regens later").
 
-Step 1 of `parseAgenda` (§4.1): find the markdown table whose rows include a **token-header** — a row whose cells, after `cell.replace(/^[^/]*\//, "").trim()` (strip an optional leading `<prefix>/` segment incl `#REF!/`) and uppercasing, include `NAME` AND `ARRIVAL` AND (`START` OR `FINISH` OR `TRT`). The trailing-space `"START "` is handled by `.trim()`. No token-header found → `{ runOfShow: undefined, warnings: [agendaGridMalformed(0)] }`. **Concrete failure mode caught:** a malformed/missing AGENDA grid throwing or returning a non-fail-soft value (must be `undefined` + warning, never crash); AND the enum-extraction/precondition deadlock if `AGENDA_DAY_EMPTIED` lived only in `lib/sync`.
+Step 1 of `parseAgenda` (§4.1): find the markdown table whose rows include a **token-header** — a row whose cells, after `cell.replace(/^[^/]*\//, "").trim()` (strip an optional leading `<prefix>/` segment incl `#REF!/`) and uppercasing, include `NAME` AND `ARRIVAL` AND (`START` OR `FINISH` OR `TRT`). The trailing-space `"START "` is handled by `.trim()`. No token-header found → `{ runOfShow: undefined, warnings: [agendaGridMalformed(0)] }`.
+
+**CRITICAL — isolate the AGENDA table's OWN contiguous block first (do NOT flatten the whole doc).** `parseTableRows(markdown)` (`_helpers.ts:18`) flattens EVERY `|…|` line in the WHOLE document into one array — it skips non-pipe lines with `continue`, NOT `break`, so it does NOT preserve table boundaries. The AGENDA table is followed by other tables (in `fixtures/shows/exporter-xlsx/east-coast.md`: AGENDA ends line 122 `Loop video`, blank line 123, then ROOM DIMENSIONS line 124 + PULL SHEET line 133+). Because the data-row walk reads `title` at an ABSOLUTE column (`startCol+3` → idx 9/15/21), a later PULL SHEET / ROOM row with any value at that column would be emitted as a **bogus `AgendaEntry` title** → persisted to `shows_internal.run_of_show` → shown to crew. So `parseAgenda` MUST first extract only the **contiguous run of `|…|` lines containing the token-header**, bounded above and below by a **blank line OR a non-pipe line OR EOF** — the established repo boundary rule (the exporter separates blocks with a blank row; `crew.ts:158-167` "a blank line ends the TECH table", `index.ts:182-184` "hit a blank line, stop scanning"). Then call `parseTableRows` on ONLY that block. **Concrete failure mode caught:** post-AGENDA PULL SHEET / ROOM DIMENSIONS table cells leaking as bogus crew run-of-show entries; a malformed/missing AGENDA grid throwing instead of `undefined`+warning; the enum-extraction/precondition deadlock if `AGENDA_DAY_EMPTIED` lived only in `lib/sync`.
 
 - [ ] **Write failing test** — `tests/parser/parseAgenda.test.ts`:
 ```ts
@@ -186,6 +188,23 @@ describe("parseAgenda — step 1: grid location (fail-soft)", () => {
 
   it("locates a prefix-form token-header (#REF!/NAME, Wednesday/START) after prefix-strip", () => {
     const md = "| #REF!/NAME | Tuesday/ARRIVAL | Tuesday/FLIGHT# | Wednesday/START | Wednesday/FINISH | Wednesday/TRT |";
+    expect(parseAgenda(md).runOfShow).not.toBeUndefined();
+  });
+
+  it("a following table (after a blank line) is OUTSIDE the located AGENDA block — grid still located, no crash", () => {
+    // Location-only smoke: a PULL SHEET table after a blank line must not change WHERE
+    // the grid is located. The no-bleed-into-entries assertion is the Task 1.6 regression
+    // test (it needs the data walk). Here we only confirm isolation does not throw / lose the grid.
+    const md = [
+      "| NAME | ARRIVAL | FLIGHT# | START  | FINISH | TRT | TITLE | ROOM | AV |",
+      "| 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 |",
+      "| Fri | Fri | Fri | Fri | Fri | Fri | Fri | Fri | Fri |",
+      "|  |  |  | 8:00 AM | 9:00 AM | 1:00 | Real Session | Hall | LAV |",
+      "", // blank line ends the AGENDA table (exporter block separator)
+      "| PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET |",
+      "| FALSE | 1 | FOH Rack | FOH |",
+    ].join("\n");
+    expect(() => parseAgenda(md)).not.toThrow();
     expect(parseAgenda(md).runOfShow).not.toBeUndefined();
   });
 });
@@ -262,16 +281,48 @@ function isTokenHeaderRow(cells: string[]): boolean {
   return has("NAME") && has("ARRIVAL") && (has("START") || has("FINISH") || has("TRT"));
 }
 
+function isTokenHeaderLine(line: string): boolean {
+  const t = line.trim();
+  if (!t.startsWith("|")) return false;
+  const parts = t.split("|");
+  const cells = parts.slice(1, parts.length - 1).map((s) => s.trim());
+  return isTokenHeaderRow(cells);
+}
+
+/**
+ * Isolate the AGENDA table's OWN contiguous markdown block — the run of `|…|`
+ * lines that CONTAINS the token-header — bounded above/below by a blank line, a
+ * non-pipe line, or EOF. The exporter separates tables with a blank row, so the
+ * AGENDA table is the maximal pipe-line run around its token-header. Returns the
+ * block's markdown (token-header + DATE/day-name/data rows), or undefined if no
+ * token-header line exists. This is what prevents the walk from running INTO the
+ * following ROOM DIMENSIONS / PULL SHEET tables (whose absolute-column cells
+ * would otherwise emit as bogus AgendaEntry titles).
+ */
+function isolateAgendaTable(markdown: string): string | undefined {
+  const lines = markdown.split("\n");
+  const hdr = lines.findIndex(isTokenHeaderLine);
+  if (hdr === -1) return undefined;
+  const isPipe = (l: string) => l.trim().startsWith("|");
+  let start = hdr;
+  while (start - 1 >= 0 && isPipe(lines[start - 1]!)) start--;
+  let end = hdr; // inclusive
+  while (end + 1 < lines.length && isPipe(lines[end + 1]!)) end++;
+  return lines.slice(start, end + 1).join("\n");
+}
+
 export function parseAgenda(markdown: string): ParseAgendaResult {
-  const rows = parseTableRows(markdown);
-  const headerIdx = rows.findIndex(isTokenHeaderRow);
-  if (headerIdx === -1) {
+  const block = isolateAgendaTable(markdown);
+  if (block === undefined) {
     return { runOfShow: undefined, warnings: [agendaGridMalformed(0)] };
   }
-  // Grid located. Day resolution + data walk land in Tasks 1.4–1.6.
+  const rows = parseTableRows(block); // ONLY the AGENDA table's rows
+  const headerIdx = rows.findIndex(isTokenHeaderRow);
+  // Grid located. Day resolution + data walk (within `rows`) land in Tasks 1.4–1.6.
   return { runOfShow: {}, warnings: [] };
 }
 ```
+> Note the boundary rule: the AGENDA block = the maximal run of consecutive `|…|` lines surrounding the token-header line. A blank line, a non-pipe line, or EOF terminates it (mirrors `crew.ts:158-167` / `index.ts:182-184`). `parseTableRows` then runs on `block` only, so `rows` never contains a post-AGENDA table row. Tasks 1.4-1.6 operate entirely within this isolated `rows` array.
 > Tasks 1.4-1.7 import the remaining helpers (`agendaBlockUnresolved`, `agendaDayAmbiguous`, `agendaDayTruncated`) from `agendaWarnings.ts` instead of an inline `warn()` — replace any `warn("CODE", …)` call shown in later tasks with the matching factory.
 - [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 1'` and `-t 'all 5 AGENDA'`. Green.
 - [ ] **Commit** — `git add lib/parser/blocks/agendaWarnings.ts lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): agendaWarnings (all 5 AGENDA_* codes) + parseAgenda step 1 grid location"`
@@ -550,8 +601,57 @@ describe("parseAgenda — steps 4-5: data walk + TITLE-real gate (real fixtures,
     expect(r.runOfShow!["2025-09-05"]).toEqual([]); // resolved-but-empty (CONFIRMED-ONLY → not stored later)
   });
 });
+
+describe("parseAgenda — LOAD-BEARING: post-AGENDA tables never leak as run-of-show entries", () => {
+  // The bug this catches: parseTableRows flattens the WHOLE doc; without isolating the
+  // AGENDA table's contiguous block, the absolute-column walk reads PULL SHEET / ROOM
+  // DIMENSIONS rows (which follow after a blank line) at the TITLE column (idx 9/15/21)
+  // and emits them as bogus AgendaEntry titles → persisted → shown to crew.
+
+  it("dedicated fixture: a PULL SHEET row with a value at the DAY-1 TITLE column (idx 9) does NOT become an entry", () => {
+    const md = readFileSync(
+      "fixtures/shows/parser-units/agenda-followed-by-pullsheet.md",
+      "utf8",
+    );
+    const r = parseAgenda(md, datesOf(["2025-09-05"]));
+    const titles = (r.runOfShow?.["2025-09-05"] ?? []).map((e) => e.title);
+    // Exactly the agenda rows — derive the count by reading the fixture's agenda block,
+    // NOT the doc. The PULL SHEET sentinel title must be absent.
+    expect(titles).toContain("Real Agenda Session");
+    expect(titles).not.toContain("LEAKED_FROM_PULLSHEET");
+    expect(titles.every((t) => !t.startsWith("LEAKED"))).toBe(true);
+  });
+
+  it("real East Coast fixture: Day-1 titles are exactly the agenda block's sessions — no PULL SHEET / ROOM bleed", () => {
+    // East Coast's AGENDA ends at "Loop video", then a blank line, then ROOM DIMENSIONS
+    // + a large PULL SHEET (equipment rows with FALSE/counts/"FOH Rack"/etc.). Assert NONE
+    // of those equipment strings appear as a Day-1 title. (Clone-and-read: titles derived
+    // from the agenda block; the equipment strings are read from the PULL SHEET region.)
+    const md = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
+    const r = parseAgenda(md, datesOf(["2024-05-15", "2024-05-16"]));
+    const day1 = (r.runOfShow?.["2024-05-15"] ?? []).map((e) => e.title);
+    // Pull-sheet equipment tokens that live below the AGENDA block must never be titles.
+    for (const leak of ["FOH Rack", "Batteries", "Allen & Heath QU32 Mixer", "FALSE", "TOTAL COUNT CORP & INS SALON 1"]) {
+      expect(day1).not.toContain(leak);
+    }
+    // and the real last agenda session is present (the block's actual tail, not a pull-sheet row)
+    expect(day1).toContain("Family Office Perspectives:");
+  });
+});
 ```
-- [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'steps 4-5'`. Expected: days resolve to `[]` (Task 1.5 left them empty) → every `toEqual` against real entries fails. **If the East Coast first-entry literal mismatches, re-grep `fixtures/shows/exporter-xlsx/east-coast.md:104` and correct the literal to the fixture (clone-and-read) — do not adjust the parser to a hardcoded guess.**
+- [ ] **Add the dedicated regression fixture** — `fixtures/shows/parser-units/agenda-followed-by-pullsheet.md` (new; create the `parser-units/` dir if absent). An AGENDA table (one Friday show-day block) immediately followed — after ONE blank line — by a PULL SHEET table whose cells carry `LEAKED_FROM_PULLSHEET` at the DAY-1 TITLE absolute column (idx 9). Content:
+```md
+| NAME | ARRIVAL | FLIGHT# | TIME | TITLE | ROOM | START  | FINISH | TRT | TITLE | ROOM | AV |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| 9/3/25 | 9/3/25 | 9/3/25 | 9/4/25 | 9/4/25 | 9/4/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 |
+| Wed | Wed | Wed | Thu | Thu | Thu | Fri | Fri | Fri | Fri | Fri | Fri |
+|  |  |  |  |  |  | 8:00 AM | 9:00 AM | 1:00 | Real Agenda Session | Hall A | LAV |
+
+| PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET | PULL SHEET | LEAKED_FROM_PULLSHEET | x | y |
+| FALSE | 1 | FOH Rack | x | x | x | 0 | 1 | x | LEAKED_FROM_PULLSHEET | x | y |
+```
+(idx 9 — the DAY-1 TITLE column — carries `LEAKED_FROM_PULLSHEET` in both PULL SHEET rows; the isolation boundary must exclude this table so neither leaks.)
+- [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'steps 4-5'` and `-t 'LOAD-BEARING'`. Expected: days resolve to `[]` (Task 1.5 left them empty) → the steps-4-5 `toEqual` against real entries fail; the LOAD-BEARING test fails only if isolation is broken (with Task 1.3's `isolateAgendaTable` it passes once the walk exists). **If the East Coast first-entry literal mismatches, re-grep `fixtures/shows/exporter-xlsx/east-coast.md:104` and correct the literal to the fixture (clone-and-read) — do not adjust the parser to a hardcoded guess.**
 - [ ] **Minimal impl** — add the data walk to `parseAgenda` (using `presence` + `shouldHideGenericOptional`):
 ```ts
 import { presence } from "./_helpers";
