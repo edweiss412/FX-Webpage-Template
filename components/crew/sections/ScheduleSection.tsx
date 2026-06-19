@@ -50,10 +50,10 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 
-// NOTE: the display-cap const (RUN_OF_SHOW_DISPLAY_CAP) and the title-truncation
-// const (TITLE_TRUNCATE_AT) are NOT declared here — they ship in Task 3 alongside
-// their failing tests (TDD per task / invariant 1). Task 2 renders ALL displayable
-// entries untruncated.
+/** §4.3 / D-6 display cap: render at most this many entries per day. */
+export const RUN_OF_SHOW_DISPLAY_CAP = 20;
+/** §4.3 / D-6: title display-truncation threshold (chars). */
+const TITLE_TRUNCATE_AT = 80;
 
 /**
  * Resolve an optional agenda field for display: URL-strip it, then hide it if
@@ -95,9 +95,12 @@ function displayableEntries(entries: AgendaEntry[] | undefined): AgendaEntry[] {
 function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   // Title is URL-stripped (free text could paste a link). The caller only passes
   // DISPLAYABLE entries (isDisplayableEntry — stripped title is real), so the
-  // stripped title here is guaranteed non-empty and renders. (Title display-
-  // truncation is added in Task 3 as its own red→green TDD step — NOT here.)
+  // stripped title here is guaranteed non-empty and renders. A title strictly
+  // longer than TITLE_TRUNCATE_AT chars (> 80; exactly 80 is plain) collapses into
+  // a <details> — the <summary> shows the first 80 chars + an ellipsis, the
+  // expandable body preserves the full text (nothing is lost).
   const title = stripAgendaUrls(entry.title);
+  const isLong = title.length > TITLE_TRUNCATE_AT;
   const start = resolveOptionalField(entry.start) ?? "";
   const finish = resolveOptionalField(entry.finish);
   const trt = resolveOptionalField(entry.trt);
@@ -121,7 +124,16 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
             {timeLabel}
           </span>
         ) : null}
-        <span className="min-w-0 text-sm font-medium text-text-strong">{title}</span>
+        {isLong ? (
+          <details data-testid="agenda-title-truncated" className="min-w-0">
+            <summary className="cursor-pointer text-sm font-medium text-text-strong">
+              {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
+            </summary>
+            <span className="text-sm text-text-strong">{title}</span>
+          </details>
+        ) : (
+          <span className="min-w-0 text-sm font-medium text-text-strong">{title}</span>
+        )}
       </div>
       {room || av ? (
         <div className="flex items-center gap-2 text-xs text-text-subtle">
@@ -142,21 +154,35 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
 
 /**
  * Per-day run-of-show list. Renders the DISPLAYABLE entries (stripped-title-real)
- * in sheet order. The caller already gates on displayableEntries(...).length > 0,
- * so `display` here is non-empty. (The §4.3 display cap + `+N more` overflow stub
- * are added in Task 3 as their own red→green TDD step — this Task-2 version renders
- * ALL displayable entries untruncated; Task 2's tests use ≤ cap entries so the
- * absence of a cap is not a hidden behavior.)
+ * in sheet order, capped at RUN_OF_SHOW_DISPLAY_CAP. The caller already gates on
+ * displayableEntries(...).length > 0, so `display` here is non-empty.
+ *
+ * Cap + overflow count are computed on the DISPLAYABLE entries (stripped-title-
+ * real), NOT the raw stored array — a URL-only entry never occupies a row slot nor
+ * inflates the `+N more` count. The slice keeps the first `cap` displayable entries
+ * (tail-trim) and the `+N more agenda item(s)` stub renders ONLY when `overflow >
+ * 0` (strictly more than cap — no `+0` stub at exactly cap).
  */
 function RunOfShowList({ entries, isoDate }: { entries: AgendaEntry[]; isoDate: string }): JSX.Element {
   const display = displayableEntries(entries);
+  const shown = display.slice(0, RUN_OF_SHOW_DISPLAY_CAP);
+  const overflow = display.length - RUN_OF_SHOW_DISPLAY_CAP; // derived from the displayable count
   return (
     <div data-testid={`run-of-show-${isoDate}`} className="mt-2 flex flex-col">
       <ul className="flex flex-col divide-y divide-border-subtle">
-        {display.map((entry, i) => (
+        {shown.map((entry, i) => (
           <RunOfShowEntry key={i} entry={entry} />
         ))}
       </ul>
+      {overflow > 0 ? (
+        <div
+          data-testid="agenda-overflow-stub"
+          data-tile-show-more="true"
+          className="pt-1 text-xs text-text-subtle"
+        >
+          {`+${overflow} more ${overflow === 1 ? "agenda item" : "agenda items"}`}
+        </div>
+      ) : null}
     </div>
   );
 }
