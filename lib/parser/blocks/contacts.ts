@@ -23,7 +23,7 @@
  */
 
 import type { ContactRow, ContactKind } from "../types";
-import type { ParseAggregator } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
@@ -65,9 +65,10 @@ export function parseContacts(
   markdown: string,
   _version: "v1" | "v2" | "v4",
    
-  _agg?: ParseAggregator,
+  agg?: ParseAggregator,
 ): ContactRow[] {
   const contacts: ContactRow[] = [];
+  let labelMatched = false; // a recognized VENUE / IN HOUSE AV label row was seen
 
   // Deduplicate rows with identical (kind, rawValue) — catches duplicate metadata rows
   // that appear multiple times in the same file with the same content.
@@ -94,6 +95,7 @@ export function parseContacts(
     }
 
     if (!kind) continue;
+    labelMatched = true;
 
     // Use only the immediately-following value cell (cells[1]) as the raw value.
     //
@@ -137,6 +139,10 @@ export function parseContacts(
     deduped.push(c);
   }
 
+  // D1: a recognized VENUE / IN HOUSE AV label row that produced no contact (every
+  // candidate value failed hasContactSignal, e.g. "| In House AV | FALSE |") is a
+  // silent section-drop — fail loud. (No label matched = absent section.)
+  if (labelMatched && deduped.length === 0) emitEmptySection(agg, "contacts");
   return deduped;
 }
 

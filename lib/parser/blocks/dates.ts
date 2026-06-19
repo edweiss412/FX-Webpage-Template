@@ -17,7 +17,7 @@
 
 import { parseTableRows, clean, presence, normalizeDate } from "./_helpers";
 import type { ShowRow } from "@/lib/parser/types";
-import type { ParseAggregator } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 
 // ── Label classification ──────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ export function parseDates(
   markdown: string,
   version: "v1" | "v2" | "v4",
    
-  _agg?: ParseAggregator,
+  agg?: ParseAggregator,
 ): ShowRow["dates"] {
   const result: ShowRow["dates"] = {
     travelIn: null,
@@ -58,17 +58,23 @@ export function parseDates(
     travelOut: null,
   };
 
-  if (version === "v1") {
-    return parseV1Dates(markdown, result);
-  }
+  // v2 can still have a 2-col DATES table (e.g. 2024-05-east-coast-family-office),
+  // detected by whether the first DATES data row has only 2 cells.
+  const out =
+    version === "v1" || isV1ShapedDatesBlock(markdown)
+      ? parseV1Dates(markdown, result)
+      : parseV2V4Dates(markdown, result);
 
-  // v2 can still have a 2-col DATES table (e.g. 2024-05-east-coast-family-office).
-  // Detect by checking whether the first DATES data row has only 2 cells.
-  if (isV1ShapedDatesBlock(markdown)) {
-    return parseV1Dates(markdown, result);
-  }
-
-  return parseV2V4Dates(markdown, result);
+  // D1: the dates object is fixed-shape (never null), so an absent DATES block and
+  // a present-but-unparsed one look identical to the caller. Re-probe for a DATES
+  // header row and fail loud when one exists but no date resolved (e.g. trailing
+  // free-text qualifiers like "- AFTER 8PM" defeated every row).
+  const datesEmpty = !out.travelIn && !out.set && out.showDays.length === 0 && !out.travelOut;
+  const hasDatesHeader = parseTableRows(markdown).some(
+    (r) => clean(r[0] ?? "").toUpperCase() === "DATES",
+  );
+  if (datesEmpty && hasDatesHeader) emitEmptySection(agg, "dates");
+  return out;
 }
 
 // ── Shape detection ───────────────────────────────────────────────────────────

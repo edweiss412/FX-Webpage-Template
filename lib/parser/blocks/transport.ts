@@ -26,7 +26,7 @@
  */
 
 import type { TransportationRow, TransportScheduleEntry, CrewMemberRow } from "../types";
-import type { ParseAggregator } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, splitRow } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
@@ -106,22 +106,36 @@ export function parseTransportation(
   markdown: string,
   _version: "v1" | "v2" | "v4",
   crewMembers?: CrewMemberRow[],
-   
-  _agg?: ParseAggregator,
+
+  agg?: ParseAggregator,
 ): TransportationRow | null {
-  // Try v4 header first (TRANSPORTATION/Equipment Transporter style)
-  const v4 = parseV4Transport(markdown, crewMembers);
-  if (v4) return v4;
+  // A sub-parser returns a row ONLY when its header matched (else null), so the
+  // first non-null result is the recognized section. `??` is lazy — later parsers
+  // run only if the earlier header didn't match.
+  const row =
+    parseV4Transport(markdown, crewMembers) ??
+    parseV2Transport(markdown, crewMembers) ??
+    parseV1Transport(markdown, crewMembers);
 
-  // Try v2 header (| TRANSPORTATION | NAME | PHONE |)
-  const v2 = parseV2Transport(markdown, crewMembers);
-  if (v2) return v2;
+  // D1: a non-null-but-all-empty row means the header was recognized yet no field
+  // parsed (e.g. the v4 [label,value,PHONE,EMAIL,LICENSE] shape went unmapped) —
+  // fail loud. null = no header matched → not an empty section, no warning.
+  if (row && isEmptyTransport(row)) emitEmptySection(agg, "transportation");
+  return row;
+}
 
-  // Try v1 header (| Driver | <name> | <phone> |)
-  const v1 = parseV1Transport(markdown, crewMembers);
-  if (v1) return v1;
-
-  return null;
+function isEmptyTransport(row: TransportationRow): boolean {
+  return (
+    row.driver_name === null &&
+    row.driver_phone === null &&
+    row.driver_email === null &&
+    row.vehicle === null &&
+    row.license_plate === null &&
+    row.color === null &&
+    row.parking === null &&
+    row.notes === null &&
+    row.schedule.length === 0
+  );
 }
 
 // ── v4 parser ─────────────────────────────────────────────────────────────────

@@ -866,6 +866,12 @@ export const SPEC_CODES = {
     "followUp": "none (informational)",
     "helpfulContext": "A crew member's role flags changed in a way that doesn't affect LEAD status — for example, a department designation swap (A1 → V1), or an additive flag like BO. These changes affect which scope tile the crew member sees on their own page but don't grant or remove admin/ops access, so we apply them automatically and log this entry for your audit trail. No action needed; if you want to see the prior value, the audit page captures it.",
   },
+  "SECTION_HEADER_NO_FIELDS": {
+    "crewFacing": null,
+    "dougFacing": null,
+    "followUp": null,
+    "helpfulContext": null,
+  },
   "SESSION_ABSOLUTE_TIMEOUT": {
     "crewFacing": "Your session has expired. Open the original link Doug shared again.",
     "dougFacing": null,
