@@ -42,7 +42,7 @@ The repo's test naming is **case-sensitive** (CI is Linux) and not uniform — v
 - **Travel/Crew/Venue/Today sections** (Task 7/8/9): `tests/components/crew/sections/{TravelSection,CrewSection,VenueSection,TodaySection}.test.tsx` (EXISTING). The Today Mode-A NEW tests: `tests/components/crew/sections/TodaySection.modeA.test.tsx`.
 - **date-badge** (Task 4, if a `dayBadgeParts` unit test): `tests/format/` (the `tests/format/` dir holds the date helper tests).
 - **layout-dimensions** (Task 10): `tests/e2e/crew-layout-dimensions.spec.ts` (Playwright project).
-- **`@testing-library/jest-dom`** is NOT global (`tests/setup.ts` omits it) — every `.test.tsx` that uses `toHaveStyle`/`toBeInTheDocument`/`toHaveAttribute` imports it at the top (`import "@testing-library/jest-dom";`).
+- **jest-dom convention (CONFIRMED Task 2 — `globals: false`):** the project runs Vitest with `globals: false`, so the bare `import "@testing-library/jest-dom"` throws `expect is not defined`. Match the EXISTING crew test convention (e.g. `tests/components/crew/personRow.test.tsx:1`): start each `.test.tsx` with `// @vitest-environment jsdom`, then `import "@testing-library/jest-dom/vitest";` (the vitest entrypoint), and `afterEach(cleanup)`. Do NOT use the bare `@testing-library/jest-dom` import the inline snippets below show — use the `/vitest` entrypoint + the environment comment.
 
 Every task's `git add` + `pnpm vitest run` command MUST use the path from this table. Before committing each task, the implementer runs `rg --files | rg <name>` to confirm.
 
