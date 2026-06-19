@@ -15,7 +15,7 @@
 - **TDD per task**: failing test → minimal impl → passing → commit.
 - **PARSER-ONLY**: no exporter/sync/migration/projection/UI change.
 - **Fail-safe principle** (spec §1): the ONLY mutation path is an unambiguous single-table, single-name-match, parseable-cell flyer; every other case does NOT mutate and (when a real flight could exist) emits a quiet warning; never overwrite a non-null `flight_info` (TECH precedence).
-- **Three §12.4 codes** (`TRAVEL_FLIGHT_NAME_UNMATCHED`, `TRAVEL_FLIGHT_UNPARSEABLE`, `TRAVEL_FLIGHT_AMBIGUOUS_TABLE`), each `crewFacing: null`, each via the 4-part lockstep (below).
+- **Three §12.4 codes** (`TRAVEL_FLIGHT_NAME_UNMATCHED`, `TRAVEL_FLIGHT_UNPARSEABLE`, `TRAVEL_FLIGHT_AMBIGUOUS_TABLE`), each `crewFacing: null`, each via the **5-part lockstep** (below; BOTH generated manifests — `spec-codes.ts` for x1 AND `internal-code-enums.ts` for x2).
 - **Commit per task**, conventional commits (`feat(parser):` / `test(parser):`).
 - **The agenda helpers are module-private** (`isolateAgendaTable`/`cleanRows`/`isTokenHeaderLine`, `agenda.ts`) — write TRAVEL-specific versions; the exported `clean` + `parseTableRows` (`_helpers.ts:18`/`:45`) may be reused where noted.
 
@@ -41,7 +41,7 @@
 | File | Responsibility | Change |
 |---|---|---|
 | `lib/parser/blocks/travelFlightWarnings.ts` | The 3 warning factory functions (the `code:` producers) | **Create** |
-| master spec §12.4 + appendix, `__generated__/spec-codes.ts`, `lib/messages/catalog.ts` | The 3 codes' catalog (4-part lockstep) | Modify |
+| master spec §12.4 + appendix, `__generated__/spec-codes.ts`, `__generated__/internal-code-enums.ts`, `lib/messages/catalog.ts` | The 3 codes' catalog (5-part lockstep — BOTH manifests) | Modify |
 | `lib/parser/blocks/travelFlights.ts` | `parseTravelFlights` + the cell normalizer + block helpers | **Create** |
 | `lib/parser/index.ts` | One import + one call after `parseCrew` (`:369`) | Modify |
 | `tests/parser/travelFlightNormalize.test.ts` | Pin the pure cell→`flight_info` normalizer | **Create** |
