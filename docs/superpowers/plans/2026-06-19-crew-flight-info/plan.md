@@ -104,11 +104,14 @@ git commit -m "test(crew-page): pin TECH-path flight_info parse premise (east-co
 
 **Files:**
 - Modify: `lib/data/getShowForViewer.ts` (`:97-196` type, `:227`, `:229-248`, `:629-646`)
+- Modify: `tests/fixtures/showForViewer.ts` (`:60-107` `DEFAULT: ShowForViewer` — add the new required field so the shared fixture typechecks)
 - Test: `tests/data/getShowForViewerFlight.test.ts` (create)
 
 **Interfaces:**
 - Consumes: the existing `if (needsCrewLookup)` own-row lookup (`getShowForViewer.ts:234-239`, `.from("crew_members").select("role_flags, name").eq("id", viewer.crewMemberId).eq("show_id", showId).maybeSingle()`); the `let viewerName` pattern (`:227` declare, `:247` assign).
-- Produces: `ShowForViewer.viewerFlightInfo: string | null` — consumed by Task 3 as `data.viewerFlightInfo`.
+- Produces: `ShowForViewer.viewerFlightInfo: string | null` — consumed by Task 3 as `data.viewerFlightInfo`, and defaulted to `null` in the shared `makeShowForViewer` fixture (`tests/fixtures/showForViewer.ts`).
+
+> **Type-change ripple (load-bearing):** `viewerFlightInfo` is a NEW REQUIRED field on `ShowForViewer`. The repo has a typed `const DEFAULT: ShowForViewer` in `tests/fixtures/showForViewer.ts:60-107` (the `makeShowForViewer` builder, used by many section/component tests incl. the existing `TravelSection.test.tsx`). Adding the field WITHOUT updating that fixture fails `pnpm tsc --noEmit`. Step 7 updates it; the fixture is staged in this task's commit.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -304,20 +307,30 @@ In the return object, add `viewerFlightInfo` immediately AFTER `viewerName,` (`g
     viewerFlightInfo,
 ```
 
-- [ ] **Step 7: Run the test to verify it passes**
+- [ ] **Step 7: Update the shared `makeShowForViewer` fixture**
+
+In `tests/fixtures/showForViewer.ts`, in the `const DEFAULT: ShowForViewer` object, add `viewerFlightInfo: null` immediately AFTER `viewerName: "Test Crew",` (`:105`):
+
+```typescript
+  viewerName: "Test Crew",
+  viewerFlightInfo: null,
+  viewerVersionToken: "v1",
+```
+
+- [ ] **Step 8: Run the test to verify it passes**
 
 Run: `pnpm vitest run tests/data/getShowForViewerFlight.test.ts`
 Expected: PASS (all projection + source-scan tests — the own-row select now reads `"role_flags, name, flight_info"`, exactly one select contains `flight_info`).
 
-- [ ] **Step 8: Typecheck**
+- [ ] **Step 9: Typecheck (the whole repo — the fixture backs many tests)**
 
 Run: `pnpm tsc --noEmit`
-Expected: no errors (the new field is `string | null` everywhere; the roster select is unchanged).
+Expected: no errors. (Without Step 7 this fails: `DEFAULT` is missing the now-required `viewerFlightInfo`.)
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add lib/data/getShowForViewer.ts tests/data/getShowForViewerFlight.test.ts
+git add lib/data/getShowForViewer.ts tests/fixtures/showForViewer.ts tests/data/getShowForViewerFlight.test.ts
 git commit -m "feat(crew-page): project viewer's own flight_info as viewerFlightInfo"
 ```
 
@@ -346,33 +359,20 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, it, expect } from "vitest";
 import { render, within, cleanup } from "@testing-library/react";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
+import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 
 afterEach(cleanup);
 
-const VIEWER: Viewer = { kind: "crew", crewMemberId: "crew-self" } as Viewer;
+const VIEWER: Viewer = { kind: "crew", crewMemberId: "nobody" };
 const TODAY = new Date("2024-05-13T12:00:00Z");
 
-function baseData(over: Partial<ShowForViewer> = {}): ShowForViewer {
-  return {
-    show: { id: "s1" } as ShowForViewer["show"],
-    crewMembers: [],
-    hotelReservations: [],
-    rooms: [],
-    transportation: null,
-    contacts: [],
-    pullSheet: null,
-    viewerName: "Doug Larson",
-    viewerFlightInfo: null,
-    viewerVersionToken: null,
-    diagrams: [],
-    openingReelHasVideo: false,
-    lastSyncedAt: null,
-    lastSyncStatus: null,
-    tileErrors: {},
-    runOfShow: null,
-    ...over,
-  } as ShowForViewer;
+// Reuse the shared, fully-typed fixture (viewerFlightInfo defaults to null after
+// Task 2; it deep-merges the override). DRY, and avoids the missing-required-
+// field type risk of a hand-rolled literal. The flight card reads only
+// data.viewerFlightInfo, so the viewer id is irrelevant to these cases.
+function baseData(over: Parameters<typeof makeShowForViewer>[0] = {}): ShowForViewer {
+  return makeShowForViewer(over);
 }
 
 function renderTravel(data: ShowForViewer) {
