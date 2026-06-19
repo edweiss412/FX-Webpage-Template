@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
-import { expect, test } from "vitest";
-import { render } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { afterEach, expect, test } from "vitest";
+import { render, cleanup, within } from "@testing-library/react";
 
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+
+afterEach(cleanup);
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -61,4 +64,106 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
     expect(admin.container.textContent).toContain(pii);
   const html = admin.container.textContent!;
   expect(html.indexOf("First")).toBeLessThan(html.indexOf("Second")); // ordinal 0 before 1, regardless of array order
+});
+
+// --- Task 7: mock `.travelrow` shape + split-wide ratio ---------------------
+
+/**
+ * Fixture with BOTH getting-there content (driver/vehicle/leg) AND a hotel, so
+ * the split-wide grid mounts and the getting-there block emits travelrows.
+ * Admin viewer so the transport PII gate is satisfied.
+ */
+function bothBlocksData() {
+  return makeShowForViewer({
+    transportation: {
+      driver_name: "Pat Driver",
+      driver_phone: "555-1234",
+      driver_email: null,
+      vehicle: "Sprinter Van",
+      license_plate: "XYZ-999",
+      color: "Black",
+      parking: "Garage B",
+      schedule: [
+        { stage: "load-in", date: "2026-05-13", time: "8:00 AM", assigned_names: ["Jamie", "Lee"] },
+      ],
+      notes: null,
+    },
+    hotelReservations: [
+      {
+        ordinal: 0,
+        hotel_name: "Grand Hotel",
+        hotel_address: "123 Main St",
+        names: [],
+        confirmation_no: "CNF-42",
+        check_in: "2026-05-13",
+        check_out: "2026-05-15",
+        notes: null,
+      },
+    ],
+  });
+}
+
+function renderAdmin(data: ReturnType<typeof bothBlocksData>) {
+  return render(
+    <TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+}
+
+test("getting-there leg renders a mock travelrow: mini-icon + tprimary + tmeta", () => {
+  const { getAllByTestId } = renderAdmin(bothBlocksData());
+  const rows = getAllByTestId("travelrow");
+  // At minimum the driver, vehicle, and leg map to travelrows.
+  expect(rows.length).toBeGreaterThan(0);
+
+  // The schedule leg is uniquely identifiable by its stage eyebrow text.
+  const legRow = rows.find((r) => /load-in/i.test(r.textContent ?? ""));
+  expect(legRow, "expected a travelrow for the load-in leg").toBeTruthy();
+  const row = legRow!;
+
+  // Each travelrow carries a 34px sunken mini-icon square holding a glyph.
+  const icon = row.querySelector('[data-slot="travelrow-icon"]');
+  expect(icon, "travelrow must render a mini-icon square").toBeTruthy();
+  expect(icon!.querySelector("svg"), "mini-icon square holds an svg glyph").toBeTruthy();
+
+  // The tcol stacks a strong primary line and a subtle meta line.
+  const primary = within(row).getByTestId("travelrow-primary");
+  const meta = within(row).getByTestId("travelrow-meta");
+  // tprimary carries the date (weekday-short of 2026-05-13); tmeta the time/with.
+  expect(primary).toHaveTextContent(/Wed|May|13/);
+  expect(meta).toHaveTextContent(/8:00 AM|Jamie|Lee/);
+});
+
+test("driver/vehicle facts render as travelrows (not vertical KeyValueRows)", () => {
+  const { getByTestId, getAllByTestId } = renderAdmin(bothBlocksData());
+  const rows = getAllByTestId("travelrow");
+  const all = rows.map((r) => r.textContent ?? "").join(" | ");
+  // Driver name + vehicle each surface inside a travelrow primary.
+  expect(all).toContain("Pat Driver");
+  expect(all).toContain("Sprinter Van");
+  // Sanity: the getting-there block exists.
+  expect(getByTestId("travel-getting-there")).toBeInTheDocument();
+});
+
+test("split-wide grid uses the 1.6fr/1fr ratio (wide getting-there, narrow hotel)", () => {
+  const { getAllByTestId } = renderAdmin(bothBlocksData());
+  // The two travel columns are wrapped by the split grid; assert the grid
+  // wrapper className carries the 1.6fr/1fr tracks (not the old grid-cols-2).
+  const columns = getAllByTestId("travel-column");
+  expect(columns).toHaveLength(2);
+  const firstColumn = columns[0];
+  if (firstColumn === undefined) throw new Error("expected a travel column");
+  const grid = firstColumn.parentElement!;
+  expect(grid.className).toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
+  expect(grid.className).not.toContain("min-[720px]:grid-cols-2");
+});
+
+test("hotel card keeps its structured form (name + address + check-in/out + confirmation)", () => {
+  const { getByTestId, container } = renderAdmin(bothBlocksData());
+  // Hotel name still renders as the prominent line (testid preserved).
+  expect(getByTestId("travel-hotel-name")).toHaveTextContent("Grand Hotel");
+  const text = container.textContent ?? "";
+  expect(text).toContain("123 Main St"); // address
+  expect(text).toContain("Check in");
+  expect(text).toContain("Check out");
+  expect(text).toContain("CNF-42"); // confirmation
 });

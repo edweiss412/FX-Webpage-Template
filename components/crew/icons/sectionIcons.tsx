@@ -8,9 +8,10 @@
  * `[&_svg]:size-[15px]` and `text-text-subtle`), so the glyph component takes
  * only an optional `className` passthrough and no color/size of its own.
  *
- * Exported here: `DockIcon` (loading dock), `CarIcon` (parking/ground), and
- * `WifiIcon` (crew Wi-Fi) — the three Venue fact-row mini-icons. Additional
- * glyphs (nav/section icons) can join this file as those surfaces adopt them.
+ * Exported here: `DockIcon` (loading dock), `CarIcon` (parking/ground),
+ * `WifiIcon` (crew Wi-Fi) — the three Venue fact-row mini-icons — and
+ * `PlaneIcon` (flight legs / Travel section). Additional glyphs (nav/section
+ * icons) can join this file as those surfaces adopt them.
  */
 import type { SVGProps } from "react";
 
@@ -42,6 +43,26 @@ export function CarIcon({ className }: GlyphProps) {
       <path d="M5 13l1.5-5A2 2 0 0 1 8.4 6.6h7.2A2 2 0 0 1 17.5 8L19 13M4 13h16v4H4zM7 17v2M17 17v2" />
       <circle cx="7.5" cy="15" r="0.6" />
       <circle cx="16.5" cy="15" r="0.6" />
+    </svg>
+  );
+}
+
+/**
+ * Flight — the mock's plane silhouette (a closed filled glyph traced from
+ * crew/components.jsx). Unlike the stroke glyphs above, this path is a solid
+ * silhouette, so it fills with `currentColor` (the stroke is kept thin for a
+ * crisp edge at small sizes).
+ */
+export function PlaneIcon({ className }: GlyphProps) {
+  return (
+    <svg
+      {...baseProps}
+      fill="currentColor"
+      strokeWidth={0.75}
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M21 15.5 14 12V6a2 2 0 0 0-4 0v6l-7 3.5V18l7-2v3l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-3l7 2z" />
     </svg>
   );
 }
