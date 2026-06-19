@@ -81,6 +81,71 @@ type SlotData = {
 };
 
 /**
+ * Split a "Names on Reservation" cell into per-guest names (with their trailing
+ * "<dash> #?<digits>" confirmation numbers stripped OUT of the name). Guests may
+ * be `&#10;`- OR space-delimited (e.g. "Douglas Larson - #2069854&#10;John Carleo
+ * - #2069855"); both yield two clean names.
+ *
+ * The conf# is parsed only to remove it from the name + count guests — it is NOT
+ * persisted: `hotel_reservations` is show-wide crew-readable (RLS `crew_read` uses
+ * `can_read_show`, SELECT granted to `authenticated`), so a row-level conf# would
+ * be readable by any crew member on the show via direct PostgREST, bypassing the
+ * `getShowForViewer` name filter. Re-enabling crew-facing conf# needs a per-guest
+ * schema + per-viewer access (per-name RLS or an RPC) — see DEFERRED.md
+ * AUDIT-2026-06-18-PARSE-FIDELITY round 3.
+ */
+function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
+  // clean() first so a markdown-escaped hash ("\#2069854") becomes "#2069854"
+  // before token matching — self-contained even if a caller passes a raw cell
+  // (current callers pre-clean col1/col3, but don't depend on that here).
+  const flat = clean(cell.replace(/&#10;/g, " "))
+    .replace(/\r/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!flat || flat === "-") return { names: [], confs: [] }; // clean() already unescaped "\-"
+
+  const names: string[] = [];
+  const confs: string[] = [];
+  // Every "<name> <dash> #?<conf>" token. Guests may be &#10;- OR space-delimited
+  // (the exporter flattens in-cell line breaks; raw sheets glue guests with a
+  // space), so match GLOBALLY rather than per-&#10;-line — otherwise a space-only
+  // multi-guest cell collapses to one "guest". Unicode-aware (\p{L}\p{M}) so
+  // accented names ("José Núñez") match instead of falling through.
+  const tokenRe = /([\p{L}][\p{L}\p{M}.'\- ]*?)\s*[-–—]{1,3}\s*#?\s*(\d{4,})/gu;
+  let consumedEnd = 0;
+  let m: RegExpExecArray | null;
+  while ((m = tokenRe.exec(flat)) !== null) {
+    names.push(clean(m[1]!));
+    confs.push(m[2]!);
+    consumedEnd = m.index + m[0].length;
+  }
+  if (confs.length === 0) {
+    names.push(flat); // no conf# tokens — the cell is just guest name(s)
+  } else {
+    const tail = clean(flat.slice(consumedEnd));
+    if (/\p{L}/u.test(tail)) names.push(tail); // a trailing un-numbered guest
+  }
+  // Belt-and-suspenders: a conf# must NEVER survive in a persisted name, even on
+  // the fallback / unmatched-alphabet path — `names` is also show-wide readable.
+  return { names: names.map(stripConfTokens).filter((n) => n.length > 0), confs };
+}
+
+/**
+ * Remove any confirmation number from a string, alphabet-agnostic. Covers all
+ * inline shapes in the corpus: dash/#-prefixed ("Doug--- 103317", "Eric - #2069853")
+ * AND the legacy BARE form ("Eric Weiss 2004173 In on the 6th"). Bare runs are
+ * gated at 6+ digits so a US ZIP (5) or street number survives.
+ */
+function stripConfTokens(name: string): string {
+  return name
+    .replace(/\s*[-–—]{1,3}\s*#?\s*\d{4,}/g, " ") // dash-prefixed (#optional)
+    .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
+    .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Parse the structured HOTEL block used in v4 (2026+) and later v2 (2025) sheets.
  *
  * The table has the shape:
@@ -198,10 +263,10 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
     // Value rows based on current rowState
     if (rowState === "hotel_name" && col0 === "") {
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
-        leftSlot.hotel_name = presence(col1);
+        leftSlot.hotel_name = presence(stripConfTokens(col1));
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
-        rightSlot.hotel_name = presence(col3);
+        rightSlot.hotel_name = presence(stripConfTokens(col3));
       }
       rowState = "idle";
       continue;
@@ -209,10 +274,12 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
 
     if (rowState === "names" && col0 === "") {
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
-        leftSlot.names.push(clean(col1));
+        // split the (&#10;- or space-delimited) guest cell into clean names; the
+        // conf# is parsed only to strip it out of the names, NOT persisted.
+        leftSlot.names.push(...parseGuestCell(col1).names);
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
-        rightSlot.names.push(clean(col3));
+        rightSlot.names.push(...parseGuestCell(col3).names);
       }
       rowState = "idle";
       continue;
@@ -256,7 +323,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       hotel_name: slot.hotel_name ?? null,
       hotel_address: null,
       names: slot.names,
-      confirmation_no: null,
+      confirmation_no: null, // parsed-but-not-persisted — see parseGuestCell
       check_in: slot.check_in ?? null,
       check_out: slot.check_out ?? null,
       notes: null,
@@ -315,7 +382,7 @@ function parseHotelStaysRow(
  */
 function buildInlineReservations(raw: string, contextYear: string | null): HotelReservationRow[] {
   const checkInCount = (raw.match(/check\s+in/gi) ?? []).length;
-  if (checkInCount < 2) return [buildInlineHotel(raw, 1, contextYear)];
+  if (checkInCount < 2) return stripHotelNameConf([buildInlineHotel(raw, 1, contextYear)]);
 
   const segments = splitInlineReservationGroups(raw);
   const rows = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
@@ -333,7 +400,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
     const single = buildInlineHotel(raw, 1, contextYear);
     single.check_in = null;
     single.check_out = null;
-    return [single];
+    return stripHotelNameConf([single]);
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation
@@ -341,6 +408,19 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
   // every group (later groups carry only a divider + guest, not the hotel).
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
   for (const r of rows) r.hotel_name = baseName;
+  return stripHotelNameConf(rows);
+}
+
+/**
+ * Final privacy pass: strip any "<dash> #?<digits>" confirmation token from each
+ * row's hotel_name. A "Hotel Stays"/inline cell with no "Check In" marker dumps the
+ * whole string (guest conf#s included) into hotel_name, which is rendered + show-wide
+ * readable. Runs AFTER sanitizeHotelName (which needs the conf# to locate guests).
+ */
+function stripHotelNameConf(rows: HotelReservationRow[]): HotelReservationRow[] {
+  for (const r of rows) {
+    if (r.hotel_name) r.hotel_name = presence(stripConfTokens(r.hotel_name));
+  }
   return rows;
 }
 
@@ -470,9 +550,16 @@ function buildInlineHotel(
 
   return {
     ordinal,
+    // hotel_name's conf# is stripped LATER, in buildInlineReservations — after
+    // sanitizeHotelName, which needs the "Name—conf#" pattern to locate + remove
+    // glued guest spans (stripping the conf# here would defeat it).
     hotel_name: presence(hotelNameRaw),
     hotel_address: null,
-    names,
+    // strip any conf# suffix from each name too — `names` is show-wide readable.
+    names: names.map(stripConfTokens).filter((n) => n.length > 0),
+    // confirmation_no is intentionally NOT persisted — see parseGuestCell / the
+    // DEFERRED.md privacy note: hotel_reservations is show-wide crew-readable, so a
+    // row-level conf# would be readable by any crew member on the show.
     confirmation_no: null,
     check_in,
     check_out,

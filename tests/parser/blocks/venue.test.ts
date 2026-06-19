@@ -181,10 +181,12 @@ describe("parseVenue — 2025-10 fixture combined VENUE NAME/VENUE ADDRESS split
     expect(r?.name).toBe("Park Hyatt Chicago");
   });
 
-  it("venue.address is the post-slash portion (non-empty, non-null)", () => {
+  it("venue.address is the post-slash portion, with the in-cell &#10; decoded", () => {
     const r = parseVenue(md, "v2");
     expect(r?.address).toBeTruthy();
-    expect(r?.address).toBe("800 N Michigan Ave&#10;Chicago, IL 60611");
+    // The exporter's in-cell line break (&#10;) is decoded to a space at the value
+    // boundary (presence) so the address never surfaces a raw HTML entity to crew.
+    expect(r?.address).toBe("800 N Michigan Ave Chicago, IL 60611");
   });
 
   it("venue.name does not contain a slash (no combined-cell stuffing)", () => {

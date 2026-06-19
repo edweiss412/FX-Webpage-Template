@@ -509,3 +509,146 @@ describe("exporter fidelity — AR: v4 additional rooms (content-gated, not drop
     expect(green!.setup).toBe("Lounge seating");
   });
 });
+
+describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel conf# (#4)", () => {
+  const SLUGS = [
+    "redefining-fi",
+    "consultants",
+    "fintech",
+    "east-coast",
+    "ria",
+    "fixed-income",
+    "rpas",
+  ];
+
+  it("#8: no parsed field surfaces a raw '&#10;' (or '&#9;') HTML entity, any show", () => {
+    const hits: string[] = [];
+    const scan = (o: unknown, path: string): void => {
+      if (o == null) return;
+      if (typeof o === "string") {
+        if (/&#1?0;|&#9;/.test(o)) hits.push(`${path} = ${JSON.stringify(o.slice(0, 40))}`);
+        return;
+      }
+      if (Array.isArray(o)) o.forEach((v, i) => scan(v, `${path}[${i}]`));
+      else if (typeof o === "object") for (const k of Object.keys(o)) scan((o as never)[k], `${path}.${k}`);
+    };
+    for (const s of SLUGS) scan(parse(s), s);
+    expect(hits, `raw entity at:\n${hits.join("\n")}`).toEqual([]);
+  });
+
+  it("#4: guest cells split into clean names — conf# stripped out of the name (rpas)", () => {
+    const rpas = parse("rpas").hotelReservations;
+    // "Douglas Larson - \#2069854&#10;John Carleo - \#2069855" → two clean names,
+    // no raw entity, no escape, no conf# digits glued in.
+    const shared = rpas.find((h) => h.names.length > 1);
+    expect(shared?.names).toEqual(["Douglas Larson", "John Carleo"]);
+    for (const h of rpas)
+      for (const n of h.names) expect(n, `rpas name "${n}"`).not.toMatch(/&#1?0;|[\\#]|\d{4,}/);
+  });
+
+  it("#4 PRIVACY/DEFERRED: confirmation_no is null for ALL reservations (show-wide table read)", () => {
+    // hotel_reservations is show-wide crew-readable (RLS crew_read = can_read_show,
+    // SELECT granted to authenticated), so ANY crew member on the show could read a
+    // row-level conf# via direct PostgREST, bypassing the getShowForViewer name
+    // filter. Conf# delivery is deferred until per-viewer access exists — the parser
+    // must never persist one. (Includes single-guest rows.)
+    for (const s of SLUGS) {
+      for (const h of parse(s).hotelReservations) {
+        expect(h.confirmation_no, `${s} reservation [${h.names.join(", ")}]`).toBeNull();
+      }
+    }
+  });
+
+  it("#4 PRIVACY: SPACE-delimited multi-guest cells (no &#10;) also split + suppress the conf#", () => {
+    // The raw RPAS fixture glues guests with a space: "Douglas Larson - #2069854
+    // John Carleo - #2069855" — parsing only on &#10; would keep it one "guest" and
+    // leak a row-level conf#. It must split into 2 guests with no conf#.
+    const raw = parseSheet(
+      readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8"),
+      "raw.md",
+    );
+    const shared = raw.hotelReservations.find((h) => h.names.length > 1);
+    expect(shared, "the space-delimited multi-guest reservation").toBeDefined();
+    expect(shared!.names).toEqual(["Douglas Larson", "John Carleo"]);
+    expect(shared!.confirmation_no).toBeNull();
+
+    // synthetic single-line, space-separated guests → split into 2 clean names
+    const synth = parseHotels(
+      [
+        "| HOTEL | RESERVATION \\#1 |  |",
+        "| :---: | :---: | :---: |",
+        "|  | Names on Reservation |  |",
+        "|  | Ann Lee - #111111 Bob Fox - #222222 |  |",
+        "|  | Hotel Name / Address |  |",
+        "|  | The Drake |  |",
+        "|  | Check In Date | Check Out Date |",
+        "|  | 1/1/26 | 1/3/26 |",
+      ].join("\n"),
+      "v4",
+    );
+    expect(synth[0]!.names).toEqual(["Ann Lee", "Bob Fox"]);
+    expect(synth[0]!.confirmation_no).toBeNull();
+  });
+
+  it("#4 PRIVACY: a conf# never survives in a name — accented + unmatched-alphabet fallback", () => {
+    const mk = (cell: string) =>
+      parseHotels(
+        [
+          "| HOTEL | RESERVATION \\#1 |  |",
+          "| :---: | :---: | :---: |",
+          "|  | Names on Reservation |  |",
+          `|  | ${cell} |  |`,
+          "|  | Hotel Name / Address |  |",
+          "|  | The Drake |  |",
+          "|  | Check In Date | Check Out Date |",
+          "|  | 1/1/26 | 1/3/26 |",
+        ].join("\n"),
+        "v4",
+      );
+    // accented name — Unicode-aware matcher splits the conf# out of the name
+    const accented = mk("José Núñez - #123456");
+    expect(accented[0]!.names).toEqual(["José Núñez"]);
+    // a name with a character outside the matcher (slash) still must not keep the conf#
+    const slashy = mk("A/B Group - #987654");
+    for (const n of slashy[0]!.names) expect(n, `name "${n}"`).not.toMatch(/[#]|\d{4,}/);
+    for (const h of [...accented, ...slashy]) expect(h.confirmation_no).toBeNull();
+  });
+
+  it("#4 PRIVACY (meta): no conf# survives in ANY show-wide-readable lodging field, exporter + raw corpora", () => {
+    // Structural defense for the conf#-leak vector: every string lodging field
+    // (hotel_name / hotel_address / notes / names) on EVERY reservation, across the
+    // exporter AND raw fixtures, must be free of a confirmation token, and
+    // confirmation_no must be null. A token is a "<dash> #?<4+ digits>" run; ZIPs
+    // ("Chicago, IL 60611") aren't dash-prefixed so they don't trip it. Names also
+    // carry no bare digit-run (people names).
+    // dash/#-prefixed conf token OR a bare 6+ digit run (the legacy
+    // "Eric Weiss 2004173 In on the 6th" shape) — a US ZIP is 5 digits, so it survives.
+    const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}|#\s*\d{4,}|\b\d{6,}\b/;
+    const rawFile = (name: string) =>
+      parseSheet(readFileSync(`fixtures/shows/raw/${name}`, "utf8"), "raw.md");
+    const all = [
+      ...SLUGS.map((s) => parse(s)),
+      rawFile("2026-03-rpas-central-four-seasons.md"), // space-delimited multi-guest
+      rawFile("2024-05-east-coast-family-office.md"), // Hotel Stays, no Check-In marker
+      rawFile("2025-04-asset-mgmt-cfo-coo.md"), // legacy BARE conf# ("Eric Weiss 2004173")
+    ];
+    for (const r of all) {
+      for (const h of r.hotelReservations) {
+        expect(h.confirmation_no).toBeNull();
+        for (const n of h.names) expect(n, `name "${n}"`).not.toMatch(/[#]|\d{4,}/);
+        for (const v of [h.hotel_name, h.hotel_address, h.notes]) {
+          expect(v ?? "", `lodging field "${v}"`).not.toMatch(confTok);
+        }
+      }
+    }
+  });
+
+  it("#4 PRIVACY: east-coast 'Hotel Stays' hotel_name carries no guest confirmation number", () => {
+    // "Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525"
+    // has no Check-In marker, so the whole cell becomes hotel_name — the conf#s
+    // (103317 / 103316 / 110525) must be stripped out before persisting.
+    const hn = parse("east-coast").hotelReservations[0]?.hotel_name ?? "";
+    expect(hn).toContain("Four Seasons");
+    for (const conf of ["103317", "103316", "110525"]) expect(hn).not.toContain(conf);
+  });
+});
