@@ -171,7 +171,7 @@ function findDayNameRow(rows: string[][]): string[] | undefined {
  * values — `#REF!`/blank tolerated; resolved in Task 1.5). Travel (`NAME|ARRIVAL|
  * FLIGHT#`) and set (`TIME|TITLE|ROOM`) groups have NO `START` column → no block.
  */
-function locateBlocks(rows: string[][], header: string[], headerIdx: number): AgendaBlock[] {
+function locateBlocks(rows: string[][], header: string[], _headerIdx: number): AgendaBlock[] {
   const dateRow = findDateRow(rows);     // whole table, shape-detected (#REF! ok)
   const nameRow = findDayNameRow(rows);  // whole table
   const normHeader = header.map(normHeaderCell);
