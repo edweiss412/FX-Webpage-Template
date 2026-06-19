@@ -19,7 +19,7 @@ Surface each crew member's own flight info — already parsed into `crew_members
 1. **Raw-string display, NOT structured parsing.** `flight_info` is free-form (airline / confirmation / flight # in whatever format the sheet used — `lib/parser/blocks/crew.ts:263` stores the raw cell). It is also **usually blank** (the agenda-grid `FLIGHT#` column is "essentially always blank — Doug doesn't fill them," `fixtures/shows/_schema-diff.md:233`; only one prose-format fixture carries flight data). Structuring it (airline/dep/arr/times) would be unreliable and is YAGNI. We render the raw string with line breaks preserved.
 2. **Per-viewer, own-flight only (privacy — load-bearing).** Flight is PII. It is read **only on the viewer's own row** and projected as a single dedicated field — **never** on the full `crewMembers[]` roster array. A crew member never sees another crew member's flight.
 3. **Hidden when blank.** When the viewer has no flight on file (the common case), **no flight card renders** — matching the Travel section's existing hide-when-empty behaviour for the transport ("Getting there") and Hotels blocks.
-4. **Render-time URL-strip + sentinel guard.** Flight free text could paste a check-in link; strip URLs (reuse `stripAgendaUrls`, `lib/visibility/agendaUrls.ts`) and hide the card if the stripped residue is empty or a generic sentinel.
+4. **Render-time URL-strip (narrowed contract) + sentinel guard.** Strip the *problematic* link forms — **schemed URLs** (`https?://…`) and **scheme-less Google** Drive/Docs links — by reusing `stripAgendaUrls` (`lib/visibility/agendaUrls.ts`), and hide the card if the residue is empty or a generic sentinel. **A bare scheme-less non-Google domain (e.g. `aa.com/checkin`, `southwest.com/checkin`) is INTENTIONALLY NOT stripped and renders as plain text** — it is the crew member's own benign check-in info (mildly useful, not sensitive, and not a clickable link in the card), and a general bare-domain stripper would over-strip legitimate flight text (a fare class, a `T1/T2` terminal, a `6/24` date). This is the ratified `stripAgendaUrls` limitation, applied deliberately: the flight URL-strip contract is **schemed + scheme-less-Google only**, NOT "all URLs." The earlier framing "the link class this feature suppresses" means schemed/Drive links, not bare airline domains.
 5. **No new Supabase call boundary / no fail-soft tile.** Flight rides the **existing** viewer own-row auth lookup (`getShowForViewer.ts:234-239`) as one extra selected column — not a new read. So it needs **no** `tileErrors` channel and **no** invariant-9 waiver (unlike run_of_show, which was a separate `shows_internal` read). A lookup error already throws the existing viewer-resolution error; flight inherits that.
 
 ## §1 — Projection (`lib/data/getShowForViewer.ts`)
@@ -81,7 +81,7 @@ const showFlight = flightLines.length > 0;
 ```
 
 - `showFlight === false` → **render nothing** for flight (no card, no header, no empty placeholder) — the section shows transport/hotels (or its own existing empty state) exactly as today.
-- `showFlight === true` → render ONE `SectionCard` titled **"Your flight"** (`data-testid="travel-flight"`) whose body renders **each surviving line as its own line element** (e.g. `flightLines.map((l, i) => <span key={i} className="block">{l}</span>)`, or a `<div className="whitespace-pre-line">{flightLines.join("\n")}</div>`) — a multi-leg itinerary stays on **separate visual lines**, never flattened. A URL-only line strips to empty and is dropped (so a 2-leg itinerary where one leg is just a check-in URL renders the one real leg).
+- `showFlight === true` → render ONE `SectionCard` titled **"Your flight"** (`data-testid="travel-flight"`) whose body renders **each surviving line as its own line element** (e.g. `flightLines.map((l, i) => <span key={i} className="block">{l}</span>)`, or a `<div className="whitespace-pre-line">{flightLines.join("\n")}</div>`) — a multi-leg itinerary stays on **separate visual lines**, never flattened. A line that is only a schemed URL or a Google link strips to empty and is dropped (so a 2-leg itinerary where one leg is just a `https://…` check-in link renders the one real leg); a line that is only a *bare* airline domain (`aa.com/checkin`) does NOT strip to empty and renders (per decision 4).
 
 **Placement:** the flight card renders **first** within Travel (above "Getting there" and "Hotels") — a crew member's own flight is the most personal, time-sensitive Travel datum. Use the existing `SectionCard` primitive (`@/components/crew/primitives/SectionCard`, the same `<SectionCard title=…>` the transport block at `TravelSection.tsx:165` and hotels at `:245` use) — no new tokens (the impeccable dual-gate verifies real-browser fidelity, including no undefined-token fallbacks — the Phase-2 lesson). `viewerFlightInfo` is the exact sibling of the existing `viewerName` field (`getShowForViewer.ts:196`/`:247`/`:637`), both captured from the same own-row lookup.
 
@@ -94,7 +94,9 @@ const showFlight = flightLines.length > 0;
 | `null` (plain admin, or blank cell) | no flight card (Travel unchanged) |
 | `""` / whitespace-only | no flight card (stripped length 0) |
 | sentinel (`TBD`/`N/A`/`TBA`) | no flight card (`shouldHideGenericOptional`) — defensive; `presence()` usually nulled these at parse |
-| a check-in URL only (e.g. `https://aa.com/checkin`) | no flight card (URL strips to empty) |
+| a SCHEMED URL only (e.g. `https://aa.com/checkin`) | no flight card (schemed URL strips to empty) |
+| a Drive/Docs link only (`drive.google.com/…`) | no flight card (scheme-less Google stripped) |
+| a BARE airline domain only (`aa.com/checkin`) | the flight card rendering `aa.com/checkin` (scheme-less non-Google **intentionally NOT stripped** — benign crew-own check-in text; ratified `stripAgendaUrls` limitation) |
 | real string (`"AA1234 JFK→LAX 8:05a, conf ABCDEF"`) | the flight card, string verbatim post-strip |
 | multi-line (`"AA1 JFK→LAX 8a\nAA2 LAX→SFO 2p"`) | the flight card, both legs on separate lines |
 | real string + a trailing URL | the flight card, URL removed, real text retained |
@@ -111,10 +113,11 @@ const showFlight = flightLines.length > 0;
 
 **UI** (`tests/components/crew/sections/TravelSection.flight.test.tsx`, jsdom):
 - `viewerFlightInfo` present → `[data-testid="travel-flight"]` renders the string (asserted vs the data source, scoped to the card — anti-tautology).
-- `viewerFlightInfo` null / `""` / sentinel / URL-only → no `travel-flight` element (Travel anchor blocks intact).
+- `viewerFlightInfo` null / `""` / sentinel / **schemed-URL-only** (`https://…`) / **Google-link-only** (`drive.google.com/…`) → no `travel-flight` element (Travel anchor blocks intact).
 - **multi-line → both legs on SEPARATE lines, NOT flattened** (the regression the naive "both legs present" test misses): a `"AA1 …\nAA2 …"` itinerary must render as ≥2 distinct line elements (or the card's text retains the `\n` / a `<br>`/block boundary between legs). Assert the card does NOT render both legs as one run-on line — i.e. fail if a single `stripAgendaUrls` over the whole string flattened it.
-- a multi-line itinerary where ONE leg is a URL-only line → that line is dropped, the real leg renders (catches the per-line filter).
-- URL in a line → no `https://` / `drive.google.com` substring in the crew DOM; the real text on that line survives.
+- a multi-line itinerary where ONE leg is a schemed-URL/Google-link-only line → that line is dropped, the real leg renders (catches the per-line filter).
+- a SCHEMED or Google URL in a line → no `https://` / `http://` / `drive.google.com` / `docs.google.com` substring in the crew DOM; the real text on that line survives.
+- **a BARE airline domain (`aa.com/checkin`) RENDERS** (pins the schemed-only contract — fails if a future change over-strips bare domains / breaks the documented `stripAgendaUrls` limitation, AND documents that we deliberately don't suppress benign crew-own check-in text).
 - flight card renders even when transport + hotels are empty (the flight card is independent of the other Travel blocks).
 
 ## Out of scope (do-not-relitigate)
