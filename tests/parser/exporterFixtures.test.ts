@@ -345,6 +345,15 @@ describe("exporter fidelity — AR R9: numberless v2 breakout headers are emitte
     // the numberless name must not be the bare word "BREAKOUT"
     expect(lasalle!.name).not.toBe("BREAKOUT");
   });
+
+  it("R10: pull-sheet 'BREAKOUT SESSION N - X' equipment sections are NOT emitted as rooms", () => {
+    const bo = parse("consultants").rooms.filter((r) => r.kind === "breakout");
+    // No phantom session rooms (they share the bare-BREAKOUT shape but have no BO fields).
+    expect(bo.map((r) => r.name).filter((n) => /SESSION/i.test(n))).toEqual([]);
+    // The real numbered breakouts survive.
+    expect(bo.some((r) => /DELAWARE/i.test(r.name))).toBe(true);
+    expect(bo.some((r) => /STATE B/i.test(r.name))).toBe(true);
+  });
 });
 
 describe("exporter fidelity — AR: v4 additional rooms (content-gated, not dropped by short-circuit)", () => {

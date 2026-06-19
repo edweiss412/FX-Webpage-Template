@@ -370,11 +370,11 @@ function parseBoRooms(markdown: string): RoomRow[] {
     const firstLine = rawHeader.split("\n")[0]!.trim();
     // Numbered "BREAKOUT N…" keeps its full header as the name (existing behavior);
     // numberless "BREAKOUT" derives the name from the remaining header text.
-    const name = /^BREAKOUT\s+\d/i.test(firstLine) ? firstLine : deriveBreakoutName(rawHeader);
+    const numbered = /^BREAKOUT\s+\d/i.test(firstLine);
+    const name = numbered ? firstLine : deriveBreakoutName(rawHeader);
     const headerKey = name.toUpperCase();
 
     if (seen.has(headerKey)) continue;
-    seen.add(headerKey);
 
     const room = buildEmptyRoom("breakout", name);
     const headerLines = rawHeader.split("\n");
@@ -390,6 +390,14 @@ function parseBoRooms(markdown: string): RoomRow[] {
 
     const blockText = extractBoBlock(markdown, m.index);
     applyBoFields(room, blockText);
+
+    // A numberless header must carry real BO fields to count as a room — this
+    // rejects pull-sheet "BREAKOUT SESSION N - X" equipment sections that share the
+    // bare-BREAKOUT shape but populate no room fields. Numbered headers are real
+    // room blocks and keep their existing (ungated) behavior.
+    if (!numbered && !roomHasContent(room)) continue;
+
+    seen.add(headerKey);
     rooms.push(room);
   }
 
