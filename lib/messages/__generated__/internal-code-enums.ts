@@ -239,6 +239,15 @@ export const INTERNAL_CODE_ENUMS = {
   SYNC_STEP_TIMEOUT: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  TRAVEL_FLIGHT_AMBIGUOUS_TABLE: {
+    source: "parse_warnings.code"
+  },
+  TRAVEL_FLIGHT_NAME_UNMATCHED: {
+    source: "parse_warnings.code"
+  },
+  TRAVEL_FLIGHT_UNPARSEABLE: {
+    source: "parse_warnings.code"
+  },
   TYPO_NORMALIZED: {
     source: "parse_warnings.code"
   },
