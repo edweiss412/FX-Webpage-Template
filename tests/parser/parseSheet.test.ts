@@ -180,3 +180,42 @@ describe("deriveSchedulePhases — empty showDays with set/travel dates (edge-ca
     expect(phases).toEqual({});
   });
 });
+
+describe("parseSheet — runOfShow wiring (Phase 2)", () => {
+  it("East Coast production fixture → parseSheet emits runOfShow keyed by show day", () => {
+    const md = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
+    const r = parseSheet(md, "east-coast.md");
+    expect(r.runOfShow).toBeDefined();
+    expect(Object.keys(r.runOfShow!)).toEqual(expect.arrayContaining(["2024-05-15"]));
+    expect(r.runOfShow!["2024-05-15"]![0]!.title).toBe("Family Office Only Breakfast");
+  });
+
+  it("RIA production fixture → parseSheet emits runOfShow keyed by RIA show days (both filled shapes wired)", () => {
+    // The other real filled production shape — proves parseSheet wiring is not East-Coast-specific.
+    // RIA dates come from the sheet's own DATES block; the AGENDA banner carries 6/25/25 (Wed) + 6/26/25 (Thu).
+    const md = readFileSync("fixtures/shows/exporter-xlsx/ria.md", "utf8");
+    const r = parseSheet(md, "ria.md");
+    expect(r.runOfShow).toBeDefined();
+    expect(Object.keys(r.runOfShow!)).toEqual(expect.arrayContaining(["2025-06-25"]));
+    // first Day-1 session — derived from ria.md:320 (clone-and-read), not hardcoded blind
+    expect(r.runOfShow!["2025-06-25"]![0]!.title).toBe("Attendee Registration and Breakfast");
+    expect(r.runOfShow!["2025-06-25"]![0]!.start).toBe("7:30 AM");
+  });
+
+  it("a VERSION-VALID sheet whose AGENDA tab has NO token-header → runOfShow undefined + AGENDA_GRID_MALFORMED (parseAgenda runs)", () => {
+    // R22: must use a VERSION-DETECTABLE input — a bare `| FOO |` table fails detectVersion
+    // (schema.ts:102) → parseSheet returns EARLY at index.ts:320-356 (MI-1_VERSION_DETECTION_FAILED)
+    // BEFORE any block parser → parseAgenda never runs → AGENDA_GRID_MALFORMED can NEVER fire.
+    // So take a REAL fixture (version detection passes on all its other markers) and remove ONLY
+    // the AGENDA token-header line, so parseSheet proceeds to parseAgenda, which finds no grid.
+    const full = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
+    const noGrid = full
+      .split("\n")
+      .filter((line) => !/NAME\s*\|\s*ARRIVAL\s*\|\s*FLIGHT/i.test(line))
+      .join("\n");
+    const r = parseSheet(noGrid, "east-coast-no-agenda.md");
+    expect(r.hardErrors).toEqual([]); // version STILL detected — not the MI-1 early-return path
+    expect(r.runOfShow).toBeUndefined(); // grid unlocatable → omitted optional property
+    expect(r.warnings.map((w) => w.code)).toContain("AGENDA_GRID_MALFORMED");
+  });
+});

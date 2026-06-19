@@ -8,6 +8,21 @@ export const INTERNAL_CODE_ENUMS = {
   ADMIN_SESSION_LOOKUP_FAILED: {
     source: "admin_alerts.code"
   },
+  AGENDA_BLOCK_UNRESOLVED: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_DAY_AMBIGUOUS: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_DAY_EMPTIED: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_DAY_TRUNCATED: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_GRID_MALFORMED: {
+    source: "parse_warnings.code"
+  },
   AMBIGUOUS_EMAIL_BINDING: {
     source: "admin_alerts.code"
   },
