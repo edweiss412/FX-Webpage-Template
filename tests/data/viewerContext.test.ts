@@ -42,6 +42,7 @@ function makeData(crewMembers: ShowForViewer["crewMembers"]): ShowForViewer {
     contacts: [],
     pullSheet: null,
     viewerName: null,
+    viewerFlightInfo: null,
     viewerVersionToken: "",
     diagrams: null,
     openingReelHasVideo: false,

@@ -194,6 +194,16 @@ export type ShowForViewer = {
    * transportation.schedule[*].assigned_names for the viewer's name.
    */
   viewerName: string | null;
+
+  /**
+   * The viewer's OWN flight itinerary (crew_members.flight_info), read on the
+   * same own-row lookup as viewerName, blank-normalized to null. NOT on the
+   * crewMembers[] roster — the Travel card shows the viewer their own flight
+   * (presentation/leanness, not a security boundary; flight_info is
+   * crew-readable like email/phone). Null for admin viewers and blank cells.
+   */
+  viewerFlightInfo: string | null;
+
   /**
    * Monotonic millisecond high-water-mark across (shows.last_synced_at,
    * max(shows.picker_epoch_bumped_at), max(crew_members.last_changed_at)),
@@ -225,6 +235,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   // for this show at all).
   let derivedFlags: RoleFlag[] = [];
   let viewerName: string | null = null;
+  let viewerFlightInfo: string | null = null;
 
   if (needsCrewLookup) {
     // Bind lookup to BOTH id AND show_id. The dual constraint is the
@@ -233,7 +244,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     // applied to the requested show.
     const lookup = await supabase
       .from("crew_members")
-      .select("role_flags, name")
+      .select("role_flags, name, flight_info")
       .eq("id", viewer.crewMemberId)
       .eq("show_id", showId)
       .maybeSingle();
@@ -245,6 +256,8 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     }
     derivedFlags = (lookup.data.role_flags as RoleFlag[]) ?? [];
     viewerName = (lookup.data.name as string) ?? null;
+    const rawFlight = (lookup.data.flight_info as string | null) ?? null;
+    viewerFlightInfo = rawFlight && rawFlight.trim().length > 0 ? rawFlight : null;
   }
 
   const isLead = isAdmin || derivedFlags.includes("LEAD");
@@ -635,6 +648,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     contacts,
     pullSheet,
     viewerName,
+    viewerFlightInfo,
     viewerVersionToken,
     diagrams,
     openingReelHasVideo,

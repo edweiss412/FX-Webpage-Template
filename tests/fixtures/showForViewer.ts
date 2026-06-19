@@ -103,6 +103,7 @@ const DEFAULT: ShowForViewer = {
   tileErrors: {},
   runOfShow: null,
   viewerName: "Test Crew",
+  viewerFlightInfo: null,
   viewerVersionToken: "v1",
 };
 
