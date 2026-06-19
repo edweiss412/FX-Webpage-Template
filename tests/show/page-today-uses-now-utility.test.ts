@@ -44,4 +44,17 @@ describe("app/show/[slug]/[shareToken]/_CrewShell.tsx — render-side time migra
     expect(src).not.toMatch(/\(async\s*\(\s*\)\s*=>\s*\{/);
     expect(src).not.toMatch(/\(async\s*function\b/);
   });
+
+  it("derives the Header status-pill lifecycle through the venue timezone (§4.16 day-boundary contract)", () => {
+    // The pill is a today-comparison, so it MUST pass the venue timezone to
+    // selectRightNowState — sharing the single timezone authority the hero
+    // (buildRightNowContext → resolveShowTimezone) and the Schedule today-pin
+    // (todayIsoInShowTimezone → resolveShowTimezone) already use. Without the
+    // `{ timezone }` option, selectRightNowState falls back to America/New_York
+    // and a non-default-tz venue could classify the show-day one day off the
+    // other two surfaces near a day boundary. Adversarial-verify confirmed LOW.
+    expect(src).toMatch(/from\s+["']@\/lib\/time\/showTimezone["']/);
+    // The status-pill selectRightNowState call carries the venue-tz option:
+    expect(src).toMatch(/selectRightNowState\([\s\S]{0,200}timezone:\s*resolveShowTimezone\(/);
+  });
 });

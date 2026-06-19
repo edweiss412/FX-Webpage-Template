@@ -55,6 +55,7 @@ import {
 } from "@/lib/data/viewerContext";
 import { nowDate } from "@/lib/time/now";
 import { selectRightNowState, type RightNowState } from "@/lib/time/rightNow";
+import { resolveShowTimezone } from "@/lib/time/showTimezone";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 
 /**
@@ -236,7 +237,15 @@ export async function CrewShell({
   // on EVERY section (the hero is Today-only). Degraded/dateless collapses to
   // the neutral "Show details" pill (pillLabelForState), never blank. Uses the
   // normalized `headerShow.dates` so a degraded/partial projection can't throw.
-  const statusPillState = selectRightNowState(today, headerShow.dates, ctx.dateRestriction);
+  // §4.16 day-boundary contract: the pill is a today-comparison, so it MUST share
+  // the single timezone authority the hero (via buildRightNowContext) and the
+  // Schedule today-pin (via todayIsoInShowTimezone) use — otherwise a venue in a
+  // non-default timezone could classify the lifecycle one day off the other two
+  // surfaces near a day boundary. resolveShowTimezone returns the venue tz
+  // (currently always America/New_York until a venue.timezone field is lit up).
+  const statusPillState = selectRightNowState(today, headerShow.dates, ctx.dateRestriction, {
+    timezone: resolveShowTimezone(headerShow.venue),
+  });
   const statusPill = (
     <span
       className="inline-flex items-center rounded-pill border border-border bg-surface px-2 py-0.5 text-xs font-semibold uppercase tracking-eyebrow text-text-strong"
