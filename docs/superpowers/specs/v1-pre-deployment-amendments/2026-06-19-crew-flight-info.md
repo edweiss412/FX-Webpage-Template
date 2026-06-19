@@ -24,25 +24,19 @@ Surface each crew member's own flight info — already parsed into `crew_members
 
 ## §1 — Projection (`lib/data/getShowForViewer.ts`)
 
-**Read the viewer's own flight on the existing dual-constrained lookup.** At `getShowForViewer.ts:234-239` the lookup is:
+**Read the viewer's own flight on the existing dual-constrained lookup — follow the exact `viewerName` pattern (declare-before-block, assign-inside-block).** `viewerName` is declared `let viewerName: string | null = null;` at `getShowForViewer.ts:227` (BEFORE the `if (needsCrewLookup)` block) and assigned INSIDE the block at `:247` (`viewerName = lookup.data.name`). `lookup` is block-scoped (`:234`), so a `const viewerFlightInfo = … lookup … ` placed *after* the block would not compile. Mirror `viewerName`:
+
+1. Add `flight_info` to the lookup select (`:236`): `.select("role_flags, name, flight_info")`.
+2. Declare `let viewerFlightInfo: string | null = null;` alongside `let viewerName …` at `:227` (BEFORE the block) — so it is in scope for the return literal regardless of viewer kind.
+3. INSIDE the `if (needsCrewLookup)` block, after the existing `lookup.data` guards (`:240-247`), assign with a **blank-normalize** so a blank cell projects as `null` (not `""`):
 
 ```ts
-const lookup = await supabase
-  .from("crew_members")
-  .select("role_flags, name")          // ← add flight_info
-  .eq("id", viewer.crewMemberId)
-  .eq("show_id", showId)               // dual constraint = cross-show fail-closed (:230-233)
-  .maybeSingle();
+// inside `if (needsCrewLookup) { … }`, after the :243-247 guards:
+const rawFlight = (lookup.data.flight_info as string | null) ?? null;
+viewerFlightInfo = rawFlight && rawFlight.trim().length > 0 ? rawFlight : null;
 ```
 
-Change the select to `.select("role_flags, name, flight_info")`. After the existing `lookup.data` guards (`:240-247`), capture:
-
-```ts
-const viewerFlightInfo: string | null =
-  needsCrewLookup ? ((lookup.data.flight_info as string | null) ?? null) : null;
-```
-
-`flight_info` is `text` (not jsonb) → **no `decodeJsonbColumn`** needed (it is a plain string scalar; `presence()` already nulled sentinel-empties at parse time).
+`flight_info` is `text` (not jsonb) → **no `decodeJsonbColumn`**. The `trim().length > 0` check normalizes a blank/whitespace-only cell to `null` at the projection (the `blank → viewerFlightInfo null` contract; defensive against a legacy non-`presence()`'d `""` row — `presence()` usually nulled blanks at parse, `lib/parser/blocks/crew.ts:263`). The plain-admin branch (`needsCrewLookup === false`) leaves `viewerFlightInfo` at its `null` initializer. Sentinel hiding (`TBD`/`N/A`) is NOT done here — it is the UI's `shouldHideGenericOptional` gate (§2); the projection only blank-normalizes.
 
 **Add to `ShowForViewer`** a top-level field (sibling of the existing per-viewer-resolved fields like `viewerName`):
 
