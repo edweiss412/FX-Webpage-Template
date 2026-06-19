@@ -354,6 +354,15 @@ describe("exporter fidelity — AR R9: numberless v2 breakout headers are emitte
     expect(bo.some((r) => /DELAWARE/i.test(r.name))).toBe(true);
     expect(bo.some((r) => /STATE B/i.test(r.name))).toBe(true);
   });
+
+  it("R11: east-coast MABEL 1 merges its split blocks (dims + fields), not an empty phantom", () => {
+    const bo = parse("east-coast").rooms.filter((r) => r.kind === "breakout");
+    const mabel = bo.find((r) => /MABEL 1/i.test(r.name));
+    expect(mabel, "MABEL 1 breakout").toBeDefined();
+    // header dims ("APPROXIMATELY 60' x 45'") + the "DAY 1 & 2" block's fields merge
+    expect(mabel!.dimensions).toBe("60' x 45'");
+    expect(mabel!.setup ?? mabel!.set_time, "MABEL 1 must carry merged content").not.toBeNull();
+  });
 });
 
 describe("exporter fidelity — AR: v4 additional rooms (content-gated, not dropped by short-circuit)", () => {

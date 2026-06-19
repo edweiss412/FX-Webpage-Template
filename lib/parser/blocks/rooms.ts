@@ -416,22 +416,64 @@ function parseBoRooms(markdown: string): RoomRow[] {
     rooms.push(room);
   }
 
-  // v1: MABEL N and LAUDERDALE N rooms (2024 fixture)
+  // v1: MABEL N and LAUDERDALE N rooms (2024 fixture). One room can span multiple
+  // blocks — "MABEL 1&#10;APPROXIMATELY 60' x 45'" (dims in header) and
+  // "MABEL 1&#10;DAY 1 & 2" (the populated fields). MERGE blocks by header key so
+  // the room keeps its content, instead of the empty first occurrence winning
+  // dedup and the populated duplicate being skipped. Drop a room that stays empty.
+  const mabelRooms = new Map<string, RoomRowInternal>();
+  const mabelOrder: string[] = [];
   const mabelRe = /^\|\s*(MABEL\s+\d[^|]*|LAUDERDALE[^|]*?)\s*\|/gim;
   while ((m = mabelRe.exec(markdown)) !== null) {
     const rawHeader = m[1]!.replace(/&#10;/g, "\n");
     const firstLine = rawHeader.split("\n")[0]!.trim();
     const headerKey = firstLine.toUpperCase();
-    if (seen.has(headerKey)) continue;
-    seen.add(headerKey);
-
-    const room = buildEmptyRoom("breakout", firstLine);
-    const blockText = extractBoBlock(markdown, m.index);
-    applyBoFields(room, blockText);
-    rooms.push(room);
+    if (seen.has(headerKey)) continue; // claimed by a BREAKOUT / LUNCH room above
+    let room = mabelRooms.get(headerKey);
+    if (!room) {
+      room = buildEmptyRoom("breakout", firstLine);
+      mabelRooms.set(headerKey, room);
+      mabelOrder.push(headerKey);
+    }
+    // dims may ride in the header ("APPROXIMATELY 60' x 45'")
+    for (const hl of rawHeader.split("\n").slice(1)) {
+      const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
+      if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
+    }
+    mergeBoFields(room, extractBoBlock(markdown, m.index));
+  }
+  for (const key of mabelOrder) {
+    const room = mabelRooms.get(key)!;
+    if (roomHasContent(room)) rooms.push(room);
   }
 
   return rooms;
+}
+
+// Fill only the still-empty fields of `room` from `blockText`, so merging multiple
+// blocks for one room never overwrites populated values with a later empty cell.
+function mergeBoFields(room: RoomRowInternal, blockText: string): void {
+  const tmp = buildEmptyRoom(room.kind, room.name);
+  applyBoFields(tmp, blockText);
+  const FIELDS = [
+    "dimensions",
+    "floor",
+    "setup",
+    "set_time",
+    "show_time",
+    "strike_time",
+    "audio",
+    "video",
+    "lighting",
+    "scenic",
+    "power",
+    "digital_signage",
+    "other",
+    "notes",
+  ] as const;
+  for (const f of FIELDS) {
+    if (room[f] == null && tmp[f] != null) room[f] = tmp[f];
+  }
 }
 
 function extractBoBlock(markdown: string, startOffset: number): string {
