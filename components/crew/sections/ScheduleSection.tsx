@@ -126,7 +126,7 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
         ) : null}
         {isLong ? (
           <details data-testid="agenda-title-truncated" className="min-w-0">
-            <summary className="cursor-pointer text-sm font-medium text-text-strong">
+            <summary className="cursor-pointer list-none text-sm font-medium text-text-strong [&::-webkit-details-marker]:hidden">
               {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
             </summary>
             <span className="text-sm text-text-strong">{title}</span>
@@ -141,7 +141,7 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
           {av ? (
             <span
               data-agenda-field="av"
-              className="rounded-xs bg-surface-sunken px-1.5 py-0.5 font-medium uppercase tracking-eyebrow"
+              className="rounded-sm bg-surface-sunken px-1.5 py-0.5 font-medium uppercase tracking-eyebrow"
             >
               {av}
             </span>
@@ -169,7 +169,7 @@ function RunOfShowList({ entries, isoDate }: { entries: AgendaEntry[]; isoDate: 
   const overflow = display.length - RUN_OF_SHOW_DISPLAY_CAP; // derived from the displayable count
   return (
     <div data-testid={`run-of-show-${isoDate}`} className="mt-2 flex flex-col">
-      <ul className="flex flex-col divide-y divide-border-subtle">
+      <ul className="flex flex-col divide-y divide-border">
         {shown.map((entry, i) => (
           <RunOfShowEntry key={i} entry={entry} />
         ))}
