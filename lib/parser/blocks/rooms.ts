@@ -33,13 +33,13 @@ export function parseRooms(
    
   _agg?: ParseAggregator,
 ): RoomRow[] {
-  // Try v4 structured block first. A v4 room block uses all-caps GENERAL SESSION /
-  // BREAKOUT headers as standalone rows. If any are found, treat as v4 and skip v2/v1 parsers.
-  // Use sawV4 (a v4 layout was detected) — NOT v4Rooms.length — to decide the
-  // path: an all-stub v4 sheet gates every room out yet must still NOT fall back
-  // to v2/v1 parsing, which would re-emit the same stubs as phantom rooms.
-  const { rooms: v4Rooms, sawV4 } = parseV4Rooms(markdown);
-  const rooms: RoomRow[] = sawV4 ? v4Rooms : collectV2V1Rooms(markdown);
+  // Try v4 structured block first. If real v4 rooms are found, use them. Otherwise
+  // fall back to v2/v1 — whose parsers (parseBoRooms / parseAdditionalRoom) gate out
+  // placeholder/empty template stubs, so an all-stub v4 sheet falls through to an
+  // empty result rather than re-emitting its stubs as phantom rooms, while a
+  // mixed sheet's real v2/v1 rooms are still parsed.
+  const v4Rooms = parseV4Rooms(markdown);
+  const rooms: RoomRow[] = v4Rooms.length > 0 ? v4Rooms : collectV2V1Rooms(markdown);
 
   // Free-text "Additional Room Name(s) / Setup" FIELDS (distinct from the all-caps
   // ADDITIONAL ROOM block) carry real crew instructions — meal/social rooms, setup
@@ -120,14 +120,10 @@ function hasBareV4DataRow(lines: string[], startLine: number): boolean {
   return false;
 }
 
-function parseV4Rooms(markdown: string): { rooms: RoomRow[]; sawV4: boolean } {
+function parseV4Rooms(markdown: string): RoomRow[] {
   const rooms: RoomRowInternal[] = [];
   const lines = markdown.split("\n");
   let i = 0;
-  // True once any v4-shaped room header is detected, even if every room is then
-  // content-gated out — so an all-stub v4 sheet stays on the v4 path instead of
-  // falling back to v2/v1 parsing (which would re-emit the same stubs as phantoms).
-  let sawV4 = false;
 
   while (i < lines.length) {
     const line = (lines[i] ?? "").trim();
@@ -151,7 +147,6 @@ function parseV4Rooms(markdown: string): { rooms: RoomRow[]; sawV4: boolean } {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
-      sawV4 = true;
       const result = parseV4RoomBlock(lines, i, col0, "gs");
       rooms.push(result.room);
       i = result.nextLine;
@@ -170,7 +165,6 @@ function parseV4Rooms(markdown: string): { rooms: RoomRow[]; sawV4: boolean } {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
-      sawV4 = true;
       const result = parseV4RoomBlock(lines, i, col0, "breakout");
       i = result.nextLine;
       if (roomHasContent(result.room) || !isPlaceholderRoomName(result.room.name))
@@ -189,7 +183,6 @@ function parseV4Rooms(markdown: string): { rooms: RoomRow[]; sawV4: boolean } {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
-      sawV4 = true;
       const result = parseV4RoomBlock(lines, i, col0, "additional");
       i = result.nextLine;
       if (roomHasContent(result.room) || !isPlaceholderRoomName(result.room.name))
@@ -198,7 +191,7 @@ function parseV4Rooms(markdown: string): { rooms: RoomRow[]; sawV4: boolean } {
     }
   }
 
-  return { rooms: rooms.map(({ _nextLine: _n, ...rest }) => rest as RoomRow), sawV4 };
+  return rooms.map(({ _nextLine: _n, ...rest }) => rest as RoomRow);
 }
 
 // A v4 room header is a placeholder template ("BREAKOUT 1 BREAKOUT ROOM
@@ -400,11 +393,15 @@ function parseBoRooms(markdown: string): RoomRow[] {
     const blockText = extractBoBlock(markdown, m.index);
     applyBoFields(room, blockText);
 
-    // A numberless header must carry real BO fields to count as a room — this
-    // rejects pull-sheet "BREAKOUT SESSION N - X" equipment sections that share the
-    // bare-BREAKOUT shape but populate no room fields. Numbered headers are real
-    // room blocks and keep their existing (ungated) behavior.
+    // Gating (mirrors the v4 path so v2/v1 never re-emits template stubs as
+    // phantoms — incl. when reached as the all-stub-v4 fallback):
+    //  - numberless: require real BO fields, which rejects pull-sheet "BREAKOUT
+    //    SESSION N - X" equipment sections (real-looking name, no room fields);
+    //  - numbered: drop only placeholder template names with no content
+    //    ("BREAKOUT N BREAKOUT ROOM Dimensions Floor"); a real name like
+    //    "BREAKOUT 1 SALON D" is kept even with empty fields.
     if (!numbered && !roomHasContent(room)) continue;
+    if (numbered && !roomHasContent(room) && isPlaceholderRoomName(name)) continue;
 
     seen.add(headerKey);
     rooms.push(room);
@@ -560,6 +557,11 @@ function parseAdditionalRoom(markdown: string): RoomRow | null {
 
   const blockText = extractBoBlock(markdown, m.index);
   applyBoFields(room, blockText);
+
+  // Gate like the v4 path: a bare "ADDITIONAL ROOM" / "ADDITIONAL ROOM Dimensions
+  // Floor" placeholder header with no fields is a template stub, not a room (and
+  // must not slip through as a phantom when this runs as the all-stub-v4 fallback).
+  if (!roomHasContent(room) && isPlaceholderRoomName(room.name)) return null;
 
   return room;
 }

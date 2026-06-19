@@ -422,4 +422,21 @@ describe("exporter fidelity — AR: v4 additional rooms (content-gated, not drop
     ].join("\n");
     expect(parseRooms(md, "v4")).toEqual([]);
   });
+  it("R12: a v4 placeholder stub + real v2 rooms still parses the v2 rooms (no fallback suppression)", () => {
+    const md = [
+      // v4-shaped placeholder (bare Setup row): detected as v4, gated out, v4Rooms empty
+      "| BREAKOUT 1 BREAKOUT ROOM Dimensions Floor | BREAKOUT 1 BREAKOUT ROOM Dimensions Floor |",
+      "| :---: | :---: |",
+      "| Setup |  |",
+      "",
+      // real v2 breakout (BO-prefixed field with content)
+      "| BREAKOUT 2 SALON D 43' x 24' | BREAKOUT 2 SALON D 43' x 24' |",
+      "| :---: | :---: |",
+      "| BO Setup | Theater for 50 |",
+    ].join("\n");
+    const bo = parseRooms(md, "v4").filter((r) => r.kind === "breakout");
+    expect(bo).toHaveLength(1); // the real v2 room survives; the v4 stub is not re-emitted
+    expect(bo[0]!.name).toContain("SALON D");
+    expect(bo[0]!.setup).toBe("Theater for 50");
+  });
 });
