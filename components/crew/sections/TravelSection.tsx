@@ -18,10 +18,13 @@
  *     idx>0 (LodgingTile idiom). hotel_name is the prominent line; address /
  *     confirmation / check-in–check-out / notes are sentinel-guarded rows.
  *
- * There is NO flights block — flights are not in the ShowForViewer projection,
- * so the section renders nothing for them (no false "not added" placeholder).
+ *   - Your flight — the viewer's OWN itinerary, projected as
+ *     `viewerFlightInfo` ("arrival | departure"). Rendered FIRST (full-width,
+ *     above the getting-there/hotels split) as the most personal Travel datum;
+ *     each leg is sentinel/URL-stripped, and the card is omitted when nothing
+ *     survives (no false "not added" placeholder).
  *
- * When BOTH blocks are hidden/empty, a section-level `<EmptyState
+ * When ALL blocks are hidden/empty, a section-level `<EmptyState
  * data-testid="section-empty">` renders so the surface is never blank.
  *
  * Every generic-optional string read routes through `shouldHideGenericOptional`
@@ -43,6 +46,7 @@ import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { formatIsoDate } from "@/lib/format/date";
+import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 
@@ -148,7 +152,17 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
           const transportFetchFailed =
             Boolean(data.tileErrors["transportation"]) && (ctx.isAdmin || transportVisible);
 
-          const allHidden = !hasGettingThere && !hasHotels;
+          // Flight: the parsed flight_info is "arrival | departure" (the TECH-path
+          // separator; the parsed value has no \n — also split on \n as a harmless
+          // forward-compat allowance). Strip schemed/Google URLs per-leg, drop
+          // empty/sentinel/URL-only legs.
+          const flightLegs = (data.viewerFlightInfo ?? "")
+            .split(/\s*\|\s*|\n/)
+            .map((leg) => stripAgendaUrls(leg))
+            .filter((leg) => leg.length > 0 && !shouldHideGenericOptional(leg));
+          const showFlight = flightLegs.length > 0;
+
+          const allHidden = !showFlight && !hasGettingThere && !hasHotels;
 
           // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT
           // "Getting there" (ground transport / itinerary), RIGHT "Where you're
@@ -322,6 +336,20 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
             <>
               {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
               {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
+
+              {/* Flight: the viewer's own itinerary, rendered first — the most personal
+                  Travel datum. Full-width, above the getting-there/hotels split. */}
+              {showFlight ? (
+                <SectionCard title="Your flight">
+                  <div data-testid="travel-flight" className="flex flex-col gap-1">
+                    {flightLegs.map((leg, i) => (
+                      <span key={i} data-testid="travel-flight-leg" className="text-sm leading-relaxed text-text">
+                        {leg}
+                      </span>
+                    ))}
+                  </div>
+                </SectionCard>
+              ) : null}
 
               {allHidden && !hotelFetchFailed && !transportFetchFailed ? (
                 <div data-testid="section-empty">
