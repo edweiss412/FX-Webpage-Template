@@ -170,7 +170,19 @@ function crewRow(over: Record<string, unknown> = {}) {
 
 function setup(over: Partial<Record<string, Resp>> = {}) {
   mockState.responses = {
-    shows: { data: { id: SHOW_ID, published: true, dates: {}, schedule_phases: [] }, error: null },
+    // Complete minimal show row — getShowForViewer dereferences dates.showDays
+    // (deriveSchedulePhases) etc., so `dates: {}` would THROW before the flight
+    // assertion. Mirrors tests/data/getShowForViewerRunOfShow.test.ts showRow().
+    shows: {
+      data: {
+        id: SHOW_ID, title: "S", client_label: "c", template_version: "v4", published: true, coi_status: null,
+        client_contact: null, venue: null, dates: { travelIn: null, set: null, showDays: [], travelOut: null },
+        schedule_phases: null, event_details: {}, agenda_links: null, pull_sheet: null, diagrams: null,
+        opening_reel_drive_file_id: null, opening_reel_drive_modified_time: null,
+        opening_reel_head_revision_id: null, opening_reel_mime_type: null, last_synced_at: null, last_sync_status: null,
+      },
+      error: null,
+    },
     shows_internal: { data: null, error: null },
     crew_members: { data: [crewRow()], error: null },
     hotel_reservations: { data: [], error: null },
