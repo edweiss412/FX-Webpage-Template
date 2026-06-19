@@ -46,9 +46,24 @@ export function clean(s: string): string {
   return s.replace(/\\(.)/g, "$1").trim();
 }
 
-/** Return value if non-empty after cleaning, else null. */
+/**
+ * Decode the HTML entities the exporter emits for in-cell whitespace — `&#10;`
+ * (LF) and `&#9;` (tab) — to spaces, so final field values never surface a raw
+ * entity to crew (parking, loadingDock, room setup, …).
+ *
+ * Deliberately NOT folded into `clean()`: the room parsers detect v2 multi-line
+ * cells via `col0.includes("&#10;")` on cleaned/raw cells (e.g. the `rooms.ts`
+ * v4-header guards), and the inline-hotel / pull-sheet / contacts parsers split
+ * on `&#10;` themselves before storing. Decoding belongs at the value-STORAGE
+ * boundary (`presence`), after any such structural splitting has happened.
+ */
+export function decodeEntities(s: string): string {
+  return s.replace(/&#10;/g, " ").replace(/&#9;/g, " ");
+}
+
+/** Return value if non-empty after cleaning + entity-decoding, else null. */
 export function presence(s: string): string | null {
-  const c = clean(s);
+  const c = decodeEntities(clean(s)).trim();
   return c.length > 0 ? c : null;
 }
 

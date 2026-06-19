@@ -74,11 +74,35 @@ type SlotData = {
   hotel_name?: string | null;
   hotel_address: null;
   names: string[];
-  confirmation_no: null;
+  confirmation_no: string | null;
   check_in?: string | null;
   check_out?: string | null;
   notes: null;
 };
+
+/**
+ * Split a "Names on Reservation" cell into per-guest names + confirmation numbers.
+ * Guests are `&#10;`-separated within the cell; each may carry a trailing
+ * "<dash> #?<digits>" confirmation number (e.g. "Douglas Larson - #2069854").
+ * The conf# is lifted out so it isn't dropped (or glued into the name) and the
+ * name list is clean for crew↔name matching.
+ */
+function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
+  const names: string[] = [];
+  const confs: string[] = [];
+  for (const rawPart of cell.replace(/&#10;/g, "\n").split("\n")) {
+    const part = clean(rawPart);
+    if (!part || part === "-" || part === "\\-") continue;
+    const m = /^(.*?\S)\s*[-–—]{1,3}\s*#?\s*(\d{4,})\s*$/.exec(part);
+    if (m) {
+      names.push(clean(m[1]!));
+      confs.push(m[2]!);
+    } else {
+      names.push(part);
+    }
+  }
+  return { names, confs };
+}
 
 /**
  * Parse the structured HOTEL block used in v4 (2026+) and later v2 (2025) sheets.
@@ -209,10 +233,14 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
 
     if (rowState === "names" && col0 === "") {
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
-        leftSlot.names.push(clean(col1));
+        const g = parseGuestCell(col1);
+        leftSlot.names.push(...g.names);
+        if (g.confs.length) leftSlot.confirmation_no = g.confs.join(", ");
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
-        rightSlot.names.push(clean(col3));
+        const g = parseGuestCell(col3);
+        rightSlot.names.push(...g.names);
+        if (g.confs.length) rightSlot.confirmation_no = g.confs.join(", ");
       }
       rowState = "idle";
       continue;
@@ -256,7 +284,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       hotel_name: slot.hotel_name ?? null,
       hotel_address: null,
       names: slot.names,
-      confirmation_no: null,
+      confirmation_no: slot.confirmation_no ?? null,
       check_in: slot.check_in ?? null,
       check_out: slot.check_out ?? null,
       notes: null,
@@ -468,12 +496,16 @@ function buildInlineHotel(
     if (rolled) check_out = rolled;
   }
 
+  // Lift per-guest confirmation numbers ("Doug Larson—2035940", "Eric --- 104461566")
+  // out of the cell so they aren't dropped; the name list itself stays clean.
+  const confs = [...text.matchAll(/[-–—]{1,3}\s*#?\s*(\d{4,})/g)].map((m) => m[1]!);
+
   return {
     ordinal,
     hotel_name: presence(hotelNameRaw),
     hotel_address: null,
     names,
-    confirmation_no: null,
+    confirmation_no: confs.length ? confs.join(", ") : null,
     check_in,
     check_out,
     notes: null,

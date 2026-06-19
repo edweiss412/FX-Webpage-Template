@@ -509,3 +509,46 @@ describe("exporter fidelity — AR: v4 additional rooms (content-gated, not drop
     expect(green!.setup).toBe("Lounge seating");
   });
 });
+
+describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel conf# (#4)", () => {
+  const SLUGS = [
+    "redefining-fi",
+    "consultants",
+    "fintech",
+    "east-coast",
+    "ria",
+    "fixed-income",
+    "rpas",
+  ];
+
+  it("#8: no parsed field surfaces a raw '&#10;' (or '&#9;') HTML entity, any show", () => {
+    const hits: string[] = [];
+    const scan = (o: unknown, path: string): void => {
+      if (o == null) return;
+      if (typeof o === "string") {
+        if (/&#1?0;|&#9;/.test(o)) hits.push(`${path} = ${JSON.stringify(o.slice(0, 40))}`);
+        return;
+      }
+      if (Array.isArray(o)) o.forEach((v, i) => scan(v, `${path}[${i}]`));
+      else if (typeof o === "object") for (const k of Object.keys(o)) scan((o as never)[k], `${path}.${k}`);
+    };
+    for (const s of SLUGS) scan(parse(s), s);
+    expect(hits, `raw entity at:\n${hits.join("\n")}`).toEqual([]);
+  });
+
+  it("#4: hotel confirmation numbers are extracted (table path: rpas, &#10;-separated guests)", () => {
+    const hr = parse("rpas").hotelReservations;
+    // Guest names split out of the "Name - #conf&#10;Name - #conf" cell, no entity, no conf# digits glued in
+    for (const h of hr)
+      for (const n of h.names) expect(n, `rpas name "${n}"`).not.toMatch(/&#1?0;|#?\d{4,}/);
+    // The conf# digits live in confirmation_no instead of being dropped
+    expect(hr.some((h) => h.confirmation_no && /\d{4,}/.test(h.confirmation_no))).toBe(true);
+  });
+
+  it("#4: hotel confirmation numbers are extracted (inline path: consultants em-dash)", () => {
+    const hr = parse("consultants").hotelReservations;
+    expect(hr.some((h) => h.confirmation_no && /\d{4,}/.test(h.confirmation_no))).toBe(true);
+    for (const h of hr)
+      for (const n of h.names) expect(n, `consultants name "${n}"`).not.toMatch(/\d{4,}/);
+  });
+});
