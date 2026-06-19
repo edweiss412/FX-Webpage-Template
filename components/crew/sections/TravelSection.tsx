@@ -343,7 +343,15 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                 <SectionCard title="Your flight">
                   <div data-testid="travel-flight" className="flex flex-col gap-1">
                     {flightLegs.map((leg, i) => (
-                      <span key={i} data-testid="travel-flight-leg" className="text-sm leading-relaxed text-text">
+                      <span
+                        key={i}
+                        data-testid="travel-flight-leg"
+                        // §2.4: each leg carries times / dates / confirmation codes
+                        // (e.g. "11:29am", "5/13", "HQQ79F"); tabular figures so the
+                        // digits read at a glance and don't shift width. Alphabetic
+                        // tokens (airport codes, carrier) are unaffected by tnum.
+                        className="text-sm leading-relaxed text-text tabular-nums"
+                      >
                         {leg}
                       </span>
                     ))}
