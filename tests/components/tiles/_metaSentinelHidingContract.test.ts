@@ -219,6 +219,15 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     description: "PullSheetItem.cat / subCat (pack-list taxonomy)",
     pattern: /\bitem\??\.(cat|subCat)\b/,
   },
+  // Phase-2 §4.3: ScheduleSection run-of-show optional fields. The agenda entry's
+  // room / av / finish / trt are generic-optional free text — a sentinel ('TBD' /
+  // 'N/A' / 'TBA' / '') must hide the field, not render as content. The pattern
+  // anchors on `entry.(room|av|finish|trt)` (RunOfShowEntry's accessor) so a
+  // future refactor that drops the predicate fails at CI.
+  {
+    description: "agenda entry.room / av / finish / trt (run-of-show)",
+    pattern: /\bentry\??\.(room|av|finish|trt)\b/,
+  },
 ];
 
 /**
