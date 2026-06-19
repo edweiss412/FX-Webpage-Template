@@ -69,7 +69,15 @@ const isHeaderLine = (line: string): { nameIdx: number; flightIdx: number } | nu
   return { nameIdx: 0, flightIdx };
 };
 
-/** All contiguous pipe-blocks whose header matches the full TRAVEL signature. */
+/**
+ * One entry per full-TRAVEL-signature HEADER row found anywhere in the markdown.
+ * We scan EVERY line (never skipping past a discovered block) so two header
+ * signatures inside a single contiguous pipe block — e.g. a stale TRAVEL table
+ * pasted directly above the current one with no blank separator — are both
+ * detected and trip the duplicate-table fail-safe (R2). A header is only ever a
+ * row whose col-A cell is exactly `NAME` plus the FLIGHT-DETAILS + booking-sibling
+ * signature, so data rows never match and a single table yields exactly one entry.
+ */
 function findTravelBlocks(markdown: string): Array<{ lines: string[]; nameIdx: number; flightIdx: number }> {
   const lines = markdown.split("\n");
   const isPipe = (l: string) => l.trim().startsWith("|");
@@ -80,7 +88,8 @@ function findTravelBlocks(markdown: string): Array<{ lines: string[]; nameIdx: n
     let end = h;
     while (end + 1 < lines.length && isPipe(lines[end + 1]!)) end += 1;
     blocks.push({ lines: lines.slice(h, end + 1), nameIdx: hdr.nameIdx, flightIdx: hdr.flightIdx });
-    h = end; // don't re-scan inside this block
+    // Do NOT skip to `end`: a second header signature inside this same contiguous
+    // pipe block must still be found so blocks.length > 1 trips the fail-safe.
   }
   return blocks;
 }

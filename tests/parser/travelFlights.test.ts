@@ -195,6 +195,24 @@ describe("parseTravelFlights — synthetic edge cases", () => {
     expect(r.warnings.filter((w) => w.code === "TRAVEL_FLIGHT_AMBIGUOUS_TABLE")).toHaveLength(1);
   });
 
+  it("ADJACENT duplicate TRAVEL headers in ONE contiguous block (no blank line) → no mutation, one AMBIGUOUS_TABLE (R2 fail-safe)", () => {
+    // A stale TRAVEL table pasted directly above the current one with NO blank line forms a
+    // SINGLE contiguous pipe block holding two header-signature rows. The duplicate fail-safe
+    // must still fire — otherwise the stale rows are processed first and attach the wrong flight
+    // (TECH-style precedence then blocks the current row from overwriting it).
+    const header = "| NAME | ROLE |  | CONFIRMED | FLIGHT BOOKED |  | OK to BOOK? | NOTES | FLIGHT DETAILS | FLIGHT DETAILS |";
+    const sep = "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |";
+    const staleRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/01 AA999 OLD - STALE 1:00am");
+    const currentRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 AA123 JFK - LAX 8:00am");
+    // NO blank line anywhere → one contiguous pipe block with TWO TRAVEL headers.
+    const adjacentDup = [header, sep, staleRow, header, sep, currentRow].join("\n");
+    const md = crewSection(["Alice Smith"]) + "\n\n" + adjacentDup;
+    const r = parseSheet(md, "t.md");
+    const alice = r.crewMembers.find((m) => (m.name ?? "").includes("Alice"));
+    expect(alice?.flight_info).toBeNull(); // fail-safe: neither the stale nor the current flight attaches
+    expect(r.warnings.filter((w) => w.code === "TRAVEL_FLIGHT_AMBIGUOUS_TABLE")).toHaveLength(1);
+  });
+
   it("following table after blank line with date cell → not scanned (TRAVEL block is contiguous)", () => {
     // The TRAVEL block ends at first non-pipe line; a second table after a blank line is NOT part of the TRAVEL block.
     // Build a TRAVEL block for Alice; after a blank line, a plain table with Bob (non-TRAVEL signature).
