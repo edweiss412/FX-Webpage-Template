@@ -565,4 +565,37 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
       }
     }
   });
+
+  it("#4 PRIVACY: SPACE-delimited multi-guest cells (no &#10;) also split + suppress the conf#", () => {
+    // The raw RPAS fixture glues guests with a space: "Douglas Larson - #2069854
+    // John Carleo - #2069855" — parsing only on &#10; would keep it one "guest" and
+    // leak a row-level conf#. It must split into 2 guests with no conf#.
+    const raw = parseSheet(
+      readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8"),
+      "raw.md",
+    );
+    const shared = raw.hotelReservations.find((h) => h.names.length > 1);
+    expect(shared, "the space-delimited multi-guest reservation").toBeDefined();
+    expect(shared!.names).toEqual(["Douglas Larson", "John Carleo"]);
+    expect(shared!.confirmation_no).toBeNull();
+    // single-guest reservations on the same sheet still keep their conf#
+    expect(raw.hotelReservations.some((h) => h.names.length === 1 && h.confirmation_no)).toBe(true);
+
+    // synthetic single-line, space-separated, two distinct conf#s → suppressed
+    const synth = parseHotels(
+      [
+        "| HOTEL | RESERVATION \\#1 |  |",
+        "| :---: | :---: | :---: |",
+        "|  | Names on Reservation |  |",
+        "|  | Ann Lee - #111111 Bob Fox - #222222 |  |",
+        "|  | Hotel Name / Address |  |",
+        "|  | The Drake |  |",
+        "|  | Check In Date | Check Out Date |",
+        "|  | 1/1/26 | 1/3/26 |",
+      ].join("\n"),
+      "v4",
+    );
+    expect(synth[0]!.names).toEqual(["Ann Lee", "Bob Fox"]);
+    expect(synth[0]!.confirmation_no).toBeNull();
+  });
 });

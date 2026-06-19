@@ -88,18 +88,32 @@ type SlotData = {
  * name list is clean for crew↔name matching.
  */
 function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
+  const flat = cell
+    .replace(/&#10;/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!flat || flat === "-" || flat === "\\-") return { names: [], confs: [] };
+
   const names: string[] = [];
   const confs: string[] = [];
-  for (const rawPart of cell.replace(/&#10;/g, "\n").split("\n")) {
-    const part = clean(rawPart);
-    if (!part || part === "-" || part === "\\-") continue;
-    const m = /^(.*?\S)\s*[-–—]{1,3}\s*#?\s*(\d{4,})\s*$/.exec(part);
-    if (m) {
-      names.push(clean(m[1]!));
-      confs.push(m[2]!);
-    } else {
-      names.push(part);
-    }
+  // Every "<name> <dash> #?<conf>" token. Guests may be &#10;- OR space-delimited
+  // (the exporter flattens in-cell line breaks; raw sheets glue guests with a
+  // space), so match GLOBALLY rather than per-&#10;-line — otherwise a space-only
+  // multi-guest cell collapses to one "guest" and its conf# leaks at row level.
+  const tokenRe = /([A-Za-z][A-Za-z.'\- ]*?)\s*[-–—]{1,3}\s*#?\s*(\d{4,})/g;
+  let consumedEnd = 0;
+  let m: RegExpExecArray | null;
+  while ((m = tokenRe.exec(flat)) !== null) {
+    names.push(clean(m[1]!));
+    confs.push(m[2]!);
+    consumedEnd = m.index + m[0].length;
+  }
+  if (confs.length === 0) {
+    names.push(flat); // no conf# tokens — the cell is just guest name(s)
+  } else {
+    const tail = clean(flat.slice(consumedEnd));
+    if (/[A-Za-z]/.test(tail)) names.push(tail); // a trailing un-numbered guest
   }
   return { names, confs };
 }
@@ -114,7 +128,11 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
  * exists — see DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY round 3.
  */
 function reservationConf(names: string[], confs: string[]): string | null {
-  return names.length === 1 && confs.length === 1 ? confs[0]! : null;
+  if (names.length !== 1 || confs.length !== 1) return null;
+  // Fail closed: a single "name" with more than 3 words is likely multiple guests
+  // glued together without a per-guest dash — don't risk a cross-guest conf# leak.
+  if ((names[0]!.match(/\S+/g)?.length ?? 0) > 3) return null;
+  return confs[0]!;
 }
 
 /**
