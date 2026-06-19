@@ -128,7 +128,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 type Resp = { data: unknown; error: unknown };
-const mockState: { responses: Record<string, Resp> } = { responses: {} };
+// MUST be vi.hoisted: the vi.mock factory below is hoisted above all top-level
+// statements, and it references makeChain → mockState. A plain const would be
+// uninitialized when the hoisted factory first runs. Mirrors
+// tests/data/getShowForViewerRunOfShow.test.ts:28.
+const mockState = vi.hoisted(() => ({ responses: {} as Record<string, Resp> }));
 
 function makeChain(table: string) {
   const response = mockState.responses[table] ?? { data: [], error: null };
@@ -170,7 +174,10 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { getShowForViewer } from "@/lib/data/getShowForViewer";
+// Dynamic import AFTER vi.mock so the SUT binds to the mocked supabase client
+// (a static import would run before the hoisted mock is wired). Mirrors
+// tests/data/getShowForViewerRunOfShow.test.ts:66.
+const { getShowForViewer } = await import("@/lib/data/getShowForViewer");
 
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
 const CREW = { kind: "crew" as const, crewMemberId: "crew-self" };
