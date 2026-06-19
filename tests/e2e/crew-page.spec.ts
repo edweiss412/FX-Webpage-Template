@@ -292,33 +292,32 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       .toBeGreaterThan(1);
   }
 
-  // ── Invariant 1 — Today quick-cards row (Tonight / Where / Need-something) ──
-  // The three quick cards share one row; each fills the FULL row height via
-  // `items-stretch` (parent) + `h-full` (each card). A Tailwind-v4 stretch
-  // regression (the parent loses items-stretch, or a card loses h-full) makes
-  // the shorter card collapse below the row height — caught here, never in jsdom.
-  test("inv1: Today quick-cards share equal heights == row height (band sweep)", async ({
+  // ── Invariant 1 — Today quick-cards STACK (Tonight / Where / Need-something) ──
+  // Per the Claude design mock (owner decision), the three quick cards stack in a
+  // single FULL-WIDTH vertical column at ALL widths — they are NOT a horizontal
+  // equal-height row. So the obsolete "equal heights == row height" contract is
+  // REPLACED by a stack contract: every present card is ≈ the container width and
+  // the cards stack top-to-bottom, non-overlapping (each card's top ≥ the prior
+  // card's bottom). Verified at 390px AND 760px so a desktop-only `flex-row`
+  // regression (a re-introduced horizontal row at ≥720px) is also caught.
+  test("inv1: Today quick-cards stack full-width, non-overlapping (390px + 760px)", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
 
-    // Band sweep — the equal-height contract must hold at every mobile-through-
-    // desktop width, not just the 390px default. (Per plan §4.9 inv1 "across the
-    // band sweep".) Each width re-navigates so the frozen-clock section-enter
-    // crossfade settles before the layout read.
-    const BANDS = [390, 480, 600, 760, 1000];
-    for (const width of BANDS) {
+    for (const width of [390, 760]) {
       await page.setViewportSize({ width, height: 1000 });
       await gotoSection(page, "today");
 
       const row = page.getByTestId("today-quick-cards");
       await expect(row).toBeVisible();
-      // Guard against a tautological 0==0 pass: the row must have settled to a
-      // non-zero height before we compare it against the cards.
+      // Guard against a tautological 0==0 pass: the stack must have settled to a
+      // non-zero height before we read its children.
       await expect.poll(async () => (await rectOf(row)).height).toBeGreaterThan(1);
       const rowRect = await rectOf(row);
 
-      // Collect whichever quick cards rendered (each is conditional on its data).
+      // Collect whichever quick cards rendered (each is conditional on its data),
+      // in DOM (top-to-bottom) order.
       const cardIds = ["today-card-tonight", "today-card-where", "today-card-need-something"];
       const present: { id: string; rect: Rect }[] = [];
       for (const id of cardIds) {
@@ -330,21 +329,33 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
         `at least one Today quick card must render on the seed @${width}px`,
       ).toBeGreaterThan(0);
 
-      // Every present card fills the full row height (== the measured parent).
+      // (1) Each card is full-width: its width ≈ the container (stack) width. A
+      // surviving multi-column row would make each card markedly narrower than the
+      // container — derived from the measured container, never hardcoded.
       for (const { id, rect } of present) {
         expect(
-          Math.abs(rect.height - rowRect.height),
-          `@${width}px ${id} must fill the quick-cards row height (items-stretch+h-full); card=${rect.height} row=${rowRect.height}`,
+          Math.abs(rect.width - rowRect.width),
+          `@${width}px ${id} must be full container width (stacked, not a column); card=${rect.width} container=${rowRect.width}`,
         ).toBeLessThanOrEqual(TOL);
       }
-      // …and therefore equal to each other when ≥2 render.
+
+      // (2) Cards stack top-to-bottom, non-overlapping: for every adjacent pair the
+      // later card's top is at/below the earlier card's bottom, and they share a
+      // left edge (single column). A horizontal row would put card 2 to the RIGHT
+      // (top ≈ card 1 top, left > card 1 left) and fail both.
       if (present.length >= 2) {
-        const h0 = present[0]!.rect.height;
+        const left0 = present[0]!.rect.left;
         for (const { id, rect } of present) {
           expect(
-            Math.abs(rect.height - h0),
-            `@${width}px ${id} height must equal sibling quick cards; ${rect.height} vs ${h0}`,
+            Math.abs(rect.left - left0),
+            `@${width}px ${id} must share the stack's left edge (single column); ${rect.left} vs ${left0}`,
           ).toBeLessThanOrEqual(TOL);
+        }
+        for (let i = 1; i < present.length; i++) {
+          expect(
+            present[i]!.rect.top,
+            `@${width}px ${present[i]!.id} must stack below ${present[i - 1]!.id} (no overlap); top=${present[i]!.rect.top} priorBottom=${present[i - 1]!.rect.bottom}`,
+          ).toBeGreaterThanOrEqual(present[i - 1]!.rect.bottom - TOL);
         }
       }
     }
@@ -395,41 +406,80 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 3 — Gear scope cards equal-height within their row ──
-  // When ≥2 A/V/L scope cards render they sit in ONE `items-stretch` flex row, so
-  // every card fills the row height → all heights equal ±0.5px. A card with fewer
-  // room-value rows (e.g. Audio has 1 value, Video has 3) would otherwise be
-  // shorter; the stretch is the contract this gate pins (Tailwind v4 does NOT
-  // default `.flex` to `align-items: stretch`, so a regression collapses the
-  // shorter card and only a real browser catches it).
-  test("inv3: Gear scope cards equal-height within their row when ≥2 render", async ({
+  // ── Invariant 3 — Gear scope cards `thirds` grid (mock) ──
+  // Per the design mock the A/V/L scope cards are a responsive `thirds` grid: a
+  // single full-width column <720px (stacked, non-overlapping), and 3 equal
+  // columns side-by-side ≥720px. CSS grid tracks default to `align-items:stretch`,
+  // so same-row cards at ≥720px share an equal height (±0.5px) — a card with fewer
+  // room-value rows (Audio has 1 value, Video has 3) is stretched to match. The
+  // inv3 fixture (beforeAll) populates exactly two disciplines with different-
+  // length values so ≥2 cards render and the equal-height case is exercised.
+  test("inv3: Gear scope cards — 3 cols side-by-side + equal-height (≥720px), single column stacked (<720px)", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
-    await gotoSection(page, "gear");
 
     // Per-discipline cards only — the `gear-scopes-row` wrapper does NOT match the
     // `gear-scope-` prefix (it has no hyphen at position 10), so this collects just
     // the A/V/L cards (the same prefix the jsdom scope tests use).
-    const cards = page.locator('[data-testid^="gear-scope-"]');
-    const n = await cards.count();
+
+    // ≥720px: side-by-side columns (each next card starts to the RIGHT of the
+    // prior; same top row) AND equal-height (grid stretch).
+    await page.setViewportSize({ width: 760, height: 1000 });
+    await gotoSection(page, "gear");
+    const cards760 = page.locator('[data-testid^="gear-scope-"]');
+    const n = await cards760.count();
     if (n < 2) {
-      test.skip(true, `gear scope cards: only ${n} rendered on the seed; equal-height needs ≥2`);
+      test.skip(true, `gear scope cards: only ${n} rendered on the seed; the grid needs ≥2`);
       return;
     }
-    const rects: Rect[] = [];
-    for (let i = 0; i < n; i++) rects.push(await rectOf(cards.nth(i)));
-    for (const r of rects) {
+    const rects760: Rect[] = [];
+    for (let i = 0; i < n; i++) rects760.push(await rectOf(cards760.nth(i)));
+    for (const r of rects760) {
       expect(r.height, "each gear scope card must have non-zero height").toBeGreaterThan(1);
     }
-    // Strict equal-height (the items-stretch + h-full contract). Derived from the
-    // measured first card, never hardcoded.
-    const h0 = rects[0]!.height;
-    for (let i = 0; i < rects.length; i++) {
+    // Side-by-side: in DOM order each card's left is strictly right of the prior
+    // card's left, and they share the same top (one grid row of ≤3).
+    for (let i = 1; i < rects760.length; i++) {
       expect(
-        Math.abs(rects[i]!.height - h0),
-        `gear scope card ${i} must equal sibling heights (items-stretch row); ${rects[i]!.height} vs ${h0}`,
+        rects760[i]!.left,
+        `@760px gear scope card ${i} must sit to the right of card ${i - 1} (3-col grid); left=${rects760[i]!.left} priorLeft=${rects760[i - 1]!.left}`,
+      ).toBeGreaterThan(rects760[i - 1]!.left + 1);
+      expect(
+        Math.abs(rects760[i]!.top - rects760[0]!.top),
+        `@760px gear scope cards share the same row top; ${rects760[i]!.top} vs ${rects760[0]!.top}`,
       ).toBeLessThanOrEqual(TOL);
+    }
+    // Equal-height (grid align-items:stretch). Derived from the measured first
+    // card, never hardcoded.
+    const h0 = rects760[0]!.height;
+    for (let i = 0; i < rects760.length; i++) {
+      expect(
+        Math.abs(rects760[i]!.height - h0),
+        `@760px gear scope card ${i} must equal sibling heights (grid stretch); ${rects760[i]!.height} vs ${h0}`,
+      ).toBeLessThanOrEqual(TOL);
+    }
+
+    // <720px: single full-width column, stacked top-to-bottom (each next card's
+    // top ≥ the prior card's bottom; shared left edge). No equal-height constraint.
+    await page.setViewportSize({ width: 390, height: 1000 });
+    await gotoSection(page, "gear");
+    const cards390 = page.locator('[data-testid^="gear-scope-"]');
+    const m = await cards390.count();
+    const rects390: Rect[] = [];
+    for (let i = 0; i < m; i++) rects390.push(await rectOf(cards390.nth(i)));
+    const left0 = rects390[0]!.left;
+    for (const r of rects390) {
+      expect(
+        Math.abs(r.left - left0),
+        `@390px gear scope cards stack in one column (shared left edge); ${r.left} vs ${left0}`,
+      ).toBeLessThanOrEqual(TOL);
+    }
+    for (let i = 1; i < rects390.length; i++) {
+      expect(
+        rects390[i]!.top,
+        `@390px gear scope card ${i} must stack below card ${i - 1} (single column); top=${rects390[i]!.top} priorBottom=${rects390[i - 1]!.bottom}`,
+      ).toBeGreaterThanOrEqual(rects390[i - 1]!.bottom - TOL);
     }
   });
 
@@ -610,49 +660,70 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 7 — Single-column sections (schedule / venue / travel) ──
-  // Each such section's direct block children share the same left edge and stack
-  // vertically (for any pair, one's top ≥ the other's bottom). No accidental
-  // multi-column layout sneaks into a section meant to be a single column.
+  // ── Invariant 7 — Two-column `split-wide` sections (schedule / venue / travel) ──
+  // Per the design mock these three sections are two columns at ≥720px and a single
+  // stacked column at <720px. Mirrors the Crew inv2 shape: at ≥720px the two
+  // `<section>-column` elements are side-by-side (col 2 starts right of col 1) with
+  // equal heights (CSS-grid align-items:stretch, ±0.5px); at 390px they stack (col 2
+  // top ≥ col 1 bottom, shared left edge) with NO equal-height constraint.
+  //
+  // Venue + Travel render the split only when BOTH columns have content (Schedule
+  // always renders two: day cards + times/heads-up). When the seed yields a single
+  // column the side-by-side assertion is skipped (colCount < 2), exactly as inv2
+  // does — the invariant is "IF two columns, they behave as split-wide," never
+  // "two columns MUST exist."
   for (const section of ["schedule", "venue", "travel"] as const) {
-    test(`inv7: ${section} section is a single stacked column`, async ({ page }, testInfo) => {
+    test(`inv7: ${section} is split-wide 2-col (≥720px) / stacked (390px)`, async ({
+      page,
+    }, testInfo) => {
       if (testInfo.project.name !== "mobile-safari") return;
-      await page.setViewportSize({ width: 390, height: 1000 });
+
+      const colTestId = `${section}-column`;
+
+      // Desktop-ish: side-by-side, equal height (grid stretch).
+      await page.setViewportSize({ width: 760, height: 1000 });
       await gotoSection(page, section);
-
-      const root = page.getByTestId(`section-${section}`);
-      // Measure the DIRECT element children of the section root (the WrappedSection
-      // renders its block children directly under the root flex-col).
-      const childRects: Rect[] = await root.evaluate((el) =>
-        Array.from(el.children)
-          .map((c) => (c as HTMLElement).getBoundingClientRect())
-          .map((r) => ({
-            top: r.top,
-            left: r.left,
-            right: r.right,
-            bottom: r.bottom,
-            width: r.width,
-            height: r.height,
-          })),
-      );
-      // Drop zero-size children (e.g. a 0×0 WrappedSection error boundary mount).
-      const blocks = childRects.filter((r) => r.height > 0 && r.width > 0);
-      expect(blocks.length, `${section} section must render at least one block`).toBeGreaterThan(0);
-      if (blocks.length < 2) return; // single block trivially single-column
-
-      const left0 = blocks[0]!.left;
-      for (const b of blocks) {
+      const cols760 = page.getByTestId(colTestId);
+      const colCount = await cols760.count();
+      expect(
+        colCount,
+        `${section} section must render at least one ${colTestId}`,
+      ).toBeGreaterThan(0);
+      if (colCount >= 2) {
+        const a = await rectOf(cols760.nth(0));
+        const b = await rectOf(cols760.nth(1));
+        // Side-by-side (second column starts to the right of the first).
         expect(
-          Math.abs(b.left - left0),
-          `${section}: stacked children share a left edge; ${b.left} vs ${left0}`,
+          b.left,
+          `@760px ${section} columns are side-by-side`,
+        ).toBeGreaterThan(a.left + 1);
+        // Equal-height (grid align-items:stretch). Both must be non-trivial first.
+        expect(a.height, `${section} col A must have non-zero height`).toBeGreaterThan(1);
+        expect(b.height, `${section} col B must have non-zero height`).toBeGreaterThan(1);
+        expect(
+          Math.abs(a.height - b.height),
+          `@760px ${section} columns must be equal-height (grid stretch); a=${a.height} b=${b.height}`,
         ).toBeLessThanOrEqual(TOL);
       }
-      // For every adjacent pair, the later block starts at/below the earlier's bottom.
-      for (let i = 1; i < blocks.length; i++) {
+
+      // Mobile: stacked. Re-navigate at 390px (CSS-only switch; re-goto keeps the
+      // frozen clock + auth from beforeEach without depending on resize reflow).
+      await page.setViewportSize({ width: 390, height: 1000 });
+      await gotoSection(page, section);
+      const cols390 = page.getByTestId(colTestId);
+      if ((await cols390.count()) >= 2) {
+        const a = await rectOf(cols390.nth(0));
+        const b = await rectOf(cols390.nth(1));
+        // Stacked: column 2's top is at/below column 1's bottom.
         expect(
-          blocks[i]!.top,
-          `${section}: block ${i} must stack below block ${i - 1} (single column)`,
-        ).toBeGreaterThanOrEqual(blocks[i - 1]!.bottom - TOL);
+          b.top,
+          `@390px ${section} columns stack (col2 below col1)`,
+        ).toBeGreaterThanOrEqual(a.bottom - TOL);
+        // Same left edge (single column).
+        expect(
+          Math.abs(a.left - b.left),
+          `@390px stacked ${section} columns share a left edge`,
+        ).toBeLessThanOrEqual(TOL);
       }
     });
   }

@@ -202,21 +202,32 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                 </div>
               ) : null}
 
-              {/* §4.9 scope-card row. The A/V/L cards sit in ONE flex row with
-                  `items-stretch` so every card fills the row height; each card
-                  carries `h-full` so it stretches inside its flex slot (Tailwind v4
-                  does NOT default `.flex` to `align-items: stretch`, DESIGN §7). The
+              {/* §4.9 scope-card grid (mock `thirds`). The A/V/L cards lay out as a
+                  responsive CSS grid: a single full-width column <720px (so they are
+                  not cramped on mobile) and 3 equal columns ≥720px. CSS grid tracks
+                  default to `align-items: stretch`, so cards in the same ≥720px row
+                  share an equal height without the Tailwind-v4 `.flex`-no-stretch
+                  trap (DESIGN §7) — no explicit `items-stretch`/`h-full` needed. The
                   per-discipline `gear-scope-<id>` testids + their A→V→L order are
-                  preserved (the jsdom sentinel/scope tests pin them). */}
+                  preserved (the jsdom sentinel/scope tests pin them); each card keeps
+                  `min-w-0` so long room values wrap rather than overflow. */}
               {scopeCards.length > 0 ? (
-                <div data-testid="gear-scopes-row" className="flex items-stretch gap-3">
+                <div
+                  data-testid="gear-scopes-row"
+                  className="grid grid-cols-1 gap-3 min-[720px]:grid-cols-3"
+                >
                   {scopeCards.map((d) => (
                     <div
                       key={d.id}
                       data-testid={`gear-scope-${d.id}`}
                       {...(d.emphasized ? { "data-emphasis": "you" } : {})}
                       className={[
-                        "flex min-w-0 flex-1 flex-col",
+                        // Grid item (cell stretches to row height via grid's default
+                        // align-items:stretch); `flex flex-col` lets the inner
+                        // SectionCard (`h-full`) fill the stretched cell so same-row
+                        // cards stay equal-height at ≥720px. `min-w-0` keeps long room
+                        // values wrapping instead of overflowing.
+                        "flex min-w-0 flex-col",
                         // §4.16: keep the ratified accent left-edge, but at 1px
                         // (`border-l`, not `border-l-2`) to satisfy the >1px
                         // colored-side-stripe ban. The "Your scope" eyebrow +

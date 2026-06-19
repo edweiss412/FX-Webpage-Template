@@ -144,16 +144,19 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
 
   const allHidden = !hasWhere && !hasParking && !hasStatus && !hasDiagrams;
 
-  return (
-    <div data-testid="section-venue" className="flex flex-col gap-4">
-      {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
+  // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT the venue
+  // detail tiles (Where / Parking / Venue status, which carries Wi-Fi / power /
+  // venue notes), RIGHT the site-diagrams block. <720px collapses to one column
+  // with the left tiles first, then diagrams. The grid only mounts when BOTH a
+  // left-detail tile AND diagrams have content; when diagrams are absent the
+  // left tiles render full-width (no dead right column), and vice-versa.
+  const hasLeft = hasWhere || hasParking || hasStatus;
+  const useSplit = hasLeft && hasDiagrams;
 
-      {allHidden && !transportFetchFailed ? (
-        <div data-testid="section-empty">
-          <EmptyState label="No venue details on file yet." />
-        </div>
-      ) : null}
-
+  // Left detail tiles (Where / Parking / Venue status) as a stacked fragment so
+  // they can render either inside the split's left column or full-width.
+  const leftTiles = (
+    <>
       {hasWhere ? (
         <div data-testid="venue-where">
           <SectionCard title="Where">
@@ -200,29 +203,65 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
           </SectionCard>
         </div>
       ) : null}
+    </>
+  );
 
-      {hasDiagrams ? (
-        <div data-testid="venue-diagrams">
-          <WrappedSection
-            tileId="crew:venue:diagrams"
-            showId={showId}
-            sheetName={data.show.title}
-            render={() =>
-              // DiagramsTile owns the embedded-first ordering + MIME allowlist +
-              // null-snapshotPath gating + agenda_links PDF embed — the throwable
-              // transform. DIRECT-INVOKED as a function call (not `<DiagramsTile/>`
-              // JSX) so its synchronous body runs INSIDE WrappedSection's
-              // try/catch (the H2 direct-invocation contract); a build throw is
-              // contained (fallback + TILE_SERVER_RENDER_FAILED upsert).
-              DiagramsTile({
-                showId,
-                diagrams: data.diagrams,
-                agendaLinks: data.show.agenda_links,
-              })
-            }
-          />
+  const diagramsBlock = hasDiagrams ? (
+    <div data-testid="venue-diagrams">
+      <WrappedSection
+        tileId="crew:venue:diagrams"
+        showId={showId}
+        sheetName={data.show.title}
+        render={() =>
+          // DiagramsTile owns the embedded-first ordering + MIME allowlist +
+          // null-snapshotPath gating + agenda_links PDF embed — the throwable
+          // transform. DIRECT-INVOKED as a function call (not `<DiagramsTile/>`
+          // JSX) so its synchronous body runs INSIDE WrappedSection's
+          // try/catch (the H2 direct-invocation contract); a build throw is
+          // contained (fallback + TILE_SERVER_RENDER_FAILED upsert).
+          DiagramsTile({
+            showId,
+            diagrams: data.diagrams,
+            agendaLinks: data.show.agenda_links,
+          })
+        }
+      />
+    </div>
+  ) : null;
+
+  return (
+    <div data-testid="section-venue" className="flex flex-col gap-4">
+      {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
+
+      {allHidden && !transportFetchFailed ? (
+        <div data-testid="section-empty">
+          <EmptyState label="No venue details on file yet." />
         </div>
       ) : null}
+
+      {useSplit ? (
+        <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch">
+          <div
+            data-testid="venue-column"
+            data-venue-column="details"
+            className="flex min-w-0 flex-col gap-4"
+          >
+            {leftTiles}
+          </div>
+          <div
+            data-testid="venue-column"
+            data-venue-column="diagrams"
+            className="flex min-w-0 flex-col gap-4"
+          >
+            {diagramsBlock}
+          </div>
+        </div>
+      ) : (
+        <>
+          {leftTiles}
+          {diagramsBlock}
+        </>
+      )}
     </div>
   );
 }

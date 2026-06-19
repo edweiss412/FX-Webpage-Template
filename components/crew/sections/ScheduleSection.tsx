@@ -141,34 +141,50 @@ export function ScheduleSection({
 
           const todayIso = todayIsoInShowTimezone(data.show, today);
 
+          // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT
+          // the day-card list (primary, wider via the 1.6fr track), RIGHT the
+          // Daily-call-times strip THEN the "Heads up" degraded tile, stacked.
+          // <720px it collapses to a single column (grid-cols-1) with the left
+          // column first, then the right column — day cards above the times +
+          // heads-up. CSS grid tracks default to `align-items: stretch`, so the
+          // two columns share an equal height at ≥720px without the Tailwind-v4
+          // `.flex`-no-stretch trap (DESIGN §7). Each column carries `min-w-0` so
+          // long day/anchor strings wrap instead of overflowing 390px.
           return (
-            <>
-              {visibleDays.length === 0 ? (
-                <EmptyState label="Show dates haven't been confirmed yet." />
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {visibleDays.map((day) => {
-                    const isToday = day.date === todayIso;
-                    // DayCard's typed props don't forward `data-testid`, so the testid
-                    // lives on a wrapper. The pinned-today card uses the dedicated
-                    // testid; every other card carries its date. Both forms match the
-                    // `^="schedule-day"` prefix selector the tests count.
-                    return (
-                      <div
-                        key={day.date}
-                        data-testid={isToday ? "schedule-day-today" : `schedule-day-${day.date}`}
-                      >
-                        <DayCard day={day.date} phase={day.phase} today={isToday} />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch">
+              <div data-testid="schedule-column" data-schedule-column="days" className="min-w-0">
+                {visibleDays.length === 0 ? (
+                  <EmptyState label="Show dates haven't been confirmed yet." />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {visibleDays.map((day) => {
+                      const isToday = day.date === todayIso;
+                      // DayCard's typed props don't forward `data-testid`, so the testid
+                      // lives on a wrapper. The pinned-today card uses the dedicated
+                      // testid; every other card carries its date. Both forms match the
+                      // `^="schedule-day"` prefix selector the tests count.
+                      return (
+                        <div
+                          key={day.date}
+                          data-testid={isToday ? "schedule-day-today" : `schedule-day-${day.date}`}
+                        >
+                          <DayCard day={day.date} phase={day.phase} today={isToday} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
-              {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
-
-              <KeyTimesStrip anchors={anchors} />
-            </>
+              <div
+                data-testid="schedule-column"
+                data-schedule-column="times"
+                className="flex min-w-0 flex-col gap-4"
+              >
+                <KeyTimesStrip anchors={anchors} />
+                {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
+              </div>
+            </div>
           );
         }}
       />

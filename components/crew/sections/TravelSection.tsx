@@ -150,19 +150,18 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
 
           const allHidden = !hasGettingThere && !hasHotels;
 
-          return (
-            <>
-              {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
-              {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
+          // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT
+          // "Getting there" (ground transport / itinerary), RIGHT "Where you're
+          // staying" (hotels), roughly even (a 1fr/1fr split). <720px collapses to
+          // one column, getting-there above hotels. The grid only mounts when BOTH
+          // blocks have content; with just one present it renders full-width (no
+          // dead column). CSS grid tracks default to align-items:stretch so the two
+          // columns are equal-height at ≥720px (no Tailwind-v4 `.flex` trap); each
+          // column carries `min-w-0` so long strings wrap rather than overflow.
+          const useSplit = hasGettingThere && hasHotels;
 
-              {allHidden && !hotelFetchFailed && !transportFetchFailed ? (
-                <div data-testid="section-empty">
-                  <EmptyState label="No travel details on file yet." />
-                </div>
-              ) : null}
-
-              {hasGettingThere ? (
-                <div data-testid="travel-getting-there">
+          const gettingThereBlock = hasGettingThere ? (
+            <div data-testid="travel-getting-there">
                   <SectionCard title="Getting there">
                     <div className="flex flex-col gap-4">
                       {driverRows.length > 0 ? <KeyValueRows rows={driverRows} /> : null}
@@ -239,9 +238,9 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                     </div>
                   </SectionCard>
                 </div>
-              ) : null}
+          ) : null;
 
-              {hasHotels ? (
+          const hotelsBlock = hasHotels ? (
                 <div data-testid="travel-hotels">
                   <SectionCard title="Hotels">
                     <div className="flex flex-col gap-4">
@@ -317,7 +316,42 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                     </div>
                   </SectionCard>
                 </div>
+          ) : null;
+
+          return (
+            <>
+              {transportFetchFailed ? <SectionTileError domain="transportation" /> : null}
+              {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
+
+              {allHidden && !hotelFetchFailed && !transportFetchFailed ? (
+                <div data-testid="section-empty">
+                  <EmptyState label="No travel details on file yet." />
+                </div>
               ) : null}
+
+              {useSplit ? (
+                <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-2 min-[720px]:items-stretch">
+                  <div
+                    data-testid="travel-column"
+                    data-travel-column="getting-there"
+                    className="flex min-w-0 flex-col gap-4"
+                  >
+                    {gettingThereBlock}
+                  </div>
+                  <div
+                    data-testid="travel-column"
+                    data-travel-column="hotels"
+                    className="flex min-w-0 flex-col gap-4"
+                  >
+                    {hotelsBlock}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {gettingThereBlock}
+                  {hotelsBlock}
+                </>
+              )}
             </>
           );
         }}
