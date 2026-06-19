@@ -105,13 +105,18 @@ git commit -m "test(crew-page): pin TECH-path flight_info parse premise (east-co
 **Files:**
 - Modify: `lib/data/getShowForViewer.ts` (`:97-196` type, `:227`, `:229-248`, `:629-646`)
 - Modify: `tests/fixtures/showForViewer.ts` (`:60-107` `DEFAULT: ShowForViewer` — add the new required field so the shared fixture typechecks)
+- Modify: `tests/data/viewerContext.test.ts` (`:35-52` `makeData()` — a SECOND direct `ShowForViewer` literal that also needs the field)
 - Test: `tests/data/getShowForViewerFlight.test.ts` (create)
 
 **Interfaces:**
 - Consumes: the existing `if (needsCrewLookup)` own-row lookup (`getShowForViewer.ts:234-239`, `.from("crew_members").select("role_flags, name").eq("id", viewer.crewMemberId).eq("show_id", showId).maybeSingle()`); the `let viewerName` pattern (`:227` declare, `:247` assign).
 - Produces: `ShowForViewer.viewerFlightInfo: string | null` — consumed by Task 3 as `data.viewerFlightInfo`, and defaulted to `null` in the shared `makeShowForViewer` fixture (`tests/fixtures/showForViewer.ts`).
 
-> **Type-change ripple (load-bearing):** `viewerFlightInfo` is a NEW REQUIRED field on `ShowForViewer`. The repo has a typed `const DEFAULT: ShowForViewer` in `tests/fixtures/showForViewer.ts:60-107` (the `makeShowForViewer` builder, used by many section/component tests incl. the existing `TravelSection.test.tsx`). Adding the field WITHOUT updating that fixture fails `pnpm tsc --noEmit`. Step 7 updates it; the fixture is staged in this task's commit.
+> **Type-change ripple (load-bearing — complete inventory, swept 2026-06-19).** `viewerFlightInfo` is a NEW REQUIRED field on `ShowForViewer`. A repo-wide sweep for every direct `ShowForViewer` object literal found **exactly two** that will fail `pnpm tsc --noEmit` once the field is added (both must get `viewerFlightInfo: null`):
+> 1. `tests/fixtures/showForViewer.ts:60-107` — the `const DEFAULT: ShowForViewer` (the `makeShowForViewer` builder; backs many section/component tests). → Step 7.
+> 2. `tests/data/viewerContext.test.ts:35-52` — the `makeData()` return literal (`viewerName: null` at `:44`). → Step 7.
+>
+> All OTHER `ShowForViewer` references are unaffected: `previewAsRoute.test.tsx`, `crewShell.test.tsx`, `resolvedArmCrewMembersGuard.test.tsx` return via `as unknown as ShowForViewer` (cast bypasses the field check); `crewShellSections.test.tsx`/`showForViewer.test.ts` delegate to `makeShowForViewer`; `viewerContext.ts:112`, `CrewSection.tsx`, `TodaySection.tsx`, the preview `page.tsx` use `ShowForViewer` only as a parameter/declaration type (no literal). **Backstop:** the Step 9 `pnpm tsc --noEmit` is authoritative — if the compiler flags any other literal, add `viewerFlightInfo: null` to it and stage it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -307,14 +312,22 @@ In the return object, add `viewerFlightInfo` immediately AFTER `viewerName,` (`g
     viewerFlightInfo,
 ```
 
-- [ ] **Step 7: Update the shared `makeShowForViewer` fixture**
+- [ ] **Step 7: Update BOTH direct `ShowForViewer` fixture literals (the ripple inventory)**
 
-In `tests/fixtures/showForViewer.ts`, in the `const DEFAULT: ShowForViewer` object, add `viewerFlightInfo: null` immediately AFTER `viewerName: "Test Crew",` (`:105`):
+(a) In `tests/fixtures/showForViewer.ts`, in `const DEFAULT: ShowForViewer`, add `viewerFlightInfo: null` immediately AFTER `viewerName: "Test Crew",` (`:105`):
 
 ```typescript
   viewerName: "Test Crew",
   viewerFlightInfo: null,
   viewerVersionToken: "v1",
+```
+
+(b) In `tests/data/viewerContext.test.ts`, in the `makeData()` return literal, add `viewerFlightInfo: null` immediately AFTER `viewerName: null,` (`:44`):
+
+```typescript
+    viewerName: null,
+    viewerFlightInfo: null,
+    viewerVersionToken: "",
 ```
 
 - [ ] **Step 8: Run the test to verify it passes**
@@ -330,7 +343,7 @@ Expected: no errors. (Without Step 7 this fails: `DEFAULT` is missing the now-re
 - [ ] **Step 10: Commit**
 
 ```bash
-git add lib/data/getShowForViewer.ts tests/fixtures/showForViewer.ts tests/data/getShowForViewerFlight.test.ts
+git add lib/data/getShowForViewer.ts tests/fixtures/showForViewer.ts tests/data/viewerContext.test.ts tests/data/getShowForViewerFlight.test.ts
 git commit -m "feat(crew-page): project viewer's own flight_info as viewerFlightInfo"
 ```
 
