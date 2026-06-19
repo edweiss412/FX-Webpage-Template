@@ -153,3 +153,53 @@ describe("<PersonRow> — tap-target accessibility", () => {
     expect(labels.some((l) => l.includes(person.name))).toBe(true);
   });
 });
+
+describe("<PersonRow> — icon-only 44px contact buttons (mock .cbtn)", () => {
+  test("renders icon-only phone + email controls with accessible names and no visible label text", () => {
+    const person = { name: "Jane Doe", phone: "610-456-0711", email: "jane@x.com" };
+    const { container } = render(<PersonRow person={person} />);
+
+    // Accessible names survive: getByLabelText-style lookup against the anchors.
+    const anchors = Array.from(container.querySelectorAll("a[href]"));
+    const call = anchors.find((a) => a.getAttribute("aria-label") === `Call ${person.name}`);
+    const email = anchors.find((a) => a.getAttribute("aria-label") === `Email ${person.name}`);
+    expect(call).toBeTruthy();
+    expect(email).toBeTruthy();
+
+    // Correct tel:/mailto: hrefs (phone digits-only so the dialer opens clean).
+    expect(call?.getAttribute("href")).toBe(`tel:${person.phone.replace(/\D+/g, "")}`);
+    expect(email?.getAttribute("href")).toBe(`mailto:${person.email}`);
+
+    // Icon-only: the controls must not render a visible "Call"/"Email" text
+    // label. Scope the assertion to the action anchors so an unrelated sibling
+    // (heading, role, notes) that happens to contain those substrings cannot
+    // mask a regression — and so the aria-label (which legitimately contains
+    // "Call"/"Email") is not what we're scanning. We read textContent, which
+    // excludes attribute values.
+    expect((call?.textContent ?? "")).not.toContain("Call");
+    expect((email?.textContent ?? "")).not.toContain("Email");
+
+    // Each control is a square 44px tap target per the mock `.cbtn` spec:
+    // the centered glyph fills the square, so the anchor carries both the
+    // tap-min sizing and `justify-center` (icon centered, not left-aligned).
+    for (const a of [call, email]) {
+      expect(a?.className).toContain("size-tap-min");
+      expect(a?.className).toContain("min-h-tap-min");
+      expect(a?.className).toContain("justify-center");
+      expect(a?.className).toContain("rounded-[11px]");
+    }
+  });
+
+  test("dead/sentinel contacts render no control (unchanged gate)", () => {
+    const person = { name: "X", phone: "TBD", email: "N/A" };
+    const { container } = render(<PersonRow person={person} />);
+    const anchors = Array.from(container.querySelectorAll("a[href]"));
+    expect(
+      anchors.some((a) => (a.getAttribute("aria-label") ?? "").startsWith("Call")),
+    ).toBe(false);
+    expect(
+      anchors.some((a) => (a.getAttribute("aria-label") ?? "").startsWith("Email")),
+    ).toBe(false);
+    expect(anchors).toHaveLength(0);
+  });
+});

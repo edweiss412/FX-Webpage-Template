@@ -30,9 +30,13 @@
  * downstream highlight treatment (the orange accent stays text-paired per
  * DESIGN.md §1 color-blind floor).
  *
- * Tap targets: each `tel:`/`mailto:` anchor is a standalone ≥44px tap
- * target via `min-h-tap-min` (--spacing-tap-min) per DESIGN.md §3, and
- * carries an `aria-label` so the icon-only control is named.
+ * Tap targets: each `tel:`/`mailto:` anchor is the mock's icon-only
+ * `.cbtn` — a 44px-square tap target (`size-tap-min`, with `min-h-tap-min`
+ * as the explicit ≥44px floor per DESIGN.md §3) rendering ONLY a centered
+ * glyph; the visible "Call"/"Email" text is dropped and the control's name
+ * lives on `aria-label`. The project has no SVG phone/mail icon, so the
+ * legible unicode `☎`/`✉` glyph stands in (sized + centered), not an
+ * invented icon import.
  *
  * Server Component (no `'use client'`) — props in, markup out.
  */
@@ -81,17 +85,22 @@ const CHIP_CLASS = [
 ].join(" ");
 
 /**
- * Shared action-anchor styling (tap-to-call / tap-to-email). `min-w-0 max-w-full`
- * lets the anchor shrink to its column inside the very narrow §4.9 Need-something
- * quick-card at 390px (≈70px wide) instead of forcing its intrinsic width past the
- * card's right edge; the inner label `truncate`s rather than overflowing.
+ * Shared action-anchor styling — the mock `.cbtn`: an icon-only 44px-square
+ * tap target. `size-tap-min` (= `--spacing-tap-min` = 44px, globals.css) makes
+ * the anchor a flush 44×44 square; `min-h-tap-min` keeps the explicit ≥44px tap
+ * floor (DESIGN.md §3) even if the glyph's line-box would otherwise undershoot.
+ * `shrink-0` keeps the square from collapsing inside the very narrow §4.9
+ * Need-something quick-card at 390px (the buttons sit on their own wrap row, so
+ * they never need to shrink to fit). `justify-center` centers the single glyph
+ * in the square — the visible "Call"/"Email" text is dropped; the control's name
+ * lives in `aria-label`. Hover deepens border + sunken fill and warms the glyph
+ * to the accent, matching the mock's contact-button affordance.
  */
 const ACTION_CLASS = [
-  "inline-flex min-h-tap-min min-w-0 max-w-full items-center gap-1.5",
-  "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
-  "text-xs font-medium text-text",
+  "inline-flex size-tap-min min-h-tap-min shrink-0 items-center justify-center",
+  "rounded-[11px] border border-border bg-surface text-text-subtle",
   "transition-colors duration-fast",
-  "hover:text-accent-on-bg hover:border-border-strong",
+  "hover:border-border-strong hover:bg-surface-sunken hover:text-accent-on-bg",
 ].join(" ");
 
 export function PersonRow({ person }: PersonRowProps) {
@@ -168,11 +177,18 @@ export function PersonRow({ person }: PersonRowProps) {
             {phoneActionable ? (
               <a
                 href={`tel:${digitsOnly(person.phone ?? "")}`}
-                className={`${ACTION_CLASS} tabular-nums`}
+                className={ACTION_CLASS}
                 aria-label={`Call ${actionTarget}`}
               >
-                <span aria-hidden="true">{"☎"}</span>
-                <span className="truncate">Call</span>
+                {/* Icon-only: the glyph is the whole control; the accessible
+                    name is on the anchor's `aria-label`, so the glyph is
+                    `aria-hidden`. `leading-none` keeps it optically centered in
+                    the 44px square (the default line-box would bias it low). No
+                    SVG phone/mail icon exists in the project, so the legible
+                    unicode glyph stands in per the mock. */}
+                <span className="text-[18px] leading-none" aria-hidden="true">
+                  {"☎"}
+                </span>
               </a>
             ) : null}
             {emailActionable ? (
@@ -181,8 +197,9 @@ export function PersonRow({ person }: PersonRowProps) {
                 className={ACTION_CLASS}
                 aria-label={`Email ${actionTarget}`}
               >
-                <span aria-hidden="true">{"✉"}</span>
-                <span className="truncate">Email</span>
+                <span className="text-[18px] leading-none" aria-hidden="true">
+                  {"✉"}
+                </span>
               </a>
             ) : null}
           </div>
