@@ -222,7 +222,7 @@ git commit -m "feat(crew): color avatars per-name + 40px (mock fidelity)"
 
 **Files:** Create `lib/crew/agendaDisplay.ts`, `components/crew/primitives/RunOfShowList.tsx`, `tests/crew/agendaDisplay-single-source.test.ts`; Modify `components/crew/sections/ScheduleSection.tsx`.
 
-**Interfaces — Produces (moved verbatim from `ScheduleSection.tsx`):** `lib/crew/agendaDisplay.ts` exports `isDisplayableEntry(entry: AgendaEntry): boolean`, `displayableEntries(entries: AgendaEntry[] | undefined): AgendaEntry[]`, `RUN_OF_SHOW_DISPLAY_CAP = 20`, and the small field helpers (`resolveOptionalField`) the renderer needs. `components/crew/primitives/RunOfShowList.tsx` exports `RunOfShowList({ entries, isoDate })`. Both `ScheduleSection` (Task 3) and `TodaySection` (Task 9) import them. **Pure move — behavior identical.**
+**Interfaces — Produces (moved verbatim from `ScheduleSection.tsx`):** `lib/crew/agendaDisplay.ts` exports `isDisplayableEntry(entry: AgendaEntry): boolean`, `displayableEntries(entries: AgendaEntry[] | undefined): AgendaEntry[]`, `RUN_OF_SHOW_DISPLAY_CAP = 20`, the small field helpers (`resolveOptionalField`), AND `aggregateDays(dates: ShowRow["dates"]): ScheduleDay[]` + the `ScheduleDay`/`SchedulePhase` types (moved from `ScheduleSection.tsx:190-217` — Today's Task-9 show-day membership check reuses `aggregateDays` so both sections key off the SAME day aggregate). `components/crew/primitives/RunOfShowList.tsx` exports `RunOfShowList({ entries, isoDate })`. Both `ScheduleSection` (Task 3) and `TodaySection` (Task 9) import them. **Pure move — behavior identical.**
 
 - [ ] **Step 1: Write the single-source guard test** (`tests/crew/agendaDisplay-single-source.test.ts`) — fails until both sections import from the shared module:
 
@@ -262,11 +262,11 @@ describe("agenda-display single source (Today/Schedule privacy-contract drift gu
 
 - [ ] **Step 2: Run — verify it fails.** `pnpm vitest run tests/crew/agendaDisplay-single-source.test.ts` → FAIL.
 
-- [ ] **Step 3: Create `lib/crew/agendaDisplay.ts`** — move `isDisplayableEntry`, `displayableEntries`, `RUN_OF_SHOW_DISPLAY_CAP`, `resolveOptionalField`, `TITLE_TRUNCATE_AT` verbatim from `ScheduleSection.tsx:54-88,64-69,55-56` (exporting the predicate + cap). Keep imports (`AgendaEntry`, `shouldHideGenericOptional`, `stripAgendaUrls`).
+- [ ] **Step 3: Create `lib/crew/agendaDisplay.ts`** — move `isDisplayableEntry`, `displayableEntries`, `RUN_OF_SHOW_DISPLAY_CAP`, `resolveOptionalField`, `TITLE_TRUNCATE_AT`, AND `aggregateDays` + the `ScheduleDay`/`SchedulePhase` types verbatim from `ScheduleSection.tsx:54-88,190-217` (exporting `isDisplayableEntry`, `displayableEntries`, `RUN_OF_SHOW_DISPLAY_CAP`, `aggregateDays`, `ScheduleDay`, `SchedulePhase`). Keep imports (`AgendaEntry`, `ShowRow`, `shouldHideGenericOptional`, `stripAgendaUrls`). The single-source guard test (Step 1) also asserts `export function aggregateDays`.
 
 - [ ] **Step 4: Create `components/crew/primitives/RunOfShowList.tsx`** — move `RunOfShowEntry` + `RunOfShowList` verbatim from `ScheduleSection.tsx:95-188`, importing `displayableEntries`/`RUN_OF_SHOW_DISPLAY_CAP`/`resolveOptionalField`/`TITLE_TRUNCATE_AT` from `@/lib/crew/agendaDisplay`. Export `RunOfShowList`.
 
-- [ ] **Step 5: Refactor `ScheduleSection.tsx`** — delete the moved symbols; import `displayableEntries` from `@/lib/crew/agendaDisplay` + `RunOfShowList` from the new primitive. The render at `:320-322` calls the imported `displayableEntries` + `RunOfShowList` unchanged.
+- [ ] **Step 5: Refactor `ScheduleSection.tsx`** — delete the moved symbols (`isDisplayableEntry`/`displayableEntries`/`RUN_OF_SHOW_DISPLAY_CAP`/`resolveOptionalField`/`TITLE_TRUNCATE_AT`/`RunOfShowEntry`/`RunOfShowList`/`aggregateDays`/`ScheduleDay`/`SchedulePhase`); import `displayableEntries` + `aggregateDays` + `ScheduleDay` from `@/lib/crew/agendaDisplay` + `RunOfShowList` from the new primitive. The render at `:272,320-322` calls the imported `aggregateDays`/`displayableEntries`/`RunOfShowList` unchanged.
 
 - [ ] **Step 6: Run — verify Schedule is unregressed (the §9 contract tests 32+34 + the new guard's first two `it`s).**
 
@@ -523,16 +523,18 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 - `const { dateRestriction } = resolveViewerContext(viewer, data)` (already have `ctx`).
 - `dateRestriction.kind === "unknown_asterisk"` → **Mode B** (current stack; NO timeline).
 - `const todayIso = todayIsoInShowTimezone(data.show, today)`.
+- **Show-day membership (Codex plan R1 HIGH — required precondition).** `const isShowDay = aggregateDays(data.show.dates).some((d) => d.date === todayIso)`. Uses the SAME `aggregateDays` source Schedule uses (extracted to the shared module in Task 3). This guards against a stale/malformed `runOfShow` key whose date is NOT one of THIS show's days (travelIn/set/showDays/travelOut) — without it a `none` viewer would render a run-of-show for any `runOfShow[todayIso]` key.
 - eligible = `dateRestriction.kind === "none"` OR (`kind === "explicit"` AND `new Set(dateRestriction.days).has(todayIso)`).
 - `const todays = displayableEntries(data.runOfShow?.[todayIso])`.
-- **Mode A** iff `eligible && todays.length > 0` → render `min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch`: LEFT a `SectionCard` "Run of show" containing `<RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />`; RIGHT the existing Tonight/Where/Need-something cards STACKED (`flex flex-col gap-3`). Else **Mode B** (the current full-width stack, unchanged).
-- Fail-closed: any ambiguity → Mode B.
+- **Mode A** iff `isShowDay && eligible && todays.length > 0` → render `min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch`: LEFT a `SectionCard` "Run of show" containing `<RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />`; RIGHT the existing Tonight/Where/Need-something cards STACKED (`flex flex-col gap-3`). Else **Mode B** (the current full-width stack, unchanged).
+- Fail-closed: any ambiguity (not a show day, ineligible, unresolved restriction, empty filter) → Mode B.
 
 - [ ] **Step 1: Write the failing tests** (`tests/components/crew/TodaySection.modeA.test.tsx`) — build a `ShowForViewer` fixture (via the typed `makeShowForViewer` builder in `tests/fixtures/showForViewer.ts`) with `runOfShow[todayIso]` populated:
   1. **unknown_asterisk leak test:** viewer `unknown_asterisk`, today is a show day with entries → Today renders Mode B (no `run-of-show-<iso>` testid, no agenda-entry text, no date text in the DOM).
   2. **eligible Mode A:** `none` viewer, today ∈ show days with displayable entries → the `run-of-show-<todayIso>` container renders left, the quick-cards render right; the split-wide grid class present.
   3. **TZ boundary:** a fixture where UTC date ≠ show-tz date (evening America/Chicago show already "tomorrow" UTC) + a frozen `today` → Mode A/B keys off the SHOW-tz ISO (assert the rendered run-of-show is today's show-tz day, not the UTC day).
   4. **wrapped/empty:** no `runOfShow` → Mode B.
+  5. **non-show-day key (Codex plan R1 HIGH):** a `none` viewer where `runOfShow[todayIso]` is POPULATED with displayable entries but `todayIso` is NOT in `aggregateDays(data.show.dates)` (a stale/off-aggregate key) → Today stays Mode B (no `run-of-show-<iso>` container; the off-aggregate agenda never renders).
 
 - [ ] **Step 2: Run — verify fail.**
 
