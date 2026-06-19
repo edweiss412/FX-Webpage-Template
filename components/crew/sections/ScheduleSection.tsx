@@ -45,8 +45,121 @@ import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import type { ShowRow } from "@/lib/parser/types";
+import type { AgendaEntry, ShowRow } from "@/lib/parser/types";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
+
+// NOTE: the display-cap const (RUN_OF_SHOW_DISPLAY_CAP) and the title-truncation
+// const (TITLE_TRUNCATE_AT) are NOT declared here — they ship in Task 3 alongside
+// their failing tests (TDD per task / invariant 1). Task 2 renders ALL displayable
+// entries untruncated.
+
+/**
+ * Resolve an optional agenda field for display: URL-strip it, then hide it if
+ * the residue is a generic sentinel ('' / TBD / N/A / TBA). Returns null when
+ * the field should not render (the entry still renders iff its title is real,
+ * which the parser/decoder already guarantee).
+ */
+function resolveOptionalField(value: string | undefined): string | null {
+  if (value == null) return null;
+  const stripped = stripAgendaUrls(value);
+  if (shouldHideGenericOptional(stripped)) return null;
+  return stripped;
+}
+
+/**
+ * The parser/decoder prove the title REAL on the RAW value — but a raw title can
+ * be a URL (non-empty, non-sentinel → it passes both gates), and stripAgendaUrls
+ * reduces a URL-only title to "". So RE-validate the title AFTER stripping: an
+ * entry whose stripped title is empty-or-sentinel is NOT displayable (it would
+ * otherwise render a blank agenda-entry row). This is the single source of truth
+ * for "is this entry renderable" — both the per-day mode gate and RunOfShowList
+ * filter through it, so the mode/container key off the DISPLAYABLE count, not the
+ * raw stored count.
+ */
+function isDisplayableEntry(entry: AgendaEntry): boolean {
+  return !shouldHideGenericOptional(stripAgendaUrls(entry.title));
+}
+
+/** The entries of a day that actually render (stripped-title-real), sheet order. */
+function displayableEntries(entries: AgendaEntry[] | undefined): AgendaEntry[] {
+  return (entries ?? []).filter(isDisplayableEntry);
+}
+
+/**
+ * One run-of-show row (spec §4.3 shape). Surfaces ALL six AgendaEntry fields:
+ * the time group `START–FINISH · TRT` (each part sentinel-guarded), the required
+ * real TITLE, then the ROOM + AV-badge metadata when present.
+ */
+function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
+  // Title is URL-stripped (free text could paste a link). The caller only passes
+  // DISPLAYABLE entries (isDisplayableEntry — stripped title is real), so the
+  // stripped title here is guaranteed non-empty and renders. (Title display-
+  // truncation is added in Task 3 as its own red→green TDD step — NOT here.)
+  const title = stripAgendaUrls(entry.title);
+  const start = resolveOptionalField(entry.start) ?? "";
+  const finish = resolveOptionalField(entry.finish);
+  const trt = resolveOptionalField(entry.trt);
+  const room = resolveOptionalField(entry.room);
+  const av = resolveOptionalField(entry.av);
+  // Time group (spec §4.3 row shape): START–FINISH with the TRT duration as a
+  // middot-joined suffix when present (e.g. "7:15 AM–7:30 AM · 0:15"). Each part
+  // is sentinel-guarded via resolveOptionalField, so a TBD/blank trt/finish drops
+  // out without leaving an orphan separator.
+  const range = finish ? `${start}–${finish}` : start;
+  const timeLabel = trt ? (range ? `${range} · ${trt}` : trt) : range;
+
+  return (
+    <li data-testid="agenda-entry" className="flex flex-col gap-0.5 py-1">
+      <div className="flex items-baseline gap-2">
+        {timeLabel ? (
+          <span
+            data-agenda-field="time"
+            className="shrink-0 text-xs font-semibold tabular-nums text-text-subtle"
+          >
+            {timeLabel}
+          </span>
+        ) : null}
+        <span className="min-w-0 text-sm font-medium text-text-strong">{title}</span>
+      </div>
+      {room || av ? (
+        <div className="flex items-center gap-2 text-xs text-text-subtle">
+          {room ? <span data-agenda-field="room">{room}</span> : null}
+          {av ? (
+            <span
+              data-agenda-field="av"
+              className="rounded-xs bg-surface-sunken px-1.5 py-0.5 font-medium uppercase tracking-eyebrow"
+            >
+              {av}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * Per-day run-of-show list. Renders the DISPLAYABLE entries (stripped-title-real)
+ * in sheet order. The caller already gates on displayableEntries(...).length > 0,
+ * so `display` here is non-empty. (The §4.3 display cap + `+N more` overflow stub
+ * are added in Task 3 as their own red→green TDD step — this Task-2 version renders
+ * ALL displayable entries untruncated; Task 2's tests use ≤ cap entries so the
+ * absence of a cap is not a hidden behavior.)
+ */
+function RunOfShowList({ entries, isoDate }: { entries: AgendaEntry[]; isoDate: string }): JSX.Element {
+  const display = displayableEntries(entries);
+  return (
+    <div data-testid={`run-of-show-${isoDate}`} className="mt-2 flex flex-col">
+      <ul className="flex flex-col divide-y divide-border-subtle">
+        {display.map((entry, i) => (
+          <RunOfShowEntry key={i} entry={entry} />
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 type SchedulePhase = "Travel In" | "Set" | "Show" | "Travel Out";
 
@@ -174,6 +287,13 @@ export function ScheduleSection({
                           {...(isToday ? { "data-today": "true" } : {})}
                         >
                           <DayCard day={day.date} phase={day.phase} today={isToday} />
+                          {/* Gate on the DISPLAYABLE count, not the raw stored
+                              count: a day whose entries are all URL-only (stripped
+                              title → "") has zero displayable entries → no
+                              run-of-show container → the Phase-1 anchor floor shows. */}
+                          {displayableEntries(data.runOfShow?.[day.date]).length > 0 ? (
+                            <RunOfShowList entries={data.runOfShow![day.date]!} isoDate={day.date} />
+                          ) : null}
                         </div>
                       );
                     })}
