@@ -334,12 +334,45 @@ function parseGsRoom(markdown: string): RoomRow | null {
     applyGsLabel(room, label, val);
   }
 
-  // Digital Signage
+  // Digital Signage is a BARE row (no "GS " prefix), so scope it to the GS block.
+  // A global match grabs the first "Digital Signage" anywhere in the sheet — e.g.
+  // a ~300-char sentence in a DETAILS/AV section — and copies it onto the GS room
+  // (consultants). The GS room's own value is the bare row immediately after the
+  // GS-prefixed block (redefining "N/A", ria/east-coast "NONE"); consultants has a
+  // BREAKOUT header there instead, so its GS digital_signage is correctly null.
   const dsRe = /^\|\s*Digital\s+Signage\s*\|([^|]*)/im;
-  const dsMatch = dsRe.exec(markdown);
+  const dsMatch = dsRe.exec(extractGsBlock(markdown));
   if (dsMatch) room.digital_signage = presence(clean(dsMatch[1]!));
 
   return room.name ? room : null;
+}
+
+// The GS block = the contiguous "GS <label>"-prefixed rows plus any trailing BARE
+// field rows (Digital Signage, …) that follow across blank/separator rows, up to
+// the next room/section header. Used to scope bare-field extraction to the GS room.
+function extractGsBlock(markdown: string): string {
+  const lines = markdown.split("\n");
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\|\s*GS\s+[A-Za-z]/.test(lines[i]!.trim())) {
+      if (first === -1) first = i;
+      last = i;
+    }
+  }
+  if (first === -1) return "";
+  let end = last;
+  for (let j = last + 1; j < lines.length; j++) {
+    const t = lines[j]!.trim();
+    if (t === "") continue; // blank — keep scanning for the trailing DS row
+    if (!t.startsWith("|")) break; // left the table
+    if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator row
+    if (/^\|\s*(GENERAL SESSION|BREAKOUT|ADDITIONAL|LUNCH|MABEL|LAUDERDALE|DETAILS)\b/i.test(t)) {
+      break; // next room / section
+    }
+    end = j;
+  }
+  return lines.slice(first, end + 1).join("\n");
 }
 
 function applyGsLabel(room: RoomRow, label: string, val: string | null): void {

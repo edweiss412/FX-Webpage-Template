@@ -235,6 +235,30 @@ describe("exporter fidelity — AR R4: multi-stay inline cell splits into per-gr
   });
 });
 
+describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {
+  it("consultants GS does NOT inherit a DETAILS-section Digital Signage sentence", () => {
+    const gs = parse("consultants").rooms.find((r) => r.kind === "gs");
+    expect(gs!.digital_signage).toBeNull(); // ~300-char DETAILS leak removed
+  });
+  it("a GS block WITH an adjacent Digital Signage row keeps it (redefining / ria)", () => {
+    expect(parse("redefining-fi").rooms.find((r) => r.kind === "gs")!.digital_signage).toBe("N/A");
+    expect(parse("ria").rooms.find((r) => r.kind === "gs")!.digital_signage).toBe("NONE");
+  });
+  it("synthetic: the GS block's own DS wins over a later DETAILS Digital Signage row", () => {
+    const md = [
+      "| GS Setup | Theater |",
+      "| GS Other | Podium |",
+      "",
+      "| Digital Signage | 3 monitors at registration |",
+      "",
+      "| DETAILS | DETAILS |",
+      "| Digital Signage | A long DETAILS sentence that must not leak onto the GS room |",
+    ].join("\n");
+    const gs = parseRooms(md, "v2").find((r) => r.kind === "gs");
+    expect(gs!.digital_signage).toBe("3 monitors at registration");
+  });
+});
+
 describe("exporter fidelity — B1 transport assigned_names ignores the col0 stage label", () => {
   it("redefining schedule maps real crew (col3), not the stage label (col0)", () => {
     // parseSheet threads crew into transport; redefining rows are
