@@ -80,11 +80,41 @@ export const SPEC_CODES = {
     "followUp": "Doug → retry; if persistent, Eric",
     "helpfulContext": "The agenda asset route could not resolve or stream the linked Drive PDF for the show.",
   },
+  "AGENDA_BLOCK_UNRESOLVED": {
+    "crewFacing": null,
+    "dougFacing": "One run-of-show day in _<sheet-name>_'s AGENDA couldn't be matched to a show date, so that day shows the standard anchor schedule. Check the AGENDA date/day-name banner, or tell the developer if it keeps happening.",
+    "followUp": "Doug → optional Report",
+    "helpfulContext": "Each run-of-show column is matched to a calendar date using the AGENDA tab's date banner, falling back to the day-name against the show's confirmed days. When neither resolves — a `#REF!` date, a missing banner, or a day-name with no match — that day is not stored and crew see the always-correct anchor schedule for it. Other days are unaffected.",
+  },
+  "AGENDA_DAY_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "A run-of-show day in _<sheet-name>_'s AGENDA matched more than one show date (same weekday), so we didn't guess — that day shows the standard anchor schedule. Add an explicit date to the AGENDA banner to fix it.",
+    "followUp": "Doug → fix sheet",
+    "helpfulContext": "When a run-of-show column has no usable date and its day-name (e.g. 'Wednesday') matches two or more of the show's days, the parser refuses to guess which one it is and stores nothing for that column. Crew see the always-correct anchor schedule for it. Add an explicit date to the AGENDA banner so the day resolves unambiguously.",
+  },
+  "AGENDA_DAY_EMPTIED": {
+    "crewFacing": null,
+    "dougFacing": "A run-of-show day in _<sheet-name>_'s AGENDA that we previously published is now empty in the sheet, so that day reverts to the standard anchor schedule. If that's intentional, no action is needed; if not, restore the day's rows.",
+    "followUp": "Doug → check sheet",
+    "helpfulContext": "A run-of-show day that was previously stored now parses as empty (blank titles or a cleared grid) in the latest sync. Following the confirmed-only rule, we don't keep stale content: the day reverts to the always-correct anchor schedule and the empty state is recorded here so Doug can tell an intentional clear from an accidental one. Restoring the day's rows re-publishes it on the next sync.",
+  },
+  "AGENDA_DAY_TRUNCATED": {
+    "crewFacing": null,
+    "dougFacing": "A run-of-show day in _<sheet-name>_'s AGENDA was unusually large and was trimmed to fit our storage limits (200 entries per day). Crew see the trimmed list. Tell the developer if a real day legitimately needs more.",
+    "followUp": "Doug → optional Report",
+    "helpfulContext": "To keep the per-show sync fast and the stored data bounded, each run-of-show day is capped at 200 entries, per-field lengths, and 32 KB of serialized data. A day that exceeds any cap is trimmed (tail entries dropped). This is almost always a parse artifact or a pathological cell; if a real day legitimately needs more, ask the developer to raise the ceiling.",
+  },
   "AGENDA_GONE_FOR_CREW": {
     "crewFacing": "This agenda isn't available anymore. Text Doug for a fresh link.",
     "dougFacing": null,
     "followUp": "Crew → message Doug",
     "helpfulContext": null,
+  },
+  "AGENDA_GRID_MALFORMED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't locate the run-of-show grid in _<sheet-name>_'s AGENDA tab, so crew see the standard anchor schedule for every day instead of the detailed run-of-show. Check that the AGENDA tab still has its header row, or tell the developer if the layout changed.",
+    "followUp": "Doug → optional Report",
+    "helpfulContext": "The parser locates the AGENDA run-of-show grid by its token-header row (NAME / ARRIVAL / START / FINISH / TRT). When that header can't be found — a renamed tab, a removed header, or an export glitch — no run-of-show is stored and every day falls back to the always-correct anchor schedule. Nothing crew-facing breaks; the rich per-day timeline is simply absent until the grid is locatable again.",
   },
   "AGENDA_UNAUTHENTICATED": {
     "crewFacing": "This link has expired. Text Doug for the current agenda link.",

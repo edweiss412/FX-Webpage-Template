@@ -1075,6 +1075,71 @@ export const MESSAGE_CATALOG = {
       "Some PULL SHEET rows couldn't be fully parsed, usually because QTY is blank, non-numeric, or a range like '1-2'. We keep those cases in the manifest and render the row's raw text on the crew page so techs still see what's in that case. Only the affected rows degrade.",
     helpHref: "/help/errors#PULL_SHEET_PARSE_PARTIAL",
   },
+  AGENDA_GRID_MALFORMED: {
+    code: "AGENDA_GRID_MALFORMED",
+    dougFacing:
+      "We couldn't locate the run-of-show grid in _<sheet-name>_'s AGENDA tab, so crew see the standard anchor schedule for every day instead of the detailed run-of-show. Check that the AGENDA tab still has its header row, or tell the developer if the layout changed.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext:
+      "The parser locates the AGENDA run-of-show grid by its token-header row (NAME / ARRIVAL / START / FINISH / TRT). When that header can't be found — a renamed tab, a removed header, or an export glitch — no run-of-show is stored and every day falls back to the always-correct anchor schedule. Nothing crew-facing breaks; the rich per-day timeline is simply absent until the grid is locatable again.",
+    title: "Run-of-show grid not found",
+    longExplanation:
+      "We couldn't find the AGENDA run-of-show grid by its header row. Crew see the standard anchor schedule for every day instead of the detailed run-of-show until the grid is locatable again.",
+    helpHref: "/help/errors#AGENDA_GRID_MALFORMED",
+  },
+  AGENDA_BLOCK_UNRESOLVED: {
+    code: "AGENDA_BLOCK_UNRESOLVED",
+    dougFacing:
+      "One run-of-show day in _<sheet-name>_'s AGENDA couldn't be matched to a show date, so that day shows the standard anchor schedule. Check the AGENDA date/day-name banner, or tell the developer if it keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext:
+      "Each run-of-show column is matched to a calendar date using the AGENDA tab's date banner, falling back to the day-name against the show's confirmed days. When neither resolves — a `#REF!` date, a missing banner, or a day-name with no match — that day is not stored and crew see the always-correct anchor schedule for it. Other days are unaffected.",
+    title: "Run-of-show day not resolved",
+    longExplanation:
+      "A run-of-show day couldn't be matched to a show date, so that day shows the standard anchor schedule. Other days are unaffected.",
+    helpHref: "/help/errors#AGENDA_BLOCK_UNRESOLVED",
+  },
+  AGENDA_DAY_AMBIGUOUS: {
+    code: "AGENDA_DAY_AMBIGUOUS",
+    dougFacing:
+      "A run-of-show day in _<sheet-name>_'s AGENDA matched more than one show date (same weekday), so we didn't guess — that day shows the standard anchor schedule. Add an explicit date to the AGENDA banner to fix it.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext:
+      "When a run-of-show column has no usable date and its day-name (e.g. 'Wednesday') matches two or more of the show's days, the parser refuses to guess which one it is and stores nothing for that column. Crew see the always-correct anchor schedule for it. Add an explicit date to the AGENDA banner so the day resolves unambiguously.",
+    title: "Run-of-show day is ambiguous",
+    longExplanation:
+      "A run-of-show day's weekday matched more than one show date, so the parser didn't guess and that day shows the standard anchor schedule. Add an explicit date to disambiguate.",
+    helpHref: "/help/errors#AGENDA_DAY_AMBIGUOUS",
+  },
+  AGENDA_DAY_TRUNCATED: {
+    code: "AGENDA_DAY_TRUNCATED",
+    dougFacing:
+      "A run-of-show day in _<sheet-name>_'s AGENDA was unusually large and was trimmed to fit our storage limits (200 entries per day). Crew see the trimmed list. Tell the developer if a real day legitimately needs more.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext:
+      "To keep the per-show sync fast and the stored data bounded, each run-of-show day is capped at 200 entries, per-field lengths, and 32 KB of serialized data. A day that exceeds any cap is trimmed (tail entries dropped). This is almost always a parse artifact or a pathological cell; if a real day legitimately needs more, ask the developer to raise the ceiling.",
+    title: "Run-of-show day trimmed",
+    longExplanation:
+      "A run-of-show day exceeded our storage limits and was trimmed to fit. Crew see the trimmed list.",
+    helpHref: "/help/errors#AGENDA_DAY_TRUNCATED",
+  },
+  AGENDA_DAY_EMPTIED: {
+    code: "AGENDA_DAY_EMPTIED",
+    dougFacing:
+      "A run-of-show day in _<sheet-name>_'s AGENDA that we previously published is now empty in the sheet, so that day reverts to the standard anchor schedule. If that's intentional, no action is needed; if not, restore the day's rows.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "A run-of-show day that was previously stored now parses as empty (blank titles or a cleared grid) in the latest sync. Following the confirmed-only rule, we don't keep stale content: the day reverts to the always-correct anchor schedule and the empty state is recorded here so Doug can tell an intentional clear from an accidental one. Restoring the day's rows re-publishes it on the next sync.",
+    title: "Run-of-show day cleared",
+    longExplanation:
+      "A previously-published run-of-show day is now empty in the sheet, so it reverts to the standard anchor schedule. Restore the rows to re-publish it.",
+    helpHref: "/help/errors#AGENDA_DAY_EMPTIED",
+  },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     code: "PULL_SHEET_AMBIGUOUS_FORMAT",
     dougFacing:
