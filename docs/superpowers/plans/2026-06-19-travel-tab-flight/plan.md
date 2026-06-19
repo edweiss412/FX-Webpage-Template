@@ -19,16 +19,18 @@
 - **Commit per task**, conventional commits (`feat(parser):` / `test(parser):`).
 - **The agenda helpers are module-private** (`isolateAgendaTable`/`cleanRows`/`isTokenHeaderLine`, `agenda.ts`) — write TRAVEL-specific versions; the exported `clean` + `parseTableRows` (`_helpers.ts:18`/`:45`) may be reused where noted.
 
-## §12.4 4-part lockstep (per code, one commit — the M12.1 lesson)
+## §12.4 5-part lockstep (per code, one commit — the M12.1 + Phase-2 lesson)
 
 1. **Master-spec §12.4 table row** (5 columns: code, where-it-surfaces, doug-facing, crew-facing, follow-up) in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (the §12.4 table starts ~`:2768`).
 2. **§12.4 `helpfulContext` appendix entry** (the helpfulContext lives in the YAML appendix AFTER the table, `<!-- §12.4 helpfulContext appendix -->` ~`:2766`, NOT in the table columns).
-3. **`pnpm gen:spec-codes`** (`tsx scripts/extract-spec-codes.ts`) → regenerates `lib/messages/__generated__/spec-codes.ts` (feeds `SPEC_CODES` + auto-derives `CODE_SCENARIOS`).
-4. **`lib/messages/catalog.ts` `MESSAGE_CATALOG[code]`** row — `{ code, severity, dougFacing, crewFacing: null, followUp, helpfulContext, title, longExplanation, helpHref }`. The `x1-catalog-parity` test (`codes.test.ts:79-103`) asserts `dougFacing`/`crewFacing`/`followUp`/`helpfulContext` match §12.4 EXACTLY, and `Object.keys(MESSAGE_CATALOG) === Object.keys(SPEC_CODES)`.
+3. **`pnpm gen:spec-codes`** (`tsx scripts/extract-spec-codes.ts`) → regenerates `lib/messages/__generated__/spec-codes.ts` (feeds `SPEC_CODES` + auto-derives `CODE_SCENARIOS`). Gate: `x1-catalog-parity` (`codes.test.ts`).
+4. **`pnpm gen:internal-code-enums`** (`tsx scripts/extract-internal-code-enums.ts`) → regenerates `lib/messages/__generated__/internal-code-enums.ts`, which extracts every `lib/parser` `code:` literal (the new `TRAVEL_FLIGHT_*` land here beside the `AGENDA_*`). Gate: `x2-no-raw-codes` (`no-raw-codes.test.ts`; CI checks this manifest with `git diff --exit-code`, so a stale manifest deterministically fails CI). **This is the easy-to-miss part — both generated manifests must be regenerated + staged.**
+5. **`lib/messages/catalog.ts` `MESSAGE_CATALOG[code]`** row — `{ code, severity, dougFacing, crewFacing: null, followUp, helpfulContext, title, longExplanation, helpHref }`. The `x1-catalog-parity` test (`codes.test.ts:79-103`) asserts `dougFacing`/`crewFacing`/`followUp`/`helpfulContext` match §12.4 EXACTLY, and `Object.keys(MESSAGE_CATALOG) === Object.keys(SPEC_CODES)`.
 
 ## Meta-test inventory (mandatory declaration)
 
-- **`tests/cross-cutting/codes.test.ts` (orphan-codes + `x1-catalog-parity`) — EXTENDED.** The 3 `code:` literals in `travelFlightWarnings.ts` are producers the orphan gate scans (`PRODUCER_RE = /\bcode:\s*["'`+"`"+`]([A-Z]…)["'`+"`"+`]/g` over app/lib, `codes.test.ts:17`); each MUST be in §12.4 + the catalog. **This is why Task 1 lands the factories + the full lockstep in ONE commit** — a `code:` literal without its §12.4/catalog rows fails the gate.
+- **`tests/cross-cutting/codes.test.ts` (orphan-codes + `x1-catalog-parity`) — EXTENDED.** The 3 `code:` literals in `travelFlightWarnings.ts` are producers the orphan gate scans (`PRODUCER_RE = /\bcode:\s*["'`+"`"+`]([A-Z]…)["'`+"`"+`]/g` over app/lib, `codes.test.ts:17`); each MUST be in §12.4 + the catalog.
+- **`tests/cross-cutting/no-raw-codes.test.ts` (`x2-no-raw-codes`) — EXTENDED via regeneration.** The 3 codes are `lib/parser` literals, so they also enter the generated `lib/messages/__generated__/internal-code-enums.ts` (via `gen:internal-code-enums`); CI checks that manifest with `git diff --exit-code`. **This is why Task 1 lands the factories + the FULL 5-part lockstep (incl. BOTH manifest regens) in ONE commit** — a `code:` literal without its §12.4/catalog rows fails x1, and a stale `internal-code-enums.ts` fails x2.
 - **`postgrest-dml-lockdown`, advisory-lock topology, `_metaSentinelHidingContract` — N/A** (no DB/RPC/lock/UI surface).
 - No layout-dimensions / transition-audit tasks (no UI).
 
@@ -144,19 +146,19 @@ export function travelFlightAmbiguousTable(): ParseWarning {
 
 - [ ] **Step 6: Add the 3 `helpfulContext` entries to the §12.4 appendix** (the `<!-- §12.4 helpfulContext appendix -->` block). Each names the cause + the fix, e.g. for `TRAVEL_FLIGHT_NAME_UNMATCHED`: "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because its crew name didn't exactly match a roster name (zero or multiple matches). The flight is skipped (never mis-assigned); fix the name spelling so it matches the roster." (Similar concrete copy for UNPARSEABLE — no readable date; AMBIGUOUS_TABLE — duplicate table, remove the old one.)
 
-- [ ] **Step 7: Regenerate + add catalog rows**
+- [ ] **Step 7: Regenerate BOTH manifests + add catalog rows**
 
-Run: `pnpm gen:spec-codes` (regenerates `lib/messages/__generated__/spec-codes.ts`). Then add a `MESSAGE_CATALOG` row for each code in `lib/messages/catalog.ts` (model = `AGENDA_DAY_EMPTIED`, `:1130`): `{ code, severity: "warning", dougFacing: "<exact §12.4 doug-facing>", crewFacing: null, followUp: "Doug → check sheet", helpfulContext: "<exact §12.4 appendix text>", title: "<short>", longExplanation: "<1-2 sentences>", helpHref: "/help/errors#<CODE>" }`. The `dougFacing`/`crewFacing`/`followUp`/`helpfulContext` MUST byte-match §12.4 (the parity test).
+Run `pnpm gen:spec-codes` (regenerates `lib/messages/__generated__/spec-codes.ts` from §12.4) **AND** `pnpm gen:internal-code-enums` (`tsx scripts/extract-internal-code-enums.ts` — regenerates `lib/messages/__generated__/internal-code-enums.ts`, which extracts every `lib/parser` `code:` literal; the 3 new `TRAVEL_FLIGHT_*` codes land here alongside the existing `AGENDA_*` — the Phase-2 lesson, the `x2-no-raw-codes` CI gate checks this manifest). Then add a `MESSAGE_CATALOG` row for each code in `lib/messages/catalog.ts` (model = `AGENDA_DAY_EMPTIED`, `:1130`): `{ code, severity: "warning", dougFacing: "<exact §12.4 doug-facing>", crewFacing: null, followUp: "Doug → check sheet", helpfulContext: "<exact §12.4 appendix text>", title: "<short>", longExplanation: "<1-2 sentences>", helpHref: "/help/errors#<CODE>" }`. The `dougFacing`/`crewFacing`/`followUp`/`helpfulContext` MUST byte-match §12.4 (the parity test).
 
-- [ ] **Step 8: Run the codes gate**
+- [ ] **Step 8: Run BOTH code gates**
 
-Run: `pnpm vitest run tests/cross-cutting/codes.test.ts tests/parser/travelFlightWarnings.test.ts`
-Expected: PASS — the factory payloads are pinned; the 3 producer literals resolve to §12.4 + catalog; `MESSAGE_CATALOG` keys === `SPEC_CODES` keys; field parity holds. (If it fails on a field mismatch, align catalog ↔ §12.4 exactly.)
+Run: `pnpm vitest run tests/cross-cutting/codes.test.ts tests/parser/travelFlightWarnings.test.ts && pnpm test:audit:x2-no-raw-codes`
+Expected: PASS — the factory payloads are pinned; the 3 producer literals resolve to §12.4 + catalog (`codes.test.ts`: `MESSAGE_CATALOG` keys === `SPEC_CODES` keys, field parity); AND the x2 audit (`gen:internal-code-enums` + `no-raw-codes.test.ts`) passes with the regenerated `internal-code-enums.ts` containing the 3 new codes (no stale manifest → CI `git diff --exit-code` clean). (If x1 fails on a field mismatch, align catalog ↔ §12.4 exactly; if x2 fails, the manifest wasn't regenerated.)
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Commit** (factories + factory test + BOTH manifests + §12.4 + catalog, one commit)
 
 ```bash
-git add lib/parser/blocks/travelFlightWarnings.ts tests/parser/travelFlightWarnings.test.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md lib/messages/__generated__/spec-codes.ts lib/messages/catalog.ts
+git add lib/parser/blocks/travelFlightWarnings.ts tests/parser/travelFlightWarnings.test.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md lib/messages/__generated__/spec-codes.ts lib/messages/__generated__/internal-code-enums.ts lib/messages/catalog.ts
 git commit -m "feat(parser): TRAVEL flight warning codes (3) + §12.4 catalog lockstep"
 ```
 
@@ -436,7 +438,7 @@ git commit -m "feat(parser): parse TRAVEL-tab flights into crew flight_info (joi
 ## Close-out (after Task 3, before merge)
 
 1. **Cross-model adversarial review** (Codex) on the whole branch diff, iterate to APPROVE.
-2. **CI green** (codes/x1, structural gates; no screenshot/UI surface, so no drift expected).
+2. **CI green** — especially `x1-catalog-parity` AND `x2-no-raw-codes` (both generated manifests current), plus the structural/parser gates. No screenshot/UI surface, so no drift expected. Verify locally with `pnpm test:audit:x1-catalog-parity && pnpm test:audit:x2-no-raw-codes` before merge (a stale `internal-code-enums.ts` fails x2's `git diff --exit-code`).
 3. **Merge** as a merge commit; sync local main.
 
 Resolves `DEF-FLIGHT-1` (the deferred entry from the Phase-3 crew-flight DEFERRED.md). ~Doubles flight coverage (East Coast 3 TECH-path crew → +RPAS/FinTech 3 TRAVEL-tab crew).
