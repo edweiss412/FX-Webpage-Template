@@ -50,15 +50,52 @@
 ## Task 1: Warning factories + §12.4 lockstep (×3)
 
 **Files:**
-- Create: `lib/parser/blocks/travelFlightWarnings.ts`
+- Create: `lib/parser/blocks/travelFlightWarnings.ts`, `tests/parser/travelFlightWarnings.test.ts`
 - Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 table + appendix), `lib/messages/catalog.ts`; regen `lib/messages/__generated__/spec-codes.ts`
-- Test: the existing `tests/cross-cutting/codes.test.ts` (must stay green)
+- Test: the new `tests/parser/travelFlightWarnings.test.ts` (pins the factory payloads) + the existing `tests/cross-cutting/codes.test.ts` (must stay green)
 
 **Interfaces:**
 - Consumes: `ParseWarning` (`lib/parser/types.ts:1-6`, `{ severity, code, message, blockRef?, rawSnippet? }`).
 - Produces: `travelFlightNameUnmatched(name)`, `travelFlightUnparseable(name, rawCell)`, `travelFlightAmbiguousTable()` → `ParseWarning`. Used by Task 3.
 
-- [ ] **Step 1: Write the warning factories** (`lib/parser/blocks/travelFlightWarnings.ts`) — mirrors `agendaWarnings.ts`:
+- [ ] **Step 1: Write the FAILING factory test** (`tests/parser/travelFlightWarnings.test.ts`) — TDD red. The codes gate only proves catalog parity; this pins the actual `ParseWarning` payloads (severity, code, blockRef, rawSnippet, message):
+
+```ts
+import { describe, it, expect } from "vitest";
+import {
+  travelFlightNameUnmatched, travelFlightUnparseable, travelFlightAmbiguousTable,
+} from "@/lib/parser/blocks/travelFlightWarnings";
+
+describe("travelFlight warning factories", () => {
+  it("nameUnmatched → warn, code, blockRef travel, rawSnippet=name, message names the crew", () => {
+    const w = travelFlightNameUnmatched("John Carleo");
+    expect(w.severity).toBe("warn");
+    expect(w.code).toBe("TRAVEL_FLIGHT_NAME_UNMATCHED");
+    expect(w.blockRef).toEqual({ kind: "travel", index: 0 });
+    expect(w.rawSnippet).toBe("John Carleo");
+    expect(w.message).toContain("John Carleo");
+  });
+  it("unparseable → warn, code, rawSnippet=raw cell, message names the crew", () => {
+    const w = travelFlightUnparseable("John Carleo", "Mar 22 note");
+    expect(w.severity).toBe("warn");
+    expect(w.code).toBe("TRAVEL_FLIGHT_UNPARSEABLE");
+    expect(w.rawSnippet).toBe("Mar 22 note");
+    expect(w.message).toContain("John Carleo");
+  });
+  it("ambiguousTable → warn, code, blockRef travel (table-level)", () => {
+    const w = travelFlightAmbiguousTable();
+    expect(w.severity).toBe("warn");
+    expect(w.code).toBe("TRAVEL_FLIGHT_AMBIGUOUS_TABLE");
+    expect(w.blockRef).toEqual({ kind: "travel", index: 0 });
+  });
+});
+```
+
+- [ ] **Step 2: Run — verify it fails** (`Cannot find module … travelFlightWarnings`).
+
+Run: `pnpm vitest run tests/parser/travelFlightWarnings.test.ts` → FAIL.
+
+- [ ] **Step 3: Write the warning factories** (`lib/parser/blocks/travelFlightWarnings.ts`) — mirrors `agendaWarnings.ts`:
 
 ```ts
 import type { ParseWarning } from "../types";
@@ -95,7 +132,9 @@ export function travelFlightAmbiguousTable(): ParseWarning {
 }
 ```
 
-- [ ] **Step 2: Add the 3 rows to the master-spec §12.4 table** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, in the §12.4 code table). Each row, 5 columns, e.g.:
+- [ ] **Step 4: Run the factory test — verify it passes.** `pnpm vitest run tests/parser/travelFlightWarnings.test.ts` → PASS.
+
+- [ ] **Step 5: Add the 3 rows to the master-spec §12.4 table** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, in the §12.4 code table). Each row, 5 columns, e.g.:
 
 ```markdown
 | TRAVEL_FLIGHT_NAME_UNMATCHED | A TRAVEL-tab flight whose crew name doesn't match the roster (parser warning, quiet → /admin/dev + sync_log). | "A flight on the TRAVEL tab couldn't be matched to a crew name — check the name spelling matches the roster." | — | Doug → check sheet |
@@ -103,21 +142,21 @@ export function travelFlightAmbiguousTable(): ParseWarning {
 | TRAVEL_FLIGHT_AMBIGUOUS_TABLE | More than one TRAVEL flight table found in the sheet export (parser warning, quiet). | "Found more than one TRAVEL flight table — remove or rename the duplicate/old one so flights can be read." | — | Doug → check sheet |
 ```
 
-- [ ] **Step 3: Add the 3 `helpfulContext` entries to the §12.4 appendix** (the `<!-- §12.4 helpfulContext appendix -->` block). Each names the cause + the fix, e.g. for `TRAVEL_FLIGHT_NAME_UNMATCHED`: "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because its crew name didn't exactly match a roster name (zero or multiple matches). The flight is skipped (never mis-assigned); fix the name spelling so it matches the roster." (Similar concrete copy for UNPARSEABLE — no readable date; AMBIGUOUS_TABLE — duplicate table, remove the old one.)
+- [ ] **Step 6: Add the 3 `helpfulContext` entries to the §12.4 appendix** (the `<!-- §12.4 helpfulContext appendix -->` block). Each names the cause + the fix, e.g. for `TRAVEL_FLIGHT_NAME_UNMATCHED`: "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because its crew name didn't exactly match a roster name (zero or multiple matches). The flight is skipped (never mis-assigned); fix the name spelling so it matches the roster." (Similar concrete copy for UNPARSEABLE — no readable date; AMBIGUOUS_TABLE — duplicate table, remove the old one.)
 
-- [ ] **Step 4: Regenerate + add catalog rows**
+- [ ] **Step 7: Regenerate + add catalog rows**
 
 Run: `pnpm gen:spec-codes` (regenerates `lib/messages/__generated__/spec-codes.ts`). Then add a `MESSAGE_CATALOG` row for each code in `lib/messages/catalog.ts` (model = `AGENDA_DAY_EMPTIED`, `:1130`): `{ code, severity: "warning", dougFacing: "<exact §12.4 doug-facing>", crewFacing: null, followUp: "Doug → check sheet", helpfulContext: "<exact §12.4 appendix text>", title: "<short>", longExplanation: "<1-2 sentences>", helpHref: "/help/errors#<CODE>" }`. The `dougFacing`/`crewFacing`/`followUp`/`helpfulContext` MUST byte-match §12.4 (the parity test).
 
-- [ ] **Step 5: Run the codes gate**
+- [ ] **Step 8: Run the codes gate**
 
-Run: `pnpm vitest run tests/cross-cutting/codes.test.ts`
-Expected: PASS — the 3 producer literals resolve to §12.4 + catalog; `MESSAGE_CATALOG` keys === `SPEC_CODES` keys; field parity holds. (If it fails on a field mismatch, align catalog ↔ §12.4 exactly.)
+Run: `pnpm vitest run tests/cross-cutting/codes.test.ts tests/parser/travelFlightWarnings.test.ts`
+Expected: PASS — the factory payloads are pinned; the 3 producer literals resolve to §12.4 + catalog; `MESSAGE_CATALOG` keys === `SPEC_CODES` keys; field parity holds. (If it fails on a field mismatch, align catalog ↔ §12.4 exactly.)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add lib/parser/blocks/travelFlightWarnings.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md lib/messages/__generated__/spec-codes.ts lib/messages/catalog.ts
+git add lib/parser/blocks/travelFlightWarnings.ts tests/parser/travelFlightWarnings.test.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md lib/messages/__generated__/spec-codes.ts lib/messages/catalog.ts
 git commit -m "feat(parser): TRAVEL flight warning codes (3) + §12.4 catalog lockstep"
 ```
 
