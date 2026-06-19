@@ -105,6 +105,19 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
 }
 
 /**
+ * A row-level `confirmation_no` is only safe when the reservation has a SINGLE
+ * guest with a single confirmation number. A reservation row reaches EVERY guest
+ * on it (the crew projection filters reservations by name, and any of the listed
+ * names matches), so storing per-guest conf#s on a multi-guest row would leak each
+ * guest's number to the others (the LodgingTile renders the row-level value).
+ * Multi-guest reservations therefore suppress the conf# until a per-guest schema
+ * exists — see DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY round 3.
+ */
+function reservationConf(names: string[], confs: string[]): string | null {
+  return names.length === 1 && confs.length === 1 ? confs[0]! : null;
+}
+
+/**
  * Parse the structured HOTEL block used in v4 (2026+) and later v2 (2025) sheets.
  *
  * The table has the shape:
@@ -235,12 +248,12 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
         const g = parseGuestCell(col1);
         leftSlot.names.push(...g.names);
-        if (g.confs.length) leftSlot.confirmation_no = g.confs.join(", ");
+        leftSlot.confirmation_no = reservationConf(g.names, g.confs);
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         const g = parseGuestCell(col3);
         rightSlot.names.push(...g.names);
-        if (g.confs.length) rightSlot.confirmation_no = g.confs.join(", ");
+        rightSlot.confirmation_no = reservationConf(g.names, g.confs);
       }
       rowState = "idle";
       continue;
@@ -496,8 +509,9 @@ function buildInlineHotel(
     if (rolled) check_out = rolled;
   }
 
-  // Lift per-guest confirmation numbers ("Doug Larson—2035940", "Eric --- 104461566")
-  // out of the cell so they aren't dropped; the name list itself stays clean.
+  // Lift the confirmation number ("Doug Larson—2035940", "Eric --- 104461566") out
+  // of the cell so it isn't dropped; the name list itself stays clean. Only a
+  // single-guest reservation keeps a row-level conf# (see reservationConf).
   const confs = [...text.matchAll(/[-–—]{1,3}\s*#?\s*(\d{4,})/g)].map((m) => m[1]!);
 
   return {
@@ -505,7 +519,7 @@ function buildInlineHotel(
     hotel_name: presence(hotelNameRaw),
     hotel_address: null,
     names,
-    confirmation_no: confs.length ? confs.join(", ") : null,
+    confirmation_no: reservationConf(names, confs),
     check_in,
     check_out,
     notes: null,

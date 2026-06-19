@@ -536,19 +536,33 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     expect(hits, `raw entity at:\n${hits.join("\n")}`).toEqual([]);
   });
 
-  it("#4: hotel confirmation numbers are extracted (table path: rpas, &#10;-separated guests)", () => {
-    const hr = parse("rpas").hotelReservations;
-    // Guest names split out of the "Name - #conf&#10;Name - #conf" cell, no entity, no conf# digits glued in
-    for (const h of hr)
+  it("#4: a SINGLE-guest reservation keeps its conf# (table: rpas; inline: consultants Eric)", () => {
+    const rpas = parse("rpas").hotelReservations;
+    // table path: a single-guest reservation carries its conf#; multi-guest names
+    // are still split out of "Name - #conf&#10;Name - #conf" and stay clean.
+    expect(
+      rpas.some((h) => h.names.length === 1 && h.confirmation_no && /\d{4,}/.test(h.confirmation_no)),
+    ).toBe(true);
+    for (const h of rpas)
       for (const n of h.names) expect(n, `rpas name "${n}"`).not.toMatch(/&#1?0;|#?\d{4,}/);
-    // The conf# digits live in confirmation_no instead of being dropped
-    expect(hr.some((h) => h.confirmation_no && /\d{4,}/.test(h.confirmation_no))).toBe(true);
+
+    // inline path: consultants' solo Eric Weiss reservation keeps conf# 2035937
+    const eric = parse("consultants").hotelReservations.find(
+      (h) => h.names.length === 1 && h.names[0]!.includes("Eric"),
+    );
+    expect(eric?.confirmation_no).toBe("2035937");
   });
 
-  it("#4: hotel confirmation numbers are extracted (inline path: consultants em-dash)", () => {
-    const hr = parse("consultants").hotelReservations;
-    expect(hr.some((h) => h.confirmation_no && /\d{4,}/.test(h.confirmation_no))).toBe(true);
-    for (const h of hr)
-      for (const n of h.names) expect(n, `consultants name "${n}"`).not.toMatch(/\d{4,}/);
+  it("#4 PRIVACY: no MULTI-guest reservation carries a row-level conf# (would leak across guests)", () => {
+    // A reservation row reaches EVERY listed guest (the projection filters by name),
+    // and LodgingTile renders the row-level confirmation_no — so per-guest conf#s on
+    // a shared row must be suppressed until a per-guest schema exists.
+    for (const s of SLUGS) {
+      for (const h of parse(s).hotelReservations) {
+        if (h.names.length > 1) {
+          expect(h.confirmation_no, `${s} multi-guest row [${h.names.join(", ")}]`).toBeNull();
+        }
+      }
+    }
   });
 });
