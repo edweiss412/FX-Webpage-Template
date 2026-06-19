@@ -579,4 +579,4 @@ git commit -m "feat(crew-page): render viewer's own flight in Travel section"
 3. **CI green** (the structural/DB/screenshot gates; note `screenshots-drift` may need a baseline regen if the Travel surface is captured — check the help-screenshot manifest).
 4. **Merge** as a merge commit (`gh pr merge --merge`); sync local main.
 
-Deferred (filed): `DEF-FLIGHT-1` (TRAVEL-tab flight parser), `BL-CREW-PII-DB-LOCKDOWN` (crew-PII DB hardening).
+Deferred (filed): `DEF-FLIGHT-1` (TRAVEL-tab flight parser) in `docs/superpowers/plans/2026-06-19-crew-flight-info/DEFERRED.md`; `BL-CREW-PII-DB-LOCKDOWN` (crew-PII DB hardening) in `docs/superpowers/plans/BACKLOG.md`.
