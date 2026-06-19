@@ -418,7 +418,7 @@ describe("TravelSection — flight card", () => {
     expect(queryByTestId("travel-flight")).toBeNull();
   });
 
-  it("strips a schemed/Google URL from a leg but keeps the real text", () => {
+  it("strips a schemed URL from a leg but keeps the real text", () => {
     const { getByTestId } = renderTravel(
       baseData({ viewerFlightInfo: "EWR-FLL UNITED https://aa.com/checkin HQQ79F | FLL-EWR JET BLUE OSUULZ" }),
     );
@@ -428,11 +428,34 @@ describe("TravelSection — flight card", () => {
     expect(card).toHaveTextContent("HQQ79F");
   });
 
+  it("strips a SCHEME-LESS Google Drive link from a leg but keeps the real text", () => {
+    // stripAgendaUrls strips scheme-less drive/docs.google.com too — an impl that
+    // only strips https?:// would render this Google link in the crew DOM.
+    const { getByTestId } = renderTravel(
+      baseData({ viewerFlightInfo: "EWR-FLL UNITED drive.google.com/file/d/abc123 HQQ79F | FLL-EWR JET BLUE OSUULZ" }),
+    );
+    const card = getByTestId("travel-flight");
+    expect(card).not.toHaveTextContent("drive.google.com");
+    expect(card).toHaveTextContent("EWR-FLL");
+    expect(card).toHaveTextContent("HQQ79F");
+  });
+
   it("drops a leg that is only a schemed URL, keeps the real leg", () => {
     const { getByTestId } = renderTravel(
       baseData({ viewerFlightInfo: "https://aa.com/checkin | FLL-EWR JET BLUE OSUULZ" }),
     );
     const legs = within(getByTestId("travel-flight")).getAllByTestId("travel-flight-leg");
+    expect(legs).toHaveLength(1);
+    expect(legs[0]).toHaveTextContent("FLL-EWR");
+  });
+
+  it("drops a leg that is only a SCHEME-LESS Google Docs link, keeps the real leg", () => {
+    const { getByTestId } = renderTravel(
+      baseData({ viewerFlightInfo: "docs.google.com/document/d/xyz789 | FLL-EWR JET BLUE OSUULZ" }),
+    );
+    const card = getByTestId("travel-flight");
+    expect(card).not.toHaveTextContent("docs.google.com");
+    const legs = within(card).getAllByTestId("travel-flight-leg");
     expect(legs).toHaveLength(1);
     expect(legs[0]).toHaveTextContent("FLL-EWR");
   });
