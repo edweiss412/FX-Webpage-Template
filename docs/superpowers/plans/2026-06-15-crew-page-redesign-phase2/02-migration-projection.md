@@ -116,7 +116,7 @@ alter table public.shows_internal
 ```
 > `closed_at` must cite the EXACT line of the `revoke insert, update, delete on table public.shows_internal …` statement in the new migration (read the file after writing it and fill the real line number). The `postBody` is a structurally-valid INSERT body that mutates nothing once the lockdown holds; `rowFilter` is the no-match filter PATCH/DELETE need to avoid a 400-from-missing-filter (sentinel UUID matches no row).
 
-**Failing test (CODE):** the bidirectional meta-test already exists and will go red the moment the REVOKE migration lands WITHOUT the registry row (and vice versa). To make the lockstep explicit, first write the migration (Step below) and run the suite to observe `postgrest-dml-lockdown.test.ts:714` red ("Tables with table-level REVOKE blocks but no entry in RPC_GATED_TABLES: shows_internal"). Then add the registry row. (TDD here = "migration first, watch the bidirectional meta-test fail, add the row to green it" — the test is pre-existing, the new code is the migration + row.)
+**Failing test (CODE) — IMPL task with a genuine task-local red→green (the test assertion is pre-existing, but the new code drives the transition):** the bidirectional meta-test already exists and will go red the moment the REVOKE migration lands WITHOUT the registry row (and vice versa). To make the lockstep explicit, first write the migration (Step below) and run the suite to observe `postgrest-dml-lockdown.test.ts:714` red ("Tables with table-level REVOKE blocks but no entry in RPC_GATED_TABLES: shows_internal"). Then add the registry row. (TDD here = "migration first, watch the bidirectional meta-test fail, add the row to green it" — the test is pre-existing, the new code is the migration + row; the red→green is real because the REVOKE migration is what makes `:714` fail. The behavioral DML-rejection matrix — anon/authenticated INSERT/UPDATE/DELETE rejected — also flips for `shows_internal` only once the REVOKE lands.)
 
 **Run-fails (after writing the migration, before the registry row):** `pnpm vitest run tests/db/postgrest-dml-lockdown.test.ts` → `:714` red. _Failure this catches: a REVOKE shipped without its registry row (or a row without a REVOKE) — the lockstep that keeps the DML-rejection matrix honest._
 
@@ -846,7 +846,9 @@ describe("getShowForViewer.runOfShow projection (D-4)", () => {
 
 ---
 
-## Task 02.6 — `run_of_show` as a first-class `failedKeys` domain (CrewShell alert test)
+## Task 02.6 — `run_of_show` as a first-class `failedKeys` domain (CrewShell alert pin) — **VERIFICATION-ONLY (no new implementation)**
+
+> **VERIFICATION-ONLY task (invariant-1 labeling, R19).** This task ships NO new implementation code — it adds ONE cross-cutting regression-pin assertion to an EXISTING test harness. It is **green by construction** the moment it's written: `CrewShell` already forwards the render's OWN unfiltered `tileErrors` keys into `context.failedKeys` (existing, `crewShell.test.tsx:437-462`), and Task 02.5 already sets `tileErrors["run_of_show"]`. So there is **NO task-local red→green** here, and none is claimed. Its value is a durable pin against a FUTURE allowlist that would drop `run_of_show` from the admin alert (split-brain); its "teeth" are the mandatory negative-regression stub below (stub a 5-domain allowlist → confirm THIS assertion goes red). The behavioral red→green for the `run_of_show` tileError itself lives in Task 02.5 (the returned-error / thrown-exception cases that SET `tileErrors["run_of_show"]` — those fail before 02.5's read block exists). _(Considered folding into 02.5 per R19 option (a); kept separate per option (b) because the assertion exercises the `crewShell.test.tsx` render harness — `renderShell`/`makeData`/`upsertAdminAlert` mock — a DIFFERENT layer/harness from 02.5's `getShowForViewer` projection mock, and moving it would not create a real red→green either since the CrewShell pass-through is unfiltered-by-construction.)_
 
 **Files:** EDIT `tests/components/crew/crewShell.test.tsx` (the `failedKeys` describe block, ~`:441-462`).
 
@@ -866,11 +868,11 @@ it("run_of_show is a first-class failedKeys domain (viewer-independent — prese
 });
 ```
 
-**Run-fails:** run BEFORE Tasks 02.3/02.5 are wired into the render? No — this test is purely about `CrewShell`'s `tileErrors → failedKeys` pass-through, which already exists. The test goes green immediately IF the pass-through already forwards arbitrary keys. To prove it is a real regression guard (not tautological): temporarily stub `CrewShell` to filter `failedKeys` to a hardcoded 5-domain allowlist and confirm THIS test fails (negative-regression check, then revert the stub). Document that in the test comment. _Failure this catches: a future allowlist that drops `run_of_show` from the admin alert (split-brain — produced domain left unasserted)._
+**Verify (green by construction — NO claimed red→green):** `pnpm vitest run tests/components/crew/crewShell.test.tsx` → green. This is expected and is NOT a TDD red→green — the assertion documents that `CrewShell`'s existing unfiltered `tileErrors → context.failedKeys` pass-through carries `run_of_show` like any other domain.
 
-**Run-passes:** `pnpm vitest run tests/components/crew/crewShell.test.tsx` → green.
+**Mandatory negative-regression (the real teeth):** temporarily stub `CrewShell` to filter `failedKeys` to a hardcoded 5-domain allowlist (excluding `run_of_show`), run the test, and CONFIRM this assertion goes RED — proving it actually pins the contract (not a tautology). Revert the stub. Document the stub procedure in the test comment. _Failure this catches: a future allowlist that drops `run_of_show` from the admin alert (split-brain — produced domain left unasserted)._
 
-**Commit:** `test(crew-page): pin run_of_show as a first-class failedKeys alert domain`
+**Commit:** `test(crew-page): pin run_of_show as a first-class failedKeys alert domain (verification-only regression pin)`
 
 ---
 

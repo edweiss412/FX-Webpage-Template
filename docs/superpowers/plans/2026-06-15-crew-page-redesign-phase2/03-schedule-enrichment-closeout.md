@@ -203,7 +203,7 @@ export function stripAgendaUrls(value: string): string {
 
 > **Render placement decision (binding):** the run-of-show list renders **inside the existing day wrapper `<div>`** (`ScheduleSection.tsx:170-175`), as a child appended after `<DayCard>` so the day's phase/date header (DayCard) is preserved and the run-of-show is its body. The wrapper keeps its `data-testid`/`data-day`/`data-today` (today-pin + clock e2e contract). The new list carries its own `data-testid="run-of-show-<isoDate>"`. A day WITHOUT a confirmed run-of-show renders `<DayCard>` alone (Phase-1-identical).
 
-This task ships, RED→GREEN in one task: the **per-day mode branch, the 6-field entry render (URL-strip + sentinel hiding wired), the displayableEntries gating (R12), and the per-day mutual-exclusivity + URL-strip tests**. It renders **all displayable entries untruncated with no cap** — so the absence of a cap/truncation is NOT a hidden user-visible behavior (Task 2's tests use ≤ cap entries with ≤ 80-char titles). The display cap + 80-char `<details>` truncation are deferred to Task 3 (each shipped with its own failing test first — invariant 1). Sentinel-hiding behavioral coverage + the trt-field tests are Task 4; the field reads themselves are wired here so Task 4 only ADDS tests, not impl.
+This task ships, RED→GREEN in one task: the **per-day mode branch, the 6-field entry render, the displayableEntries gating (R12), and ALL of that behavior's tests** — per-day mutual-exclusivity, the positive 6-field render, the URL-strip (title/room/av), the URL-only-suppression (FIX-3), AND the sentinel-hiding negative cases (`room='TBD'`/`av=''`/`finish='N/A'`/`trt='TBD'` hidden) + the trt-present render (R15). All of these are BEHAVIOR shipped here, so per invariant 1 their failing tests live here (not in a later task). It renders **all displayable entries untruncated with no cap** — so the absence of a cap/truncation is NOT a hidden user-visible behavior (Task 2's tests use ≤ cap entries with ≤ 80-char titles). The display cap + 80-char `<details>` truncation are deferred to Task 3 (each shipped with its own failing test first — invariant 1). **Task 4 is VERIFICATION-ONLY** — it adds only the structural `_metaSentinelHidingContract` walk row + the 6-field source-scan guard (green-by-construction pins over the behavior Task 2 ships), NO new impl and NO behavioral red→green.
 
 **Failing test (write FIRST):** `tests/components/crew/sections/ScheduleSection.agenda.test.tsx`
 
@@ -254,9 +254,9 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
   });
 
   // Task 2 renders ALL six AgendaEntry fields. Pin the POSITIVE render here (same
-  // task as the impl, invariant 1) so "renders 6 fields" isn't proven only by
-  // Task 4's sentinel-hiding cases. Values read from the DATA SOURCE D1_ENTRIES
-  // (anti-tautology), scoped to the D1 list subtree.
+  // task as the impl, invariant 1) so "renders 6 fields" is proven in-task, not
+  // only by the sentinel-hiding negative cases below. Values read from the DATA
+  // SOURCE D1_ENTRIES (anti-tautology), scoped to the D1 list subtree.
   test("a present entry surfaces all six fields: start, finish, trt, title, room, av", () => {
     const c = renderAgenda({ [D1]: D1_ENTRIES });
     const d1List = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
@@ -360,10 +360,57 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
     // The day card itself still renders (the floor is intact).
     expect(c.querySelector(`[data-day="${D1}"]`)).not.toBeNull();
   });
+
+  // ── Sentinel hiding per optional field (spec test 8a) — the SENTINEL-HIDING
+  // BEHAVIOR ships in THIS task (RunOfShowEntry → resolveOptionalField →
+  // shouldHideGenericOptional), so its behavioral tests live here (invariant 1:
+  // impl + its failing test share a task). The structural _metaSentinelHidingContract
+  // walk extension that PINS the routing is the verification-only Task 4.
+  test("room='TBD' / av='' are hidden, but the entry still shows (title is real)", () => {
+    const c = renderAgenda({ [D1]: [{ start: "9:00", title: "Opening Keynote", room: "TBD", av: "" }] });
+    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    expect(list.textContent).toContain("Opening Keynote");
+    expect(list.querySelector('[data-agenda-field="room"]')).toBeNull();
+    expect(list.querySelector('[data-agenda-field="av"]')).toBeNull();
+    expect(list.textContent).not.toContain("TBD");
+  });
+
+  test("finish='N/A' hidden → time shows START only (no en-dash range)", () => {
+    const c = renderAgenda({ [D1]: [{ start: "9:00", finish: "N/A", title: "Session" }] });
+    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    expect(list.textContent).toContain("9:00");
+    expect(list.textContent).not.toContain("N/A");
+    expect(list.textContent).not.toContain("–"); // no range dash when finish is sentinel
+  });
+
+  // trt (session duration) — surfaced in the time group as START–FINISH · TRT
+  // (R15). Behavior ships in this task; pinned here.
+  test("trt='0:15' present → the duration renders in the time group", () => {
+    const TRT = "0:15";
+    const c = renderAgenda({ [D1]: [{ start: "7:15 AM", finish: "7:30 AM", trt: TRT, title: "Breakfast" }] });
+    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    const time = list.querySelector('[data-agenda-field="time"]')!;
+    // Assert against the DATA SOURCE value (anti-tautology), inside the time cell.
+    expect(time.textContent).toContain(TRT);
+    expect(time.textContent).toContain("7:15 AM");
+    expect(time.textContent).toContain("7:30 AM");
+    expect(list.textContent).toContain("Breakfast");
+  });
+
+  test("trt='TBD' hidden → trt dropped, entry still shows (title real), no orphan middot", () => {
+    const c = renderAgenda({ [D1]: [{ start: "9:00", finish: "9:30", trt: "TBD", title: "Session" }] });
+    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    const time = list.querySelector('[data-agenda-field="time"]')!;
+    expect(time.textContent).toContain("9:00");
+    expect(time.textContent).toContain("9:30");
+    expect(time.textContent).not.toContain("TBD");
+    expect(time.textContent).not.toContain("·"); // no orphan middot separator when trt is sentinel
+    expect(list.textContent).toContain("Session");
+  });
 });
 ```
 
-- [ ] Write the test. **Run → MUST FAIL** (no `run-of-show-<iso>` element renders): `pnpm vitest run tests/components/crew/sections/ScheduleSection.agenda.test.tsx`. **Failure mode caught:** double-rendering (both modes in one day), the anchor floor disappearing when a SIBLING day has agenda, a title-only entry rendering an empty row, the list rendering when `runOfShow` is null, **a URL-only title rendering a BLANK `agenda-entry` row (FIX-3 — the entry/container must gate on the stripped-title-real DISPLAYABLE count, so an all-URL-only day falls to the anchor floor and a mixed day shows only the real entries), or a Drive/Zoom/scheme-less-Google URL in `title`/`room`/`av` leaking into the crew DOM (URL-strip wired in this task).**
+- [ ] Write the test. **Run → MUST FAIL** (no `run-of-show-<iso>` element renders): `pnpm vitest run tests/components/crew/sections/ScheduleSection.agenda.test.tsx`. **Failure mode caught:** double-rendering (both modes in one day), the anchor floor disappearing when a SIBLING day has agenda, a title-only entry rendering an empty row, the list rendering when `runOfShow` is null, **a URL-only title rendering a BLANK `agenda-entry` row (FIX-3 — the entry/container must gate on the stripped-title-real DISPLAYABLE count, so an all-URL-only day falls to the anchor floor and a mixed day shows only the real entries), a Drive/Zoom/scheme-less-Google URL in `title`/`room`/`av` leaking into the crew DOM (URL-strip wired in this task), a `TBD`/blank `room`/`av`/`finish`/`trt` leaking as real content, an `N/A` finish making a `9:00–N/A` range, or a present `trt` being silently dropped (R15).**
 
 **Minimal implementation** — edit `components/crew/sections/ScheduleSection.tsx`. Add imports + consts + helpers near the top (after the existing imports / `aggregateDays`), and the per-day branch inside the map. Full additions:
 
@@ -508,7 +555,7 @@ return (
 
 - [ ] Run → **MUST PASS**: `pnpm vitest run tests/components/crew/sections/ScheduleSection.agenda.test.tsx`.
 - [ ] Run the existing Schedule test for no regression: `pnpm vitest run tests/components/crew/sections/ScheduleSection.test.tsx` (must stay green — proves the day wrapper testid/today-pin contract is intact).
-- [ ] **Commit:** `feat(crew-page): render run-of-show list per Schedule day when confirmed`
+- [ ] **Commit:** `feat(crew-page): render run-of-show list per Schedule day (6 fields, URL-strip, sentinel hiding, trt)`
 
 ---
 
@@ -716,89 +763,15 @@ describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, Schedu
 
 ---
 
-### Task 4 — Sentinel hiding (test 8) + extend `_metaSentinelHidingContract`
+### Task 4 — VERIFICATION-ONLY: extend `_metaSentinelHidingContract` + 6-field source-scan guard
 
-**Files:** edit `tests/components/tiles/_metaSentinelHidingContract.test.ts`; create `tests/components/crew/sections/ScheduleSection.sentinel.test.tsx`. (No `ScheduleSection.tsx` change expected — Task 2 already routes optional fields through `resolveOptionalField` → `shouldHideGenericOptional`; tighten only if a test fails.)
+> **VERIFICATION-ONLY task — no implementation, no behavioral red→green cycle.** The sentinel-hiding + trt-render BEHAVIOR ships in **Task 2** (`RunOfShowEntry` → `resolveOptionalField` → `shouldHideGenericOptional`, plus the `entry.trt` read), and its behavioral tests (`room='TBD'`/`av=''` hidden, `finish='N/A'` hidden, `trt='0:15'` rendered, `trt='TBD'` hidden) live in **Task 2's** test file alongside that impl (invariant 1: impl + first failing test share a task). **This task adds ONLY two STRUCTURAL pins** — both green-by-construction once Task 2 lands, asserting structure rather than exercising a new behavior: (A) the `_metaSentinelHidingContract` walk row that PINS the §03 reads stay routed through `shouldHideGenericOptional`, and (C) a source-scan guard that no `AgendaEntry` field is silently dropped. No `ScheduleSection.tsx` change.
 
-**Failing test A — behavioral sentinel hiding:** `tests/components/crew/sections/ScheduleSection.sentinel.test.tsx`
+**Files:** edit `tests/components/tiles/_metaSentinelHidingContract.test.ts`; create `tests/components/crew/sections/ScheduleSection.fieldGuards.test.tsx` (the 6-field source-scan completeness guard).
 
-```tsx
-// @vitest-environment jsdom
-import { describe, expect, test } from "vitest";
-import { render } from "@testing-library/react";
-import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
-import type { AgendaEntry } from "@/lib/parser/types";
+> **Note on spec test 8b "sentinel TITLE → anchor strip":** test 8b (a row whose TITLE is a sentinel → no entry; a day of all-sentinel titles → `[]` → anchor strip) is a **PARSER/decoder contract** owned by §01 (parser step-4 emit gate) and §02 (`decodeRunOfShow` title gate) — by the time data reaches `ScheduleSection`, a sentinel-title day is already `runOfShow[d] = []` or the key is absent, so the UI's `?.length > 0` branch falls to anchor-only. The §03-side assertion is: **a day projected with zero entries renders no run-of-show element** — already covered by Task 2's "runOfShow=null" + the per-day "D2 absent → null" + the URL-only-day assertions. **No additional §03 test is needed for 8b.**
 
-const TODAY = new Date("2026-05-14T15:00:00Z");
-const SHOW_ID = "show-abc";
-const D1 = "2026-05-14";
-const DATES = { travelIn: null, set: null, showDays: [D1], travelOut: null };
-const VIEWER = { kind: "admin" } as const;
-
-function renderEntries(entries: AgendaEntry[]) {
-  return render(
-    <ScheduleSection
-      data={makeShowForViewer({ show: { dates: DATES }, runOfShow: { [D1]: entries } })}
-      viewer={VIEWER}
-      today={TODAY}
-      showId={SHOW_ID}
-    />,
-  ).container;
-}
-
-describe("Schedule run-of-show — sentinel hiding per optional field (test 8a)", () => {
-  test("room='TBD' / av='' are hidden, but the entry still shows (title is real)", () => {
-    const c = renderEntries([{ start: "9:00", title: "Opening Keynote", room: "TBD", av: "" }]);
-    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
-    expect(list.textContent).toContain("Opening Keynote");
-    expect(list.querySelector('[data-agenda-field="room"]')).toBeNull();
-    expect(list.querySelector('[data-agenda-field="av"]')).toBeNull();
-    expect(list.textContent).not.toContain("TBD");
-  });
-
-  test("finish='N/A' hidden → time shows START only (no en-dash range)", () => {
-    const c = renderEntries([{ start: "9:00", finish: "N/A", title: "Session" }]);
-    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
-    expect(list.textContent).toContain("9:00");
-    expect(list.textContent).not.toContain("N/A");
-    expect(list.textContent).not.toContain("–"); // no range dash when finish is sentinel
-  });
-
-  // FIX (R15) — trt (session duration) MUST be surfaced. The data source carries
-  // it; the render must read entry.trt (sentinel-guarded) and show it in the time
-  // group as `START–FINISH · TRT`. Catches the silent-drop where entry.trt is
-  // never read (every crew row loses the duration).
-  test("trt='0:15' present → the duration renders in the time group", () => {
-    const TRT = "0:15";
-    const c = renderEntries([{ start: "7:15 AM", finish: "7:30 AM", trt: TRT, title: "Breakfast" }]);
-    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
-    const time = list.querySelector('[data-agenda-field="time"]')!;
-    // Assert against the DATA SOURCE value (anti-tautology), inside the time cell.
-    expect(time.textContent).toContain(TRT);
-    expect(time.textContent).toContain("7:15 AM");
-    expect(time.textContent).toContain("7:30 AM");
-    expect(list.textContent).toContain("Breakfast");
-  });
-
-  test("trt='TBD' / '' hidden → trt dropped, entry still shows (title real), no orphan middot", () => {
-    const c = renderEntries([{ start: "9:00", finish: "9:30", trt: "TBD", title: "Session" }]);
-    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
-    const time = list.querySelector('[data-agenda-field="time"]')!;
-    expect(time.textContent).toContain("9:00");
-    expect(time.textContent).toContain("9:30");
-    expect(time.textContent).not.toContain("TBD");
-    expect(time.textContent).not.toContain("·"); // no orphan middot separator when trt is sentinel
-    expect(list.textContent).toContain("Session");
-  });
-});
-```
-
-- [ ] Write the test. **Run → MUST PASS** (Task 2 already wired it; if it fails, fix `resolveOptionalField`/the trt read): `pnpm vitest run tests/components/crew/sections/ScheduleSection.sentinel.test.tsx`. **Failure mode caught:** a `TBD`/blank `room`/`av`/`finish`/`trt` leaking into the run-of-show row as if real content; an `N/A` finish producing a `9:00–N/A` range; **a present `trt` duration being silently dropped (never read) — R15** — or a sentinel `trt` leaving an orphan `·` middot.
-
-> **Note on test 8 "sentinel TITLE → anchor strip":** the spec's test 8b (a row whose TITLE is a sentinel → no entry; a day of all-sentinel titles → `[]` → anchor strip) is a **PARSER/decoder contract** owned by §01 (parser step-4 emit gate) and §02 (`decodeRunOfShow` title gate) — by the time data reaches `ScheduleSection`, a sentinel-title day is already `runOfShow[d] = []` or the key is absent, so the UI's `?.length > 0` branch falls to anchor-only. The §03-side assertion is: **a day projected with zero entries renders no run-of-show element** — already covered by Task 2's "runOfShow=null" + the per-day "D2 absent → null" assertions, and re-pinned by test 6a below. **No additional §03 test is needed for 8b** beyond confirming the empty-day → anchor-only path (Task 2). State this in the commit body so the reviewer doesn't expect a parser test here.
-
-**Failing test B — extend the structural meta-test:** add a `GENERIC_OPTIONAL_FIELDS` row to `tests/components/tiles/_metaSentinelHidingContract.test.ts` (in the array, `:133-222`) matching the new agenda field read path:
+**Verification pin A — extend the structural meta-test (green-by-construction once Task 2's reads land):** add a `GENERIC_OPTIONAL_FIELDS` row to `tests/components/tiles/_metaSentinelHidingContract.test.ts` (in the array, `:133-222`) matching the new agenda field read path:
 
 ```ts
 // Phase-2 §4.3: ScheduleSection run-of-show optional fields. The agenda entry's
@@ -812,9 +785,9 @@ describe("Schedule run-of-show — sentinel hiding per optional field (test 8a)"
 },
 ```
 
-- [ ] **Run → MUST PASS**: `pnpm vitest run tests/components/tiles/_metaSentinelHidingContract.test.ts`. (Because `ScheduleSection.tsx` reads `entry.room`/`entry.av`/`entry.finish`/`entry.trt` AND imports+calls `shouldHideGenericOptional`, the new pattern matches and the structural contract is satisfied. **Negative-regression check:** temporarily comment out the `shouldHideGenericOptional` import in `ScheduleSection.tsx`, re-run → the meta-test MUST FAIL; restore. Note the negative-regression result in the commit body.)
+- [ ] **Run → MUST PASS (verification-only — green by construction):** `pnpm vitest run tests/components/tiles/_metaSentinelHidingContract.test.ts`. (Because Task 2's `ScheduleSection.tsx` reads `entry.room`/`entry.av`/`entry.finish`/`entry.trt` AND imports+calls `shouldHideGenericOptional`, the new pattern matches and the structural contract is satisfied — there is no red→green here, this is a structural pin over already-shipped behavior.) **Negative-regression check (proves the pin bites):** temporarily comment out the `shouldHideGenericOptional` import in `ScheduleSection.tsx`, re-run → the meta-test MUST FAIL; restore. Note the negative-regression result in the commit body.
 
-**Failing test C — ALL-six-fields completeness guard (R15 — catches a SILENTLY-DROPPED field).** The `_metaSentinelHidingContract` pattern is conditional ("IF a field is read, guard it") — it does NOT catch a field that is simply never read (the R15 bug: `entry.trt` parsed/stored/projected but never rendered). Add a source-scan sync guard to `tests/components/crew/sections/ScheduleSection.sentinel.test.tsx` asserting `ScheduleSection.tsx` reads EVERY `AgendaEntry` field, so a future impl that drops one fails at CI:
+**Verification pin C — ALL-six-fields completeness guard (R15 — catches a SILENTLY-DROPPED field; structural, not a behavior).** The `_metaSentinelHidingContract` pattern is conditional ("IF a field is read, guard it") — it does NOT catch a field that is simply never read (the R15 bug: `entry.trt` parsed/stored/projected but never rendered). Add a source-scan guard in `tests/components/crew/sections/ScheduleSection.fieldGuards.test.tsx` asserting Task 2's `ScheduleSection.tsx` reads EVERY `AgendaEntry` field, so a future impl that drops one fails at CI:
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -836,12 +809,14 @@ test("ScheduleSection reads ALL six AgendaEntry fields (no silent field drop —
 });
 ```
 
-- [ ] **Run → MUST PASS** (the impl reads all six). **Negative-regression:** temporarily delete the `entry.trt` read in `ScheduleSection.tsx`, re-run → this guard MUST FAIL on `entry.trt`; restore. _Catches: any of the 6 `AgendaEntry` fields (start/finish/trt/title/room/av) silently never rendered — the exact R15 class._
-- [ ] **Commit:** `test(crew-page): pin run-of-show sentinel hiding + all-6-field completeness; extend _metaSentinelHidingContract pattern`
+- [ ] **Run → MUST PASS (verification-only — green by construction; Task 2's impl reads all six).** **Negative-regression (proves the pin bites):** temporarily delete the `entry.trt` read in `ScheduleSection.tsx`, re-run → this guard MUST FAIL on `entry.trt`; restore. _Catches: any of the 6 `AgendaEntry` fields (start/finish/trt/title/room/av) silently never rendered — the exact R15 class._
+- [ ] **Commit:** `test(crew-page): pin run-of-show field-completeness + sentinel-routing structural guards (verification-only)`
 
 ---
 
-### Task 5 — Anchor floor + CONFIRMED-ONLY non-regression (test 6 — the load-bearing pin)
+### Task 5 — VERIFICATION-ONLY: Anchor floor + CONFIRMED-ONLY non-regression pin (test 6 — the load-bearing pin)
+
+> **VERIFICATION-ONLY task — no new implementation; no behavioral red→green cycle.** These are REGRESSION PINS over Phase-1 + §02 behavior (the anchor floor is Phase-1; the CONFIRMED-ONLY retention is §02). §03 adds NO new impl here — the per-day-mode gate that makes a non-confirmed day fall to the floor already shipped in Task 2 (`displayableEntries(...).length > 0`). This task asserts §03 does not REGRESS the Phase-1 anchor floor or resurrect a stale/dropped entry; it is **green by construction** once Task 2 lands. (A regression pin is verification by nature — it would only go red if a LATER change regressed the floor, which is exactly what it guards.)
 
 **Files:** create `tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`.
 
@@ -918,8 +893,8 @@ describe("Schedule anchor floor + CONFIRMED-ONLY (test 6 — UI half)", () => {
 });
 ```
 
-- [ ] Write the test. **Run → MUST FAIL** initially only if Task 2's null/empty guard is wrong; otherwise it should pass green after Task 2 (it is the regression PIN). Run: `pnpm vitest run tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`. **Failure mode caught:** Phase 2 cannibalizing the Phase-1 anchor floor (day cards / times strip disappearing when `runOfShow` is null or a fetch fault fires); a `{}`-or-`[]` day rendering an empty run-of-show element; a non-confirmed day resurrecting stale entries; raw infra text (`"boom"`) leaking into the crew DOM. **This is the R22 / wp-12 UI guard — do-not-relitigate the CONFIRMED-ONLY retention; §03 only proves the UI never resurrects what §02 dropped.**
-- [ ] **Commit:** `test(crew-page): pin Schedule anchor floor + CONFIRMED-ONLY non-regression (R22 UI half)`
+- [ ] Write the test. **Run → MUST PASS (verification-only — green by construction):** Task 2's null/empty/`[]` guard + `displayableEntries` gate already make every non-confirmed shape fall to the floor, so this regression pin passes the moment Task 2 lands (no red→green; it would only go red if a future change regressed the floor — exactly what it guards). Run: `pnpm vitest run tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`. **Negative-regression (proves the pin bites):** temporarily make the per-day branch render `RunOfShowList` for a `[]` day (drop the `displayableEntries(...).length > 0` gate), re-run → 6c MUST FAIL; restore. **Failure mode caught:** Phase 2 cannibalizing the Phase-1 anchor floor (day cards / times strip disappearing when `runOfShow` is null or a fetch fault fires); a `{}`-or-`[]` day rendering an empty run-of-show element; a non-confirmed day resurrecting stale entries; raw infra text (`"boom"`) leaking into the crew DOM. **This is the R22 / wp-12 UI guard — do-not-relitigate the CONFIRMED-ONLY retention; §03 only proves the UI never resurrects what §02 dropped.**
+- [ ] **Commit:** `test(crew-page): pin Schedule anchor floor + CONFIRMED-ONLY non-regression (R22 UI half, verification-only)`
 
 ---
 
@@ -939,7 +914,7 @@ describe("Schedule anchor floor + CONFIRMED-ONLY (test 6 — UI half)", () => {
 
 **No new files.** Apply the spec self-review additions (AGENTS.md project-scoped) against the full §03 diff:
 
-- [ ] **Guard conditions (§4.5):** confirm every `runOfShow` shape is handled — `null` → anchors (test 6a); `{}` → anchors (6a'); `[date]=[]` → anchors (6c); title-only entry → title row (Task 2); sentinel optional fields → hidden (Task 4); `unknown_asterisk` viewer → projection drops all keys (the existing Phase-1 unknown_asterisk early-return at `ScheduleSection.tsx:111-122` runs BEFORE the day map, so no run-of-show renders — confirm by reading the branch; add a one-line assertion to Task 2 if not implicitly covered).
+- [ ] **Guard conditions (§4.5):** confirm every `runOfShow` shape is handled — `null` → anchors (test 6a, Task 5); `{}` → anchors (6a', Task 5); `[date]=[]` → anchors (6c, Task 5); title-only entry → title row (Task 2); sentinel optional fields (`room`/`av`/`finish`/`trt`) → hidden (Task 2 behavioral tests); URL-only title → suppressed (Task 2); `unknown_asterisk` viewer → projection drops all keys (the existing Phase-1 unknown_asterisk early-return at `ScheduleSection.tsx:111-122` runs BEFORE the day map, so no run-of-show renders — confirm by reading the branch; add a one-line assertion to Task 2 if not implicitly covered).
 - [ ] **Mode boundaries (§4.6):** exactly-one-mode-per-day pinned (Task 2 clone assertion). No shared element between modes.
 - [ ] **Cap/truncation (§4.5/D-6):** 20-cap + `+N more` (count = `displayableEntries.length − 20`, i.e. the stripped-title-real entries, NOT the raw stored length — FIX-3 reconciles D-6's "from the stored array" with the render-time URL-only-title filter: a URL-only entry never occupies a row slot nor inflates the overflow count) + 80-char `<details>` all pinned (Task 3). Overflow at `> cap` not `>= cap`.
 - [ ] **Rendered-vs-conceptual:** the run-of-show list, overflow stub, and truncated-title `<details>` are RENDERED elements with exact `data-testid`s — confirm each is in the impl, not just prose.
@@ -997,8 +972,10 @@ The review-focus brief MUST include this **EXPLICITLY DO NOT RELITIGATE** block 
 - [ ] **Anchor floor byte-identical** — `runOfShow = null` renders the Phase-1 Schedule output unchanged; day cards + times strip intact under a `run_of_show` fetch fault (Task 5, test 6a/6b).
 - [ ] **All 3 non-confirmed shapes → anchors (UI half)** — absent / `[]` / null projected day renders anchor-only, never resurrects entries (Task 5, 6c); the storage-side R22 pins live in §02.
 - [ ] **URL-strip green (Task 2) + caps green (Task 3)** — Drive / non-Google schemed / scheme-less-Google URLs in title/room/av absent from crew DOM (Task 2, wired into `RunOfShowEntry`); 20-cap + `+N more` (count = displayable `length − 20`) + 80-char `<details>` (Task 3, test 7a).
-- [ ] **Sentinel meta extended** — `_metaSentinelHidingContract` `GENERIC_OPTIONAL_FIELDS` gains the `entry.(room|av|finish|trt)` pattern AND `ScheduleSection.tsx` imports+calls `shouldHideGenericOptional` (Task 4); negative-regression confirmed.
+- [ ] **Sentinel hiding + trt behavior green (Task 2)** — `room`/`av`/`finish`/`trt` sentinel values hidden, entry still shows; `trt='0:15'` renders in the time group; all six fields surfaced — behavioral tests ship in Task 2 alongside the impl (invariant 1).
+- [ ] **Sentinel meta + field-completeness pins extended (Task 4, verification-only)** — `_metaSentinelHidingContract` `GENERIC_OPTIONAL_FIELDS` gains the `entry.(room|av|finish|trt)` pattern AND the 6-field source-scan guard asserts `ScheduleSection.tsx` reads all six fields + imports/calls `shouldHideGenericOptional`; both negative-regressions confirmed (no impl, green-by-construction).
 - [ ] **CardinalityCapBoundary extended** — run-of-show cap-1/cap/cap+1 row, against the exported `RUN_OF_SHOW_DISPLAY_CAP` (Task 3).
+- [ ] **TDD-boundary clean (invariant 1)** — every IMPL task (1/2/3) has its own failing-test→impl→passing cycle; every VERIFICATION-ONLY task (4/5/6/7/8/9/10) is explicitly labeled, adds no impl, and claims no red→green. No behavior is implemented in one task and tested in another.
 - [ ] **Impeccable PASS (BEFORE Codex — invariant 8)** — critique + audit, external attestation, HIGH/CRITICAL fixed or DEFERRED.md'd (Task 8).
 - [ ] **Codex APPROVE (after impeccable)** — adversarial review converged with the do-not-relitigate block honored (Task 9); any UI-touching adversarial fix re-runs the impeccable dual-gate before merge.
 - [ ] **CI green** — real GitHub Actions, all gates including sentinel-meta walk + cap matrix + x2-no-raw-codes + help-screenshot drift (Task 10).
