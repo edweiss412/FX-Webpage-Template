@@ -35,9 +35,11 @@ export function parseRooms(
 ): RoomRow[] {
   // Try v4 structured block first. A v4 room block uses all-caps GENERAL SESSION /
   // BREAKOUT headers as standalone rows. If any are found, treat as v4 and skip v2/v1 parsers.
-  const v4Rooms = parseV4Rooms(markdown);
-  const rooms: RoomRow[] =
-    v4Rooms.length > 0 ? v4Rooms : collectV2V1Rooms(markdown);
+  // Use sawV4 (a v4 layout was detected) — NOT v4Rooms.length — to decide the
+  // path: an all-stub v4 sheet gates every room out yet must still NOT fall back
+  // to v2/v1 parsing, which would re-emit the same stubs as phantom rooms.
+  const { rooms: v4Rooms, sawV4 } = parseV4Rooms(markdown);
+  const rooms: RoomRow[] = sawV4 ? v4Rooms : collectV2V1Rooms(markdown);
 
   // Free-text "Additional Room Name(s) / Setup" FIELDS (distinct from the all-caps
   // ADDITIONAL ROOM block) carry real crew instructions — meal/social rooms, setup
@@ -118,10 +120,14 @@ function hasBareV4DataRow(lines: string[], startLine: number): boolean {
   return false;
 }
 
-function parseV4Rooms(markdown: string): RoomRow[] {
+function parseV4Rooms(markdown: string): { rooms: RoomRow[]; sawV4: boolean } {
   const rooms: RoomRowInternal[] = [];
   const lines = markdown.split("\n");
   let i = 0;
+  // True once any v4-shaped room header is detected, even if every room is then
+  // content-gated out — so an all-stub v4 sheet stays on the v4 path instead of
+  // falling back to v2/v1 parsing (which would re-emit the same stubs as phantoms).
+  let sawV4 = false;
 
   while (i < lines.length) {
     const line = (lines[i] ?? "").trim();
@@ -145,6 +151,7 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
+      sawV4 = true;
       const result = parseV4RoomBlock(lines, i, col0, "gs");
       rooms.push(result.room);
       i = result.nextLine;
@@ -163,6 +170,7 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
+      sawV4 = true;
       const result = parseV4RoomBlock(lines, i, col0, "breakout");
       i = result.nextLine;
       if (roomHasContent(result.room) || !isPlaceholderRoomName(result.room.name))
@@ -181,6 +189,7 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
+      sawV4 = true;
       const result = parseV4RoomBlock(lines, i, col0, "additional");
       i = result.nextLine;
       if (roomHasContent(result.room) || !isPlaceholderRoomName(result.room.name))
@@ -189,7 +198,7 @@ function parseV4Rooms(markdown: string): RoomRow[] {
     }
   }
 
-  return rooms.map(({ _nextLine: _n, ...rest }) => rest as RoomRow);
+  return { rooms: rooms.map(({ _nextLine: _n, ...rest }) => rest as RoomRow), sawV4 };
 }
 
 // A v4 room header is a placeholder template ("BREAKOUT 1 BREAKOUT ROOM

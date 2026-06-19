@@ -408,4 +408,18 @@ describe("exporter fidelity — AR: v4 additional rooms (content-gated, not drop
     expect(breakouts).toHaveLength(1); // SALON D kept; template stub dropped
     expect(breakouts[0]!.name).toContain("SALON D");
   });
+  it("R11: an all-stub v4 sheet stays on the v4 path — no v2 fallback re-emitting phantoms", () => {
+    // Only empty placeholder BREAKOUT/ADDITIONAL stubs (no GS): parseV4Rooms gates
+    // them all out, but sawV4 keeps us off the v2 path that would re-parse them.
+    const md = [
+      "| BREAKOUT 1 BREAKOUT ROOM Dimensions Floor | BREAKOUT 1 BREAKOUT ROOM Dimensions Floor |",
+      "| :---: | :---: |",
+      "| Setup |  |",
+      "",
+      "| ADDITIONAL ROOM Dimensions Floor | ADDITIONAL ROOM Dimensions Floor |",
+      "| :---: | :---: |",
+      "| Setup |  |",
+    ].join("\n");
+    expect(parseRooms(md, "v4")).toEqual([]);
+  });
 });
