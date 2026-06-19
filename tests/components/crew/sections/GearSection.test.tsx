@@ -89,3 +89,17 @@ test("pack list omitted when isPackListVisibleToday is false", () => {
     ).container.querySelector('[data-testid="gear-pack-list"]'),
   ).toBeNull();
 });
+
+test("a pure-URL opening reel with no video renders NO Opening reel card (whole-card-missing; Codex review R1)", () => {
+  // A pure Drive URL strips to "" → shouldHideOpeningReel hides it (reelText null);
+  // with no video, hasReel is false → the card must NOT render (no empty shell),
+  // preserving the deleted OpeningReelTile's whole-tile-missing contract.
+  const data = makeShowForViewer({
+    show: { event_details: { opening_reel: "https://drive.google.com/file/d/abc/view" } },
+    openingReelHasVideo: false,
+  });
+  const { container } = render(
+    <GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+  );
+  expect(container.querySelector('[data-testid="gear-opening-reel"]')).toBeNull();
+});

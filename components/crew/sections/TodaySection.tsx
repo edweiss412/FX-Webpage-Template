@@ -218,6 +218,13 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
           // WrappedSection render-throw arm.
           const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && ctx.isAdmin;
           const hotelFetchFailed = Boolean(data.tileErrors["hotel"]) && ctx.isAdmin;
+          // Today consumes contacts in TWO places (the Need-something card +
+          // the contact source of the 5-source notes), so a contacts fetch
+          // failure must surface as a degraded block on the PRIMARY section,
+          // not a silent omission (else admins can't tell "fetch failed" from
+          // "genuinely contact-less"). Contacts is ungated, so the degraded
+          // block is admin-only (crew omission); no second upsertAdminAlert.
+          const contactsFetchFailed = Boolean(data.tileErrors["contacts"]) && ctx.isAdmin;
 
           return (
             <>
@@ -225,6 +232,7 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
 
               {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
               {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
+              {contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}
 
               <KeyTimesStrip anchors={anchors} />
 

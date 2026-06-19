@@ -173,7 +173,14 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
           const rawReel = data.show.event_details["opening_reel"] ?? null;
           const reelText = shouldHideOpeningReel(rawReel) ? null : stripOpeningReelText(rawReel);
           const showReelPlayer = data.openingReelHasVideo;
-          const hasReel = showReelPlayer || reelText !== null;
+          // Defensive invariant: "has reel text" requires a NON-EMPTY string. Today
+          // `shouldHideOpeningReel` already returns true for any value that strips to
+          // "" (OPENING_REEL_HIDE contains "", emptyState.ts:49), so `reelText` is
+          // never "" — but making the non-empty requirement explicit keeps the
+          // whole-card-missing contract (no text + no video → render nothing, the
+          // ported OpeningReelTile behavior) robust if that hide-set ever changes.
+          const hasReelText = reelText !== null && reelText.length > 0;
+          const hasReel = showReelPlayer || hasReelText;
 
           // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
           // A/V/L scope cards read data.rooms; per _ShowBody §4.13 scope is shown
@@ -323,9 +330,9 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                 <div data-testid="gear-opening-reel">
                   <SectionCard title="Opening reel">
                     <div className="flex flex-col gap-3">
-                      {reelText !== null ? (
+                      {hasReelText ? (
                         <KeyValueRows
-                          rows={[{ k: "Status", v: reelText }] satisfies KeyValueRow[]}
+                          rows={[{ k: "Status", v: reelText! }] satisfies KeyValueRow[]}
                         />
                       ) : null}
                       {showReelPlayer ? <OpeningReelVideo showId={showId} /> : null}

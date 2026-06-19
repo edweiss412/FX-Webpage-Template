@@ -95,3 +95,21 @@ test("client_contact never appears; Need-something uses the deterministic action
   expect(container.textContent).not.toContain("555-999-0000");
   expect(container.querySelector('[data-testid="today-need-something"]')!.textContent).toContain("AV_LEAD");
 });
+
+test("contacts fetch error → admin sees the contacts degraded block; crew sees omission (§4.13, Codex review R1)", () => {
+  // Today consumes contacts (Need-something card + the 5-source notes), so a
+  // contacts fetch failure must surface a degraded block on the PRIMARY section
+  // for admins (not a silent omission indistinguishable from a contact-less show).
+  // Contacts is ungated, so the degraded block is admin-only; crew sees omission.
+  const data = makeShowForViewer({ tileErrors: { contacts: "boom" }, contacts: [] });
+  const admin = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  ).container;
+  const block = admin.querySelector('[data-testid="section-tile-error-contacts"]');
+  expect(block).toBeTruthy();
+  expect(block!.textContent ?? "").not.toContain("boom"); // human-readable, no raw error string
+  const crew = render(
+    <TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+  ).container;
+  expect(crew.querySelector('[data-testid="section-tile-error-contacts"]')).toBeNull(); // omission
+});
