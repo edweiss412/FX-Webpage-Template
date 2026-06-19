@@ -10,14 +10,26 @@ Surface each crew member's own flight info — already parsed into `crew_members
 
 **Projection + UI only.** NO parser change, NO migration, NO sync change.
 
-- `flight_info` is **already parsed** (`lib/parser/blocks/crew.ts:81` header detect → `:129` cell read → `:263` `flight_info: flightRaw ? presence(flightRaw) : null`; type `lib/parser/types.ts:71` `flight_info: string | null` on `CrewMemberRow`).
+- `flight_info` is **already parsed AND populated for real shows** — VERIFIED against the live sheets + the committed fixtures (2026-06-19 gsheets audit). The **TECH-block path** (`lib/parser/blocks/crew.ts` `parseTechBlock`, the `| TECH | PHONE | ARRIVAL | DEPARTURE |` block) builds `flight_info = [arrivalRaw, departureRaw].filter(Boolean).join(" | ")` (`crew.ts:181-193`). `parseSheet(fixtures/shows/exporter-xlsx/east-coast.md)` produces **non-null `flight_info` for all 3 crew** (e.g. Doug Larson: `"EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ"`). Type `lib/parser/types.ts:71` `flight_info: string | null` on `CrewMemberRow`. (The CREW-block FLIGHT-column path at `crew.ts:81`/`:129`/`:263` also populates it, but no current sheet uses that shape — the TECH ARRIVAL/DEPARTURE path is the live source.)
 - It is **already stored** (`flight_info text` — `supabase/migrations/20260501000000_initial_public_schema.sql:41`) and **already written** by the sync (`lib/sync/phase2.ts:340`, `runScheduledCronSync.ts:1225`).
 - The only gap is **projection → render**. `getShowForViewer.ts:316-319` (the crew roster select) and the `crewMembers[]` element shape (`getShowForViewer.ts:323-347`) omit `flight_info`; `TravelSection.tsx:24` comments "There is NO flights block — flights are not in the ShowForViewer projection."
 
+### Data reality (verified, 2026-06-19) — proves the premise + bounds the scope
+
+A live gsheets audit of all 6 reachable show sheets found per-crew flight for **6 crew across 4 shows**, but only the **TECH-path source is parseable today**:
+
+| Source | Shows | Reaches `flight_info`? |
+|---|---|---|
+| INFO-tab **TECH block** (ARRIVAL/DEPARTURE) | East Coast (3 crew) | **YES** — this feature surfaces it |
+| Dedicated **TRAVEL tab** ("FLIGHT DETAILS" cell) | RPAS + both FinTech copies (1 crew each, "John Carleo") | **NO** — the parser never reads the TRAVEL tab |
+| No flight data | Redefining FI, Fixed Income Trading | n/a (genuinely empty) |
+
+This feature ships the **TECH/`flight_info` path** (East Coast's 3 crew, zero parser change). The **TRAVEL-tab parser is a DEFERRED fast-follow** (`DEF-FLIGHT-1`, below) — a distinct parser surface (different shape: one combined "FLIGHT DETAILS" cell, conf-first, blank-line-separated legs, `DRIVING`/`LOCAL` sentinels, a legend row, join-by-NAME to the roster) that ~doubles coverage (3→6 crew) but must not block the card. **The render built here is forward-compatible**: once the TRAVEL-tab parser feeds the same normalized `flight_info`, the card needs no rework.
+
 ## Resolved decisions
 
-1. **Raw-string display, NOT structured parsing.** `flight_info` is free-form (airline / confirmation / flight # in whatever format the sheet used — `lib/parser/blocks/crew.ts:263` stores the raw cell). It is also **usually blank** (the agenda-grid `FLIGHT#` column is "essentially always blank — Doug doesn't fill them," `fixtures/shows/_schema-diff.md:233`; only one prose-format fixture carries flight data). Structuring it (airline/dep/arr/times) would be unreliable and is YAGNI. We render the raw string with line breaks preserved.
-2. **Per-viewer, own-flight only (privacy — load-bearing).** Flight is PII. It is read **only on the viewer's own row** and projected as a single dedicated field — **never** on the full `crewMembers[]` roster array. A crew member never sees another crew member's flight.
+1. **Render the two legs (`" | "`-split), NOT deep-structured parsing.** The parsed `flight_info` from the TECH path has a **known top-level shape**: `arrivalLeg + " | " + departureLeg` (`crew.ts:181-193` joins `[arrivalRaw, departureRaw].filter(Boolean)` with `" | "`). Each leg is a **space-separated** run of `route airline M/D - h:mma - h:mmp confirmation` — the exporter (`synthesizeMarkdownFromXlsx`) flattens the source cell's newlines to spaces, so the **parsed value contains NO `\n`** (verified: `east-coast.md` → `"EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ"`). So the render **splits on `" | "`** into arrival/departure legs and renders each leg as its own line — readable, and honoring the one reliable delimiter. It does NOT deep-parse a leg into route/airline/time/conf (those are space-separated with no stable delimiters — fragile, YAGNI) and does NOT split on `\n` (there is none in the parsed value; splitting on `\n` *as well* is a harmless forward-compat allowance for the deferred TRAVEL-tab source). Guard the **1-leg case** (only `arrivalRaw` or only `departureRaw` truthy → no `" | "`, one line) and the **0-leg case** (everything stripped → no card).
+2. **Per-viewer, own-flight only (privacy — load-bearing).** Flight is PII. It is read **only on the viewer's own row** and projected as a single dedicated field — **never** on the full `crewMembers[]` roster array. A crew member never sees another crew member's flight. (The live data makes this concrete: `flight_info` carries airline **confirmation / record-locator codes** — `HQQ79F`, `OSUULZ`, `CGTTLO`, `OWJ1PK` — which with a name are enough to manage someone else's reservation. Showing a crew member their OWN conf is fine; surfacing another's would be a real PII leak — hence the own-row-only projection, P-1.)
 3. **Hidden when blank.** When the viewer has no flight on file (the common case), **no flight card renders** — matching the Travel section's existing hide-when-empty behaviour for the transport ("Getting there") and Hotels blocks.
 4. **Render-time URL-strip (narrowed contract) + sentinel guard.** Strip the *problematic* link forms — **schemed URLs** (`https?://…`) and **scheme-less Google** Drive/Docs links — by reusing `stripAgendaUrls` (`lib/visibility/agendaUrls.ts`), and hide the card if the residue is empty or a generic sentinel. **A bare scheme-less non-Google domain (e.g. `aa.com/checkin`, `southwest.com/checkin`) is INTENTIONALLY NOT stripped and renders as plain text** — it is the crew member's own benign check-in info (mildly useful, not sensitive, and not a clickable link in the card), and a general bare-domain stripper would over-strip legitimate flight text (a fare class, a `T1/T2` terminal, a `6/24` date). This is the ratified `stripAgendaUrls` limitation, applied deliberately: the flight URL-strip contract is **schemed + scheme-less-Google only**, NOT "all URLs." The earlier framing "the link class this feature suppresses" means schemed/Drive links, not bare airline domains.
 5. **No new Supabase call boundary / no fail-soft tile.** Flight rides the **existing** viewer own-row auth lookup (`getShowForViewer.ts:234-239`) as one extra selected column — not a new read. So it needs **no** `tileErrors` channel and **no** invariant-9 waiver (unlike run_of_show, which was a separate `shows_internal` read). A lookup error already throws the existing viewer-resolution error; flight inherits that.
@@ -64,18 +76,20 @@ Emit `viewerFlightInfo` in the return literal. **The crew roster select (`getSho
 
 Add a **conditional flight `SectionCard`** to the Travel section, sourced from `data.viewerFlightInfo` (the section already consumes `ShowForViewer` via `resolveViewerContext`). The Travel section is keyed `?s=travel` (`resolveActiveSection.ts`), one of the 6+1 sub-nav sections (`today | schedule | venue | travel | crew | gear | budget`, `CrewSubNav.tsx:41-46`).
 
-**Render rule (rendered element, not conceptual).** URL-strip **per line** so line breaks survive. `stripAgendaUrls` collapses ALL whitespace runs (`.replace(/\s+/g, " ")` in `lib/visibility/agendaUrls.ts`), so calling it on the whole multi-line string would FLATTEN a multi-leg itinerary (`AA1…\nAA2…`) into one line — the line-break requirement and a single `stripAgendaUrls` call are mutually exclusive. Therefore split first, strip each line, drop empty/sentinel/URL-only lines, and preserve the surviving line structure:
+**Render rule (rendered element, not conceptual).** Split the parsed `flight_info` on its `" | "` arrival/departure separator (the TECH-path delimiter; also split on `\n` as a harmless forward-compat allowance for the deferred TRAVEL-tab source), URL-strip each leg, drop empty/sentinel/URL-only legs:
 
 ```ts
-const flightLines = (data.viewerFlightInfo ?? "")
-  .split("\n")
-  .map((line) => stripAgendaUrls(line))                 // per-line: URLs gone, intra-line whitespace collapsed (fine)
-  .filter((line) => line.length > 0 && !shouldHideGenericOptional(line));
-const showFlight = flightLines.length > 0;
+const flightLegs = (data.viewerFlightInfo ?? "")
+  .split(/\s*\|\s*|\n/)                                  // " | " arrival/departure separator (+ \n forward-compat)
+  .map((leg) => stripAgendaUrls(leg))                   // per-leg: schemed/Google URLs gone, intra-leg whitespace collapsed (fine)
+  .filter((leg) => leg.length > 0 && !shouldHideGenericOptional(leg));
+const showFlight = flightLegs.length > 0;
 ```
 
+Splitting first (not one `stripAgendaUrls` over the whole string) is required because `stripAgendaUrls` collapses ALL whitespace runs (`.replace(/\s+/g, " ")` in `lib/visibility/agendaUrls.ts`); stripping per-leg keeps each leg intact and lets a URL-only leg drop cleanly.
+
 - `showFlight === false` → **render nothing** for flight (no card, no header, no empty placeholder) — the section shows transport/hotels (or its own existing empty state) exactly as today.
-- `showFlight === true` → render ONE `SectionCard` titled **"Your flight"** (`data-testid="travel-flight"`) whose body renders **each surviving line as its own line element** (e.g. `flightLines.map((l, i) => <span key={i} className="block">{l}</span>)`, or a `<div className="whitespace-pre-line">{flightLines.join("\n")}</div>`) — a multi-leg itinerary stays on **separate visual lines**, never flattened. A line that is only a schemed URL or a Google link strips to empty and is dropped (so a 2-leg itinerary where one leg is just a `https://…` check-in link renders the one real leg); a line that is only a *bare* airline domain (`aa.com/checkin`) does NOT strip to empty and renders (per decision 4).
+- `showFlight === true` → render ONE `SectionCard` titled **"Your flight"** (`data-testid="travel-flight"`) whose body renders **each surviving leg as its own line element** (e.g. `flightLegs.map((l, i) => <span key={i} className="block">{l}</span>)`) — arrival and departure on **separate visual lines**, never a single run-on blob. A round-trip renders two lines (arrival, departure); a one-way (only `arrivalRaw` or only `departureRaw` truthy → no `" | "`) renders one line. A leg that is only a schemed URL or a Google link strips to empty and is dropped (the real leg still renders); a leg that is only a *bare* airline domain (`aa.com/checkin`) does NOT strip to empty and renders (per decision 4).
 
 **Placement:** the flight card renders **first** within Travel (above "Getting there" and "Hotels") — a crew member's own flight is the most personal, time-sensitive Travel datum. Use the existing `SectionCard` primitive (`@/components/crew/primitives/SectionCard`, the same `<SectionCard title=…>` the transport block at `TravelSection.tsx:165` and hotels at `:245` use) — no new tokens (the impeccable dual-gate verifies real-browser fidelity, including no undefined-token fallbacks — the Phase-2 lesson). `viewerFlightInfo` is the exact sibling of the existing `viewerName` field (`getShowForViewer.ts:196`/`:247`/`:637`), both captured from the same own-row lookup.
 
@@ -91,11 +105,13 @@ const showFlight = flightLines.length > 0;
 | a SCHEMED URL only (e.g. `https://aa.com/checkin`) | no flight card (schemed URL strips to empty) |
 | a Drive/Docs link only (`drive.google.com/…`) | no flight card (scheme-less Google stripped) |
 | a BARE airline domain only (`aa.com/checkin`) | the flight card rendering `aa.com/checkin` (scheme-less non-Google **intentionally NOT stripped** — benign crew-own check-in text; ratified `stripAgendaUrls` limitation) |
-| real string (`"AA1234 JFK→LAX 8:05a, conf ABCDEF"`) | the flight card, string verbatim post-strip |
-| multi-line (`"AA1 JFK→LAX 8a\nAA2 LAX→SFO 2p"`) | the flight card, both legs on separate lines |
-| real string + a trailing URL | the flight card, URL removed, real text retained |
+| round-trip (`"EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F \| FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ"`) — the real East Coast shape | the flight card, **two lines**: arrival leg, departure leg (split on `" \| "`) |
+| one-way (single leg, no `" \| "`) | the flight card, **one line** |
+| a leg with a trailing schemed/Google URL | the flight card, that URL removed, the leg's real text retained |
 
 ## Test plan (the concrete failure each catches)
+
+**Parse premise** (`tests/parser/crewFlightFixture.test.ts` — fixture-backed, PROVES the premise so the projection+UI are not built on an unproven assumption; resolves the "scope built on an unproven parser premise" concern): `parseSheet(readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8"))` → all **3** crew have non-null `flight_info`, and Doug Larson's value contains both `"EWR-FLL"` (arrival) AND `"FLL-EWR"` (departure) separated by `" | "`. Catches a future converter/parser change that silently drops the TECH-path flight data (which would hollow this feature).
 
 **Projection** (`tests/data/getShowForViewerFlight.test.ts`, mock modeled on `getShowForViewerRunOfShow.test.ts`):
 - crew viewer with `flight_info` → `viewerFlightInfo` equals it (catches: not projected at all).
@@ -108,15 +124,17 @@ const showFlight = flightLines.length > 0;
 **UI** (`tests/components/crew/sections/TravelSection.flight.test.tsx`, jsdom):
 - `viewerFlightInfo` present → `[data-testid="travel-flight"]` renders the string (asserted vs the data source, scoped to the card — anti-tautology).
 - `viewerFlightInfo` null / `""` / sentinel / **schemed-URL-only** (`https://…`) / **Google-link-only** (`drive.google.com/…`) → no `travel-flight` element (Travel anchor blocks intact).
-- **multi-line → both legs on SEPARATE lines, NOT flattened** (the regression the naive "both legs present" test misses): a `"AA1 …\nAA2 …"` itinerary must render as ≥2 distinct line elements (or the card's text retains the `\n` / a `<br>`/block boundary between legs). Assert the card does NOT render both legs as one run-on line — i.e. fail if a single `stripAgendaUrls` over the whole string flattened it.
-- a multi-line itinerary where ONE leg is a schemed-URL/Google-link-only line → that line is dropped, the real leg renders (catches the per-line filter).
-- a SCHEMED or Google URL in a line → no `https://` / `http://` / `drive.google.com` / `docs.google.com` substring in the crew DOM; the real text on that line survives.
+- **round-trip → arrival + departure on SEPARATE lines** (the regression a naive "both legs present" check misses): the real East Coast shape `"EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ"` must render as **≥2 distinct line elements** (split on `" | "`), NOT one run-on line. Derive the expected legs from the data source (split the fixture value on `" | "`), not hardcoded.
+- one-way (single leg, no `" | "`) → exactly one line.
+- a leg that is only a schemed-URL/Google-link → that leg is dropped, the other (real) leg renders (catches the per-leg filter).
+- a SCHEMED or Google URL inside a leg → no `https://` / `http://` / `drive.google.com` / `docs.google.com` substring in the crew DOM; the leg's real text survives.
 - **a BARE airline domain (`aa.com/checkin`) RENDERS** (pins the schemed-only contract — fails if a future change over-strips bare domains / breaks the documented `stripAgendaUrls` limitation, AND documents that we deliberately don't suppress benign crew-own check-in text).
 - flight card renders even when transport + hotels are empty (the flight card is independent of the other Travel blocks).
 
-## Out of scope (do-not-relitigate)
+## Out of scope (do-not-relitigate) + deferred
 
-- No parser change (flight is already parsed) — and **no structured parsing** of the free-form string.
+- **No parser change in this feature.** The TECH-path `flight_info` (East Coast's 3 crew) is consumed as-is. **No deep-structured parsing** of a leg into route/airline/time/conf (space-separated, fragile — render the `" | "`-split legs only).
+- **DEF-FLIGHT-1 (DEFERRED, fast-follow): TRAVEL-tab flight parser.** RPAS + both FinTech copies carry one crew flight each in a dedicated **TRAVEL tab** (a single "FLIGHT DETAILS" cell, conf-first, blank-line-separated legs, `DRIVING`/`LOCAL` non-flyer sentinels, a legend/template row to exclude, join-by-NAME to the roster, year inferred from show dates) — a DISTINCT parser surface the current code never reads. It ~doubles coverage (3→6 crew) and is the highest-leverage parser addition, but it must NOT block this card. The render built here is forward-compatible: once the TRAVEL-tab parser normalizes into the same `flight_info` string, the card needs no rework. File in the Phase-3 `DEFERRED.md` with the trigger "next parser milestone / when TRAVEL-tab flight coverage is prioritized."
 - No migration / no sync change (the column + write exist).
 - No other crew member's flight (P-1). No admin "all crew flights" view.
 - No `tileErrors`/fail-soft channel for flight (it rides the existing auth lookup, not a new read) and no §12.4 code (flight projection emits no warning).
