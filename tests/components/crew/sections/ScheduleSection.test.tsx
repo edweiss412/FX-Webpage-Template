@@ -93,4 +93,10 @@ test("today-pin uses show timezone, not UTC date", () => {
   expect(todayCard?.textContent).toContain(expectedTodayIso);
   // And exactly one card is the today card; the rest are dated.
   expect(container.querySelectorAll('[data-testid="schedule-day-today"]').length).toBe(1);
+  // The frozen-clock screenshot pipeline (help-screenshots-clock-pipeline.spec.ts)
+  // reads the today card's ISO date out of the server HTML via data-day +
+  // data-today="true" — pin that contract here so a missing attribute fails fast
+  // in jsdom, not only in the screenshots-drift CI capture.
+  expect(todayCard?.getAttribute("data-today")).toBe("true");
+  expect(todayCard?.getAttribute("data-day")).toBe(expectedTodayIso);
 });

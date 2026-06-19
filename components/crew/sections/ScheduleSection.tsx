@@ -162,11 +162,16 @@ export function ScheduleSection({
                       // DayCard's typed props don't forward `data-testid`, so the testid
                       // lives on a wrapper. The pinned-today card uses the dedicated
                       // testid; every other card carries its date. Both forms match the
-                      // `^="schedule-day"` prefix selector the tests count.
+                      // `^="schedule-day"` prefix selector the tests count. `data-day`
+                      // (always) + `data-today` (today only) expose the frozen-clock
+                      // today-marking to the screenshot clock-pipeline e2e, which reads
+                      // the today card's ISO date out of the server-rendered HTML.
                       return (
                         <div
                           key={day.date}
                           data-testid={isToday ? "schedule-day-today" : `schedule-day-${day.date}`}
+                          data-day={day.date}
+                          {...(isToday ? { "data-today": "true" } : {})}
                         >
                           <DayCard day={day.date} phase={day.phase} today={isToday} />
                         </div>

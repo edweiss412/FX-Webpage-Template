@@ -24,19 +24,21 @@ async function cookieHeaderFor(page: Page): Promise<string> {
 }
 
 function extractTodayDataDay(html: string, instant: string): string {
-  const liRe = /<li\b[^>]*>/g;
+  // The crew ScheduleSection (which replaced the old ScheduleTile <li> list)
+  // marks the frozen-clock "today" card on a <div> wrapper carrying
+  // data-testid="schedule-day-today" + data-day="<iso>" + data-today="true".
+  // Scan every schedule-day* wrapper tag, pick the one flagged today, read its date.
+  const tagRe = /<[a-zA-Z][^>]*\bdata-testid=["']schedule-day[^"']*["'][^>]*>/g;
   let match: RegExpExecArray | null;
-  while ((match = liRe.exec(html))) {
+  while ((match = tagRe.exec(html))) {
     const tag = match[0];
-    const hasTestid = /\bdata-testid=["']schedule-day["']/.test(tag);
-    const hasToday = /\bdata-today=["']true["']/.test(tag);
-    if (!hasTestid || !hasToday) continue;
+    if (!/\bdata-today=["']true["']/.test(tag)) continue;
     const dayMatch = tag.match(/\bdata-day=["']([^"']+)["']/);
     if (dayMatch?.[1]) return dayMatch[1];
   }
 
   throw new Error(
-    `no <li data-testid="schedule-day" data-today="true" data-day="..."> found in initial HTML for ${instant}`,
+    `no schedule-day wrapper with data-today="true" data-day="..." found in initial HTML for ${instant}`,
   );
 }
 
@@ -83,7 +85,7 @@ async function captureWebpAt(page: Page, instant: string, name: string): Promise
   });
   await page.goto(previewUrl, { waitUntil: "domcontentloaded" });
   await disableAnimations(page);
-  await page.locator('[data-testid="schedule-day"][data-today="true"]').first().waitFor();
+  await page.locator('[data-testid="schedule-day-today"][data-today="true"]').first().waitFor();
   await page.waitForLoadState("networkidle");
 
   const png = await page.screenshot({ type: "png", fullPage: true });
