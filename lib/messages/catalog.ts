@@ -1157,6 +1157,20 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  // D1 (admin-log-only): a recognized section header parsed zero fields. The
+  // operator-facing copy is the inline ParseWarning.message; this catalog row
+  // exists only to satisfy the §12.4 / x1 orphan-code structural guard (every
+  // active-style `code: "..."` literal must be registered), so all fields are null.
+  SECTION_HEADER_NO_FIELDS: {
+    code: "SECTION_HEADER_NO_FIELDS",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   UNEXPECTED_PARENT: {
     code: "UNEXPECTED_PARENT",
     dougFacing: null,

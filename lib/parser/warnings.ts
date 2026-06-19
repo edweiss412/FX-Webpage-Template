@@ -24,9 +24,11 @@ export function newAggregator(): ParseAggregator {
 /**
  * D1 — fail-loud "recognized section header but parsed zero fields" code. Exported
  * for tests; the emit site below uses the STRING LITERAL (matching every other
- * parser warning code) so `scripts/extract-internal-code-enums.ts`'s
- * `code: "..."` scanner records it in the internal-code manifest (invariant 5 /
- * x2 no-raw-codes coverage). The test pins `SECTION_HEADER_NO_FIELDS === the literal`.
+ * parser warning code) so `scripts/extract-internal-code-enums.ts`'s `code: "..."`
+ * scanner records it in the internal-code manifest (x2 no-raw-codes). The literal
+ * is also registered in §12.4 as admin-log-only + `lib/messages/catalog.ts` (all-null
+ * row) so the x1 orphan-code guard passes — every active-style code literal must be
+ * in §12.4. The test pins `SECTION_HEADER_NO_FIELDS === the literal`.
  */
 export const SECTION_HEADER_NO_FIELDS = "SECTION_HEADER_NO_FIELDS";
 

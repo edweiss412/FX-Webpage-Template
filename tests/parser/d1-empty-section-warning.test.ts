@@ -7,8 +7,11 @@
  * /admin/dev), instead of vanishing with `warnings: []`. Admin-log-only — it
  * does NOT block apply (warning channel, not the hardError channel).
  *
- * Carries its copy inline (no §12.4 catalog code): parser warnings are rendered
- * from `.message`, never through lib/messages/lookup.ts.
+ * The operator-facing copy is the inline `.message` (parser warnings render from
+ * `.message`, not lib/messages/lookup.ts), but the code IS registered in §12.4 as
+ * admin-log-only (all-null catalog row) + the internal-code manifest — every
+ * active-style `code: "..."` literal must be, or the x1 orphan-code + x2
+ * no-raw-codes structural guards fail.
  */
 import { newAggregator, emitEmptySection, SECTION_HEADER_NO_FIELDS } from "@/lib/parser/warnings";
 import { INTERNAL_CODE_ENUMS } from "@/lib/messages/__generated__/internal-code-enums";
