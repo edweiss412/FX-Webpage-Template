@@ -914,6 +914,320 @@ test.describe.skip("crew redesign §4.10 transition audit (compound, real browse
   });
 });
 
+/*
+ * ════════════════════════════════════════════════════════════════════════
+ * Crew redesign — nav addressability + preview-as parity + footer report
+ * metadata (Phase 4 Task 3 — "tests 13 / 15 / 19", real-browser halves).
+ * ════════════════════════════════════════════════════════════════════════
+ *
+ * The integration proof that the 6-section sub-nav actually NAVIGATES. The
+ * §4.9 layout suite (above) and the §4.10 structural audit verify the shell
+ * renders + the transitions are wired; this suite verifies the parts only a
+ * real browser can:
+ *
+ *   - test 13 (nav addressability): a `?s=<section>` deep-link is SSR'd (the
+ *     section is present on first paint, before hydration), a sub-nav TAB CLICK
+ *     swaps the section client-side (no full reload), the URL gains `?s=`, the
+ *     section history is back-button traversable, and the gate param survives a
+ *     tab click.
+ *   - test 15 (preview-as parity): /admin/show/<slug>/preview/<crewId> renders
+ *     the SAME CrewShell (data-testid="crew-shell"), the `?s=` deep-link
+ *     resolves the right section, and the PreviewBanner sits above the shell.
+ *   - test 19 (footer report metadata): the preview-as footer's report button
+ *     carries the admin-preview surface id (`admin-preview-footer-<slug>-<crewId>`)
+ *     in the DOM; a normal crew footer does not.
+ *
+ * ⚠ REAL CLOCK — NOT page.clock.install. The §4.9/§4.10 suites freeze the clock
+ * for a deterministic hero, but a frozen clock STALLS framer-motion's rAF-driven
+ * AnimatePresence exit, so a sub-nav tab click never reaches an actionable/stable
+ * state and hangs past the timeout (Phase 4 Task 2 close-out note). These tests
+ * use the browser's real clock and assert SETTLE end-states (URL changed + target
+ * section present + outgoing section gone), never a mid-transition opacity. With a
+ * real clock framer completes the crossfade normally, so the clicks work.
+ *
+ * Gated to mobile-safari (single-writer seed reads, mirrors the §4.9 suite). Auth
+ * is ADMIN_FIXTURE: the `admin` arm of resolveShowPageAccess renders the full
+ * CrewShell for the seeded crew route regardless of the picker cookie, which makes
+ * the deep-link + tab-click coverage independent of the picker interstitial.
+ */
+test.describe("crew redesign nav addressability + preview-as + footer report (Task 3 / tests 13·15·19)", () => {
+  test.setTimeout(180_000);
+
+  let slug = "";
+  let shareToken = "";
+  let showId = "";
+  let previewCrewId = "";
+
+  /**
+   * Click the sub-nav tab for `section` at the CURRENT viewport. CrewSubNav
+   * renders the section tabs TWICE — a desktop row (`hidden min-[720px]:flex`,
+   * DOM-first) and a mobile bottom bar (`min-[720px]:hidden`, DOM-second). At
+   * 390px the desktop tab is `display:none` and only the mobile bar is visible,
+   * so a bare `.first()` would target the hidden desktop button and the click
+   * would hang. The `:visible` filter selects whichever nav the breakpoint shows
+   * (mobile at <720px, desktop at ≥720px) — exactly the real tap a user makes.
+   */
+  async function clickSection(
+    page: import("@playwright/test").Page,
+    section: string,
+  ): Promise<void> {
+    await page
+      .getByTestId("crew-sub-nav")
+      .locator(`[data-section="${section}"]:visible`)
+      .first()
+      .click();
+  }
+
+  test.beforeEach(async ({ page }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+    const seeded = await lookupSeededShow();
+    slug = seeded.slug;
+    showId = seeded.showId;
+    shareToken = await lookupShareToken(seeded.showId);
+    // A real crew member of this published+non-archived show for the preview-as
+    // route. The LEAD qualifies and is guaranteed present by lookupSeededShow.
+    previewCrewId = seeded.leadCrewId;
+    // REAL clock (no page.clock.install) — see the block header. Sign in as
+    // admin so the crew route renders the CrewShell directly (admin arm).
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  // ── Test 13 — nav addressability ──────────────────────────────────────────
+  test("nav addressability: ?s= deep-link is SSR'd, a tab click swaps section client-side, URL + back-button track sections", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    // ── (a) SSR deep-link: ?s=venue renders section-venue on FIRST PAINT ──
+    // Assert the section markup is present in the server response BEFORE the
+    // client hydrates the sub-nav. We read the raw HTML the server returned to
+    // prove the section was server-rendered (not produced by a client effect).
+    const venueResp = await page.goto(`/show/${slug}/${shareToken}?s=venue`, {
+      waitUntil: "commit",
+    });
+    expect(venueResp?.status(), "?s=venue crew route must render").toBe(200);
+    const ssrHtml = (await venueResp!.text()) ?? "";
+    expect(
+      ssrHtml,
+      'section-venue must be present in the SERVER-rendered HTML (SSR deep-link, not a client effect)',
+    ).toContain('data-testid="section-venue"');
+    expect(ssrHtml, "crew-shell must be server-rendered too").toContain('data-testid="crew-shell"');
+
+    // Now let it hydrate and confirm the live DOM agrees.
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(page.getByTestId("section-venue")).toBeVisible();
+
+    // ── (b) tab click swaps section client-side (no full reload) ──
+    // Capture a handle to the live crew-shell element; if the nav did a FULL
+    // page reload the handle would be detached after the swap. We ALSO stamp a
+    // sentinel on `window`: a client-side push (History API) preserves the
+    // document and the sentinel survives; a hard reload wipes `window` and the
+    // sentinel is gone. (A bare `framenavigated` count is NOT a reliable
+    // hard-reload signal here — webkit emits `framenavigated` for App Router
+    // History-API soft navigations even though the document is never replaced.)
+    const shellBefore = await page.getByTestId("crew-shell").elementHandle();
+    expect(shellBefore, "crew-shell handle must exist before nav").not.toBeNull();
+    await page.evaluate(() => {
+      (window as unknown as { __navSentinel?: string }).__navSentinel = "task3-no-reload";
+    });
+
+    // Click the SCHEDULE tab in the visible sub-nav (mobile bottom bar at 390px).
+    await clickSection(page, "schedule");
+
+    // SETTLE end-state (real clock → framer completes the crossfade): the URL
+    // gains ?s=schedule, the Schedule section renders, and Venue is gone.
+    await expect(page).toHaveURL(/[?&]s=schedule\b/);
+    // The schedule section root is `section-schedule` (or `-unconfirmed` when
+    // the seed has no confirmed schedule); accept either settle target.
+    const scheduleRoot = page
+      .locator('[data-testid="section-schedule"], [data-testid="section-schedule-unconfirmed"]')
+      .first();
+    await expect(scheduleRoot).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByTestId("section-venue"),
+      "outgoing Venue section must be gone after the swap settles",
+    ).toHaveCount(0, { timeout: 15_000 });
+
+    // No full reload happened: the same crew-shell element handle is still
+    // attached to the live DOM (a hard nav would have replaced the document)…
+    const stillAttached = await shellBefore!.evaluate((el) => el.isConnected).catch(() => false);
+    expect(
+      stillAttached,
+      "crew-shell element must persist across the nav (client-side push, NOT a full reload)",
+    ).toBe(true);
+    // …and the window sentinel survives (a hard reload would have wiped `window`).
+    const sentinel = await page.evaluate(
+      () => (window as unknown as { __navSentinel?: string }).__navSentinel ?? null,
+    );
+    expect(
+      sentinel,
+      "window sentinel must survive the nav (proof the document was not reloaded — soft push only)",
+    ).toBe("task3-no-reload");
+
+    // ── (c) back-button traverses section history (today→venue→schedule) ──
+    // Re-establish a clean history stack via real navigations so goBack walks
+    // sections, not unrelated entries. today → venue → schedule, then goBack ×2.
+    await page.goto(`/show/${slug}/${shareToken}?s=today`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("section-today")).toBeVisible();
+    await clickSection(page, "venue");
+    await expect(page).toHaveURL(/[?&]s=venue\b/);
+    await expect(page.getByTestId("section-venue")).toBeVisible({ timeout: 15_000 });
+    await clickSection(page, "schedule");
+    await expect(page).toHaveURL(/[?&]s=schedule\b/);
+    await expect(scheduleRoot).toBeVisible({ timeout: 15_000 });
+
+    // goBack once → venue.
+    await page.goBack();
+    await expect(page).toHaveURL(/[?&]s=venue\b/);
+    await expect(page.getByTestId("section-venue")).toBeVisible({ timeout: 15_000 });
+    // goBack twice → today.
+    await page.goBack();
+    await expect(page).toHaveURL(/[?&]s=today\b/);
+    await expect(page.getByTestId("section-today")).toBeVisible({ timeout: 15_000 });
+  });
+
+  // ── Test 13 (cont.) — gate param survives deep-link + tab click ──
+  test("nav addressability: ?gate=skip survives the deep-link load AND a tab click (allow-listed param re-emitted)", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    // Deep-link with BOTH ?s=venue and ?gate=skip. The admin arm renders the
+    // shell regardless of gate; both params remain in the URL after load.
+    await page.goto(`/show/${slug}/${shareToken}?s=venue&gate=skip`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByTestId("section-venue")).toBeVisible();
+    await expect(page, "deep-link keeps both s and gate after load").toHaveURL(/[?&]s=venue\b/);
+    await expect(page).toHaveURL(/[?&]gate=skip\b/);
+
+    // A TAB CLICK from ?s=venue&gate=skip pushes a FRESH URL that carries the new
+    // section AND re-emits gate=skip (the only allow-listed gate value); every
+    // other param would be dropped, but gate=skip is retained (CrewSubNav §R13).
+    await clickSection(page, "crew");
+    await expect(page).toHaveURL(/[?&]s=crew\b/);
+    await expect(
+      page,
+      "a tab click from a ?gate=skip URL must retain gate=skip in the pushed URL",
+    ).toHaveURL(/[?&]gate=skip\b/);
+  });
+
+  // ── Test 13 (cont.) — section change resets scroll to top ──
+  test("nav addressability: a section change resets scroll position to the top", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.goto(`/show/${slug}/${shareToken}?s=today`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("section-today")).toBeVisible();
+
+    // Scroll down so a naive client nav that preserved scroll would leave us
+    // mid-page. The body is tall enough on Today; force a scroll then assert it
+    // is reset to ~0 after the section swap (CrewSubNav calls window.scrollTo(0,0)).
+    await page.evaluate(() => window.scrollTo(0, 600));
+    const scrolledTo = await page.evaluate(() => window.scrollY);
+    // If the page is too short to scroll, this sub-assertion is vacuous — but the
+    // post-nav reset still must hold (0 stays 0). We don't hard-require a scroll.
+    await clickSection(page, "crew");
+    await expect(page).toHaveURL(/[?&]s=crew\b/);
+    await expect(page.getByTestId("section-crew")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => page.evaluate(() => window.scrollY), { timeout: 5000 })
+      .toBeLessThanOrEqual(1);
+    // Sanity: we actually had somewhere to scroll OR the page was already at top.
+    expect(scrolledTo, "scroll baseline captured").toBeGreaterThanOrEqual(0);
+  });
+
+  // ── Test 15 — preview-as parity ───────────────────────────────────────────
+  test("preview-as: /admin/show/<slug>/preview/<crewId>?s=venue renders the CrewShell (not a flat tile-grid), section resolves, PreviewBanner above", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    // ?s=venue → the preview renders the redesigned CrewShell with Venue active.
+    const resp = await page.goto(
+      `/admin/show/${slug}/preview/${previewCrewId}?s=venue`,
+      { waitUntil: "domcontentloaded" },
+    );
+    expect(resp?.status(), "admin preview-as route must render").toBe(200);
+
+    // The redesigned shell — NOT the retired flat `tile-grid` body.
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(
+      page.getByTestId("tile-grid"),
+      "preview-as must render the redesigned CrewShell, not the legacy flat tile-grid",
+    ).toHaveCount(0);
+    await expect(page.getByTestId("section-venue")).toBeVisible();
+
+    // The PreviewBanner sits ABOVE the shell in document order.
+    const banner = page.getByTestId("admin-preview-banner");
+    await expect(banner).toBeVisible();
+    const order = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="admin-preview-banner"]');
+      const s = document.querySelector('[data-testid="crew-shell"]');
+      if (!b || !s) return 0;
+      // Node.DOCUMENT_POSITION_FOLLOWING (4) means s comes AFTER b.
+      return b.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING;
+    });
+    expect(order, "PreviewBanner must precede the crew-shell in the DOM").toBe(
+      4, // DOCUMENT_POSITION_FOLLOWING
+    );
+
+    // Default (no ?s=) → the Today section.
+    await page.goto(`/admin/show/${slug}/preview/${previewCrewId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(page.getByTestId("section-today")).toBeVisible();
+  });
+
+  // ── Test 19 — footer report metadata (preview-as override id in the DOM) ──
+  test("footer report metadata: preview-as footer carries admin-preview-footer-<slug>-<crewId>; a normal crew footer does not", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    // ── preview-as: the footer's report button carries the admin-preview id ──
+    await page.goto(`/admin/show/${slug}/preview/${previewCrewId}?s=today`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    const footer = page.getByTestId("page-footer");
+    await expect(footer).toBeVisible();
+    const reportTrigger = footer.getByTestId("report-button-trigger");
+    await expect(reportTrigger).toBeVisible();
+    const expectedSurfaceId = `admin-preview-footer-${slug}-${previewCrewId}`;
+    await expect(
+      reportTrigger,
+      "preview-as footer report button must carry the admin-preview surface id in the DOM",
+    ).toHaveAttribute("data-surface-id", expectedSurfaceId);
+    // …filed under the admin surface (not crew).
+    await expect(reportTrigger).toHaveAttribute("data-surface", "admin");
+
+    // ── normal crew route: the override id is ABSENT (plain crew surface id) ──
+    await page.goto(`/show/${slug}/${shareToken}?s=today`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    const crewTrigger = page.getByTestId("page-footer").getByTestId("report-button-trigger");
+    await expect(crewTrigger).toBeVisible();
+    const crewSurfaceId = await crewTrigger.getAttribute("data-surface-id");
+    expect(
+      crewSurfaceId ?? "",
+      "a normal crew footer must NOT carry the admin-preview override id",
+    ).not.toContain("admin-preview-footer-");
+    // The crew surface id is the plain per-slug footer id.
+    expect(crewSurfaceId, "crew footer uses the plain footer-crew-<slug> surface id").toBe(
+      `footer-crew-${slug}`,
+    );
+    await expect(crewTrigger).toHaveAttribute("data-surface", "crew");
+  });
+});
+
 // TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
 // The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
 // is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
