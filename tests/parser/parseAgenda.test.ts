@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
+import type { ShowRow } from "@/lib/parser/types";
 import { parseAgenda, locateAgendaShowBlocks } from "@/lib/parser/blocks/agenda";
 import {
   agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous,
@@ -123,5 +124,60 @@ describe("agendaWarnings — all 5 AGENDA_* codes are lib/parser code: literals"
       expect(w.severity).toBe("warn");
       expect(w.blockRef!.kind).toBe("agenda");
     }
+  });
+});
+
+const datesOf = (showDays: string[]): ShowRow["dates"] => ({
+  travelIn: null, set: null, showDays, travelOut: null, loadIn: null,
+});
+
+describe("parseAgenda — step 3: ISO resolution + ambiguity guard", () => {
+  const hdr = "| NAME | ARRIVAL | FLIGHT# | START  | FINISH | TRT | TITLE | ROOM | AV |";
+  const mk = (dateRow: string, nameRow: string, dataRow: string) =>
+    [
+      "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 |",
+      dateRow, nameRow, hdr, dataRow,
+    ].join("\n");
+
+  it("resolves from the banner date (M/D/YY → ISO)", () => {
+    const md = mk(
+      "| 9/3/25 | 9/3/25 | 9/3/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 |",
+      "| Wed | Wed | Wed | Fri | Fri | Fri | Fri | Fri | Fri |",
+      "|  |  |  | 8:30 AM | 9:30 AM | 1:00 | Keynote | Hall A | LAV |",
+    );
+    const r = parseAgenda(md, datesOf(["2025-09-05"]));
+    expect(Object.keys(r.runOfShow ?? {})).toContain("2025-09-05");
+  });
+
+  it("#REF! banner + day-name matching EXACTLY ONE showDay → resolves via fallback", () => {
+    const md = mk(
+      "| #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! |",
+      "| Friday | Friday | Friday | Friday | Friday | Friday | Friday | Friday | Friday |",
+      "|  |  |  | 8:30 AM | 9:30 AM | 1:00 | Keynote | Hall A | LAV |",
+    );
+    const r = parseAgenda(md, datesOf(["2025-09-05"])); // only one Friday
+    expect(Object.keys(r.runOfShow ?? {})).toEqual(["2025-09-05"]);
+  });
+
+  it("#REF! banner + day-name matching TWO same-weekday showDays → SKIP + AGENDA_DAY_AMBIGUOUS (never guess)", () => {
+    const md = mk(
+      "| #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! |",
+      "| Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday |",
+      "|  |  |  | 8:30 AM | 9:30 AM | 1:00 | Keynote | Hall A | LAV |",
+    );
+    const r = parseAgenda(md, datesOf(["2025-09-03", "2025-09-10"])); // two Wednesdays
+    expect(r.runOfShow).toEqual({});
+    expect(r.warnings.map((w) => w.code)).toContain("AGENDA_DAY_AMBIGUOUS");
+  });
+
+  it("#REF! banner + NO day-name match → SKIP + AGENDA_BLOCK_UNRESOLVED", () => {
+    const md = mk(
+      "| #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! | #REF! |",
+      "| Monday | Monday | Monday | Monday | Monday | Monday | Monday | Monday | Monday |",
+      "|  |  |  | 8:30 AM | 9:30 AM | 1:00 | Keynote | Hall A | LAV |",
+    );
+    const r = parseAgenda(md, datesOf(["2025-09-05"])); // a Friday, no Monday
+    expect(r.runOfShow).toEqual({});
+    expect(r.warnings.map((w) => w.code)).toContain("AGENDA_BLOCK_UNRESOLVED");
   });
 });

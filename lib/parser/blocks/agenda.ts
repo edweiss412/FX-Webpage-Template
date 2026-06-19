@@ -1,6 +1,6 @@
-import type { AgendaEntry, ParseWarning } from "../types";
+import type { AgendaEntry, ParseWarning, ShowRow } from "../types";
 import { clean, normalizeDate, parseTableRows } from "./_helpers";
-import { agendaGridMalformed } from "./agendaWarnings";
+import { agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous } from "./agendaWarnings";
 
 export type ParseAgendaResult = {
   runOfShow: Record<string, AgendaEntry[]> | undefined;
@@ -210,6 +210,32 @@ function locateBlocks(rows: string[][], header: string[], headerIdx: number): Ag
   });
 }
 
+const ISO_WEEKDAY = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+function weekdayOfIso(iso: string): string | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return undefined;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return ISO_WEEKDAY[d.getUTCDay()];
+}
+
+type Resolved = { iso: string } | { skip: "ambiguous" | "unresolved" };
+
+// Resolve a block's ISO date (R8: dateCell may be a real M/D/YY, a `#REF!`/error,
+// or undefined — all handled here, NOT at detection). Banner value wins when it
+// normalizes; otherwise the day-name → showDays-ONLY unique-match fallback (§4.1
+// step 3 / R7); zero/multiple matches → skip (never guess — R2).
+function resolveBlock(block: AgendaBlock, dates: ShowRow["dates"] | undefined): Resolved {
+  const banner = normalizeDate(block.dateCell ?? ""); // `#REF!`/blank → null → fallback
+  if (banner) return { iso: banner };
+  const dayName = block.dayName?.toUpperCase();
+  const showDays = dates?.showDays ?? [];
+  if (!dayName || !WEEKDAYS.has(dayName)) return { skip: "unresolved" }; // `#REF!`/missing day-name
+  const matches = showDays.filter((iso) => weekdayOfIso(iso) === dayName);
+  if (matches.length === 1) return { iso: matches[0]! };
+  if (matches.length >= 2) return { skip: "ambiguous" };
+  return { skip: "unresolved" };
+}
+
 /**
  * Testable entry: isolate the AGENDA table, then locate + classify its show-day
  * blocks. Returns show-day blocks only (travel/set filtered). Returns [] when the
@@ -233,7 +259,7 @@ export function locateAgendaShowBlocks(markdown: string): AgendaBlock[] {
   return locateBlocks(rows, rows[headerIdx]!, headerIdx);
 }
 
-export function parseAgenda(markdown: string): ParseAgendaResult {
+export function parseAgenda(markdown: string, dates?: ShowRow["dates"]): ParseAgendaResult {
   const block = isolateAgendaTable(markdown);
   if (block === undefined) {
     return { runOfShow: undefined, warnings: [agendaGridMalformed(0)] };
@@ -246,7 +272,24 @@ export function parseAgenda(markdown: string): ParseAgendaResult {
   const structural = structuralRowIndices(rows); // token-header + DATE banner + day-name + day-TYPE
   const blocks = locateBlocks(rows, rows[headerIdx]!, headerIdx);
   // Data rows = every row that is NOT structural (position-independent — banners
-  // may sit above OR below the token-header). Day resolution + data walk: Tasks 1.5–1.6.
-  void structural; void blocks; // consumed by Tasks 1.5–1.6
-  return { runOfShow: {}, warnings: [] };
+  // may sit above OR below the token-header). Data walk (entries): Task 1.6.
+  void structural; // consumed by Task 1.6
+
+  // Step 3 (§4.1) — resolve each block's ISO date. R8: blocks exist at every show-day
+  // START column even when the banner is all-`#REF!`, so resolveBlock ALWAYS runs and a
+  // degraded banner emits its warning (UNRESOLVED/AMBIGUOUS) instead of a silent drop.
+  // Skipped blocks create NO runOfShow key (never guess — R2). Entries are Task 1.6.
+  const runOfShow: Record<string, AgendaEntry[]> = {};
+  const warnings: ParseWarning[] = [];
+  blocks.forEach((b, index) => {
+    const resolved = resolveBlock(b, dates);
+    if ("iso" in resolved) {
+      runOfShow[resolved.iso] = []; // entries populated in Task 1.6
+    } else if (resolved.skip === "ambiguous") {
+      warnings.push(agendaDayAmbiguous(index));
+    } else {
+      warnings.push(agendaBlockUnresolved(index));
+    }
+  });
+  return { runOfShow, warnings };
 }
