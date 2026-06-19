@@ -1,6 +1,6 @@
 import type { AgendaEntry, ParseWarning, ShowRow } from "../types";
 import { clean, normalizeDate, parseTableRows, presence } from "./_helpers";
-import { agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous } from "./agendaWarnings";
+import { agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous, agendaDayTruncated } from "./agendaWarnings";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 export type ParseAgendaResult = {
@@ -279,6 +279,29 @@ function buildEntry(row: string[], startCol: number): AgendaEntry | null {
   return entry;
 }
 
+// ── Step 6: storage caps (§4.1 D-6) ──────────────────────────────────────────
+// Parser caps to 200 entries/day (NOT the UI's 20 — stored 200 keeps §03 +N more computable).
+const MAX_ENTRIES = 200, MAX_TITLE = 300, MAX_RC = 120, MAX_TIME = 40, MAX_BYTES = 32 * 1024;
+const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
+
+function capDay(entries: AgendaEntry[]): { entries: AgendaEntry[]; truncated: boolean } {
+  let truncated = false;
+  let capped = entries.map((e) => {
+    const out: AgendaEntry = { start: cut(e.start, MAX_TIME), title: cut(e.title, MAX_TITLE) };
+    if (e.title.length > MAX_TITLE || e.start.length > MAX_TIME) truncated = true;
+    if (e.finish !== undefined) { out.finish = cut(e.finish, MAX_TIME); if (e.finish.length > MAX_TIME) truncated = true; }
+    if (e.trt !== undefined) { out.trt = cut(e.trt, MAX_TIME); if (e.trt.length > MAX_TIME) truncated = true; }
+    if (e.room !== undefined) { out.room = cut(e.room, MAX_RC); if (e.room.length > MAX_RC) truncated = true; }
+    if (e.av !== undefined) { out.av = cut(e.av, MAX_RC); if (e.av.length > MAX_RC) truncated = true; }
+    return out;
+  });
+  if (capped.length > MAX_ENTRIES) { capped = capped.slice(0, MAX_ENTRIES); truncated = true; }
+  while (capped.length > 0 && Buffer.byteLength(JSON.stringify(capped), "utf8") > MAX_BYTES) {
+    capped.pop(); truncated = true;
+  }
+  return { entries: capped, truncated };
+}
+
 export function parseAgenda(markdown: string, dates?: ShowRow["dates"]): ParseAgendaResult {
   const block = isolateAgendaTable(markdown);
   if (block === undefined) {
@@ -310,7 +333,10 @@ export function parseAgenda(markdown: string, dates?: ShowRow["dates"]): ParseAg
         const e = buildEntry(row, b.startCol);
         if (e !== null) entries.push(e);
       }
-      runOfShow[resolved.iso] = entries; // [] for all-sentinel days (D-2)
+      // Step 6: apply storage caps (200/day, per-field length, 32KB/day).
+      const result = capDay(entries);
+      runOfShow[resolved.iso] = result.entries; // [] for all-sentinel days (D-2)
+      if (result.truncated) warnings.push(agendaDayTruncated(index));
     } else if (resolved.skip === "ambiguous") {
       warnings.push(agendaDayAmbiguous(index));
     } else {

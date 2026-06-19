@@ -416,3 +416,42 @@ describe("parseAgenda — LOAD-BEARING: post-AGENDA tables never leak as run-of-
     expect(day1).toContain("Family Office Perspectives:");
   });
 });
+
+describe("parseAgenda — step 6: storage caps + AGENDA_DAY_TRUNCATED", () => {
+  const dayHeader = "| NAME | ARRIVAL | FLIGHT# | START  | FINISH | TRT | TITLE | ROOM | AV |";
+  const dateRow = "| 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 |";
+  const nameRow = "| Fri | Fri | Fri | Fri | Fri | Fri | Fri | Fri | Fri |";
+
+  it("title>300 truncates to 300; room/av>120 to 120; time>40 to 40", () => {
+    const longTitle = "T".repeat(10_000), longRoom = "R".repeat(500), longTime = "8".repeat(100);
+    const md = [dayHeader, dateRow, nameRow,
+      `|  |  |  | ${longTime} | 9:00 AM | 1:00 | ${longTitle} | ${longRoom} | ${longRoom} |`,
+    ].join("\n");
+    const e = parseAgenda(md, datesOf(["2025-09-05"])).runOfShow!["2025-09-05"]![0]!;
+    expect(e.title.length).toBe(300);
+    expect(e.room!.length).toBe(120);
+    expect(e.av!.length).toBe(120);
+    expect(e.start.length).toBe(40);
+  });
+
+  it(">200 filled rows in one day → capped at 200 + AGENDA_DAY_TRUNCATED (NOT 20)", () => {
+    const rows = Array.from({ length: 250 }, (_, i) =>
+      `|  |  |  | 8:00 AM | 9:00 AM | 1:00 | Session ${i} | Hall | LAV |`);
+    const md = [dayHeader, dateRow, nameRow, ...rows].join("\n");
+    const r = parseAgenda(md, datesOf(["2025-09-05"]));
+    expect(r.runOfShow!["2025-09-05"]!.length).toBe(200);
+    expect(r.warnings.map((w) => w.code)).toContain("AGENDA_DAY_TRUNCATED");
+  });
+
+  it("a day exceeding 32KB serialized → tail entries dropped to ≤32KB + AGENDA_DAY_TRUNCATED", () => {
+    // ~250 chars of title each * 200 entries ≈ 50KB > 32KB
+    const rows = Array.from({ length: 200 }, (_, i) =>
+      `|  |  |  | 8:00 AM | 9:00 AM | 1:00 | ${"X".repeat(250)} ${i} | Hall | LAV |`);
+    const md = [dayHeader, dateRow, nameRow, ...rows].join("\n");
+    const r = parseAgenda(md, datesOf(["2025-09-05"]));
+    const day = r.runOfShow!["2025-09-05"]!;
+    expect(Buffer.byteLength(JSON.stringify(day), "utf8")).toBeLessThanOrEqual(32 * 1024);
+    expect(day.length).toBeLessThan(200);
+    expect(r.warnings.map((w) => w.code)).toContain("AGENDA_DAY_TRUNCATED");
+  });
+});
