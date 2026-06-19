@@ -70,15 +70,18 @@ Emit `viewerFlightInfo` in the return literal. **The crew roster select (`getSho
 
 Add a **conditional flight `SectionCard`** to the Travel section, sourced from `data.viewerFlightInfo` (the section already consumes `ShowForViewer` via `resolveViewerContext`). The Travel section is keyed `?s=travel` (`resolveActiveSection.ts`), one of the 6+1 sub-nav sections (`today | schedule | venue | travel | crew | gear | budget`, `CrewSubNav.tsx:41-46`).
 
-**Render rule (rendered element, not conceptual):**
+**Render rule (rendered element, not conceptual).** URL-strip **per line** so line breaks survive. `stripAgendaUrls` collapses ALL whitespace runs (`.replace(/\s+/g, " ")` in `lib/visibility/agendaUrls.ts`), so calling it on the whole multi-line string would FLATTEN a multi-leg itinerary (`AA1…\nAA2…`) into one line — the line-break requirement and a single `stripAgendaUrls` call are mutually exclusive. Therefore split first, strip each line, drop empty/sentinel/URL-only lines, and preserve the surviving line structure:
 
-```
-const flight = stripAgendaUrls(data.viewerFlightInfo ?? "");
-const showFlight = flight.length > 0 && !shouldHideGenericOptional(flight);
+```ts
+const flightLines = (data.viewerFlightInfo ?? "")
+  .split("\n")
+  .map((line) => stripAgendaUrls(line))                 // per-line: URLs gone, intra-line whitespace collapsed (fine)
+  .filter((line) => line.length > 0 && !shouldHideGenericOptional(line));
+const showFlight = flightLines.length > 0;
 ```
 
 - `showFlight === false` → **render nothing** for flight (no card, no header, no empty placeholder) — the section shows transport/hotels (or its own existing empty state) exactly as today.
-- `showFlight === true` → render ONE `SectionCard` titled **"Your flight"** containing the stripped string, **line breaks preserved** (a multi-leg `flight_info` may contain `\n`). Use `whitespace-pre-line` (or split on `\n` into lines) so a multi-leg itinerary stays readable. Carries `data-testid="travel-flight"`.
+- `showFlight === true` → render ONE `SectionCard` titled **"Your flight"** (`data-testid="travel-flight"`) whose body renders **each surviving line as its own line element** (e.g. `flightLines.map((l, i) => <span key={i} className="block">{l}</span>)`, or a `<div className="whitespace-pre-line">{flightLines.join("\n")}</div>`) — a multi-leg itinerary stays on **separate visual lines**, never flattened. A URL-only line strips to empty and is dropped (so a 2-leg itinerary where one leg is just a check-in URL renders the one real leg).
 
 **Placement:** the flight card renders **first** within Travel (above "Getting there" and "Hotels") — a crew member's own flight is the most personal, time-sensitive Travel datum. Use the existing `SectionCard` primitive (`@/components/crew/primitives/SectionCard`, the same `<SectionCard title=…>` the transport block at `TravelSection.tsx:165` and hotels at `:245` use) — no new tokens (the impeccable dual-gate verifies real-browser fidelity, including no undefined-token fallbacks — the Phase-2 lesson). `viewerFlightInfo` is the exact sibling of the existing `viewerName` field (`getShowForViewer.ts:196`/`:247`/`:637`), both captured from the same own-row lookup.
 
@@ -109,8 +112,9 @@ const showFlight = flight.length > 0 && !shouldHideGenericOptional(flight);
 **UI** (`tests/components/crew/sections/TravelSection.flight.test.tsx`, jsdom):
 - `viewerFlightInfo` present → `[data-testid="travel-flight"]` renders the string (asserted vs the data source, scoped to the card — anti-tautology).
 - `viewerFlightInfo` null / `""` / sentinel / URL-only → no `travel-flight` element (Travel anchor blocks intact).
-- multi-line → both legs present.
-- URL in the string → no `https://` / `drive.google.com` substring in the crew DOM; the real text survives.
+- **multi-line → both legs on SEPARATE lines, NOT flattened** (the regression the naive "both legs present" test misses): a `"AA1 …\nAA2 …"` itinerary must render as ≥2 distinct line elements (or the card's text retains the `\n` / a `<br>`/block boundary between legs). Assert the card does NOT render both legs as one run-on line — i.e. fail if a single `stripAgendaUrls` over the whole string flattened it.
+- a multi-line itinerary where ONE leg is a URL-only line → that line is dropped, the real leg renders (catches the per-line filter).
+- URL in a line → no `https://` / `drive.google.com` substring in the crew DOM; the real text on that line survives.
 - flight card renders even when transport + hotels are empty (the flight card is independent of the other Travel blocks).
 
 ## Out of scope (do-not-relitigate)
