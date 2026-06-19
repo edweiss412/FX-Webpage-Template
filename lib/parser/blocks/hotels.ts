@@ -256,10 +256,10 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
     // Value rows based on current rowState
     if (rowState === "hotel_name" && col0 === "") {
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
-        leftSlot.hotel_name = presence(col1);
+        leftSlot.hotel_name = presence(stripConfTokens(col1));
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
-        rightSlot.hotel_name = presence(col3);
+        rightSlot.hotel_name = presence(stripConfTokens(col3));
       }
       rowState = "idle";
       continue;
@@ -375,7 +375,7 @@ function parseHotelStaysRow(
  */
 function buildInlineReservations(raw: string, contextYear: string | null): HotelReservationRow[] {
   const checkInCount = (raw.match(/check\s+in/gi) ?? []).length;
-  if (checkInCount < 2) return [buildInlineHotel(raw, 1, contextYear)];
+  if (checkInCount < 2) return stripHotelNameConf([buildInlineHotel(raw, 1, contextYear)]);
 
   const segments = splitInlineReservationGroups(raw);
   const rows = segments.map((seg, i) => buildInlineHotel(seg, i + 1, contextYear));
@@ -393,7 +393,7 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
     const single = buildInlineHotel(raw, 1, contextYear);
     single.check_in = null;
     single.check_out = null;
-    return [single];
+    return stripHotelNameConf([single]);
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation
@@ -401,6 +401,19 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
   // every group (later groups carry only a divider + guest, not the hotel).
   const baseName = sanitizeHotelName(rows[0]?.hotel_name ?? null);
   for (const r of rows) r.hotel_name = baseName;
+  return stripHotelNameConf(rows);
+}
+
+/**
+ * Final privacy pass: strip any "<dash> #?<digits>" confirmation token from each
+ * row's hotel_name. A "Hotel Stays"/inline cell with no "Check In" marker dumps the
+ * whole string (guest conf#s included) into hotel_name, which is rendered + show-wide
+ * readable. Runs AFTER sanitizeHotelName (which needs the conf# to locate guests).
+ */
+function stripHotelNameConf(rows: HotelReservationRow[]): HotelReservationRow[] {
+  for (const r of rows) {
+    if (r.hotel_name) r.hotel_name = presence(stripConfTokens(r.hotel_name));
+  }
   return rows;
 }
 
@@ -530,6 +543,9 @@ function buildInlineHotel(
 
   return {
     ordinal,
+    // hotel_name's conf# is stripped LATER, in buildInlineReservations — after
+    // sanitizeHotelName, which needs the "Name—conf#" pattern to locate + remove
+    // glued guest spans (stripping the conf# here would defeat it).
     hotel_name: presence(hotelNameRaw),
     hotel_address: null,
     // strip any conf# suffix from each name too — `names` is show-wide readable.

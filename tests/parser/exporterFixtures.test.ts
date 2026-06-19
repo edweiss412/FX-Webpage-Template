@@ -614,13 +614,26 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     for (const h of [...accented, ...slashy]) expect(h.confirmation_no).toBeNull();
   });
 
-  it("#4 PRIVACY: NO hotel name on any show contains a conf# digit-run or '#' (names is show-wide readable)", () => {
+  it("#4 PRIVACY: no conf# survives in ANY show-wide-readable lodging field (names / hotel_name / hotel_address)", () => {
+    // A confirmation token is a "<dash> #?<4+ digits>" run. Names must carry no
+    // digit-run at all (people names); hotel_name/hotel_address use the dash-token
+    // shape so legit address numbers / ZIPs (e.g. "Chicago, IL 60611") don't trip.
+    const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}/;
     for (const s of SLUGS) {
       for (const h of parse(s).hotelReservations) {
-        for (const n of h.names) {
-          expect(n, `${s} name "${n}"`).not.toMatch(/[#]|\d{4,}/);
-        }
+        for (const n of h.names) expect(n, `${s} name "${n}"`).not.toMatch(/[#]|\d{4,}/);
+        expect(h.hotel_name ?? "", `${s} hotel_name`).not.toMatch(confTok);
+        expect(h.hotel_address ?? "", `${s} hotel_address`).not.toMatch(confTok);
       }
     }
+  });
+
+  it("#4 PRIVACY: east-coast 'Hotel Stays' hotel_name carries no guest confirmation number", () => {
+    // "Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525"
+    // has no Check-In marker, so the whole cell becomes hotel_name — the conf#s
+    // (103317 / 103316 / 110525) must be stripped out before persisting.
+    const hn = parse("east-coast").hotelReservations[0]?.hotel_name ?? "";
+    expect(hn).toContain("Four Seasons");
+    for (const conf of ["103317", "103316", "110525"]) expect(hn).not.toContain(conf);
   });
 });
