@@ -38,6 +38,7 @@
 import type { JSX } from "react";
 
 import { DayCard } from "@/components/crew/primitives/DayCard";
+import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
@@ -127,15 +128,33 @@ export function ScheduleSection({
 
           // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT
           // the day-card list (primary, wider via the 1.6fr track), RIGHT the
-          // Daily-call-times strip THEN the "Heads up" degraded tile, stacked.
-          // <720px it collapses to a single column (grid-cols-1) with the left
-          // column first, then the right column — day cards above the times +
-          // heads-up. CSS grid tracks default to `align-items: stretch`, so the
-          // two columns share an equal height at ≥720px without the Tailwind-v4
-          // `.flex`-no-stretch trap (DESIGN §7). Each column carries `min-w-0` so
-          // long day/anchor strings wrap instead of overflowing 390px.
+          // "Daily call times" SectionCard THEN (admin) the rooms-fetch degraded
+          // tile, stacked. <720px it collapses to a single column (grid-cols-1)
+          // with the left column first, then the right column. CSS grid tracks
+          // default to `align-items: stretch`, so the two columns share an equal
+          // height at ≥720px without the Tailwind-v4 `.flex`-no-stretch trap
+          // (DESIGN §7). Each column carries `min-w-0` so long day/anchor strings
+          // wrap instead of overflowing 390px.
+          //
+          // One-sided collapse (Task 4 §6 / Codex plan R2, mirrors Crew Task 8):
+          // when the RIGHT column would have NO content — no "Daily call times"
+          // card (all anchors absent → KeyTimesStrip null) AND no rooms-error
+          // tile — the 2-track grid would leave a BLANK right column at ≥720px.
+          // In that case the wrapper falls back to `flex flex-col` so the days
+          // column spans full width. The right-column container is STILL emitted
+          // (empty, zero-height) so the `data-schedule-column="times"` anchor-
+          // floor contract holds (ScheduleSection.anchorFloor.test.tsx).
+          const hasTimesCard = Object.values(anchors).some((v) => v != null);
+          const rightHasContent = hasTimesCard || roomsFetchFailed;
           return (
-            <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch">
+            <div
+              data-testid="schedule-grid"
+              className={
+                rightHasContent
+                  ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                  : "flex flex-col gap-4"
+              }
+            >
               <div data-testid="schedule-column" data-schedule-column="days" className="min-w-0">
                 {visibleDays.length === 0 ? (
                   <EmptyState label="Show dates haven't been confirmed yet." />
@@ -177,7 +196,15 @@ export function ScheduleSection({
                 data-schedule-column="times"
                 className="flex min-w-0 flex-col gap-4"
               >
-                <KeyTimesStrip anchors={anchors} />
+                {/* Wrap the key-times in the mock's "Daily call times" card so
+                    the split-wide equal-height parity holds (a bare strip vs a
+                    card breaks items-stretch). Render NO card when all anchors
+                    are absent — no empty shell. */}
+                {hasTimesCard ? (
+                  <SectionCard title="Daily call times">
+                    <KeyTimesStrip anchors={anchors} />
+                  </SectionCard>
+                ) : null}
                 {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
               </div>
             </div>

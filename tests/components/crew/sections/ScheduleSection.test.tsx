@@ -55,7 +55,9 @@ test("explicit → intersection against the FULL aggregate; none → all aggrega
     />,
   );
   expect(explicit.container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(2);
-  expect(explicit.container.textContent).toContain(DATES.travelIn);
+  // The day's ISO is exposed via the wrapper's data-day attribute (the badge
+  // now renders "TUE 12", not the literal ISO string — Task 4 horizontal badge).
+  expect(explicit.container.querySelector(`[data-day="${DATES.travelIn}"]`)).toBeTruthy();
   const none = render(
     <ScheduleSection
       data={withRestriction({ kind: "none" })}
@@ -89,8 +91,10 @@ test("today-pin uses show timezone, not UTC date", () => {
   );
   const todayCard = container.querySelector('[data-testid="schedule-day-today"]');
   expect(todayCard).toBeTruthy();
-  // The pinned card renders the show-tz date, not the UTC date.
-  expect(todayCard?.textContent).toContain(expectedTodayIso);
+  // The pinned card carries the show-tz date (not the UTC date) via data-day —
+  // the badge renders "THU 14" rather than the literal ISO (Task 4), so the ISO
+  // contract lives on the attribute, asserted explicitly below at line ~101.
+  expect(todayCard?.getAttribute("data-day")).toBe(expectedTodayIso);
   // And exactly one card is the today card; the rest are dated.
   expect(container.querySelectorAll('[data-testid="schedule-day-today"]').length).toBe(1);
   // The frozen-clock screenshot pipeline (help-screenshots-clock-pipeline.spec.ts)
@@ -99,4 +103,68 @@ test("today-pin uses show timezone, not UTC date", () => {
   // in jsdom, not only in the screenshots-drift CI capture.
   expect(todayCard?.getAttribute("data-today")).toBe("true");
   expect(todayCard?.getAttribute("data-day")).toBe(expectedTodayIso);
+});
+
+// ---------------------------------------------------------------------------
+// Task 4 §6 — right column "Daily call times" card + one-sided collapse.
+//
+// resolveKeyTimes derives anchors from dates.loadIn OR the selected room's
+// set_time/show_time/strike_time (lib/crew/resolveKeyTimes.ts:53-67). The
+// default fixture has rooms:[] + no loadIn → all anchors absent → no card.
+// A room WITH times → anchors present → the card renders.
+// ---------------------------------------------------------------------------
+function withRooms(rooms: any[]) {
+  return makeShowForViewer({ show: { dates: DATES }, rooms });
+}
+
+// This pre-existing suite has no afterEach(cleanup), so global RTL queries
+// (getByText/queryByText) see EVERY mounted tree, not just the current render.
+// All assertions below are therefore scoped to the render-local `container`.
+test("anchors present → right column renders a 'Daily call times' SectionCard wrapping the key-times", () => {
+  const { container } = render(
+    <ScheduleSection
+      data={withRooms([
+        { id: "r1", kind: "gs", name: "Hall A", set_time: "9:00 AM", show_time: "7:00 PM", strike_time: "11:00 PM" },
+      ])}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  // The right column is a SectionCard (data-testid="section-card") titled "Daily call times".
+  const timesColumn = container.querySelector('[data-schedule-column="times"]')!;
+  expect(timesColumn).not.toBeNull();
+  const card = timesColumn.querySelector('[data-testid="section-card"]')!;
+  expect(card).not.toBeNull();
+  const titleNode = card.querySelector('[data-slot="section-card-title"]');
+  expect(titleNode?.textContent).toContain("Daily call times");
+  // The key-times strip lives INSIDE the card, with its present anchors.
+  const strip = card.querySelector('[data-testid="key-times-strip"]');
+  expect(strip).not.toBeNull();
+  expect(strip!.textContent).toContain("9:00 AM");
+  // Layout is the 2-track split-wide grid when the right column has content.
+  const grid = container.querySelector('[data-testid="schedule-grid"]')!;
+  expect(grid.className).toContain("grid-cols-[1.6fr_1fr]");
+  // The "Daily call times" text comes from the SectionCard title, not loose prose.
+  expect(titleNode!.closest('[data-slot="section-card-title"]')).not.toBeNull();
+});
+
+test("all anchors absent + no rooms error → NO card AND the grid collapses to a single full-width column", () => {
+  const { container } = render(
+    <ScheduleSection
+      data={withRooms([])}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  // No empty "Daily call times" shell (scoped to THIS render's container).
+  expect(container.querySelector('[data-slot="section-card-title"]')).toBeNull();
+  expect(container.textContent).not.toContain("Daily call times");
+  expect(container.querySelector('[data-testid="key-times-strip"]')).toBeNull();
+  // The wrapper is NOT the 2-track split grid — it collapses to single full-width.
+  const grid = container.querySelector('[data-testid="schedule-grid"]')!;
+  expect(grid.className).not.toContain("grid-cols-[1.6fr_1fr]");
+  // Day cards still render (the days column is intact, full width).
+  expect(container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(ALL_DATES.length);
 });

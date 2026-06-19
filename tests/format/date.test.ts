@@ -22,7 +22,7 @@
  * a day-boundary off-by-one bug.
  */
 import { describe, expect, test } from "vitest";
-import { formatIsoDate } from "@/lib/format/date";
+import { dayBadgeParts, formatIsoDate } from "@/lib/format/date";
 
 describe("formatIsoDate", () => {
   test("'short' mode renders 'Mon D' from a YYYY-MM-DD ISO string", () => {
@@ -62,5 +62,30 @@ describe("formatIsoDate", () => {
     // were not pinned to 'UTC'. The helper pins it; this test catches
     // any regression that drops the timeZone option.
     expect(formatIsoDate("2026-04-19", "short")).toBe("Apr 19");
+  });
+});
+
+describe("dayBadgeParts", () => {
+  test("splits an ISO date into uppercased weekday-short + numeric day (UTC)", () => {
+    // 2026-06-12 is a Friday (UTC).
+    expect(dayBadgeParts("2026-06-12")).toEqual({ dow: "FRI", dnum: "12" });
+  });
+
+  test("single-digit day renders without padding", () => {
+    // 2026-06-01 is a Monday (UTC).
+    expect(dayBadgeParts("2026-06-01")).toEqual({ dow: "MON", dnum: "1" });
+  });
+
+  test("UTC pin: 2026-04-19 is SUN, day 19 — not the prior local-zone day", () => {
+    // Without timeZone:'UTC' a US-Pacific runtime would render Sat the 18th.
+    expect(dayBadgeParts("2026-04-19")).toEqual({ dow: "SUN", dnum: "19" });
+  });
+
+  test("empty string → both parts empty", () => {
+    expect(dayBadgeParts("")).toEqual({ dow: "", dnum: "" });
+  });
+
+  test("invalid ISO → empty dow, dnum echoes the raw input (no NaN leak)", () => {
+    expect(dayBadgeParts("not-a-date")).toEqual({ dow: "", dnum: "not-a-date" });
   });
 });
