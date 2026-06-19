@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { parseAgenda } from "@/lib/parser/blocks/agenda";
+import { parseAgenda, locateAgendaShowBlocks } from "@/lib/parser/blocks/agenda";
 import {
   agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous,
   agendaDayTruncated, agendaDayEmptied,
@@ -50,6 +51,61 @@ describe("parseAgenda — step 1: grid location (fail-soft)", () => {
     ].join("\n");
     expect(() => parseAgenda(md)).not.toThrow();
     expect(parseAgenda(md).runOfShow).not.toBeUndefined();
+  });
+});
+
+describe("parseAgenda — step 2: locateAgendaShowBlocks (boundaries + show-day classification)", () => {
+  const synthetic = [
+    "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | SET DAY | SET DAY | SET DAY | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 |",
+    "| 5/13/24 | 5/13/24 | 5/13/24 | 5/14/24 | 5/14/24 | 5/14/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 |",
+    "| Monday | Monday | Monday | Tuesday | Tuesday | Tuesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday |",
+    "| NAME | ARRIVAL | FLIGHT# | TIME | TITLE | ROOM | START  | FINISH | TRT | TITLE | ROOM | AV |",
+    "|  |  |  |  |  |  | 7:15 AM | 7:30 AM | 0:15 | Opening Keynote | Mabel 1 | LAV |",
+  ].join("\n");
+
+  it("returns EXACTLY one show-day block at startCol 6; TRAVEL(0)/SET(3) are filtered out", () => {
+    const blocks = locateAgendaShowBlocks(synthetic);
+    expect(blocks.map((b) => b.startCol)).toEqual([6]); // NOT [0,3,6] — travel/set excluded
+    expect(blocks[0]!.dateCell).toBe("5/15/24");
+    expect(blocks[0]!.dayName).toBe("Wednesday");
+  });
+
+  it("East Coast fixture: show-day blocks start at cols 6 and 12 (DAY 1, DAY 2); 5 banner dates → 2 show blocks", () => {
+    const md = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
+    const blocks = locateAgendaShowBlocks(md);
+    // 5 dated banner columns (TRAVEL 5/13, SET 5/14, DAY1 5/15, DAY2 5/16, TRAVEL 5/17)
+    // → exactly the two DAY blocks survive classification, at the absolute START columns.
+    expect(blocks.map((b) => b.startCol)).toEqual([6, 12]);
+    expect(blocks.map((b) => b.dateCell)).toEqual(["5/15/24", "5/16/24"]);
+  });
+
+  it("a grid with NO show-day span (only TRAVEL/SET) → empty block list (no false show day)", () => {
+    const md = [
+      "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | SET DAY | SET DAY | SET DAY |",
+      "| 5/13/24 | 5/13/24 | 5/13/24 | 5/14/24 | 5/14/24 | 5/14/24 |",
+      "| Monday | Monday | Monday | Tuesday | Tuesday | Tuesday |",
+      "| NAME | ARRIVAL | FLIGHT# | TIME | TITLE | ROOM |",
+    ].join("\n");
+    expect(locateAgendaShowBlocks(md)).toEqual([]);
+  });
+
+  it("R14: the EXPORTED helper applies cleanRows — escaped \\#REF\\! banner + FLIGHT\\# token-header still locate blocks; escaped banner is not a block row", () => {
+    // The exported testable path must clean EXACTLY like parseAgenda — else escaped
+    // fixture cells stay invisible to the post-clean detectors on the helper path.
+    const md = [
+      "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 |",
+      "| \\#REF\\! | \\#REF\\! | \\#REF\\! | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 |",
+      "| Monday | Monday | Monday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday |",
+      "| NAME | ARRIVAL | FLIGHT\\# | TIME | TITLE | ROOM | START  | FINISH | TRT |",
+      "|  |  |  |  |  |  | 7:15 AM | 7:30 AM | 0:15 |",
+    ].join("\n");
+    const blocks = locateAgendaShowBlocks(md);
+    // (a) token-header located post-clean (FLIGHT\# → FLIGHT#) → the DAY-1 block exists at START col 6
+    expect(blocks.map((b) => b.startCol)).toEqual([6]);
+    // (b) the cleaned date-banner cell at the block start is read as the real date (not "\#REF\!")
+    expect(blocks[0]!.dateCell).toBe("5/15/24");
+    // (c) no block carries an escaped-REF dateCell (the escaped banner cells are travel cols, no START → no block)
+    expect(blocks.every((b) => !/#?REF!?/i.test(b.dateCell ?? ""))).toBe(true);
   });
 });
 

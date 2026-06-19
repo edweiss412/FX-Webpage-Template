@@ -138,6 +138,101 @@ function structuralRowIndices(rows: string[][]): Set<number> {
   return s;
 }
 
+export type AgendaBlock = {
+  startCol: number;
+  endCol: number; // exclusive
+  dateCell: string | undefined;
+  dayName: string | undefined; // from day-NAME row OR header prefix
+};
+
+// Find the DATE / day-name banner rows BY CONTENT across the WHOLE isolated table
+// (R7: position-independent — they may be BELOW the token-header). These are the
+// SAME shape-based detectors structuralRowIndices uses (Task 1.3) — ONE source of
+// truth, so "what is the DATE banner" is identical for span-resolution and for the
+// data-walk skip. They detect the banner by SHAPE (#REF! included, R8), so the
+// rows are found even when no value normalizes.
+function findDateRow(rows: string[][]): string[] | undefined {
+  return rows.find(isDateBannerRow);
+}
+function findDayNameRow(rows: string[][]): string[] | undefined {
+  return rows.find(isDayNameRow);
+}
+
+/**
+ * Build per-day SHOW blocks. **Spans come from the TOKEN-HEADER's START columns
+ * (R8 — value-independent), NOT from DATE-cell validity.** The token-header is the
+ * reliably-present anchor (spec §4.1); every show day is the 6-col group
+ * `START|FINISH|TRT|TITLE|ROOM|AV`, so each `START` column in the token-header
+ * opens exactly one show block `[startCol, startCol+6)`. The DATE banner + day-name
+ * banner supply RESOLUTION inputs at each block's start column (whatever their
+ * values — `#REF!`/blank tolerated; resolved in Task 1.5). Travel (`NAME|ARRIVAL|
+ * FLIGHT#`) and set (`TIME|TITLE|ROOM`) groups have NO `START` column → no block.
+ */
+function locateBlocks(rows: string[][], header: string[], headerIdx: number): AgendaBlock[] {
+  const dateRow = findDateRow(rows);     // whole table, shape-detected (#REF! ok)
+  const nameRow = findDayNameRow(rows);  // whole table
+  const normHeader = header.map(normHeaderCell);
+  const blocks: AgendaBlock[] = [];
+
+  // Prefix-form (e.g. `Wednesday/START`, `#REF!/NAME`): no separate DATE/day-name
+  // row; the day-name lives in the header-cell prefix. Detect by ANY header cell
+  // carrying a `<prefix>/START`. Otherwise use the plain token-header START columns.
+  const prefixForm = header.some((c) => c.includes("/") && normHeaderCell(c) === "START");
+
+  if (prefixForm) {
+    for (let c = 0; c < header.length; c++) {
+      const cell = header[c] ?? "";
+      if (normHeaderCell(cell) !== "START") continue; // START token after prefix-strip
+      const slash = cell.indexOf("/");
+      const prefix = slash === -1 ? undefined : cell.slice(0, slash).trim();
+      // a #REF! prefix is not a usable day-name; leave dayName undefined → resolve fails → UNRESOLVED
+      const dayName = prefix && WEEKDAYS.has(prefix.toUpperCase()) ? prefix : undefined;
+      blocks.push({ startCol: c, endCol: c + 6, dateCell: undefined, dayName });
+    }
+  } else {
+    // Plain form: one show block per START column in the token-header.
+    for (let c = 0; c < normHeader.length; c++) {
+      if (normHeader[c] !== "START") continue;
+      blocks.push({
+        startCol: c,
+        endCol: c + 6, // the 6-col START|FINISH|TRT|TITLE|ROOM|AV group
+        dateCell: dateRow?.[c]?.trim(),   // may be M/D/YY, #REF!, or undefined — resolved in Task 1.5
+        dayName: nameRow?.[c]?.trim(),    // may be a weekday, #REF!, or undefined
+      });
+    }
+  }
+
+  // Confirm each block is a real SHOW-DAY group: its 6-col span has START+FINISH+TRT
+  // (guards a stray duplicate `START` label or a truncated tail group).
+  return blocks.filter((b) => {
+    const span = normHeader.slice(b.startCol, b.endCol);
+    return span.includes("START") && span.includes("FINISH") && span.includes("TRT");
+  });
+}
+
+/**
+ * Testable entry: isolate the AGENDA table, then locate + classify its show-day
+ * blocks. Returns show-day blocks only (travel/set filtered). Returns [] when the
+ * grid is unlocatable OR carries no show-day span. (parseAgenda uses the same
+ * locateBlocks internally; this thin wrapper pins the boundary/classification
+ * contract for Task 1.4's red→green cycle.)
+ *
+ * R14 — this helper MUST apply the SAME `cleanRows` normalization boundary as
+ * parseAgenda (R13): it feeds rows into the post-clean detectors (REF_ERR_RE /
+ * weekday / date / token-header), so passing RAW rows would leave escaped fixture
+ * cells (`\#REF\!`, `FLIGHT\#`) invisible on the helper path and let a Task-1.4
+ * test green while the surface mishandles escaped fixtures. `cleanRows` is
+ * idempotent, so cleaning here AND in parseAgenda is safe.
+ */
+export function locateAgendaShowBlocks(markdown: string): AgendaBlock[] {
+  const block = isolateAgendaTable(markdown);
+  if (block === undefined) return [];
+  const rows = cleanRows(parseTableRows(block)); // SAME normalization boundary as parseAgenda (R13/R14)
+  const headerIdx = rows.findIndex(isTokenHeaderRow);
+  if (headerIdx === -1) return [];
+  return locateBlocks(rows, rows[headerIdx]!, headerIdx);
+}
+
 export function parseAgenda(markdown: string): ParseAgendaResult {
   const block = isolateAgendaTable(markdown);
   if (block === undefined) {
@@ -149,8 +244,9 @@ export function parseAgenda(markdown: string): ParseAgendaResult {
   const rows = cleanRows(parseTableRows(block)); // ONLY the AGENDA table's rows, cleaned
   const headerIdx = rows.findIndex(isTokenHeaderRow);
   const structural = structuralRowIndices(rows); // token-header + DATE banner + day-name + day-TYPE
+  const blocks = locateBlocks(rows, rows[headerIdx]!, headerIdx);
   // Data rows = every row that is NOT structural (position-independent — banners
-  // may sit above OR below the token-header). Day resolution + data walk: Tasks 1.4–1.6.
-  void headerIdx; void structural; // used by Tasks 1.4–1.6
+  // may sit above OR below the token-header). Day resolution + data walk: Tasks 1.5–1.6.
+  void structural; void blocks; // consumed by Tasks 1.5–1.6
   return { runOfShow: {}, warnings: [] };
 }
