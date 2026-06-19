@@ -283,7 +283,7 @@ export function agendaDayEmptied(index: number, iso: string): ParseWarning {
 - [ ] **Minimal impl (b)** — `lib/parser/blocks/agenda.ts`:
 ```ts
 import type { AgendaEntry, ParseWarning } from "../types";
-import { parseTableRows } from "./_helpers";
+import { normalizeDate, parseTableRows } from "./_helpers";
 import { agendaGridMalformed } from "./agendaWarnings";
 
 export type ParseAgendaResult = {
@@ -472,10 +472,8 @@ describe("parseAgenda — step 2: locateAgendaShowBlocks (boundaries + show-day 
 });
 ```
 - [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 2'`. Expected: `locateAgendaShowBlocks` is not exported from `@/lib/parser/blocks/agenda` → import resolves to `undefined` → `TypeError: locateAgendaShowBlocks is not a function` on first call. This is a genuine RED (the function does not exist), satisfying invariant 1.
-- [ ] **Minimal impl** — add to `agenda.ts` (before `parseAgenda`), and refactor `parseAgenda` to consume blocks:
+- [ ] **Minimal impl** — add to `agenda.ts` (before `parseAgenda`), and refactor `parseAgenda` to consume blocks (`normalizeDate` is already imported in Task 1.3's snippet — do not re-import):
 ```ts
-import { normalizeDate } from "./_helpers";
-
 export type AgendaBlock = {
   startCol: number;
   endCol: number; // exclusive

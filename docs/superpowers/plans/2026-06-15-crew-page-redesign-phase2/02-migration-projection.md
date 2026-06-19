@@ -297,124 +297,219 @@ do update set
 ```
 > Pass the computed `run_of_show` object (or `null`) as `$5` — do NOT `JSON.stringify` it (postgres.js serializes `$N::jsonb` itself; a manual stringify double-encodes — see the postgres.js jsonb param trap). (The prior `run_of_show` is read by `applyShowSnapshot` per the snapshot-plumbing subsection — NOT in this upsert and NOT at the Phase-1 `:532-543` read.)
 
-**Failing test (CODE) — PART A: the in-memory COMPUTATION harness (proves the confirmed-replace + EMPTIED logic given a snapshot), derives nothing from hardcoded counts:**
+**Failing test (CODE) — `tests/sync/runOfShowConfirmedReplace.test.ts`. Drives the REAL `runPhase2` → `applyShowSnapshot` → `applyParseResult` path against an in-memory `FakePhase2Tx` (modeled on the existing `tests/sync/phase2.test.ts` `FakePhase2Tx` + `parseResult()` + `runWith()` harness — `:63-120`, `:132-280`). The fake's `applyShowSnapshot` returns a SEEDED `priorRunOfShow` (mirroring the new Postgres `select run_of_show from shows_internal`), so this single suite proves BOTH the CONFIRMED-ONLY computation AND that `priorRunOfShow` is plumbed end-to-end (interface → snapshot → applyParseResult → out via `Phase2Result.applied.parseWarnings`). Complete, executable:**
 ```ts
-// drives applyParseResult with a fake Phase2Tx capturing the upsertShowsInternal payload + warnings,
-// passing a snapshot whose priorRunOfShow is set directly (model on the existing applyParseResult unit tests).
-// NOTE: this PART proves the computation only; PART B (below) proves applyShowSnapshot actually POPULATES
-// priorRunOfShow on the live path — a fake-snapshot test alone would pass even if the live plumbing were dead (R6).
-import { describe, it, expect } from "vitest";
-import { applyParseResult } from "@/lib/sync/applyParseResult";
-// ... build a baseParseResult + a fakeTx capturing upsertShowsInternal args + a snapshot carrying priorRunOfShow
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { AgendaEntry, ParseResult } from "@/lib/parser/types";
+import type { DriveListedFile } from "@/lib/drive/list";
 
-const d1 = "2026-06-24", d2 = "2026-06-25";
-const e1 = [{ start: "9:00 AM", title: "Keynote A" }];
-const e1b = [{ start: "9:00 AM", title: "Keynote A v2" }];
-const e2 = [{ start: "1:00 PM", title: "Panel B" }];
+const d1 = "2026-05-09";          // a showDay in the base fixture below
+const d2 = "2026-05-10";          // a 2nd showDay
+const e1: AgendaEntry[] = [{ start: "9:00 AM", title: "Keynote A" }];
+const e1b: AgendaEntry[] = [{ start: "9:00 AM", title: "Keynote A v2" }];
+const e2: AgendaEntry[] = [{ start: "1:00 PM", title: "Panel B" }];
 
-describe("sync run_of_show CONFIRMED-ONLY full replace (D-2 / R17/R21/R22)", () => {
-  it("(i) one block unresolved (d2 absent) → stored {d1:e1}, d2 NOT preserved", async () => {
-    // prior {d1:[old], d2:e2}; parsed {d1:e1}  → write {d1:e1}; AGENDA_DAY_EMPTIED NOT emitted (d2 absent, not read-empty)
-    // → assert captured payload.run_of_show === { [d1]: e1 } and does NOT contain d2
+// Minimal ParseResult factory (mirror tests/sync/phase2.test.ts parseResult(); only the fields the apply reads).
+function parseResult(overrides: Partial<ParseResult> = {}): ParseResult {
+  return {
+    show: {
+      title: "T", client_label: "c", client_contact: null, template_version: "v4", venue: null,
+      dates: { travelIn: "2026-05-07", set: "2026-05-08", showDays: [d1, d2], travelOut: "2026-05-11" },
+      schedule_phases: {}, event_details: {}, agenda_links: [], coi_status: "Pending",
+      po: null, proposal: null, invoice: null, invoice_notes: null,
+    },
+    crewMembers: [], hotelReservations: [], rooms: [], transportation: null, contacts: [],
+    pullSheet: null, diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null, raw_unrecognized: [], warnings: [], hardErrors: [],
+    ...overrides,
+  };
+}
+
+function fileMeta(modifiedTime = "2026-05-08T12:00:00.000Z"): DriveListedFile {
+  return { driveFileId: "file-1", name: "S", mimeType: "application/vnd.google-apps.spreadsheet", modifiedTime, parents: ["f"] };
+}
+
+// FakePhase2Tx: captures the upsertShowsInternal payload; applyShowSnapshot returns a SEEDED priorRunOfShow.
+function makeFakeTx(priorRunOfShow: Record<string, AgendaEntry[]> | null) {
+  const captured: { payload?: { run_of_show: unknown; parse_warnings: ParseResult["warnings"] } } = {};
+  const tx = {
+    async applyShowSnapshot() {
+      return {
+        outcome: "updated" as const,
+        showId: "show-1",
+        previousCrewNames: [] as string[],
+        previousCrewMembers: [],
+        priorRunOfShow, // the field under test — modeled on the new shows_internal SELECT
+      };
+    },
+    async deleteCrewMembersNotIn() {}, async upsertCrewMembers() {},
+    async provisionAddedCrewAuth() {}, async revokeRemovedCrewAuth() {},
+    async replaceHotelReservations() {}, async replaceRooms() {},
+    async replaceTransportation() {}, async replaceContacts() {},
+    async upsertShowsInternal(_showId: string, payload: { run_of_show: unknown; parse_warnings: ParseResult["warnings"] }) {
+      captured.payload = payload;
+    },
+    async deleteLivePendingIngestion() {},
+  };
+  return { tx, captured };
+}
+
+async function runWith(
+  tx: ReturnType<typeof makeFakeTx>["tx"],
+  runOfShow: ParseResult["runOfShow"],
+  showDays: string[] = [d1, d2],
+) {
+  vi.resetModules();
+  const { runPhase2 } = await import("@/lib/sync/phase2");
+  const pr = parseResult({ runOfShow, show: { ...parseResult().show, dates: { ...parseResult().show.dates, showDays } } });
+  const result = await runPhase2(tx as never, {
+    driveFileId: "file-1", mode: "cron" as const, fileMeta: fileMeta("2026-05-08T11:59:00.000Z"),
+    binding: { bindingToken: "tok", modifiedTime: "2026-05-08T12:00:00.000Z" }, parseResult: pr,
   });
-  it("(ii) grid unlocatable (parsed.runOfShow === undefined) → stored null + AGENDA_GRID_MALFORMED ONLY (zero AGENDA_DAY_EMPTIED)", async () => {
-    // prior {d1:e1, d2:e2} (BOTH previously stored — makes the no-EMPTIED assertion load-bearing);
-    // parsed.runOfShow=undefined → payload.run_of_show === null;
-    // warnings: EXACTLY ONE AGENDA_GRID_MALFORMED, and ZERO AGENDA_DAY_EMPTIED for d1/d2 (an unlocatable grid
-    // is a conversion fault, NOT a per-day blanking — emitting AGENDA_DAY_EMPTIED here would mask the fault mode, R22).
-    // const codes = captured.parse_warnings.map(w => w.code);
-    // expect(codes.filter(c => c === "AGENDA_GRID_MALFORMED")).toHaveLength(1);
-    // expect(codes).not.toContain("AGENDA_DAY_EMPTIED");
+  return result;
+}
+
+function codes(captured: ReturnType<typeof makeFakeTx>["captured"]): string[] {
+  return (captured.payload?.parse_warnings ?? []).map((w) => w.code);
+}
+
+describe("sync run_of_show CONFIRMED-ONLY full replace + AGENDA_DAY_EMPTIED live plumbing (D-2 / R6 / R17/R21/R22)", () => {
+  it("(i) one block unresolved (d2 absent from parse) → stored {d1:e1}, d2 NOT preserved, NO AGENDA_DAY_EMPTIED", async () => {
+    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
+    await runWith(tx, { [d1]: e1b }); // d2 absent (unresolved block → parser already emitted AGENDA_BLOCK_UNRESOLVED)
+    expect(captured.payload!.run_of_show).toEqual({ [d1]: e1b });
+    expect(captured.payload!.run_of_show).not.toHaveProperty(d2);
+    expect(codes(captured)).not.toContain("AGENDA_DAY_EMPTIED"); // d2 absent, not read-empty
+  });
+  it("(ii) grid unlocatable (runOfShow === undefined) → stored null + AGENDA_GRID_MALFORMED only, ZERO AGENDA_DAY_EMPTIED", async () => {
+    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 }); // both previously stored — makes the no-EMPTIED load-bearing
+    await runWith(tx, undefined);
+    expect(captured.payload!.run_of_show).toBeNull();
+    expect(codes(captured).filter((c) => c === "AGENDA_GRID_MALFORMED")).toHaveLength(1);
+    expect(codes(captured)).not.toContain("AGENDA_DAY_EMPTIED"); // conversion fault, not per-day blanking (R22)
   });
   it("(iii) previously-stored day goes read-empty → dropped + AGENDA_DAY_EMPTIED for that day", async () => {
-    // prior {d1:e1, d2:e2}; parsed {d1:e1b, d2:[]} → payload === {d1:e1b}; warnings include AGENDA_DAY_EMPTIED (d2)
+    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
+    await runWith(tx, { [d1]: e1b, [d2]: [] });
+    expect(captured.payload!.run_of_show).toEqual({ [d1]: e1b });
+    expect(codes(captured)).toContain("AGENDA_DAY_EMPTIED");
   });
   it("(iv) all read-empty → stored null + AGENDA_DAY_EMPTIED for every previously-stored day", async () => {
-    // prior {d1:e1, d2:e2}; parsed {d1:[], d2:[]} → payload === null; warnings include AGENDA_DAY_EMPTIED x2
+    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
+    await runWith(tx, { [d1]: [], [d2]: [] });
+    expect(captured.payload!.run_of_show).toBeNull();
+    expect(codes(captured).filter((c) => c === "AGENDA_DAY_EMPTIED")).toHaveLength(2);
   });
   it("(vi) first-time read-empty (no prior) → stored null, NO AGENDA_DAY_EMPTIED", async () => {
-    // prior null; parsed {d1:[], d2:[]} → payload === null; warnings has NO AGENDA_DAY_EMPTIED
+    const { tx, captured } = makeFakeTx(null);
+    await runWith(tx, { [d1]: [], [d2]: [] });
+    expect(captured.payload!.run_of_show).toBeNull();
+    expect(codes(captured)).not.toContain("AGENDA_DAY_EMPTIED");
   });
   it("(vii) self-heal: a later confirmed re-sync re-stores the day", async () => {
-    // prior null (post-drop); parsed {d2:e2} → payload === {d2:e2} (no permanent loss)
+    const { tx, captured } = makeFakeTx(null); // prior dropped
+    await runWith(tx, { [d2]: e2 });
+    expect(captured.payload!.run_of_show).toEqual({ [d2]: e2 });
+    expect(codes(captured)).not.toContain("AGENDA_DAY_EMPTIED");
   });
-  it("NO write-time date prune (R12): a confirmed day whose date is absent from dates.showDays is still stored", async () => {
-    // parsed {d2:e2} but snapshot dates.showDays = [d1] → payload STILL contains d2 (date hiding is at read, not write)
+  it("NO write-time date prune (R12): a confirmed day absent from dates.showDays is STILL stored", async () => {
+    const { tx, captured } = makeFakeTx(null);
+    await runWith(tx, { [d2]: e2 }, [d1]); // showDays = [d1] only; d2 confirmed by AGENDA
+    expect(captured.payload!.run_of_show).toEqual({ [d2]: e2 }); // storage NOT gated by dates (hidden at read, not write)
   });
-  it("CHANNEL 1 (apply-core, shows_internal.parse_warnings ONLY — NOT proof of sync_log): an AGENDA_DAY_EMPTIED-emitting apply puts it in the upsertShowsInternal payload", async () => {
-    // prior {d1:e1, d2:e2}; parsed {d1:e1b, d2:[]} (read-empty d2 → AGENDA_DAY_EMPTIED)
-    // → captured upsertShowsInternal.parse_warnings includes an entry with code "AGENDA_DAY_EMPTIED" (this is the shows_internal channel)
-    // RELABEL NOTE: this asserts CHANNEL 1 (shows_internal) ONLY. The sync_log channel (D-7's 2nd channel) is
-    //   NOT provable here — applyParseResult/the apply core do NOT write sync_log. That proof lives in
-    //   tests/sync/runOfShowSyncLogChannel.test.ts (driven through emitSuccessfulPhase2Tail, the real logging surface).
-    // expect(upsertPayload.parse_warnings.some(w => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+  it("CHANNEL 1 (shows_internal) — an AGENDA_DAY_EMPTIED-emitting apply puts it in the upsertShowsInternal payload (NOT proof of sync_log — see runOfShowSyncLogChannel.test.ts)", async () => {
+    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
+    await runWith(tx, { [d1]: e1b, [d2]: [] });
+    expect((captured.payload!.parse_warnings).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
   });
-});
-```
-
-**Failing test (CODE) — PART B: the LIVE-PATH plumbing test (proves `applyShowSnapshot` actually populates `priorRunOfShow`, R6).** This is the load-bearing addition: a fake-`applyParseResult`-snapshot test (PART A) passes even if the Postgres `applyShowSnapshot` never reads `shows_internal.run_of_show`. PART B drives the REAL `runPhase2` → `applyShowSnapshot` → `applyParseResult` path against a fake `Phase2Tx` whose `applyShowSnapshot` impl reads a SEEDED prior `run_of_show` (mirroring the Postgres SELECT) and returns it as `priorRunOfShow`, capturing the `upsertShowsInternal` payload AND the `logSync` entry. It asserts the prior value actually FLOWED through the snapshot into the EMPTIED computation:
-```ts
-// Model on the existing runPhase2 / phase2.ts integration tests under tests/sync/ (a fake Phase2Tx covering
-// applyShowSnapshot + the apply-core methods). The fake applyShowSnapshot MUST return priorRunOfShow from a
-// seeded prior store — proving the field is plumbed end-to-end (interface → snapshot → applyParseResult).
-import { describe, it, expect } from "vitest";
-import { runPhase2 } from "@/lib/sync/phase2"; // confirm the real entry export name when writing
-
-describe("run_of_show AGENDA_DAY_EMPTIED — LIVE snapshot plumbing (R6)", () => {
-  it("a seeded prior day that parses read-empty emits AGENDA_DAY_EMPTIED via the REAL applyShowSnapshot→applyParseResult path", async () => {
-    // fakeTx.applyShowSnapshot returns { outcome:"updated", showId, previousCrewNames:[], priorRunOfShow: { [d2]: e2 } }
-    //   (this models the Postgres impl's new `select run_of_show from shows_internal` — the SEED is the prior store)
-    // parseResult.runOfShow = { [d1]: e1, [d2]: [] }  (d2 read-empty in a LOCATED grid)
-    // run the real runPhase2(args) so applyParseResult consumes args.snapshot.priorRunOfShow (NOT a hand-built snapshot)
-    // → captured upsertShowsInternal.run_of_show === { [d1]: e1 }  (d2 dropped — CONFIRMED-ONLY)
-    // → captured upsertShowsInternal.parse_warnings includes an AGENDA_DAY_EMPTIED for d2 (CHANNEL 1, shows_internal)
-    // → the runPhase2 applied result carries parseWarnings INCLUDING AGENDA_DAY_EMPTIED (so the tail can log it — see PART C).
-    //   NOTE: runPhase2 does NOT write sync_log; PART C proves the sync_log channel. Here we only assert the warning
-    //   PROPAGATES OUT of runPhase2 (Phase2Result.applied.parseWarnings), which is the cross-boundary fix.
-    // FAILS if applyShowSnapshot's return omits priorRunOfShow (the field never reaches applyParseResult → no EMPTIED).
-  });
-  it("self-heal on the live path: a later sync re-confirming d2 re-stores it (no permanent loss)", async () => {
-    // applyShowSnapshot returns priorRunOfShow: null (post-drop); parseResult.runOfShow = { [d2]: e2 }
-    // → captured upsertShowsInternal.run_of_show === { [d2]: e2 }, NO AGENDA_DAY_EMPTIED
-  });
-  it("Phase2Result.applied.parseWarnings carries the apply-appended AGENDA_DAY_EMPTIED OUT of runPhase2 (cross-boundary fix)", async () => {
-    // same setup as the first case → assert the runPhase2(...) return is { outcome:"applied", ..., parseWarnings:[...] }
-    //   and parseWarnings includes AGENDA_DAY_EMPTIED. Catches: the warning being lost at the runPhase2 boundary
-    //   (the local-parseResult-copy trap) so the tail never sees it → sync_log channel silently dead.
+  it("R6 cross-boundary: Phase2Result.applied.parseWarnings carries the apply-appended AGENDA_DAY_EMPTIED OUT of runPhase2", async () => {
+    const { tx } = makeFakeTx({ [d1]: e1, [d2]: e2 });
+    const result = await runWith(tx, { [d1]: e1b, [d2]: [] });
+    expect(result.outcome).toBe("applied");
+    // the applied result must surface the warning so the tail (PART C) can log it to sync_log
+    expect((result as { parseWarnings?: ParseResult["warnings"] }).parseWarnings?.some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
   });
 });
 ```
-> **Negative-regression check (mandatory, per the project's tautology rule):** before committing, temporarily make the new `applyShowSnapshot` return OMIT `priorRunOfShow` (or return `priorRunOfShow: undefined`) and confirm the PART-B "emits AGENDA_DAY_EMPTIED" test FAILS — proving the test actually exercises the live plumbing, not just the in-memory computation. Restore, then commit. (This is the discipline that catches the R6 class: a test that passes with the plumbing dead is worse than no test.)
+> **Negative-regression check (mandatory):** temporarily make the fake `applyShowSnapshot` return OMIT `priorRunOfShow` (return `priorRunOfShow: undefined`) and confirm cases (iii)/(iv)/CHANNEL-1/R6-cross-boundary FAIL — proving the suite exercises the live `priorRunOfShow` plumbing, not a hand-built snapshot. Restore, then commit. (R6 class: a test green with the plumbing dead is worse than no test.)
 
-**Failing test (CODE) — PART C: the D-7 `sync_log.parse_warnings` channel, driven through the REAL logging surface (R7).** PART A/B do NOT write sync_log (the apply core + `runPhase2` are upstream of logging). The cron-success row is written by `emitSuccessfulPhase2Tail` → `logSync` → `deps.logSync` (`insertSyncLog`). So this test drives `emitSuccessfulPhase2Tail` (or `processOneFile` end-to-end) with a SPY `deps.logSync` and asserts the captured `SyncLogEntry.parseWarnings` includes `AGENDA_DAY_EMPTIED` — i.e. it exercises the ACTUAL logging surface, not the apply core. New file `tests/sync/runOfShowSyncLogChannel.test.ts`:
+**Failing test (CODE) — `tests/sync/runOfShowSyncLogChannel.test.ts`: the D-7 `sync_log.parse_warnings` channel, driven through the REAL logging surface (R7).** The CONFIRMED-replace suite above does NOT write sync_log (the apply core + `runPhase2` are upstream of logging). The cron-success row is written by `emitSuccessfulPhase2Tail` → `logSync` → `deps.logSync`, and persisted by `insertSyncLog`. So suite 1 drives `emitSuccessfulPhase2Tail` (exported, `runScheduledCronSync.ts:1724`) with a SPY `deps.logSync` and asserts the captured `SyncLogEntry.parseWarnings` includes `AGENDA_DAY_EMPTIED`; suite 2 is a structural pin on `insertSyncLog` via `makeSyncPipelineTx` (exported, `:1343`) with a fake `PostgresTransaction` (`{ unsafe }`, `:295-297`) capturing the `$5` param. Complete, executable:**
 ```ts
 import { describe, it, expect, vi } from "vitest";
-import { emitSuccessfulPhase2Tail } from "@/lib/sync/runScheduledCronSync"; // confirm export
+import {
+  emitSuccessfulPhase2Tail,
+  makeSyncPipelineTx,
+  type ProcessOneFileResult,
+  type SyncLogEntry,
+} from "@/lib/sync/runScheduledCronSync";
+import type { DriveListedFile } from "@/lib/drive/list";
+
+const EMPTIED = { severity: "warn" as const, code: "AGENDA_DAY_EMPTIED", message: "d2 went read-empty" };
+
+function fileMeta(): DriveListedFile {
+  return { driveFileId: "file-1", name: "S", mimeType: "application/vnd.google-apps.spreadsheet", modifiedTime: "2026-05-08T12:00:00.000Z", parents: ["f"] };
+}
+// emitSuccessfulPhase2Tail only calls tx.deleteRevisionRaceCooldowns?(); a no-op stub satisfies the Pick<> param.
+const fakeTailTx = { deleteRevisionRaceCooldowns: async () => {} };
+// minimal parseResult — the tail forwards it but logSync(result) is the channel under test.
+const parseResult = { warnings: [EMPTIED] } as unknown as Parameters<typeof emitSuccessfulPhase2Tail>[0]["parseResult"];
 
 describe("D-7 sync_log channel — AGENDA_DAY_EMPTIED reaches sync_log via emitSuccessfulPhase2Tail (R7)", () => {
-  it("the applied-success tail logs parseWarnings INCLUDING AGENDA_DAY_EMPTIED into the SyncLogEntry", async () => {
-    const logSync = vi.fn();
-    // result = { outcome:"applied", showId, parseWarnings:[{ code:"AGENDA_DAY_EMPTIED", ... }] } (the carried field)
-    // await emitSuccessfulPhase2Tail({ tx: fakeTx, result, deps: { ...deps, logSync }, driveFileId, fileMeta, parseResult });
-    // const entry = logSync.mock.calls.at(-1)![0] as { outcome: string; parseWarnings?: { code: string }[] };
-    // expect(entry.outcome).toBe("applied");
-    // expect(entry.parseWarnings?.some(w => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
-    // FAILS today: the :1750 logSync call passes no warnings → entry.parseWarnings is undefined.
+  it("the applied-success tail logs an entry whose parseWarnings INCLUDES AGENDA_DAY_EMPTIED", async () => {
+    const logSync = vi.fn(async () => {});
+    const result: Extract<ProcessOneFileResult, { outcome: "applied" }> = {
+      outcome: "applied", showId: "show-1", parseWarnings: [EMPTIED],
+    };
+    await emitSuccessfulPhase2Tail({
+      tx: fakeTailTx, result,
+      deps: { logSync, upsertAdminAlert: vi.fn(async () => undefined) },
+      driveFileId: "file-1", fileMeta: fileMeta(), parseResult,
+    });
+    const entry = logSync.mock.calls.at(-1)![0] as SyncLogEntry;
+    expect(entry.outcome).toBe("applied");
+    expect((entry.parseWarnings ?? []).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+    // RED before impl: the :1750 logSync call passes no warnings → entry.parseWarnings is undefined.
   });
   it("a clean applied tail (no AGENDA_* warnings) logs an entry whose parseWarnings has NO AGENDA_DAY_EMPTIED", async () => {
-    // result.parseWarnings = [] (or absent) → entry.parseWarnings is empty/undefined; catches a flood-everything wiring.
+    const logSync = vi.fn(async () => {});
+    const result: Extract<ProcessOneFileResult, { outcome: "applied" }> = { outcome: "applied", showId: "show-1", parseWarnings: [] };
+    await emitSuccessfulPhase2Tail({
+      tx: fakeTailTx, result,
+      deps: { logSync, upsertAdminAlert: vi.fn(async () => undefined) },
+      driveFileId: "file-1", fileMeta: fileMeta(), parseResult: { warnings: [] } as unknown as typeof parseResult,
+    });
+    const entry = logSync.mock.calls.at(-1)![0] as SyncLogEntry;
+    expect((entry.parseWarnings ?? []).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(false);
   });
 });
 
-describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnings into the persisted JSONB (R7)", () => {
-  it("insertSyncLog writes entry.parseWarnings into the parse_warnings $5 array alongside the payload", async () => {
-    // build a PostgresPipelineTx (or the insertSyncLog unit under a fake `rows` capture) and call
-    //   insertSyncLog({ driveFileId, outcome:"applied", parseWarnings:[{ code:"AGENDA_DAY_EMPTIED", ... }] }, showId)
-    // → assert the captured $5 array contains an entry with code "AGENDA_DAY_EMPTIED".
-    // This pins the SyncLogEntry → DB-column wiring INDEPENDENTLY of the tail (structural defense closing the vector).
+describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnings into the persisted $5 JSONB (R7)", () => {
+  function capturingTx() {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    return {
+      tx: { unsafe: async (sql: string, params: unknown[] = []) => { calls.push({ sql, params }); return []; } },
+      calls,
+    };
+  }
+  it("insertSyncLog writes entry.parseWarnings into the parse_warnings $5 array", async () => {
+    const { tx, calls } = capturingTx();
+    const pipe = makeSyncPipelineTx(tx);
+    await pipe.insertSyncLog({ driveFileId: "file-1", outcome: "applied", parseWarnings: [EMPTIED] }, "show-1");
+    const syncLogCall = calls.find((c) => c.sql.includes("insert into public.sync_log"))!;
+    const fifth = syncLogCall.params[4] as Array<{ code?: string }>;
+    expect(fifth.some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+    // RED before impl: insertSyncLog ignores entry.parseWarnings → $5 has no AGENDA_DAY_EMPTIED.
   });
-  it("insertSyncLog still writes the per-outcome payload row when both payload AND parseWarnings are present", async () => {
-    // entry { payload:{kind:"x"}, parseWarnings:[{code:"AGENDA_DAY_EMPTIED"}] } → $5 has BOTH the payload obj and the warning.
+  it("insertSyncLog keeps the per-outcome payload row when BOTH payload and parseWarnings are present", async () => {
+    const { tx, calls } = capturingTx();
+    const pipe = makeSyncPipelineTx(tx);
+    await pipe.insertSyncLog(
+      { driveFileId: "file-1", outcome: "applied", payload: { kind: "x" }, parseWarnings: [EMPTIED] },
+      "show-1",
+    );
+    const fifth = calls.find((c) => c.sql.includes("insert into public.sync_log"))!.params[4] as Array<Record<string, unknown>>;
+    expect(fifth.some((e) => e.kind === "x")).toBe(true); // the payload row survives
+    expect(fifth.some((e) => e.code === "AGENDA_DAY_EMPTIED")).toBe(true); // and the warning is unioned
   });
 });
 ```
@@ -457,54 +552,181 @@ describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnin
   > The active viewer's normalized `DateRestriction` is the one already computed for the matching `crewMembers[]` row (`:319-325`); for an `admin` / `admin_preview` viewer with no per-day restriction, treat as `none` (all current show days) — match the Schedule day-set behavior. Confirm the active-viewer resolution against how `viewerName` / the crew lookup resolves the active row (`:204` onward) and reuse it; do NOT re-query.
 - Emit in the return literal (`:539-555`): add `runOfShow,` (always present). NEVER add `run_of_show`/`runOfShow` to `ShowRow` or `public.shows`.
 
-**Failing test (CODE) — anti-tautology: the date-intersection case asserts storage is unaffected while the key is hidden at read:**
+**Failing test (CODE) — `tests/data/getShowForViewerRunOfShow.test.ts`. Mocks `createSupabaseServiceRoleClient` (modeled EXACTLY on `tests/data/getShowForViewer-rooms-projection.test.ts:97-157` — per-table `tableResponses`, `vi.hoisted`, `vi.mock`, chainable stub) so each `shows_internal` fixture drives a real `getShowForViewer(...)` call. Anti-tautology: the date-intersection case asserts the STORED row still carries the dropped key (storage untouched) while the projection hides it. Complete, executable:**
 ```ts
-import { describe, it, expect, vi } from "vitest";
-import { getShowForViewer } from "@/lib/data/getShowForViewer";
-// mock createSupabaseServiceRoleClient so .from("shows_internal").select("run_of_show") returns a controllable
-// { data, error }; model on the existing getShowForViewer unit tests' supabase mock.
+import { beforeEach, describe, it, expect, vi } from "vitest";
 
+const SHOW_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const CREW_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const d1 = "2026-06-24", d2 = "2026-06-25";
 const e = [{ start: "9:00 AM", title: "Keynote" }];
 
+// Minimal shows row — only the fields getShowForViewer dereferences. dates.showDays is the current-date domain.
+function showRow(showDays: string[]) {
+  return {
+    id: SHOW_ID, title: "S", client_label: "c", template_version: "v4", published: true, coi_status: null,
+    client_contact: null, venue: null, dates: { travelIn: null, set: null, showDays, travelOut: null },
+    schedule_phases: null, event_details: {}, agenda_links: null, pull_sheet: null, diagrams: null,
+    opening_reel_drive_file_id: null, opening_reel_drive_modified_time: null,
+    opening_reel_head_revision_id: null, opening_reel_mime_type: null, last_synced_at: null, last_sync_status: null,
+  };
+}
+// A crew row that satisfies BOTH the role_flags lookup (.maybeSingle) and the all-crew (.eq) read.
+function crewRow(dateRestriction: unknown) {
+  return {
+    id: CREW_ID, name: "Hank", email: null, phone: null, role: "A2", role_flags: ["A2"], // non-lead
+    date_restriction: dateRestriction, stage_restriction: { kind: "none" },
+  };
+}
+
+type Resp = { data: unknown; error: unknown };
+const mockState = vi.hoisted(() => ({
+  responses: {} as Record<string, Resp>,
+  showsInternalThrows: false,
+  writeCalls: [] as string[], // captures any insert/update/delete/upsert method names (must stay empty)
+}));
+
+function makeChain(table: string) {
+  const response = mockState.responses[table] ?? { data: [], error: null };
+  const chain: Record<string, unknown> = {};
+  const self = () => chain;
+  // .maybeSingle()/.single() resolve to a SINGLE row: if data is an array, unwrap [0] (mirrors PostgREST).
+  // The non-terminal await (.eq() then awaited) resolves to the array as-is. This lets crew_members serve
+  // BOTH the role-flags .maybeSingle() lookup (:217-222) and the all-crew .eq() read (:299-302) from one array.
+  const single = (): Promise<Resp> => {
+    if (table === "shows_internal" && mockState.showsInternalThrows) return Promise.reject(new Error("network boom"));
+    const d = response.data;
+    return Promise.resolve({ data: Array.isArray(d) ? (d[0] ?? null) : d, error: response.error });
+  };
+  chain.select = self; chain.eq = self; chain.order = self; chain.limit = self; chain.like = self;
+  for (const w of ["insert", "update", "delete", "upsert"]) {
+    chain[w] = () => { mockState.writeCalls.push(`${table}.${w}`); return chain; };
+  }
+  chain.maybeSingle = single;
+  chain.single = single;
+  chain.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => {
+    if (table === "shows_internal" && mockState.showsInternalThrows) return Promise.reject(new Error("network boom")).then(res, rej);
+    return Promise.resolve(response).then(res, rej);
+  };
+  return chain;
+}
+
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: () => ({
+    from: (t: string) => makeChain(t),
+    rpc: () => Promise.resolve({ data: "1000", error: null }),
+  }),
+}));
+
+const { getShowForViewer } = await import("@/lib/data/getShowForViewer");
+
+function setup(opts: {
+  showDays: string[];
+  showsInternal: Resp;
+  crew?: Resp; // when present, drives a crew viewer's lookup + restriction
+  throws?: boolean;
+}) {
+  mockState.responses = {
+    shows: { data: showRow(opts.showDays), error: null },
+    crew_members: opts.crew ?? { data: [], error: null },
+    hotel_reservations: { data: [], error: null },
+    rooms: { data: [], error: null },
+    transportation: { data: null, error: null },
+    contacts: { data: [], error: null },
+    shows_internal: opts.showsInternal,
+  };
+  mockState.showsInternalThrows = opts.throws ?? false;
+  mockState.writeCalls = [];
+}
+
+const ADMIN = { kind: "admin" as const };
+const CREW = { kind: "crew" as const, crewMemberId: CREW_ID };
+
 describe("getShowForViewer.runOfShow projection (D-4)", () => {
+  beforeEach(() => { mockState.responses = {}; mockState.showsInternalThrows = false; mockState.writeCalls = []; });
+
   it("reads UNCONDITIONALLY (not lead-gated) — a non-lead crew viewer still gets runOfShow", async () => {
-    // stored {d1:e}; dates.showDays=[d1]; viewer = non-lead crew, DateRestriction none → result.runOfShow === {d1:e}
+    setup({ showDays: [d1], showsInternal: { data: { run_of_show: { [d1]: e } }, error: null }, crew: { data: [crewRow({ kind: "none" })], error: null } });
+    const out = await getShowForViewer(SHOW_ID, CREW);
+    expect(out.runOfShow).toEqual({ [d1]: e });
   });
-  it("no shows_internal row (maybeSingle → { data:null, error:null }) → runOfShow null, NO tileErrors (legitimate empty)", async () => {
-    // the common no-agenda case: .maybeSingle() returns { data:null, error:null } → r.data?.run_of_show is undefined
-    // → decodeRunOfShow(undefined ?? null) → null/not-corrupt → result.runOfShow===null AND result.tileErrors has NO run_of_show key.
-    // catches: a FALSE projection alert on every show without a shows_internal row (the ?? null coercion regression).
-    // expect(result.runOfShow).toBeNull(); expect(result.tileErrors).not.toHaveProperty("run_of_show");
+
+  it("no shows_internal row ({data:null,error:null}) → runOfShow null, NO tileErrors (legitimate empty — ?? null coercion)", async () => {
+    setup({ showDays: [d1], showsInternal: { data: null, error: null } });
+    const out = await getShowForViewer(SHOW_ID, ADMIN);
+    expect(out.runOfShow).toBeNull();
+    expect(out.tileErrors).not.toHaveProperty("run_of_show"); // catches a FALSE alert on every no-row show
   });
+
   it("explicit DateRestriction → only assigned-day keys", async () => {
-    // stored {d1:e, d2:e}; explicit days=[d2] → result.runOfShow === {d2:e}
+    setup({ showDays: [d1, d2], showsInternal: { data: { run_of_show: { [d1]: e, [d2]: e } }, error: null },
+            crew: { data: [crewRow({ kind: "explicit", days: [d2] })], error: null } });
+    const out = await getShowForViewer(SHOW_ID, CREW);
+    expect(out.runOfShow).toEqual({ [d2]: e });
   });
+
   it("unknown_asterisk → no keys", async () => {
-    // stored {d1:e}; unknown_asterisk → result.runOfShow === null
+    setup({ showDays: [d1, d2], showsInternal: { data: { run_of_show: { [d1]: e } }, error: null },
+            crew: { data: [crewRow({ kind: "unknown_asterisk" })], error: null } });
+    const out = await getShowForViewer(SHOW_ID, CREW);
+    expect(out.runOfShow).toBeNull();
   });
-  it("current-date intersection: a key NOT in dates.showDays is dropped at read while STORAGE is unaffected (R10/R12)", async () => {
-    // stored {d1:e, d2:e}; dates.showDays=[d1] (d2 removed); viewer none
-    // → result.runOfShow === {d1:e}  AND  the mock's returned stored row STILL contains d2
-    //   (assert the read query was a plain select with no write/delete — storage untouched)
+
+  it("none viewer (admin) → all CURRENT show days", async () => {
+    setup({ showDays: [d1, d2], showsInternal: { data: { run_of_show: { [d1]: e, [d2]: e } }, error: null } });
+    const out = await getShowForViewer(SHOW_ID, ADMIN);
+    expect(out.runOfShow).toEqual({ [d1]: e, [d2]: e });
   });
-  it("returned error → runOfShow null + tileErrors.run_of_show set, no raw infra text in result", async () => {
-    // .select returns { data:null, error:{ message:"db boom" } } → result.runOfShow===null; result.tileErrors.run_of_show is set
+
+  it("current-date intersection: a stored key NOT in dates.showDays is dropped at READ while STORAGE is untouched (R10/R12)", async () => {
+    const storedRow = { run_of_show: { [d1]: e, [d2]: e } };
+    setup({ showDays: [d1], showsInternal: { data: storedRow, error: null } }); // d2 removed from showDays
+    const out = await getShowForViewer(SHOW_ID, ADMIN);
+    expect(out.runOfShow).toEqual({ [d1]: e });            // d2 hidden at read
+    expect(storedRow.run_of_show).toHaveProperty(d2);      // storage object UNCHANGED (non-destructive)
+    expect(mockState.writeCalls).toEqual([]);              // no insert/update/delete/upsert — read-only
   });
-  it("thrown exception (network) → runOfShow null + tileErrors.run_of_show set", async () => {
-    // .select rejects → caught → same fail-soft
+
+  it("returned error → runOfShow null + tileErrors.run_of_show set, no raw infra text leaked as runOfShow", async () => {
+    setup({ showDays: [d1], showsInternal: { data: null, error: { message: "db boom" } } });
+    const out = await getShowForViewer(SHOW_ID, ADMIN);
+    expect(out.runOfShow).toBeNull();
+    expect(out.tileErrors.run_of_show).toBeTruthy();
   });
-  it("corrupt stored shape ([null]) → runOfShow null + tileErrors.run_of_show set (decode failsoft, no throw)", async () => {
-    // stored { d1: [null] } → decodeRunOfShow corrupt → tileErrors.run_of_show set, result.runOfShow===null, no throw
+
+  it("thrown exception (network) → runOfShow null + tileErrors.run_of_show set (fail-soft, no throw)", async () => {
+    setup({ showDays: [d1], showsInternal: { data: null, error: null }, throws: true });
+    const out = await getShowForViewer(SHOW_ID, ADMIN); // must not reject
+    expect(out.runOfShow).toBeNull();
+    expect(out.tileErrors.run_of_show).toBeTruthy();
   });
-  it("ShowRow / result.show carries NO run_of_show key (D-3 boundary)", async () => {
-    expect(Object.keys((await /* render */ ({} as any)).show ?? {})).not.toContain("run_of_show");
-    // (fill via the real render; the load-bearing assertion is result.show has no run_of_show/runOfShow key)
+
+  it("corrupt stored shape ([null]) → runOfShow null + tileErrors.run_of_show set (decode fail-soft, no throw)", async () => {
+    setup({ showDays: [d1], showsInternal: { data: { run_of_show: { [d1]: [null] } }, error: null } });
+    const out = await getShowForViewer(SHOW_ID, ADMIN);
+    expect(out.runOfShow).toBeNull();
+    expect(out.tileErrors.run_of_show).toBeTruthy();
+  });
+
+  it("corrupt: non-ISO key dropped, non-array day dropped, valid sibling still projects, tileErrors set", async () => {
+    setup({ showDays: [d1], showsInternal: { data: { run_of_show: { garbage: [e[0]], [d1]: e, "2026-06-26": 5 } }, error: null } });
+    const out = await getShowForViewer(SHOW_ID, ADMIN);
+    expect(out.runOfShow).toEqual({ [d1]: e }); // only the well-formed, in-domain day survives
+    expect(out.tileErrors.run_of_show).toBeTruthy();
+  });
+
+  it("D-3 boundary: result.show (ShowRow) carries NO run_of_show / runOfShow key", async () => {
+    setup({ showDays: [d1], showsInternal: { data: { run_of_show: { [d1]: e } }, error: null } });
+    const out = await getShowForViewer(SHOW_ID, ADMIN);
+    const showKeys = Object.keys(out.show);
+    expect(showKeys).not.toContain("run_of_show");
+    expect(showKeys).not.toContain("runOfShow");
   });
 });
 ```
+> **Crew-viewer mock — dual-read handled:** `crew_members` is read TWICE — the role-flags lookup (`getShowForViewer.ts:217-222`, `.maybeSingle()`) and the all-crew projection (`:299-302`, awaited `.eq()`). Supplying `crew` as an ARRAY `[crewRow(...)]` serves both: the chain's `.maybeSingle()` unwraps `[0]` (PostgREST-style), the awaited `.eq()` resolves the array as-is. Single-object reads (`shows_internal`, `transportation`, `shows`) pass their object through `.maybeSingle()` unchanged (non-array → returned as-is). When writing, confirm the unwrap against the live `getShowForViewer` query shapes; the assertions are the contract regardless. The `none`/admin cases skip the crew lookup entirely (admin → all current showDays).
 
-**Run-fails:** `pnpm vitest run tests/data/getShowForViewerRunOfShow.test.ts` → red. _Failure this catches: a lead-gated (wrong) read; an ungated projection leaking other-day session content to restricted crew; the new internal-table read swallowing an error (missing `tileErrors`) or leaking raw infra text; a corrupt shape crashing the projection; `run_of_show` accidentally riding `ShowRow`/`public.shows`._
+**Run-fails:** `pnpm vitest run tests/data/getShowForViewerRunOfShow.test.ts` → red. **RED-before-impl reason:** `ShowForViewer` has no `runOfShow` field yet, so the file fails to typecheck and every `out.runOfShow` assertion is `undefined`/absent (the read block + return-literal emission don't exist). _Failure this catches: a lead-gated (wrong) read; an ungated projection leaking other-day session content to restricted crew; the new internal-table read swallowing an error (missing `tileErrors`) or leaking raw infra text; a corrupt shape crashing the projection; a no-row FALSE alert (missing `?? null`); `run_of_show` accidentally riding `ShowRow`/`public.shows`._
 
 **Minimal impl:** add the type field, the unconditional service-role read block + decode (`decodeRunOfShow(r.data?.run_of_show ?? null)` — the `?? null` coercion, FIX-2) + `tileErrors` hook, the date∩DateRestriction intersection, and the return-literal emission as specified. Import `decodeRunOfShow`. Update `tests/fixtures/showForViewer.ts` `DEFAULT` with `runOfShow: null` IN THIS TASK (else `tsc` breaks). **Add the inline `// not-subject-to-meta:` waiver comment (verbatim above) immediately above the `.from("shows_internal").select("run_of_show")` read — invariant 9 requires the marker even though `lib/data` is outside `_metaInfraContract`'s scan.** The behavioral returned-error + thrown-exception tests are the boundary enforcement.
 
