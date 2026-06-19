@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /**
- * tests/components/tiles/DiagramsTile.test.tsx (M7 Task 7.9 / AC-7.2 /
+ * tests/components/crew/diagramsBlock.test.tsx (relocated from
+ * tests/components/tiles/DiagramsTile.test.tsx) (M7 Task 7.9 / AC-7.2 /
  * AC-7.2b / AC-7.4 / AC-7.7).
  *
  * DiagramsTile composes the Gallery + AgendaEmbed into the standard tile
@@ -58,7 +59,7 @@ vi.mock("@/components/agenda/AgendaEmbed", () => ({
   ),
 }));
 
-import { DiagramsTile } from "@/components/tiles/DiagramsTile";
+import { DiagramsTile } from "@/components/crew/DiagramsBlock";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";

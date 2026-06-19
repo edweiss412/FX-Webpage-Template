@@ -35,7 +35,7 @@
  */
 import type { JSX } from "react";
 
-import { DiagramsTile } from "@/components/tiles/DiagramsTile";
+import { DiagramsTile } from "@/components/crew/DiagramsBlock";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";

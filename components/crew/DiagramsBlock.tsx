@@ -1,39 +1,37 @@
 /**
- * components/tiles/DiagramsTile.tsx — M7 Task 7.9 / AC-7.1 / AC-7.2 /
- * AC-7.2b / AC-7.4 / AC-7.7.
+ * components/crew/DiagramsBlock.tsx — crew-redesign relocation of the former
+ * components/tiles/DiagramsTile.tsx (M7 Task 7.9 / AC-7.1 / AC-7.2 / AC-7.2b /
+ * AC-7.4 / AC-7.7).
  *
- * Crew-facing tile that surfaces a show's diagrams (embedded images on
- * the DIAGRAMS tab + linked-folder items) AND its agenda PDF, behind
- * one frame in the standard tile grid. The actual swipeable lightbox
- * lives in `components/diagrams/Gallery.tsx`; the inline PDF.js viewer
- * lives in `components/agenda/AgendaEmbed.tsx`.
+ * Pure presentational crew block that surfaces a show's diagrams (embedded
+ * images on the DIAGRAMS tab + linked-folder items) AND its agenda PDF, behind
+ * one frame. The actual swipeable lightbox lives in
+ * `components/diagrams/Gallery.tsx`; the inline PDF.js viewer lives in
+ * `components/agenda/AgendaEmbed.tsx`.
  *
- * AC-7.2b — embedded-first ordering: this tile is the ONLY layer that
- * decides ordering. Both the Gallery and the Lightbox are pure
- * renderers and relay the order verbatim. Embedded entries from
- * `diagrams.embeddedImages` come first; linked-folder entries from
- * `diagrams.linkedFolderItems` follow.
+ * The export name is kept as `DiagramsTile` so VenueSection's direct-invocation
+ * call site (`DiagramsTile({ ... })` inside a WrappedSection render seam)
+ * remains byte-identical — only the import path moved from
+ * `@/components/tiles/DiagramsTile` to `@/components/crew/DiagramsBlock`.
  *
- * AC-7.7 — placeholder slot for null snapshotPath: a Persisted entry
- * may have `snapshotPath = null` when a 4xx or drift case left the
- * Apply unable to download. The tile maps that to `available: false`
- * so the Gallery renders a placeholder slot (NOT a hidden slot) in
- * that grid position — admin sees the corresponding
- * `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` / `EMBEDDED_ASSET_DRIFTED`
- * warning separately.
+ * AC-7.2b — embedded-first ordering: this block is the ONLY layer that decides
+ * ordering. Both the Gallery and the Lightbox are pure renderers and relay the
+ * order verbatim. Embedded entries from `diagrams.embeddedImages` come first;
+ * linked-folder entries from `diagrams.linkedFolderItems` follow.
+ *
+ * AC-7.7 — placeholder slot for null snapshotPath: a Persisted entry may have
+ * `snapshotPath = null` when a 4xx or drift case left the Apply unable to
+ * download. The block maps that to `available: false` so the Gallery renders a
+ * placeholder slot (NOT a hidden slot) in that grid position.
  *
  * Asset-key derivation: the Gallery emits asset URLs of the form
- * `/api/asset/diagram/<show>/<rev>/<key>`. The `<key>` segment is the
- * last path segment of the persisted `snapshotPath` so the URL the
- * Gallery emits literal-equality matches what
- * `app/api/asset/diagram/.../route.ts:findAsset()` compares against
- * (the route does `entry.snapshotPath === canonicalPath`, with
- * `canonicalPath = diagram-snapshots/shows/<id>/<rev>/<key>`).
+ * `/api/asset/diagram/<show>/<rev>/<key>`. The `<key>` segment is the last path
+ * segment of the persisted `snapshotPath` so the URL the Gallery emits
+ * literal-equality matches what `app/api/asset/diagram/.../route.ts:findAsset()`
+ * compares against.
  *
- * Whole-tile-missing per §8.3: returns `null` when there are no
- * available diagram entries AND no agenda link carries a fileId.
- * Returning null keeps the tile-grid reflow consistent with the
- * other §8.3 tiles (LodgingTile, NotesTile, etc.).
+ * Whole-block-missing per §8.3: returns `null` when there are no available
+ * diagram entries AND no agenda link carries a fileId.
  *
  * Server Component (no `'use client'`).
  */
@@ -96,7 +94,7 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
     ...linked.map((entry, i) => linkedItem(entry, embedded.length + i + 1)),
   ];
 
-  // Whole-tile-missing per §8.3 — both media domains empty. Predicate
+  // Whole-block-missing per §8.3 — both media domains empty. Predicate
   // (M9 C6 / M7-D5) lives in lib/visibility/emptyState.ts so the
   // "is there anything to show" decision routes through the same
   // visibility module as the sentinel-hiding helpers.
@@ -106,7 +104,7 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
 
   // Heading mirrors content state: diagrams + agenda together get the
   // combined label; either alone gets the single-domain label so the
-  // tile name doesn't lie about its contents.
+  // block name doesn't lie about its contents.
   const heading =
     hasItems && hasAgendaPdf ? "Diagrams & agenda" : hasItems ? "Diagrams" : "Agenda";
 
@@ -135,19 +133,4 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
       ) : null}
     </Section>
   );
-}
-
-
-/**
- * View alias + async loader for M9 Task 9.2 — `DiagramsTile` is
- * already pure; the loader is identity but provides the seam where
- * future per-tile derivation can throw and be caught by
- * <TileServerFallback>.
- */
-export const DiagramsTileView = DiagramsTile;
-
-export async function loadDiagramsTileData(
-  props: DiagramsTileProps,
-): Promise<DiagramsTileProps> {
-  return props;
 }
