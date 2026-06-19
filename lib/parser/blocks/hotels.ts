@@ -325,7 +325,15 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
   // shape) and splitting here would detach/mis-attribute them — fall back to a
   // single reservation rather than corrupt the guest↔date mapping.
   if (rows.length < 2 || !rows.every((r) => r.names.length > 0)) {
-    return [buildInlineHotel(raw, 1, contextYear)];
+    // The cell has MULTIPLE date groups but names can't be cleanly attributed to
+    // each. A single buildInlineHotel keeps only the FIRST Check In/Out, so later
+    // guests would carry the first group's dates — wrong data. Preserve all names
+    // but NULL the dates rather than mis-map them (ambiguous → no date is safer
+    // than a wrong date).
+    const single = buildInlineHotel(raw, 1, contextYear);
+    single.check_in = null;
+    single.check_out = null;
+    return [single];
   }
   // Each group lists the same hotel once, with guest "Name—conf#" tokens glued in
   // before the first "Check In" (consultants). Strip those guest/confirmation

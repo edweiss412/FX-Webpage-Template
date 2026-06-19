@@ -33,13 +33,13 @@ export function parseRooms(
    
   _agg?: ParseAggregator,
 ): RoomRow[] {
-  // Try v4 structured block first. If real v4 rooms are found, use them. Otherwise
-  // fall back to v2/v1 — whose parsers (parseBoRooms / parseAdditionalRoom) gate out
-  // placeholder/empty template stubs, so an all-stub v4 sheet falls through to an
-  // empty result rather than re-emitting its stubs as phantom rooms, while a
-  // mixed sheet's real v2/v1 rooms are still parsed.
-  const v4Rooms = parseV4Rooms(markdown);
-  const rooms: RoomRow[] = v4Rooms.length > 0 ? v4Rooms : collectV2V1Rooms(markdown);
+  // Parse BOTH the v4 structured layout and the v2/v1 layout, then merge — a
+  // version-skewed sheet can carry a real v4 General Session alongside v2
+  // BO-prefixed breakouts, and neither must shadow the other. Dedupe by kind+name
+  // (v4 takes precedence on collision; for a clean v4 sheet the v2 parsers re-match
+  // the same headers, which dedupe collapses). Both parsers gate placeholder/empty
+  // template stubs, so the merge never introduces phantom rooms.
+  const rooms = mergeRooms(parseV4Rooms(markdown), collectV2V1Rooms(markdown));
 
   // Free-text "Additional Room Name(s) / Setup" FIELDS (distinct from the all-caps
   // ADDITIONAL ROOM block) carry real crew instructions — meal/social rooms, setup
@@ -52,6 +52,22 @@ export function parseRooms(
   }
 
   return rooms;
+}
+
+// Merge two room lists, deduping by kind+name (case/whitespace-insensitive). The
+// primary list (v4) wins on collision; secondary rooms with a new key are appended.
+function mergeRooms(primary: RoomRow[], secondary: RoomRow[]): RoomRow[] {
+  const keyOf = (r: RoomRow) => `${r.kind}::${(r.name ?? "").trim().toUpperCase()}`;
+  const seen = new Set(primary.map(keyOf));
+  const out = [...primary];
+  for (const r of secondary) {
+    const k = keyOf(r);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(r);
+    }
+  }
+  return out;
 }
 
 function collectV2V1Rooms(markdown: string): RoomRow[] {

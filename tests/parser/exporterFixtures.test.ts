@@ -213,10 +213,18 @@ describe("exporter fidelity — AR R4: multi-stay inline cell splits into per-gr
       "| Travel | 5/11/25 |",
       "| Hotel Reservations | The Drake Check In: 5/11 Check Out: 5/15 Eric Carroll Connor Hester Check In: 5/16 Check Out: 5/17 Doug Larson |",
     ].join("\n");
-    const allNames = parseHotels(md, "v2").flatMap((r) => r.names);
+    const res = parseHotels(md, "v2");
+    const allNames = res.flatMap((r) => r.names);
     expect(allNames).toContain("Eric Carroll");
     expect(allNames).toContain("Connor Hester");
     expect(allNames).toContain("Doug Larson");
+    // R13-2: attribution is ambiguous (guests after each checkout, 2 date groups),
+    // so dates are NULLED rather than mis-mapped — no guest (e.g. Doug, who belongs
+    // to the 5/16-5/17 group) carries the first group's 5/15 checkout.
+    for (const r of res) {
+      expect(r.check_in, "ambiguous multi-stay must not assign a date").toBeNull();
+      expect(r.check_out, "ambiguous multi-stay must not assign a date").toBeNull();
+    }
   });
 
   it("AR R7: split reservation hotel_name is the hotel/address, not glued guest names", () => {
@@ -438,5 +446,21 @@ describe("exporter fidelity — AR: v4 additional rooms (content-gated, not drop
     expect(bo).toHaveLength(1); // the real v2 room survives; the v4 stub is not re-emitted
     expect(bo[0]!.name).toContain("SALON D");
     expect(bo[0]!.setup).toBe("Theater for 50");
+  });
+  it("R13: a real v4 GS + a v2 BO-prefixed breakout coexist — neither shadows the other", () => {
+    const md = [
+      "| GENERAL SESSION MAIN HALL 40' x 30' | GENERAL SESSION MAIN HALL 40' x 30' |",
+      "| :---: | :---: |",
+      "| Setup | Theater |",
+      "",
+      "| BREAKOUT 1 GREEN ROOM | BREAKOUT 1 GREEN ROOM |",
+      "| :---: | :---: |",
+      "| BO Setup | Lounge seating |",
+    ].join("\n");
+    const rooms = parseRooms(md, "v4");
+    expect(rooms.some((r) => r.kind === "gs" && /MAIN HALL/.test(r.name))).toBe(true);
+    const green = rooms.find((r) => r.kind === "breakout" && /GREEN ROOM/.test(r.name));
+    expect(green, "v2 BO breakout must survive alongside the v4 GS").toBeDefined();
+    expect(green!.setup).toBe("Lounge seating");
   });
 });
