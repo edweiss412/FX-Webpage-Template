@@ -5,13 +5,14 @@
  * the deleted VenueTile / DiagramsTile / ShowStatusTile (venue half) used to
  * carry, into one curated surface:
  *
- *   - Address + loading dock — ported from VenueTile (the address subheading +
- *     `loadingDock` KeyValue, sentinel-guarded via `shouldHideGenericOptional`).
- *   - Parking — `transportation.parking`, gated by `transportTileVisible` so a
- *     non-assigned crew member never sees the lot/permit details (the parking
- *     half of §9 test 17).
- *   - Wi-Fi (`event_details.internet`) + power (`event_details.power`) — both
- *     routed through `shouldHideGenericOptional`.
+ *   - Address — the mock 2-line form: street on line 1, locality muted on line 2
+ *     (split on the first comma; comma-less → single line). Ported from VenueTile.
+ *   - Facilities — the mock `.kvrow` FactRows fact list with 28px sunken
+ *     mini-icons: Loading dock (DockIcon, sentinel-guarded), Parking (CarIcon,
+ *     gated by `transportTileVisible` so a non-assigned crew member never sees
+ *     the lot/permit details — the parking half of §9 test 17), Crew Wi-Fi
+ *     (WifiIcon, `event_details.internet`), and Power (`event_details.power`).
+ *     Every value routes through `shouldHideGenericOptional`.
  *   - COI status — the AC-4.1 `data-testid="coi-status"` surface, ported from
  *     ShowStatusTile. Sentinel-guarded: when the value is a sentinel/empty the
  *     `<span data-testid="coi-status">` is OMITTED entirely (no empty span).
@@ -40,7 +41,8 @@ import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { WrappedSection } from "@/components/crew/WrappedSection";
-import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
+import { CarIcon, DockIcon, WifiIcon } from "@/components/crew/icons/sectionIcons";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -78,16 +80,26 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
 
   const venue = data.show.venue;
 
-  // --- Where: address + loading dock (VenueTile idiom) -----------------------
-  const whereRows: KeyValueRow[] = [];
-  const address = venue?.address ?? null;
-  if (address !== null && address.trim() !== "") {
-    whereRows.push({ k: "Address", v: address });
+  // --- Where: 2-line address (street line 1 / city muted line 2) -------------
+  // The mock `kv` Address dd renders the street on line 1 and the city/region
+  // muted on line 2. Split on the FIRST comma: everything before it is the
+  // street line; the remainder (trimmed) is the muted locality line. A
+  // comma-less address renders as a single street line with no muted line.
+  const rawAddress = venue?.address ?? null;
+  const trimmedAddress = rawAddress !== null && rawAddress.trim() !== "" ? rawAddress.trim() : null;
+  let addressLine1: string | null = null;
+  let addressLine2: string | null = null;
+  if (trimmedAddress !== null) {
+    const comma = trimmedAddress.indexOf(",");
+    if (comma === -1) {
+      addressLine1 = trimmedAddress;
+    } else {
+      addressLine1 = trimmedAddress.slice(0, comma).trim();
+      const rest = trimmedAddress.slice(comma + 1).trim();
+      addressLine2 = rest === "" ? null : rest;
+    }
   }
-  // loadingDock is a §8.3 generic-optional text field — sentinels reflow out.
-  if (!shouldHideGenericOptional(venue?.loadingDock ?? null)) {
-    whereRows.push({ k: "Loading dock", v: venue!.loadingDock! });
-  }
+  const hasAddress = addressLine1 !== null;
 
   // Maps link — only when the value parses as an http(s) URL. A sentinel like
   // "TBD" is rejected by isParseableUrl so the anchor never becomes a dead
@@ -118,14 +130,39 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
   const rawNotes = venue?.notes ?? null;
   const notes = shouldHideGenericOptional(rawNotes) ? null : rawNotes!.trim();
 
-  const statusRows: KeyValueRow[] = [];
-  if (internet) statusRows.push({ k: "Wi-Fi", v: internet });
-  if (power) statusRows.push({ k: "Power", v: power });
-  if (notes) statusRows.push({ k: "Venue notes", v: notes });
+  // --- Loading dock — §8.3 generic-optional; sentinels reflow out ------------
+  // Read at THIS site through `shouldHideGenericOptional` so the sentinel-hiding
+  // meta-test (which walks venue.loadingDock) stays green; FactRows then also
+  // sentinel-gates the row, but the read-site guard is the contract surface.
+  const loadingDock = shouldHideGenericOptional(venue?.loadingDock ?? null)
+    ? null
+    : venue!.loadingDock!.trim();
 
-  const hasWhere = whereRows.length > 0 || mapHref !== null;
-  const hasParking = parking !== null;
-  const hasStatus = coi !== null || statusRows.length > 0;
+  // The mock `.kvrow` fact list: each row gets a 28px sunken mini-icon. Dock →
+  // DockIcon, Parking → CarIcon, Crew Wi-Fi → WifiIcon. FactRows omits any row
+  // whose `v` is empty/sentinel, so we still gate each value above and only
+  // push rows we want; empty strings here would also reflow out inside FactRows.
+  const factRows: FactRow[] = [];
+  if (loadingDock) {
+    factRows.push({ k: "Loading dock", v: loadingDock, sub: "Service entrance", icon: <DockIcon /> });
+  }
+  if (parking) {
+    factRows.push({ k: "Parking", v: parking, icon: <CarIcon /> });
+  }
+  if (internet) {
+    factRows.push({ k: "Crew Wi-Fi", v: internet, icon: <WifiIcon /> });
+  }
+  if (power) {
+    factRows.push({ k: "Power", v: power });
+  }
+
+  // Venue notes stay as a free-text paragraph under the status card (a long
+  // multi-line note doesn't belong in the right-aligned `.v` slot).
+  const venueNotes = notes;
+
+  const hasWhere = hasAddress || mapHref !== null;
+  const hasFacts = factRows.length > 0;
+  const hasStatus = coi !== null || venueNotes !== null;
 
   // diagrams renders null only when shouldHideDiagrams is true — recompute the
   // same predicate inputs to decide whether the block contributes content.
@@ -142,25 +179,37 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
   const transportFetchFailed =
     Boolean(data.tileErrors["transportation"]) && (ctx.isAdmin || transportVisible);
 
-  const allHidden = !hasWhere && !hasParking && !hasStatus && !hasDiagrams;
+  const allHidden = !hasWhere && !hasFacts && !hasStatus && !hasDiagrams;
 
   // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT the venue
-  // detail tiles (Where / Parking / Venue status, which carries Wi-Fi / power /
-  // venue notes), RIGHT the site-diagrams block. <720px collapses to one column
-  // with the left tiles first, then diagrams. The grid only mounts when BOTH a
-  // left-detail tile AND diagrams have content; when diagrams are absent the
-  // left tiles render full-width (no dead right column), and vice-versa.
-  const hasLeft = hasWhere || hasParking || hasStatus;
+  // detail tiles (Where / Facilities / Venue status, which carries dock / parking
+  // / Wi-Fi / power / COI / venue notes), RIGHT the site-diagrams block. <720px
+  // collapses to one column with the left tiles first, then diagrams. The grid
+  // only mounts when BOTH a left-detail tile AND diagrams have content; when
+  // diagrams are absent the left tiles render full-width (no dead right column),
+  // and vice-versa.
+  const hasLeft = hasWhere || hasFacts || hasStatus;
   const useSplit = hasLeft && hasDiagrams;
 
-  // Left detail tiles (Where / Parking / Venue status) as a stacked fragment so
-  // they can render either inside the split's left column or full-width.
+  // Left detail tiles (Where / Facilities / Venue status) as a stacked fragment
+  // so they can render either inside the split's left column or full-width.
   const leftTiles = (
     <>
       {hasWhere ? (
         <div data-testid="venue-where">
           <SectionCard title="Where">
-            <KeyValueRows rows={whereRows} />
+            {/* Mock `kv` Address dd — 2-line: street on line 1, locality muted
+                on line 2 (split on the first comma; comma-less → single line). */}
+            {hasAddress ? (
+              <div className="flex flex-col gap-0.5 text-sm/snug">
+                <span className="text-text">{addressLine1}</span>
+                {addressLine2 !== null ? (
+                  <span data-slot="venue-address-locality" className="text-text-subtle">
+                    {addressLine2}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {mapHref ? (
               <a
                 href={mapHref}
@@ -175,10 +224,10 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
         </div>
       ) : null}
 
-      {hasParking ? (
-        <div data-testid="venue-parking">
-          <SectionCard title="Parking">
-            <p className="text-sm text-text">{parking}</p>
+      {hasFacts ? (
+        <div data-testid="venue-facilities">
+          <SectionCard title="Facilities">
+            <FactRows rows={factRows} />
           </SectionCard>
         </div>
       ) : null}
@@ -199,7 +248,14 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
                 </span>
               </div>
             ) : null}
-            {statusRows.length > 0 ? <KeyValueRows rows={statusRows} /> : null}
+            {venueNotes !== null ? (
+              <div className="flex flex-col gap-1">
+                <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                  Venue notes
+                </dt>
+                <p className="text-sm text-text">{venueNotes}</p>
+              </div>
+            ) : null}
           </SectionCard>
         </div>
       ) : null}
