@@ -74,18 +74,25 @@ type SlotData = {
   hotel_name?: string | null;
   hotel_address: null;
   names: string[];
-  confirmation_no: string | null;
+  confirmation_no: null;
   check_in?: string | null;
   check_out?: string | null;
   notes: null;
 };
 
 /**
- * Split a "Names on Reservation" cell into per-guest names + confirmation numbers.
- * Guests are `&#10;`-separated within the cell; each may carry a trailing
- * "<dash> #?<digits>" confirmation number (e.g. "Douglas Larson - #2069854").
- * The conf# is lifted out so it isn't dropped (or glued into the name) and the
- * name list is clean for crew↔name matching.
+ * Split a "Names on Reservation" cell into per-guest names (with their trailing
+ * "<dash> #?<digits>" confirmation numbers stripped OUT of the name). Guests may
+ * be `&#10;`- OR space-delimited (e.g. "Douglas Larson - #2069854&#10;John Carleo
+ * - #2069855"); both yield two clean names.
+ *
+ * The conf# is parsed only to remove it from the name + count guests — it is NOT
+ * persisted: `hotel_reservations` is show-wide crew-readable (RLS `crew_read` uses
+ * `can_read_show`, SELECT granted to `authenticated`), so a row-level conf# would
+ * be readable by any crew member on the show via direct PostgREST, bypassing the
+ * `getShowForViewer` name filter. Re-enabling crew-facing conf# needs a per-guest
+ * schema + per-viewer access (per-name RLS or an RPC) — see DEFERRED.md
+ * AUDIT-2026-06-18-PARSE-FIDELITY round 3.
  */
 function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
   // clean() first so a markdown-escaped hash ("\#2069854") becomes "#2069854"
@@ -118,23 +125,6 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
     if (/[A-Za-z]/.test(tail)) names.push(tail); // a trailing un-numbered guest
   }
   return { names, confs };
-}
-
-/**
- * A row-level `confirmation_no` is only safe when the reservation has a SINGLE
- * guest with a single confirmation number. A reservation row reaches EVERY guest
- * on it (the crew projection filters reservations by name, and any of the listed
- * names matches), so storing per-guest conf#s on a multi-guest row would leak each
- * guest's number to the others (the LodgingTile renders the row-level value).
- * Multi-guest reservations therefore suppress the conf# until a per-guest schema
- * exists — see DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY round 3.
- */
-function reservationConf(names: string[], confs: string[]): string | null {
-  if (names.length !== 1 || confs.length !== 1) return null;
-  // Fail closed: a single "name" with more than 3 words is likely multiple guests
-  // glued together without a per-guest dash — don't risk a cross-guest conf# leak.
-  if ((names[0]!.match(/\S+/g)?.length ?? 0) > 3) return null;
-  return confs[0]!;
 }
 
 /**
@@ -266,14 +256,12 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
 
     if (rowState === "names" && col0 === "") {
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
-        const g = parseGuestCell(col1);
-        leftSlot.names.push(...g.names);
-        leftSlot.confirmation_no = reservationConf(g.names, g.confs);
+        // split the (&#10;- or space-delimited) guest cell into clean names; the
+        // conf# is parsed only to strip it out of the names, NOT persisted.
+        leftSlot.names.push(...parseGuestCell(col1).names);
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
-        const g = parseGuestCell(col3);
-        rightSlot.names.push(...g.names);
-        rightSlot.confirmation_no = reservationConf(g.names, g.confs);
+        rightSlot.names.push(...parseGuestCell(col3).names);
       }
       rowState = "idle";
       continue;
@@ -317,7 +305,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       hotel_name: slot.hotel_name ?? null,
       hotel_address: null,
       names: slot.names,
-      confirmation_no: slot.confirmation_no ?? null,
+      confirmation_no: null, // parsed-but-not-persisted — see parseGuestCell
       check_in: slot.check_in ?? null,
       check_out: slot.check_out ?? null,
       notes: null,
@@ -529,17 +517,15 @@ function buildInlineHotel(
     if (rolled) check_out = rolled;
   }
 
-  // Lift the confirmation number ("Doug Larson—2035940", "Eric --- 104461566") out
-  // of the cell so it isn't dropped; the name list itself stays clean. Only a
-  // single-guest reservation keeps a row-level conf# (see reservationConf).
-  const confs = [...text.matchAll(/[-–—]{1,3}\s*#?\s*(\d{4,})/g)].map((m) => m[1]!);
-
   return {
     ordinal,
     hotel_name: presence(hotelNameRaw),
     hotel_address: null,
     names,
-    confirmation_no: reservationConf(names, confs),
+    // confirmation_no is intentionally NOT persisted — see parseGuestCell / the
+    // DEFERRED.md privacy note: hotel_reservations is show-wide crew-readable, so a
+    // row-level conf# would be readable by any crew member on the show.
+    confirmation_no: null,
     check_in,
     check_out,
     notes: null,

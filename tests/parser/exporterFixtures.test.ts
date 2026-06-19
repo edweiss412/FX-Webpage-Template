@@ -536,37 +536,25 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     expect(hits, `raw entity at:\n${hits.join("\n")}`).toEqual([]);
   });
 
-  it("#4: a SINGLE-guest reservation keeps its conf# (table: rpas; inline: consultants Eric)", () => {
+  it("#4: guest cells split into clean names — conf# stripped out of the name (rpas)", () => {
     const rpas = parse("rpas").hotelReservations;
-    // table path: a single-guest reservation carries its conf#; multi-guest names
-    // are still split out of "Name - #conf&#10;Name - #conf" and stay clean.
-    expect(
-      rpas.some((h) => h.names.length === 1 && h.confirmation_no && /\d{4,}/.test(h.confirmation_no)),
-    ).toBe(true);
-    // focused: the exporter escapes the hash ("Eric Weiss - \#2069853"); the
-    // markdown escape is stripped so the name is clean and the conf# is captured.
-    const eweiss = rpas.find((h) => h.names.length === 1 && h.names[0] === "Eric Weiss");
-    expect(eweiss?.confirmation_no).toBe("2069853");
-    expect(eweiss?.names[0]).not.toMatch(/[\\#]/);
+    // "Douglas Larson - \#2069854&#10;John Carleo - \#2069855" → two clean names,
+    // no raw entity, no escape, no conf# digits glued in.
+    const shared = rpas.find((h) => h.names.length > 1);
+    expect(shared?.names).toEqual(["Douglas Larson", "John Carleo"]);
     for (const h of rpas)
-      for (const n of h.names) expect(n, `rpas name "${n}"`).not.toMatch(/&#1?0;|#?\d{4,}/);
-
-    // inline path: consultants' solo Eric Weiss reservation keeps conf# 2035937
-    const eric = parse("consultants").hotelReservations.find(
-      (h) => h.names.length === 1 && h.names[0]!.includes("Eric"),
-    );
-    expect(eric?.confirmation_no).toBe("2035937");
+      for (const n of h.names) expect(n, `rpas name "${n}"`).not.toMatch(/&#1?0;|[\\#]|\d{4,}/);
   });
 
-  it("#4 PRIVACY: no MULTI-guest reservation carries a row-level conf# (would leak across guests)", () => {
-    // A reservation row reaches EVERY listed guest (the projection filters by name),
-    // and LodgingTile renders the row-level confirmation_no — so per-guest conf#s on
-    // a shared row must be suppressed until a per-guest schema exists.
+  it("#4 PRIVACY/DEFERRED: confirmation_no is null for ALL reservations (show-wide table read)", () => {
+    // hotel_reservations is show-wide crew-readable (RLS crew_read = can_read_show,
+    // SELECT granted to authenticated), so ANY crew member on the show could read a
+    // row-level conf# via direct PostgREST, bypassing the getShowForViewer name
+    // filter. Conf# delivery is deferred until per-viewer access exists — the parser
+    // must never persist one. (Includes single-guest rows.)
     for (const s of SLUGS) {
       for (const h of parse(s).hotelReservations) {
-        if (h.names.length > 1) {
-          expect(h.confirmation_no, `${s} multi-guest row [${h.names.join(", ")}]`).toBeNull();
-        }
+        expect(h.confirmation_no, `${s} reservation [${h.names.join(", ")}]`).toBeNull();
       }
     }
   });
@@ -583,10 +571,8 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     expect(shared, "the space-delimited multi-guest reservation").toBeDefined();
     expect(shared!.names).toEqual(["Douglas Larson", "John Carleo"]);
     expect(shared!.confirmation_no).toBeNull();
-    // single-guest reservations on the same sheet still keep their conf#
-    expect(raw.hotelReservations.some((h) => h.names.length === 1 && h.confirmation_no)).toBe(true);
 
-    // synthetic single-line, space-separated, two distinct conf#s → suppressed
+    // synthetic single-line, space-separated guests → split into 2 clean names
     const synth = parseHotels(
       [
         "| HOTEL | RESERVATION \\#1 |  |",
