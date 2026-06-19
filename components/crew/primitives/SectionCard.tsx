@@ -45,7 +45,7 @@ export function SectionCard({ icon, title, action, children }: SectionCardProps)
               <span
                 data-slot="section-card-icon"
                 aria-hidden="true"
-                className="flex shrink-0 items-center text-text-faint"
+                className="flex shrink-0 items-center text-text-subtle"
               >
                 {icon}
               </span>
@@ -53,7 +53,7 @@ export function SectionCard({ icon, title, action, children }: SectionCardProps)
             {title !== undefined ? (
               <h2
                 data-slot="section-card-title"
-                className="truncate text-xs font-medium uppercase tracking-eyebrow text-text-faint"
+                className="truncate text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
               >
                 {title}
               </h2>

@@ -329,7 +329,7 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
                           >
                             <details className="group">
                               <summary className="flex min-h-tap-min cursor-pointer list-none flex-col gap-1 rounded-sm px-3 py-2 [&::-webkit-details-marker]:hidden">
-                                <span className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+                                <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                                   {entry.label}
                                 </span>
                                 <span

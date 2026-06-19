@@ -307,7 +307,13 @@ export async function CrewShell({
       <ShowRealtimeBridge showId={showId} slug={slug} renderVersion={data.viewerVersionToken} />
       <main
         data-testid="page-container"
-        className="mx-auto flex w-full max-w-300 flex-1 flex-col gap-section-gap px-4 py-6 sm:p-8"
+        // Mobile bottom-bar clearance (§4.9:170-171,210): the CrewSubNav mobile
+        // tab-bar is `position:fixed bottom-0` and `min-[720px]:hidden`, so at
+        // <720px it floats over the flow and would occlude the last section block.
+        // Reserve a bottom gutter that clears the ≥44px bar PLUS the iOS home
+        // indicator (`env(safe-area-inset-bottom)`) PLUS a 1rem breathing margin.
+        // At ≥720px the bar is gone, so normal `pb-8` applies.
+        className="mx-auto flex w-full max-w-300 flex-1 flex-col gap-section-gap px-4 pt-6 pb-[calc(theme(spacing.tap-min)+env(safe-area-inset-bottom)+1rem)] sm:px-8 sm:pt-8 min-[720px]:pb-8"
       >
         <CrewSectionTransition sectionId={activeSection}>{sectionBody}</CrewSectionTransition>
       </main>

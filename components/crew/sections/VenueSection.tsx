@@ -185,7 +185,7 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
           <SectionCard title="Venue status">
             {coi !== null ? (
               <div className="flex flex-col gap-1">
-                <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+                <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                   COI
                 </dt>
                 <span

@@ -41,7 +41,7 @@ export function DayCard({ day, phase, today, meta }: DayCardProps) {
       <span
         className={[
           "text-xs font-medium uppercase tracking-eyebrow",
-          today ? "text-accent-on-bg" : "text-text-faint",
+          today ? "text-accent-on-bg" : "text-text-subtle",
         ].join(" ")}
       >
         {day}

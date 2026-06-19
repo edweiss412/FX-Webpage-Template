@@ -39,18 +39,24 @@ export function KeyValueRows({ rows }: KeyValueRowsProps) {
   return (
     <dl data-testid="key-value-rows" className="flex flex-col gap-3">
       {present.map((row, i) => (
-        <div key={`${row.k}-${i}`} className="flex flex-col gap-1">
-          <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+        // `min-w-0` lets this row collapse below its content width inside a narrow
+        // flex slot (the §4.9 quick-cards row at 390px ≈ 110px per card); without
+        // it a long unbroken `v` (hotel/venue name) would force the card wider than
+        // its slot and overflow off the right viewport edge.
+        <div key={`${row.k}-${i}`} className="flex min-w-0 flex-col gap-1">
+          <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
             {row.k}
           </dt>
-          <dd className="flex flex-col gap-0.5 text-sm/snug">
-            <span className="flex items-center gap-1.5 text-text">
+          <dd className="flex min-w-0 flex-col gap-0.5 text-sm/snug">
+            <span className="flex min-w-0 items-center gap-1.5 text-text">
               {row.icon !== undefined ? (
-                <span aria-hidden="true" className="flex shrink-0 items-center text-text-faint">
+                <span aria-hidden="true" className="flex shrink-0 items-center text-text-subtle">
                   {row.icon}
                 </span>
               ) : null}
-              <span>{row.v}</span>
+              {/* `min-w-0 break-words` so a long unbroken value wraps inside the
+                  slot instead of forcing horizontal overflow at 390px. */}
+              <span className="min-w-0 break-words">{row.v}</span>
             </span>
             {row.sub !== undefined ? <span className="text-xs text-text-subtle">{row.sub}</span> : null}
           </dd>

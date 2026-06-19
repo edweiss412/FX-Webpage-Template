@@ -217,7 +217,12 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                       {...(d.emphasized ? { "data-emphasis": "you" } : {})}
                       className={[
                         "flex min-w-0 flex-1 flex-col",
-                        d.emphasized ? "rounded-md border-l-2 border-l-accent-on-bg" : "",
+                        // §4.16: keep the ratified accent left-edge, but at 1px
+                        // (`border-l`, not `border-l-2`) to satisfy the >1px
+                        // colored-side-stripe ban. The "Your scope" eyebrow +
+                        // this 1px accent edge together carry the emphasis (still
+                        // not color-only), within the ≤10% accent-coverage rule.
+                        d.emphasized ? "rounded-md border-l border-l-accent-on-bg" : "",
                       ]
                         .filter(Boolean)
                         .join(" ")}
@@ -263,13 +268,13 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                               <span className="flex flex-1 items-baseline gap-2 truncate">
                                 <span
                                   aria-hidden="true"
-                                  className="shrink-0 text-xs font-medium tabular-nums text-text-faint"
+                                  className="shrink-0 text-xs font-medium tabular-nums text-text-subtle"
                                 >
                                   {idx + 1}.
                                 </span>
                                 <span className="truncate">{c.caseLabel || `Case ${idx + 1}`}</span>
                               </span>
-                              <span className="text-xs font-medium uppercase tracking-eyebrow text-text-faint tabular-nums">
+                              <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle tabular-nums">
                                 {c.items.length} {c.items.length === 1 ? "item" : "items"}
                               </span>
                             </summary>

@@ -65,15 +65,29 @@ type PersonRowProps = {
   person: Person;
 };
 
-/** Shared chip styling for the You/Lead/Primary badges. */
+/**
+ * Shared chip styling for the You/Lead/Primary badges. `min-w-0 max-w-full
+ * truncate` lets the chip shrink to its column in the ultra-narrow §4.9
+ * Need-something quick-card at 390px (content column ≈27px) instead of forcing
+ * its intrinsic width past the card's right edge; in normal-width contexts the
+ * chip is wider than its content so the truncate is a no-op.
+ */
 const CHIP_CLASS = [
-  "inline-flex items-center rounded-sm px-1.5 py-0.5",
+  // `inline-block` (not `inline-flex`) so `truncate` actually clips the label:
+  // text-overflow:ellipsis applies to block/inline-block boxes, not to a flex
+  // container's flowed text. `max-w-full` bounds it to the column.
+  "inline-block max-w-full truncate rounded-sm px-1.5 py-0.5 align-middle",
   "text-xs font-semibold uppercase tracking-eyebrow",
 ].join(" ");
 
-/** Shared action-anchor styling (tap-to-call / tap-to-email). */
+/**
+ * Shared action-anchor styling (tap-to-call / tap-to-email). `min-w-0 max-w-full`
+ * lets the anchor shrink to its column inside the very narrow §4.9 Need-something
+ * quick-card at 390px (≈70px wide) instead of forcing its intrinsic width past the
+ * card's right edge; the inner label `truncate`s rather than overflowing.
+ */
 const ACTION_CLASS = [
-  "inline-flex min-h-tap-min items-center gap-1.5",
+  "inline-flex min-h-tap-min min-w-0 max-w-full items-center gap-1.5",
   "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
   "text-xs font-medium text-text",
   "transition-colors duration-fast",
@@ -114,13 +128,21 @@ export function PersonRow({ person }: PersonRowProps) {
       {...(you ? { "data-you": "true" } : {})}
       {...(lead ? { "data-lead": "true" } : {})}
       {...(primary ? { "data-primary": "true" } : {})}
-      className="flex items-start gap-3"
+      // `min-w-0` so the row collapses below its content width inside a narrow
+      // flex slot (the §4.9 Need-something quick-card at 390px is ≈70px wide).
+      // Without it the row keeps its intrinsic width and overflows the card.
+      className="flex min-w-0 items-start gap-3"
     >
       <Avatar name={heading ?? ""} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {heading !== undefined ? (
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <p className="truncate text-sm/tight font-semibold text-text-strong">{heading}</p>
+            {/* `min-w-0` lets `truncate` actually engage inside this flex row:
+                without it the nowrap name keeps its intrinsic width and pushes
+                the You/Lead/Primary chip past the card's right edge at 390px. */}
+            <p className="min-w-0 max-w-full truncate text-sm/tight font-semibold text-text-strong">
+              {heading}
+            </p>
             {you ? (
               <span className={[CHIP_CLASS, "bg-stale-tint text-accent-on-bg"].join(" ")}>
                 You
@@ -139,10 +161,10 @@ export function PersonRow({ person }: PersonRowProps) {
           </div>
         ) : null}
         {role !== undefined && role.trim().length > 0 ? (
-          <p className="truncate text-xs uppercase tracking-eyebrow text-text-faint">{role}</p>
+          <p className="truncate text-xs uppercase tracking-eyebrow text-text-subtle">{role}</p>
         ) : null}
         {phoneActionable || emailActionable ? (
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="flex min-w-0 flex-wrap gap-2 pt-1">
             {phoneActionable ? (
               <a
                 href={`tel:${digitsOnly(person.phone ?? "")}`}
@@ -150,7 +172,7 @@ export function PersonRow({ person }: PersonRowProps) {
                 aria-label={`Call ${actionTarget}`}
               >
                 <span aria-hidden="true">{"☎"}</span>
-                <span>Call</span>
+                <span className="truncate">Call</span>
               </a>
             ) : null}
             {emailActionable ? (
@@ -160,7 +182,7 @@ export function PersonRow({ person }: PersonRowProps) {
                 aria-label={`Email ${actionTarget}`}
               >
                 <span aria-hidden="true">{"✉"}</span>
-                <span>Email</span>
+                <span className="truncate">Email</span>
               </a>
             ) : null}
           </div>

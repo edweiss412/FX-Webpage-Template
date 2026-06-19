@@ -656,6 +656,129 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       }
     });
   }
+
+  // ── Invariant 8 — No horizontal overflow at 390px + bottom-bar clearance ──
+  // (impeccable dual-gate P0s.) Two contracts the redesign MUST hold on a real
+  // mobile viewport:
+  //
+  //   (a) NO horizontal overflow — `documentElement.scrollWidth <= clientWidth`
+  //       AND no Today quick-card / Gear scope-card right edge exceeds the
+  //       viewport width. The 3-card equal-height row (kept per inv1/inv3) must
+  //       SHRINK its content (min-w-0 + break-words on long hotel/venue strings;
+  //       PersonRow buttons wrap) so nothing clips off the right edge at 390px.
+  //   (b) Bottom-bar clearance — the LAST section block's bottom sits ABOVE the
+  //       fixed mobile tab-bar's top (content is not occluded). `<main>` reserves
+  //       a mobile-only bottom gutter (tap-min + safe-area + 1rem) for exactly
+  //       this. Verified on a content-bearing section (Today).
+  test("inv8: no horizontal overflow @390px + last block clears the fixed bottom bar", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoSection(page, "today");
+    const viewport = page.viewportSize()!;
+
+    // (a) Page-level: no horizontal scroll. A clipped/overflowing card would make
+    // scrollWidth exceed clientWidth.
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(
+      scrollWidth,
+      `@390px the page must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
+    ).toBeLessThanOrEqual(clientWidth + TOL);
+
+    // (a) Per-card: no Today quick-card's right edge exceeds the viewport width.
+    const todayCardIds = ["today-card-tonight", "today-card-where", "today-card-need-something"];
+    for (const id of todayCardIds) {
+      const loc = page.getByTestId(id);
+      if ((await loc.count()) === 0) continue;
+      const r = await rectOf(loc);
+      expect(
+        r.right,
+        `@390px ${id} right edge must not exceed viewport width; right=${r.right} vp=${viewport.width}`,
+      ).toBeLessThanOrEqual(viewport.width + TOL);
+    }
+
+    // (a) Per-card: the same for the Gear A/V/L scope cards.
+    await gotoSection(page, "gear");
+    const scopeCards = page.locator('[data-testid^="gear-scope-"]');
+    const scopeN = await scopeCards.count();
+    for (let i = 0; i < scopeN; i++) {
+      const r = await rectOf(scopeCards.nth(i));
+      expect(
+        r.right,
+        `@390px gear scope card ${i} right edge must not exceed viewport width; right=${r.right} vp=${viewport.width}`,
+      ).toBeLessThanOrEqual(viewport.width + TOL);
+    }
+    const gearOverflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(
+      gearOverflow.scrollWidth,
+      `@390px the Gear section must have NO horizontal overflow; scrollWidth=${gearOverflow.scrollWidth} clientWidth=${gearOverflow.clientWidth}`,
+    ).toBeLessThanOrEqual(gearOverflow.clientWidth + TOL);
+
+    // (b) Bottom-bar clearance: the LAST rendered block inside the Today section
+    // must end ABOVE the fixed mobile tab-bar's top edge — content not occluded.
+    await gotoSection(page, "today");
+    const subNav = page.getByTestId("crew-sub-nav");
+    const bottomBar = subNav
+      .locator("nav")
+      .filter({ has: page.locator("[data-section]") })
+      .last();
+    await expect(bottomBar).toBeVisible();
+    const barTop = (await rectOf(bottomBar)).top;
+
+    // The Today section renders its blocks directly under the section root; the
+    // last one with non-zero size is the visually-lowest content block.
+    const blockRects: Rect[] = await page
+      .getByTestId("section-today")
+      .evaluate((el) =>
+        Array.from(el.querySelectorAll(":scope > *"))
+          .map((c) => (c as HTMLElement).getBoundingClientRect())
+          .map((r) => ({
+            top: r.top,
+            left: r.left,
+            right: r.right,
+            bottom: r.bottom,
+            width: r.width,
+            height: r.height,
+          })),
+      );
+    const sized = blockRects.filter((r) => r.height > 0 && r.width > 0);
+    expect(sized.length, "Today section must render at least one block").toBeGreaterThan(0);
+    const lastBottom = Math.max(...sized.map((r) => r.bottom));
+    // The page can scroll, so to prove non-occlusion we scroll to the very bottom
+    // and re-measure: at max scroll the last block's bottom must sit at/above the
+    // fixed bar's top (the `<main>` bottom gutter guarantees the gap).
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForTimeout(50);
+    const afterScroll: Rect[] = await page
+      .getByTestId("section-today")
+      .evaluate((el) =>
+        Array.from(el.querySelectorAll(":scope > *"))
+          .map((c) => (c as HTMLElement).getBoundingClientRect())
+          .map((r) => ({
+            top: r.top,
+            left: r.left,
+            right: r.right,
+            bottom: r.bottom,
+            width: r.width,
+            height: r.height,
+          })),
+      );
+    const sizedAfter = afterScroll.filter((r) => r.height > 0 && r.width > 0);
+    const lastBottomAfter = Math.max(...sizedAfter.map((r) => r.bottom));
+    const barTopAfter = (await rectOf(bottomBar)).top;
+    expect(
+      lastBottomAfter,
+      `at max scroll the last Today block must clear the fixed bottom bar (not occluded); lastBottom=${lastBottomAfter} barTop=${barTopAfter} (pre-scroll lastBottom=${lastBottom} barTop=${barTop})`,
+    ).toBeLessThanOrEqual(barTopAfter + TOL);
+  });
 });
 
 /*

@@ -38,7 +38,7 @@ export function KeyTimesStrip({ anchors }: KeyTimesStripProps) {
     <div data-testid="key-times-strip" className="flex flex-col gap-2">
       {present.map(({ key, label }) => (
         <div key={key} data-anchor={key} className="flex items-baseline justify-between gap-3">
-          <span className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+          <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
             {label}
           </span>
           <span className="text-sm font-semibold tabular-nums text-text-strong">

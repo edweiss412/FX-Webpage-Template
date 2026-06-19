@@ -549,7 +549,7 @@ export function RightNowHero({ context }: RightNowHeroProps) {
                   data-stat-accent={stat.accent ? "true" : "false"}
                   className="flex flex-col"
                 >
-                  <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+                  <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                     {stat.label}
                   </dt>
                   <dd

@@ -194,7 +194,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                               data-testid="travel-schedule-row"
                               className="flex flex-col gap-1"
                             >
-                              <p className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+                              <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                                 {leg.stage}
                               </p>
                               <p className="text-sm text-text">
@@ -285,7 +285,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                               <dl className="grid grid-cols-2 gap-3">
                                 {res.check_in !== null ? (
                                   <div className="flex flex-col gap-1">
-                                    <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+                                    <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                                       Check in
                                     </dt>
                                     <dd className="text-sm text-text">
@@ -297,7 +297,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                                 ) : null}
                                 {res.check_out !== null ? (
                                   <div className="flex flex-col gap-1">
-                                    <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+                                    <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                                       Check out
                                     </dt>
                                     <dd className="text-sm text-text">
