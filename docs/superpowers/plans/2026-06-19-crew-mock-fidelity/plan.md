@@ -529,7 +529,7 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 - [ ] **Step 1: Verify/create the section icons.** `grep -rln "mapPin\|plane\|users\|calendar" components/ 2>/dev/null` — if the project has a shared icon set with these glyphs, reuse it; else create minimal SVG glyph components in `components/crew/icons/sectionIcons.tsx` from the mock's `crew/components.jsx` paths (I have them: home/calendar/mapPin/plane/users(=people)/box; Budget→a `receipt`/`dollar` glyph). Each is a `({ className }) => <svg viewBox="0 0 24 24" stroke="currentColor" …/>`.
 
 - [ ] **Step 2: Write the failing tests** (extend `tests/components/crew/CrewSubNav.test.tsx`):
-  1. the desktop nav row is wrapped in a centered `max-w-[1120px] mx-auto` container (assert the class on the wrapper).
+  1. the desktop nav row is wrapped in a centered container using the REAL `_CrewShell` page-container utilities — assert the wrapper carries `max-w-300` (and `mx-auto`/`px-4`/`sm:px-8`), OR, if the shared `CREW_PAGE_CONTAINER` constant is extracted, assert the wrapper className equals that constant. **Do NOT assert `max-w-[1120px]`** (that is the mock's literal, not the impl container — asserting it would force the wrong implementation back in).
   2. each desktop tab renders an icon (an `svg`) before its label.
   3. each mobile tab renders an icon above its label (the icon `svg` present in the mobile `flex-col` tab).
   4. (regression) the existing URL allow-list + `aria-current` tests still pass (don't modify them).
