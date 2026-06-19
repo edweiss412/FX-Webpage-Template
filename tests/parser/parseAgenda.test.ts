@@ -417,6 +417,38 @@ describe("parseAgenda — LOAD-BEARING: post-AGENDA tables never leak as run-of-
   });
 });
 
+describe("parseAgenda — robustness (stale raw/ fixtures + empty skeletons, fail-soft only)", () => {
+  const datesAny = datesOf([
+    "2025-03-26", "2025-03-27", "2025-04-15", "2025-04-16",
+    "2025-10-14", "2025-10-15", "2025-09-05",
+  ]);
+
+  it.each([
+    "fixtures/shows/raw/2025-03-dci-rpas-central.md",
+    "fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md",
+    "fixtures/shows/raw/2025-10-consultants-roundtable.md",
+  ])("stale/variant %s parses fail-soft (Record or undefined, never throws, no EVENT/DAY garbage)", (path) => {
+    const md = readFileSync(path, "utf8");
+    let r!: ReturnType<typeof parseAgenda>;
+    expect(() => { r = parseAgenda(md, datesAny); }).not.toThrow();
+    expect(r.runOfShow === undefined || typeof r.runOfShow === "object").toBe(true);
+    // never mis-parse a normalized EVENT/DAY side-table as a session title
+    for (const day of Object.values(r.runOfShow ?? {})) {
+      for (const e of day) {
+        expect(e.title.toUpperCase()).not.toBe("EVENT");
+        expect(e.title.toUpperCase()).not.toBe("DAY");
+      }
+    }
+  });
+
+  it("empty production skeleton (auto-times, blank TITLEs) → all-[] Record, no invented entries", () => {
+    const md = readFileSync("fixtures/shows/exporter-xlsx/rpas.md", "utf8");
+    const r = parseAgenda(md, datesAny);
+    // located grid → object (not undefined); every present day is [] (no real titles)
+    if (r.runOfShow) for (const day of Object.values(r.runOfShow)) expect(day).toEqual([]);
+  });
+});
+
 describe("parseAgenda — step 6: storage caps + AGENDA_DAY_TRUNCATED", () => {
   const dayHeader = "| NAME | ARRIVAL | FLIGHT# | START  | FINISH | TRT | TITLE | ROOM | AV |";
   const dateRow = "| 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 |";
