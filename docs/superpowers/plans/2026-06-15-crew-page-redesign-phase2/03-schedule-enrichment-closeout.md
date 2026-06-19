@@ -199,11 +199,11 @@ export function stripAgendaUrls(value: string): string {
 
 **Files:** edit `components/crew/sections/ScheduleSection.tsx`; create `tests/components/crew/sections/ScheduleSection.agenda.test.tsx`.
 
-**Interface:** add (1) a module const `export const RUN_OF_SHOW_DISPLAY_CAP = 20;` and a `const TITLE_TRUNCATE_AT = 80;`; (2) a per-entry render helper `RunOfShowEntry`; (3) a per-day `RunOfShowList` that takes `entries: AgendaEntry[]` and `isoDate: string`; (4) the branch inside the day-map wrapper: when `data.runOfShow?.[day.date]?.length` is truthy → render `<RunOfShowList entries={…} isoDate={day.date} />` INSIDE the day wrapper (in addition to / replacing the `<DayCard>` content's body — see impl). Import `AgendaEntry` type, `shouldHideGenericOptional`, `stripAgendaUrls`.
+**Interface:** add (1) the `isDisplayableEntry` / `displayableEntries` helpers (R12 — stripped-title-real gating); (2) a per-entry render helper `RunOfShowEntry` rendering ALL six fields (start/finish/trt/title/room/av) through `stripAgendaUrls` (title) + `resolveOptionalField` → `shouldHideGenericOptional` (optionals) — **no truncation here**; (3) a per-day `RunOfShowList` that takes `entries: AgendaEntry[]` and `isoDate: string` and renders **all displayable entries, no cap**; (4) the branch inside the day-map wrapper: when `displayableEntries(data.runOfShow?.[day.date]).length > 0` → render `<RunOfShowList entries={…} isoDate={day.date} />` INSIDE the day wrapper (appended after `<DayCard>` — see impl). Import `AgendaEntry` type, `shouldHideGenericOptional`, `stripAgendaUrls`. **The display-cap (`RUN_OF_SHOW_DISPLAY_CAP`) and title-truncation (`TITLE_TRUNCATE_AT`) consts + behavior are NOT in Task 2 — they ship in Task 3 with their own failing tests (invariant 1 / TDD per task).**
 
 > **Render placement decision (binding):** the run-of-show list renders **inside the existing day wrapper `<div>`** (`ScheduleSection.tsx:170-175`), as a child appended after `<DayCard>` so the day's phase/date header (DayCard) is preserved and the run-of-show is its body. The wrapper keeps its `data-testid`/`data-day`/`data-today` (today-pin + clock e2e contract). The new list carries its own `data-testid="run-of-show-<isoDate>"`. A day WITHOUT a confirmed run-of-show renders `<DayCard>` alone (Phase-1-identical).
 
-This task ships the **happy-path list + per-day mutual exclusivity**. Caps/truncation/URL-strip land in Task 3, sentinel hiding in Task 4 — but the entry render helper is written once here with those hooks **stubbed minimally** only where a later task's test will tighten them. To avoid placeholder churn, Task 2's `RunOfShowEntry` already routes title through `stripAgendaUrls` and optional fields through `shouldHideGenericOptional` (so Tasks 3/4 only ADD tests + caps, not re-architect). The Task-2 test asserts ONLY the per-day mode contract.
+This task ships, RED→GREEN in one task: the **per-day mode branch, the 6-field entry render (URL-strip + sentinel hiding wired), the displayableEntries gating (R12), and the per-day mutual-exclusivity + URL-strip tests**. It renders **all displayable entries untruncated with no cap** — so the absence of a cap/truncation is NOT a hidden user-visible behavior (Task 2's tests use ≤ cap entries with ≤ 80-char titles). The display cap + 80-char `<details>` truncation are deferred to Task 3 (each shipped with its own failing test first — invariant 1). Sentinel-hiding behavioral coverage + the trt-field tests are Task 4; the field reads themselves are wired here so Task 4 only ADDS tests, not impl.
 
 **Failing test (write FIRST):** `tests/components/crew/sections/ScheduleSection.agenda.test.tsx`
 
@@ -253,6 +253,23 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
     }
   });
 
+  // Task 2 renders ALL six AgendaEntry fields. Pin the POSITIVE render here (same
+  // task as the impl, invariant 1) so "renders 6 fields" isn't proven only by
+  // Task 4's sentinel-hiding cases. Values read from the DATA SOURCE D1_ENTRIES
+  // (anti-tautology), scoped to the D1 list subtree.
+  test("a present entry surfaces all six fields: start, finish, trt, title, room, av", () => {
+    const c = renderAgenda({ [D1]: D1_ENTRIES });
+    const d1List = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    const e = D1_ENTRIES[1]!; // the entry that carries room ("Mabel 1") + av ("POD")
+    const time = d1List.querySelectorAll('[data-agenda-field="time"]')[1]!;
+    expect(time.textContent).toContain(e.start); // "8:15 AM"
+    expect(time.textContent).toContain(e.finish!); // "8:30 AM"
+    expect(time.textContent).toContain(e.trt!); // "0:15"
+    expect(d1List.textContent).toContain(e.title); // "Welcome and Introductory Remarks"
+    expect(d1List.querySelector('[data-agenda-field="room"]')!.textContent).toContain(e.room!); // "Mabel 1"
+    expect(d1List.querySelector('[data-agenda-field="av"]')!.textContent).toContain(e.av!); // "POD"
+  });
+
   test("exactly-one-mode-per-day: clone the D1 day subtree, assert a run-of-show list AND no second mode marker", () => {
     const c = renderAgenda({ [D1]: D1_ENTRIES });
     // The day wrapper for D1 (today) carries data-day=D1.
@@ -270,8 +287,30 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
     // Belt-and-braces: the exact container testid is present exactly once, and
     // there is no second per-day container of a different ISO date in this day.
     expect(clone.querySelectorAll(`[data-testid="run-of-show-${D1}"]`).length).toBe(1);
-    // The DayCard header still renders (the run-of-show is the body, not a replacement).
-    expect(clone.querySelector('[data-testid="agenda-overflow-stub"]')).toBeNull(); // only 2 entries < cap
+    // Both entries render (Task 2 has NO display cap — all displayable entries
+    // render; the cap + overflow stub are Task 3).
+    expect(clone.querySelectorAll('[data-testid="agenda-entry"]').length).toBe(2);
+  });
+
+  // URL-strip is wired into RunOfShowEntry (Task 2) via stripAgendaUrls on the
+  // title + resolveOptionalField on room/av. Pinned HERE (same task as the impl,
+  // invariant 1) — the cap/truncation tests live in Task 3.
+  test("URL-strip: Drive / non-Google schemed / scheme-less-Google links in title/room/av never reach the crew DOM", () => {
+    const c = renderAgenda({
+      [D1]: [
+        {
+          start: "9:00",
+          title: "Keynote https://drive.google.com/file/d/abc",
+          room: "https://zoom.us/j/9",
+          av: "drive.google.com/x",
+        },
+      ],
+    });
+    const dom = (c.textContent ?? "").toLowerCase();
+    for (const f of ["https://", "http://", "drive.google.com", "docs.google.com"]) {
+      expect(dom).not.toContain(f);
+    }
+    expect(c.textContent).toContain("Keynote");
   });
 
   test("runOfShow = null → NO run-of-show element on any day (Phase-1 identical)", () => {
@@ -324,7 +363,7 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
 });
 ```
 
-- [ ] Write the test. **Run → MUST FAIL** (no `run-of-show-<iso>` element renders): `pnpm vitest run tests/components/crew/sections/ScheduleSection.agenda.test.tsx`. **Failure mode caught:** double-rendering (both modes in one day), the anchor floor disappearing when a SIBLING day has agenda, a title-only entry rendering an empty row, the list rendering when `runOfShow` is null, **a URL-only title rendering a BLANK `agenda-entry` row (FIX-3 — the entry/container must gate on the stripped-title-real DISPLAYABLE count, so an all-URL-only day falls to the anchor floor and a mixed day shows only the real entries).**
+- [ ] Write the test. **Run → MUST FAIL** (no `run-of-show-<iso>` element renders): `pnpm vitest run tests/components/crew/sections/ScheduleSection.agenda.test.tsx`. **Failure mode caught:** double-rendering (both modes in one day), the anchor floor disappearing when a SIBLING day has agenda, a title-only entry rendering an empty row, the list rendering when `runOfShow` is null, **a URL-only title rendering a BLANK `agenda-entry` row (FIX-3 — the entry/container must gate on the stripped-title-real DISPLAYABLE count, so an all-URL-only day falls to the anchor floor and a mixed day shows only the real entries), or a Drive/Zoom/scheme-less-Google URL in `title`/`room`/`av` leaking into the crew DOM (URL-strip wired in this task).**
 
 **Minimal implementation** — edit `components/crew/sections/ScheduleSection.tsx`. Add imports + consts + helpers near the top (after the existing imports / `aggregateDays`), and the per-day branch inside the map. Full additions:
 
@@ -334,11 +373,10 @@ import type { AgendaEntry } from "@/lib/parser/types";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 
-// ── add near the top-level consts (after the imports) ───────────────────
-/** §4.3 / D-6 display cap: render at most this many entries per day. */
-export const RUN_OF_SHOW_DISPLAY_CAP = 20;
-/** §4.3 / D-6: title display-truncation threshold (chars). */
-const TITLE_TRUNCATE_AT = 80;
+// NOTE: the display-cap const (RUN_OF_SHOW_DISPLAY_CAP) and the title-truncation
+// const (TITLE_TRUNCATE_AT) are NOT declared here — they ship in Task 3 alongside
+// their failing tests (TDD per task / invariant 1). Task 2 renders ALL displayable
+// entries untruncated.
 
 /**
  * Resolve an optional agenda field for display: URL-strip it, then hide it if
@@ -380,9 +418,9 @@ function displayableEntries(entries: AgendaEntry[] | undefined): AgendaEntry[] {
 function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   // Title is URL-stripped (free text could paste a link). The caller only passes
   // DISPLAYABLE entries (isDisplayableEntry — stripped title is real), so the
-  // stripped title here is guaranteed non-empty and renders.
+  // stripped title here is guaranteed non-empty and renders. (Title display-
+  // truncation is added in Task 3 as its own red→green TDD step — NOT here.)
   const title = stripAgendaUrls(entry.title);
-  const isLong = title.length > TITLE_TRUNCATE_AT;
   const start = resolveOptionalField(entry.start) ?? "";
   const finish = resolveOptionalField(entry.finish);
   const trt = resolveOptionalField(entry.trt);
@@ -406,16 +444,7 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
             {timeLabel}
           </span>
         ) : null}
-        {isLong ? (
-          <details data-testid="agenda-title-truncated" className="min-w-0">
-            <summary className="cursor-pointer text-sm font-medium text-text-strong">
-              {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
-            </summary>
-            <span className="text-sm text-text-strong">{title}</span>
-          </details>
-        ) : (
-          <span className="min-w-0 text-sm font-medium text-text-strong">{title}</span>
-        )}
+        <span className="min-w-0 text-sm font-medium text-text-strong">{title}</span>
       </div>
       {room || av ? (
         <div className="flex items-center gap-2 text-xs text-text-subtle">
@@ -434,31 +463,23 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   );
 }
 
-/** Per-day run-of-show list with the §4.3 display cap + overflow stub. */
+/**
+ * Per-day run-of-show list. Renders the DISPLAYABLE entries (stripped-title-real)
+ * in sheet order. The caller already gates on displayableEntries(...).length > 0,
+ * so `display` here is non-empty. (The §4.3 display cap + `+N more` overflow stub
+ * are added in Task 3 as their own red→green TDD step — this Task-2 version renders
+ * ALL displayable entries untruncated; Task 2's tests use ≤ cap entries so the
+ * absence of a cap is not a hidden behavior.)
+ */
 function RunOfShowList({ entries, isoDate }: { entries: AgendaEntry[]; isoDate: string }): JSX.Element {
-  // Cap + overflow count are computed on the DISPLAYABLE entries (stripped-title-
-  // real), not the raw stored array — a URL-only entry never occupies a row slot
-  // nor inflates the `+N more` count. The caller already gates on
-  // displayableEntries(...).length > 0, so `display` here is non-empty.
   const display = displayableEntries(entries);
-  const shown = display.slice(0, RUN_OF_SHOW_DISPLAY_CAP);
-  const overflow = display.length - RUN_OF_SHOW_DISPLAY_CAP; // derived from the displayable count
   return (
     <div data-testid={`run-of-show-${isoDate}`} className="mt-2 flex flex-col">
       <ul className="flex flex-col divide-y divide-border-subtle">
-        {shown.map((entry, i) => (
+        {display.map((entry, i) => (
           <RunOfShowEntry key={i} entry={entry} />
         ))}
       </ul>
-      {overflow > 0 ? (
-        <div
-          data-testid="agenda-overflow-stub"
-          data-tile-show-more="true"
-          className="pt-1 text-xs text-text-subtle"
-        >
-          {`+${overflow} more ${overflow === 1 ? "agenda item" : "agenda items"}`}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -491,18 +512,17 @@ return (
 
 ---
 
-### Task 3 — Caps + truncation + URL-strip (test 7a) + extend CardinalityCapBoundary
+### Task 3 — Display cap + 80-char title truncation (test 7a) + extend CardinalityCapBoundary
 
-**Files:** edit `tests/components/tiles/CardinalityCapBoundary.test.tsx`; create `tests/components/crew/sections/ScheduleSection.caps.test.tsx`. (No `ScheduleSection.tsx` change should be needed — Task 2 already implemented the cap + `<details>` + `stripAgendaUrls`; this task PROVES them and pins the boundary. If a test fails, fix the impl minimally.)
+**Files:** create `tests/components/crew/sections/ScheduleSection.caps.test.tsx`; edit `tests/components/tiles/CardinalityCapBoundary.test.tsx`; **edit `components/crew/sections/ScheduleSection.tsx`** (this task ADDS the cap + truncation impl — Task 2 deliberately shipped without them, rendering all displayable entries untruncated, so this is a clean red→green TDD step per invariant 1). URL-strip is NOT here (wired + tested in Task 1 + Task 2).
 
-**Failing test A — caps/truncation/URL-strip behavior:** `tests/components/crew/sections/ScheduleSection.caps.test.tsx`
+**Failing test A — cap + truncation behavior:** `tests/components/crew/sections/ScheduleSection.caps.test.tsx`
 
 ```tsx
 // @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
 import { render } from "@testing-library/react";
-import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { RUN_OF_SHOW_DISPLAY_CAP } from "@/components/crew/sections/ScheduleSection";
+import { ScheduleSection, RUN_OF_SHOW_DISPLAY_CAP } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry } from "@/lib/parser/types";
 
@@ -525,7 +545,7 @@ function renderEntries(entries: AgendaEntry[]) {
 const mkEntries = (n: number): AgendaEntry[] =>
   Array.from({ length: n }, (_, i) => ({ start: `${i}:00`, title: `Session ${String(i + 1).padStart(2, "0")}` }));
 
-describe("Schedule run-of-show — display cap + truncation + URL-strip (test 7a)", () => {
+describe("Schedule run-of-show — display cap + 80-char title truncation (test 7a)", () => {
   test(`cap+1 (${RUN_OF_SHOW_DISPLAY_CAP + 1}) → exactly cap rows + stub count = length − cap (tail-trim)`, () => {
     const n = RUN_OF_SHOW_DISPLAY_CAP + 1;
     const expectedOverflow = n - RUN_OF_SHOW_DISPLAY_CAP; // derived
@@ -556,20 +576,77 @@ describe("Schedule run-of-show — display cap + truncation + URL-strip (test 7a
     expect(details!.textContent).toContain(long); // full body preserved in <details>
   });
 
-  test("URL-strip: Drive / non-Google schemed / scheme-less-Google links never reach the crew DOM", () => {
-    const c = renderEntries([
-      { start: "9:00", title: "Keynote https://drive.google.com/file/d/abc", room: "https://zoom.us/j/9", av: "drive.google.com/x" },
-    ]);
-    const dom = (c.textContent ?? "").toLowerCase();
-    for (const f of ["https://", "http://", "drive.google.com", "docs.google.com"]) {
-      expect(dom).not.toContain(f);
-    }
-    expect(c.textContent).toContain("Keynote");
+  test("title ≤ 80 chars → plain span, NO <details> (boundary: exactly 80 is not truncated)", () => {
+    const c = renderEntries([{ start: "9:00", title: "Z".repeat(80) }]);
+    expect(c.querySelector('[data-testid="agenda-title-truncated"]')).toBeNull();
   });
 });
 ```
 
-- [ ] Write the test. **Run → MUST FAIL** if Task 2's cap/`<details>`/strip is incomplete (it should mostly pass; tighten impl if not): `pnpm vitest run tests/components/crew/sections/ScheduleSection.caps.test.tsx`. **Failure mode caught:** unbounded mobile scroll (no cap), a wrong overflow count (`>= cap` off-by-one, or counting from the displayed-not-stored array), an 81-char title rendering full without `<details>`, or a Drive/Zoom/scheme-less-Google URL leaking into the crew DOM.
+- [ ] Write the test. **Run → MUST FAIL** — Task 2 renders ALL entries untruncated and has no overflow stub / `<details>`, so: the `cap+1` test fails (21 rows present, not 20; no `agenda-overflow-stub`), and the `>80` test fails (no `agenda-title-truncated`). Run: `pnpm vitest run tests/components/crew/sections/ScheduleSection.caps.test.tsx`. **Failure mode caught:** unbounded mobile scroll (no cap), a wrong overflow count (`>= cap` off-by-one, or counting from the raw-not-displayable array), an 81-char title rendering full without `<details>`, a `<details>` wrongly applied at exactly 80 chars.
+
+**Minimal implementation** — edit `components/crew/sections/ScheduleSection.tsx`. (1) Declare the two consts (add them to the const block Task 2 left a placeholder note for):
+
+```tsx
+/** §4.3 / D-6 display cap: render at most this many entries per day. */
+export const RUN_OF_SHOW_DISPLAY_CAP = 20;
+/** §4.3 / D-6: title display-truncation threshold (chars). */
+const TITLE_TRUNCATE_AT = 80;
+```
+
+(2) Re-introduce the truncation branch in `RunOfShowEntry` — replace the plain title `<span>` (Task 2) with the length-gated `<details>`:
+
+```tsx
+  const title = stripAgendaUrls(entry.title);
+  const isLong = title.length > TITLE_TRUNCATE_AT;
+  // … (start/finish/trt/room/av resolves + timeLabel unchanged) …
+
+  // inside the time-group <div>, REPLACING Task 2's plain title span:
+  {isLong ? (
+    <details data-testid="agenda-title-truncated" className="min-w-0">
+      <summary className="cursor-pointer text-sm font-medium text-text-strong">
+        {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
+      </summary>
+      <span className="text-sm text-text-strong">{title}</span>
+    </details>
+  ) : (
+    <span className="min-w-0 text-sm font-medium text-text-strong">{title}</span>
+  )}
+```
+
+(3) Re-introduce the cap + overflow stub in `RunOfShowList` — replace Task 2's render-all body:
+
+```tsx
+function RunOfShowList({ entries, isoDate }: { entries: AgendaEntry[]; isoDate: string }): JSX.Element {
+  // Cap + overflow count are computed on the DISPLAYABLE entries (stripped-title-
+  // real), not the raw stored array — a URL-only entry never occupies a row slot
+  // nor inflates the `+N more` count. The caller gates on
+  // displayableEntries(...).length > 0, so `display` is non-empty.
+  const display = displayableEntries(entries);
+  const shown = display.slice(0, RUN_OF_SHOW_DISPLAY_CAP);
+  const overflow = display.length - RUN_OF_SHOW_DISPLAY_CAP; // derived from the displayable count
+  return (
+    <div data-testid={`run-of-show-${isoDate}`} className="mt-2 flex flex-col">
+      <ul className="flex flex-col divide-y divide-border-subtle">
+        {shown.map((entry, i) => (
+          <RunOfShowEntry key={i} entry={entry} />
+        ))}
+      </ul>
+      {overflow > 0 ? (
+        <div
+          data-testid="agenda-overflow-stub"
+          data-tile-show-more="true"
+          className="pt-1 text-xs text-text-subtle"
+        >
+          {`+${overflow} more ${overflow === 1 ? "agenda item" : "agenda items"}`}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+```
+
+- [ ] Run → **MUST PASS**: `pnpm vitest run tests/components/crew/sections/ScheduleSection.caps.test.tsx`. Re-run Task 2's test too (`ScheduleSection.agenda.test.tsx`) — the 2-entry mode test still passes (2 < cap → both render, no stub), proving the cap addition didn't regress Task 2.
 
 **Failing test B — extend the boundary matrix:** add to `tests/components/tiles/CardinalityCapBoundary.test.tsx` a new `describe` block (after the Pack-list block, ~`:386`). Import additions at the top:
 
@@ -634,8 +711,8 @@ describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, Schedu
 });
 ```
 
-- [ ] **Run → MUST PASS** both: `pnpm vitest run tests/components/crew/sections/ScheduleSection.caps.test.tsx tests/components/tiles/CardinalityCapBoundary.test.tsx`. **Failure mode caught (matrix):** the run-of-show list silently dropping into the un-pinned set of section caps, so a future cap regression (off-by-one at the `> cap` vs `>= cap` boundary, or a head-trim) ships unnoticed.
-- [ ] **Commit:** `test(crew-page): pin run-of-show display cap + truncation + URL-strip; extend CardinalityCapBoundary`
+- [ ] **Run → MUST PASS** both (test B passes now that test A's cap impl landed; if the cap impl were absent it would go red on the `cap+1` row): `pnpm vitest run tests/components/crew/sections/ScheduleSection.caps.test.tsx tests/components/tiles/CardinalityCapBoundary.test.tsx`. **Failure mode caught (matrix):** the run-of-show list silently dropping into the un-pinned set of section caps, so a future cap regression (off-by-one at the `> cap` vs `>= cap` boundary, or a head-trim) ships unnoticed.
+- [ ] **Commit:** `feat(crew-page): add run-of-show display cap + 80-char title truncation; extend CardinalityCapBoundary`
 
 ---
 
@@ -919,7 +996,7 @@ The review-focus brief MUST include this **EXPLICITLY DO NOT RELITIGATE** block 
 - [ ] **Per-day mode tests green** — day with entries → `run-of-show-<iso>` list; day without → anchor-only; exactly one mode per day (Task 2).
 - [ ] **Anchor floor byte-identical** — `runOfShow = null` renders the Phase-1 Schedule output unchanged; day cards + times strip intact under a `run_of_show` fetch fault (Task 5, test 6a/6b).
 - [ ] **All 3 non-confirmed shapes → anchors (UI half)** — absent / `[]` / null projected day renders anchor-only, never resurrects entries (Task 5, 6c); the storage-side R22 pins live in §02.
-- [ ] **URL-strip + caps green** — Drive / non-Google schemed / scheme-less-Google URLs absent from crew DOM; 20-cap + `+N more` (count = `length − 20`) + 80-char `<details>` (Task 3, test 7a).
+- [ ] **URL-strip green (Task 2) + caps green (Task 3)** — Drive / non-Google schemed / scheme-less-Google URLs in title/room/av absent from crew DOM (Task 2, wired into `RunOfShowEntry`); 20-cap + `+N more` (count = displayable `length − 20`) + 80-char `<details>` (Task 3, test 7a).
 - [ ] **Sentinel meta extended** — `_metaSentinelHidingContract` `GENERIC_OPTIONAL_FIELDS` gains the `entry.(room|av|finish|trt)` pattern AND `ScheduleSection.tsx` imports+calls `shouldHideGenericOptional` (Task 4); negative-regression confirmed.
 - [ ] **CardinalityCapBoundary extended** — run-of-show cap-1/cap/cap+1 row, against the exported `RUN_OF_SHOW_DISPLAY_CAP` (Task 3).
 - [ ] **Impeccable PASS (BEFORE Codex — invariant 8)** — critique + audit, external attestation, HIGH/CRITICAL fixed or DEFERRED.md'd (Task 8).
