@@ -543,6 +543,11 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     expect(
       rpas.some((h) => h.names.length === 1 && h.confirmation_no && /\d{4,}/.test(h.confirmation_no)),
     ).toBe(true);
+    // focused: the exporter escapes the hash ("Eric Weiss - \#2069853"); the
+    // markdown escape is stripped so the name is clean and the conf# is captured.
+    const eweiss = rpas.find((h) => h.names.length === 1 && h.names[0] === "Eric Weiss");
+    expect(eweiss?.confirmation_no).toBe("2069853");
+    expect(eweiss?.names[0]).not.toMatch(/[\\#]/);
     for (const h of rpas)
       for (const n of h.names) expect(n, `rpas name "${n}"`).not.toMatch(/&#1?0;|#?\d{4,}/);
 

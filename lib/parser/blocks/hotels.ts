@@ -88,12 +88,14 @@ type SlotData = {
  * name list is clean for crew↔name matching.
  */
 function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
-  const flat = cell
-    .replace(/&#10;/g, " ")
+  // clean() first so a markdown-escaped hash ("\#2069854") becomes "#2069854"
+  // before token matching — self-contained even if a caller passes a raw cell
+  // (current callers pre-clean col1/col3, but don't depend on that here).
+  const flat = clean(cell.replace(/&#10;/g, " "))
     .replace(/\r/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!flat || flat === "-" || flat === "\\-") return { names: [], confs: [] };
+  if (!flat || flat === "-") return { names: [], confs: [] }; // clean() already unescaped "\-"
 
   const names: string[] = [];
   const confs: string[] = [];
