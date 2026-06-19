@@ -336,10 +336,14 @@ export function parseAgenda(markdown: string): ParseAgendaResult {
 
 §4.1 step 2: among the located table's rows, find the **DATE row** BY CONTENT (the row with ≥2 cells matching `M/D/YY` via `normalizeDate(cell) !== null`) and the **day-NAME row** BY CONTENT (≥2 cells whose uppercase ∈ `WEEKDAYS`) — NOT by which row the converter promoted to header (R8). Each non-empty dated cell in the DATE row **opens a block** spanning `[col, nextDatedCol)`. Classify by the token-header columns inside the span: a span whose token-header cells include `START`+`FINISH`+`TRT` (the 6-col `START|FINISH|TRT|TITLE|ROOM|AV`) = **show day**; `NAME|ARRIVAL|FLIGHT#` or `TIME|TITLE|ROOM` = travel/set → **skip**. **Dual-form fallback:** if there is no separate DATE/day-name row (prefix-form table), derive day-name + boundaries from the token-header cell prefixes (split on `/`). **Concrete failure mode caught:** keying off a fixed column stride (East Coast TRAVEL=3, SET=3, DAY=6 cols — non-uniform) or off the day-TYPE row → travel/set blocks bleeding into the run-of-show.
 
+**TDD note (invariant 1 — this task has a GENUINE red→green cycle, NOT a deferred one):** the impl EXPORTS a thin testable entry `locateAgendaShowBlocks(markdown)` that returns the classified show-day block descriptors (`{ startCol, endCol, dateCell, dayName }[]` — show-day blocks only, travel/set filtered out). The test asserts exact start-columns + that TRAVEL/SET spans are excluded, on a synthetic grid AND the real East Coast fixture. This RED-fails (function absent) before the impl and turns green after — a real task-local contract, not a smoke check. Day resolution/entries are still Tasks 1.5/1.6; this task owns ONLY boundaries + classification.
+
 - [ ] **Write failing test** — append:
 ```ts
-describe("parseAgenda — step 2: block boundaries from DATE row, show-day classification", () => {
-  const md = [
+import { locateAgendaShowBlocks } from "@/lib/parser/blocks/agenda";
+
+describe("parseAgenda — step 2: locateAgendaShowBlocks (boundaries + show-day classification)", () => {
+  const synthetic = [
     "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | SET DAY | SET DAY | SET DAY | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 |",
     "| 5/13/24 | 5/13/24 | 5/13/24 | 5/14/24 | 5/14/24 | 5/14/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 | 5/15/24 |",
     "| Monday | Monday | Monday | Tuesday | Tuesday | Tuesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday | Wednesday |",
@@ -347,26 +351,39 @@ describe("parseAgenda — step 2: block boundaries from DATE row, show-day class
     "|  |  |  |  |  |  | 7:15 AM | 7:30 AM | 0:15 | Opening Keynote | Mabel 1 | LAV |",
   ].join("\n");
 
-  it("opens ONE show-day block at col 6 (5/15/24); skips TRAVEL(0-2)/SET(3-5)", () => {
-    // Resolution happens against dates in Task 1.5; here we assert the show block's date cell
-    // and that travel/set never produce a run-of-show key.
-    const r = parseAgenda(md);
-    // grid located (not undefined) and only the show-day date appears (resolution-free smoke)
-    expect(r.runOfShow).not.toBeUndefined();
-    // the travel date 5/13/24 and set date 5/14/24 must NEVER become run-of-show keys
-    // (they classify as travel/set blocks). Resolved keys arrive in Task 1.5; here assert
-    // the parser does not crash and the located table is the agenda one.
-    expect(() => parseAgenda(md)).not.toThrow();
+  it("returns EXACTLY one show-day block at startCol 6; TRAVEL(0)/SET(3) are filtered out", () => {
+    const blocks = locateAgendaShowBlocks(synthetic);
+    expect(blocks.map((b) => b.startCol)).toEqual([6]); // NOT [0,3,6] — travel/set excluded
+    expect(blocks[0]!.dateCell).toBe("5/15/24");
+    expect(blocks[0]!.dayName).toBe("Wednesday");
+  });
+
+  it("East Coast fixture: show-day blocks start at cols 6 and 12 (DAY 1, DAY 2); 5 banner dates → 2 show blocks", () => {
+    const md = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
+    const blocks = locateAgendaShowBlocks(md);
+    // 5 dated banner columns (TRAVEL 5/13, SET 5/14, DAY1 5/15, DAY2 5/16, TRAVEL 5/17)
+    // → exactly the two DAY blocks survive classification, at the absolute START columns.
+    expect(blocks.map((b) => b.startCol)).toEqual([6, 12]);
+    expect(blocks.map((b) => b.dateCell)).toEqual(["5/15/24", "5/16/24"]);
+  });
+
+  it("a grid with NO show-day span (only TRAVEL/SET) → empty block list (no false show day)", () => {
+    const md = [
+      "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | SET DAY | SET DAY | SET DAY |",
+      "| 5/13/24 | 5/13/24 | 5/13/24 | 5/14/24 | 5/14/24 | 5/14/24 |",
+      "| Monday | Monday | Monday | Tuesday | Tuesday | Tuesday |",
+      "| NAME | ARRIVAL | FLIGHT# | TIME | TITLE | ROOM |",
+    ].join("\n");
+    expect(locateAgendaShowBlocks(md)).toEqual([]);
   });
 });
 ```
-> Note: this task's assertions are intentionally smoke-level (boundaries are internal); Task 1.5 promotes them to keyed-date assertions once ISO resolution exists. The block list is exercised end-to-end by Task 1.6's real-fixture test.
-- [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 2'`. Expected: passes trivially OR (after wiring step-2 internals that step-3 will read) the empty-`{}` return still holds — first make the internal `locateBlocks` exist and be called; the meaningful red is Task 1.5's keyed assertion. Run to confirm no throw.
-- [ ] **Minimal impl** — add to `agenda.ts` (before `parseAgenda`'s final return), and refactor `parseAgenda` to build blocks:
+- [ ] **Run, verify fails** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 2'`. Expected: `locateAgendaShowBlocks` is not exported from `@/lib/parser/blocks/agenda` → import resolves to `undefined` → `TypeError: locateAgendaShowBlocks is not a function` on first call. This is a genuine RED (the function does not exist), satisfying invariant 1.
+- [ ] **Minimal impl** — add to `agenda.ts` (before `parseAgenda`), and refactor `parseAgenda` to consume blocks:
 ```ts
 import { normalizeDate } from "./_helpers";
 
-type Block = {
+export type AgendaBlock = {
   startCol: number;
   endCol: number; // exclusive
   dateCell: string | undefined;
@@ -380,11 +397,11 @@ function findDayNameRow(rows: string[][]): string[] | undefined {
   return rows.find((r) => r.filter((c) => WEEKDAYS.has(c.trim().toUpperCase())).length >= 2);
 }
 
-/** Build per-day blocks from the DATE row; classify each by its token-header span. */
-function locateBlocks(rows: string[][], header: string[], headerIdx: number): Block[] {
+/** Build per-day blocks from the DATE row; classify each by its token-header span; keep show-day blocks only. */
+function locateBlocks(rows: string[][], header: string[], headerIdx: number): AgendaBlock[] {
   const dateRow = findDateRow(rows.slice(0, headerIdx + 1)) ?? findDateRow(rows);
   const nameRow = findDayNameRow(rows.slice(0, headerIdx + 1)) ?? findDayNameRow(rows);
-  const blocks: Block[] = [];
+  const blocks: AgendaBlock[] = [];
 
   if (dateRow) {
     // boundary columns = non-empty dated cells in the DATE row
@@ -430,10 +447,26 @@ function locateBlocks(rows: string[][], header: string[], headerIdx: number): Bl
     return span.includes("START") && span.includes("FINISH") && span.includes("TRT");
   });
 }
+
+/**
+ * Testable entry: isolate the AGENDA table, then locate + classify its show-day
+ * blocks. Returns show-day blocks only (travel/set filtered). Returns [] when the
+ * grid is unlocatable OR carries no show-day span. (parseAgenda uses the same
+ * locateBlocks internally; this thin wrapper pins the boundary/classification
+ * contract for Task 1.4's red→green cycle.)
+ */
+export function locateAgendaShowBlocks(markdown: string): AgendaBlock[] {
+  const block = isolateAgendaTable(markdown);
+  if (block === undefined) return [];
+  const rows = parseTableRows(block);
+  const headerIdx = rows.findIndex(isTokenHeaderRow);
+  if (headerIdx === -1) return [];
+  return locateBlocks(rows, rows[headerIdx]!, headerIdx);
+}
 ```
-Then in `parseAgenda`, after locating `headerIdx`, replace the `return { runOfShow: {}, warnings: [] }` with a call that builds `const header = rows[headerIdx]!; const blocks = locateBlocks(rows, header, headerIdx);` and (for now) returns `{ runOfShow: {}, warnings: [] }` — Task 1.5 consumes `blocks`.
-- [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 2'` + `-t 'step 1'`. Green, no throw.
-- [ ] **Commit** — `git add lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): parseAgenda step 2 — DATE-row block boundaries + show-day classification"`
+Then in `parseAgenda`, after `const headerIdx = rows.findIndex(isTokenHeaderRow);`, build `const blocks = locateBlocks(rows, rows[headerIdx]!, headerIdx);` and (for now) return `{ runOfShow: {}, warnings: [] }` — Task 1.5 consumes `blocks`.
+- [ ] **Run, verify passes** — `pnpm vitest run tests/parser/parseAgenda.test.ts -t 'step 2'` + `-t 'step 1'` + `pnpm typecheck`. Green.
+- [ ] **Commit** — `git add lib/parser/blocks/agenda.ts tests/parser/parseAgenda.test.ts && git commit -m "feat(parser): parseAgenda step 2 — locateAgendaShowBlocks (DATE-row boundaries + show-day classification)"`
 
 ---
 
@@ -576,6 +609,28 @@ describe("parseAgenda — steps 4-5: data walk + TITLE-real gate (real fixtures,
     // crew/TRAVEL/SET never bleed in: no entry title is a crew NAME or a travel cell
     expect(titles).not.toContain("NAME");
     expect(titles).not.toContain("ARRIVAL");
+  });
+
+  it("RIA fixture (the OTHER real filled production shape) → keys both show days; Day-1 first session derived from the fixture", () => {
+    // Spec §6 test 1 requires positive extraction on BOTH filled current-converter fixtures.
+    // RIA banner (ria.md:316-318): TRAVEL 6/23, SET 6/24, DAY1 6/25/25 (Wed), DAY2 6/26/25 (Thu).
+    const md = readFileSync("fixtures/shows/exporter-xlsx/ria.md", "utf8");
+    const r = parseAgenda(md, datesOf(["2025-06-25", "2025-06-26"]));
+    // keys both show days (reconciled from the DATE + day-name rows), NOT the travel/set dates
+    expect(Object.keys(r.runOfShow ?? {}).sort()).toEqual(["2025-06-25", "2025-06-26"]);
+    const day1 = r.runOfShow?.["2025-06-25"];
+    expect(day1?.length).toBeGreaterThan(0);
+    // first Day-1 entry — clone-and-read from ria.md:320 (NOT hardcoded blind): the DAY-1
+    // block START is col 6, so col 6..11 = start/finish/trt/title/room/av.
+    expect(day1![0]).toEqual({
+      start: "7:30 AM", finish: "8:30 AM", trt: "1:00",
+      title: "Attendee Registration and Breakfast", room: "Foyer",
+      // av blank in this row
+    });
+    // times stay display strings, no Date coercion
+    expect(day1!.every((e) => typeof e.start === "string")).toBe(true);
+    // the SET-DAY title column (idx 4) must never bleed in as a session
+    expect(day1!.map((e) => e.title)).not.toContain("TITLE");
   });
 
   it("right-pads short rows; a row with only START+TITLE yields a title row (no finish/room/av)", () => {
@@ -772,6 +827,18 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     expect(r.runOfShow).toBeDefined();
     expect(Object.keys(r.runOfShow!)).toEqual(expect.arrayContaining(["2024-05-15"]));
     expect(r.runOfShow!["2024-05-15"]![0]!.title).toBe("Family Office Only Breakfast");
+  });
+
+  it("RIA production fixture → parseSheet emits runOfShow keyed by RIA show days (both filled shapes wired)", () => {
+    // The other real filled production shape — proves parseSheet wiring is not East-Coast-specific.
+    // RIA dates come from the sheet's own DATES block; the AGENDA banner carries 6/25/25 (Wed) + 6/26/25 (Thu).
+    const md = readFileSync("fixtures/shows/exporter-xlsx/ria.md", "utf8");
+    const r = parseSheet(md, "ria.md");
+    expect(r.runOfShow).toBeDefined();
+    expect(Object.keys(r.runOfShow!)).toEqual(expect.arrayContaining(["2025-06-25"]));
+    // first Day-1 session — derived from ria.md:320 (clone-and-read), not hardcoded blind
+    expect(r.runOfShow!["2025-06-25"]![0]!.title).toBe("Attendee Registration and Breakfast");
+    expect(r.runOfShow!["2025-06-25"]![0]!.start).toBe("7:30 AM");
   });
 
   it("a sheet with no AGENDA grid → runOfShow undefined + AGENDA_GRID_MALFORMED warning, never throws", () => {
