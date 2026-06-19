@@ -45,7 +45,8 @@
 | `components/crew/sections/TravelSection.tsx` | travelrows + split-wide ratio | Modify |
 | `components/crew/sections/CrewSection.tsx` | split-wide ratio | Modify |
 | `components/crew/sections/TodaySection.tsx` | gated Today Mode A | Modify |
-| `components/crew/icons/` (verify) | phone/mail/dock/car/wifi glyphs | Verify/Create |
+| `components/crew/CrewSubNav.tsx` | desktop centering + per-section icons; mobile icons | Modify |
+| `components/crew/icons/` (verify) | phone/mail/dock/car/wifi + section (home/calendar/mapPin/plane/users/box/receipt) glyphs | Verify/Create |
 
 ---
 
@@ -519,6 +520,30 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 
 ---
 
+## Task 8.5: Sub-nav chrome — desktop centering + per-section icons, mobile icons
+
+**Files:** Modify `components/crew/CrewSubNav.tsx`; Create/verify section icon glyphs (`components/crew/icons/`); extend `tests/components/crew/CrewSubNav.test.tsx`.
+
+**Interfaces:** the desktop `<nav>` (`CrewSubNav.tsx:116-121`) gains a centered `max-w-[1120px] mx-auto` + body-horizontal-padding container so the first tab aligns with the section content; each tab gains a 16px (desktop) / 22px (mobile) per-section icon. **Produces:** `SECTION_ICON: Record<SectionId, (props) => JSX.Element>` — Today→`home`, Schedule→`calendar`, Venue→`mapPin`, Travel→`plane`, Crew→`users`, Gear→`box`, Budget→a receipt/dollar glyph. **Preserve** the URL allow-list (`navigate`, `:65-79`), `aria-current="page"`, the 44px tap floor, `data-testid="crew-sub-nav"` + `data-section`, the `min-[720px]:` pivot. Icons `aria-hidden="true"`.
+
+- [ ] **Step 1: Verify/create the section icons.** `grep -rln "mapPin\|plane\|users\|calendar" components/ 2>/dev/null` — if the project has a shared icon set with these glyphs, reuse it; else create minimal SVG glyph components in `components/crew/icons/sectionIcons.tsx` from the mock's `crew/components.jsx` paths (I have them: home/calendar/mapPin/plane/users(=people)/box; Budget→a `receipt`/`dollar` glyph). Each is a `({ className }) => <svg viewBox="0 0 24 24" stroke="currentColor" …/>`.
+
+- [ ] **Step 2: Write the failing tests** (extend `tests/components/crew/CrewSubNav.test.tsx`):
+  1. the desktop nav row is wrapped in a centered `max-w-[1120px] mx-auto` container (assert the class on the wrapper).
+  2. each desktop tab renders an icon (an `svg`) before its label.
+  3. each mobile tab renders an icon above its label (the icon `svg` present in the mobile `flex-col` tab).
+  4. (regression) the existing URL allow-list + `aria-current` tests still pass (don't modify them).
+
+- [ ] **Step 3: Run — verify fail.**
+
+- [ ] **Step 4: Implement.** Add the centered container to the desktop `<nav>` (`<div className="mx-auto flex max-w-[1120px] … px-[clamp(16px,3vw,34px)]">` wrapping the tab row — match the body's exact padding util; confirm in `app/show/[slug]/[shareToken]/_CrewShell.tsx`/the body wrapper and reuse it verbatim). Add `SECTION_ICON[id]` to each tab: desktop = 16px icon before the label (`size-4`), active → `text-accent-on-bg`; mobile = 22px icon (`size-[22px]`) above the label, active → `text-accent`. Keep every existing class/attr.
+
+- [ ] **Step 5: Run — verify pass + the full CrewSubNav suite + tsc + screenshots note.** `pnpm vitest run tests/components/crew/CrewSubNav.test.tsx` + `pnpm tsc --noEmit`. (Real-browser centering is asserted in Task 10.)
+
+- [ ] **Step 6: Commit.** `feat(crew): center desktop sub-nav + per-section icons (desktop 16px, mobile 22px)`
+
+---
+
 ## Task 9: Today Mode A — gated run-of-show (reuses the shared module)
 
 **Files:** Modify `components/crew/sections/TodaySection.tsx`; Create `tests/components/crew/TodaySection.modeA.test.tsx`; extend the single-source guard (Task 3's third `it`).
@@ -561,6 +586,7 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 **Interfaces:** renders each crew section (via the crew preview route / a seeded data-rich show with an eligible viewer + populated `runOfShow[todayIso]`) at **≥720px** and **390px**, and asserts via `getBoundingClientRect()`:
 - For each split-wide section (Schedule, Venue, Travel, Crew, **Today Mode A**): at ≥720px the left column width ≈ 1.6 × right column (±2px) AND both columns equal height (items-stretch); at 390px both columns stack (single column, full width, no horizontal overflow / no clip).
 - The Schedule date badge `[data-testid="day-card-date"]` is 50px wide; an `[data-testid="avatar"]` is 40px square.
+- **Sub-nav centering (Task 8.5):** at ≥720px, the desktop sub-nav's first `[data-section]` tab's left edge aligns (±2px) with the section content's left edge (both centered to the 1120px body) — the "off-center" fix. And each tab contains an `svg` icon (desktop ≥720px and mobile 390px).
 
 - [ ] **Step 1: Write the spec** — use the existing crew screenshot/e2e harness pattern (`tests/e2e/screenshots-help-setup.ts` crew arm / the preview route with a picker-cookie crew session; reuse the `ENABLE_TEST_AUTH` fixture). Derive expected ratios from the rendered rects (no hardcoded px beyond the 50/40 badge/avatar + the ±2px tolerance). The Today Mode A fixture must seed an eligible viewer + `runOfShow[todayIso]` so Mode A actually mounts.
 
