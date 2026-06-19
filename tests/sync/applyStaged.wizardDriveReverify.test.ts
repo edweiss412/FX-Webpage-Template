@@ -135,7 +135,7 @@ function fakeTx(): LockedShowTx<FakeTx> {
     async updateShowPendingReview() {},
     async deleteWizardPendingSyncsExcept() {},
     async applyShowSnapshot() {
-      return { outcome: "updated", showId: "show-1", previousCrewNames: [] };
+      return { outcome: "updated", showId: "show-1", previousCrewNames: [], priorRunOfShow: null };
     },
     async deleteCrewMembersNotIn() {},
     async upsertCrewMembers() {},

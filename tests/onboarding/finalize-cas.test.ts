@@ -282,6 +282,7 @@ function makeFakePipelineTx(db: FakeFinalizeCasDb): SyncPipelineTx {
         showId: "22222222-2222-4222-8222-222222222222",
         previousCrewNames: [],
         previousCrewMembers: [],
+        priorRunOfShow: null,
       };
     },
     async deleteCrewMembersNotIn() {},

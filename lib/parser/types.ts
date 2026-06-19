@@ -311,6 +311,21 @@ export type PersistedDiagrams = {
   linkedFolderItems: PersistedLinkedFolderItem[];
 };
 
+/**
+ * One AGENDA run-of-show session row (§4.1). All fields are sheet-DISPLAY
+ * strings — never re-parsed to Date (D-1). `title` is REQUIRED and is the
+ * "filled" signal: parseAgenda only emits an entry when TITLE is REAL
+ * (non-empty AND not a generic sentinel — shouldHideGenericOptional).
+ */
+export type AgendaEntry = {
+  start: string;
+  finish?: string;
+  trt?: string;
+  title: string;
+  room?: string;
+  av?: string;
+};
+
 // === Pure parser output (Task 1.11's parseSheet returns this) ===
 export type ParsedSheet = {
   show: ShowRow;
@@ -328,6 +343,9 @@ export type ParsedSheet = {
   openingReel: OpeningReelRef | null; // driveFileId only at parse time
   raw_unrecognized: { block: string; key: string; value: string }[];
   warnings: ParseWarning[];
+  // AGENDA run-of-show (Phase 2). ISO date -> entries. undefined = grid
+  // unlocatable (D-1/D-2). Sibling of warnings; NOT on ShowRow (admin-only, R18).
+  runOfShow?: Record<string, AgendaEntry[]>;
   hardErrors: ParseError[];
 };
 
@@ -351,6 +369,9 @@ export type ParseResult = {
   openingReel: OpeningReelPinned | null; // pinned at Phase 1 enrichment
   raw_unrecognized: { block: string; key: string; value: string }[];
   warnings: ParseWarning[];
+  // AGENDA run-of-show (Phase 2). ISO date -> entries. undefined = grid
+  // unlocatable (D-1/D-2). Sibling of warnings; NOT on ShowRow (admin-only, R18).
+  runOfShow?: Record<string, AgendaEntry[]>;
   hardErrors: ParseError[];
 };
 

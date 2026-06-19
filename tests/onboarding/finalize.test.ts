@@ -265,6 +265,7 @@ function fakePipelineTx(db: FakeFinalizeDb): SyncPipelineTx {
         showId: "show-first-seen",
         previousCrewNames: [],
         previousCrewMembers: [],
+        priorRunOfShow: null,
       };
     },
     async deleteCrewMembersNotIn() {},

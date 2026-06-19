@@ -229,6 +229,7 @@ export function phase2Tx(tx: Sql) {
       return {
         outcome: "updated" as const,
         showId,
+        priorRunOfShow: null,
         previousCrewNames: previous.map((p) => p.name),
         previousCrewMembers: previous.map((p) => ({
           id: p.id,

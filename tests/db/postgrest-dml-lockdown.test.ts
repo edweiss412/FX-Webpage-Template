@@ -361,6 +361,25 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     },
     rowFilter: "?table_name=eq.postgrest-dml-lockdown-test-no-such-row",
   },
+  {
+    // Phase 2 §02 (crew-page-redesign R16-HIGH): the sync's run_of_show write is a
+    // read-modify-replace (CONFIRMED-ONLY, D-2) under the per-show advisory lock. A
+    // signed-in admin could otherwise `update shows_internal set run_of_show = …`
+    // directly via PostgREST behind only the admin_only RLS — that path does NOT take
+    // the advisory lock and could race/corrupt the merge. REVOKE makes the locked
+    // service-role sync the single serialized writer. SELECT retained (admin UI reads
+    // via service-role); admin_only RLS intact.
+    table: "shows_internal",
+    closed_at:
+      "supabase/migrations/20260619000001_lockdown_shows_internal.sql:18",
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: {
+      show_id: "00000000-0000-0000-0000-000000000000",
+      run_of_show: {},
+    },
+    rowFilter: "?show_id=eq.00000000-0000-0000-0000-000000000000",
+  },
 ] as const;
 
 // =============================================================================

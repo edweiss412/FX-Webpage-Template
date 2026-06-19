@@ -179,7 +179,13 @@ create table if not exists dev.shows_internal (
   show_id uuid primary key references dev.shows(id) on delete cascade,
   financials jsonb,
   parse_warnings jsonb default '[]'::jsonb,
-  raw_unrecognized jsonb default '[]'::jsonb
+  raw_unrecognized jsonb default '[]'::jsonb,
+  -- Phase 2 §02: mirror of public.shows_internal.run_of_show (per-day AGENDA storage).
+  -- NOTE: create-if-not-exists only adds this column on a fresh seed; a pre-existing local
+  -- dev DB needs the column added manually via:
+  --   psql "$LOCAL_DB_URL" -c "alter table dev.shows_internal add column if not exists run_of_show jsonb;"
+  -- or via a clean re-seed (supabase db reset).
+  run_of_show jsonb
 );
 
 -- ============================================================================

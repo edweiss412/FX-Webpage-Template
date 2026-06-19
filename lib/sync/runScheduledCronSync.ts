@@ -20,7 +20,12 @@ import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/dr
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
-import type { ParsedSheet, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type {
+  AgendaEntry,
+  ParsedSheet,
+  ParseResult,
+  TriggeredReviewItem,
+} from "@/lib/parser/types";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   enrichWithDrivePins,
@@ -167,6 +172,14 @@ export type ProcessOneFileResult =
       showId: string;
       roleFlagsNotice?: RoleFlagsNotice;
       snapshotRevisionId?: string;
+      // §02 (FIX-3 / R16 structural defense): REQUIRED so tsc forces EVERY tail caller that builds
+      // an applied result (cron / manual / staged) to supply it — a future 4th caller cannot
+      // silently drop the sync_log channel. The applied path's sync_log parse_warnings is sourced
+      // from here (NOT from the tail's separate parseResult arg, which the runPhase2 rebind makes
+      // unreliable). Callers source from their own apply outcome (phase2.parseWarnings ?? [] /
+      // coreResult.parseWarnings). [] is a valid empty value; the per-caller runtime tests pin
+      // correct SOURCING.
+      parseWarnings: ParseResult["warnings"];
     }
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
@@ -189,6 +202,10 @@ export type SyncLogEntry = {
   outcome: string;
   code?: string;
   payload?: Record<string, unknown>;
+  // §02 (D-7 / FIX-3): the parse warnings to union into the persisted parse_warnings $5 array
+  // (sync_log channel). Set ONLY for the applied outcome (the parser-owned codes + any sync-emitted
+  // AGENDA_DAY_EMPTIED). insertSyncLog unions these alongside the per-outcome payload row.
+  parseWarnings?: ParseResult["warnings"];
 };
 
 export type SyncPipelineTxBoundDeps = {
@@ -802,7 +819,11 @@ class PostgresPipelineTx implements SyncPipelineTx {
         entry.driveFileId,
         entry.code ?? entry.outcome,
         entry.code ? `${entry.outcome}:${entry.code}` : entry.outcome,
-        entry.payload ? [{ ...entry.payload, outcome: entry.outcome }] : [],
+        // §02 (D-7 / FIX-3): preserve the per-outcome payload row AND append the parse warnings.
+        [
+          ...(entry.payload ? [{ ...entry.payload, outcome: entry.outcome }] : []),
+          ...(entry.parseWarnings ?? []),
+        ],
       ],
     );
   }
@@ -940,6 +961,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
       "select id from public.shows where drive_file_id = $1 limit 1",
       [args.driveFileId],
     );
+    // §02 (D-2 / R6 / R20 live-producer): read the prior stored run_of_show so the apply core can
+    // decide which AGENDA_DAY_EMPTIED warnings to emit. Keyed on the resolved existing show id; a
+    // first-seen show has no shows_internal row → null (the correct "nothing previously stored"
+    // signal). Raw-tx path returns the parsed jsonb object (matching the parse_warnings read shape).
+    const priorInternal = existing
+      ? await this.one<{ run_of_show: Record<string, AgendaEntry[]> | null }>(
+          "select run_of_show from public.shows_internal where show_id = $1 limit 1",
+          [existing.id],
+        )
+      : null;
     const previousCrew = existing
       ? await this.rows<{
           id: string;
@@ -1146,6 +1177,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
     return {
       outcome: "updated" as const,
       showId: updated.id,
+      // §02 (D-2 / R6): the prior stored run_of_show (null for a first-seen show with no
+      // shows_internal row) — consumed by applyParseResult to emit AGENDA_DAY_EMPTIED.
+      priorRunOfShow: priorInternal?.run_of_show ?? null,
       previousCrewNames: previousCrew.map((row) => row.name),
       previousCrewMembers: previousCrew.map((row) => ({
         id: row.id,
@@ -1321,15 +1355,24 @@ class PostgresPipelineTx implements SyncPipelineTx {
   ) {
     await this.rows(
       `
-        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized)
-        values ($1, $2::jsonb, $3::jsonb, $4::jsonb)
+        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized, run_of_show)
+        values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb)
         on conflict (show_id)
         do update set
           financials = excluded.financials,
           parse_warnings = excluded.parse_warnings,
-          raw_unrecognized = excluded.raw_unrecognized
+          raw_unrecognized = excluded.raw_unrecognized,
+          run_of_show = excluded.run_of_show
       `,
-      [showId, payload.financials, payload.parse_warnings, payload.raw_unrecognized],
+      // $5: pass the computed object/null RAW — postgres.js serializes $N::jsonb itself; a manual
+      // JSON.stringify would double-encode (the postgres.js jsonb param trap).
+      [
+        showId,
+        payload.financials,
+        payload.parse_warnings,
+        payload.raw_unrecognized,
+        payload.run_of_show,
+      ],
     );
   }
 }
@@ -1610,6 +1653,9 @@ async function logSync(
   driveFileId: string,
   result: ProcessOneFileResult,
   payload?: Record<string, unknown>,
+  // §02 (D-7 / FIX-3): applied-outcome parse warnings to persist on the sync_log row. Threaded from
+  // the tail's applied result (NOT from parseResult — the runPhase2 rebind makes that unreliable).
+  parseWarnings?: ParseResult["warnings"],
 ): Promise<void> {
   if ("skipped" in result) return;
   const entry: SyncLogEntry = {
@@ -1619,6 +1665,8 @@ async function logSync(
   if ("code" in result) entry.code = result.code;
   if ("reason" in result) entry.code = result.reason;
   if (payload) entry.payload = payload;
+  // Set ONLY for the applied outcome (skip/error/stale/stage rows carry no parse warnings).
+  if (result.outcome === "applied" && parseWarnings) entry.parseWarnings = parseWarnings;
   await deps.logSync?.(entry);
 }
 
@@ -1747,7 +1795,8 @@ export async function emitSuccessfulPhase2Tail(args: {
       unpublishTokenExpiresAt: args.autoPublishFirstSeen.unpublishTokenExpiresAt,
     });
   }
-  await logSync(args.deps, args.driveFileId, args.result);
+  // §02 (D-7 / FIX-3): thread the applied result's parseWarnings into the sync_log row.
+  await logSync(args.deps, args.driveFileId, args.result, undefined, args.result.parseWarnings);
 }
 
 function shouldUseRevisionRaceCooldown(mode: SyncMode): boolean {
@@ -2469,6 +2518,8 @@ export async function processOneFile_unlocked(
   const result: ProcessOneFileResult = {
     outcome: "applied" as const,
     showId: phase2.showId,
+    // §02 (FIX-3): source the sync_log parse_warnings from this apply's outcome (cron caller #1).
+    parseWarnings: phase2.parseWarnings ?? [],
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;

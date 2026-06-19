@@ -1,6 +1,6 @@
 import { canonicalize } from "@/lib/email/canonicalize";
 import type { DriveListedFile } from "@/lib/drive/list";
-import type { TriggeredReviewItem } from "@/lib/parser/types";
+import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { assertShowLockHeld, type LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { Mi11Item } from "@/lib/sync/holds/writeMi11Holds";
 import {
@@ -439,6 +439,12 @@ export type ApplyStagedCoreResult =
       derivedSideEffects: { revokeFloorForNames: string[] };
       roleFlagsNotice?: RoleFlagsNotice;
       snapshotRevisionId?: string;
+      // §02 (FIX-3 / R16/R17): surface the apply outcome's parse warnings so the staged tail caller
+      // (applyStaged.ts) can source sync_log's parse_warnings from coreResult.parseWarnings — the
+      // staged analogue of the cron Phase2Result.applied.parseWarnings thread. Without this the
+      // staged caller has no warnings to thread and AGENDA_DAY_EMPTIED is lost on the first-published
+      // sync_log path.
+      parseWarnings: ParseResult["warnings"];
     }
   | ReviewerChoiceValidationError
   | { outcome: "discarded_by_choice" } // ANY reject choice: NO Phase 2, NO audit, NO floors — the
@@ -576,6 +582,9 @@ export async function applyStagedCore(
     showId: phase2.showId,
     syncAuditId,
     derivedSideEffects,
+    // §02 (FIX-3 / R16/R17): surface the apply outcome's warnings (incl. any AGENDA_DAY_EMPTIED) so
+    // the staged tail caller sources sync_log's parse_warnings from coreResult.parseWarnings.
+    parseWarnings: phase2.parseWarnings ?? [],
   };
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;

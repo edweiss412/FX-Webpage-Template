@@ -24,6 +24,7 @@ import { parseOps } from "./blocks/ops";
 import { parsePullSheet } from "./pull-sheet";
 import { parseDiagrams } from "./diagrams";
 import { extractOpeningReel } from "./opening-reel";
+import { parseAgenda } from "./blocks/agenda";
 import type { ParsedSheet, ParseError, ShowRow, WorkPhase } from "./types";
 
 export type { ParsedSheet, ParseResult, ParseWarning, ParseError } from "./types";
@@ -363,6 +364,8 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const { client_label, client_contact } = parseClient(markdown, version, agg);
   const venue = parseVenue(markdown, version, agg);
   const dates = parseDates(markdown, version, agg);
+  const agendaResult = parseAgenda(markdown, dates);
+  agg.warnings.push(...agendaResult.warnings);
   const crewMembers = parseCrew(markdown, version, agg);
   const hotelReservations = parseHotels(markdown, version, agg);
   const rooms = parseRooms(markdown, version, agg);
@@ -417,5 +420,6 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
     raw_unrecognized: agg.rawUnrecognized,
     warnings: agg.warnings,
     hardErrors,
+    ...(agendaResult.runOfShow !== undefined ? { runOfShow: agendaResult.runOfShow } : {}),
   };
 }

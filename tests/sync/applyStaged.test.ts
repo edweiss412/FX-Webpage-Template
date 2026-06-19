@@ -132,7 +132,7 @@ function fakeTx(held = true): FakeTx {
     async deleteWizardPendingSyncsExcept() {},
     async applyShowSnapshot() {
       this.operations.push("applyShowSnapshot");
-      return { outcome: "updated", showId: "show-1", previousCrewNames: [] };
+      return { outcome: "updated", showId: "show-1", previousCrewNames: [], priorRunOfShow: null };
     },
     async deleteCrewMembersNotIn() {},
     async upsertCrewMembers() {},
@@ -381,6 +381,37 @@ describe("applyStaged live-scope", () => {
         autoPublishFirstSeen: tokenPayload,
       }),
     );
+  });
+
+  // (added — reuses this file's top-of-file fixtures + imports)
+  const EMPTIED2 = { severity: "warn" as const, code: "AGENDA_DAY_EMPTIED", message: "d went read-empty" };
+  test("R17: a staged first-seen auto-publish apply whose runPhase2 returns AGENDA_DAY_EMPTIED passes it to the tail's applied result", async () => {
+    // Typed param so tail.mock.calls[0][0] is the args object (an untyped spy has an empty-tuple call signature).
+    const tail = vi.fn(
+      async (_args: Parameters<NonNullable<ApplyStagedDeps["emitSuccessfulPhase2Tail"]>>[0]) => undefined,
+    );
+    const syncDeps = deps({                                 // applyStaged.test.ts:149 — supplies ALL required deps
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }], baseModifiedTime: null })),
+      readShowForApply: vi.fn(async () => null),             // first-seen: no show row yet
+      liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new", parseWarnings: [EMPTIED2] })),
+      emitSuccessfulPhase2Tail: tail,
+      createUnpublishToken: () => "tok-1",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+    });
+    await applyStaged_unlocked(
+      fakeTx() as LockedShowTx<FakeTx>,                      // applyStaged.test.ts:107 — queryOne→{held:true} satisfies the lock assert
+      { driveFileId: "drive-file-1", sourceScope: "live", stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "fs-1", action: "apply" }], appliedByEmail: "doug@fxav.test" },
+      syncDeps,
+    );
+    expect(tail).toHaveBeenCalledTimes(1);
+    const tailArg = tail.mock.calls[0]![0] as { result: { parseWarnings?: Array<{ code: string }> } };
+    expect((tailArg.result.parseWarnings ?? []).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+    // EXPECTED RED (sourcing, NOT precondition/compile): all required deps + the first-seen pending row are supplied, so the
+    //   auto_publish_ready path reaches the tail; before impl, applyStaged.ts:1280 builds `result:{outcome:"applied",showId}`
+    //   with no parseWarnings (and applyStagedCore drops phase2.parseWarnings) → tailArg.result.parseWarnings is undefined → fails for the RIGHT reason.
   });
 
   test("Task 4.4 R3 negative-regression: the DEFAULT first-published alert writer is TX-BOUND (tx.queryOne → upsert_admin_alert), never the standalone service-role client", async () => {

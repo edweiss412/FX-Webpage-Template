@@ -55,8 +55,9 @@ import {
 } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { ScheduleSection, RUN_OF_SHOW_DISPLAY_CAP } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
-import type { ContactRow } from "@/lib/parser/types";
+import type { AgendaEntry, ContactRow } from "@/lib/parser/types";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -383,4 +384,58 @@ describe("§8.4 cardinality-cap — Pack list (CASE_CAP, GearSection)", () => {
     expect(text).toContain(`Road Case ${String(CASE_CAP).padStart(2, "0")}`);
     expect(text).not.toContain(`Road Case ${String(CASE_CAP + 1).padStart(2, "0")}`);
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Run-of-show — RUN_OF_SHOW_DISPLAY_CAP = 20 (ScheduleSection, exported)
+//   rows: [data-testid="agenda-entry"]
+//   overflow stub: [data-testid="agenda-overflow-stub"]
+// Cap is exported, so this asserts the live const (not a mirrored literal).
+// ─────────────────────────────────────────────────────────────────────
+describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, ScheduleSection)", () => {
+  const D1 = "2026-05-14";
+  const RS_DATES = { travelIn: null, set: null, showDays: [D1], travelOut: null };
+  const RS_TODAY = new Date("2026-05-14T15:00:00Z");
+
+  function makeEntries(count: number): AgendaEntry[] {
+    return Array.from({ length: count }, (_, i) => ({
+      start: `${i}:00`,
+      title: `Agenda Item ${String(i + 1).padStart(2, "0")}`,
+    }));
+  }
+  function renderRunOfShow(count: number) {
+    return render(
+      <ScheduleSection
+        data={makeShowForViewer({ show: { dates: RS_DATES }, runOfShow: { [D1]: makeEntries(count) } })}
+        viewer={VIEWER}
+        today={RS_TODAY}
+        showId={SHOW_ID}
+      />,
+    ).container;
+  }
+
+  test.each([RUN_OF_SHOW_DISPLAY_CAP - 1, RUN_OF_SHOW_DISPLAY_CAP, RUN_OF_SHOW_DISPLAY_CAP + 1])(
+    "run-of-show cap boundary at %i",
+    (n) => {
+      const c = renderRunOfShow(n);
+      const rows = c.querySelectorAll('[data-testid="agenda-entry"]').length;
+      const stub = c.querySelector('[data-testid="agenda-overflow-stub"]');
+      if (n <= RUN_OF_SHOW_DISPLAY_CAP) {
+        expect(rows).toBe(n);
+        expect(stub).toBeNull();
+        expect(c.textContent ?? "").not.toContain("+0");
+      } else {
+        const expectedOverflow = n - RUN_OF_SHOW_DISPLAY_CAP; // derived
+        expect(rows).toBe(RUN_OF_SHOW_DISPLAY_CAP);
+        expect(stub).not.toBeNull();
+        expect(stub!.getAttribute("data-tile-show-more")).toBe("true");
+        expect(stub!.textContent).toContain(`+${expectedOverflow}`);
+        // Positive tail-trim presence SCOPED to the run-of-show list (anti-
+        // tautology); the absence check on the whole container is stronger.
+        const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+        expect(list.textContent ?? "").toContain(`Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`);
+        expect(c.textContent ?? "").not.toContain(`Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`);
+      }
+    },
+  );
 });

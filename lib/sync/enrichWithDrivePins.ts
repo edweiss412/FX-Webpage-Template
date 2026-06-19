@@ -276,5 +276,6 @@ export async function enrichWithDrivePins(
     raw_unrecognized: parsed.raw_unrecognized,
     warnings,
     hardErrors: parsed.hardErrors,
+    ...(parsed.runOfShow !== undefined ? { runOfShow: parsed.runOfShow } : {}),
   };
 }

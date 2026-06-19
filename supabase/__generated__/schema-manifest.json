@@ -293,6 +293,7 @@
     "financials",
     "parse_warnings",
     "raw_unrecognized",
+    "run_of_show",
     "show_id"
   ],
   "shows_pending_changes": [
