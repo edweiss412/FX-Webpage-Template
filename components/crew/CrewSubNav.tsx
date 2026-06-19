@@ -88,7 +88,14 @@ export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
     const desktop = isActive
       ? "border-b-2 border-accent text-text-strong"
       : "border-b-2 border-transparent text-text-subtle hover:text-text";
-    const mobile = isActive ? "flex-1 flex-col text-accent" : "flex-1 flex-col text-text-subtle";
+    // `min-w-0` is REQUIRED for `flex-1` to equalize the tab widths: flex items
+    // default to `min-width: auto`, so without it a wider-label tab ("Schedule",
+    // "Budget") refuses to shrink below its content width and the bottom bar's
+    // tabs come out unequal. `min-w-0` lets every tab collapse to a true `1fr`
+    // track. (Pinned by the §4.9 invariant-5 equal-width assertion.)
+    const mobile = isActive
+      ? "min-w-0 flex-1 flex-col text-accent"
+      : "min-w-0 flex-1 flex-col text-text-subtle";
     return (
       <button
         key={id}

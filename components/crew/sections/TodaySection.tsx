@@ -228,38 +228,73 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
 
               <KeyTimesStrip anchors={anchors} />
 
-              {firstHotel ? (
-                <div data-testid="today-tonight">
-                  <SectionCard title="Tonight">
-                    <KeyValueRows rows={tonightRows} />
-                  </SectionCard>
-                </div>
-              ) : null}
+              {/* §4.9 quick-cards row (Tonight / Where / Need-something). The row
+                  is a flex row with `items-stretch` so every present card fills
+                  the full row height; each card carries `h-full` so it stretches
+                  inside its flex slot. This project's Tailwind v4 does NOT default
+                  `.flex` to `align-items: stretch` (DESIGN §7), so the stretch is
+                  declared explicitly here and pinned by the real-browser §4.9
+                  invariant-1 test. The row only mounts when at least one card has
+                  data — a fully-empty row would otherwise reflow an empty band. */}
+              {firstHotel || venue || primaryContact ? (
+                <div data-testid="today-quick-cards" className="flex items-stretch gap-3">
+                  {/* Each quick card is a flex item that `items-stretch` stretches
+                      to the full row height (NOT `h-full` on the item itself — a
+                      `height:100%` flex item against an indefinite-height row
+                      collapses to 0, the Tailwind-v4 trap). The stretched item is
+                      a `flex-col` so the inner `today-*` block (`flex-1`) + the
+                      SectionCard (`h-full`) fill down to the row's bottom edge. */}
+                  {firstHotel ? (
+                    <div data-testid="today-card-tonight" className="flex min-w-0 flex-1 flex-col">
+                      <div data-testid="today-tonight" className="flex flex-1 flex-col">
+                        <SectionCard title="Tonight">
+                          <KeyValueRows rows={tonightRows} />
+                        </SectionCard>
+                      </div>
+                    </div>
+                  ) : null}
 
-              {venue ? (
-                <div data-testid="today-where">
-                  <SectionCard title="Where">
-                    <KeyValueRows rows={whereRows} />
-                  </SectionCard>
-                </div>
-              ) : null}
+                  {venue ? (
+                    <div data-testid="today-card-where" className="flex min-w-0 flex-1 flex-col">
+                      <div data-testid="today-where" className="flex flex-1 flex-col">
+                        <SectionCard title="Where">
+                          <KeyValueRows rows={whereRows} />
+                        </SectionCard>
+                      </div>
+                    </div>
+                  ) : null}
 
-              {primaryContact ? (
-                <div data-testid="today-need-something">
-                  <SectionCard title="Need something">
-                    <ul className="flex flex-col gap-3">
-                      <PersonRow
-                        person={{
-                          ...(primaryContact.name != null ? { name: primaryContact.name } : {}),
-                          fallbackLabel:
-                            primaryContact.kind === "in_house_av" ? "In-house AV" : "Venue contact",
-                          ...(primaryContact.phone != null ? { phone: primaryContact.phone } : {}),
-                          ...(primaryContact.email != null ? { email: primaryContact.email } : {}),
-                          primary: true,
-                        }}
-                      />
-                    </ul>
-                  </SectionCard>
+                  {primaryContact ? (
+                    <div
+                      data-testid="today-card-need-something"
+                      className="flex min-w-0 flex-1 flex-col"
+                    >
+                      <div data-testid="today-need-something" className="flex flex-1 flex-col">
+                        <SectionCard title="Need something">
+                          <ul className="flex flex-col gap-3">
+                            <PersonRow
+                              person={{
+                                ...(primaryContact.name != null
+                                  ? { name: primaryContact.name }
+                                  : {}),
+                                fallbackLabel:
+                                  primaryContact.kind === "in_house_av"
+                                    ? "In-house AV"
+                                    : "Venue contact",
+                                ...(primaryContact.phone != null
+                                  ? { phone: primaryContact.phone }
+                                  : {}),
+                                ...(primaryContact.email != null
+                                  ? { email: primaryContact.email }
+                                  : {}),
+                                primary: true,
+                              }}
+                            />
+                          </ul>
+                        </SectionCard>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

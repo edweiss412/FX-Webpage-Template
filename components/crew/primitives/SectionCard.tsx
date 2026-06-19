@@ -32,7 +32,11 @@ export function SectionCard({ icon, title, action, children }: SectionCardProps)
   return (
     <section
       data-testid="section-card"
-      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+      // `h-full` lets the card fill an equal-height flex/grid slot when a parent
+      // constrains height (§4.9 quick-cards row, crew columns). It is a no-op in
+      // ordinary `flex-col` stacks where the parent does not constrain height, so
+      // every other SectionCard call site is unaffected.
+      className="flex h-full flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
     >
       {hasHeader ? (
         <header className="flex items-center justify-between gap-2">

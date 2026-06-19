@@ -195,30 +195,43 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                 </div>
               ) : null}
 
-              {scopeCards.map((d) => (
-                <div
-                  key={d.id}
-                  data-testid={`gear-scope-${d.id}`}
-                  {...(d.emphasized ? { "data-emphasis": "you" } : {})}
-                  className={
-                    d.emphasized ? "rounded-md border-l-2 border-l-accent-on-bg" : undefined
-                  }
-                >
-                  <SectionCard
-                    icon={d.icon}
-                    title={d.heading}
-                    action={
-                      d.emphasized ? (
-                        <span className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg">
-                          Your scope
-                        </span>
-                      ) : undefined
-                    }
-                  >
-                    <KeyValueRows rows={d.rows} />
-                  </SectionCard>
+              {/* §4.9 scope-card row. The A/V/L cards sit in ONE flex row with
+                  `items-stretch` so every card fills the row height; each card
+                  carries `h-full` so it stretches inside its flex slot (Tailwind v4
+                  does NOT default `.flex` to `align-items: stretch`, DESIGN §7). The
+                  per-discipline `gear-scope-<id>` testids + their A→V→L order are
+                  preserved (the jsdom sentinel/scope tests pin them). */}
+              {scopeCards.length > 0 ? (
+                <div data-testid="gear-scopes-row" className="flex items-stretch gap-3">
+                  {scopeCards.map((d) => (
+                    <div
+                      key={d.id}
+                      data-testid={`gear-scope-${d.id}`}
+                      {...(d.emphasized ? { "data-emphasis": "you" } : {})}
+                      className={[
+                        "flex min-w-0 flex-1 flex-col",
+                        d.emphasized ? "rounded-md border-l-2 border-l-accent-on-bg" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <SectionCard
+                        icon={d.icon}
+                        title={d.heading}
+                        action={
+                          d.emphasized ? (
+                            <span className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg">
+                              Your scope
+                            </span>
+                          ) : undefined
+                        }
+                      >
+                        <KeyValueRows rows={d.rows} />
+                      </SectionCard>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : null}
 
               {packVisible ? (
                 <div data-testid="gear-pack-list">

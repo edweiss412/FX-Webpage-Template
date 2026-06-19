@@ -130,7 +130,11 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
               {bothEmpty ? null : (
                 <div className="flex flex-col gap-4 min-[720px]:flex-row min-[720px]:items-stretch">
                   {hasCrew ? (
-                    <div className="h-full flex-1" data-testid="crew-roster">
+                    <div
+                      className="flex min-w-0 flex-1 flex-col"
+                      data-testid="crew-column"
+                      data-crew-column="roster"
+                    >
                       <SectionCard title="Show crew">
                         <ul className="flex flex-col gap-4">
                           {visibleCrew.map((member) => {
@@ -171,7 +175,11 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                   ) : null}
 
                   {hasContacts ? (
-                    <div className="h-full flex-1" data-testid="crew-contacts">
+                    <div
+                      className="flex min-w-0 flex-1 flex-col"
+                      data-testid="crew-column"
+                      data-crew-column="contacts"
+                    >
                       <SectionCard title="Key contacts">
                         <ul className="flex flex-col gap-4">
                           {visibleContacts.map((contact, idx) => {
