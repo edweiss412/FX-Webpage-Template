@@ -27,10 +27,14 @@
  *
  * ON THROW:
  *   - logs to stderr with surface metadata (parity with TileServerFallback);
- *   - fires the best-effort TILE_SERVER_RENDER_FAILED `admin_alerts` upsert
- *     (fire-and-forget: this surface is synchronous so it cannot await; the
- *     upsert's own failure is swallowed so it never masks the fallback —
- *     AGENTS.md §1.9 best-effort discipline);
+ *   - fires the best-effort TILE_SERVER_RENDER_FAILED `admin_alerts` upsert.
+ *     This surface is synchronous so it cannot `await` the way the async
+ *     <TileServerFallback> does — instead the upsert is registered as
+ *     post-response work via next/server `after()`, which keeps the serverless
+ *     function alive until it settles so the durable alert row is NOT dropped
+ *     when an RSC render freezes before an unawaited promise resolves (Codex
+ *     R3 HIGH). The upsert's own failure is swallowed so it never masks the
+ *     fallback (AGENTS.md §1.9 best-effort discipline);
  *   - returns the <TileErrorFallback> element (identical fallback to the tiles)
  *     so the rest of the section keeps rendering. The admin_alerts row is what
  *     surfaces the failing block to the admin dashboard / AlertBanner; crew see
@@ -39,6 +43,7 @@
  * Synchronous Server Component (no `'use client'`, no `async`).
  */
 import type { ReactElement, ReactNode } from "react";
+import { after } from "next/server";
 
 import { TileErrorFallback } from "@/components/shared/TileErrorFallback";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
@@ -82,23 +87,36 @@ export function WrappedSection({
       err.message,
       err.stack,
     );
-    // Best-effort admin_alerts upsert. Fire-and-forget: this synchronous
-    // surface cannot await, and the upsert's own failure must NOT mask the
-    // fallback render — swallow the rejection.
-    void upsertAdminAlert({
-      showId: showId ?? null,
-      code: "TILE_SERVER_RENDER_FAILED",
-      context: {
-        tileId,
-        message: err.message,
-        sheet_name: sheetName ?? null,
-      },
-    }).catch((alertErr: unknown) => {
-      console.error(
-        `[WrappedSection] admin_alerts upsert failed (tile=${tileId}):`,
-        alertErr instanceof Error ? alertErr.message : String(alertErr),
-      );
-    });
+    // Best-effort admin_alerts upsert. The upsert's own failure must NOT mask
+    // the fallback render — swallow the rejection.
+    const fireAlert = () =>
+      upsertAdminAlert({
+        showId: showId ?? null,
+        code: "TILE_SERVER_RENDER_FAILED",
+        context: {
+          tileId,
+          message: err.message,
+          sheet_name: sheetName ?? null,
+        },
+      }).catch((alertErr: unknown) => {
+        console.error(
+          `[WrappedSection] admin_alerts upsert failed (tile=${tileId}):`,
+          alertErr instanceof Error ? alertErr.message : String(alertErr),
+        );
+      });
+    // Durability (Codex R3 HIGH): a bare unawaited promise can be dropped when a
+    // serverless RSC render freezes before it settles, losing the
+    // TILE_SERVER_RENDER_FAILED row this boundary owns (the async
+    // <TileServerFallback> awaited its upsert; this synchronous surface cannot).
+    // Register the upsert as post-response work via `after()` so the runtime
+    // keeps the function alive until it settles. Outside a request scope (unit
+    // tests) `after()` throws — fall back to a plain fire-and-forget so the
+    // synchronous-render contract holds.
+    try {
+      after(fireAlert);
+    } catch {
+      void fireAlert();
+    }
     return fallback ?? <TileErrorFallback />;
   }
 }
