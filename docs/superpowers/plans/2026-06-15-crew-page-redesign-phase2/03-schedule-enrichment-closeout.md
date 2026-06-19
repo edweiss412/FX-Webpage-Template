@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL — use `superpowers:subagent-driven-development` (or `superpowers:executing-plans`) to execute this file task-by-task. Steps use checkbox (`- [ ]`) syntax. Read `00-overview.md` (binding interfaces, global constraints, meta-test inventory) **and** the spec `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-17-crew-page-redesign-phase2-agenda.md` (§4.3 / §4.5 / §4.6, D-5/D-6, §6 tests 5–8, §7 watchpoints) before starting.
 
-**Goal:** Enrich the Phase-1 crew **Schedule** Server Component (`components/crew/sections/ScheduleSection.tsx`) so each rendered day renders **either** a rich run-of-show list (when `data.runOfShow[isoDate]?.length > 0`) **or** the existing Phase-1 `resolveKeyTimes` anchor strip — mutually exclusive per day. Add the `stripAgendaUrls` render sanitizer, the 20-entry display cap + 80-char title `<details>` truncation, sentinel-hiding per optional field, extend the two structural meta-tests (`_metaSentinelHidingContract`, `CardinalityCapBoundary`), then run the milestone close-out gates (self-review → cross-model adversarial review → impeccable dual-gate → real CI → merge).
+**Goal:** Enrich the Phase-1 crew **Schedule** Server Component (`components/crew/sections/ScheduleSection.tsx`) so each rendered day renders **either** a rich run-of-show list (when `data.runOfShow[isoDate]?.length > 0`) **or** the existing Phase-1 `resolveKeyTimes` anchor strip — mutually exclusive per day. Add the `stripAgendaUrls` render sanitizer, the 20-entry display cap + 80-char title `<details>` truncation, sentinel-hiding per optional field, extend the two structural meta-tests (`_metaSentinelHidingContract`, `CardinalityCapBoundary`), then run the milestone close-out gates **in invariant-8 order** (self-review → impeccable dual-gate → cross-model adversarial review → real CI → merge — the impeccable critique+audit pair is the pre-review blocker, run BEFORE Codex per AGENTS.md invariant 8).
 
 > **Execute after §02.** This file consumes §02's `ShowForViewer.runOfShow: Record<string, AgendaEntry[]> | null` projection field and the §02-extended `makeShowForViewer` fixture (`runOfShow` override key). It is purely additive UI over merged Phase 1 + §01 + §02 — no parser, DB, migration, sync, projection, or auth change here. **UI surface → Opus-owned** (routing hard rule; AGENTS.md invariant 8 dual-gate applies).
 
@@ -88,6 +88,33 @@ describe("stripAgendaUrls", () => {
     assertNoUrlSubstring(out);
   });
 
+  // Case-insensitivity (regex `i` flag): the DOM invariant checks
+  // `out.toLowerCase()`, so an UPPERCASE or Mixed-Case scheme/host must still be
+  // stripped — otherwise the lowercased DOM retains the forbidden substring.
+  test("strips an UPPERCASE schemed URL", () => {
+    const out = stripAgendaUrls("Keynote HTTPS://ZOOM.US/J/9");
+    assertNoUrlSubstring(out);
+    expect(out).toBe("Keynote");
+  });
+
+  test("strips a Mixed-Case schemed Google URL", () => {
+    const out = stripAgendaUrls("Slides Https://Drive.Google.com/file/d/x/view");
+    assertNoUrlSubstring(out);
+    expect(out).toBe("Slides");
+  });
+
+  test("strips a Mixed-Case SCHEME-LESS Google host", () => {
+    const out = stripAgendaUrls("Deck Drive.Google.com/file/d/y");
+    assertNoUrlSubstring(out);
+    expect(out).toBe("Deck");
+  });
+
+  test("strips an UPPERCASE SCHEME-LESS Google host", () => {
+    const out = stripAgendaUrls("Deck DOCS.GOOGLE.COM/document/d/z");
+    assertNoUrlSubstring(out);
+    expect(out).toBe("Deck");
+  });
+
   test("multiple URLs in one cell all stripped; whitespace collapsed", () => {
     const out = stripAgendaUrls("A https://a.com/1  and  https://b.com/2 B");
     assertNoUrlSubstring(out);
@@ -136,10 +163,19 @@ describe("stripAgendaUrls", () => {
  * whitespace cleanup chain from stripOpeningReelText (openingReelText.ts:62-68).
  */
 
-/** Every schemed URL (greedy on non-whitespace) — covers Zoom/Teams/CDN/Drive/Docs WITH a scheme. */
-const SCHEMED_URL_RE = /https?:\/\/\S+/g;
-/** Scheme-less Google Drive/Docs links (Doug sometimes omits the scheme). */
-const SCHEMELESS_GOOGLE_RE = /(?:drive|docs)\.google\.com\/\S+/g;
+/**
+ * Every schemed URL (greedy on non-whitespace) — covers Zoom/Teams/CDN/Drive/Docs
+ * WITH a scheme. CASE-INSENSITIVE (`i`): `HTTPS://…`, `Https://…` must strip too,
+ * else the lowercased-DOM invariant (`out.toLowerCase()` must not contain
+ * `https://`/`http://`) is violated by an uppercase paste.
+ */
+const SCHEMED_URL_RE = /https?:\/\/\S+/gi;
+/**
+ * Scheme-less Google Drive/Docs links (Doug sometimes omits the scheme).
+ * CASE-INSENSITIVE (`i`): `Drive.Google.com/…` / `DOCS.GOOGLE.COM/…` must strip too,
+ * else the lowercased-DOM `drive.google.com`/`docs.google.com` invariant leaks.
+ */
+const SCHEMELESS_GOOGLE_RE = /(?:drive|docs)\.google\.com\/\S+/gi;
 
 export function stripAgendaUrls(value: string): string {
   return value
@@ -250,10 +286,45 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
     // Exactly one entry row.
     expect(list!.querySelectorAll('[data-testid="agenda-entry"]').length).toBe(1);
   });
+
+  // FIX-3 — a URL-only title strips to "" (the parser/decoder proved it real on
+  // the RAW value, but stripAgendaUrls reduces it to empty). The entry must be
+  // SUPPRESSED (no agenda-entry row), and the per-day mode/container must gate on
+  // the DISPLAYABLE count, not the raw stored length.
+  test("a URL-only title strips to empty → that entry yields NO agenda-entry row (mixed day shows only the real entry)", () => {
+    const c = renderAgenda({
+      [D1]: [
+        { start: "9:00", title: "https://drive.google.com/file/d/onlyurl" }, // URL-only → suppressed
+        { start: "10:00", title: "Real Session" }, // displayable
+      ],
+    });
+    const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
+    // Exactly one row (the real entry); the URL-only entry is suppressed.
+    expect(list.querySelectorAll('[data-testid="agenda-entry"]').length).toBe(1);
+    expect(list.textContent).toContain("Real Session");
+    // No forbidden URL substring leaked into the crew DOM.
+    for (const f of ["https://", "drive.google.com"]) {
+      expect((c.textContent ?? "").toLowerCase()).not.toContain(f);
+    }
+  });
+
+  test("an ALL-URL-only day → NO run-of-show container at all (anchor floor shows)", () => {
+    const c = renderAgenda({
+      [D1]: [
+        { start: "9:00", title: "https://drive.google.com/file/d/a" },
+        { start: "10:00", title: "HTTPS://ZOOM.US/J/9" },
+      ],
+    });
+    // Zero displayable entries → no per-day container → Phase-1 anchor fallback.
+    expect(c.querySelector(`[data-testid="run-of-show-${D1}"]`)).toBeNull();
+    expect(c.querySelectorAll('[data-testid^="run-of-show-"]').length).toBe(0);
+    // The day card itself still renders (the floor is intact).
+    expect(c.querySelector(`[data-day="${D1}"]`)).not.toBeNull();
+  });
 });
 ```
 
-- [ ] Write the test. **Run → MUST FAIL** (no `run-of-show-<iso>` element renders): `pnpm vitest run tests/components/crew/sections/ScheduleSection.agenda.test.tsx`. **Failure mode caught:** double-rendering (both modes in one day), the anchor floor disappearing when a SIBLING day has agenda, a title-only entry rendering an empty row, or the list rendering when `runOfShow` is null.
+- [ ] Write the test. **Run → MUST FAIL** (no `run-of-show-<iso>` element renders): `pnpm vitest run tests/components/crew/sections/ScheduleSection.agenda.test.tsx`. **Failure mode caught:** double-rendering (both modes in one day), the anchor floor disappearing when a SIBLING day has agenda, a title-only entry rendering an empty row, the list rendering when `runOfShow` is null, **a URL-only title rendering a BLANK `agenda-entry` row (FIX-3 — the entry/container must gate on the stripped-title-real DISPLAYABLE count, so an all-URL-only day falls to the anchor floor and a mixed day shows only the real entries).**
 
 **Minimal implementation** — edit `components/crew/sections/ScheduleSection.tsx`. Add imports + consts + helpers near the top (after the existing imports / `aggregateDays`), and the per-day branch inside the map. Full additions:
 
@@ -282,10 +353,30 @@ function resolveOptionalField(value: string | undefined): string | null {
   return stripped;
 }
 
+/**
+ * The parser/decoder prove the title REAL on the RAW value — but a raw title can
+ * be a URL (non-empty, non-sentinel → it passes both gates), and stripAgendaUrls
+ * reduces a URL-only title to "". So RE-validate the title AFTER stripping: an
+ * entry whose stripped title is empty-or-sentinel is NOT displayable (it would
+ * otherwise render a blank agenda-entry row). This is the single source of truth
+ * for "is this entry renderable" — both the per-day mode gate and RunOfShowList
+ * filter through it, so the mode/container key off the DISPLAYABLE count, not the
+ * raw stored count.
+ */
+function isDisplayableEntry(entry: AgendaEntry): boolean {
+  return !shouldHideGenericOptional(stripAgendaUrls(entry.title));
+}
+
+/** The entries of a day that actually render (stripped-title-real), sheet order. */
+function displayableEntries(entries: AgendaEntry[] | undefined): AgendaEntry[] {
+  return (entries ?? []).filter(isDisplayableEntry);
+}
+
 /** One run-of-show row: START–FINISH · TITLE, with ROOM + AV badge when present. */
 function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
-  // Title is URL-stripped (free text could paste a link); it is REAL by contract
-  // (parser step-4 + decodeRunOfShow gate), so it always renders.
+  // Title is URL-stripped (free text could paste a link). The caller only passes
+  // DISPLAYABLE entries (isDisplayableEntry — stripped title is real), so the
+  // stripped title here is guaranteed non-empty and renders.
   const title = stripAgendaUrls(entry.title);
   const isLong = title.length > TITLE_TRUNCATE_AT;
   const start = resolveOptionalField(entry.start) ?? "";
@@ -332,8 +423,13 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
 
 /** Per-day run-of-show list with the §4.3 display cap + overflow stub. */
 function RunOfShowList({ entries, isoDate }: { entries: AgendaEntry[]; isoDate: string }): JSX.Element {
-  const shown = entries.slice(0, RUN_OF_SHOW_DISPLAY_CAP);
-  const overflow = entries.length - RUN_OF_SHOW_DISPLAY_CAP; // derived from the STORED array
+  // Cap + overflow count are computed on the DISPLAYABLE entries (stripped-title-
+  // real), not the raw stored array — a URL-only entry never occupies a row slot
+  // nor inflates the `+N more` count. The caller already gates on
+  // displayableEntries(...).length > 0, so `display` here is non-empty.
+  const display = displayableEntries(entries);
+  const shown = display.slice(0, RUN_OF_SHOW_DISPLAY_CAP);
+  const overflow = display.length - RUN_OF_SHOW_DISPLAY_CAP; // derived from the displayable count
   return (
     <div data-testid={`run-of-show-${isoDate}`} className="mt-2 flex flex-col">
       <ul className="flex flex-col divide-y divide-border-subtle">
@@ -366,8 +462,11 @@ return (
     {...(isToday ? { "data-today": "true" } : {})}
   >
     <DayCard day={day.date} phase={day.phase} today={isToday} />
-    {data.runOfShow?.[day.date]?.length ? (
-      <RunOfShowList entries={data.runOfShow[day.date]!} isoDate={day.date} />
+    {/* Gate on the DISPLAYABLE count, not the raw stored count: a day whose
+        entries are all URL-only (stripped title → "") has zero displayable
+        entries → no run-of-show container → the Phase-1 anchor floor shows. */}
+    {displayableEntries(data.runOfShow?.[day.date]).length > 0 ? (
+      <RunOfShowList entries={data.runOfShow![day.date]!} isoDate={day.date} />
     ) : null}
   </div>
 );
@@ -701,7 +800,7 @@ describe("Schedule anchor floor + CONFIRMED-ONLY (test 6 — UI half)", () => {
 
 - [ ] **Guard conditions (§4.5):** confirm every `runOfShow` shape is handled — `null` → anchors (test 6a); `{}` → anchors (6a'); `[date]=[]` → anchors (6c); title-only entry → title row (Task 2); sentinel optional fields → hidden (Task 4); `unknown_asterisk` viewer → projection drops all keys (the existing Phase-1 unknown_asterisk early-return at `ScheduleSection.tsx:111-122` runs BEFORE the day map, so no run-of-show renders — confirm by reading the branch; add a one-line assertion to Task 2 if not implicitly covered).
 - [ ] **Mode boundaries (§4.6):** exactly-one-mode-per-day pinned (Task 2 clone assertion). No shared element between modes.
-- [ ] **Cap/truncation (§4.5/D-6):** 20-cap + `+N more` (count from STORED array) + 80-char `<details>` all pinned (Task 3). Overflow at `> cap` not `>= cap`.
+- [ ] **Cap/truncation (§4.5/D-6):** 20-cap + `+N more` (count = `displayableEntries.length − 20`, i.e. the stripped-title-real entries, NOT the raw stored length — FIX-3 reconciles D-6's "from the stored array" with the render-time URL-only-title filter: a URL-only entry never occupies a row slot nor inflates the overflow count) + 80-char `<details>` all pinned (Task 3). Overflow at `> cap` not `>= cap`.
 - [ ] **Rendered-vs-conceptual:** the run-of-show list, overflow stub, and truncated-title `<details>` are RENDERED elements with exact `data-testid`s — confirm each is in the impl, not just prose.
 - [ ] **No-animation / no-fixed-dimension-parent** declarations (§4.6) are correct and the corresponding tasks are deliberately ABSENT (stated in "Mode boundaries" section above).
 - [ ] **Existing-code citations:** re-grep every `file:line` cited in this plan against the live tree (`ScheduleSection.tsx:160-179`, `emptyState.ts:75`, `openingReelText.ts:62-68`, `resolveKeyTimes.ts:43`, `_metaSentinelHidingContract.test.ts:100-103/133-222`, `CardinalityCapBoundary.test.tsx`). Fix any drift.
@@ -710,9 +809,21 @@ describe("Schedule anchor floor + CONFIRMED-ONLY (test 6 — UI half)", () => {
 
 ---
 
-### Task 8 — Adversarial review (cross-model, Codex) — MANDATORY, between self-review and execution handoff
+### Task 8 — Impeccable dual-gate (critique + audit) — UI quality gate (invariant 8), BEFORE adversarial review
 
-**No new files.** Invoke the `adversarial-review` skill (sends the §03 diff to Codex for cross-model critique). Iterate until **APPROVE** (round-3 cap per the disagreement-loop rule). Reviewer is **REVIEWER ONLY** — Codex does not fix; fixes come back to this Opus session.
+**No new files** (unless a finding requires a fix). Per AGENTS.md invariant 8, the impeccable dual-command run is part of milestone close-out **_before_ adversarial review (Codex)** — it is the pre-review blocker, not a later checklist item. The §03 Schedule enrichment is a UI surface → run BOTH impeccable v3 commands with the canonical preflight gates (PRODUCT.md → DESIGN.md → register → preflight signal), **external attestation** (a fresh subagent or the user runs them — not self-attested).
+
+- [ ] `/impeccable critique` on the §03 diff (affected: `components/crew/sections/ScheduleSection.tsx`, `lib/visibility/agendaUrls.ts`). PASS.
+- [ ] `/impeccable audit` on the same diff. PASS.
+- [ ] HIGH + CRITICAL findings either FIXED (commit `fix(crew-page): <what>` per TDD — new test first) OR explicitly DEFERRED via a `docs/superpowers/plans/2026-06-15-crew-page-redesign-phase2/DEFERRED.md` entry (concrete trigger, not "later").
+- [ ] **Impeccable knows UX, not product contracts:** if a critique copy/label rewrite contradicts the spec (e.g. asking to render a "stale" badge — forbidden by wp-12, or to surface a parser code — forbidden by invariant 5), DO NOT apply it; cite the spec and note the override. (AGENTS.md: impeccable-critique-not-authoritative-vs-spec.)
+- [ ] Record findings + dispositions for the milestone handoff doc §12. **Do not proceed to Task 9 (adversarial review) until both impeccable commands PASS and all HIGH/CRITICAL are fixed or DEFERRED.md'd** (invariant 8: dual-gate before adversarial review).
+
+---
+
+### Task 9 — Adversarial review (cross-model, Codex) — MANDATORY, after impeccable dual-gate, before execution handoff
+
+**No new files.** Runs ONLY after Task 8's impeccable dual-gate PASSes (invariant 8 ordering). Invoke the `adversarial-review` skill (sends the §03 diff to Codex for cross-model critique). Iterate until **APPROVE** (round-3 cap per the disagreement-loop rule). Reviewer is **REVIEWER ONLY** — Codex does not fix; fixes come back to this Opus session.
 
 The review-focus brief MUST include this **EXPLICITLY DO NOT RELITIGATE** block (cite each at `file:line`/`watchpoint`):
 
@@ -724,19 +835,7 @@ The review-focus brief MUST include this **EXPLICITLY DO NOT RELITIGATE** block 
 - [ ] **Empty AGENDA is a valid result (wp-9):** `runOfShow = null` is the designed phased state, not a bug; a day with no confirmed agenda correctly renders anchors.
 - [ ] **`stripAgendaUrls` documented limitation (§4.3):** scheme-less non-Google bare domains are NOT stripped — deliberate (a general bare-domain stripper over-strips `A/V`, `5/6`, `Q&A w/ X`). Do not push toward a general stripper.
 - [ ] **No-animation / no-getBoundingClientRect (§4.6):** per-day mode is fixed at render (instant, no Transition Inventory); no fixed-dimension parent (no Playwright layout task). Do not request either.
-- [ ] Address every HIGH/CRITICAL finding (fix or DEFERRED.md). Record findings + dispositions for the handoff doc. **Do not proceed to Task 9 without an APPROVE.**
-
----
-
-### Task 9 — Impeccable dual-gate (critique + audit) — UI quality gate (invariant 8)
-
-**No new files** (unless a finding requires a fix). The §03 Schedule enrichment is a UI surface → run BOTH impeccable v3 commands with the canonical preflight gates (PRODUCT.md → DESIGN.md → register → preflight signal), **external attestation** (a fresh subagent or the user runs them — not self-attested).
-
-- [ ] `/impeccable critique` on the §03 diff (affected: `components/crew/sections/ScheduleSection.tsx`, `lib/visibility/agendaUrls.ts`). PASS.
-- [ ] `/impeccable audit` on the same diff. PASS.
-- [ ] HIGH + CRITICAL findings either FIXED (commit `fix(crew-page): <what>` per TDD — new test first) OR explicitly DEFERRED via a `docs/superpowers/plans/2026-06-15-crew-page-redesign-phase2/DEFERRED.md` entry (concrete trigger, not "later").
-- [ ] **Impeccable knows UX, not product contracts:** if a critique copy/label rewrite contradicts the spec (e.g. asking to render a "stale" badge — forbidden by wp-12, or to surface a parser code — forbidden by invariant 5), DO NOT apply it; cite the spec and note the override. (AGENTS.md: impeccable-critique-not-authoritative-vs-spec.)
-- [ ] Record findings + dispositions for the milestone handoff doc §12.
+- [ ] Address every HIGH/CRITICAL finding (fix or DEFERRED.md). Record findings + dispositions for the handoff doc. **Do not proceed to Task 10 (merge) without an APPROVE.** (If an adversarial fix touches a UI file, re-run the Task 8 impeccable dual-gate on the new diff before merge — invariant 8 binds the shipped surface, not just the pre-review one.)
 
 ---
 
@@ -759,7 +858,7 @@ The review-focus brief MUST include this **EXPLICITLY DO NOT RELITIGATE** block 
 - [ ] **URL-strip + caps green** — Drive / non-Google schemed / scheme-less-Google URLs absent from crew DOM; 20-cap + `+N more` (count = `length − 20`) + 80-char `<details>` (Task 3, test 7a).
 - [ ] **Sentinel meta extended** — `_metaSentinelHidingContract` `GENERIC_OPTIONAL_FIELDS` gains the `entry.(room|av|finish|trt)` pattern AND `ScheduleSection.tsx` imports+calls `shouldHideGenericOptional` (Task 4); negative-regression confirmed.
 - [ ] **CardinalityCapBoundary extended** — run-of-show cap-1/cap/cap+1 row, against the exported `RUN_OF_SHOW_DISPLAY_CAP` (Task 3).
-- [ ] **Impeccable PASS** — critique + audit, external attestation, HIGH/CRITICAL fixed or DEFERRED.md'd (Task 9).
-- [ ] **Codex APPROVE** — adversarial review converged with the do-not-relitigate block honored (Task 8).
+- [ ] **Impeccable PASS (BEFORE Codex — invariant 8)** — critique + audit, external attestation, HIGH/CRITICAL fixed or DEFERRED.md'd (Task 8).
+- [ ] **Codex APPROVE (after impeccable)** — adversarial review converged with the do-not-relitigate block honored (Task 9); any UI-touching adversarial fix re-runs the impeccable dual-gate before merge.
 - [ ] **CI green** — real GitHub Actions, all gates including sentinel-meta walk + cap matrix + x2-no-raw-codes + help-screenshot drift (Task 10).
 - [ ] **No animation task, no getBoundingClientRect layout task** — deliberately absent per §4.6 (per-day mode fixed at render; no fixed-dimension parent); the omission is documented, not forgotten.
