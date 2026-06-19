@@ -28,6 +28,24 @@
 - **NEW** real-browser `tests/e2e/crew-layout-dimensions.spec.ts` — all split-wide sections incl. Today Mode A.
 - No new §12.4 codes; no DB/RPC/advisory-lock surface (N/A).
 
+## Test paths (LIVE-VERIFIED 2026-06-19 — use these EXACT paths; they SUPERSEDE any inline path elsewhere in this plan)
+
+The repo's test naming is **case-sensitive** (CI is Linux) and not uniform — verified via `rg --files`. Use exactly:
+- **avatarColor** (Task 1): `tests/crew/avatarColor.test.ts` (the `tests/crew/` dir exists, e.g. `tests/crew/resolveKeyTimes.test.ts`). ✓
+- **agenda-display single-source** (Task 3): `tests/crew/agendaDisplay-single-source.test.ts`. ✓
+- **Avatar** (Task 2): `tests/components/atoms/Avatar.test.tsx` (NOT `tests/atoms/`). EXISTING — extend it.
+- **Schedule** (Task 3/4): the live Schedule suites are `tests/components/crew/sections/ScheduleSection.test.tsx` + `.agenda` + `.anchorFloor` + `.caps` + `.fieldGuards` (NOT a `components/.../__tests__/` dir). Run them all to confirm the §9 contracts stay green.
+- **DayCard + KeyValueRows** (Task 4/6): tested in the COMBINED `tests/components/crew/primitives.test.tsx` — UPDATE the DayCard cases there for the new badge structure (the old vertical-card assertions will change) + add the badge cases there (or a new `tests/components/crew/dayCard.test.tsx` stated as new — camelCase; do NOT use a PascalCase `DayCard.test.tsx`).
+- **PersonRow** (Task 5): `tests/components/crew/personRow.test.tsx` (camelCase, EXISTING — extend; NOT `PersonRow.test.tsx`).
+- **FactRows** (Task 6, new): `tests/components/crew/factRows.test.tsx` (camelCase, new).
+- **CrewSubNav** (Task 8.5): `tests/components/crew/crewSubNav.test.tsx` (camelCase, EXISTING — extend; NOT `CrewSubNav.test.tsx`).
+- **Travel/Crew/Venue/Today sections** (Task 7/8/9): `tests/components/crew/sections/{TravelSection,CrewSection,VenueSection,TodaySection}.test.tsx` (EXISTING). The Today Mode-A NEW tests: `tests/components/crew/sections/TodaySection.modeA.test.tsx`.
+- **date-badge** (Task 4, if a `dayBadgeParts` unit test): `tests/format/` (the `tests/format/` dir holds the date helper tests).
+- **layout-dimensions** (Task 10): `tests/e2e/crew-layout-dimensions.spec.ts` (Playwright project).
+- **`@testing-library/jest-dom`** is NOT global (`tests/setup.ts` omits it) — every `.test.tsx` that uses `toHaveStyle`/`toBeInTheDocument`/`toHaveAttribute` imports it at the top (`import "@testing-library/jest-dom";`).
+
+Every task's `git add` + `pnpm vitest run` command MUST use the path from this table. Before committing each task, the implementer runs `rg --files | rg <name>` to confirm.
+
 ## File Structure
 
 | File | Responsibility | Change |
@@ -159,7 +177,7 @@ git commit -m "feat(crew): deterministic AA avatar palette + DESIGN.md identity-
 
 ## Task 2: Colored 40px `Avatar`
 
-**Files:** Modify `components/atoms/Avatar.tsx`; Modify/extend `tests/atoms/Avatar.test.tsx` (or create if absent).
+**Files:** Modify `components/atoms/Avatar.tsx`; Modify/extend `tests/components/atoms/Avatar.test.tsx` (or create if absent).
 
 **Interfaces — Consumes:** `avatarColor` (Task 1). Avatar gains a colored background + white text + 40px size; `name` prop unchanged. **First verify** Avatar's consumers: `grep -rl "components/atoms/Avatar" components/ app/` — if `CrewTile`/`ContactsTile` still exist (not deleted), they also consume it; the size bump to 40px applies to PersonRow's context — if shared consumers need 32px, add an optional `size?: 32 | 40` prop defaulting to 40 and pass 32 from any legacy consumer. (Most likely the legacy tiles were deleted in the Phase-1/4 migration — verify with the grep; if Avatar is crew-only, bump directly to 40px.)
 
@@ -188,7 +206,7 @@ describe("Avatar — colored", () => {
 
 (Note: this test file needs `import "@testing-library/jest-dom"` — `tests/setup.ts` does NOT import jest-dom globally; add the import at the top of the test file, matching the existing crew component tests.)
 
-- [ ] **Step 2: Run — verify it fails.** `pnpm vitest run tests/atoms/Avatar.test.tsx` → FAIL.
+- [ ] **Step 2: Run — verify it fails.** `pnpm vitest run tests/components/atoms/Avatar.test.tsx` → FAIL.
 
 - [ ] **Step 3: Implement** — change the Avatar body: `size-10` (40px, or the verified size prop), `text-white`, drop `bg-surface-sunken`/`text-text-strong`/`border`, and set `style={{ backgroundColor: avatarColor(name ?? "") }}`. Keep `aria-hidden`, `deriveInitials`, `data-testid="avatar"`. Import `avatarColor`. (The white-on-color is AA per Task 1; no border needed since the color is a distinct surface.)
 
@@ -208,12 +226,12 @@ import { avatarColor } from "@/lib/crew/avatarColor";
   );
 ```
 
-- [ ] **Step 4: Run — verify pass + no avatar regressions.** `pnpm vitest run tests/atoms/Avatar.test.tsx` + any `tests/components/crew/**` that snapshot the avatar. Re-run the sentinel meta-test: `pnpm vitest run tests/components/tiles/_metaSentinelHidingContract.test.ts`.
+- [ ] **Step 4: Run — verify pass + no avatar regressions.** `pnpm vitest run tests/components/atoms/Avatar.test.tsx` + any `tests/components/crew/**` that snapshot the avatar. Re-run the sentinel meta-test: `pnpm vitest run tests/components/tiles/_metaSentinelHidingContract.test.ts`.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add components/atoms/Avatar.tsx tests/atoms/Avatar.test.tsx
+git add components/atoms/Avatar.tsx tests/components/atoms/Avatar.test.tsx
 git commit -m "feat(crew): color avatars per-name + 40px (mock fidelity)"
 ```
 
@@ -271,7 +289,7 @@ describe("agenda-display single source (Today/Schedule privacy-contract drift gu
 
 - [ ] **Step 6: Run — verify Schedule is unregressed (the §9 contract tests 32+34 + the new guard's first two `it`s).**
 
-Run: `pnpm vitest run tests/crew/agendaDisplay-single-source.test.ts components/crew/sections/__tests__/ScheduleSection*.test.tsx` (use the actual Schedule test path) + `pnpm tsc --noEmit`.
+Run: `pnpm vitest run tests/crew/agendaDisplay-single-source.test.ts tests/components/crew/sections/ScheduleSection*.test.tsx` (use the actual Schedule test path) + `pnpm tsc --noEmit`.
 Expected: PASS (pure move; date-restriction + today-pin contracts intact).
 
 - [ ] **Step 7: Commit.**
@@ -285,11 +303,11 @@ git commit -m "refactor(crew): extract run-of-show predicate+renderer to a share
 
 ## Task 4: Schedule `DayCard` → horizontal date badge
 
-**Files:** Modify `components/crew/primitives/DayCard.tsx`, `components/crew/sections/ScheduleSection.tsx` (pass the ISO + phase as today); Create/extend `tests/components/crew/DayCard.test.tsx`.
+**Files:** Modify `components/crew/primitives/DayCard.tsx`, `components/crew/sections/ScheduleSection.tsx` (pass the ISO + phase as today); Create/extend `tests/components/crew/dayCard.test.tsx`.
 
 **Interfaces — Consumes:** the ISO date string + `phase` ("Travel In"|"Set"|"Show"|"Travel Out") + `today` boolean. **Produces:** a horizontal badge row. ScheduleSection passes `day={day.date}` (the ISO) — DayCard derives the badge parts via a new `formatIsoDate(iso, "day-badge")` mode OR an inline UTC splitter (matching `lib/format/date.ts` UTC handling). Define a `dayBadgeParts(iso): { dow: string; dnum: string }` in `lib/format/date.ts` (UTC, weekday short + numeric day) so the TZ handling is single-sourced.
 
-- [ ] **Step 1: Write the failing tests** (`tests/components/crew/DayCard.test.tsx`) — assert the badge (dow + dnum), the phase-tone dot, and the Today pill:
+- [ ] **Step 1: Write the failing tests** (`tests/components/crew/dayCard.test.tsx`) — assert the badge (dow + dnum), the phase-tone dot, and the Today pill:
 
 ```tsx
 import "@testing-library/jest-dom";
@@ -318,7 +336,7 @@ describe("DayCard — date badge", () => {
 });
 ```
 
-- [ ] **Step 2: Run — verify fail.** `pnpm vitest run tests/components/crew/DayCard.test.tsx` → FAIL.
+- [ ] **Step 2: Run — verify fail.** `pnpm vitest run tests/components/crew/dayCard.test.tsx` → FAIL.
 
 - [ ] **Step 3: Add `dayBadgeParts` to `lib/format/date.ts`:**
 
@@ -388,12 +406,12 @@ export function DayCard({ day, phase, today, meta }: DayCardProps) {
 
 - [ ] **Step 6: Schedule right column → "Daily call times" SectionCard (Codex plan R2 MEDIUM — a spec delta).** The right column is currently a NAKED `<KeyTimesStrip anchors={anchors} />` + the rooms-error tile (`ScheduleSection.tsx:330-337`). Per the spec, wrap the key-times in a `SectionCard title="Daily call times"` so it reads as the mock's `Tile "Daily call times"` card (and the split-wide equal-height invariant holds — a bare strip vs a card breaks the `items-stretch` parity). Preserve the empty-anchor behavior: when `KeyTimesStrip` returns null (all anchors absent), render NO card (no empty "Daily call times" shell). **Class-sweep with the Crew one-sided fix (Codex plan R2):** when the right column would have NO content (no "Daily call times" card AND no rooms-error tile), collapse the section to a single full-width days column (don't render the 2-track grid with a blank right track) — same rule as Task 8. Do NOT invent the mock's separate "Heads up" card (fixture-only — no real data source). Write failing tests first: (a) anchors present → the right column renders a `SectionCard` titled "Daily call times" containing the key-times; (b) all anchors absent + no rooms error → no card AND the grid collapses to single-column (no blank right track); the existing §9 tests (which use shows WITH anchors) stay green.
 
-- [ ] **Step 7: Run — verify pass + Schedule unregressed.** `pnpm vitest run tests/components/crew/DayCard.test.tsx <ScheduleSection test>` + `pnpm tsc --noEmit`.
+- [ ] **Step 7: Run — verify pass + Schedule unregressed.** `pnpm vitest run tests/components/crew/dayCard.test.tsx <ScheduleSection test>` + `pnpm tsc --noEmit`.
 
 - [ ] **Step 8: Commit.**
 
 ```bash
-git add components/crew/primitives/DayCard.tsx lib/format/date.ts components/crew/sections/ScheduleSection.tsx tests/components/crew/DayCard.test.tsx
+git add components/crew/primitives/DayCard.tsx lib/format/date.ts components/crew/sections/ScheduleSection.tsx tests/components/crew/dayCard.test.tsx
 git commit -m "feat(crew): Schedule date badge + phase dot + Today pill + Daily-call-times card"
 ```
 
@@ -401,7 +419,7 @@ git commit -m "feat(crew): Schedule date badge + phase dot + Today pill + Daily-
 
 ## Task 5: `PersonRow` icon-only 44px contact buttons
 
-**Files:** Modify `components/crew/primitives/PersonRow.tsx`; extend `tests/components/crew/PersonRow.test.tsx`.
+**Files:** Modify `components/crew/primitives/PersonRow.tsx`; extend `tests/components/crew/personRow.test.tsx`.
 
 **Interfaces:** unchanged props. The Call/Email anchors become **icon-only** 44px-square tap targets (the mock `.cbtn`): keep the `aria-label` (already present) + the `tel:`/`mailto:` href + the sentinel gate; remove the visible "Call"/"Email" text spans; swap the unicode `☎`/`✉` for the project's phone/mail SVG icons (**verify the icon source**: `grep -rl "phone\|mail" components/icons components/atoms 2>/dev/null` — if a crew/shared SVG icon set exists, use it; else keep the unicode glyph but sized + centered in the 44px square. Do NOT invent an icon import that doesn't exist).
 
@@ -436,7 +454,7 @@ describe("PersonRow — icon-only contact buttons", () => {
 });
 ```
 
-- [ ] **Step 2: Run — verify fail.** `pnpm vitest run tests/components/crew/PersonRow.test.tsx` → FAIL (current renders "Call"/"Email" text).
+- [ ] **Step 2: Run — verify fail.** `pnpm vitest run tests/components/crew/personRow.test.tsx` → FAIL (current renders "Call"/"Email" text).
 
 - [ ] **Step 3: Implement** — change `ACTION_CLASS` to a 44px square (`size-tap-min` / `h-tap-min w-tap-min`, `justify-center`, `rounded-[11px]`) and the anchors to render ONLY the glyph (drop `<span className="truncate">Call</span>`/`Email`), keeping `aria-label`. Use the verified icon (SVG component sized ~18px, or the unicode glyph centered). Example anchor:
 
@@ -450,12 +468,12 @@ describe("PersonRow — icon-only contact buttons", () => {
 
 (`size-tap-min` = 44px if a `--spacing-tap-min` utility resolves to `size-`; else use `h-[44px] w-[44px]`. Verify.)
 
-- [ ] **Step 4: Run — verify pass + sentinel meta-test.** `pnpm vitest run tests/components/crew/PersonRow.test.tsx tests/components/tiles/_metaSentinelHidingContract.test.ts`.
+- [ ] **Step 4: Run — verify pass + sentinel meta-test.** `pnpm vitest run tests/components/crew/personRow.test.tsx tests/components/tiles/_metaSentinelHidingContract.test.ts`.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add components/crew/primitives/PersonRow.tsx tests/components/crew/PersonRow.test.tsx
+git add components/crew/primitives/PersonRow.tsx tests/components/crew/personRow.test.tsx
 git commit -m "feat(crew): icon-only 44px contact buttons (mock .cbtn)"
 ```
 
@@ -522,13 +540,13 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 
 ## Task 8.5: Sub-nav chrome — desktop centering + per-section icons, mobile icons
 
-**Files:** Modify `components/crew/CrewSubNav.tsx`; Create/verify section icon glyphs (`components/crew/icons/`); extend `tests/components/crew/CrewSubNav.test.tsx`.
+**Files:** Modify `components/crew/CrewSubNav.tsx`; Create/verify section icon glyphs (`components/crew/icons/`); extend `tests/components/crew/crewSubNav.test.tsx`.
 
 **Interfaces:** the desktop `<nav>` (`CrewSubNav.tsx:116-121`) gains a centered inner container that **matches the actual `_CrewShell` page container** (`app/show/[slug]/[shareToken]/_CrewShell.tsx:316` = `mx-auto w-full max-w-300 px-4 sm:px-8` on `[data-testid="page-container"]`) — NOT the mock's literal `1120px` (`max-w-300` = the project's 1200px-class container token). Source the SAME utility string (`mx-auto w-full max-w-300 px-4 sm:px-8`), or extract a shared `CREW_PAGE_CONTAINER` class constant that both `_CrewShell` and the nav import, so the first tab's left edge aligns with the section content's left edge. Each tab gains a 16px (desktop) / 22px (mobile) per-section icon. **Produces:** `SECTION_ICON: Record<SectionId, (props) => JSX.Element>` — Today→`home`, Schedule→`calendar`, Venue→`mapPin`, Travel→`plane`, Crew→`users`, Gear→`box`, Budget→a receipt/dollar glyph. **Preserve** the URL allow-list (`navigate`, `:65-79`), `aria-current="page"`, the 44px tap floor, `data-testid="crew-sub-nav"` + `data-section`, the `min-[720px]:` pivot. Icons `aria-hidden="true"`.
 
 - [ ] **Step 1: Verify/create the section icons.** `grep -rln "mapPin\|plane\|users\|calendar" components/ 2>/dev/null` — if the project has a shared icon set with these glyphs, reuse it; else create minimal SVG glyph components in `components/crew/icons/sectionIcons.tsx` from the mock's `crew/components.jsx` paths (I have them: home/calendar/mapPin/plane/users(=people)/box; Budget→a `receipt`/`dollar` glyph). Each is a `({ className }) => <svg viewBox="0 0 24 24" stroke="currentColor" …/>`.
 
-- [ ] **Step 2: Write the failing tests** (extend `tests/components/crew/CrewSubNav.test.tsx`):
+- [ ] **Step 2: Write the failing tests** (extend `tests/components/crew/crewSubNav.test.tsx`):
   1. the desktop nav row is wrapped in a centered container using the REAL `_CrewShell` page-container utilities — assert the wrapper carries `max-w-300` (and `mx-auto`/`px-4`/`sm:px-8`), OR, if the shared `CREW_PAGE_CONTAINER` constant is extracted, assert the wrapper className equals that constant. **Do NOT assert `max-w-[1120px]`** (that is the mock's literal, not the impl container — asserting it would force the wrong implementation back in).
   2. each desktop tab renders an icon (an `svg`) before its label.
   3. each mobile tab renders an icon above its label (the icon `svg` present in the mobile `flex-col` tab).
@@ -538,7 +556,7 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 
 - [ ] **Step 4: Implement.** Add the centered container to the desktop `<nav>`: wrap the tab row in `<div className="mx-auto flex w-full max-w-300 px-4 sm:px-8 …">` (the verbatim `_CrewShell.tsx:316` container utils — `max-w-300 px-4 sm:px-8`; do NOT use `max-w-[1120px]` or a clamp). Better: extract the shared container util into a `CREW_PAGE_CONTAINER` constant in a shared module and import it in both `_CrewShell` and `CrewSubNav` so they can't drift. Add `SECTION_ICON[id]` to each tab: desktop = 16px icon before the label (`size-4`), active → `text-accent-on-bg`; mobile = 22px icon (`size-[22px]`) above the label, active → `text-accent`. Keep every existing class/attr.
 
-- [ ] **Step 5: Run — verify pass + the full CrewSubNav suite + tsc + screenshots note.** `pnpm vitest run tests/components/crew/CrewSubNav.test.tsx` + `pnpm tsc --noEmit`. (Real-browser centering is asserted in Task 10.)
+- [ ] **Step 5: Run — verify pass + the full CrewSubNav suite + tsc + screenshots note.** `pnpm vitest run tests/components/crew/crewSubNav.test.tsx` + `pnpm tsc --noEmit`. (Real-browser centering is asserted in Task 10.)
 
 - [ ] **Step 6: Commit.** `feat(crew): center desktop sub-nav + per-section icons (desktop 16px, mobile 22px)`
 
@@ -546,7 +564,7 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 
 ## Task 9: Today Mode A — gated run-of-show (reuses the shared module)
 
-**Files:** Modify `components/crew/sections/TodaySection.tsx`; Create `tests/components/crew/TodaySection.modeA.test.tsx`; extend the single-source guard (Task 3's third `it`).
+**Files:** Modify `components/crew/sections/TodaySection.tsx`; Create `tests/components/crew/sections/TodaySection.modeA.test.tsx`; extend the single-source guard (Task 3's third `it`).
 
 **Interfaces — Consumes:** `resolveViewerContext` (`@/lib/data/viewerContext` — already imported in TodaySection), `todayIsoInShowTimezone` (`@/lib/visibility/packList`), `displayableEntries` + `RunOfShowList` (`@/lib/crew/agendaDisplay` + the new primitive, Task 3). TodaySection already receives `today: Date` (currently unused) + `data`/`viewer`/`showId`. **No `new Date()`.**
 
@@ -560,7 +578,7 @@ git commit -m "feat(crew): mock .kvrow FactRows + Venue mini-icon fact rows"
 - **Mode A** iff `isShowDay && eligible && todays.length > 0` → render `min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch`: LEFT a `SectionCard` "Run of show" containing `<RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />`; RIGHT the existing Tonight/Where/Need-something cards STACKED (`flex flex-col gap-3`). Else **Mode B** (the current full-width stack, unchanged).
 - Fail-closed: any ambiguity (not a show day, ineligible, unresolved restriction, empty filter) → Mode B.
 
-- [ ] **Step 1: Write the failing tests** (`tests/components/crew/TodaySection.modeA.test.tsx`) — build a `ShowForViewer` fixture (via the typed `makeShowForViewer` builder in `tests/fixtures/showForViewer.ts`) with `runOfShow[todayIso]` populated:
+- [ ] **Step 1: Write the failing tests** (`tests/components/crew/sections/TodaySection.modeA.test.tsx`) — build a `ShowForViewer` fixture (via the typed `makeShowForViewer` builder in `tests/fixtures/showForViewer.ts`) with `runOfShow[todayIso]` populated:
   1. **unknown_asterisk timeline-leak test (scoped to THIS change):** viewer `unknown_asterisk`, today is a show day with a populated `runOfShow[todayIso]` INCLUDING hotel check-in/out dates in the fixture → Today renders Mode B with **NO run-of-show timeline** — assert absent `[data-testid="run-of-show-<iso>"]` and NO `[data-testid="agenda-entry"]` nodes (the agenda/timeline never renders for `unknown_asterisk`). **Scope note (Codex plan R3 HIGH):** the test asserts the TIMELINE/agenda does not leak — it does NOT assert "no date text anywhere," because the EXISTING Mode B Tonight card already renders `firstHotel.check_in`/`check_out` (`TodaySection.tsx:164-165`) for all viewers including `unknown_asterisk`. That pre-existing hotel-date exposure is a SEPARATE, broader privacy question NOT introduced by this UI-fidelity pass — **file `BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES`** (BACKLOG.md, same commit) for a dedicated review of whether `unknown_asterisk` should also suppress the Tonight/Where date rows; do NOT silently expand this pass's scope to change the existing Tonight-card contract.
   2. **eligible Mode A:** `none` viewer, today ∈ show days with displayable entries → the `run-of-show-<todayIso>` container renders left, the quick-cards render right; the split-wide grid class present.
   3. **TZ boundary:** a fixture where UTC date ≠ show-tz date (evening America/Chicago show already "tomorrow" UTC) + a frozen `today` → Mode A/B keys off the SHOW-tz ISO (assert the rendered run-of-show is today's show-tz day, not the UTC day).
