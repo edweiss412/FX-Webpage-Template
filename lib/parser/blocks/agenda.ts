@@ -1,6 +1,7 @@
 import type { AgendaEntry, ParseWarning, ShowRow } from "../types";
-import { clean, normalizeDate, parseTableRows } from "./_helpers";
+import { clean, normalizeDate, parseTableRows, presence } from "./_helpers";
 import { agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous } from "./agendaWarnings";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 export type ParseAgendaResult = {
   runOfShow: Record<string, AgendaEntry[]> | undefined;
@@ -9,6 +10,8 @@ export type ParseAgendaResult = {
 
 const WEEKDAYS = new Set([
   "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
+  // Abbreviated forms used by some exporter templates (e.g. "Fri", "Wed")
+  "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
 ]);
 
 // ── SINGLE NORMALIZATION BOUNDARY (R13 — closes the markdown-escape class) ──
@@ -259,6 +262,23 @@ export function locateAgendaShowBlocks(markdown: string): AgendaBlock[] {
   return locateBlocks(rows, rows[headerIdx]!, headerIdx);
 }
 
+/**
+ * Build one AgendaEntry from a data row at `startCol`, or null if TITLE is not REAL.
+ * Right-pads short rows via `?? ""` (markdown trims trailing empty cells).
+ * Optional fields are only assigned when present (exactOptionalPropertyTypes).
+ */
+function buildEntry(row: string[], startCol: number): AgendaEntry | null {
+  const at = (off: number) => row[startCol + off] ?? ""; // right-pad short rows
+  const title = presence(at(3));
+  if (title === null || shouldHideGenericOptional(title)) return null; // TITLE-real gate
+  const entry: AgendaEntry = { start: presence(at(0)) ?? "", title };
+  const finish = presence(at(1)); if (finish !== null) entry.finish = finish;
+  const trt    = presence(at(2)); if (trt    !== null) entry.trt    = trt;
+  const room   = presence(at(4)); if (room   !== null) entry.room   = room;
+  const av     = presence(at(5)); if (av     !== null) entry.av     = av;
+  return entry;
+}
+
 export function parseAgenda(markdown: string, dates?: ShowRow["dates"]): ParseAgendaResult {
   const block = isolateAgendaTable(markdown);
   if (block === undefined) {
@@ -272,19 +292,25 @@ export function parseAgenda(markdown: string, dates?: ShowRow["dates"]): ParseAg
   const structural = structuralRowIndices(rows); // token-header + DATE banner + day-name + day-TYPE
   const blocks = locateBlocks(rows, rows[headerIdx]!, headerIdx);
   // Data rows = every row that is NOT structural (position-independent — banners
-  // may sit above OR below the token-header). Data walk (entries): Task 1.6.
-  void structural; // consumed by Task 1.6
+  // may sit above OR below the token-header). R7/R8: never use rows.slice(headerIdx+1).
+  const dataRows = rows.filter((_, i) => !structural.has(i));
 
   // Step 3 (§4.1) — resolve each block's ISO date. R8: blocks exist at every show-day
   // START column even when the banner is all-`#REF!`, so resolveBlock ALWAYS runs and a
   // degraded banner emits its warning (UNRESOLVED/AMBIGUOUS) instead of a silent drop.
-  // Skipped blocks create NO runOfShow key (never guess — R2). Entries are Task 1.6.
+  // Skipped blocks create NO runOfShow key (never guess — R2).
   const runOfShow: Record<string, AgendaEntry[]> = {};
   const warnings: ParseWarning[] = [];
   blocks.forEach((b, index) => {
     const resolved = resolveBlock(b, dates);
     if ("iso" in resolved) {
-      runOfShow[resolved.iso] = []; // entries populated in Task 1.6
+      // Steps 4-5: walk data rows, emit entries IFF TITLE is REAL; keep key even when [].
+      const entries: AgendaEntry[] = [];
+      for (const row of dataRows) {
+        const e = buildEntry(row, b.startCol);
+        if (e !== null) entries.push(e);
+      }
+      runOfShow[resolved.iso] = entries; // [] for all-sentinel days (D-2)
     } else if (resolved.skip === "ambiguous") {
       warnings.push(agendaDayAmbiguous(index));
     } else {
