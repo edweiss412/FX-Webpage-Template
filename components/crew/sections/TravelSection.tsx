@@ -192,7 +192,25 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
             transportation && !shouldHideGenericOptional(transportation.notes)
               ? transportation.notes
               : null;
-          const legs = transportation ? transportation.schedule : [];
+
+          // Per-leg sentinel hiding: each schedule leg's `stage` / `date` /
+          // `time` is a generic-optional free-text field — a sentinel ('TBD' /
+          // 'N/A' / 'TBA' / '') must reflow out at the READ site, never reach
+          // the bold `tprimary` / eyebrow / meta. (`assigned_names` is a
+          // string[]; empties are already filtered upstream in the projection.)
+          // A leg with NO surviving real field (no stage, no date, no time, no
+          // names) is dropped entirely so the list never shows an empty row.
+          const legs = (transportation ? transportation.schedule : []).flatMap((leg) => {
+            const stage = !shouldHideGenericOptional(leg.stage) ? leg.stage : null;
+            const date = !shouldHideGenericOptional(leg.date) ? leg.date : null;
+            const time = !shouldHideGenericOptional(leg.time) ? leg.time : null;
+            const assignedNames = leg.assigned_names;
+            // No surviving real content → omit the whole leg.
+            if (stage === null && date === null && time === null && assignedNames.length === 0) {
+              return [];
+            }
+            return [{ stage, date, time, assignedNames }];
+          });
 
           // --- Getting-there travelrows (mock `.travelrow`) ------------------------
           // Driver + vehicle each collapse to ONE travelrow: the strongest field is
@@ -295,12 +313,22 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                   ) : null}
 
                   {legs.map((leg, idx) => {
-                    // The date is the primary line; when a leg has no date, the time
-                    // (else the stage) is promoted so the row is never blank — and
-                    // the time then isn't repeated in the meta line.
-                    const dateIsPrimary = Boolean(leg.date);
-                    const showTimeInMeta = dateIsPrimary && Boolean(leg.time);
-                    const hasNames = leg.assigned_names.length > 0;
+                    // Each sub-field is already sentinel-hidden at the read site
+                    // above, so a non-null `date` / `time` / `stage` is real
+                    // content. The date is the primary line; when a leg has no
+                    // date, the time (else the stage) is promoted so the row is
+                    // never blank — and the promoted field is then not repeated
+                    // in the meta line. A leg with no stage label drops the
+                    // eyebrow (empty `label` → TravelRow renders a blank eyebrow,
+                    // acceptable per its presentational contract).
+                    const dateIsPrimary = leg.date !== null;
+                    const timeIsPrimary = !dateIsPrimary && leg.time !== null;
+                    // When neither date nor time survives, the stage becomes the
+                    // primary; in that case it must NOT also be the eyebrow.
+                    const stageIsPrimary = !dateIsPrimary && !timeIsPrimary && leg.stage !== null;
+                    const label = stageIsPrimary ? "" : (leg.stage ?? "");
+                    const showTimeInMeta = dateIsPrimary && leg.time !== null;
+                    const hasNames = leg.assignedNames.length > 0;
                     const legMeta =
                       showTimeInMeta || hasNames ? (
                         <>
@@ -313,16 +341,16 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                           {hasNames ? (
                             <span>
                               With{" "}
-                              <span className="text-text">{leg.assigned_names.join(", ")}</span>
+                              <span className="text-text">{leg.assignedNames.join(", ")}</span>
                             </span>
                           ) : null}
                         </>
                       ) : undefined;
                     return (
                       <TravelRow
-                        key={`${leg.stage}-${leg.date ?? "no-date"}-${idx}`}
+                        key={`${leg.stage ?? "no-stage"}-${leg.date ?? "no-date"}-${idx}`}
                         mode="ground"
-                        label={leg.stage}
+                        label={label}
                         primary={
                           dateIsPrimary ? (
                             <time dateTime={leg.date!}>

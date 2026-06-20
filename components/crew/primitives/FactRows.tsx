@@ -55,8 +55,13 @@ export function FactRows({ rows }: FactRowsProps) {
           key={`${row.k}-${i}`}
           className="flex items-center justify-between gap-3.5 border-b border-border py-3 first:pt-0 last:border-b-0 last:pb-0"
         >
-          {/* `.k` — mini-icon square (optional) + subtle label, on the left. */}
-          <dt className="flex min-w-0 items-center gap-2.5 text-sm text-text-subtle">
+          {/* `.k` — mini-icon square (optional) + subtle label, on the left.
+              `shrink-0` keeps the label column at its intrinsic width so a long
+              unbroken `.v` value (e.g. a multi-address Parking blob) can't squeeze
+              the label below its content box and force the short label ("Parking")
+              to wrap one-character-per-line. The label text itself is
+              `whitespace-nowrap`; only the VALUE column wraps. */}
+          <dt className="flex shrink-0 items-center gap-2.5 text-sm text-text-subtle">
             {row.icon !== undefined ? (
               <span
                 data-slot="fact-row-icon"
@@ -66,7 +71,7 @@ export function FactRows({ rows }: FactRowsProps) {
                 {row.icon}
               </span>
             ) : null}
-            <span className="min-w-0 break-words">{row.k}</span>
+            <span className="whitespace-nowrap">{row.k}</span>
           </dt>
 
           {/* `.v` — strong value, right-aligned, with an optional muted sub. */}

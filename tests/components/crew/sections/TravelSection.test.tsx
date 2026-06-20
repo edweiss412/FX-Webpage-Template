@@ -167,3 +167,80 @@ test("hotel card keeps its structured form (name + address + check-in/out + conf
   expect(text).toContain("Check out");
   expect(text).toContain("CNF-42"); // confirmation
 });
+
+// --- M2: per-leg sentinel hiding (impeccable dual-gate fix wave) -------------
+
+/**
+ * A leg whose date/time are sentinels ("TBD" / "N/A") must NOT leak those
+ * literals into the rendered travelrows. Before the fix the leg's
+ * `primary` cascade promoted `leg.time ?? leg.stage` (and the date via raw
+ * truthiness) so a sentinel rendered as a bold primary line. The stage
+ * eyebrow ("RENTAL PICKUP") is real content and SHOULD still render; only
+ * the sentinel sub-fields must reflow out.
+ */
+test("transport legs with sentinel date/time do NOT render 'TBD' / 'N/A' in the DOM", () => {
+  const data = makeShowForViewer({
+    transportation: {
+      driver_name: null,
+      driver_phone: null,
+      driver_email: null,
+      vehicle: null,
+      license_plate: null,
+      color: null,
+      parking: null,
+      schedule: [
+        // sentinel date + sentinel time, but a real stage label
+        { stage: "RENTAL PICKUP", date: "TBD", time: "N/A", assigned_names: [] },
+        // a real leg so getting-there has surviving content + the block mounts
+        { stage: "LOAD-IN", date: "2026-05-13", time: "8:00 AM", assigned_names: [] },
+      ],
+      notes: null,
+    },
+    hotelReservations: [],
+  });
+  const { container } = render(
+    <TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+  const text = container.textContent ?? "";
+  // The sentinels must not appear anywhere in the rendered travel DOM.
+  expect(text).not.toContain("TBD");
+  expect(text).not.toContain("N/A");
+  // The real leg still renders (block is not blank).
+  expect(text).toMatch(/Wed|May|13/);
+});
+
+/**
+ * A leg with NO surviving real content after sentinel gating (sentinel
+ * date, sentinel time, sentinel stage, no names) must be omitted entirely —
+ * no empty travelrow.
+ */
+test("a leg with only sentinel sub-fields is omitted (no empty travelrow)", () => {
+  const data = makeShowForViewer({
+    transportation: {
+      driver_name: null,
+      driver_phone: null,
+      driver_email: null,
+      vehicle: null,
+      license_plate: null,
+      color: null,
+      parking: null,
+      schedule: [
+        { stage: "TBD", date: "N/A", time: "TBA", assigned_names: [] },
+        { stage: "LOAD-IN", date: "2026-05-13", time: "8:00 AM", assigned_names: [] },
+      ],
+      notes: null,
+    },
+    hotelReservations: [],
+  });
+  const { getAllByTestId, container } = render(
+    <TravelSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+  const text = container.textContent ?? "";
+  expect(text).not.toContain("TBD");
+  expect(text).not.toContain("N/A");
+  expect(text).not.toContain("TBA");
+  // Exactly one travelrow survives (the real LOAD-IN leg); the all-sentinel
+  // leg reflowed out entirely.
+  const rows = getAllByTestId("travelrow");
+  expect(rows).toHaveLength(1);
+});

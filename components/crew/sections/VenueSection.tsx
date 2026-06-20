@@ -237,9 +237,13 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
           <SectionCard title="Venue status">
             {coi !== null ? (
               <div className="flex flex-col gap-1">
-                <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                {/* Eyebrow label is a plain <p>, not a <dt>: these COI / notes
+                    blocks are not inside a <dl> (no paired <dd>), so a <dt> here
+                    would be an orphan description-term (invalid semantics, WCAG
+                    1.3.1). Same eyebrow styling, valid structure. */}
+                <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                   COI
-                </dt>
+                </p>
                 <span
                   data-testid="coi-status"
                   className="text-sm font-semibold tabular-nums text-text-strong"
@@ -250,9 +254,9 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
             ) : null}
             {venueNotes !== null ? (
               <div className="flex flex-col gap-1">
-                <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
                   Venue notes
-                </dt>
+                </p>
                 <p className="text-sm text-text">{venueNotes}</p>
               </div>
             ) : null}
