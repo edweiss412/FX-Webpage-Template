@@ -260,3 +260,110 @@ test("runOfShow populated for today but todayIso NOT in show's days → Mode B (
   expect(container.querySelector('[data-testid="today-mode-a-grid"]')).toBeNull();
   expect(container.querySelector('[data-testid="agenda-entry"]')).toBeNull();
 });
+
+// ---------------------------------------------------------------------------
+// TEST 6 — Mode B PERSISTENT split-wide (the desktop two-column treatment).
+// A non-show-day (no runOfShow → Mode B) that has BOTH day-context (key times)
+// AND quick-cards renders the persistent split-wide grid: day-context LEFT,
+// quick-cards RIGHT, using the SAME `min-[720px]:grid-cols-[1.6fr_1fr]`
+// mechanism as Mode A (collapses to one column below 720px). This is the fix
+// for the wrapped/off-day Today stretching its cards full-bleed on desktop.
+// ---------------------------------------------------------------------------
+test("non-show-day with key-times + cards → Mode B persistent split-wide grid (day-context LEFT, quick-cards RIGHT)", () => {
+  const data = makeShowForViewer({
+    show: {
+      venue: { name: "Center", address: "5 Ave" },
+      dates: { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null },
+    },
+    // GS room set/show/strike → resolveKeyTimes anchors → the day-context LEFT
+    // column has a "Key times" card (so hasLeft is true).
+    rooms: [
+      {
+        id: "r1",
+        kind: "gs",
+        name: "Main",
+        set_time: "11:00 AM",
+        show_time: "1:00 PM",
+        strike_time: "9:00 PM",
+      },
+    ],
+    hotelReservations: [
+      {
+        ordinal: 0,
+        hotel_name: "Hyatt",
+        hotel_address: "1 St",
+        check_in: "2026-05-13",
+        check_out: "2026-05-15",
+        names: [],
+        confirmation_no: null,
+        notes: null,
+      },
+    ],
+    // No runOfShow → Mode B (the persistent split-wide, NOT run-of-show Mode A).
+    runOfShow: null,
+  });
+
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+
+  // Mode A grid must NOT mount (no run-of-show); the Mode B grid MUST.
+  expect(container.querySelector('[data-testid="today-mode-a-grid"]')).toBeNull();
+  expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeNull();
+  const grid = container.querySelector('[data-testid="today-mode-b-grid"]');
+  expect(grid).toBeTruthy();
+  // Same 1.6/1 two-track mechanism as Mode A (the layout-dimensions gate pins
+  // the real-browser ratio; jsdom can only confirm the class is present).
+  expect(grid!.className).toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
+  // Wide-LEFT = the day-context (key times here); narrow-RIGHT = quick-cards.
+  const left = container.querySelector('[data-testid="today-day-context"]');
+  expect(left).toBeTruthy();
+  expect(left!.querySelector('[data-testid="key-times-strip"]')).toBeTruthy();
+  expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeTruthy();
+  expect(container.querySelector('[data-testid="today-tonight"]')).toBeTruthy();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 7 — card chrome (mock fidelity): per-tile section-card icons, the
+// Tonight "Booked" status pill, and the run-of-show "Full agenda" chip → the
+// Schedule section.
+// ---------------------------------------------------------------------------
+test("Today card chrome: section-card icons + a Booked pill on Tonight + a Full-agenda chip to Schedule", () => {
+  const data = makeShowForViewer({
+    show: {
+      venue: { name: "Center", address: "5 Ave" },
+      dates: { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null },
+    },
+    hotelReservations: [
+      {
+        ordinal: 0,
+        hotel_name: "Hyatt",
+        hotel_address: "1 St",
+        check_in: "2026-05-13",
+        check_out: "2026-05-15",
+        names: [],
+        confirmation_no: null,
+        notes: null,
+      },
+    ],
+    contacts: [{ kind: "venue", name: "Sam", phone: "555-111-2222", email: null, notes: null }],
+    runOfShow: { [TODAY_ISO]: AGENDA },
+  });
+
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+
+  // Per-tile leading icon (mock `.card-head .ico` slot) on the Tonight card.
+  const tonight = container.querySelector('[data-testid="today-tonight"]')!;
+  expect(tonight.querySelector('[data-slot="section-card-icon"]')).toBeTruthy();
+  // Tonight "Booked" status pill — the status-positive hue paired with a text
+  // label (DESIGN.md §1 color-blind floor).
+  expect(tonight.textContent).toContain("Booked");
+  // Run-of-show "Full agenda" chip = a SectionChipLink to the schedule section.
+  const chip = container.querySelector(
+    '[data-testid="section-chip-link"][data-section="schedule"]',
+  );
+  expect(chip).toBeTruthy();
+  expect(chip!.textContent).toContain("Full agenda");
+});

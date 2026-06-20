@@ -136,3 +136,45 @@ export function ReceiptIcon({ className }: GlyphProps) {
     </svg>
   );
 }
+
+/**
+ * Clock — a dial with hands (mock `clock2`). Card-head glyph for the Today
+ * "Run of show" + "Key times" cards.
+ */
+export function ClockIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5V12l3 2" />
+    </svg>
+  );
+}
+
+/** Bed — a headboard + mattress with a pillow (mock `bed`). Today "Tonight" card. */
+export function BedIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M3 7v12M3 12h18v7M21 19v-5a3 3 0 0 0-3-3H9v4" />
+      <circle cx="7" cy="10.5" r="1.6" />
+    </svg>
+  );
+}
+
+/** Phone — a handset (mock `phone`). Today "Need something?" card. */
+export function PhoneIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M5 3h3.5l1.5 5-2 1.5a13 13 0 0 0 6 6l1.5-2 5 1.5V19a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2z" />
+    </svg>
+  );
+}
+
+/** Note — a page with text lines (mock `note`). Today "Show notes" card. */
+export function NoteIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M5 3h11l3 3v15H5z" />
+      <path d="M9 8h6M9 12h6M9 16h3" />
+    </svg>
+  );
+}

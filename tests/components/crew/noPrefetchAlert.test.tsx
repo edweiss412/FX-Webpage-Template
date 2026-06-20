@@ -50,6 +50,8 @@ function src(rel: string): string {
 }
 
 const SUB_NAV = "components/crew/CrewSubNav.tsx";
+const SECTION_HREF = "lib/crew/sectionHref.ts";
+const SECTION_CHIP_LINK = "components/crew/SectionChipLink.tsx";
 const CREW_ROUTE = "app/show/[slug]/[shareToken]/page.tsx";
 const CREW_ROUTE_REQUEST = "lib/auth/picker/showPageChainRequest.ts";
 const PREVIEW_ROUTE = "app/admin/show/[slug]/preview/[crewId]/page.tsx";
@@ -67,12 +69,51 @@ describe("test 36b — no phantom prefetch alert (structural)", () => {
       "CrewSubNav must activate a section via router.push (imperative, click-driven — NOT a prefetchable <Link>)",
     ).toMatch(/router\.push\s*\(/);
 
-    // The push target is the `?s=` section URL (so we know router.push — not a
-    // <Link> — is the thing that carries the section param).
+    // The push target is the `?s=` section URL, built via the SHARED
+    // `buildSectionHref` helper (single source of truth with SectionChipLink).
+    // So we know router.push — not a <Link> — is what carries the section param.
     expect(
       code,
-      'the pushed URL must set the section param ("s")',
+      "CrewSubNav must push the shared buildSectionHref(...) URL",
+    ).toMatch(/router\.push\s*\(\s*buildSectionHref\s*\(/);
+
+    // And the shared builder is the thing that sets the section param ("s").
+    const href = src(SECTION_HREF);
+    expect(
+      href,
+      'buildSectionHref must set the section param ("s")',
     ).toMatch(/\.set\(\s*["']s["']/);
+  });
+
+  // ── (i-bis) The in-body SectionChipLink IS a next/link <Link> to a ?s=
+  // section URL (the Today "Run of show" → full-agenda chip). That is exactly
+  // the phantom-prefetch shape, so it MUST opt out of prefetch — a section-URL
+  // anchor that auto-prefetched would speculatively render the dynamic crew
+  // route's CrewShell and could fire the projection-fetch admin alert. ──
+  it("(i) SectionChipLink — the in-body section <Link> — opts out of prefetch (prefetch={false})", () => {
+    const code = src(SECTION_CHIP_LINK);
+
+    // It is a next/link <Link> navigating via the SAME shared section-URL builder.
+    expect(code, "SectionChipLink uses next/link").toMatch(/from\s+["']next\/link["']/);
+    expect(
+      code,
+      "SectionChipLink navigates via the shared buildSectionHref(...) builder",
+    ).toMatch(/buildSectionHref\s*\(/);
+
+    // Every <Link> it renders MUST carry prefetch={false}. Require whitespace
+    // after `<Link` so a `<Link>` mentioned in prose/comments isn't matched —
+    // only real JSX opening tags (which always have an attribute after a space).
+    const linkUsages = code.match(/<Link\s[^>]*>/g) ?? [];
+    expect(
+      linkUsages.length,
+      "SectionChipLink must render at least one <Link>",
+    ).toBeGreaterThan(0);
+    for (const usage of linkUsages) {
+      expect(
+        usage,
+        `every <Link> in SectionChipLink must carry prefetch={false} (no auto-prefetch to a section URL): ${usage}`,
+      ).toMatch(/prefetch=\{false\}/);
+    }
   });
 
   it('(i) CrewSubNav imports no next/link <Link>, so there is no auto-prefetching anchor to a ?s= section URL', () => {

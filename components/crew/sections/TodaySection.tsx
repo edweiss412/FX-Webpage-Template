@@ -36,6 +36,15 @@ import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/Key
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { SectionChipLink } from "@/components/crew/SectionChipLink";
+import {
+  BedIcon,
+  CalendarIcon,
+  ClockIcon,
+  MapPinIcon,
+  NoteIcon,
+  PhoneIcon,
+} from "@/components/crew/icons/sectionIcons";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { aggregateDays, displayableEntries } from "@/lib/crew/agendaDisplay";
@@ -286,7 +295,23 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                 {firstHotel ? (
                   <div data-testid="today-card-tonight" className="flex min-w-0 flex-col">
                     <div data-testid="today-tonight" className="flex flex-col">
-                      <SectionCard title="Tonight">
+                      <SectionCard
+                        icon={<BedIcon />}
+                        title="Tonight"
+                        action={
+                          // "Booked" status pill (mock `.pill.ok`). DESIGN.md §1
+                          // color-blind floor: the status-positive hue (calm
+                          // teal, NOT green) is ALWAYS paired with a text label;
+                          // the dot + "Booked" word both carry the signal.
+                          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-positive)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-positive)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-positive-text">
+                            <span
+                              aria-hidden="true"
+                              className="size-1.5 rounded-pill bg-status-positive"
+                            />
+                            Booked
+                          </span>
+                        }
+                      >
                         <KeyValueRows rows={tonightRows} />
                       </SectionCard>
                     </div>
@@ -296,7 +321,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                 {venue ? (
                   <div data-testid="today-card-where" className="flex min-w-0 flex-col">
                     <div data-testid="today-where" className="flex flex-col">
-                      <SectionCard title="Where">
+                      <SectionCard icon={<MapPinIcon />} title="Where">
                         <KeyValueRows rows={whereRows} />
                       </SectionCard>
                     </div>
@@ -309,7 +334,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                     className="flex min-w-0 flex-col"
                   >
                     <div data-testid="today-need-something" className="flex flex-col">
-                      <SectionCard title="Need something">
+                      <SectionCard icon={<PhoneIcon />} title="Need something">
                         <ul className="flex flex-col gap-3">
                           <PersonRow
                             person={{
@@ -337,6 +362,106 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
               </div>
             ) : null;
 
+          // ── Day-context cards ────────────────────────────────────────────
+          // In Mode A these are full-width siblings BELOW the run-of-show grid
+          // (key times stays the bare strip ABOVE it — unchanged). In Mode B they
+          // become the wide-LEFT column of the persistent split-wide grid. Each
+          // is null when its source is empty so a column never holds an empty
+          // card. `anchorsPresent` mirrors KeyTimesStrip's own all-absent → null
+          // rule, so the "Key times" card never wraps an empty strip.
+          const anchorsPresent =
+            anchors.set != null || anchors.show != null || anchors.strike != null;
+          const keyTimesCard = anchorsPresent ? (
+            <div data-testid="today-key-times">
+              <SectionCard icon={<ClockIcon />} title="Key times">
+                <KeyTimesStrip anchors={anchors} />
+              </SectionCard>
+            </div>
+          ) : null;
+          const dressCard = showDress ? (
+            <div data-testid="today-dress">
+              <SectionCard title="Dress code">
+                <p className="text-sm text-text">{dressRaw}</p>
+              </SectionCard>
+            </div>
+          ) : null;
+          const notesCard =
+            visibleNotes.length > 0 ? (
+              <div data-testid="today-notes">
+                <SectionCard icon={<NoteIcon />} title="Show notes">
+                  <ul className="flex flex-col gap-2">
+                    {visibleNotes.map((entry, idx) => {
+                      const { display, truncated } = truncate(entry.text, TRUNCATE_AT);
+                      return (
+                        <li
+                          key={`${entry.source}-${idx}`}
+                          data-source={entry.source}
+                          {...(truncated ? { "data-truncated": "true" } : {})}
+                          className="rounded-sm border border-border bg-surface"
+                        >
+                          <details className="group">
+                            <summary className="flex min-h-tap-min cursor-pointer list-none flex-col gap-1 rounded-sm px-3 py-2 [&::-webkit-details-marker]:hidden">
+                              <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                                {entry.label}
+                              </span>
+                              <span
+                                className={[
+                                  "text-sm leading-snug text-text",
+                                  truncated ? "group-open:hidden" : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                              >
+                                {display}
+                              </span>
+                            </summary>
+                            {truncated ? (
+                              <div className="whitespace-pre-wrap border-t border-border p-3 text-sm/relaxed text-text">
+                                {entry.text}
+                              </div>
+                            ) : null}
+                          </details>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {overflowCount > 0 ? (
+                    <div
+                      data-testid="today-notes-overflow"
+                      className="mt-2 rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
+                    >
+                      <span className="tabular-nums">+{overflowCount}</span>{" "}
+                      {overflowCount === 1 ? "more note" : "more notes"} on the source sheet
+                    </div>
+                  ) : null}
+                </SectionCard>
+              </div>
+            ) : null;
+
+          // §5 Today mode fork — data + privacy-driven, INSTANT (no animation).
+          //
+          //  • Mode A (run-of-show present): the bare KeyTimesStrip ABOVE, then
+          //    the split-wide grid — run-of-show timeline LEFT (1.6fr) + the
+          //    quick-cards stack RIGHT (1fr), equal-height (items-stretch) — then
+          //    the day-context cards (dress + notes) full-width below. Unchanged
+          //    from the ratified §5 fork apart from the card chrome (icon +
+          //    "Full agenda" chip on the run-of-show card).
+          //  • Mode B (NO run-of-show: wrapped / off-day / travel / countdown /
+          //    date-restricted): the PERSISTENT split-wide grid — day-context
+          //    cards (Key times + dress + notes) LEFT (1.6fr) + the quick-cards
+          //    stack RIGHT (1fr), `items-start` (the two stacks differ in height).
+          //    This REPLACES the prior full-width Mode B stack so non-show-day
+          //    Today keeps the mock's two-column proportions on desktop instead of
+          //    stretching the cards full-bleed.
+          //
+          // Both grids use the IDENTICAL `min-[720px]:grid-cols-[1.6fr_1fr]`
+          // mechanism the layout-dimensions gate pins; below 720px both collapse
+          // to a single column (the safe stack the full-width Mode B preserved).
+          // When only ONE column has content the grid is skipped: a lone
+          // quick-cards stack is capped (max-w-md) so it stays card-width.
+          const hasLeft = Boolean(keyTimesCard || dressCard || notesCard);
+          const hasRight = quickCardsStack !== null;
+
           return (
             <>
               <RightNowHero context={rightNowContext} />
@@ -345,92 +470,52 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
               {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
               {contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}
 
-              <KeyTimesStrip anchors={anchors} />
-
-              {/* §5 Today mode fork — data + privacy-driven, INSTANT (no
-                  animation). Mode A (split-wide): the run-of-show timeline LEFT
-                  (1.6fr), the quick-cards stack RIGHT (1fr); collapses to a single
-                  column below 720px (the safe stack the full-width Mode B was
-                  created to preserve). CSS grid tracks default to
-                  `align-items: stretch`, so both columns share an equal height at
-                  ≥720px without the Tailwind-v4 `.flex`-no-stretch trap (DESIGN §7).
-                  Each column carries `min-w-0` so long strings wrap. Mode B: the
-                  quick-cards stack alone, full-width, UNCHANGED. */}
               {modeA ? (
+                <>
+                  <KeyTimesStrip anchors={anchors} />
+                  <div
+                    data-testid="today-mode-a-grid"
+                    className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                  >
+                    <div data-testid="today-run-of-show" className="min-w-0">
+                      <SectionCard
+                        icon={<ClockIcon />}
+                        title="Run of show"
+                        action={
+                          <SectionChipLink section="schedule" icon={<CalendarIcon />}>
+                            Full agenda
+                          </SectionChipLink>
+                        }
+                      >
+                        <RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />
+                      </SectionCard>
+                    </div>
+                    <div className="min-w-0">{quickCardsStack}</div>
+                  </div>
+                  {dressCard}
+                  {notesCard}
+                </>
+              ) : hasLeft && hasRight ? (
                 <div
-                  data-testid="today-mode-a-grid"
-                  className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                  data-testid="today-mode-b-grid"
+                  className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                 >
-                  <div data-testid="today-run-of-show" className="min-w-0">
-                    <SectionCard title="Run of show">
-                      <RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />
-                    </SectionCard>
+                  <div data-testid="today-day-context" className="flex min-w-0 flex-col gap-4">
+                    {keyTimesCard}
+                    {dressCard}
+                    {notesCard}
                   </div>
                   <div className="min-w-0">{quickCardsStack}</div>
                 </div>
+              ) : hasRight ? (
+                <div className="min-[720px]:max-w-md">{quickCardsStack}</div>
               ) : (
-                quickCardsStack
+                <>
+                  {keyTimesCard}
+                  {dressCard}
+                  {notesCard}
+                </>
               )}
-
-              {showDress ? (
-                <div data-testid="today-dress">
-                  <SectionCard title="Dress code">
-                    <p className="text-sm text-text">{dressRaw}</p>
-                  </SectionCard>
-                </div>
-              ) : null}
-
-              {visibleNotes.length > 0 ? (
-                <div data-testid="today-notes">
-                  <SectionCard title="Show notes">
-                    <ul className="flex flex-col gap-2">
-                      {visibleNotes.map((entry, idx) => {
-                        const { display, truncated } = truncate(entry.text, TRUNCATE_AT);
-                        return (
-                          <li
-                            key={`${entry.source}-${idx}`}
-                            data-source={entry.source}
-                            {...(truncated ? { "data-truncated": "true" } : {})}
-                            className="rounded-sm border border-border bg-surface"
-                          >
-                            <details className="group">
-                              <summary className="flex min-h-tap-min cursor-pointer list-none flex-col gap-1 rounded-sm px-3 py-2 [&::-webkit-details-marker]:hidden">
-                                <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                                  {entry.label}
-                                </span>
-                                <span
-                                  className={[
-                                    "text-sm leading-snug text-text",
-                                    truncated ? "group-open:hidden" : "",
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" ")}
-                                >
-                                  {display}
-                                </span>
-                              </summary>
-                              {truncated ? (
-                                <div className="whitespace-pre-wrap border-t border-border px-3 py-3 text-sm leading-relaxed text-text">
-                                  {entry.text}
-                                </div>
-                              ) : null}
-                            </details>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    {overflowCount > 0 ? (
-                      <div
-                        data-testid="today-notes-overflow"
-                        className="mt-2 rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
-                      >
-                        <span className="tabular-nums">+{overflowCount}</span>{" "}
-                        {overflowCount === 1 ? "more note" : "more notes"} on the source sheet
-                      </div>
-                    ) : null}
-                  </SectionCard>
-                </div>
-              ) : null}
             </>
           );
         }}
