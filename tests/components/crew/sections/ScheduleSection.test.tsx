@@ -138,6 +138,8 @@ test("anchors present → right column renders a 'Daily call times' SectionCard 
   expect(card).not.toBeNull();
   const titleNode = card.querySelector('[data-slot="section-card-title"]');
   expect(titleNode?.textContent).toContain("Daily call times");
+  // Mock `.card-head .ico` parity: the card carries its leading glyph.
+  expect(card.querySelector('[data-slot="section-card-icon"] svg')).not.toBeNull();
   // The key-times strip lives INSIDE the card, with its present anchors.
   const strip = card.querySelector('[data-testid="key-times-strip"]');
   expect(strip).not.toBeNull();

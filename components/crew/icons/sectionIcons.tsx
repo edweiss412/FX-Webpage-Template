@@ -178,3 +178,44 @@ export function NoteIcon({ className }: GlyphProps) {
     </svg>
   );
 }
+
+/** Map — a folded map (mock `map`). Venue "Site diagrams" card. */
+export function MapIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5 9 4z" />
+      <path d="M9 4v13M15 6.5v13" />
+    </svg>
+  );
+}
+
+/** Info — a circled "i" (mock `info`). Venue "Venue status" card. */
+export function InfoIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
+    </svg>
+  );
+}
+
+/** Monitor — a screen on a stand (mock `monitor`). Gear "Opening reel" card. */
+export function MonitorIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <rect x="2.5" y="4" width="19" height="13" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </svg>
+  );
+}
+
+/** Building — a venue silhouette with windows. Venue "Facilities" card (no
+ *  direct mock glyph; traced in the same thin-stroke family). */
+export function BuildingIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16M3 21h18" />
+      <path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2" />
+    </svg>
+  );
+}

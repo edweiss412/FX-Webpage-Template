@@ -126,6 +126,9 @@ describe("CrewSection", () => {
     );
     // Both columns rendered.
     expect(container.querySelectorAll('[data-testid="crew-column"]').length).toBe(2);
+    // Mock `.card-head .ico` parity: both the Show-crew and Key-contacts cards
+    // carry a leading glyph (UsersIcon / PhoneIcon).
+    expect(container.querySelectorAll('[data-slot="section-card-icon"] svg').length).toBe(2);
     const wrapper = wrapperOf(container);
     // Wide-left / narrow-right grid is the two-sided layout.
     expect(wrapper).toHaveClass("grid");

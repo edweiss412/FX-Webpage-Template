@@ -40,7 +40,7 @@ import type { JSX, ReactNode } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
-import { CarIcon, PlaneIcon } from "@/components/crew/icons/sectionIcons";
+import { BedIcon, CarIcon, PlaneIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -282,7 +282,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
 
           const gettingThereBlock = hasGettingThere ? (
             <div data-testid="travel-getting-there">
-              <SectionCard title="Getting there">
+              <SectionCard icon={<PlaneIcon />} title="Getting there">
                 {/* Mock `.travelrow` list — driver / vehicle / itinerary legs as
                     icon-led rows. The list is a single flush column; each row's
                     first/last padding + hairline border is handled by TravelRow. */}
@@ -377,7 +377,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
 
           const hotelsBlock = hasHotels ? (
                 <div data-testid="travel-hotels">
-                  <SectionCard title="Hotels">
+                  <SectionCard icon={<BedIcon />} title="Hotels">
                     <div className="flex flex-col gap-4">
                       {reservations.map((res, idx) => {
                         const hotelAddress = !shouldHideGenericOptional(res.hotel_address)
@@ -461,7 +461,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
               {/* Flight: the viewer's own itinerary, rendered first — the most personal
                   Travel datum. Full-width, above the getting-there/hotels split. */}
               {showFlight ? (
-                <SectionCard title="Your flight">
+                <SectionCard icon={<PlaneIcon />} title="Your flight">
                   <div data-testid="travel-flight" className="flex flex-col gap-1">
                     {flightLegs.map((leg, i) => (
                       <span

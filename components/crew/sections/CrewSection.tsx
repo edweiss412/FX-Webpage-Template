@@ -42,6 +42,7 @@ import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { PhoneIcon, UsersIcon } from "@/components/crew/icons/sectionIcons";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -147,7 +148,7 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                       data-testid="crew-column"
                       data-crew-column="roster"
                     >
-                      <SectionCard title="Show crew">
+                      <SectionCard icon={<UsersIcon />} title="Show crew">
                         <ul className="flex flex-col gap-4">
                           {visibleCrew.map((member) => {
                             // Sentinel-guard the free-text heading source: a sentinel
@@ -192,7 +193,7 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                       data-testid="crew-column"
                       data-crew-column="contacts"
                     >
-                      <SectionCard title="Key contacts">
+                      <SectionCard icon={<PhoneIcon />} title="Key contacts">
                         <ul className="flex flex-col gap-4">
                           {visibleContacts.map((contact, idx) => {
                             const name =

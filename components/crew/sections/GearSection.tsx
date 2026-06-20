@@ -41,6 +41,7 @@ import { Lightbulb, Video, Volume2 } from "lucide-react";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { BoxIcon, MonitorIcon, NoteIcon } from "@/components/crew/icons/sectionIcons";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { OpeningReelVideo } from "@/components/tiles/OpeningReelVideo";
@@ -258,7 +259,7 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
 
               {packVisible ? (
                 <div data-testid="gear-pack-list">
-                  <SectionCard title="Pack list">
+                  <SectionCard icon={<BoxIcon />} title="Pack list">
                     <ol className="flex flex-col gap-2">
                       {visibleCases.map((c, idx) => (
                         <li
@@ -336,7 +337,7 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
 
               {keynote !== null ? (
                 <div data-testid="gear-keynote">
-                  <SectionCard title="Keynote requirements">
+                  <SectionCard icon={<NoteIcon />} title="Keynote requirements">
                     <p className="text-sm text-text">{keynote}</p>
                   </SectionCard>
                 </div>
@@ -344,7 +345,7 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
 
               {hasReel ? (
                 <div data-testid="gear-opening-reel">
-                  <SectionCard title="Opening reel">
+                  <SectionCard icon={<MonitorIcon />} title="Opening reel">
                     <div className="flex flex-col gap-3">
                       {hasReelText ? (
                         <KeyValueRows

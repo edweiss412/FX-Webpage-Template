@@ -29,6 +29,10 @@ test("all scope shown to everyone; viewer's discipline first + [data-emphasis=yo
   );
   const cards = [...container.querySelectorAll('[data-testid^="gear-scope-"]')];
   expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual(["gear-scope-audio", "gear-scope-video"]);
+  // Mock `.card-head .ico` parity: each scope card carries its leading glyph.
+  for (const c of cards) {
+    expect(c.querySelector('[data-slot="section-card-icon"] svg')).not.toBeNull();
+  }
   expect(cards[0]!.getAttribute("data-emphasis")).toBe("you");
   expect(container.querySelector('[data-testid="gear-scope-lighting"]')).toBeNull();
 });
@@ -75,6 +79,10 @@ test("opening-reel cell is text-only (no Drive URL) AND the proxied player uses 
   const html = container.innerHTML;
   for (const leak of ["https://", "drive.google.com", "docs.google.com"]) expect(html).not.toContain(leak);
   expect(container.querySelector(`video[src="/api/asset/reel/${SHOW_ID}"]`)).toBeTruthy();
+  // Mock `.card-head .ico` parity: the Opening-reel card carries its glyph.
+  expect(
+    container.querySelector('[data-testid="gear-opening-reel"] [data-slot="section-card-icon"] svg'),
+  ).not.toBeNull();
 });
 
 test("pack list omitted when isPackListVisibleToday is false", () => {
