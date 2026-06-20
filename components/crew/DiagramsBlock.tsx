@@ -36,6 +36,7 @@
  * Server Component (no `'use client'`).
  */
 import { Section } from "@/components/atoms/Section";
+import { MapIcon } from "@/components/crew/icons/sectionIcons";
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
 import { AgendaEmbed, type AgendaLink } from "@/components/agenda/AgendaEmbed";
 import { isAllowedDiagramMime } from "@/lib/data/diagrams";
@@ -116,6 +117,18 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
       variant="primary"
       ariaLabel={heading}
       bodyAs="div"
+      // Mock `.card-head .ico` parity: the "Site diagrams" card carries the
+      // mock's `map` glyph in the SAME sunken-square treatment SectionCard uses
+      // (this section uses the Section primitive, not SectionCard, so the chip
+      // is supplied via headingIcon rather than the icon prop).
+      headingIcon={
+        <span
+          aria-hidden="true"
+          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-[15px]"
+        >
+          <MapIcon />
+        </span>
+      }
     >
       {hasItems && diagrams ? (
         <Gallery

@@ -209,7 +209,12 @@ describe("DiagramsTile", () => {
         agendaLinks={[]}
       />,
     );
-    expect(screen.getByTestId("diagrams-tile")).toBeTruthy();
+    const diaTile = screen.getByTestId("diagrams-tile");
+    expect(diaTile).toBeTruthy();
+    // Mock `map` glyph parity: the Site-diagrams card carries a leading icon in
+    // the Section primitive's headingIcon slot (this block uses Section, not
+    // SectionCard).
+    expect(diaTile.querySelector("header svg")).not.toBeNull();
   });
 
   test("renders agenda when at least one agenda_links has fileId, even with no diagrams", () => {

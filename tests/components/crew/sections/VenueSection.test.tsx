@@ -78,6 +78,8 @@ test("Address renders 2-line: street on line 1, locality muted on line 2 (split 
   const { container } = render(<VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />);
   const where = container.querySelector('[data-testid="venue-where"]')!;
   expect(where.textContent).toContain("350 Fifth Ave");
+  // Mock `.card-head .ico` parity: the Where card carries its leading glyph.
+  expect(where.querySelector('[data-slot="section-card-icon"] svg')).not.toBeNull();
   const locality = where.querySelector('[data-slot="venue-address-locality"]');
   expect(locality).not.toBeNull();
   // Line 2 is everything after the first comma, trimmed.

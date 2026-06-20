@@ -142,6 +142,10 @@ test("driver/vehicle facts render as travelrows (not vertical KeyValueRows)", ()
   expect(all).toContain("Sprinter Van");
   // Sanity: the getting-there block exists.
   expect(getByTestId("travel-getting-there")).toBeInTheDocument();
+  // Mock `.card-head .ico` parity: the Getting-there card carries its glyph.
+  expect(
+    getByTestId("travel-getting-there").querySelector('[data-slot="section-card-icon"] svg'),
+  ).not.toBeNull();
 });
 
 test("split-wide grid uses the 1.6fr/1fr ratio (wide getting-there, narrow hotel)", () => {

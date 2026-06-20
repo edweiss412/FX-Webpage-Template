@@ -39,6 +39,7 @@ import type { JSX } from "react";
 
 import { DayCard } from "@/components/crew/primitives/DayCard";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { ClockIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
@@ -201,7 +202,7 @@ export function ScheduleSection({
                     card breaks items-stretch). Render NO card when all anchors
                     are absent — no empty shell. */}
                 {hasTimesCard ? (
-                  <SectionCard title="Daily call times">
+                  <SectionCard icon={<ClockIcon />} title="Daily call times">
                     <KeyTimesStrip anchors={anchors} />
                   </SectionCard>
                 ) : null}

@@ -42,7 +42,14 @@ import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
-import { CarIcon, DockIcon, WifiIcon } from "@/components/crew/icons/sectionIcons";
+import {
+  BuildingIcon,
+  CarIcon,
+  DockIcon,
+  InfoIcon,
+  MapPinIcon,
+  WifiIcon,
+} from "@/components/crew/icons/sectionIcons";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -197,7 +204,7 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
     <>
       {hasWhere ? (
         <div data-testid="venue-where">
-          <SectionCard title="Where">
+          <SectionCard icon={<MapPinIcon />} title="Where">
             {/* Mock `kv` Address dd — 2-line: street on line 1, locality muted
                 on line 2 (split on the first comma; comma-less → single line). */}
             {hasAddress ? (
@@ -226,7 +233,7 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
 
       {hasFacts ? (
         <div data-testid="venue-facilities">
-          <SectionCard title="Facilities">
+          <SectionCard icon={<BuildingIcon />} title="Facilities">
             <FactRows rows={factRows} />
           </SectionCard>
         </div>
@@ -234,7 +241,7 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
 
       {hasStatus ? (
         <div data-testid="venue-status">
-          <SectionCard title="Venue status">
+          <SectionCard icon={<InfoIcon />} title="Venue status">
             {coi !== null ? (
               <div className="flex flex-col gap-1">
                 {/* Eyebrow label is a plain <p>, not a <dt>: these COI / notes
