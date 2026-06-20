@@ -15,12 +15,14 @@
  *     crew-facing key contact (§9 test 30). Capped at CONTACTS_INLINE_CAP with a
  *     `[data-testid="contacts-overflow-stub"]` overflow affordance.
  *
- * Layout: ≥720px renders the two columns side-by-side; <720px stacks them. The
- * flex row is `items-stretch` and each column is `h-full` because Tailwind v4
- * here does NOT default `.flex` to `align-items: stretch` (§4.9 dimensional
- * invariant) — both must be explicit so the two equal-height cards stay flush.
- * There is no `md` breakpoint in this project; the `min-[720px]:` arbitrary
- * variant is the single source of the column split.
+ * Layout: when BOTH columns have data the surface is a split-wide grid — Show
+ * crew on the wide-left `1.6fr` track, Key contacts on the narrow-right `1fr` —
+ * side-by-side at ≥720px, stacked (single column) below. The grid is
+ * `items-stretch` so the two cards stay equal-height. When only ONE side has
+ * data (roster-only OR contacts-only) the wrapper is a plain `flex flex-col`
+ * single full-width column so a one-sided surface never leaves a blank right
+ * track at ≥720px. There is no `md` breakpoint in this project; the
+ * `min-[720px]:` arbitrary variant is the single source of the column split.
  *
  * Generic-optional reads route through `shouldHideGenericOptional` so a
  * sentinel name/role (`''`/`TBD`/`N/A`/`TBA`) never seeds a PersonRow heading;
@@ -116,6 +118,10 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
           const hasContacts = contacts.length > 0;
 
           const bothEmpty = !hasCrew && !hasContacts;
+          // Split-wide grid (Show crew 1.6fr / Key contacts 1fr) ONLY when BOTH
+          // columns have data; otherwise a single full-width column so a
+          // one-sided surface never leaves a blank right track at ≥720px.
+          const bothColumns = hasCrew && hasContacts;
 
           return (
             <>
@@ -128,10 +134,16 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
               ) : null}
 
               {bothEmpty ? null : (
-                <div className="flex flex-col gap-4 min-[720px]:flex-row min-[720px]:items-stretch">
+                <div
+                  className={
+                    bothColumns
+                      ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                      : "flex flex-col gap-4"
+                  }
+                >
                   {hasCrew ? (
                     <div
-                      className="flex min-w-0 flex-1 flex-col"
+                      className="flex min-w-0 flex-col"
                       data-testid="crew-column"
                       data-crew-column="roster"
                     >
@@ -176,7 +188,7 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
 
                   {hasContacts ? (
                     <div
-                      className="flex min-w-0 flex-1 flex-col"
+                      className="flex min-w-0 flex-col"
                       data-testid="crew-column"
                       data-crew-column="contacts"
                     >

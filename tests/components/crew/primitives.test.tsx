@@ -96,31 +96,62 @@ describe("<KeyValueRows>", () => {
   });
 });
 
-describe("<DayCard>", () => {
-  const base = { day: "Day 2", phase: "Show day 2 of 3" };
+describe("<DayCard> — horizontal date badge", () => {
+  // `day` is now an ISO date (YYYY-MM-DD); `phase` is the schedule phase union.
+  const base = { day: "2026-06-13", phase: "Set" } as const;
 
-  test('today={true} → node carries data-today="true"', () => {
-    const { getByTestId } = render(<DayCard {...base} today={true} meta={null} />);
+  test("renders a stacked weekday + day-number badge from the ISO date (UTC)", () => {
+    // 2026-06-12 is a Friday (UTC). The badge stacks the weekday over the day-num.
+    const { getByTestId } = render(<DayCard day="2026-06-12" phase="Travel In" today={false} />);
+    const badge = getByTestId("day-card-date");
+    expect(badge.textContent).toContain("FRI");
+    expect(badge.textContent).toContain("12");
+  });
+
+  test('today={true} → node carries data-today="true" + the Today pill', () => {
+    const { getByTestId, getByText } = render(<DayCard day="2026-06-14" phase="Show" today={true} />);
     expect(getByTestId("day-card").getAttribute("data-today")).toBe("true");
+    expect(getByText("Today")).toBeTruthy();
   });
 
-  test('today={false} → node does NOT carry data-today="true"', () => {
-    const { getByTestId } = render(<DayCard {...base} today={false} meta={null} />);
+  test('today={false} → no data-today attr, no Today pill', () => {
+    const { getByTestId, queryByText } = render(<DayCard {...base} today={false} />);
     expect(getByTestId("day-card").getAttribute("data-today")).not.toBe("true");
+    expect(queryByText("Today")).toBeNull();
   });
 
-  test("meta={null} → phase line renders with no meta node", () => {
+  test("Show phase → accent tone dot (data-tone='show')", () => {
+    const { getByTestId } = render(<DayCard day="2026-06-14" phase="Show" today={false} />);
+    expect(getByTestId("day-card-phase-dot").getAttribute("data-tone")).toBe("show");
+  });
+
+  test("Set phase → set tone dot (data-tone='set')", () => {
+    const { getByTestId } = render(<DayCard {...base} today={false} />);
+    expect(getByTestId("day-card-phase-dot").getAttribute("data-tone")).toBe("set");
+  });
+
+  test("Travel In / Travel Out phases → travel tone dot (data-tone='travel')", () => {
+    const tin = render(<DayCard day="2026-06-12" phase="Travel In" today={false} />);
+    expect(tin.getByTestId("day-card-phase-dot").getAttribute("data-tone")).toBe("travel");
+    cleanup();
+    const tout = render(<DayCard day="2026-06-16" phase="Travel Out" today={false} />);
+    expect(tout.getByTestId("day-card-phase-dot").getAttribute("data-tone")).toBe("travel");
+  });
+
+  test("the phase text renders next to the tone dot", () => {
+    const { getByTestId } = render(<DayCard {...base} today={false} />);
+    expect(getByTestId("day-card").textContent).toContain("Set");
+  });
+
+  test("meta={null} → no meta node", () => {
     const { getByTestId } = render(<DayCard {...base} today={false} meta={null} />);
-    const card = getByTestId("day-card");
-    expect(card.textContent).toContain(base.phase);
-    expect(card.querySelector('[data-slot="day-card-meta"]')).toBeNull();
+    expect(getByTestId("day-card").querySelector('[data-slot="day-card-meta"]')).toBeNull();
   });
 
   test("meta present → meta node renders", () => {
     const meta = "Set 9:00 AM";
     const { getByTestId } = render(<DayCard {...base} today={false} meta={meta} />);
-    const card = getByTestId("day-card");
-    const metaNode = card.querySelector('[data-slot="day-card-meta"]');
+    const metaNode = getByTestId("day-card").querySelector('[data-slot="day-card-meta"]');
     expect(metaNode).not.toBeNull();
     expect(metaNode!.textContent).toContain(meta);
   });

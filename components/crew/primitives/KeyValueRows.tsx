@@ -55,8 +55,13 @@ export function KeyValueRows({ rows }: KeyValueRowsProps) {
                 </span>
               ) : null}
               {/* `min-w-0 break-words` so a long unbroken value wraps inside the
-                  slot instead of forcing horizontal overflow at 390px. */}
-              <span className="min-w-0 break-words">{row.v}</span>
+                  slot instead of forcing horizontal overflow at 390px.
+                  `tabular-nums` per DESIGN.md §2.4: values here include dates +
+                  confirmation codes (hotel check-in/out, conf #s) whose digits
+                  should align and not shift width. tnum is a no-op on the
+                  alphabetic-only values, so applying it to the shared value span
+                  is safe across every consumer. */}
+              <span className="min-w-0 break-words tabular-nums">{row.v}</span>
             </span>
             {row.sub !== undefined ? <span className="text-xs text-text-subtle">{row.sub}</span> : null}
           </dd>

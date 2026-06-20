@@ -40,3 +40,23 @@ export function formatIsoDate(iso: string, mode: DateFormatMode): string {
     day: "numeric",
   });
 }
+
+/**
+ * Split an ISO date (YYYY-MM-DD) into the two parts of the Schedule
+ * date badge: `dow` (uppercased weekday-short, e.g. "FRI") stacked over
+ * `dnum` (numeric day, e.g. "12"). UTC-pinned for the same day-boundary
+ * reason as `formatIsoDate` — single-sourcing the TZ handling here keeps
+ * DayCard from re-deriving it inline.
+ *
+ * Defensive: empty string → both parts empty; an unparseable ISO yields
+ * an empty `dow` and echoes the raw input as `dnum` (never a "NaN" leak).
+ */
+export function dayBadgeParts(iso: string): { dow: string; dnum: string } {
+  if (iso === "") return { dow: "", dnum: "" };
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return { dow: "", dnum: iso };
+  return {
+    dow: d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short" }).toUpperCase(),
+    dnum: d.toLocaleDateString("en-US", { timeZone: "UTC", day: "numeric" }),
+  };
+}

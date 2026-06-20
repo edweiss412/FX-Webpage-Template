@@ -29,7 +29,18 @@
  */
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { JSX } from "react";
 import { useCallback } from "react";
+import {
+  BoxIcon,
+  CalendarIcon,
+  HomeIcon,
+  MapPinIcon,
+  PlaneIcon,
+  ReceiptIcon,
+  UsersIcon,
+} from "@/components/crew/icons/sectionIcons";
+import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import {
   ALLOWED_GATE_VALUES,
   BASE_SECTION_IDS,
@@ -44,6 +55,22 @@ const SECTION_LABELS: Record<SectionId, string> = {
   crew: "Crew",
   gear: "Gear",
   budget: "Budget",
+};
+
+/**
+ * Per-section glyph (Task 8.5). Each is a `({ className }) => svg` from the
+ * shared crew icon set; the glyph inherits color (`currentColor`) so the active
+ * tab's text color drives the icon. Sizes are set per variant at the call site
+ * (`size-4` desktop / `size-[22px]` mobile).
+ */
+const SECTION_ICON: Record<SectionId, (props: { className?: string }) => JSX.Element> = {
+  today: HomeIcon,
+  schedule: CalendarIcon,
+  venue: MapPinIcon,
+  travel: PlaneIcon,
+  crew: UsersIcon,
+  gear: BoxIcon,
+  budget: ReceiptIcon,
 };
 
 const ALLOWED_GATE_SET = new Set<string>(ALLOWED_GATE_VALUES);
@@ -96,6 +123,18 @@ export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
     const mobile = isActive
       ? "min-w-0 flex-1 flex-col text-accent"
       : "min-w-0 flex-1 flex-col text-text-subtle";
+
+    // Per-section glyph (Task 8.5). The glyph inherits `currentColor`, so it
+    // tracks the tab's text color by default. The ONLY place that needs an
+    // explicit override is the ACTIVE DESKTOP tab: its text is `text-text-strong`
+    // (a near-black), but the active icon should read in the accent — so we tint
+    // it `text-accent-on-bg`. The active MOBILE tab is already `text-accent`, so
+    // the inherited color is correct and no override is needed.
+    const Icon = SECTION_ICON[id];
+    const iconSize = variant === "desktop" ? "size-4" : "size-[22px]";
+    const iconActiveTint =
+      variant === "desktop" && isActive ? " text-accent-on-bg" : "";
+
     return (
       <button
         key={id}
@@ -103,8 +142,12 @@ export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
         data-section={id}
         aria-current={isActive ? "page" : undefined}
         onClick={() => navigate(id)}
-        className={`${base} ${variant === "desktop" ? desktop : mobile}`}
+        className={
+          `${base} ${variant === "desktop" ? desktop : mobile}` +
+          (variant === "desktop" ? " gap-2" : " gap-0.5 py-1")
+        }
       >
+        <Icon className={`${iconSize}${iconActiveTint}`} />
         {SECTION_LABELS[id]}
       </button>
     );
@@ -112,13 +155,23 @@ export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
 
   return (
     <div data-testid="crew-sub-nav">
-      {/* Desktop tab row — visible at ≥720px. */}
-      <nav
-        aria-label="Show sections"
-        className="hidden min-[720px]:flex items-stretch gap-1 border-b border-border"
-      >
-        {sections.map((id) => tab(id, "desktop"))}
-      </nav>
+      {/* Desktop tab row — visible at ≥720px.
+          The tab row lives OUTSIDE _CrewShell's `[data-testid="page-container"]`,
+          so without its own centering container it spans edge-to-edge while the
+          section content is centered → the first tab's left edge fails to align
+          (the user-reported "off-center" miss, Task 8.5). The wrapper composes
+          the SHARED `CREW_PAGE_CONTAINER` constant — the exact same utilities
+          `_CrewShell` puts on the page container (`mx-auto w-full max-w-300
+          px-4 sm:px-8`) — so the two can never drift and the first tab's left
+          edge aligns with the section content's left edge. */}
+      <div className={CREW_PAGE_CONTAINER}>
+        <nav
+          aria-label="Show sections"
+          className="hidden min-[720px]:flex items-stretch gap-1 border-b border-border"
+        >
+          {sections.map((id) => tab(id, "desktop"))}
+        </nav>
+      </div>
 
       {/* Mobile bottom bar — visible below 720px. `pb-[env(safe-area-inset-bottom)]`
           lets the tabs clear the iOS home indicator so the bottom row of labels

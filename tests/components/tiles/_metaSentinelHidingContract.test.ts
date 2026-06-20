@@ -344,22 +344,27 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/ + components
       const matches = GENERIC_OPTIONAL_FIELDS.filter((f) => f.pattern.test(source));
       if (matches.length === 0) continue;
 
-      // The file DOES consume at least one generic-optional field.
-      // It MUST therefore import + use shouldHideGenericOptional.
-      const hasImport = /shouldHideGenericOptional\b/.test(source);
-      // Belt-and-braces: check for an actual call site, not just an
-      // unused import. The regex looks for `shouldHideGenericOptional(`
-      // which catches every call form.
-      const hasCallSite = /shouldHideGenericOptional\s*\(/.test(source);
+      // The file DOES consume at least one generic-optional field. It MUST
+      // route it through the canonical predicate `shouldHideGenericOptional`
+      // — EITHER directly (import + call site), OR via the shared agenda
+      // sentinel-wrapper `resolveOptionalField` (lib/crew/agendaDisplay.ts),
+      // which applies `shouldHideGenericOptional` (+ stripAgendaUrls) to every
+      // agenda free-text field. The crew-redesign Task-3 run-of-show extraction
+      // moved RunOfShowEntry's per-field guard into that shared wrapper, so
+      // `RunOfShowList` routes the agenda fields via `resolveOptionalField`
+      // rather than a direct predicate call. The `agendaDisplay` single-source
+      // guard test pins the wrapper's body, so accepting it here does not open
+      // a hole — a future edit that drops BOTH the direct call AND the wrapper
+      // still fails this contract.
+      const hasDirect =
+        /shouldHideGenericOptional\b/.test(source) &&
+        /shouldHideGenericOptional\s*\(/.test(source);
+      const hasWrapper = /resolveOptionalField\s*\(/.test(source);
 
-      if (!hasImport || !hasCallSite) {
+      if (!hasDirect && !hasWrapper) {
         const fields = matches.map((m) => m.description).join(", ");
         failures.push(
-          `${relPath}: consumes [${fields}] but ${
-            !hasImport
-              ? "does not import shouldHideGenericOptional"
-              : "imports shouldHideGenericOptional but never calls it"
-          }`,
+          `${relPath}: consumes [${fields}] but does not route them through shouldHideGenericOptional (directly or via the shared resolveOptionalField wrapper)`,
         );
       }
     }

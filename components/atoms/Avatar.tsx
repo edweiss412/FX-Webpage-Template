@@ -8,19 +8,20 @@
  * model), so the chip is a deterministic initials-on-tinted-surface
  * disc.
  *
- * Visual rule:
- *   - 32px square, fully rounded (rounded-pill).
- *   - Surface = `bg-surface-sunken` (DESIGN.md §1.1) — quiet neutral
- *     plate behind the initials. NO color-rotation per person —
- *     PRODUCT.md / DESIGN.md §1 ban a competing palette ("one accent,
- *     used sparingly"). All chips share the same plate so the orange
- *     accent stays meaningful.
+ * Visual rule (mock-fidelity Task 2 — DESIGN.md §1 amendment 2026-06-19):
+ *   - 40px square, fully rounded (rounded-pill).
+ *   - Surface = a deterministic per-NAME swatch from `avatarColor`
+ *     (lib/crew/avatarColor.ts). Identity avatars (crew/contacts) carry
+ *     a per-person color; the single-orange accent rule still governs all
+ *     other chrome. Every swatch is pre-measured ≥4.5:1 against the white
+ *     initials, so no hairline border is needed — the color is itself a
+ *     distinct surface. Blank/whitespace names → the slate swatch.
  *   - Initials = first letter of the first whitespace-split token + (if
  *     present) first letter of the last whitespace-split token,
  *     uppercased. Single-token names emit one letter. Empty / nullish
  *     names emit a single non-empty fallback character so the chip
  *     never collapses to whitespace and the row layout stays stable.
- *   - Text = text-text-strong, text-xs, font-semibold, tabular-nums NOT
+ *   - Text = text-white, text-sm, font-semibold, tabular-nums NOT
  *     applied (initials are letters, not digits).
  *
  * Accessibility: the chip is `aria-hidden="true"` because the name it
@@ -30,6 +31,8 @@
  * Server Component (no `'use client'`).
  */
 import type { ReactNode } from "react";
+
+import { avatarColor } from "@/lib/crew/avatarColor";
 
 type AvatarProps = {
   /**
@@ -70,15 +73,11 @@ export function Avatar({ name }: AvatarProps): ReactNode {
     <span
       aria-hidden="true"
       data-testid="avatar"
+      style={{ backgroundColor: avatarColor(name ?? "") }}
       className={[
         "inline-flex shrink-0 items-center justify-center",
-        "size-8 rounded-pill",
-        "bg-surface-sunken",
-        "text-xs font-semibold text-text-strong",
-        // Quiet hairline so the chip reads as a distinct surface in
-        // light mode where bg-surface-sunken is only one step deeper
-        // than bg-surface.
-        "border border-border",
+        "size-10 rounded-pill",
+        "text-sm font-semibold text-white",
       ].join(" ")}
     >
       {initials}

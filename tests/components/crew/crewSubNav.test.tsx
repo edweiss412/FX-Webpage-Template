@@ -18,6 +18,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import { CrewSubNav } from "@/components/crew/CrewSubNav";
 import { CrewSectionTransition } from "@/components/crew/CrewSectionTransition";
 
@@ -154,6 +155,59 @@ describe("CrewSubNav", () => {
       for (const id of BASE_SECTION_IDS) {
         expect(within(n).getByRole("button", { name: new RegExp(id, "i") })).toBeTruthy();
       }
+    }
+  });
+
+  it("centers the desktop nav row inside the real _CrewShell page container (max-w-300, not 1120px)", () => {
+    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
+    // The desktop tab row (the <nav> that is `hidden min-[720px]:flex`) must
+    // live inside a centering container that matches _CrewShell's
+    // [data-testid="page-container"] so the first tab's left edge aligns with
+    // the section content's left edge.
+    const desktopNav = screen
+      .getAllByRole("navigation", { name: "Show sections" })
+      .find((n) => n.className.includes("min-[720px]:flex") && n.className.includes("hidden"));
+    if (!desktopNav) throw new Error("desktop nav row not found");
+
+    // Walk up to the nearest centering container and assert it carries the
+    // shared CREW_PAGE_CONTAINER utilities (mx-auto / w-full / max-w-300 /
+    // px-4 / sm:px-8) — and NOT the mock's literal max-w-[1120px].
+    const container = desktopNav.closest(".max-w-300") as HTMLElement | null;
+    expect(container).not.toBeNull();
+    for (const util of CREW_PAGE_CONTAINER.split(" ")) {
+      expect(container!.className).toContain(util);
+    }
+    expect(container!.className).not.toContain("max-w-[1120px]");
+  });
+
+  it("renders a per-section icon (svg) before each desktop tab label", () => {
+    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
+    const desktopNav = screen
+      .getAllByRole("navigation", { name: "Show sections" })
+      .find((n) => n.className.includes("min-[720px]:flex") && n.className.includes("hidden"));
+    if (!desktopNav) throw new Error("desktop nav row not found");
+
+    for (const id of BASE_SECTION_IDS) {
+      const tab = within(desktopNav).getByRole("button", { name: new RegExp(id, "i") });
+      const svg = tab.querySelector("svg");
+      expect(svg, `desktop tab "${id}" should render an svg icon`).not.toBeNull();
+      // Icon is decorative — must be hidden from the a11y tree.
+      expect(svg).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it("renders a per-section icon (svg) in each mobile bottom-bar tab", () => {
+    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
+    const mobileNav = screen
+      .getAllByRole("navigation", { name: "Show sections" })
+      .find((n) => n.className.includes("min-[720px]:hidden"));
+    if (!mobileNav) throw new Error("mobile nav bar not found");
+
+    for (const id of BASE_SECTION_IDS) {
+      const tab = within(mobileNav).getByRole("button", { name: new RegExp(id, "i") });
+      const svg = tab.querySelector("svg");
+      expect(svg, `mobile tab "${id}" should render an svg icon`).not.toBeNull();
+      expect(svg).toHaveAttribute("aria-hidden", "true");
     }
   });
 

@@ -12,12 +12,19 @@
  *   and sentinel-contract both passed because the field was absent from source.
  *
  * THIS TEST:
- *   Source-scans ScheduleSection.tsx and asserts that ALL six AgendaEntry
+ *   Source-scans the run-of-show renderer and asserts that ALL six AgendaEntry
  *   fields (start / finish / trt / title / room / av) appear as `entry.<field>`
  *   reads. A future impl that drops one fails at CI, catching the R15 class
  *   before adversarial review can surface it.
  *
- * Green-by-construction: Task 2's ScheduleSection.tsx reads all six fields in
+ *   Task 3 (mock-fidelity) extracted RunOfShowEntry/RunOfShowList VERBATIM out
+ *   of ScheduleSection.tsx into components/crew/primitives/RunOfShowList.tsx so
+ *   the crew Today surface can reuse the SAME run-of-show row (single source of
+ *   truth — no duplicated predicate). The R15 structural pin follows the moved
+ *   symbol: it now source-scans RunOfShowList.tsx, where RunOfShowEntry reads
+ *   all six fields. Pure move — the same six `entry.<field>` reads, new file.
+ *
+ * Green-by-construction: RunOfShowList.tsx reads all six fields in
  * RunOfShowEntry. No behavioral red→green cycle here — this is a structural pin
  * over already-shipped behavior.
  */
@@ -25,9 +32,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 
-test("ScheduleSection reads ALL six AgendaEntry fields (no silent field drop — R15)", () => {
+test("the run-of-show renderer reads ALL six AgendaEntry fields (no silent field drop — R15)", () => {
   const src = readFileSync(
-    join(process.cwd(), "components", "crew", "sections", "ScheduleSection.tsx"),
+    join(process.cwd(), "components", "crew", "primitives", "RunOfShowList.tsx"),
     "utf8",
   );
   // Every AgendaEntry field must be read off `entry.` in the run-of-show render.

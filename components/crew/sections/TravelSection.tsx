@@ -36,10 +36,11 @@
  * `resolveViewerContext` (which throws MalformedProjectionError on a malformed
  * crewMembers projection — this section does not swallow it).
  */
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
+import { CarIcon, PlaneIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -56,6 +57,80 @@ type TravelSectionProps = {
   today: Date;
   showId: string;
 };
+
+/**
+ * The mock's `.travelrow` — one itinerary line in "Getting there". A 34px
+ * sunken mini-icon square (a car for ground transport / driver / vehicle, a
+ * plane for flight legs) sits left of a `.tcol` that stacks:
+ *
+ *   - `tlabel`   — a faint uppercase eyebrow (the stage / field label)
+ *   - `tprimary` — the strong primary line (date / driver name / vehicle)
+ *   - `tmeta`    — a subtle secondary line (time, "with …", phone/email)
+ *   - `tconf`    — a faint, tabular-nums sub line (confirmation / plate / color)
+ *
+ * Rows are separated by a hairline bottom border; the first drops its top
+ * padding and the last drops its border + bottom padding so the list sits
+ * flush inside the SectionCard. All free-text values are pre-resolved by the
+ * caller (sentinel-hidden at the read site), so this presentational helper
+ * never touches a raw generic-optional field.
+ */
+function TravelRow({
+  mode,
+  label,
+  primary,
+  meta,
+  conf,
+}: {
+  mode: "ground" | "flight";
+  label: string;
+  /** The strong primary line — a string or a pre-built node (e.g. a <time>). */
+  primary: ReactNode;
+  meta?: ReactNode;
+  conf?: ReactNode;
+}): JSX.Element {
+  const Glyph = mode === "flight" ? PlaneIcon : CarIcon;
+  return (
+    <div
+      data-testid="travelrow"
+      className="flex items-start gap-3.5 border-b border-border py-3.5 first:pt-0 last:border-b-0 last:pb-0"
+    >
+      {/* 34px sunken mini-icon square — a 17px glyph centered, subtle ink. */}
+      <span
+        data-slot="travelrow-icon"
+        aria-hidden="true"
+        className="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-surface-sunken text-text-subtle [&_svg]:size-[17px]"
+      >
+        <Glyph />
+      </span>
+
+      {/* `.tcol` — the stacked label / primary / meta / conf lines. */}
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-faint">
+          {label}
+        </p>
+        <p
+          data-testid="travelrow-primary"
+          className="min-w-0 break-words text-[15px] font-bold leading-snug text-text-strong"
+        >
+          {primary}
+        </p>
+        {meta !== undefined && meta !== null ? (
+          <p
+            data-testid="travelrow-meta"
+            className="min-w-0 break-words text-[13px] leading-snug text-text-subtle"
+          >
+            {meta}
+          </p>
+        ) : null}
+        {conf !== undefined && conf !== null ? (
+          <p className="min-w-0 break-words text-[11.5px] leading-snug tabular-nums text-text-faint">
+            {conf}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + isAdmin true;
@@ -117,22 +192,52 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
             transportation && !shouldHideGenericOptional(transportation.notes)
               ? transportation.notes
               : null;
-          const legs = transportation ? transportation.schedule : [];
 
-          const driverRows: KeyValueRow[] = [];
-          if (driverName) driverRows.push({ k: "Driver", v: driverName });
-          if (driverPhone) driverRows.push({ k: "Driver phone", v: driverPhone });
-          if (driverEmail) driverRows.push({ k: "Driver email", v: driverEmail });
+          // Per-leg sentinel hiding: each schedule leg's `stage` / `date` /
+          // `time` is a generic-optional free-text field — a sentinel ('TBD' /
+          // 'N/A' / 'TBA' / '') must reflow out at the READ site, never reach
+          // the bold `tprimary` / eyebrow / meta. (`assigned_names` is a
+          // string[]; empties are already filtered upstream in the projection.)
+          // A leg with NO surviving real field (no stage, no date, no time, no
+          // names) is dropped entirely so the list never shows an empty row.
+          const legs = (transportation ? transportation.schedule : []).flatMap((leg) => {
+            const stage = !shouldHideGenericOptional(leg.stage) ? leg.stage : null;
+            const date = !shouldHideGenericOptional(leg.date) ? leg.date : null;
+            const time = !shouldHideGenericOptional(leg.time) ? leg.time : null;
+            const assignedNames = leg.assigned_names;
+            // No surviving real content → omit the whole leg.
+            if (stage === null && date === null && time === null && assignedNames.length === 0) {
+              return [];
+            }
+            return [{ stage, date, time, assignedNames }];
+          });
 
-          const vehicleRows: KeyValueRow[] = [];
-          if (vehicle) vehicleRows.push({ k: "Vehicle", v: vehicle });
-          if (licensePlate) vehicleRows.push({ k: "License plate", v: licensePlate });
-          if (color) vehicleRows.push({ k: "Color", v: color });
-          if (parking) vehicleRows.push({ k: "Parking", v: parking });
+          // --- Getting-there travelrows (mock `.travelrow`) ------------------------
+          // Driver + vehicle each collapse to ONE travelrow: the strongest field is
+          // the primary, the remainder fall to meta/conf. Each value is already
+          // sentinel-hidden at the read site above, so a row only appears when at
+          // least one of its fields survived. The `primary ?? meta ?? conf` cascade
+          // guarantees no surviving field is dropped when its preferred anchor
+          // (driver_name / vehicle) is itself a sentinel/null.
+          // Driver row: name is the primary; phone + email fall to meta. When the
+          // name is a sentinel/null, the first surviving contact field is promoted
+          // to primary so nothing is silently dropped.
+          const driverFields = [driverName, driverPhone, driverEmail].filter(Boolean) as string[];
+          const hasDriver = driverFields.length > 0;
+          const driverPrimary = driverFields[0] ?? null;
+          const driverMetaLines = driverFields.slice(1);
+
+          // Vehicle row: vehicle is the primary; license plate + color fall to meta;
+          // parking is the conf line. Same promote-first-survivor cascade.
+          const vehicleFields = [vehicle, licensePlate, color, parking].filter(Boolean) as string[];
+          const hasVehicle = vehicleFields.length > 0;
+          const vehiclePrimary = vehicleFields[0] ?? null;
+          const vehicleMetaLines = vehicleFields.slice(1, -1);
+          const vehicleConf = vehicleFields.length > 1 ? vehicleFields[vehicleFields.length - 1] : null;
 
           const hasGettingThere =
-            driverRows.length > 0 ||
-            vehicleRows.length > 0 ||
+            hasDriver ||
+            hasVehicle ||
             legs.length > 0 ||
             transportNotes !== null;
 
@@ -164,94 +269,110 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
 
           const allHidden = !showFlight && !hasGettingThere && !hasHotels;
 
-          // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT
-          // "Getting there" (ground transport / itinerary), RIGHT "Where you're
-          // staying" (hotels), roughly even (a 1fr/1fr split). <720px collapses to
-          // one column, getting-there above hotels. The grid only mounts when BOTH
-          // blocks have content; with just one present it renders full-width (no
-          // dead column). CSS grid tracks default to align-items:stretch so the two
-          // columns are equal-height at ≥720px (no Tailwind-v4 `.flex` trap); each
-          // column carries `min-w-0` so long strings wrap rather than overflow.
+          // §4.9 mock `split-wide`: at ≥720px the section is two columns — a WIDE
+          // LEFT "Getting there" (ground transport / itinerary) and a NARROW RIGHT
+          // "Where you're staying" (hotels), at the mock's 1.6fr/1fr ratio. <720px
+          // collapses to one column, getting-there above hotels. The grid only
+          // mounts when BOTH blocks have content; with just one present it renders
+          // full-width (no dead 1.6fr track). CSS grid tracks default to
+          // align-items:stretch so the two columns are equal-height at ≥720px (no
+          // Tailwind-v4 `.flex` trap); each column carries `min-w-0` so long strings
+          // wrap rather than overflow.
           const useSplit = hasGettingThere && hasHotels;
 
           const gettingThereBlock = hasGettingThere ? (
             <div data-testid="travel-getting-there">
-                  <SectionCard title="Getting there">
-                    <div className="flex flex-col gap-4">
-                      {driverRows.length > 0 ? <KeyValueRows rows={driverRows} /> : null}
+              <SectionCard title="Getting there">
+                {/* Mock `.travelrow` list — driver / vehicle / itinerary legs as
+                    icon-led rows. The list is a single flush column; each row's
+                    first/last padding + hairline border is handled by TravelRow. */}
+                <div className="flex flex-col">
+                  {hasDriver && driverPrimary ? (
+                    <TravelRow
+                      mode="ground"
+                      label="Driver"
+                      primary={driverPrimary}
+                      meta={
+                        driverMetaLines.length > 0 ? (
+                          <span className="tabular-nums">{driverMetaLines.join(" · ")}</span>
+                        ) : undefined
+                      }
+                    />
+                  ) : null}
 
-                      {vehicleRows.length > 0 ? (
-                        <div
-                          className={[driverRows.length > 0 ? "border-t border-border pt-4" : ""]
-                            .filter(Boolean)
-                            .join(" ")}
-                        >
-                          <KeyValueRows rows={vehicleRows} />
-                        </div>
-                      ) : null}
+                  {hasVehicle && vehiclePrimary ? (
+                    <TravelRow
+                      mode="ground"
+                      label="Vehicle"
+                      primary={vehiclePrimary}
+                      meta={
+                        vehicleMetaLines.length > 0 ? vehicleMetaLines.join(" · ") : undefined
+                      }
+                      conf={vehicleConf ?? undefined}
+                    />
+                  ) : null}
 
-                      {legs.length > 0 ? (
-                        <ol
-                          className={[
-                            "flex flex-col gap-3",
-                            driverRows.length > 0 || vehicleRows.length > 0
-                              ? "border-t border-border pt-4"
-                              : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                        >
-                          {legs.map((leg, idx) => (
-                            <li
-                              key={`${leg.stage}-${leg.date ?? "no-date"}-${idx}`}
-                              data-testid="travel-schedule-row"
-                              className="flex flex-col gap-1"
-                            >
-                              <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                                {leg.stage}
-                              </p>
-                              <p className="text-sm text-text">
-                                {leg.date ? (
-                                  <time
-                                    dateTime={leg.date}
-                                    className="font-semibold text-text-strong"
-                                  >
-                                    {formatIsoDate(leg.date, "weekday-short")}
-                                  </time>
-                                ) : null}
-                                {leg.date && leg.time ? (
-                                  <span className="text-text-subtle"> · </span>
-                                ) : null}
-                                {leg.time ? <span className="tabular-nums">{leg.time}</span> : null}
-                              </p>
-                              {leg.assigned_names.length > 0 ? (
-                                <p className="text-sm text-text-subtle">
-                                  With:{" "}
-                                  <span className="text-text">{leg.assigned_names.join(", ")}</span>
-                                </p>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ol>
-                      ) : null}
-
-                      {transportNotes !== null ? (
-                        <p
-                          className={[
-                            "text-sm text-text-subtle",
-                            driverRows.length > 0 || vehicleRows.length > 0 || legs.length > 0
-                              ? "border-t border-border pt-4"
-                              : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                        >
-                          {transportNotes}
-                        </p>
-                      ) : null}
-                    </div>
-                  </SectionCard>
+                  {legs.map((leg, idx) => {
+                    // Each sub-field is already sentinel-hidden at the read site
+                    // above, so a non-null `date` / `time` / `stage` is real
+                    // content. The date is the primary line; when a leg has no
+                    // date, the time (else the stage) is promoted so the row is
+                    // never blank — and the promoted field is then not repeated
+                    // in the meta line. A leg with no stage label drops the
+                    // eyebrow (empty `label` → TravelRow renders a blank eyebrow,
+                    // acceptable per its presentational contract).
+                    const dateIsPrimary = leg.date !== null;
+                    const timeIsPrimary = !dateIsPrimary && leg.time !== null;
+                    // When neither date nor time survives, the stage becomes the
+                    // primary; in that case it must NOT also be the eyebrow.
+                    const stageIsPrimary = !dateIsPrimary && !timeIsPrimary && leg.stage !== null;
+                    const label = stageIsPrimary ? "" : (leg.stage ?? "");
+                    const showTimeInMeta = dateIsPrimary && leg.time !== null;
+                    const hasNames = leg.assignedNames.length > 0;
+                    const legMeta =
+                      showTimeInMeta || hasNames ? (
+                        <>
+                          {showTimeInMeta ? (
+                            <span className="tabular-nums">{leg.time}</span>
+                          ) : null}
+                          {showTimeInMeta && hasNames ? (
+                            <span className="text-text-faint"> · </span>
+                          ) : null}
+                          {hasNames ? (
+                            <span>
+                              With{" "}
+                              <span className="text-text">{leg.assignedNames.join(", ")}</span>
+                            </span>
+                          ) : null}
+                        </>
+                      ) : undefined;
+                    return (
+                      <TravelRow
+                        key={`${leg.stage ?? "no-stage"}-${leg.date ?? "no-date"}-${idx}`}
+                        mode="ground"
+                        label={label}
+                        primary={
+                          dateIsPrimary ? (
+                            <time dateTime={leg.date!}>
+                              {formatIsoDate(leg.date!, "weekday-short")}
+                            </time>
+                          ) : (
+                            (leg.time ?? leg.stage)
+                          )
+                        }
+                        meta={legMeta}
+                      />
+                    );
+                  })}
                 </div>
+
+                {transportNotes !== null ? (
+                  <p className="mt-3.5 border-t border-border pt-3.5 text-[13px] leading-relaxed text-text-subtle">
+                    {transportNotes}
+                  </p>
+                ) : null}
+              </SectionCard>
+            </div>
           ) : null;
 
           const hotelsBlock = hasHotels ? (
@@ -366,7 +487,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
               ) : null}
 
               {useSplit ? (
-                <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-2 min-[720px]:items-stretch">
+                <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch">
                   <div
                     data-testid="travel-column"
                     data-travel-column="getting-there"
