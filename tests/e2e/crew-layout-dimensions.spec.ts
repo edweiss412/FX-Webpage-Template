@@ -478,6 +478,107 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
     ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
   });
 
+  // ── Today Mode B — the PERSISTENT split-wide (the non-show-day desktop
+  // two-column treatment; the fix for the wrapped/off-day Today stretching its
+  // cards full-bleed). Overriding the frozen server clock to a POST-show instant
+  // (2026-04-25 — the Waldorf seed's show days are 2026-04-21/22) makes
+  // `isShowDay` false → Mode B. The seed has a GS room with set/show/strike times
+  // (→ a "Key times" card in the LEFT day-context column) AND a hotel + venue (→
+  // the quick-cards RIGHT column), so [data-testid="today-mode-b-grid"] mounts.
+  // Mode B uses `items-start` (the day-context + cards stacks differ in height),
+  // so this asserts the 1.6 ratio + side-by-side (NOT equal-height) at ≥720px and
+  // the single full-width stack at 390px.
+  test("today Mode B: persistent split-wide 1.6 ratio (≥720px) / stacked (390px) on a non-show-day", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+
+    // Override the beforeEach show-day-1 clock with a POST-show instant → Mode B.
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": "2026-04-25T12:00:00Z",
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+
+    // First prove Mode B actually mounted (not Mode A, not the lone-stack fallback).
+    await page.setViewportSize({ width: 1000, height: 1000 });
+    await gotoSection(page, "today");
+    await expect(
+      page.getByTestId("today-mode-a-grid"),
+      "post-show Today must be Mode B (no run-of-show), not Mode A",
+    ).toHaveCount(0);
+    const grid = page.getByTestId("today-mode-b-grid");
+    await expect(
+      grid,
+      "Today Mode B persistent split-wide grid must mount (non-show-day + key-times LEFT + quick-cards RIGHT)",
+    ).toBeVisible();
+    // LEFT = day-context (key times); RIGHT = the quick-cards stack.
+    await expect(page.getByTestId("today-day-context")).toBeVisible();
+    await expect(page.getByTestId("today-quick-cards")).toBeVisible();
+
+    // ≥720px: the two grid children are side-by-side, 1.6 ratio (NOT equal-height
+    // — Mode B is items-start, the two stacks differ in height by design).
+    const childRects: Rect[] = await grid.evaluate((el) =>
+      Array.from(el.children).map((c) => {
+        const r = (c as HTMLElement).getBoundingClientRect();
+        return {
+          top: r.top,
+          left: r.left,
+          right: r.right,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        };
+      }),
+    );
+    expect(childRects.length, "Today Mode B grid must have exactly two columns").toBe(2);
+    const [left, right] = childRects as [Rect, Rect];
+    expect(right.left, "@1000px Today Mode B columns must be side-by-side").toBeGreaterThan(
+      left.left + 1,
+    );
+    const expectedLeft = 1.6 * right.width;
+    expect(
+      Math.abs(left.width - expectedLeft),
+      `@1000px Today Mode B left (day-context) must be ≈1.6× the right (quick-cards); left=${left.width} right=${right.width} ratio=${(left.width / right.width).toFixed(4)}`,
+    ).toBeLessThanOrEqual(TOL_PX);
+
+    // 390px: stacked, single full-width column, no horizontal overflow.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoSection(page, "today");
+    const gridNarrow = page.getByTestId("today-mode-b-grid");
+    await expect(gridNarrow).toBeVisible();
+    const narrowRects: Rect[] = await gridNarrow.evaluate((el) =>
+      Array.from(el.children).map((c) => {
+        const r = (c as HTMLElement).getBoundingClientRect();
+        return {
+          top: r.top,
+          left: r.left,
+          right: r.right,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        };
+      }),
+    );
+    expect(narrowRects.length, "Today Mode B grid must still have two columns at 390px").toBe(2);
+    const [na, nb] = narrowRects as [Rect, Rect];
+    expect(
+      nb.top,
+      `@390px Today Mode B columns must stack (col2.top ≥ col1.bottom); col2.top=${nb.top} col1.bottom=${na.bottom}`,
+    ).toBeGreaterThanOrEqual(na.bottom - TOL_TIGHT);
+    expect(
+      Math.abs(na.left - nb.left),
+      `@390px stacked Today Mode B columns must share a left edge; ${na.left} vs ${nb.left}`,
+    ).toBeLessThanOrEqual(TOL_TIGHT);
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(
+      scrollWidth,
+      `@390px Today (Mode B) must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
+    ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
+  });
+
   // ── Schedule date badge is 50px wide (DayCard.tsx `w-[50px]`). ──
   test("schedule date badge is 50px wide", async ({ page }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;

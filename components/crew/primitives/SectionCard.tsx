@@ -40,12 +40,15 @@ export function SectionCard({ icon, title, action, children }: SectionCardProps)
     >
       {hasHeader ? (
         <header className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5">
+          <div className="flex min-w-0 items-center gap-2.5">
             {icon !== undefined ? (
+              // Mock `.card-head .ico`: a sunken rounded square housing a ~15px
+              // glyph (matches the established FactRows `.mini` treatment so card
+              // headers and fact rows read as one icon family).
               <span
                 data-slot="section-card-icon"
                 aria-hidden="true"
-                className="flex shrink-0 items-center text-text-subtle"
+                className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-[15px]"
               >
                 {icon}
               </span>

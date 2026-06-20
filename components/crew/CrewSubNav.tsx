@@ -41,11 +41,8 @@ import {
   UsersIcon,
 } from "@/components/crew/icons/sectionIcons";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
-import {
-  ALLOWED_GATE_VALUES,
-  BASE_SECTION_IDS,
-  type SectionId,
-} from "@/lib/crew/resolveActiveSection";
+import { buildSectionHref } from "@/lib/crew/sectionHref";
+import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 
 const SECTION_LABELS: Record<SectionId, string> = {
   today: "Today",
@@ -73,8 +70,6 @@ const SECTION_ICON: Record<SectionId, (props: { className?: string }) => JSX.Ele
   budget: ReceiptIcon,
 };
 
-const ALLOWED_GATE_SET = new Set<string>(ALLOWED_GATE_VALUES);
-
 export interface CrewSubNavProps {
   activeSection: SectionId;
   budgetVisible: boolean;
@@ -91,15 +86,10 @@ export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
 
   const navigate = useCallback(
     (id: SectionId) => {
-      // FRESH params — NOT a clone of the current query. Carry only the
-      // section and an allow-listed gate; drop everything else.
-      const next = new URLSearchParams();
-      next.set("s", id);
-      const gate = searchParams.get("gate");
-      if (gate !== null && ALLOWED_GATE_SET.has(gate)) {
-        next.set("gate", gate);
-      }
-      router.push(`${pathname}?${next.toString()}`, { scroll: false });
+      // FRESH params via the shared builder — carries only `s` + an allow-listed
+      // `gate`, drops everything else (single source of truth with
+      // SectionChipLink; lib/crew/sectionHref.ts).
+      router.push(buildSectionHref(pathname, searchParams, id), { scroll: false });
       window.scrollTo(0, 0);
     },
     [pathname, router, searchParams],
