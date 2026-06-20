@@ -34,14 +34,17 @@ import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
+import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
+import { aggregateDays, displayableEntries } from "@/lib/crew/agendaDisplay";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 
 // Ported from NotesTile.tsx (:57-58) — the 5-source aggregation caps.
@@ -133,7 +136,7 @@ type TodaySectionProps = {
   showId: string;
 };
 
-export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.Element {
+export function TodaySection({ data, viewer, today, showId }: TodaySectionProps): JSX.Element {
   // Single canonical viewer resolution: flags / restriction / name / isAdmin.
   // admin → all-flags + none-restriction; crew/admin_preview → matched row;
   // malformed projection throws MalformedProjectionError (INTENTIONALLY outside
@@ -148,6 +151,47 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
         showId={showId}
         sheetName={data.show.title}
         render={() => {
+          // ── Mode A gate (the today-only run-of-show fork; §5). ────────────
+          // The Today run-of-show timeline is a NEW data surface that MUST
+          // enforce the IDENTICAL date-restriction trust boundary as
+          // ScheduleSection — via the SAME shared code path, never a
+          // re-implemented predicate. The viewer is resolved OUTSIDE this
+          // closure (`ctx`, above) so a malformed projection throws
+          // MalformedProjectionError at the route-level infra arm, not the
+          // per-block WrappedSection fallback (mirrors ScheduleSection).
+          //
+          //   - unknown_asterisk → ZERO leak: the *** marker is the operator's
+          //     "haven't told us yet" signal. NO timeline, NO show-day text →
+          //     Mode B (identical to ScheduleSection.tsx unknown_asterisk arm).
+          //   - todayIso is the SHOW-tz date (todayIsoInShowTimezone) — NEVER
+          //     new Date()/UTC. Around tz midnight the wrong run-of-show day
+          //     must not show, and a date-restricted viewer must not see the
+          //     NEXT day's agenda before it is actually that day in the show tz.
+          //   - isShowDay: todayIso ∈ aggregateDays(dates) (Codex plan R1 HIGH)
+          //     — guards a stale/off-aggregate runOfShow key whose date is not
+          //     one of THIS show's days.
+          //   - eligible: kind==='none' OR (kind==='explicit' AND days has
+          //     todayIso) — the SAME rule Schedule uses to intersect.
+          //   - todays: displayableEntries(...) — the SAME leak-critical filter
+          //     (URL-only/sentinel titles never occupy a row).
+          //
+          // Mode A iff isShowDay && eligible && todays.length > 0. Fail-closed:
+          // any ambiguity (unknown_asterisk, not a show day, ineligible, empty
+          // filter, no runOfShow) → Mode B (the full-width stack, unchanged).
+          // Data-driven render fork — instant, no animation (§ Transitions).
+          const dateRestriction = ctx.dateRestriction;
+          const todayIso = todayIsoInShowTimezone(data.show, today);
+          const isShowDay = aggregateDays(data.show.dates).some((d) => d.date === todayIso);
+          const eligible =
+            dateRestriction.kind === "none" ||
+            (dateRestriction.kind === "explicit" &&
+              new Set(dateRestriction.days).has(todayIso));
+          const todays =
+            dateRestriction.kind === "unknown_asterisk"
+              ? []
+              : displayableEntries(data.runOfShow?.[todayIso]);
+          const modeA = isShowDay && eligible && todays.length > 0;
+
           const rightNowContext = buildRightNowContext({
             show: data.show,
             dateRestriction: ctx.dateRestriction,
@@ -226,6 +270,73 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
           // block is admin-only (crew omission); no second upsertAdminAlert.
           const contactsFetchFailed = Boolean(data.tileErrors["contacts"]) && ctx.isAdmin;
 
+          // §4.9 quick-cards STACK (Tonight / Where / Need-something). In Mode B
+          // these three cards stack in a single full-width vertical column at ALL
+          // widths (the Phase-1 owner decision: stacking avoids the 390px clip).
+          // In Mode A this SAME stack becomes the RIGHT (narrow) column of the
+          // split-wide grid, run-of-show on the LEFT. The container is a plain
+          // `flex flex-col gap-3` (no `items-stretch`, no row, no per-card
+          // `flex-1`, no equal-height invariant). Each card keeps `min-w-0` so a
+          // long hotel/venue string wraps instead of overflowing 390px. The stack
+          // only mounts when at least one card has data — a fully-empty stack
+          // would reflow an empty band.
+          const quickCardsStack =
+            firstHotel || venue || primaryContact ? (
+              <div data-testid="today-quick-cards" className="flex flex-col gap-3">
+                {firstHotel ? (
+                  <div data-testid="today-card-tonight" className="flex min-w-0 flex-col">
+                    <div data-testid="today-tonight" className="flex flex-col">
+                      <SectionCard title="Tonight">
+                        <KeyValueRows rows={tonightRows} />
+                      </SectionCard>
+                    </div>
+                  </div>
+                ) : null}
+
+                {venue ? (
+                  <div data-testid="today-card-where" className="flex min-w-0 flex-col">
+                    <div data-testid="today-where" className="flex flex-col">
+                      <SectionCard title="Where">
+                        <KeyValueRows rows={whereRows} />
+                      </SectionCard>
+                    </div>
+                  </div>
+                ) : null}
+
+                {primaryContact ? (
+                  <div
+                    data-testid="today-card-need-something"
+                    className="flex min-w-0 flex-col"
+                  >
+                    <div data-testid="today-need-something" className="flex flex-col">
+                      <SectionCard title="Need something">
+                        <ul className="flex flex-col gap-3">
+                          <PersonRow
+                            person={{
+                              ...(primaryContact.name != null
+                                ? { name: primaryContact.name }
+                                : {}),
+                              fallbackLabel:
+                                primaryContact.kind === "in_house_av"
+                                  ? "In-house AV"
+                                  : "Venue contact",
+                              ...(primaryContact.phone != null
+                                ? { phone: primaryContact.phone }
+                                : {}),
+                              ...(primaryContact.email != null
+                                ? { email: primaryContact.email }
+                                : {}),
+                              primary: true,
+                            }}
+                          />
+                        </ul>
+                      </SectionCard>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null;
+
           return (
             <>
               <RightNowHero context={rightNowContext} />
@@ -236,70 +347,30 @@ export function TodaySection({ data, viewer, showId }: TodaySectionProps): JSX.E
 
               <KeyTimesStrip anchors={anchors} />
 
-              {/* §4.9 quick-cards STACK (Tonight / Where / Need-something). Per
-                  the Claude design mock these three cards stack in a single
-                  full-width vertical column at ALL widths (owner decision) — they
-                  are NOT a horizontal equal-height row. So the container is a plain
-                  `flex flex-col gap-3`; there is no `items-stretch`, no row, no
-                  per-card `flex-1` row-slot, and no equal-height invariant. Each
-                  card keeps `min-w-0` so a long hotel/venue string wraps instead of
-                  overflowing the 390px viewport. The stack only mounts when at least
-                  one card has data — a fully-empty stack would reflow an empty band. */}
-              {firstHotel || venue || primaryContact ? (
-                <div data-testid="today-quick-cards" className="flex flex-col gap-3">
-                  {firstHotel ? (
-                    <div data-testid="today-card-tonight" className="flex min-w-0 flex-col">
-                      <div data-testid="today-tonight" className="flex flex-col">
-                        <SectionCard title="Tonight">
-                          <KeyValueRows rows={tonightRows} />
-                        </SectionCard>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {venue ? (
-                    <div data-testid="today-card-where" className="flex min-w-0 flex-col">
-                      <div data-testid="today-where" className="flex flex-col">
-                        <SectionCard title="Where">
-                          <KeyValueRows rows={whereRows} />
-                        </SectionCard>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {primaryContact ? (
-                    <div
-                      data-testid="today-card-need-something"
-                      className="flex min-w-0 flex-col"
-                    >
-                      <div data-testid="today-need-something" className="flex flex-col">
-                        <SectionCard title="Need something">
-                          <ul className="flex flex-col gap-3">
-                            <PersonRow
-                              person={{
-                                ...(primaryContact.name != null
-                                  ? { name: primaryContact.name }
-                                  : {}),
-                                fallbackLabel:
-                                  primaryContact.kind === "in_house_av"
-                                    ? "In-house AV"
-                                    : "Venue contact",
-                                ...(primaryContact.phone != null
-                                  ? { phone: primaryContact.phone }
-                                  : {}),
-                                ...(primaryContact.email != null
-                                  ? { email: primaryContact.email }
-                                  : {}),
-                                primary: true,
-                              }}
-                            />
-                          </ul>
-                        </SectionCard>
-                      </div>
-                    </div>
-                  ) : null}
+              {/* §5 Today mode fork — data + privacy-driven, INSTANT (no
+                  animation). Mode A (split-wide): the run-of-show timeline LEFT
+                  (1.6fr), the quick-cards stack RIGHT (1fr); collapses to a single
+                  column below 720px (the safe stack the full-width Mode B was
+                  created to preserve). CSS grid tracks default to
+                  `align-items: stretch`, so both columns share an equal height at
+                  ≥720px without the Tailwind-v4 `.flex`-no-stretch trap (DESIGN §7).
+                  Each column carries `min-w-0` so long strings wrap. Mode B: the
+                  quick-cards stack alone, full-width, UNCHANGED. */}
+              {modeA ? (
+                <div
+                  data-testid="today-mode-a-grid"
+                  className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                >
+                  <div data-testid="today-run-of-show" className="min-w-0">
+                    <SectionCard title="Run of show">
+                      <RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />
+                    </SectionCard>
+                  </div>
+                  <div className="min-w-0">{quickCardsStack}</div>
                 </div>
-              ) : null}
+              ) : (
+                quickCardsStack
+              )}
 
               {showDress ? (
                 <div data-testid="today-dress">

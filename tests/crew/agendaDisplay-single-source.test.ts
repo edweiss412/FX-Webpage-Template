@@ -20,7 +20,17 @@ describe("agenda-display single source (Today/Schedule privacy-contract drift gu
     expect(s).toContain(SHARED);
     expect(s).not.toMatch(/function isDisplayableEntry/); // moved out, not redefined
   });
-  // NOTE: The TodaySection assertion (it imports the SAME predicate + renderer
-  // from the shared module) is added in Task 9, once TodaySection.tsx exists and
-  // is wired to @/lib/crew/agendaDisplay + @/components/crew/primitives/RunOfShowList.
+  it("TodaySection imports the predicate + renderer from the shared module (no local copy)", () => {
+    // Task 9: the Today run-of-show timeline keys off the SAME displayable-entry
+    // trust boundary + day aggregate + renderer as Schedule, so the Today/Schedule
+    // privacy contracts cannot drift. Assert the imports come from the shared
+    // module (+ the shared RunOfShowList primitive) and that Today defines NO
+    // local copy of the predicate.
+    const t = src("components/crew/sections/TodaySection.tsx");
+    expect(t).toContain(SHARED);
+    expect(t).toContain("@/components/crew/primitives/RunOfShowList");
+    expect(t).toMatch(/displayableEntries/); // consumed from the shared module
+    expect(t).toMatch(/aggregateDays/); // the show-day membership source
+    expect(t).not.toMatch(/function isDisplayableEntry/); // never re-implemented locally
+  });
 });
