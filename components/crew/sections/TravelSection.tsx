@@ -110,20 +110,20 @@ function TravelRow({
         </p>
         <p
           data-testid="travelrow-primary"
-          className="min-w-0 break-words text-[15px] font-bold leading-snug text-text-strong"
+          className="min-w-0 wrap-break-word text-[15px] font-bold leading-snug text-text-strong"
         >
           {primary}
         </p>
         {meta !== undefined && meta !== null ? (
           <p
             data-testid="travelrow-meta"
-            className="min-w-0 break-words text-[13px] leading-snug text-text-subtle"
+            className="min-w-0 wrap-break-word text-[13px] leading-snug text-text-subtle"
           >
             {meta}
           </p>
         ) : null}
         {conf !== undefined && conf !== null ? (
-          <p className="min-w-0 break-words text-[11.5px] leading-snug tabular-nums text-text-faint">
+          <p className="min-w-0 wrap-break-word text-[11.5px] leading-snug tabular-nums text-text-faint">
             {conf}
           </p>
         ) : null}
@@ -471,7 +471,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                         // (e.g. "11:29am", "5/13", "HQQ79F"); tabular figures so the
                         // digits read at a glance and don't shift width. Alphabetic
                         // tokens (airport codes, carrier) are unaffected by tnum.
-                        className="text-sm leading-relaxed text-text tabular-nums"
+                        className="text-sm/relaxed  text-text tabular-nums"
                       >
                         {leg}
                       </span>

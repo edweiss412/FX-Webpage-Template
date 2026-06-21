@@ -54,6 +54,12 @@ export function PageTransition({ children }: { children: ReactNode }) {
   // Animate only on post-mount client navigations, and never for reduced motion.
   // `initial={false}` renders the element AT the settled state with no enter
   // animation (used for SSR/first-paint and for every reduced-motion render).
+  // Reading `hasMounted.current` during render is deliberate: a `useState` flag
+  // would re-render on mount and replay the enter animation on first paint —
+  // exactly the "FIRST PAINT IS AT REST" behavior documented above forbids. The
+  // ref flips silently in the mount effect; `animate` only becomes true on the
+  // NEXT render (a navigation, which changes the pathname key).
+  // eslint-disable-next-line react-hooks/refs -- intentional mount-once flag; see above
   const animate = !prefersReducedMotion && hasMounted.current;
 
   return (

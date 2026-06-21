@@ -81,7 +81,7 @@ export function DayCard({ day, phase, today, meta }: DayCardProps) {
         >
           {dow}
         </span>
-        <span className="mt-0.5 text-[23px] font-extrabold leading-none -tracking-[0.03em] text-text-strong">
+        <span className="mt-0.5 text-[23px] font-extrabold leading-none tracking-[-0.03em] text-text-strong">
           {dnum}
         </span>
       </div>

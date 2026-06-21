@@ -13,11 +13,7 @@
 // OAuth cannot authenticate against any of these domains — the J3 walk
 // would be unwalkable.
 import { canonicalize } from "@/lib/email/canonicalize";
-import type {
-  DateRestriction,
-  StageRestriction,
-  WorkPhase,
-} from "@/lib/parser/types";
+import type { DateRestriction, StageRestriction } from "@/lib/parser/types";
 
 // =============================================================================
 // Canonical enums per spec §3.3 + §3.3.1.

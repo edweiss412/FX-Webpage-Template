@@ -36,7 +36,11 @@ vi.mock("next/navigation", () => ({
 // WrappedSection with a render block that throws — so the render-failure
 // producer fires through the production code path. The active section is forced
 // to `venue` via rawSection below.
-const mockSection = (testid: string) => () => <section data-testid={testid} />;
+const mockSection = (testid: string) => {
+  const MockSection = () => <section data-testid={testid} />;
+  MockSection.displayName = `MockSection(${testid})`;
+  return MockSection;
+};
 vi.mock("@/components/crew/sections/TodaySection", () => ({
   TodaySection: mockSection("section-today"),
 }));

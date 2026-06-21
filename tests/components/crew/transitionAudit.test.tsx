@@ -29,6 +29,7 @@
  * re-enter Today) are exercised in the real browser — see the e2e suite.
  */
 import "@testing-library/jest-dom/vitest";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -177,7 +178,6 @@ describe("§4.10 transition audit — instant-by-design rows", () => {
     // Class-sweep: walk the whole crew subtree and assert the ONLY files importing
     // framer-motion are the two inventory surfaces. A new <motion.*> in any section
     // primitive would be an undocumented animation (a §4.10 violation).
-    const { execSync } = require("node:child_process") as typeof import("node:child_process");
     const out = execSync(
       "grep -rlE 'framer-motion|motion/react' components/crew/ || true",
       { cwd: process.cwd(), encoding: "utf8" },

@@ -1149,7 +1149,6 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
 
   let slug = "";
   let shareToken = "";
-  let showId = "";
   let previewCrewId = "";
 
   /**
@@ -1176,7 +1175,6 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
     if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
-    showId = seeded.showId;
     shareToken = await lookupShareToken(seeded.showId);
     // A real crew member of this published+non-archived show for the preview-as
     // route. The LEAD qualifies and is guaranteed present by lookupSeededShow.

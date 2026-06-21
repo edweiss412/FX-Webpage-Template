@@ -62,7 +62,7 @@ export async function unarchiveShowReturning(showId: string): Promise<boolean> {
   });
 }
 
-export async function readShow(showId: string): Promise<Record<string, any>> {
+export async function readShow(showId: string): Promise<Record<string, unknown>> {
   const [row] = await sql`select * from public.shows where id = ${showId}::uuid`;
   if (!row) throw new Error(`readShow: show not found (${showId})`);
   return row;
@@ -268,7 +268,7 @@ async function raceArchiveAgainst(
   showId: string,
   otherFn: AdminRpcFn,
 ): Promise<{ concurrentThrew: boolean }> {
-  const { drive_file_id: drive } = await readShow(showId);
+  const { drive_file_id: drive } = (await readShow(showId)) as { drive_file_id: string };
   const a = newConn();
   const b = newConn();
   let concurrentThrew = false;

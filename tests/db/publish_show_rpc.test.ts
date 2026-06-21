@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  seedHeldShow, seedArchivedShow, seedFinalizeOwnedShow, asAdminRpc, readShow, readShareToken,
+  seedHeldShow, seedArchivedShow, seedFinalizeOwnedShow, asAdminRpc, readShow,
 } from "@/tests/db/_b2Helpers";
 
 describe("publish_show (atomic freshness gate)", () => {

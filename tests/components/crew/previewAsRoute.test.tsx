@@ -165,7 +165,11 @@ vi.mock("@/components/crew/RightNowHero", () => ({
 // the real sections dereference (e.g. `agenda_links`). Section CONTENT is pinned
 // elsewhere (section unit tests + crewShellSections.test.tsx), so each section is
 // mocked to a marker — mirroring the crewShell.test.tsx island-mock strategy.
-const previewSectionMarker = (testid: string) => () => <section data-testid={testid} />;
+const previewSectionMarker = (testid: string) => {
+  const MockSection = () => <section data-testid={testid} />;
+  MockSection.displayName = `MockSection(${testid})`;
+  return MockSection;
+};
 vi.mock("@/components/crew/sections/TodaySection", () => ({
   TodaySection: previewSectionMarker("section-today"),
 }));

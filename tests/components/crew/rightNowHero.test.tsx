@@ -119,7 +119,6 @@ function showDates() {
   };
 }
 
-const TZ = "America/New_York";
 const at = (iso: string) => new Date(`${iso}T16:00:00Z`);
 
 /**

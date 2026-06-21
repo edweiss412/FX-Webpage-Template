@@ -9,7 +9,7 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
-import type { CrewMemberRow, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { CrewMemberRow, ParseResult } from "@/lib/parser/types";
 
 type FakeShowRow = {
   driveFileId: string;

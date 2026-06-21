@@ -7,7 +7,6 @@ import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
 import type { TriggeredReviewItem } from "@/lib/parser/types";
-import type { PreviousCrewMember } from "@/lib/sync/applyParseResult";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
 
 import {

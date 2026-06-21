@@ -54,8 +54,13 @@ describe("DEF-3 — runManualSyncForShow archived guard + manual deferral delete
 
   it("on a Held show: deletes the live deferral (R30) and clears requires_resync on a clean (applied) outcome", async () => {
     const tx = fakeTx({ archived: false });
-    const processOneFile = vi.fn(async (_id: string, _mode: unknown, _meta: unknown, deps: any) =>
-      deps.withShowLock("drive-1", async () => ({ outcome: "applied", showId: "show-1" })),
+    const processOneFile = vi.fn(
+      async (
+        _id: string,
+        _mode: unknown,
+        _meta: unknown,
+        deps: { withShowLock: <T>(key: string, fn: () => Promise<T>) => Promise<T> },
+      ) => deps.withShowLock("drive-1", async () => ({ outcome: "applied", showId: "show-1" })),
     );
     const result = await runManualSyncForShow("drive-1", "manual", {
       withPipelineLock: async (_id, fn) => fn(tx),

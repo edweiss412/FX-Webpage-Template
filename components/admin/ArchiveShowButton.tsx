@@ -190,7 +190,7 @@ function ConfirmButton({ onConfirmClick, compact = false }: { onConfirmClick: ()
       aria-busy={pending}
       className={
         compact
-          ? "inline-flex min-h-tap-min min-w-tap-min max-w-[22rem] items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-3 py-1.5 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          ? "inline-flex min-h-tap-min min-w-tap-min max-w-88 items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-3 py-1.5 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           : "inline-flex min-h-confirm-box min-w-[18rem] max-w-full items-center justify-center rounded-sm border border-status-warn bg-warning-bg px-4 py-2 text-left text-sm font-semibold text-warning-text transition-colors duration-fast hover:bg-warning-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       }
     >

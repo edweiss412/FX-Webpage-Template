@@ -41,7 +41,7 @@ function segClass(selected: boolean): string {
     : `${SEG_BASE} text-text-subtle hover:text-text-strong`;
 }
 
-export function DashboardBucketSegmentedControl({ bucket, activeCount, archivedCount }: Props) {
+export function DashboardBucketSegmentedControl({ bucket, archivedCount }: Props) {
   const archivedDisabled = archivedCount === 0;
   return (
     <div

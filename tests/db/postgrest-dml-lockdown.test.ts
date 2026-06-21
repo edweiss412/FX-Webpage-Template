@@ -541,7 +541,6 @@ async function postgrestRequest(
 }
 
 describe("PostgREST DML lockdown — RPC-gated tables (Layers 2+3)", () => {
-  // eslint-disable-next-line no-console
   console.info(
     `[postgrest-dml-lockdown Layers 2+3] running against ${scopeLabel}`,
   );

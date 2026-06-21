@@ -343,7 +343,7 @@ export function ShowsTable({
                         {/* M12.10: title WRAPS (no truncate) — min-w-0 + break-words
                             let a long name flow to a second line; the row stays
                             vertically centered (grid items-center). */}
-                        <span className="min-w-0 break-words text-sm font-semibold text-text-strong">
+                        <span className="min-w-0 wrap-break-word text-sm font-semibold text-text-strong">
                           {rowTitle(row)}
                         </span>
                         <StatePill row={row} />

@@ -196,7 +196,7 @@ function scanFileForRateLimitAdminContract(
       let probe = i + 1;
       while (probe < lines.length && /^\s*(#|<!--|$)/.test(lines[probe]!)) probe++;
       if (probe < lines.length && /^```/.test(lines[probe]!)) {
-        let s = probe;
+        const s = probe;
         let e = probe;
         while (e + 1 < lines.length && !/^```/.test(lines[e + 1]!)) e++;
         if (e + 1 < lines.length) e++;
