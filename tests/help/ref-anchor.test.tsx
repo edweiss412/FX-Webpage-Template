@@ -17,7 +17,11 @@ describe("<RefAnchor>", () => {
   // r5 fix per D-r4 finding 1: /help/errors lists every catalog code as an h3
   // beneath an h2-shaped page heading. Support optional `as` prop for that case.
   it("renders an h3 when `as='h3'` (used in /help/errors per-code list)", () => {
-    render(<RefAnchor id="X" as="h3">X</RefAnchor>);
+    render(
+      <RefAnchor id="X" as="h3">
+        X
+      </RefAnchor>,
+    );
     const heading = screen.getByRole("heading", { level: 3 });
     expect(heading).toHaveAttribute("id", "X");
   });
@@ -46,7 +50,11 @@ describe("<RefAnchor>", () => {
     // Cast simulates a typo'd MDX call site; MDX files are not typechecked,
     // so the TS union alone is insufficient.
     expect(() =>
-      render(<RefAnchor id="X" as={"h4" as "h2" | "h3"}>x</RefAnchor>)
+      render(
+        <RefAnchor id="X" as={"h4" as "h2" | "h3"}>
+          x
+        </RefAnchor>,
+      ),
     ).toThrow(/as.*h2.*h3/i);
   });
 
@@ -66,6 +74,8 @@ describe("<RefAnchor>", () => {
     const linkBtn = screen.getByRole("link", { name: /copy link to this section/i });
     linkBtn.click();
 
-    expect(writeText).toHaveBeenCalledWith("http://localhost:3000/help/errors#REPORT_HORIZON_EXPIRED");
+    expect(writeText).toHaveBeenCalledWith(
+      "http://localhost:3000/help/errors#REPORT_HORIZON_EXPIRED",
+    );
   });
 });

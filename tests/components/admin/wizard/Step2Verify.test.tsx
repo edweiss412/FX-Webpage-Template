@@ -66,9 +66,7 @@ describe("Step2Verify", () => {
   test("renders the folder URL input and the verify-and-scan submit button", () => {
     const { getByTestId } = render(<Step2Verify />);
     expect(getByTestId("wizard-step2-folder-url-input")).toBeTruthy();
-    expect(getByTestId("wizard-step2-submit").textContent ?? "").toMatch(
-      /Verify/i,
-    );
+    expect(getByTestId("wizard-step2-submit").textContent ?? "").toMatch(/Verify/i);
   });
 
   test("POSTs the folder URL to /api/admin/onboarding/scan on submit", async () => {
@@ -90,9 +88,7 @@ describe("Step2Verify", () => {
     expect(init.method).toBe("POST");
     expect(init.headers).toMatchObject({ "Content-Type": "application/json" });
     const body = JSON.parse(init.body as string) as { folderUrl?: string };
-    expect(body.folderUrl).toBe(
-      "https://drive.google.com/drive/folders/abc123",
-    );
+    expect(body.folderUrl).toBe("https://drive.google.com/drive/folders/abc123");
   });
 
   test("renders a progress signal while the scan is in flight", async () => {
@@ -149,9 +145,7 @@ describe("Step2Verify", () => {
     expect(summary).toMatch(new RegExp(`\\b${expectedTotal}\\b`));
     // Per-bucket counts come from the fixture too.
     expect(summary).toContain("Sheets ready for review:");
-    expect(getByTestId("wizard-step2-advance").getAttribute("href")).toBe(
-      "/admin?step=3",
-    );
+    expect(getByTestId("wizard-step2-advance").getAttribute("href")).toBe("/admin?step=3");
   });
 
   test("on 400 INVALID_FOLDER_URL renders the catalog dougFacing copy (no raw code)", async () => {
@@ -212,10 +206,7 @@ describe("Step2Verify", () => {
 
   test("on 400 OPERATOR_ERROR_NOT_FOLDER renders the cataloged copy", async () => {
     fetchMock.mockResolvedValue(
-      mockJsonResponse(
-        { ok: false, code: "OPERATOR_ERROR_NOT_FOLDER" },
-        { status: 400 },
-      ),
+      mockJsonResponse({ ok: false, code: "OPERATOR_ERROR_NOT_FOLDER" }, { status: 400 }),
     );
     const { getByTestId } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
@@ -250,9 +241,7 @@ describe("Step2Verify", () => {
         MESSAGE_CATALOG.WIZARD_ISOLATION_INDEXES_MISSING.dougFacing!,
       );
     });
-    expect(container.textContent ?? "").not.toContain(
-      "WIZARD_ISOLATION_INDEXES_MISSING",
-    );
+    expect(container.textContent ?? "").not.toContain("WIZARD_ISOLATION_INDEXES_MISSING");
   });
 
   test("on 200 outcome=superseded calls router.refresh() and renders no error copy (admin-log-only per spec §12.4:2693)", async () => {
@@ -272,9 +261,7 @@ describe("Step2Verify", () => {
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
     expect(queryByTestId("wizard-step2-error")).toBeNull();
     expect(MESSAGE_CATALOG.WIZARD_SESSION_SUPERSEDED_DURING_SCAN.dougFacing).toBeNull();
-    expect(container.textContent ?? "").not.toContain(
-      "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
-    );
+    expect(container.textContent ?? "").not.toContain("WIZARD_SESSION_SUPERSEDED_DURING_SCAN");
   });
 
   test("on network error renders a generic try-again copy without raw error", async () => {

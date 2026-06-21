@@ -155,8 +155,7 @@ export function ArchiveShowButton({ archiveAction, compact = false }: ArchiveSho
           data-testid="archive-show-not-found"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
         >
-          We couldn&rsquo;t find this show anymore. Refresh the page and try
-          again.
+          We couldn&rsquo;t find this show anymore. Refresh the page and try again.
         </p>
       ) : null}
 
@@ -166,8 +165,8 @@ export function ArchiveShowButton({ archiveAction, compact = false }: ArchiveSho
           data-testid="archive-show-generic-error"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
         >
-          Archiving didn&rsquo;t go through. Try again in a moment; if it keeps
-          failing, contact the developer.
+          Archiving didn&rsquo;t go through. Try again in a moment; if it keeps failing, contact the
+          developer.
         </p>
       ) : null}
     </div>
@@ -179,7 +178,13 @@ export function ArchiveShowButton({ archiveAction, compact = false }: ArchiveSho
  * (React 19 requirement). The label is the spec §2.2 links-dead confirm copy.
  * Fixed min-h/min-w matches the resting button so the morph is zero-shift.
  */
-function ConfirmButton({ onConfirmClick, compact = false }: { onConfirmClick: () => void; compact?: boolean }) {
+function ConfirmButton({
+  onConfirmClick,
+  compact = false,
+}: {
+  onConfirmClick: () => void;
+  compact?: boolean;
+}) {
   const { pending } = useFormStatus();
   return (
     <button

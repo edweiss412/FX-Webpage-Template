@@ -29,9 +29,7 @@ function show(id: string, dateIso: string | null, title?: string): CrewShowSumma
     shareToken: `${id.padEnd(64, "0").slice(0, 64)}`,
     venue: null,
     dates:
-      dateIso === null
-        ? null
-        : { set: dateIso, travelIn: null, showDays: [], travelOut: null },
+      dateIso === null ? null : { set: dateIso, travelIn: null, showDays: [], travelOut: null },
   };
 }
 
@@ -95,11 +93,7 @@ describe("partitionMeShows", () => {
   });
 
   it("all-past → featured = most recent past, past list excludes the featured", () => {
-    const shows = [
-      show("p1", "2026-04-15"),
-      show("p2", "2026-03-15"),
-      show("p3", "2026-02-15"),
-    ];
+    const shows = [show("p1", "2026-04-15"), show("p2", "2026-03-15"), show("p3", "2026-02-15")];
     const out = partitionMeShows(shows, today);
     expect(out.featured?.show.id).toBe("p1"); // most recent past
     expect(out.upcoming).toEqual([]);
@@ -110,10 +104,7 @@ describe("partitionMeShows", () => {
     // Pre-R11 the partition silently dropped undated shows. R11 fix:
     // preserve them in their own bucket so the page renders a
     // "Date pending" section with the show link still reachable.
-    const shows = [
-      show("a", "2026-05-20"),
-      show("b", null, "No-date show"),
-    ];
+    const shows = [show("a", "2026-05-20"), show("b", null, "No-date show")];
     const out = partitionMeShows(shows, today);
     expect(out.featured?.show.id).toBe("a");
     expect(out.upcoming).toEqual([]);
@@ -122,10 +113,7 @@ describe("partitionMeShows", () => {
   });
 
   it("R11: only-undated shows → featured null, undated bucket carries them", () => {
-    const shows = [
-      show("a", null, "Show A no date"),
-      show("b", null, "Show B no date"),
-    ];
+    const shows = [show("a", null, "Show A no date"), show("b", null, "Show B no date")];
     const out = partitionMeShows(shows, today);
     expect(out.featured).toBeNull();
     expect(out.upcoming).toEqual([]);
@@ -205,9 +193,10 @@ describe("partitionMeShows", () => {
       ];
       const out = partitionMeShows(shows, today);
       expect(out.featured, `${bad} must NOT be featured (rolls over silently)`).toBeNull();
-      expect(out.undated.map((s) => s.id), `${bad} must land in undated`).toEqual([
-        `bad-${bad}`,
-      ]);
+      expect(
+        out.undated.map((s) => s.id),
+        `${bad} must land in undated`,
+      ).toEqual([`bad-${bad}`]);
     }
   });
 
@@ -558,13 +547,23 @@ describe("partitionMeShows", () => {
   it("falls back through dates.set → dates.travelIn → dates.showDays[0]", () => {
     // dates.set absent → use travelIn.
     const shows: CrewShowSummary[] = [
-      { id: "a", slug: "a", title: "A", shareToken: "a".repeat(64),
+      {
+        id: "a",
+        slug: "a",
+        title: "A",
+        shareToken: "a".repeat(64),
         venue: null,
-        dates: { set: null, travelIn: "2026-05-20", showDays: [], travelOut: null } },
+        dates: { set: null, travelIn: "2026-05-20", showDays: [], travelOut: null },
+      },
       // dates.set + travelIn absent → use showDays[0].
-      { id: "b", slug: "b", title: "B", shareToken: "b".repeat(64),
+      {
+        id: "b",
+        slug: "b",
+        title: "B",
+        shareToken: "b".repeat(64),
         venue: null,
-        dates: { set: null, travelIn: null, showDays: ["2026-06-01"], travelOut: null } },
+        dates: { set: null, travelIn: null, showDays: ["2026-06-01"], travelOut: null },
+      },
     ];
     const out = partitionMeShows(shows, today);
     expect(out.featured?.show.id).toBe("a"); // earliest future via travelIn

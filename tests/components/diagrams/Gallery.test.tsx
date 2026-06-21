@@ -40,9 +40,7 @@ describe("Gallery — thumbnail grid", () => {
     // /_next/image strips auth cookies. Test asserts the raw asset
     // URL directly (the next/image-aware variant was a transient
     // state — see commit history).
-    render(
-      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={items(3)} />,
-    );
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={items(3)} />);
     const imgs = screen.getAllByRole("img");
     expect(imgs).toHaveLength(3);
     for (const img of imgs) {
@@ -110,9 +108,7 @@ describe("Gallery — thumbnail grid", () => {
   });
 
   test("empty items: returns null (whole-gallery-missing — caller-tile reflows)", () => {
-    const { container } = render(
-      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[]} />,
-    );
+    const { container } = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[]} />);
     expect(container.firstChild).toBeNull();
   });
 

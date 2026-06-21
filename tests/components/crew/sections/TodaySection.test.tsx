@@ -47,12 +47,42 @@ afterEach(() => {
 // + notes; NO deleted today-band.
 test("Today renders hero + key-times + Tonight/Where/Need-something + dress + notes; no deleted selectTodayTiles band", () => {
   const data = makeShowForViewer({
-    rooms: [{ id: "r1", kind: "gs", name: "Main", set_time: "11:00 AM", show_time: "1:00 PM", strike_time: "9:00 PM" }],
-    hotelReservations: [{ ordinal: 0, hotel_name: "Hyatt", hotel_address: "1 St", check_in: "2026-05-13", check_out: "2026-05-15", names: [], confirmation_no: null, notes: null }],
+    rooms: [
+      {
+        id: "r1",
+        kind: "gs",
+        name: "Main",
+        set_time: "11:00 AM",
+        show_time: "1:00 PM",
+        strike_time: "9:00 PM",
+      },
+    ],
+    hotelReservations: [
+      {
+        ordinal: 0,
+        hotel_name: "Hyatt",
+        hotel_address: "1 St",
+        check_in: "2026-05-13",
+        check_out: "2026-05-15",
+        names: [],
+        confirmation_no: null,
+        notes: null,
+      },
+    ],
     contacts: [{ kind: "venue", name: "Sam", phone: "555-111-2222", email: null, notes: null }],
-    show: { venue: { name: "Center", address: "5 Ave" }, event_details: { dress_code: "Business casual" } },
+    show: {
+      venue: { name: "Center", address: "5 Ave" },
+      event_details: { dress_code: "Business casual" },
+    },
   });
-  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
+  const { container } = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
   expect(container.querySelector('[data-testid="right-now-hero"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="key-times-strip"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-tonight"]')).toBeTruthy();
@@ -66,34 +96,79 @@ test("Today renders hero + key-times + Tonight/Where/Need-something + dress + no
 test("Show notes aggregate all 5 sources in order; transport note gated by transportTileVisible", () => {
   const data = makeShowForViewer({
     show: { venue: { name: "V", address: "A", notes: "VENUE_NOTE" } },
-    hotelReservations: [{ ordinal: 0, hotel_name: "H", hotel_address: null, notes: "HOTEL_NOTE", names: [], confirmation_no: null, check_in: null, check_out: null }],
+    hotelReservations: [
+      {
+        ordinal: 0,
+        hotel_name: "H",
+        hotel_address: null,
+        notes: "HOTEL_NOTE",
+        names: [],
+        confirmation_no: null,
+        check_in: null,
+        check_out: null,
+      },
+    ],
     rooms: [{ id: "r1", kind: "gs", name: "GS", notes: "ROOM_NOTE" }],
-    transportation: { driver_name: null, driver_phone: null, driver_email: null, vehicle: null, license_plate: null, color: null, parking: null, schedule: [], notes: "TRANSPORT_NOTE" },
+    transportation: {
+      driver_name: null,
+      driver_phone: null,
+      driver_email: null,
+      vehicle: null,
+      license_plate: null,
+      color: null,
+      parking: null,
+      schedule: [],
+      notes: "TRANSPORT_NOTE",
+    },
     contacts: [{ kind: "venue", name: "C", notes: "CONTACT_NOTE", phone: "555-0000", email: null }],
   });
-  const admin = render(<TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />);
+  const admin = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
   const notes = admin.container.querySelector('[data-testid="today-notes"]')!;
-  const order = ["VENUE_NOTE", "HOTEL_NOTE", "ROOM_NOTE", "TRANSPORT_NOTE", "CONTACT_NOTE"].map((s) => notes.textContent!.indexOf(s));
+  const order = ["VENUE_NOTE", "HOTEL_NOTE", "ROOM_NOTE", "TRANSPORT_NOTE", "CONTACT_NOTE"].map(
+    (s) => notes.textContent!.indexOf(s),
+  );
   expect(order.every((i) => i >= 0)).toBe(true);
   expect([...order]).toEqual([...order].sort((a, b) => a - b));
-  const crew = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "nobody" }} today={TODAY} showId={SHOW_ID} />);
-  expect(crew.container.querySelector('[data-testid="today-notes"]')!.textContent).not.toContain("TRANSPORT_NOTE");
+  const crew = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "nobody" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  expect(crew.container.querySelector('[data-testid="today-notes"]')!.textContent).not.toContain(
+    "TRANSPORT_NOTE",
+  );
 });
 
 // TEST C (test 30) — client_contact never rendered + Need-something uses
 // selectPrimaryContact (deterministic actionable primary).
 test("client_contact never appears; Need-something uses the deterministic actionable contacts[] primary", () => {
   const data = makeShowForViewer({
-    show: { client_contact: { name: "CLIENT_REP", phone: "555-999-0000", email: "rep@client.com" } },
+    show: {
+      client_contact: { name: "CLIENT_REP", phone: "555-999-0000", email: "rep@client.com" },
+    },
     contacts: [
       { kind: "venue", name: "Unactionable", phone: null, email: null, notes: null },
       { kind: "in_house_av", name: "AV_LEAD", phone: "555-222-3333", email: null, notes: null },
     ],
   });
-  const { container } = render(<TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />);
+  const { container } = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
   expect(container.textContent).not.toContain("CLIENT_REP");
   expect(container.textContent).not.toContain("555-999-0000");
-  expect(container.querySelector('[data-testid="today-need-something"]')!.textContent).toContain("AV_LEAD");
+  expect(container.querySelector('[data-testid="today-need-something"]')!.textContent).toContain(
+    "AV_LEAD",
+  );
 });
 
 test("contacts fetch error → admin sees the contacts degraded block; crew sees omission (§4.13, Codex review R1)", () => {
@@ -109,7 +184,12 @@ test("contacts fetch error → admin sees the contacts degraded block; crew sees
   expect(block).toBeTruthy();
   expect(block!.textContent ?? "").not.toContain("boom"); // human-readable, no raw error string
   const crew = render(
-    <TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   ).container;
   expect(crew.querySelector('[data-testid="section-tile-error-contacts"]')).toBeNull(); // omission
 });

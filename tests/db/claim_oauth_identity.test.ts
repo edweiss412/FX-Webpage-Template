@@ -16,7 +16,10 @@ function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function seedShowSql(driveFileId: string, options: { published?: boolean; archived?: boolean } = {}) {
+function seedShowSql(
+  driveFileId: string,
+  options: { published?: boolean; archived?: boolean } = {},
+) {
   return `
     insert into public.shows (
       drive_file_id, slug, title, client_label, template_version, published, archived
@@ -69,7 +72,9 @@ describe("claim_oauth_identity RPC", () => {
 
     expect(result.claimed_count).toBe(3);
     expect(result.claimed_rows).toHaveLength(3);
-    expect(result.claimed_rows.every((row) => /^[0-9a-f-]{36}$/.test(row.crew_member_id))).toBe(true);
+    expect(result.claimed_rows.every((row) => /^[0-9a-f-]{36}$/.test(row.crew_member_id))).toBe(
+      true,
+    );
     expect(result.claimed_rows.every((row) => /^[0-9a-f-]{36}$/.test(row.show_id))).toBe(true);
     expect(new Set(result.claimed_rows.map((row) => row.claimed_at_millis)).size).toBe(1);
     expect(Number.isSafeInteger(result.mint_safe_t_millis)).toBe(true);
@@ -108,7 +113,9 @@ describe("claim_oauth_identity RPC", () => {
   });
 
   test("returns empty arrays for emails with no matching crew rows", () => {
-    const result = JSON.parse(runPsql(`select public.claim_oauth_identity('nobody-${randomUUID()}@example.com')::text;`)) as {
+    const result = JSON.parse(
+      runPsql(`select public.claim_oauth_identity('nobody-${randomUUID()}@example.com')::text;`),
+    ) as {
       claimed_count: number;
       claimed_rows: unknown[];
       shows: unknown[];

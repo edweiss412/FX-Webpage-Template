@@ -12,7 +12,10 @@ const D2 = "2026-05-15";
 const DATES = { travelIn: null, set: null, showDays: [D1, D2], travelOut: null };
 const VIEWER = { kind: "admin" } as const;
 
-function renderRos(runOfShow: Record<string, AgendaEntry[]> | null, extra?: Partial<Parameters<typeof makeShowForViewer>[0]>) {
+function renderRos(
+  runOfShow: Record<string, AgendaEntry[]> | null,
+  extra?: Partial<Parameters<typeof makeShowForViewer>[0]>,
+) {
   return render(
     <ScheduleSection
       data={makeShowForViewer({ show: { dates: DATES }, runOfShow, ...extra })}
@@ -39,9 +42,12 @@ describe("Schedule anchor floor + CONFIRMED-ONLY (test 6 — UI half)", () => {
       '[data-testid="agenda-entry"]', // entry rows
       '[data-testid="agenda-overflow-stub"]', // +N more stub
       '[data-testid="agenda-title-truncated"]', // <details> truncation
-      '[data-agenda-field]', // any agenda field span (time/room/av)
+      "[data-agenda-field]", // any agenda field span (time/room/av)
     ]) {
-      expect(c.querySelectorAll(sel).length, `no Phase-2 agenda markup on the null path: ${sel}`).toBe(0);
+      expect(
+        c.querySelectorAll(sel).length,
+        `no Phase-2 agenda markup on the null path: ${sel}`,
+      ).toBe(0);
     }
     // No agenda-specific empty/placeholder copy injected on the null path.
     expect(c.textContent ?? "").not.toMatch(/run[- ]?of[- ]?show/i);

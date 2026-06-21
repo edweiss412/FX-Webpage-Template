@@ -102,15 +102,9 @@ describe("help cross-page fragment resolver (meta-test)", () => {
         continue;
       }
       const dest = readFileSync(destFile, "utf8");
-      const explicitH2 = new RegExp(
-        `<h2[^>]*\\bid=["']${ref.fragment}["']`,
-      ).test(dest);
-      const refAnchor = new RegExp(
-        `<RefAnchor[^>]*\\bid=["']${ref.fragment}["']`,
-      ).test(dest);
-      const explicitH2Brace = new RegExp(
-        `<h2[^>]*\\bid=\\{["']${ref.fragment}["']\\}`,
-      ).test(dest);
+      const explicitH2 = new RegExp(`<h2[^>]*\\bid=["']${ref.fragment}["']`).test(dest);
+      const refAnchor = new RegExp(`<RefAnchor[^>]*\\bid=["']${ref.fragment}["']`).test(dest);
+      const explicitH2Brace = new RegExp(`<h2[^>]*\\bid=\\{["']${ref.fragment}["']\\}`).test(dest);
       if (!(explicitH2 || refAnchor || explicitH2Brace)) {
         failures.push(
           `BROKEN: ${ref.sourceFile} -> ${ref.urlPath}#${ref.fragment} (destination ${relative(
@@ -125,10 +119,7 @@ describe("help cross-page fragment resolver (meta-test)", () => {
   });
 
   it("pins the originating regression: per-show-panel exposes #crew-preview-links via explicit <h2>", () => {
-    const dest = readFileSync(
-      join(APP_HELP, "admin/per-show-panel/page.mdx"),
-      "utf8",
-    );
+    const dest = readFileSync(join(APP_HELP, "admin/per-show-panel/page.mdx"), "utf8");
     expect(dest).toMatch(/<h2[^>]*id=["']crew-preview-links["']/);
     // negative: a bare `## Crew preview links` markdown heading would silently
     // re-introduce the bug; pin the explicit JSX form.
@@ -137,9 +128,7 @@ describe("help cross-page fragment resolver (meta-test)", () => {
 });
 
 describe("catalog helpHref anchor resolver (test #1)", () => {
-  const entries = Object.values(MESSAGE_CATALOG).filter(
-    (entry) => entry.helpHref !== null,
-  );
+  const entries = Object.values(MESSAGE_CATALOG).filter((entry) => entry.helpHref !== null);
 
   it("derives a non-empty set of catalog entries with helpHref", () => {
     expect(entries.length).toBeGreaterThan(0);
@@ -150,32 +139,21 @@ describe("catalog helpHref anchor resolver (test #1)", () => {
       const href = entry.helpHref;
       expect(href).not.toBeNull();
       const file = helpHrefToFile(href!);
-      expect(
-        file,
-        `helpHref ${href} does not resolve to a real page file`,
-      ).not.toBeNull();
+      expect(file, `helpHref ${href} does not resolve to a real page file`).not.toBeNull();
 
       const fragment = href!.includes("#") ? href!.split("#")[1] : null;
       if (!fragment) return;
 
       const dest = readFileSync(file!, "utf8");
       const dynamicErrorsAnchor =
-        href!.startsWith("/help/errors#") &&
-        dest.includes("<RefAnchor id={entry.code}");
-      const refAnchor = new RegExp(
-        `<RefAnchor[^>]*\\bid=["']${fragment}["']`,
-      ).test(dest);
+        href!.startsWith("/help/errors#") && dest.includes("<RefAnchor id={entry.code}");
+      const refAnchor = new RegExp(`<RefAnchor[^>]*\\bid=["']${fragment}["']`).test(dest);
       const explicitId = new RegExp(`\\bid=["']${fragment}["']`).test(dest);
-      const explicitBraceId = new RegExp(
-        `\\bid=\\{["']${fragment}["']\\}`,
-      ).test(dest);
+      const explicitBraceId = new RegExp(`\\bid=\\{["']${fragment}["']\\}`).test(dest);
 
       expect(
         dynamicErrorsAnchor || refAnchor || explicitId || explicitBraceId,
-        `helpHref ${href} fragment "${fragment}" not found in ${relative(
-          process.cwd(),
-          file!,
-        )}`,
+        `helpHref ${href} fragment "${fragment}" not found in ${relative(process.cwd(), file!)}`,
       ).toBe(true);
     });
   }

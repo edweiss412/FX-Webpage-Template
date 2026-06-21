@@ -21,8 +21,10 @@ const SELF = "tests/cross-cutting/reseed-clears-oauth-claim-doc-guard.test.ts";
 // silently. Catching the drift at plan-time (CI doc-guard) is cheaper
 // than catching it during the walk.
 
-const PLAN_FILE = "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md";
-const SPEC_FILE = "docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md";
+const PLAN_FILE =
+  "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md";
+const SPEC_FILE =
+  "docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md";
 
 // R15 commit 36 F10-class structural defense additions ----------------
 // Scan roots for the multi-file F14 / parameterization-integrity / F13
@@ -55,15 +57,15 @@ const EXCLUDED_PATHS = [
 // plan §0.C.4 mint RPC defense-in-depth). The F14-canonical-set
 // assertion asserts every rejection-list site cites every entry.
 const CANONICAL_REJECTED_DOMAINS = [
-  "example.com",   // RFC 2606
-  "example.org",   // RFC 2606
-  "example.net",   // RFC 2606
-  ".test",         // RFC 6761
-  ".invalid",      // RFC 6761
-  ".localhost",    // RFC 6761
-  ".local",        // mDNS RFC 6762 + project-conventional
-  "localhost",     // bare hostname (RFC 6761)
-  "dev.local",     // project-conventional (subset of .local)
+  "example.com", // RFC 2606
+  "example.org", // RFC 2606
+  "example.net", // RFC 2606
+  ".test", // RFC 6761
+  ".invalid", // RFC 6761
+  ".localhost", // RFC 6761
+  ".local", // mDNS RFC 6762 + project-conventional
+  "localhost", // bare hostname (RFC 6761)
+  "dev.local", // project-conventional (subset of .local)
 ];
 
 // Surfaces that MUST cite VALIDATION_J3_CLAIM_EMAIL (parameterization
@@ -322,9 +324,9 @@ function evaluateCanonicalTableRow(
   //     the J3-omission path above.
   const requiredSet: string[] = j3ClaimEmailOmitted
     ? canonicalVars.filter((v) => v !== "VALIDATION_J3_CLAIM_EMAIL")
-    : (claimedCardinality !== null
-        ? canonicalVars.slice(0, claimedCardinality) // placeholder; cardinality-only rows compared below
-        : []);
+    : claimedCardinality !== null
+      ? canonicalVars.slice(0, claimedCardinality) // placeholder; cardinality-only rows compared below
+      : [];
 
   if (j3ClaimEmailOmitted) {
     const missingFromRequired = requiredSet.filter((v) => !line.includes(v));
@@ -409,7 +411,9 @@ describe("R12 F11 reseed clears claimed_via_oauth_at — doc-guard", () => {
 
     // Locate the mint_validation_fixture_atomic RPC body. Per Task 0.C.4
     // the RPC's crew_members UPSERT is the load-bearing site.
-    const mintRpcStart = source.indexOf("CREATE OR REPLACE FUNCTION public.mint_validation_fixture_atomic");
+    const mintRpcStart = source.indexOf(
+      "CREATE OR REPLACE FUNCTION public.mint_validation_fixture_atomic",
+    );
     expect(mintRpcStart).toBeGreaterThanOrEqual(0);
 
     // Find the FIRST ON CONFLICT (show_id, name) DO UPDATE block after the
@@ -470,7 +474,8 @@ describe("R12 F11 reseed clears claimed_via_oauth_at — doc-guard", () => {
     expect(predicateLStart).toBeGreaterThan(0);
     const remainder = source.substring(predicateLStart);
     const paragraphEnd = remainder.search(/\n\n/);
-    const predicateLBullet = paragraphEnd > 0 ? remainder.substring(0, paragraphEnd) : remainder.substring(0, 800);
+    const predicateLBullet =
+      paragraphEnd > 0 ? remainder.substring(0, paragraphEnd) : remainder.substring(0, 800);
     if (!/IS NOT NULL/i.test(predicateLBullet) || !/claimed_via_oauth_at/.test(predicateLBullet)) {
       expect.fail(
         `R12 F11 doc-guard: predicate (l) bullet must name BOTH claimed_via_oauth_at AND IS NOT NULL as the failure condition.\n\n` +
@@ -644,7 +649,9 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       try {
         source = stripFifteen(readFileSync(join(ROOT, surface.path), "utf8"));
       } catch (e) {
-        findings.push(`  ${surface.key} — file not readable at ${surface.path}: ${(e as Error).message}`);
+        findings.push(
+          `  ${surface.key} — file not readable at ${surface.path}: ${(e as Error).message}`,
+        );
         continue;
       }
       const missing = surface.mustContain.filter((rx) => !rx.test(source));
@@ -1296,8 +1303,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     expect(clusterFires({ window: waiverCluster })).toBe(false);
 
     // Single-canonical cluster — passes regardless.
-    const singleCanonical =
-      "set VALIDATION_J3_CLAIM_EMAIL to your real Google account email.";
+    const singleCanonical = "set VALIDATION_J3_CLAIM_EMAIL to your real Google account email.";
     expect(clusterFires({ window: singleCanonical })).toBe(false);
 
     // F28 cardinality-only shape — no canonical literals present.
@@ -1727,9 +1733,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     // being named alongside a contract-cardinality marker, NOT just
     // alongside the bare phrase "env var").
     expect(
-      firesM4(
-        "documents the 4 new VALIDATION_* env vars including VALIDATION_J3_CLAIM_EMAIL",
-      ),
+      firesM4("documents the 4 new VALIDATION_* env vars including VALIDATION_J3_CLAIM_EMAIL"),
     ).toBe(true);
     // Previous-line carries the contract-prose marker (the four):
     expect(
@@ -1748,11 +1752,9 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     // ===== M4 PASSES (operational instructions) =================
 
     // Operational: "set X to your Google account email"
-    expect(
-      firesM4(
-        "set VALIDATION_J3_CLAIM_EMAIL to the dev's real Google account email.",
-      ),
-    ).toBe(false);
+    expect(firesM4("set VALIDATION_J3_CLAIM_EMAIL to the dev's real Google account email.")).toBe(
+      false,
+    );
     // Operational: "throw if X is undefined"
     expect(firesM4("throw if VALIDATION_J3_CLAIM_EMAIL is undefined")).toBe(false);
     // Operational: "X is required"
@@ -1762,11 +1764,9 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     // Operational: "X reads from .env.local"
     expect(firesM4("VALIDATION_J3_CLAIM_EMAIL reads from your local .env.local.")).toBe(false);
     // Operational-note label:
-    expect(
-      firesM4(
-        "Operational note: set VALIDATION_J3_CLAIM_EMAIL to a real Google email.",
-      ),
-    ).toBe(false);
+    expect(firesM4("Operational note: set VALIDATION_J3_CLAIM_EMAIL to a real Google email.")).toBe(
+      false,
+    );
     // "responding at VALIDATION_SUPABASE_URL" — narrative pointer
     expect(firesM4("Supabase prod project responding at VALIDATION_SUPABASE_URL")).toBe(false);
     // Single literal but NO contract-prose marker on this OR prev line:
@@ -1784,11 +1784,9 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
         "the reseed reads this env var VALIDATION_J3_CLAIM_EMAIL at fixture-build time and writes it",
       ),
     ).toBe(false);
-    expect(
-      firesM4(
-        "via a new env var VALIDATION_J3_CLAIM_EMAIL the dev sets in Phase 0.A",
-      ),
-    ).toBe(false);
+    expect(firesM4("via a new env var VALIDATION_J3_CLAIM_EMAIL the dev sets in Phase 0.A")).toBe(
+      false,
+    );
     expect(
       firesM4(
         "predicate (k) fails if VALIDATION_J3_CLAIM_EMAIL is still a placeholder reserved domain at seed time",
@@ -1888,7 +1886,10 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
             `      surrounding window (lines ${windowStart + 1}-${windowEnd}):\n` +
             window
               .split("\n")
-              .map((ln, i) => `        ${windowStart + 1 + i} | ${ln.substring(0, 180)}${ln.length > 180 ? "..." : ""}`)
+              .map(
+                (ln, i) =>
+                  `        ${windowStart + 1 + i} | ${ln.substring(0, 180)}${ln.length > 180 ? "..." : ""}`,
+              )
               .join("\n"),
         );
       }
@@ -2347,9 +2348,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       /\b(pre-R\d+|pre-r\d+|pre-amendment|earlier\s+draft|original\s+draft|originally\s+drafted|originally\s+framed|legacy|retired|deprecated|historical|before\s+R\d+|prior\s+to\s+R\d+|the\s+pre-R\d+\s+|F\d+\s+finding\s+pre-)\b/i;
     const WAIVER_RX = /<!--\s*not-f21-class:\s*[^-]/i;
 
-    function fixtureFiresF21Class(
-      text: string,
-    ): { fires: boolean; matchedPattern: string | null } {
+    function fixtureFiresF21Class(text: string): { fires: boolean; matchedPattern: string | null } {
       for (const pattern of F21_FORBIDDEN_PATTERNS) {
         const m = text.match(pattern.rx);
         if (!m || m.index === undefined) continue;
@@ -2383,10 +2382,9 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       "The next --combo all after an OAuth-claim walk re-creates the affected rows with fresh ids and null claimed_via_oauth_at, restoring the baseline.";
     const brokenF23Result = fixtureFiresF21Class(brokenF23FreshIds);
     expect(brokenF23Result.fires).toBe(true);
-    expect([
-      "stable-id:fresh-ids",
-      "stable-id:re-creates-affected-rows",
-    ]).toContain(brokenF23Result.matchedPattern);
+    expect(["stable-id:fresh-ids", "stable-id:re-creates-affected-rows"]).toContain(
+      brokenF23Result.matchedPattern,
+    );
 
     const brokenOverviewRow =
       "Re-seed has no equivalent cleanup; --combo all is the structural reset for OAuth-claim state (fresh crew_members.id with null claimed_via_oauth_at)";
@@ -2625,9 +2623,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
     ].join("\n");
     const f45Result = fixtureFiresF21Class(f45CrossLineNoSatisfy);
     expect(f45Result.fires).toBe(true);
-    expect(f45Result.matchedPattern).toBe(
-      "outcome-enum:lookup-inconclusive-missing-alert-code",
-    );
+    expect(f45Result.matchedPattern).toBe("outcome-enum:lookup-inconclusive-missing-alert-code");
 
     // R49 commit 90 F45 — canonical same-line form still PASSES.
     const f45CanonicalSameLine =
@@ -2675,9 +2671,7 @@ describe("R15 F10-class structural defense — J3 claim-email parameterization i
       "Run `pnpm validation:report-fixtures --outcome success` against prod-equivalent Supabase to materialize the happy-path report row.";
     const brokenF43Result = fixtureFiresF21Class(brokenF43BareSuccess);
     expect(brokenF43Result.fires).toBe(true);
-    expect(brokenF43Result.matchedPattern).toBe(
-      "outcome-enum:bare-success-no-actor-suffix",
-    );
+    expect(brokenF43Result.matchedPattern).toBe("outcome-enum:bare-success-no-actor-suffix");
 
     // PASSING — post-R43 canonical enum forms (success-admin /
     // success-crew). MUST NOT fire (the negative lookahead matches

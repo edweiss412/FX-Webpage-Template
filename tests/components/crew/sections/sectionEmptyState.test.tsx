@@ -14,21 +14,24 @@ const SECTIONS = { VenueSection, TravelSection, CrewSection, GearSection } as co
 
 // _Catches: a blank section with no empty-state, or multiple stray empty stubs,
 // once the all-blocks-empty path is hit (test 9).
-test.each(Object.keys(SECTIONS))("%s shows exactly one EmptyState when all blocks empty/hidden", (name) => {
-  const Section = SECTIONS[name as keyof typeof SECTIONS];
-  const empty = makeShowForViewer({
-    show: { venue: null, coi_status: null, event_details: {} },
-    crewMembers: [],
-    rooms: [],
-    transportation: null,
-    hotelReservations: [],
-    contacts: [],
-    pullSheet: null,
-    diagrams: null,
-    openingReelHasVideo: false,
-  });
-  const { container } = render(
-    <Section data={empty} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
-  );
-  expect(container.querySelectorAll('[data-testid="section-empty"]').length).toBe(1);
-});
+test.each(Object.keys(SECTIONS))(
+  "%s shows exactly one EmptyState when all blocks empty/hidden",
+  (name) => {
+    const Section = SECTIONS[name as keyof typeof SECTIONS];
+    const empty = makeShowForViewer({
+      show: { venue: null, coi_status: null, event_details: {} },
+      crewMembers: [],
+      rooms: [],
+      transportation: null,
+      hotelReservations: [],
+      contacts: [],
+      pullSheet: null,
+      diagrams: null,
+      openingReelHasVideo: false,
+    });
+    const { container } = render(
+      <Section data={empty} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+    );
+    expect(container.querySelectorAll('[data-testid="section-empty"]').length).toBe(1);
+  },
+);

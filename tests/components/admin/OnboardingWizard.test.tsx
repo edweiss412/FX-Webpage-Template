@@ -86,9 +86,9 @@ describe("OnboardingWizard", () => {
     const { getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: {} }),
     );
-    expect(
-      getByTestId("wizard-step1-service-account-email").textContent,
-    ).toContain("fxav-sync@fxav-project.iam.gserviceaccount.com");
+    expect(getByTestId("wizard-step1-service-account-email").textContent).toContain(
+      "fxav-sync@fxav-project.iam.gserviceaccount.com",
+    );
   });
 
   test("renders the Start Over form bound to startOverServerAction", async () => {
@@ -208,8 +208,7 @@ describe("OnboardingWizard", () => {
     expect(queryByTestId("wizard-step1")).toBeNull();
     expect(queryByTestId("wizard-operator-error")).toBeTruthy();
     const body = container.textContent ?? "";
-    const operatorErrorCopy =
-      MESSAGE_CATALOG.ONBOARDING_OPERATOR_ERROR.dougFacing!;
+    const operatorErrorCopy = MESSAGE_CATALOG.ONBOARDING_OPERATOR_ERROR.dougFacing!;
     expect(body).toContain(operatorErrorCopy);
     // No raw code rendered.
     expect(body).not.toContain("ONBOARDING_OPERATOR_ERROR");
@@ -226,9 +225,7 @@ describe("OnboardingWizard", () => {
     expect(queryByTestId("wizard-step1")).toBeNull();
     expect(queryByTestId("wizard-operator-error")).toBeTruthy();
     const body = container.textContent ?? "";
-    expect(body).toContain(
-      MESSAGE_CATALOG.ONBOARDING_OPERATOR_ERROR.dougFacing!,
-    );
+    expect(body).toContain(MESSAGE_CATALOG.ONBOARDING_OPERATOR_ERROR.dougFacing!);
   });
 
   test("when client_email is missing from the service-account JSON, renders the operator-error copy", async () => {

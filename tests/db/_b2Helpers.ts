@@ -57,7 +57,9 @@ export async function asAdminRpc(fn: AdminRpcFn, args: { p_show_id: string }): P
 /** Call unarchive_show as admin and return its boolean result (R8: true iff it performed archived→held). */
 export async function unarchiveShowReturning(showId: string): Promise<boolean> {
   return asAdminTx(sql, async (tx) => {
-    const [row] = await tx.unsafe(`select public.unarchive_show($1::uuid) as transitioned`, [showId]);
+    const [row] = await tx.unsafe(`select public.unarchive_show($1::uuid) as transitioned`, [
+      showId,
+    ]);
     return (row as unknown as { transitioned: boolean }).transitioned;
   });
 }
@@ -69,7 +71,8 @@ export async function readShow(showId: string): Promise<Record<string, unknown>>
 }
 
 export async function readShareToken(showId: string): Promise<{ share_token: string }> {
-  const [row] = await sql`select share_token from public.show_share_tokens where show_id = ${showId}::uuid`;
+  const [row] =
+    await sql`select share_token from public.show_share_tokens where show_id = ${showId}::uuid`;
   if (!row) throw new Error(`readShareToken: token not found (${showId})`);
   return row as { share_token: string };
 }
@@ -79,10 +82,14 @@ export async function scratchCount(driveFileId: string): Promise<{
   pending_ingestions: number;
   deferred_ingestions: number;
 }> {
-  const [ps] = await sql`select count(*)::int n from public.pending_syncs      where drive_file_id = ${driveFileId}`;
-  const [pi] = await sql`select count(*)::int n from public.pending_ingestions where drive_file_id = ${driveFileId}`;
-  const [di] = await sql`select count(*)::int n from public.deferred_ingestions where drive_file_id = ${driveFileId}`;
-  if (!ps || !pi || !di) throw new Error(`scratchCount: count query returned no row (${driveFileId})`);
+  const [ps] =
+    await sql`select count(*)::int n from public.pending_syncs      where drive_file_id = ${driveFileId}`;
+  const [pi] =
+    await sql`select count(*)::int n from public.pending_ingestions where drive_file_id = ${driveFileId}`;
+  const [di] =
+    await sql`select count(*)::int n from public.deferred_ingestions where drive_file_id = ${driveFileId}`;
+  if (!ps || !pi || !di)
+    throw new Error(`scratchCount: count query returned no row (${driveFileId})`);
   return { pending_syncs: ps.n, pending_ingestions: pi.n, deferred_ingestions: di.n };
 }
 
@@ -205,18 +212,21 @@ export async function seedAutoPublishedShowWithUnpublishToken(
        set unpublish_token = ${unpublishToken}::uuid, unpublish_token_expires_at = now() + interval '24 hours'
      where id = ${seeded.showId}::uuid`;
   const [row] = await sql`select slug from public.shows where id = ${seeded.showId}::uuid`;
-  if (!row) throw new Error(`seedAutoPublishedShowWithUnpublishToken: show not found (${seeded.showId})`);
+  if (!row)
+    throw new Error(`seedAutoPublishedShowWithUnpublishToken: show not found (${seeded.showId})`);
   return { ...seeded, slug: row.slug, unpublishToken };
 }
 
 export async function deferralCount(driveFileId: string): Promise<number> {
-  const [r] = await sql`select count(*)::int n from public.deferred_ingestions where drive_file_id = ${driveFileId}`;
+  const [r] =
+    await sql`select count(*)::int n from public.deferred_ingestions where drive_file_id = ${driveFileId}`;
   if (!r) throw new Error(`deferralCount: count query returned no row (${driveFileId})`);
   return r.n;
 }
 
 export async function pendingSyncCount(driveFileId: string): Promise<number> {
-  const [r] = await sql`select count(*)::int n from public.pending_syncs where drive_file_id = ${driveFileId}`;
+  const [r] =
+    await sql`select count(*)::int n from public.pending_syncs where drive_file_id = ${driveFileId}`;
   if (!r) throw new Error(`pendingSyncCount: count query returned no row (${driveFileId})`);
   return r.n;
 }
@@ -334,7 +344,9 @@ export async function archivedImmutabilityRace(
 /** Read the finalize-owned predicate as an ADMIN (the dashboard path). Returns the boolean result. */
 export async function readFinalizeOwnedAsAdmin(showId: string): Promise<boolean> {
   return asAdminTx(sql, async (tx) => {
-    const [row] = await tx.unsafe(`select public.readfinalizeowned_b2($1::uuid) as owned`, [showId]);
+    const [row] = await tx.unsafe(`select public.readfinalizeowned_b2($1::uuid) as owned`, [
+      showId,
+    ]);
     return (row as unknown as { owned: boolean }).owned;
   });
 }

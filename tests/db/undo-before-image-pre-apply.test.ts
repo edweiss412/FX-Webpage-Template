@@ -26,7 +26,10 @@ describe("before_image is pre-apply (F2)", () => {
   it("a crew_removed change-log row captures the removed crew member's prior values", async () => {
     const { showId, driveFileId } = await seedShowWithCrew([ALICE, BOB]);
     await runAutoApply(driveFileId, { crew: [BOB] }); // sheet drops Alice
-    const row = await readChangeLog(showId, { change_kind: "crew_removed", entity_ref: ALICE.name });
+    const row = await readChangeLog(showId, {
+      change_kind: "crew_removed",
+      entity_ref: ALICE.name,
+    });
     // pre-apply, not post — derived from the seed fixture constant, never hardcoded inline.
     expect(row.before_image?.email).toBe(ALICE.email);
     expect(row.before_image?.name).toBe(ALICE.name);

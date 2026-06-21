@@ -3,7 +3,7 @@ import { sqlClient } from "@/tests/db/_b2Helpers";
 
 describe("B2 lifecycle columns", () => {
   it("app_settings.auto_publish_clean_first_seen exists, boolean not null default true", async () => {
-    const [row] = await sqlClient/*sql*/ `
+    const [row] = await sqlClient /*sql*/ `
       select data_type, is_nullable, column_default
         from information_schema.columns
        where table_schema='public' and table_name='app_settings'
@@ -23,7 +23,7 @@ describe("B2 lifecycle columns", () => {
         is_nullable: string;
         column_default: string | null;
       }[]
-    >/*sql*/ `
+    > /*sql*/ `
       select column_name, data_type, is_nullable, column_default
         from information_schema.columns
        where table_schema='public' and table_name='shows'

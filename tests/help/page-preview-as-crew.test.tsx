@@ -7,10 +7,7 @@ import { join } from "node:path";
 import { MDXProvider } from "@mdx-js/react";
 import { useMDXComponents } from "@/mdx-components";
 
-const src = readFileSync(
-  join(process.cwd(), "app/help/admin/preview-as-crew/page.mdx"),
-  "utf8",
-);
+const src = readFileSync(join(process.cwd(), "app/help/admin/preview-as-crew/page.mdx"), "utf8");
 
 describe("/help/admin/preview-as-crew (E.9)", () => {
   it("renders without throwing through the real MDX pipeline (E.5 precedent — MDXProvider load-bearing for RefAnchor / Callout / etc.)", async () => {
@@ -45,9 +42,7 @@ describe("/help/admin/preview-as-crew (E.9)", () => {
 
   it('has a plain <h2 id="impersonation-banner"> (kebab non-catalog anchor → plain <h2>, NOT <RefAnchor>; D.5 regex restricts RefAnchor to catalog-code shape)', () => {
     expect(src).toMatch(/<h2[^>]*id=["']impersonation-banner["']/);
-    expect(src).not.toMatch(
-      /<RefAnchor[^>]*id=["']impersonation-banner["']/,
-    );
+    expect(src).not.toMatch(/<RefAnchor[^>]*id=["']impersonation-banner["']/);
   });
 
   it('renders a <Screenshot name="preview-as-crew-banner"> reference', () => {

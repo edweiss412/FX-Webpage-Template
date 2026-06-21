@@ -95,9 +95,7 @@ describe("§12.4 spec-code extractor", () => {
     expect(() =>
       extractSpecCodesFromMarkdown(fixture("bad-rendered-multiline-messagefor.md"), {
         sourcePath: "bad-rendered-multiline-messagefor.md",
-        renderedContextRoots: [
-          "tests/cross-cutting/fixtures/extract-spec-codes/rendered-sites",
-        ],
+        renderedContextRoots: ["tests/cross-cutting/fixtures/extract-spec-codes/rendered-sites"],
         validateRenderedHelpfulContext: true,
       }),
     ).toThrow(

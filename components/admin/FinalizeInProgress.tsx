@@ -29,8 +29,7 @@ export function FinalizeInProgress({
   totalApprovedCount,
   lastProcessedAt: _lastProcessedAt,
 }: FinalizeInProgressProps) {
-  const showProgressDenominator =
-    typeof totalApprovedCount === "number" && totalApprovedCount > 0;
+  const showProgressDenominator = typeof totalApprovedCount === "number" && totalApprovedCount > 0;
 
   return (
     <main
@@ -44,12 +43,10 @@ export function FinalizeInProgress({
         >
           Admin
         </p>
-        <h2 className="text-2xl font-semibold text-text-strong">
-          Setup is publishing your shows…
-        </h2>
+        <h2 className="text-2xl font-semibold text-text-strong">Setup is publishing your shows…</h2>
         <p className="max-w-prose text-base text-text-subtle">
-          Setup published a batch of shows in your last session. Pick up where
-          you left off to finish the rest.
+          Setup published a batch of shows in your last session. Pick up where you left off to
+          finish the rest.
         </p>
       </header>
 
@@ -85,9 +82,9 @@ export function FinalizeInProgress({
           Trouble finishing?
         </h3>
         <p className="max-w-prose text-sm text-text-subtle">
-          If this setup has been paused for a long time and you would rather
-          start fresh, you can discard it. This deletes the shows from this
-          run only; live shows from your other folder are not touched.
+          If this setup has been paused for a long time and you would rather start fresh, you can
+          discard it. This deletes the shows from this run only; live shows from your other folder
+          are not touched.
         </p>
         <CleanupAbandonedFinalizeButton sessionId={sessionId} />
       </section>

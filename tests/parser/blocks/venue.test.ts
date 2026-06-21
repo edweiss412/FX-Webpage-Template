@@ -212,7 +212,7 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
       const md = readFileSync(fixturePath, "utf8");
       const version = detectVersion(md);
       expect(version).not.toBeNull();
-       
+
       const r = parseVenue(md, version!);
       // parseVenue must return either a valid object or null, never undefined
       expect(r === null || (typeof r === "object" && typeof r.name === "string")).toBe(true);
@@ -221,7 +221,7 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
     it(`${fileName} → venue.name is not a column header`, () => {
       const md = readFileSync(fixturePath, "utf8");
       const version = detectVersion(md);
-       
+
       const r = parseVenue(md, version!);
       if (r !== null) {
         // Must not be a raw column header string
@@ -235,7 +235,7 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
     it(`${fileName} → venue.name matches expected value`, () => {
       const md = readFileSync(fixturePath, "utf8");
       const version = detectVersion(md);
-       
+
       const r = parseVenue(md, version!);
       const expected = EXPECTED_VENUE_NAMES[fileName];
       if (expected === null) {

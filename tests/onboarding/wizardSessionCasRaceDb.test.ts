@@ -308,13 +308,17 @@ test.skipIf(!dbUp)(
         async (tx) => {
           const wrapped = {
             queryOne: async <T>(sqlText: string, params: unknown[]): Promise<T> => {
-              if (sqlText.replace(/\s+/g, " ").trim().startsWith("insert into public.deferred_ingestions")) {
+              if (
+                sqlText
+                  .replace(/\s+/g, " ")
+                  .trim()
+                  .startsWith("insert into public.deferred_ingestions")
+              ) {
                 await flipSessionTo(W2); // committed mid-window, between statements 1 and 2
               }
-              return await (tx as { queryOne<T2>(s: string, p: unknown[]): Promise<T2> }).queryOne<T>(
-                sqlText,
-                params,
-              );
+              return await (
+                tx as { queryOne<T2>(s: string, p: unknown[]): Promise<T2> }
+              ).queryOne<T>(sqlText, params);
             },
           };
           return await fn(wrapped as never);

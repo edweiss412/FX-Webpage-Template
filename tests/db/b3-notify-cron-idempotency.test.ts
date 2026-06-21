@@ -100,7 +100,10 @@ describe("B3 notify pg_cron migration idempotency", () => {
 
       const rowsByName = new Map(rows.map((row) => [row.jobname, row]));
       for (const jobname of existingFxavJobs) {
-        expect(rowsByName.get(jobname)?.active, `${jobname} should survive the scoped notify reapply`).toBe(true);
+        expect(
+          rowsByName.get(jobname)?.active,
+          `${jobname} should survive the scoped notify reapply`,
+        ).toBe(true);
       }
 
       for (const job of notifyJobs) {

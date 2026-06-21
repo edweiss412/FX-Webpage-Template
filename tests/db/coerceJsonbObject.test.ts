@@ -151,8 +151,14 @@ describe("asParseResult", () => {
   test.each([
     ["show missing", (pr: Record<string, unknown>) => delete pr.show],
     ["show not an object", (pr: Record<string, unknown>) => (pr.show = "x")],
-    ["show.title missing", (pr: Record<string, unknown>) => delete (pr.show as Record<string, unknown>).title],
-    ["show.dates missing", (pr: Record<string, unknown>) => delete (pr.show as Record<string, unknown>).dates],
+    [
+      "show.title missing",
+      (pr: Record<string, unknown>) => delete (pr.show as Record<string, unknown>).title,
+    ],
+    [
+      "show.dates missing",
+      (pr: Record<string, unknown>) => delete (pr.show as Record<string, unknown>).dates,
+    ],
     [
       "show.dates.showDays not an array",
       (pr: Record<string, unknown>) =>
@@ -176,8 +182,14 @@ describe("asParseResult", () => {
       (pr: Record<string, unknown>) =>
         delete (pr.diagrams as Record<string, unknown>).linkedFolderItems,
     ],
-    ["transportation a scalar (not object|null)", (pr: Record<string, unknown>) => (pr.transportation = "x")],
-    ["openingReel a scalar (not object|null)", (pr: Record<string, unknown>) => (pr.openingReel = 1)],
+    [
+      "transportation a scalar (not object|null)",
+      (pr: Record<string, unknown>) => (pr.transportation = "x"),
+    ],
+    [
+      "openingReel a scalar (not object|null)",
+      (pr: Record<string, unknown>) => (pr.openingReel = 1),
+    ],
     ["pullSheet an object (not array|null)", (pr: Record<string, unknown>) => (pr.pullSheet = {})],
   ])("throws JsonbCoercionError when %s (no downstream TypeError)", (_label, mutate) => {
     const pr = validParseResult() as unknown as Record<string, unknown>;

@@ -31,9 +31,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import { clearIdentityAndSkip } from "@/lib/auth/picker/clearIdentity";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 
-async function clearIdentityAndSkipFormAction(
-  formData: FormData,
-): Promise<void> {
+async function clearIdentityAndSkipFormAction(formData: FormData): Promise<void> {
   "use server";
   await clearIdentityAndSkip(formData);
 }
@@ -52,13 +50,7 @@ export type SignInOrSkipGateProps = {
   s?: string | undefined;
 };
 
-export function SignInOrSkipGate({
-  slug,
-  shareToken,
-  showId,
-  reason,
-  s,
-}: SignInOrSkipGateProps) {
+export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignInOrSkipGateProps) {
   // `?next=` carries the section but NOT gate=skip — the OAuth return lands
   // the user resolved, not back on the skip gate.
   const encodedNext = encodeURIComponent(buildShowReturnUrl(slug, shareToken, { s }));
@@ -66,9 +58,7 @@ export function SignInOrSkipGate({
   const skipUrl = buildShowReturnUrl(slug, shareToken, { s, gate: "skip" });
 
   const isMismatch = reason === "google_mismatch";
-  const promptCode = isMismatch
-    ? "SIGN_IN_OR_SKIP_PROMPT_MISMATCH"
-    : "SIGN_IN_OR_SKIP_PROMPT";
+  const promptCode = isMismatch ? "SIGN_IN_OR_SKIP_PROMPT_MISMATCH" : "SIGN_IN_OR_SKIP_PROMPT";
 
   return (
     <main
@@ -88,14 +78,10 @@ export function SignInOrSkipGate({
             Signed in as someone else
           </h1>
         ) : (
-          <h1 className="text-2xl font-bold tracking-tight text-text-strong">
-            Welcome
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight text-text-strong">Welcome</h1>
         )}
 
-        <p className="text-sm text-text-subtle">
-          {messageFor(promptCode).crewFacing}
-        </p>
+        <p className="text-sm text-text-subtle">{messageFor(promptCode).crewFacing}</p>
 
         <div className="flex w-full flex-col items-stretch gap-3 pt-2">
           {isMismatch ? (

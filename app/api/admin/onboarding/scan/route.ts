@@ -25,10 +25,7 @@ export type FolderVerificationResult =
     };
 
 export type OnboardingScanRouteTx = {
-  query<T>(
-    sql: string,
-    params?: readonly unknown[],
-  ): Promise<{ rows: T[]; rowCount: number }>;
+  query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }>;
 };
 
 export type ScanRouteDeps = {
@@ -67,7 +64,9 @@ async function defaultWithTx<R>(fn: (tx: OnboardingScanRouteTx) => Promise<R>): 
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     return (await sql.begin(async (rawTx) =>
-      fn(postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> })),
+      fn(
+        postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> }),
+      ),
     )) as R;
   } finally {
     await sql.end({ timeout: 5 });
@@ -97,7 +96,8 @@ function parseDriveFolderId(folderUrl: unknown): string | null {
 
 function driveStatus(error: unknown): number | null {
   if (typeof error !== "object" || error === null) return null;
-  const status = (error as { status?: unknown; code?: unknown }).status ?? (error as { code?: unknown }).code;
+  const status =
+    (error as { status?: unknown; code?: unknown }).status ?? (error as { code?: unknown }).code;
   return typeof status === "number" ? status : null;
 }
 
@@ -207,7 +207,8 @@ export async function handleOnboardingScan(
   try {
     admin = await runtime.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
       return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
     }

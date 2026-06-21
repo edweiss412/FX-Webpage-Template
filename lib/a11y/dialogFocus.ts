@@ -50,8 +50,7 @@ export function useDialogFocus(
 
     // Set initial focus. Prefer the explicit initial-focus ref (usually
     // the close button); fall back to the first focusable descendant.
-    const initial =
-      initialFocusRef?.current ?? focusableDescendants(container)[0] ?? container;
+    const initial = initialFocusRef?.current ?? focusableDescendants(container)[0] ?? container;
     initial.focus();
 
     function onKeyDown(event: KeyboardEvent) {

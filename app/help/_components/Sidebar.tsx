@@ -8,7 +8,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navListId = useId();
-  const grouped: Record<NavGroup, typeof NAV[number][]> = {
+  const grouped: Record<NavGroup, (typeof NAV)[number][]> = {
     "get-started": [],
     "admin-surface": [],
     reference: [],
@@ -35,10 +35,7 @@ export function Sidebar() {
       >
         Browse help pages
       </button>
-      <div
-        id={navListId}
-        className={`${mobileOpen ? "block" : "hidden"} md:block`}
-      >
+      <div id={navListId} className={`${mobileOpen ? "block" : "hidden"} md:block`}>
         <NavList grouped={grouped} pathname={pathname} />
       </div>
     </nav>
@@ -49,7 +46,7 @@ function NavList({
   grouped,
   pathname,
 }: {
-  grouped: Record<NavGroup, typeof NAV[number][]>;
+  grouped: Record<NavGroup, (typeof NAV)[number][]>;
   pathname: string;
 }) {
   return (

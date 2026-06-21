@@ -35,7 +35,8 @@ const TOL = 0.5;
 const WIDTHS = [390, 600, 719, 720, 860, 1024, 1280];
 
 // Outer-disclosure selectors (see <details> SCOPING HAZARD above).
-const OUTER_DETAILS = "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])";
+const OUTER_DETAILS =
+  "[data-testid=admin-alert-banner] details:has([data-testid=admin-alert-caret])";
 const OUTER_SUMMARY = `${OUTER_DETAILS} > summary`;
 
 type Rect = {
@@ -50,7 +51,14 @@ type Rect = {
 async function rect(page: Page, testid: string): Promise<Rect> {
   return page.getByTestId(testid).evaluate((el) => {
     const r = el.getBoundingClientRect();
-    return { top: r.top, left: r.left, right: r.right, width: r.width, height: r.height, bottom: r.bottom };
+    return {
+      top: r.top,
+      left: r.left,
+      right: r.right,
+      width: r.width,
+      height: r.height,
+      bottom: r.bottom,
+    };
   });
 }
 
@@ -83,13 +91,18 @@ test.describe("AlertBanner layout dimensions (real browser, §7)", () => {
       if (route.request().method() === "POST") await new Promise((r) => setTimeout(r, 2500));
       await route.continue();
     });
-    await page.getByTestId("admin-alert-action").getByRole("button", { name: /confirm/i }).click(); // confirm → pending
+    await page
+      .getByTestId("admin-alert-action")
+      .getByRole("button", { name: /confirm/i })
+      .click(); // confirm → pending
   }
 
   for (const width of WIDTHS) {
     for (const fx of BADGE_FIXTURES) {
       for (const state of STATES) {
-        test(`@${width}px ${fx.label} ${state}: no overflow/overlap; col2≤55%; idle/pending one-line+centered`, async ({ page }) => {
+        test(`@${width}px ${fx.label} ${state}: no overflow/overlap; col2≤55%; idle/pending one-line+centered`, async ({
+          page,
+        }) => {
           await seedGlobalAlert({ count: fx.count });
           await page.setViewportSize({ width, height: 1000 });
           await page.goto("/admin");
@@ -98,19 +111,29 @@ test.describe("AlertBanner layout dimensions (real browser, §7)", () => {
           await enterState(page, state);
 
           // (b) no horizontal overflow in EVERY state
-          expect(await section.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+          expect(
+            await section.evaluate((el) => el.scrollWidth - el.clientWidth),
+          ).toBeLessThanOrEqual(1);
 
           // (e) NON-OVERLAP: EVERY summary child (icon, message, badge, caret — all
           // shrink-0 except message) must end at/left-of the action cell, not just the
           // message. A too-narrow first track can push the badge/caret into the action
           // column even when document overflow is clean (spec §7 F10/F13).
           const actBox = (await page.getByTestId("admin-alert-action").boundingBox())!;
-          for (const id of ["admin-alert-icon", "admin-alert-message", "admin-alert-badge", "admin-alert-caret"]) {
+          for (const id of [
+            "admin-alert-icon",
+            "admin-alert-message",
+            "admin-alert-badge",
+            "admin-alert-caret",
+          ]) {
             const loc = page.getByTestId(id);
             if (await loc.count()) {
               // badge absent in no-badge fixtures
               const box = await loc.boundingBox();
-              if (box) expect(box.x + box.width, `${id} overlaps action`).toBeLessThanOrEqual(actBox.x + TOL);
+              if (box)
+                expect(box.x + box.width, `${id} overlaps action`).toBeLessThanOrEqual(
+                  actBox.x + TOL,
+                );
             }
           }
 
@@ -156,11 +179,20 @@ test.describe("AlertBanner layout dimensions (real browser, §7)", () => {
               .first();
             const actFirstBox = (await firstAction.boundingBox())!;
             const actCy = cY(actFirstBox);
-            for (const id of ["admin-alert-icon", "admin-alert-message", "admin-alert-badge", "admin-alert-caret"]) {
+            for (const id of [
+              "admin-alert-icon",
+              "admin-alert-message",
+              "admin-alert-badge",
+              "admin-alert-caret",
+            ]) {
               const loc = page.getByTestId(id);
               if (await loc.count()) {
                 const b = await loc.boundingBox();
-                if (b) expect(Math.abs(cY(b) - actCy), `${id} centerY vs action first row`).toBeLessThanOrEqual(0.5);
+                if (b)
+                  expect(
+                    Math.abs(cY(b) - actCy),
+                    `${id} centerY vs action first row`,
+                  ).toBeLessThanOrEqual(0.5);
               }
             }
           }
@@ -173,7 +205,9 @@ test.describe("AlertBanner layout dimensions (real browser, §7)", () => {
 // NOTE: Steps 2–3 are TOP-LEVEL tests (outside the "layout dimensions" describe
 // that closes above), so each signs in explicitly — the describe-level
 // beforeEach does not apply to them.
-test("@390px expanded panel spans full banner width; action does NOT move on expand", async ({ page }) => {
+test("@390px expanded panel spans full banner width; action does NOT move on expand", async ({
+  page,
+}) => {
   await clearAlerts();
   await signInAs(page, ADMIN_FIXTURE);
   await seedGlobalAlert({ count: 110 });
@@ -194,14 +228,14 @@ test("@390px expanded panel spans full banner width; action does NOT move on exp
   const contentW = await page.getByTestId("admin-alert-banner").evaluate((el) => {
     const cs = getComputedStyle(el);
     const px = (v: string) => parseFloat(v) || 0;
-    return (
-      el.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight)
-    );
+    return el.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight);
   });
   expect(panel.width).toBeGreaterThanOrEqual(contentW - TOL);
 });
 
-test("C↔E toggle is reversible; default collapsed; label swaps Details↔Hide (F17 affordance)", async ({ page }) => {
+test("C↔E toggle is reversible; default collapsed; label swaps Details↔Hide (F17 affordance)", async ({
+  page,
+}) => {
   await clearAlerts();
   await signInAs(page, ADMIN_FIXTURE); // top-level test — sign in explicitly
   await seedGlobalAlert({ count: 1 });
@@ -227,7 +261,9 @@ test("C↔E toggle is reversible; default collapsed; label swaps Details↔Hide 
   await expect(caret.locator(".lbl-closed")).toBeVisible(); // back to "Details"
 });
 
-test("compound: toggling expand while CONFIRMING neither closes details nor RESETS the 3s timer", async ({ page }) => {
+test("compound: toggling expand while CONFIRMING neither closes details nor RESETS the 3s timer", async ({
+  page,
+}) => {
   await clearAlerts();
   await signInAs(page, ADMIN_FIXTURE); // top-level test — sign in explicitly
   await seedGlobalAlert({ count: 1 }); // global alert → ResolveAlertButton two-tap
@@ -256,7 +292,9 @@ test("compound: toggling expand while CONFIRMING neither closes details nor RESE
   await expect(action.getByRole("button", { name: /^resolve$/i })).toBeVisible(); // back to idle
 });
 
-test("reduced-motion: details toggle is instant (no transition wait needed)", async ({ browser }) => {
+test("reduced-motion: details toggle is instant (no transition wait needed)", async ({
+  browser,
+}) => {
   const baseURL = test.info().project.use.baseURL ?? "http://127.0.0.1:3000"; // manual context needs explicit baseURL (F-P14)
   const ctx = await browser.newContext({ baseURL, reducedMotion: "reduce" });
   const page = await ctx.newPage();

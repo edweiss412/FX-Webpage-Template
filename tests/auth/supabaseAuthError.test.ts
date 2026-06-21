@@ -78,8 +78,6 @@ describe("isAuthSessionMissingError", () => {
         status: 400,
       }),
     ).toBe(false);
-    expect(
-      isAuthSessionMissingError(new Error("Auth session missing!")),
-    ).toBe(false);
+    expect(isAuthSessionMissingError(new Error("Auth session missing!"))).toBe(false);
   });
 });

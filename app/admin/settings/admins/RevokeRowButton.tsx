@@ -52,10 +52,10 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   const [ui, setUi] = useState<UiState>("idle");
   const autoRevertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [result, formAction, isPending] = useActionState<
-    AdminEmailActionResult | null,
-    FormData
-  >(revokeAdminAction, null);
+  const [result, formAction, isPending] = useActionState<AdminEmailActionResult | null, FormData>(
+    revokeAdminAction,
+    null,
+  );
 
   const clearAutoRevert = () => {
     if (autoRevertTimerRef.current !== null) {
@@ -98,8 +98,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // couldnt_confirm is sticky and outranks the refused snap (a result can't
   // be present when the watchdog fired, the result-effect clears the
   // watchdog, but guard defensively so a late render never re-derives idle).
-  const effectiveUi: UiState =
-    ui === "couldnt_confirm" ? "couldnt_confirm" : refused ? "idle" : ui;
+  const effectiveUi: UiState = ui === "couldnt_confirm" ? "couldnt_confirm" : refused ? "idle" : ui;
 
   const onRevokeClick = () => {
     clearAutoRevert();
@@ -130,9 +129,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   };
 
   const lockoutMessage =
-    result?.kind === "last_admin_lockout"
-      ? getDougFacing("LAST_ADMIN_LOCKOUT_REFUSED")
-      : null;
+    result?.kind === "last_admin_lockout" ? getDougFacing("LAST_ADMIN_LOCKOUT_REFUSED") : null;
 
   // Task 6.4: transient DB / permissions fault on the revoke RPC,
   // caught as AdminEmailsInfraError and surfaced inline so Doug can
@@ -140,9 +137,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // `refused` above), so this renders in the idle return block; the
   // confirm block also renders it to cover any mid-resolve render.
   const writeFailMessage =
-    result?.kind === "infra_error"
-      ? getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED")
-      : null;
+    result?.kind === "infra_error" ? getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED") : null;
 
   if (effectiveUi === "couldnt_confirm") {
     // The revoke neither returned a result nor surfaced a catchable error
@@ -222,10 +217,10 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             data-testid="admin-allowlist-lockout-error"
             role="alert"
             // P1 fix: was max-w-xs text-right text-xs — easy to miss
-          // after refusal on Doug's phone. Now full container width,
-          // left-aligned, text-sm with a subtle error wash so the
-          // refusal anchors visually next to the disabled control.
-          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+            // after refusal on Doug's phone. Now full container width,
+            // left-aligned, text-sm with a subtle error wash so the
+            // refusal anchors visually next to the disabled control.
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
           >
             {lockoutMessage}
           </p>

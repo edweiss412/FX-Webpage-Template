@@ -38,7 +38,11 @@ import { setDailyReviewDigest } from "@/app/admin/settings/_actions/setDailyRevi
 import { setAlertOnAutoPublish } from "@/app/admin/settings/_actions/setAlertOnAutoPublish";
 
 const CASES = [
-  { name: "setAlertOnSyncProblems", action: setAlertOnSyncProblems, column: "alert_on_sync_problems" },
+  {
+    name: "setAlertOnSyncProblems",
+    action: setAlertOnSyncProblems,
+    column: "alert_on_sync_problems",
+  },
   { name: "setDailyReviewDigest", action: setDailyReviewDigest, column: "daily_review_digest" },
   { name: "setAlertOnAutoPublish", action: setAlertOnAutoPublish, column: "alert_on_auto_publish" },
 ] as const;

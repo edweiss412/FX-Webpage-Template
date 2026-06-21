@@ -32,12 +32,7 @@ import { resolve } from "node:path";
 
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-} from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 // --- next/navigation: usePathname is mutable so the compound route-change
 // case can re-render with a new pathname while the menu is open.
@@ -121,26 +116,20 @@ describe("§7 source-level transition audit — every conditional has its declar
 
 describe("UserMenu — open/close behavior + compound transitions", () => {
   it("popover renders with route-enter on open and closes on backdrop click", () => {
-    const { getByTestId, queryByTestId } = render(
-      <UserMenu email="doug@example.com" />,
-    );
+    const { getByTestId, queryByTestId } = render(<UserMenu email="doug@example.com" />);
     fireEvent.click(getByTestId("admin-user-avatar"));
     const menu = getByTestId("admin-user-menu");
     expect(menu.className).toContain("route-enter");
 
     // Backdrop is the full-screen button rendered alongside the menu.
-    const backdrop = menu.parentElement?.querySelector(
-      'button[aria-hidden="true"]',
-    );
+    const backdrop = menu.parentElement?.querySelector('button[aria-hidden="true"]');
     expect(backdrop).not.toBeNull();
     fireEvent.click(backdrop as HTMLElement);
     expect(queryByTestId("admin-user-menu")).toBeNull();
   });
 
   it("COMPOUND: route change while menu open → menu closes instantly on navigation", () => {
-    const { getByTestId, queryByTestId, rerender } = render(
-      <UserMenu email="doug@example.com" />,
-    );
+    const { getByTestId, queryByTestId, rerender } = render(<UserMenu email="doug@example.com" />);
     fireEvent.click(getByTestId("admin-user-avatar"));
     expect(getByTestId("admin-user-menu")).toBeInTheDocument();
 
@@ -206,9 +195,7 @@ describe("AdminNav — active-state moves instantly on route change (no animatio
     act(() => {
       navState.pathname = "/admin/settings";
     });
-    rerender(
-      <AdminNav email="doug@example.com" alertCount={{ kind: "ok", count: 0 }} />,
-    );
+    rerender(<AdminNav email="doug@example.com" alertCount={{ kind: "ok", count: 0 }} />);
     // Active state moved (still ≥1 active item) — instant, no AnimatePresence.
     expect(container.querySelectorAll('[aria-current="page"]').length).toBeGreaterThan(0);
   });
@@ -231,9 +218,7 @@ describe("NotifBell — badge appear/disappear is instant", () => {
 describe("RevokeRowButton — COMPOUND: couldnt_confirm suppresses re-submit on a late result", () => {
   it("after the watchdog fires, a late in-flight result does NOT re-enable a second submit", async () => {
     vi.useFakeTimers();
-    const { RevokeRowButton } = await import(
-      "@/app/admin/settings/admins/RevokeRowButton"
-    );
+    const { RevokeRowButton } = await import("@/app/admin/settings/admins/RevokeRowButton");
 
     const { getByTestId, queryByTestId } = render(
       <RevokeRowButton email="x@example.com" disabled={false} />,

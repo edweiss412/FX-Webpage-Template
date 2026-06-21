@@ -122,8 +122,7 @@ export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
     // the inherited color is correct and no override is needed.
     const Icon = SECTION_ICON[id];
     const iconSize = variant === "desktop" ? "size-4" : "size-[22px]";
-    const iconActiveTint =
-      variant === "desktop" && isActive ? " text-accent-on-bg" : "";
+    const iconActiveTint = variant === "desktop" && isActive ? " text-accent-on-bg" : "";
 
     return (
       <button

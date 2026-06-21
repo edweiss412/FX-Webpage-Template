@@ -24,7 +24,12 @@ afterEach(cleanup);
 
 // Fixture: two present rows (one with an icon + sub), two sentinel/empty rows.
 const rows: FactRow[] = [
-  { k: "Loading dock", v: "Dock at rear", sub: "Service entrance", icon: <svg data-testid="dock-glyph" /> },
+  {
+    k: "Loading dock",
+    v: "Dock at rear",
+    sub: "Service entrance",
+    icon: <svg data-testid="dock-glyph" />,
+  },
   { k: "Crew Wi-Fi", v: "SSID Guest / pw 1234" },
   { k: "Parking", v: "TBD" }, // sentinel → OMITTED
   { k: "Power", v: "" }, // empty → OMITTED

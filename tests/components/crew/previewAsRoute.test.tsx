@@ -140,13 +140,7 @@ vi.mock("@/components/crew/CrewSubNav", () => ({
 }));
 
 vi.mock("@/components/crew/CrewSectionTransition", () => ({
-  CrewSectionTransition: ({
-    sectionId,
-    children,
-  }: {
-    sectionId: string;
-    children: ReactNode;
-  }) => (
+  CrewSectionTransition: ({ sectionId, children }: { sectionId: string; children: ReactNode }) => (
     <div data-testid="crew-section-transition" data-section-id={sectionId}>
       {children}
     </div>
@@ -193,13 +187,7 @@ vi.mock("@/components/crew/sections/BudgetSection", () => ({
 }));
 
 vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
-  ShowRealtimeBridge: ({
-    showId,
-    renderVersion,
-  }: {
-    showId: string;
-    renderVersion: string;
-  }) => (
+  ShowRealtimeBridge: ({ showId, renderVersion }: { showId: string; renderVersion: string }) => (
     <div
       data-testid="mock-realtime-bridge"
       data-show-id={showId}
@@ -231,10 +219,7 @@ function makeData(): ShowForViewer {
       dates: { travelIn: null, set: null, showDays: [], travelOut: null },
       event_details: {},
     },
-    crewMembers: [
-      crewRow(HAND_ID, state.previewCrewRoleFlags),
-      crewRow(LEAD_ID, ["LEAD"]),
-    ],
+    crewMembers: [crewRow(HAND_ID, state.previewCrewRoleFlags), crewRow(LEAD_ID, ["LEAD"])],
     hotelReservations: [],
     rooms: [],
     transportation: null,

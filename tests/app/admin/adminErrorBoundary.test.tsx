@@ -33,26 +33,18 @@ afterEach(() => {
 describe("admin client error boundaries", () => {
   it("catch-all boundary renders fixed ADMIN_ROUTE_LOAD_FAILED Doug copy (not err.code)", () => {
     render(<AdminError error={realErr()} reset={() => {}} />);
-    expect(
-      screen.getByText(getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED")),
-    ).toBeInTheDocument();
+    expect(screen.getByText(getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED"))).toBeInTheDocument();
   });
 
   it("settings boundary renders the same fixed code", () => {
     render(<AdminSettingsError error={realErr()} reset={() => {}} />);
-    expect(
-      screen.getByText(getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED")),
-    ).toBeInTheDocument();
+    expect(screen.getByText(getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED"))).toBeInTheDocument();
   });
 
   it("admins boundary renders ADMIN_ROUTE_LOAD_FAILED (REPOINTED — it now only catches route/session faults; list-read is handled in-section)", () => {
     render(<AdminAdminsError error={realErr()} reset={() => {}} />);
-    expect(
-      screen.getByText(getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED")),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText(getRequiredDougFacing("ADMIN_EMAIL_LIST_FAILED")),
-    ).toBeNull();
+    expect(screen.getByText(getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED"))).toBeInTheDocument();
+    expect(screen.queryByText(getRequiredDougFacing("ADMIN_EMAIL_LIST_FAILED"))).toBeNull();
   });
 
   it("§2.7 topology: catch-all + settings exist; staged/preview/onboarding/show have NO closer error.tsx (inherit the catch-all)", () => {
@@ -64,9 +56,7 @@ describe("admin client error boundaries", () => {
       "app/admin/show/[slug]/preview/[crewId]/error.tsx",
       "app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/error.tsx",
     ]) {
-      expect(existsSync(seg), `${seg} should NOT exist (inherits the catch-all)`).toBe(
-        false,
-      );
+      expect(existsSync(seg), `${seg} should NOT exist (inherits the catch-all)`).toBe(false);
     }
   });
 });

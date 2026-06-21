@@ -25,10 +25,10 @@ export function ReAddRowButton({ email }: { email: string }) {
   // → { kind: "infra_error" }) was invisible while add + revoke recover
   // inline. Consume the result and render the same cataloged write-fail
   // copy so all three write surfaces are symmetric.
-  const [result, formAction, isPending] = useActionState<
-    AdminEmailActionResult | null,
-    FormData
-  >(addAdminAction, null);
+  const [result, formAction, isPending] = useActionState<AdminEmailActionResult | null, FormData>(
+    addAdminAction,
+    null,
+  );
   // Resolve to copy in a local (not inline in JSX) so the no-raw-codes
   // scanner does not flag the code string inside a JSX expression.
   const writeFailedMessage = getRequiredDougFacing("ADMIN_EMAIL_WRITE_FAILED");

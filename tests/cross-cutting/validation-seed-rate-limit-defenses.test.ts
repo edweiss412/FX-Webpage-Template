@@ -19,10 +19,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 const ROOT = process.cwd();
-const MIGRATION = join(
-  ROOT,
-  "supabase/migrations/20260527210002_validation_seed_rate_limit.sql",
-);
+const MIGRATION = join(ROOT, "supabase/migrations/20260527210002_validation_seed_rate_limit.sql");
 const ALERT_MIGRATION = join(
   ROOT,
   "supabase/migrations/20260527210003_validation_seed_admin_alert.sql",
@@ -137,7 +134,9 @@ describe("validation_seed_rate_limit DB-side defenses (R2/R3/R4 structural pin)"
 
   test("R3 MED — force-overwrite refuses a different (kind, identity) snapshot", () => {
     expect(harness).toMatch(/--force-overwrite-snapshot refused/);
-    expect(harness).toMatch(/existingSnap\.kind\s*!==\s*kind\s*\|\|\s*existingSnap\.identity\s*!==\s*identity/);
+    expect(harness).toMatch(
+      /existingSnap\.kind\s*!==\s*kind\s*\|\|\s*existingSnap\.identity\s*!==\s*identity/,
+    );
   });
 
   test("R1/R5 — admin_alerts writes go through the ATOMIC validation_seed_admin_alert RPC (lock + refuse-non-fixture + delegate)", () => {

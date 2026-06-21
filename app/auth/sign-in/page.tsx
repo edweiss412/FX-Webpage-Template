@@ -282,9 +282,11 @@ export default async function SignInPage({
         (that's the §13.1 inversion the M8 R2 M2 watchpoint flagged).
         No email exposed in v1 per brief §5.3 footgun rationale.
       */}
-      <p data-testid="sign-in-help-disclosure" className="mt-section-gap text-center text-xs text-text-subtle">
-        <span className="font-medium">Need help signing in?</span>{" "}
-        Contact your project manager.
+      <p
+        data-testid="sign-in-help-disclosure"
+        className="mt-section-gap text-center text-xs text-text-subtle"
+      >
+        <span className="font-medium">Need help signing in?</span> Contact your project manager.
       </p>
     </main>
   );

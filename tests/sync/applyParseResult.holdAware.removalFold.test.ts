@@ -53,7 +53,9 @@ async function setup(tx: Sql) {
   await writeMi11Holds(holdPort(tx), {
     showId,
     driveFileId,
-    mi11Items: [{ id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" }],
+    mi11Items: [
+      { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+    ],
     liveCrewByName: new Map([["Alice", aliceLive]]),
     baseModifiedTime: MT,
   });
@@ -98,7 +100,11 @@ describe("hold-aware apply — held-crew removal fold (Task 2.6, F7)", () => {
       });
 
       const holds = await readHolds(tx, showId);
-      expect(holds[0]!.proposed_value).toEqual({ disposition: "rename", name: "Alicia", email: "a@new" });
+      expect(holds[0]!.proposed_value).toEqual({
+        disposition: "rename",
+        name: "Alicia",
+        email: "a@new",
+      });
     });
   });
 });

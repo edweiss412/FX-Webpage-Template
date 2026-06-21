@@ -47,7 +47,12 @@ const EMPTY_SHOW: ParseResult["show"] = {
   client_contact: null,
   template_version: "v1",
   venue: null,
-  dates: { travelIn: "2026-05-07", set: "2026-05-08", showDays: ["2026-05-09"], travelOut: "2026-05-10" },
+  dates: {
+    travelIn: "2026-05-07",
+    set: "2026-05-08",
+    showDays: ["2026-05-09"],
+    travelOut: "2026-05-10",
+  },
   schedule_phases: {},
   event_details: {},
   agenda_links: [],
@@ -212,9 +217,10 @@ export function phase2Tx(tx: Sql) {
       modifiedTime: string;
       parseResult: ParseResult;
     }) {
-      const [show] = (await tx`select id from public.shows where drive_file_id = ${args.driveFileId} limit 1`) as Array<{
-        id: string;
-      }>;
+      const [show] =
+        (await tx`select id from public.shows where drive_file_id = ${args.driveFileId} limit 1`) as Array<{
+          id: string;
+        }>;
       const showId = show!.id;
       const previous = (await tx`
         select id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
@@ -248,10 +254,7 @@ export function phase2Tx(tx: Sql) {
   };
 }
 
-export function snapshot(
-  showId: string,
-  previous: PreviousCrewMember[],
-): ApplyParseResultSnapshot {
+export function snapshot(showId: string, previous: PreviousCrewMember[]): ApplyParseResultSnapshot {
   return {
     showId,
     previousCrewNames: previous.map((p) => p.name),

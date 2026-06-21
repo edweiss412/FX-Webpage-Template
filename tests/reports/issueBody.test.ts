@@ -24,11 +24,7 @@ describe("report issue body templates", () => {
   test("admin body contains canonicalized admin email, raw snippet, and marker", () => {
     // Failure modes: admin attribution regresses to literal "admin"; the
     // template regresses to the old minimal builder; the retry marker drops.
-    const body = buildAdminIssueBody(
-      { kind: "admin", email: "doug@example.com" },
-      baseBody,
-      null,
-    );
+    const body = buildAdminIssueBody({ kind: "admin", email: "doug@example.com" }, baseBody, null);
 
     expect(body).toContain("**Reported by:** doug@example.com");
     expect(body).not.toContain("**Reported by:** admin\n");
@@ -38,11 +34,7 @@ describe("report issue body templates", () => {
 
   test("admin body contains field ref, parse warnings, drive file ID, last sync, user agent, and message", () => {
     // Failure mode: body rendering ignores autocaptured admin RequestBody fields.
-    const body = buildAdminIssueBody(
-      { kind: "admin", email: "doug@example.com" },
-      baseBody,
-      null,
-    );
+    const body = buildAdminIssueBody({ kind: "admin", email: "doug@example.com" }, baseBody, null);
 
     expect(body).toContain("rooms[0].audio");
     expect(body).toContain("UNKNOWN_ROLE_TOKEN");

@@ -36,11 +36,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
-import {
-  addAdminEmail,
-  revokeAdminEmail,
-  AdminEmailsInfraError,
-} from "@/lib/data/adminEmails";
+import { addAdminEmail, revokeAdminEmail, AdminEmailsInfraError } from "@/lib/data/adminEmails";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 /**
@@ -123,9 +119,7 @@ export async function addAdminAction(
     case "ok":
       revalidatePath("/admin/settings/admins");
       revalidatePath("/admin/settings");
-      return outcome.row?.email
-        ? { kind: "ok", email: outcome.row.email }
-        : { kind: "ok" };
+      return outcome.row?.email ? { kind: "ok", email: outcome.row.email } : { kind: "ok" };
     case "invalid_email":
       return { kind: "invalid_email" };
     case "already_active":
@@ -168,11 +162,7 @@ export async function revokeAdminAction(
   // tracked in DEFERRED.md.
   const actorCanonical = canonicalize(identity.email);
   const targetCanonical = canonicalize(rawEmail);
-  if (
-    actorCanonical !== null &&
-    targetCanonical !== null &&
-    actorCanonical === targetCanonical
-  ) {
+  if (actorCanonical !== null && targetCanonical !== null && actorCanonical === targetCanonical) {
     return { kind: "last_admin_lockout", email: targetCanonical };
   }
 

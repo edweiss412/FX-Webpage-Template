@@ -281,9 +281,14 @@ describe("Phase 2 Task 2.1 — decision rule", () => {
   test("clean-first-seen with auto-publish OFF still stages FIRST_SEEN_REVIEW (sentinel path intact)", async () => {
     const tx = new FakePhase1Tx();
     const next = parseResult();
-    const result = await runWith(tx, next, {}, {
-      getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }),
-    });
+    const result = await runWith(
+      tx,
+      next,
+      {},
+      {
+        getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }),
+      },
+    );
     expect(result.outcome).toBe("stage");
     expect(tx.operations).toContain("upsertLivePendingSync");
   });

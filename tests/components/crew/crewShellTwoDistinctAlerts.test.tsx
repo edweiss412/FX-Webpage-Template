@@ -118,9 +118,7 @@ describe("CrewShell: projection-fetch alert + section render-throw alert are two
     });
     render(element);
 
-    const codes = upsertAdminAlert.mock.calls.map(
-      (c) => (c[0] as { code: string }).code,
-    );
+    const codes = upsertAdminAlert.mock.calls.map((c) => (c[0] as { code: string }).code);
 
     // TWO distinct codes — one per producer.
     expect(codes).toContain("TILE_PROJECTION_FETCH_FAILED");

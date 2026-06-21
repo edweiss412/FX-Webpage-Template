@@ -62,10 +62,7 @@ function runProbeIn(probeCwd: string): string {
 describe("loadValidationEnv() precedence (R10-F1)", () => {
   test(".env.local wins over .env.development.local for VALIDATION_* vars", () => {
     writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
-    writeEnv(
-      ".env.development.local",
-      "VALIDATION_TEST_URL=from-env-development-local\n",
-    );
+    writeEnv(".env.development.local", "VALIDATION_TEST_URL=from-env-development-local\n");
 
     const result = runProbeIn(cwd);
     expect(
@@ -92,10 +89,7 @@ describe("loadValidationEnv() precedence (R10-F1)", () => {
 
   test("R11-F1 — .env.production.local must NOT override .env.local for VALIDATION_*", () => {
     writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
-    writeEnv(
-      ".env.production.local",
-      "VALIDATION_TEST_URL=from-env-production-local\n",
-    );
+    writeEnv(".env.production.local", "VALIDATION_TEST_URL=from-env-production-local\n");
     const result = runProbeIn(cwd);
     expect(
       result,

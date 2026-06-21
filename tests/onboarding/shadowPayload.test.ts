@@ -79,19 +79,31 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     ["null element", [null]],
     ["scalar element", ["x"]],
     ["empty object element", [{}]],
-    ["missing id", [{ invariant: "MI-11", crew_name: "Ada", prior_email: null, new_email: "a@b.c" }]],
+    [
+      "missing id",
+      [{ invariant: "MI-11", crew_name: "Ada", prior_email: null, new_email: "a@b.c" }],
+    ],
     ["non-string invariant", [{ id: "i1", invariant: 7 }]],
-    ["MI-11 missing crew_name", [{ id: "i1", invariant: "MI-11", prior_email: null, new_email: "a@b.c" }]],
+    [
+      "MI-11 missing crew_name",
+      [{ id: "i1", invariant: "MI-11", prior_email: null, new_email: "a@b.c" }],
+    ],
     ["MI-12 missing added_name", [{ id: "i1", invariant: "MI-12", removed_name: "Old" }]],
     ["MI-13-orphan-remove missing removed_name", [{ id: "i1", invariant: "MI-13-orphan-remove" }]],
-    ["mixed valid + invalid", [
-      { id: "i1", invariant: "MI-11", crew_name: "Ada", prior_email: null, new_email: "a@b.c" },
-      null,
-    ]],
-  ])("malformed triggered_review_items element (%s) is REFUSED, never thrown on", (_label, items) => {
-    const parsed = parseShadowPayloadForApply(payload({ triggered_review_items: items }));
-    expect(parsed).toEqual({ ok: false, code: "STAGED_REVIEW_ITEMS_CORRUPT" });
-  });
+    [
+      "mixed valid + invalid",
+      [
+        { id: "i1", invariant: "MI-11", crew_name: "Ada", prior_email: null, new_email: "a@b.c" },
+        null,
+      ],
+    ],
+  ])(
+    "malformed triggered_review_items element (%s) is REFUSED, never thrown on",
+    (_label, items) => {
+      const parsed = parseShadowPayloadForApply(payload({ triggered_review_items: items }));
+      expect(parsed).toEqual({ ok: false, code: "STAGED_REVIEW_ITEMS_CORRUPT" });
+    },
+  );
 
   test("unknown invariant string with string id/invariant is ACCEPTED (allowedActions is total; forward-compat)", () => {
     const parsed = parseShadowPayloadForApply(

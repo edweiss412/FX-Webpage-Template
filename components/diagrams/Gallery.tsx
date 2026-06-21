@@ -92,20 +92,20 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
           const runtimeFailed = failedKeys.has(item.key);
           const isAvailable = item.available && !runtimeFailed;
           return (
-          <li
-            key={item.key}
-            data-testid={`diagram-slot-${i}`}
-            {...(isAvailable ? {} : { "data-unavailable": "true" })}
-            className="aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken"
-          >
-            {isAvailable ? (
-              <button
-                type="button"
-                onClick={() => setLightboxIndex(i)}
-                aria-label={`Open ${item.alt || `Diagram ${i + 1}`}`}
-                className="block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-              >
-                {/*
+            <li
+              key={item.key}
+              data-testid={`diagram-slot-${i}`}
+              {...(isAvailable ? {} : { "data-unavailable": "true" })}
+              className="aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken"
+            >
+              {isAvailable ? (
+                <button
+                  type="button"
+                  onClick={() => setLightboxIndex(i)}
+                  aria-label={`Open ${item.alt || `Diagram ${i + 1}`}`}
+                  className="block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                >
+                  {/*
                   M9 C6b / M7-D3 — next/image migration was REVERTED
                   after Codex C6b round-1 P0 finding: the /_next/image
                   optimizer (a) does NOT forward the user's auth
@@ -126,32 +126,32 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
                   fall back to the same unavailable placeholder branch
                   as parse-time-known-unavailable items.
                 */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={assetUrl(showId, snapshotRevisionId, item.key)}
-                  alt={item.alt || `Diagram ${i + 1}`}
-                  loading="lazy"
-                  decoding="async"
-                  onError={() =>
-                    setFailedKeys((prev) => {
-                      if (prev.has(item.key)) return prev;
-                      const next = new Set(prev);
-                      next.add(item.key);
-                      return next;
-                    })
-                  }
-                  className="size-full object-cover"
-                />
-              </button>
-            ) : (
-              <div className="flex size-full flex-col items-center justify-center gap-1 text-text-subtle">
-                <ImageOff aria-hidden="true" className="size-5" />
-                <span className="sr-only">
-                  {`${item.alt || `Diagram ${i + 1}`} — image unavailable`}
-                </span>
-              </div>
-            )}
-          </li>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={assetUrl(showId, snapshotRevisionId, item.key)}
+                    alt={item.alt || `Diagram ${i + 1}`}
+                    loading="lazy"
+                    decoding="async"
+                    onError={() =>
+                      setFailedKeys((prev) => {
+                        if (prev.has(item.key)) return prev;
+                        const next = new Set(prev);
+                        next.add(item.key);
+                        return next;
+                      })
+                    }
+                    className="size-full object-cover"
+                  />
+                </button>
+              ) : (
+                <div className="flex size-full flex-col items-center justify-center gap-1 text-text-subtle">
+                  <ImageOff aria-hidden="true" className="size-5" />
+                  <span className="sr-only">
+                    {`${item.alt || `Diagram ${i + 1}`} — image unavailable`}
+                  </span>
+                </div>
+              )}
+            </li>
           );
         })}
       </ul>

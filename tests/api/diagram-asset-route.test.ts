@@ -33,9 +33,7 @@ const routeMock = vi.hoisted(() => ({
   google: { kind: "continue" } as { kind: string },
   linkCalls: 0,
   googleCalls: 0,
-  peek: { kind: "none" } as
-    | { kind: "none" }
-    | { kind: "envelope"; showId: string },
+  peek: { kind: "none" } as { kind: "none" } | { kind: "envelope"; showId: string },
   lastFetchRange: null as string | null,
   // When set, the upstream fetch mock returns 416 with this
   // Content-Range header so route 416 forwarding (R20 P2) is testable.
@@ -218,9 +216,9 @@ beforeEach(() => {
     const rangeHeader =
       init?.headers && typeof (init.headers as Headers).get === "function"
         ? (init.headers as Headers).get("Range")
-        : (init?.headers as Record<string, string> | undefined)?.Range ??
+        : ((init?.headers as Record<string, string> | undefined)?.Range ??
           (init?.headers as Record<string, string> | undefined)?.range ??
-          null;
+          null);
     routeMock.lastFetchRange = rangeHeader;
     if (routeMock.fetch416ContentRange !== null) {
       return new Response(null, {
@@ -677,7 +675,9 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
   });
 
   test("Codex R23 P2: HEAD with malformed Range → 416", async () => {
-    const res = await headDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-10, 20-30" } });
+    const res = await headDiagram(currentRev, assetKey, {
+      headers: { Range: "bytes=0-10, 20-30" },
+    });
     expect(res.status).toBe(416);
     expect(routeMock.storageDownloads).toEqual([]);
   });

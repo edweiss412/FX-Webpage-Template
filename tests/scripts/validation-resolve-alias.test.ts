@@ -10,14 +10,10 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
 import { runValidationCli, type CliRun } from "./_cli-helpers";
 
-const RESOLVE_ALIAS_SCRIPT = join(
-  process.cwd(),
-  "scripts/validation-resolve-alias.ts",
-);
+const RESOLVE_ALIAS_SCRIPT = join(process.cwd(), "scripts/validation-resolve-alias.ts");
 
 const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 const LOCAL_SERVICE_ROLE_KEY =
@@ -26,11 +22,10 @@ const LOCAL_SERVICE_ROLE_KEY =
 const TODAY = new Date().toISOString().slice(0, 10);
 
 function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 function runResolve(combo: string, alias: string): CliRun {
@@ -73,9 +68,7 @@ function mintR1(): void {
     seededBy: "validation-resolve-alias.test.ts",
     seededProjectRef: "local",
   });
-  runPsql(
-    `SELECT public.mint_validation_fixture_atomic('R1', '${payload}'::jsonb);`,
-  );
+  runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${payload}'::jsonb);`);
 }
 
 describe("validation-resolve-alias", () => {

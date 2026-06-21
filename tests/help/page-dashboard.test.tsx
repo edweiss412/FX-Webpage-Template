@@ -7,10 +7,7 @@ import { join } from "node:path";
 import { MDXProvider } from "@mdx-js/react";
 import { useMDXComponents } from "@/mdx-components";
 
-const src = readFileSync(
-  join(process.cwd(), "app/help/admin/dashboard/page.mdx"),
-  "utf8",
-);
+const src = readFileSync(join(process.cwd(), "app/help/admin/dashboard/page.mdx"), "utf8");
 
 describe("/help/admin/dashboard (E.5)", () => {
   it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {

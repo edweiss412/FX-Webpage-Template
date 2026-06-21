@@ -20,14 +20,7 @@
  * implementation reads. A broken implementation that hardcodes a different
  * token (or misorders /show/<token>/<slug>) cannot pass.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
 vi.mock("@/lib/data/loadShowShareToken", () => ({
@@ -60,13 +53,9 @@ describe("<CurrentShareLinkPanel>", () => {
   test("renders the canonical URL composed of origin + slug + token", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
     vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
-    const { getByTestId } = render(
-      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
-    );
+    const { getByTestId } = render(await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }));
     const code = getByTestId("admin-current-share-link-url");
-    expect(code.textContent).toBe(
-      `https://crew.fxav.show/show/${SLUG}/${TOKEN}`,
-    );
+    expect(code.textContent).toBe(`https://crew.fxav.show/show/${SLUG}/${TOKEN}`);
   });
 
   test("calls loadShowShareToken with the showId prop", async () => {
@@ -128,9 +117,7 @@ describe("<CurrentShareLinkPanel>", () => {
   test("never renders a '/show/<slug>/null' URL (guard against null-stringification)", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
     vi.mocked(loadShowShareToken).mockResolvedValue(null);
-    const { container } = render(
-      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
-    );
+    const { container } = render(await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }));
     expect(container.textContent ?? "").not.toContain(`/show/${SLUG}/null`);
     expect(container.textContent ?? "").not.toContain("null");
   });
@@ -173,12 +160,8 @@ describe("<CurrentShareLinkPanel>", () => {
   test("renders the Copy button with the expected testid + accessible name", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
     vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
-    const { getByTestId } = render(
-      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
-    );
-    const btn = getByTestId(
-      "admin-current-share-link-copy-button",
-    ) as HTMLButtonElement;
+    const { getByTestId } = render(await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }));
+    const btn = getByTestId("admin-current-share-link-copy-button") as HTMLButtonElement;
     expect(btn.tagName).toBe("BUTTON");
     expect(btn.getAttribute("aria-label") ?? "").toMatch(/copy/i);
   });
@@ -186,13 +169,9 @@ describe("<CurrentShareLinkPanel>", () => {
   test("falls back to localhost origin when NEXT_PUBLIC_SITE_ORIGIN is unset (dev parity)", async () => {
     delete process.env.NEXT_PUBLIC_SITE_ORIGIN;
     vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
-    const { getByTestId } = render(
-      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
-    );
+    const { getByTestId } = render(await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }));
     const code = getByTestId("admin-current-share-link-url");
-    expect(code.textContent).toBe(
-      `http://localhost:3000/show/${SLUG}/${TOKEN}`,
-    );
+    expect(code.textContent).toBe(`http://localhost:3000/show/${SLUG}/${TOKEN}`);
   });
 
   // M12.5 — Rotate/Reset are folded INTO this card via the `actions` slot. The
@@ -231,9 +210,7 @@ describe("<CurrentShareLinkPanel>", () => {
   test("URL display has the share-link section heading + crew-facing copy", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
     vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
-    const { getByTestId } = render(
-      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
-    );
+    const { getByTestId } = render(await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }));
     const root = getByTestId("admin-current-share-link-panel");
     expect(root.textContent).toMatch(/share[- ]link/i);
   });
@@ -241,9 +218,7 @@ describe("<CurrentShareLinkPanel>", () => {
   test("URL <code> has NO title attribute (attestation HIGH: token-in-hover-tooltip)", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
     vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
-    const { getByTestId } = render(
-      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
-    );
+    const { getByTestId } = render(await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }));
     const code = getByTestId("admin-current-share-link-url");
     expect(code.getAttribute("title")).toBeNull();
   });
@@ -251,9 +226,7 @@ describe("<CurrentShareLinkPanel>", () => {
   test("Copy button has NO aria-live (attestation HIGH: live region on focusable control)", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
     vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
-    const { getByTestId } = render(
-      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
-    );
+    const { getByTestId } = render(await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }));
     const btn = getByTestId("admin-current-share-link-copy-button");
     expect(btn.getAttribute("aria-live")).toBeNull();
   });
@@ -261,9 +234,7 @@ describe("<CurrentShareLinkPanel>", () => {
   test("Copy announcement lives on a sibling sr-only status node (a11y pattern)", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
     vi.mocked(loadShowShareToken).mockResolvedValue(TOKEN);
-    const { getByTestId } = render(
-      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }),
-    );
+    const { getByTestId } = render(await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG }));
     const announce = getByTestId("admin-current-share-link-copy-announce");
     expect(announce.getAttribute("role")).toBe("status");
     expect(announce.getAttribute("aria-live")).toBe("polite");

@@ -51,10 +51,7 @@ export function AdministratorsSection({
         aria-labelledby="admin-settings-admins-heading"
         className="flex flex-col gap-3"
       >
-        <h2
-          id="admin-settings-admins-heading"
-          className="text-lg font-semibold text-text-strong"
-        >
+        <h2 id="admin-settings-admins-heading" className="text-lg font-semibold text-text-strong">
           Administrators
         </h2>
         <div
@@ -62,12 +59,8 @@ export function AdministratorsSection({
           role="alert"
           className="flex flex-col gap-2 rounded-md border border-border bg-surface p-4"
         >
-          <p className="max-w-prose text-sm text-text-strong">
-            {listFailedMessage}
-          </p>
-          <p className="max-w-prose text-sm text-text-subtle">
-            Refresh the page to try again.
-          </p>
+          <p className="max-w-prose text-sm text-text-strong">{listFailedMessage}</p>
+          <p className="max-w-prose text-sm text-text-subtle">Refresh the page to try again.</p>
         </div>
       </section>
     );
@@ -79,10 +72,7 @@ export function AdministratorsSection({
 
   const heading = (
     <div className="flex items-center gap-2">
-      <h2
-        id="admin-settings-admins-heading"
-        className="text-lg font-semibold text-text-strong"
-      >
+      <h2 id="admin-settings-admins-heading" className="text-lg font-semibold text-text-strong">
         Administrators ({active.length})
       </h2>
       <HoverHelp
@@ -92,8 +82,8 @@ export function AdministratorsSection({
         learnMore={{ href: "/help/admin/settings#administrators" }}
       >
         <p>
-          People who can sign in and manage shows here. Add or revoke access. You
-          can&rsquo;t revoke your own.
+          People who can sign in and manage shows here. Add or revoke access. You can&rsquo;t revoke
+          your own.
         </p>
       </HoverHelp>
     </div>
@@ -124,7 +114,10 @@ export function AdministratorsSection({
       </div>
 
       {revoked.length > 0 && (
-        <details data-testid="admin-revoked-list" className="rounded-md border border-border bg-surface-sunken">
+        <details
+          data-testid="admin-revoked-list"
+          className="rounded-md border border-border bg-surface-sunken"
+        >
           <summary className="cursor-pointer p-3 text-xs font-semibold uppercase tracking-wide text-text-subtle">
             Revoked ({revoked.length})
           </summary>
@@ -149,15 +142,7 @@ export function AdministratorsSection({
   );
 }
 
-function AdminRow({
-  row,
-  isActor,
-  now,
-}: {
-  row: AdminEmailRow;
-  isActor: boolean;
-  now: Date;
-}) {
+function AdminRow({ row, isActor, now }: { row: AdminEmailRow; isActor: boolean; now: Date }) {
   const isSeed = row.added_by === null;
   // Self-revoke policy: an admin can NEVER revoke their OWN access. The Revoke
   // control is OMITTED entirely on the actor's own row (M12.5 — was a disabled
@@ -180,15 +165,11 @@ function AdminRow({
               You
             </span>
           )}
-          <p className="wrap-break-word text-base font-medium text-text-strong">
-            {row.email}
-          </p>
+          <p className="wrap-break-word text-base font-medium text-text-strong">{row.email}</p>
         </div>
         <p className="mt-1 text-xs text-text-subtle">{buildAddedLine(row, isSeed, now)}</p>
         {hasNote && (
-          <p className="mt-1 text-xs italic text-text-subtle">
-            &ldquo;{row.note?.trim()}&rdquo;
-          </p>
+          <p className="mt-1 text-xs italic text-text-subtle">&ldquo;{row.note?.trim()}&rdquo;</p>
         )}
       </div>
       {isActor ? null : <RevokeRowButton email={row.email} disabled={false} />}

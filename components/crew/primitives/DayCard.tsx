@@ -69,10 +69,7 @@ export function DayCard({ day, phase, today, meta }: DayCardProps) {
         today ? "border-accent bg-stale-tint" : "border-border bg-surface",
       ].join(" ")}
     >
-      <div
-        data-testid="day-card-date"
-        className="flex w-[50px] shrink-0 flex-col items-center"
-      >
+      <div data-testid="day-card-date" className="flex w-[50px] shrink-0 flex-col items-center">
         <span
           className={[
             "text-[11px] font-bold uppercase leading-none tracking-eyebrow",

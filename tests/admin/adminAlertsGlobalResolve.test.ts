@@ -8,8 +8,12 @@ import { handleAdminAlertGlobalResolve } from "@/app/api/admin/admin-alerts/[id]
 const A1 = "44444444-4444-4444-8444-444444444444";
 
 class FakeGlobalAlertTx implements AdminAlertGlobalResolveTx {
-  row: { id: string; show_id: string | null; slug: string | null; resolved_at: string | null } | null =
-    { id: A1, show_id: null, slug: null, resolved_at: null };
+  row: {
+    id: string;
+    show_id: string | null;
+    slug: string | null;
+    resolved_at: string | null;
+  } | null = { id: A1, show_id: null, slug: null, resolved_at: null };
   updated = false;
   async queryOne<T>(sql: string, params: unknown[]) {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -24,7 +28,10 @@ class FakeGlobalAlertTx implements AdminAlertGlobalResolveTx {
   }
 }
 
-function deps(tx: FakeGlobalAlertTx, overrides: Partial<AdminAlertGlobalResolveDeps> = {}): AdminAlertGlobalResolveDeps {
+function deps(
+  tx: FakeGlobalAlertTx,
+  overrides: Partial<AdminAlertGlobalResolveDeps> = {},
+): AdminAlertGlobalResolveDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     withTx: async (fn) => fn(tx),
@@ -40,9 +47,13 @@ describe("global admin alert resolve route", () => {
   test("resolves a global alert idempotently", async () => {
     const tx = new FakeGlobalAlertTx();
 
-    const response = await handleAdminAlertGlobalResolve(new Request("https://crew.fxav.test"), {
-      params: Promise.resolve({ id: A1 }),
-    }, deps(tx));
+    const response = await handleAdminAlertGlobalResolve(
+      new Request("https://crew.fxav.test"),
+      {
+        params: Promise.resolve({ id: A1 }),
+      },
+      deps(tx),
+    );
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "resolved", id: A1, resolved_at: "DB_NOW" });
@@ -53,9 +64,13 @@ describe("global admin alert resolve route", () => {
     const tx = new FakeGlobalAlertTx();
     tx.row = { id: A1, show_id: "show-1", slug: "test-show", resolved_at: null };
 
-    const response = await handleAdminAlertGlobalResolve(new Request("https://crew.fxav.test"), {
-      params: Promise.resolve({ id: A1 }),
-    }, deps(tx));
+    const response = await handleAdminAlertGlobalResolve(
+      new Request("https://crew.fxav.test"),
+      {
+        params: Promise.resolve({ id: A1 }),
+      },
+      deps(tx),
+    );
 
     expect(response.status).toBe(400);
     expect(await json(response)).toEqual({
@@ -72,9 +87,13 @@ describe("global admin alert resolve route", () => {
     const tx = new FakeGlobalAlertTx();
     tx.row = null;
 
-    const response = await handleAdminAlertGlobalResolve(new Request("https://crew.fxav.test"), {
-      params: Promise.resolve({ id: A1 }),
-    }, deps(tx));
+    const response = await handleAdminAlertGlobalResolve(
+      new Request("https://crew.fxav.test"),
+      {
+        params: Promise.resolve({ id: A1 }),
+      },
+      deps(tx),
+    );
 
     expect(response.status).toBe(404);
     expect(await json(response)).toEqual({ ok: false, code: "ADMIN_ALERT_NOT_FOUND" });

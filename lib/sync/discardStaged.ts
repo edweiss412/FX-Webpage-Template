@@ -281,13 +281,7 @@ async function defaultUpsertLiveDeferral(
         deferred_at = now()
       returning true as upserted
     `,
-    [
-      row.driveFileId,
-      row.deferredKind,
-      row.deferredAtModifiedTime,
-      deferredByEmail,
-      row.reason,
-    ],
+    [row.driveFileId, row.deferredKind, row.deferredAtModifiedTime, deferredByEmail, row.reason],
   );
 }
 

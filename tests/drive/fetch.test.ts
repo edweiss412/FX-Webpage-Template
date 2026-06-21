@@ -105,19 +105,14 @@ describe("Drive fetch wrappers", () => {
       ok: true,
       arrayBuffer: vi.fn().mockResolvedValue(bytes),
     });
-    const { fetchSheetAsMarkdownAtRevision, XLSX_EXPORT_MIME_TYPE } = await import(
-      "@/lib/drive/fetch"
-    );
+    const { fetchSheetAsMarkdownAtRevision, XLSX_EXPORT_MIME_TYPE } =
+      await import("@/lib/drive/fetch");
 
-    const markdown = await fetchSheetAsMarkdownAtRevision(
-      "sheet-1",
-      "2026-05-08T12:00:00.000Z",
-      {
-        drive: fakeDrive({ files: { get: filesGet } }),
-        fetch: fetchImpl,
-        getAccessToken: async () => "ya29.test-token",
-      },
-    );
+    const markdown = await fetchSheetAsMarkdownAtRevision("sheet-1", "2026-05-08T12:00:00.000Z", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl,
+      getAccessToken: async () => "ya29.test-token",
+    });
 
     expect(markdown).toBe("| CLIENT |\n| :---: |\n| ACME |");
     expect(filesGet).toHaveBeenCalledTimes(2);
@@ -269,7 +264,11 @@ describe("Drive fetch wrappers", () => {
   test.each([
     [403, "rateLimitExceeded", "User rate limit exceeded."],
     [403, "userRateLimitExceeded", "User rate limit exceeded."],
-    [403, "insufficientFilePermissions", "The user does not have sufficient permissions for file sheet-1."],
+    [
+      403,
+      "insufficientFilePermissions",
+      "The user does not have sufficient permissions for file sheet-1.",
+    ],
     [404, "notFound", "File not found: sheet-1."],
     [500, "internalError", "Internal Error"],
   ] as const)(

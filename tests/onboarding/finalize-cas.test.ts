@@ -73,9 +73,10 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   activeSessionId: string | null = W1;
   pendingFolderId: string | null = "folder-1";
   watchedFolderId: string | null = null;
-  checkpoint:
-    | { status: "in_progress" | "all_batches_complete" | "final_cas_done"; batches_completed: number }
-    | null = { status: "all_batches_complete", batches_completed: 1 };
+  checkpoint: {
+    status: "in_progress" | "all_batches_complete" | "final_cas_done";
+    batches_completed: number;
+  } | null = { status: "all_batches_complete", batches_completed: 1 };
   finalizeLocked = true;
   approvedCount = 0;
   unresolvedManifestCount = 0;
@@ -190,16 +191,19 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
     }
 
     if (normalized.startsWith("delete from public.shows_pending_changes")) {
-      const driveFileId = params.find((param) => typeof param === "string" && param.startsWith("existing-")) as
-        | string
-        | undefined;
+      const driveFileId = params.find(
+        (param) => typeof param === "string" && param.startsWith("existing-"),
+      ) as string | undefined;
       this.shadowRows = driveFileId
         ? this.shadowRows.filter((row) => row.drive_file_id !== driveFileId)
         : [];
       return { rows: [], rowCount: 0 };
     }
 
-    if (normalized.startsWith("update public.shows s") && normalized.includes("set published = true")) {
+    if (
+      normalized.startsWith("update public.shows s") &&
+      normalized.includes("set published = true")
+    ) {
       this.published = true;
       return { rows: [{ published: true } as T], rowCount: 1 };
     }
@@ -301,7 +305,10 @@ function makeFakePipelineTx(db: FakeFinalizeCasDb): SyncPipelineTx {
   } as unknown as SyncPipelineTx;
 }
 
-function deps(db: FakeFinalizeCasDb, overrides: Partial<FinalizeCasRouteDeps> = {}): FinalizeCasRouteDeps {
+function deps(
+  db: FakeFinalizeCasDb,
+  overrides: Partial<FinalizeCasRouteDeps> = {},
+): FinalizeCasRouteDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     withTx: async (fn) => fn(db),
@@ -318,14 +325,16 @@ async function json(response: Response): Promise<unknown> {
 describe("POST /api/admin/onboarding/finalize-cas", () => {
   test("commits Phase D atomically then subscribes to the watched folder after commit", async () => {
     const db = new FakeFinalizeCasDb();
-    db.shadowRows = [{
-      wizard_session_id: W1,
-      drive_file_id: "existing-1",
-      show_id: "22222222-2222-4222-8222-222222222222",
-      applied_by_email: "apply-admin@example.com",
-      applied_at_intent: "2026-05-08T12:00:00.000Z",
-      payload: shadowPayload(),
-    }];
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "22222222-2222-4222-8222-222222222222",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload(),
+      },
+    ];
     db.sessionCreatedDriveIds = ["first-seen-1"];
     const routeDeps = deps(db);
 
@@ -452,14 +461,16 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
   test("reports Phase D shadow rows whose live show advanced after Phase B without final cleanup", async () => {
     const db = new FakeFinalizeCasDb();
     db.phaseDCasFailDriveIds.add("existing-1");
-    db.shadowRows = [{
-      wizard_session_id: W1,
-      drive_file_id: "existing-1",
-      show_id: "22222222-2222-4222-8222-222222222222",
-      applied_by_email: "apply-admin@example.com",
-      applied_at_intent: "2026-05-08T12:00:00.000Z",
-      payload: shadowPayload(),
-    }];
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "22222222-2222-4222-8222-222222222222",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: shadowPayload(),
+      },
+    ];
 
     const response = await handleOnboardingFinalizeCas(request(), deps(db));
 
@@ -467,9 +478,7 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     expect(await json(response)).toEqual({
       ok: false,
       code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
-      per_row: [
-        { drive_file_id: "existing-1", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
-      ],
+      per_row: [{ drive_file_id: "existing-1", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" }],
     });
     expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-1"]);
     expect(db.published).toBe(false);
@@ -652,7 +661,9 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     const missingCheckpoint = new FakeFinalizeCasDb();
     missingCheckpoint.checkpoint = null;
 
-    await expect(json(await handleOnboardingFinalizeCas(request(), deps(missingCheckpoint)))).resolves.toEqual({
+    await expect(
+      json(await handleOnboardingFinalizeCas(request(), deps(missingCheckpoint))),
+    ).resolves.toEqual({
       ok: false,
       code: "WIZARD_FINALIZE_CHECKPOINT_MISSING",
     });
@@ -736,9 +747,9 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     // uncataloged code would fall back to the generic error and strand the
     // operator without the re-run-setup recovery instruction.
     const { MESSAGE_CATALOG } = await import("@/lib/messages/catalog");
-    const entry = MESSAGE_CATALOG["ONBOARDING_LEGACY_ROW_AMBIGUOUS" as keyof typeof MESSAGE_CATALOG] as
-      | { dougFacing: string | null; helpfulContext: string | null }
-      | undefined;
+    const entry = MESSAGE_CATALOG[
+      "ONBOARDING_LEGACY_ROW_AMBIGUOUS" as keyof typeof MESSAGE_CATALOG
+    ] as { dougFacing: string | null; helpfulContext: string | null } | undefined;
     expect(entry).toBeDefined();
     expect(entry!.dougFacing).toMatch(/setup/i);
     expect(entry!.helpfulContext).toBeTruthy();

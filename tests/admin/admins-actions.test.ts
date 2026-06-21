@@ -27,9 +27,8 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth/requireAdmin", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/auth/requireAdmin")>(
-    "@/lib/auth/requireAdmin",
-  );
+  const actual =
+    await vi.importActual<typeof import("@/lib/auth/requireAdmin")>("@/lib/auth/requireAdmin");
   return {
     ...actual,
     requireAdminIdentity: async () => {
@@ -54,9 +53,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: () => {},
 }));
 
-const { addAdminAction, revokeAdminAction } = await import(
-  "@/app/admin/settings/admins/actions"
-);
+const { addAdminAction, revokeAdminAction } = await import("@/app/admin/settings/admins/actions");
 const { AdminInfraError } = await import("@/lib/auth/requireAdmin");
 
 describe("admin allow-list Server Actions — R3 infra-fault propagation", () => {

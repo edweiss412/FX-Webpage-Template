@@ -34,13 +34,7 @@ function documentedDougEntries() {
   });
 }
 
-function SyntheticLearnMore({
-  route,
-  helpHref,
-}: {
-  route: string;
-  helpHref: string | null;
-}) {
+function SyntheticLearnMore({ route, helpHref }: { route: string; helpHref: string | null }) {
   if (!shouldEmitLearnMore({ route, helpHref })) return null;
   return React.createElement(
     "a",
@@ -57,10 +51,7 @@ describe("error renderer Learn-more gate (Task G.6 / test #12)", () => {
   it("classifies admin, help-admin, crew, and preview-as-crew route contexts", () => {
     const helpHref = "/help/errors#FAKE";
     expect(
-      contexts.map((ctx) => [
-        ctx.label,
-        shouldEmitLearnMore({ route: ctx.route, helpHref }),
-      ]),
+      contexts.map((ctx) => [ctx.label, shouldEmitLearnMore({ route: ctx.route, helpHref })]),
     ).toEqual([
       ["admin", true],
       ["help-admin", true],
@@ -110,9 +101,7 @@ describe("error renderer Learn-more gate (Task G.6 / test #12)", () => {
     const helpHref = "/help/errors#FAKE";
 
     render(React.createElement(SyntheticLearnMore, { route: "/admin", helpHref }));
-    expect(screen.getByTestId("forced-crew-only-learn-more").getAttribute("href")).toBe(
-      helpHref,
-    );
+    expect(screen.getByTestId("forced-crew-only-learn-more").getAttribute("href")).toBe(helpHref);
 
     cleanup();
 

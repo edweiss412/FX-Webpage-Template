@@ -30,14 +30,14 @@ const MAX_HOTELS = 4; // cardinality cap §10
 function warn(msg: string): void {
   // warnings are surfaced as console.warn in dev; the full ParseResult warnings
   // array is assembled at the top-level parser (Task 1.11).
-   
+
   console.warn(`[hotels] ${msg}`);
 }
 
 export function parseHotels(
   markdown: string,
   _version: "v1" | "v2" | "v4",
-   
+
   agg?: ParseAggregator,
 ): HotelReservationRow[] {
   // Try the structured HOTEL table first (v4 + v2 newer layouts)
@@ -109,10 +109,7 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
   // clean() first so a markdown-escaped hash ("\#2069854") becomes "#2069854"
   // before token matching — self-contained even if a caller passes a raw cell
   // (current callers pre-clean col1/col3, but don't depend on that here).
-  const flat = clean(cell.replace(/&#10;/g, " "))
-    .replace(/\r/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const flat = clean(cell.replace(/&#10;/g, " ")).replace(/\r/g, " ").replace(/\s+/g, " ").trim();
   if (!flat || flat === "-") return { names: [], confs: [] }; // clean() already unescaped "\-"
 
   const names: string[] = [];
@@ -355,10 +352,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
  * - 2025-05: `| Hotel Reservations | The Drake Hotel ... Check In: 5/11 Check Out: 5/15 Eric Carroll Eric Weiss Connor Hester |`
  * - 2025-06: `| Hotel Reservations | Park Hyatt Chicago&#10;"800 N Michigan Ave...&#10;Check In: 6/23 Check Out: 6/26 Doug --- 104461566 Eric---104461567 |`
  */
-function parseInlineHotelRow(
-  markdown: string,
-  contextYear: string | null,
-): HotelReservationRow[] {
+function parseInlineHotelRow(markdown: string, contextYear: string | null): HotelReservationRow[] {
   const ROW_RE = /^\|\s*Hotel\s*Reservations?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
   if (!m) return [];
@@ -369,10 +363,7 @@ function parseInlineHotelRow(
   return buildInlineReservations(raw, contextYear);
 }
 
-function parseHotelStaysRow(
-  markdown: string,
-  contextYear: string | null,
-): HotelReservationRow[] {
+function parseHotelStaysRow(markdown: string, contextYear: string | null): HotelReservationRow[] {
   // v1 format: | Hotel Stays | <content> |
   const ROW_RE = /^\|\s*Hotel\s*Stays?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);

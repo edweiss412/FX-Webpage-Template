@@ -40,9 +40,7 @@ afterEach(cleanup);
 
 describe("branded crew-link not-found boundary", () => {
   test("renders the cataloged CREW_LINK_UNAVAILABLE copy, never the raw code", async () => {
-    const { default: NotFound } = await import(
-      "@/app/show/[slug]/[shareToken]/not-found"
-    );
+    const { default: NotFound } = await import("@/app/show/[slug]/[shareToken]/not-found");
     const { container } = render(<NotFound />);
 
     const expectedCopy = messageFor("CREW_LINK_UNAVAILABLE").crewFacing;
@@ -57,22 +55,16 @@ describe("branded crew-link not-found boundary", () => {
 
 describe("show_unavailable preserves HTTP 404 (no existence leak)", () => {
   beforeEach(async () => {
-    const { resolveShowPageAccess } = await import(
-      "@/lib/auth/picker/resolveShowPageAccess"
-    );
+    const { resolveShowPageAccess } = await import("@/lib/auth/picker/resolveShowPageAccess");
     vi.mocked(resolveShowPageAccess).mockReset();
   });
 
   test("rotated/unresolved token → notFound(), not a 200 render", async () => {
-    const { resolveShowPageAccess } = await import(
-      "@/lib/auth/picker/resolveShowPageAccess"
-    );
+    const { resolveShowPageAccess } = await import("@/lib/auth/picker/resolveShowPageAccess");
     const { notFound } = await import("next/navigation");
     vi.mocked(resolveShowPageAccess).mockResolvedValue({ kind: "show_unavailable" });
 
-    const { default: ShowPage } = await import(
-      "@/app/show/[slug]/[shareToken]/page"
-    );
+    const { default: ShowPage } = await import("@/app/show/[slug]/[shareToken]/page");
 
     await expect(
       ShowPage({

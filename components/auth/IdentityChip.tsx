@@ -41,10 +41,7 @@ export function IdentityChip({
   showId: string;
 }) {
   return (
-    <div
-      data-testid="identity-chip"
-      className="flex flex-col items-end gap-0.5 text-right"
-    >
+    <div data-testid="identity-chip" className="flex flex-col items-end gap-0.5 text-right">
       <span className="text-sm font-semibold text-text-strong">
         {name}
         <span className="text-text-subtle font-medium" aria-hidden="true">

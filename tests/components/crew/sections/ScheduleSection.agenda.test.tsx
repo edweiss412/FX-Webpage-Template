@@ -7,7 +7,12 @@ import type { AgendaEntry } from "@/lib/parser/types";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
-const DATES = { travelIn: null, set: null, showDays: ["2026-05-14", "2026-05-15"], travelOut: null };
+const DATES = {
+  travelIn: null,
+  set: null,
+  showDays: ["2026-05-14", "2026-05-15"],
+  travelOut: null,
+};
 const D1 = "2026-05-14";
 const D2 = "2026-05-15";
 const VIEWER = { kind: "admin" } as const;
@@ -15,8 +20,21 @@ const VIEWER = { kind: "admin" } as const;
 // Data source for the assertions — NOT the rendered container (anti-tautology):
 // expected entry text is read from THIS array, never from the DOM that renders it.
 const D1_ENTRIES: AgendaEntry[] = [
-  { start: "7:15 AM", finish: "7:30 AM", trt: "0:15", title: "Family Office Only Breakfast", av: "NONE" },
-  { start: "8:15 AM", finish: "8:30 AM", trt: "0:15", title: "Welcome and Introductory Remarks", room: "Mabel 1", av: "POD" },
+  {
+    start: "7:15 AM",
+    finish: "7:30 AM",
+    trt: "0:15",
+    title: "Family Office Only Breakfast",
+    av: "NONE",
+  },
+  {
+    start: "8:15 AM",
+    finish: "8:30 AM",
+    trt: "0:15",
+    title: "Welcome and Introductory Remarks",
+    room: "Mabel 1",
+    av: "POD",
+  },
 ];
 
 function renderAgenda(runOfShow: Record<string, AgendaEntry[]> | null) {
@@ -165,7 +183,9 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
   // impl + its failing test share a task). The structural _metaSentinelHidingContract
   // walk extension that PINS the routing is the verification-only Task 4.
   test("room='TBD' / av='' are hidden, but the entry still shows (title is real)", () => {
-    const c = renderAgenda({ [D1]: [{ start: "9:00", title: "Opening Keynote", room: "TBD", av: "" }] });
+    const c = renderAgenda({
+      [D1]: [{ start: "9:00", title: "Opening Keynote", room: "TBD", av: "" }],
+    });
     const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
     expect(list.textContent).toContain("Opening Keynote");
     expect(list.querySelector('[data-agenda-field="room"]')).toBeNull();
@@ -185,7 +205,9 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
   // (R15). Behavior ships in this task; pinned here.
   test("trt='0:15' present → the duration renders in the time group", () => {
     const TRT = "0:15";
-    const c = renderAgenda({ [D1]: [{ start: "7:15 AM", finish: "7:30 AM", trt: TRT, title: "Breakfast" }] });
+    const c = renderAgenda({
+      [D1]: [{ start: "7:15 AM", finish: "7:30 AM", trt: TRT, title: "Breakfast" }],
+    });
     const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
     const time = list.querySelector('[data-agenda-field="time"]')!;
     // Assert against the DATA SOURCE value (anti-tautology), inside the time cell.
@@ -196,7 +218,9 @@ describe("Schedule enrichment — per-day run-of-show mode (test 5)", () => {
   });
 
   test("trt='TBD' hidden → trt dropped, entry still shows (title real), no orphan middot", () => {
-    const c = renderAgenda({ [D1]: [{ start: "9:00", finish: "9:30", trt: "TBD", title: "Session" }] });
+    const c = renderAgenda({
+      [D1]: [{ start: "9:00", finish: "9:30", trt: "TBD", title: "Session" }],
+    });
     const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
     const time = list.querySelector('[data-agenda-field="time"]')!;
     expect(time.textContent).toContain("9:00");

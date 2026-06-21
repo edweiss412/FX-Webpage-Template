@@ -64,11 +64,7 @@ async function lookupPublishedShowWithCrew(): Promise<{ slug: string; crewId: st
     );
   }
   const show = showRes.data[0] as { id: string; slug: string };
-  const crewRes = await admin
-    .from("crew_members")
-    .select("id")
-    .eq("show_id", show.id)
-    .limit(1);
+  const crewRes = await admin.from("crew_members").select("id").eq("show_id", show.id).limit(1);
   if (crewRes.error || !crewRes.data?.length) {
     throw new Error(
       `admin-route-boundaries.spec: no crew member for show ${show.slug} (run \`pnpm db:seed\`). error=${crewRes.error?.message ?? "no row"}`,
@@ -78,10 +74,7 @@ async function lookupPublishedShowWithCrew(): Promise<{ slug: string; crewId: st
 }
 
 async function clearPendingSyncs(driveFileId: string): Promise<void> {
-  const { error } = await admin
-    .from("pending_syncs")
-    .delete()
-    .eq("drive_file_id", driveFileId);
+  const { error } = await admin.from("pending_syncs").delete().eq("drive_file_id", driveFileId);
   if (error) throw new Error(`clearPendingSyncs failed: ${error.message}`);
 }
 

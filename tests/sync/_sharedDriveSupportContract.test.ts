@@ -74,10 +74,7 @@ describe("Shared Drive support contract", () => {
         if (!object?.match(/\bsupportsAllDrives\s*:\s*true\b/)) {
           violations.push(`${callSite} missing supportsAllDrives: true`);
         }
-        if (
-          match[1] === "list" &&
-          !object?.match(/\bincludeItemsFromAllDrives\s*:\s*true\b/)
-        ) {
+        if (match[1] === "list" && !object?.match(/\bincludeItemsFromAllDrives\s*:\s*true\b/)) {
           violations.push(`${callSite} missing includeItemsFromAllDrives: true`);
         }
       }
@@ -116,9 +113,9 @@ describe("Shared Drive support contract", () => {
   test("inline getDriveClient files.get calls are covered by the Shared Drive contract", () => {
     const path = "lib/sync/verifyReelOnApply.ts";
     const source = readFileSync(join(root, path), "utf8");
-    const match = [...source.matchAll(/\bgetDriveClient\(\)\.(files|revisions)\.(get|list)\s*\(/g)].find(
-      (candidate) => candidate[1] === "files" && candidate[2] === "get",
-    );
+    const match = [
+      ...source.matchAll(/\bgetDriveClient\(\)\.(files|revisions)\.(get|list)\s*\(/g),
+    ].find((candidate) => candidate[1] === "files" && candidate[2] === "get");
 
     expect(match, "expected live getDriveClient().files.get inline-callee fixture").toBeDefined();
     const object = resolveObjectArgument(source, match!.index! + match![0].length);

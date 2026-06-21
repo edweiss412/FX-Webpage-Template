@@ -14,12 +14,8 @@ vi.mock("next/navigation", () => ({ redirect: (url: string) => redirectMock(url)
 
 describe("/admin/onboarding", () => {
   test("redirects to /admin (the wizard dispatcher)", async () => {
-    const { default: OnboardingIndexPage } = await import(
-      "@/app/admin/onboarding/page"
-    );
-    await expect(async () => OnboardingIndexPage()).rejects.toThrow(
-      "NEXT_REDIRECT:/admin",
-    );
+    const { default: OnboardingIndexPage } = await import("@/app/admin/onboarding/page");
+    await expect(async () => OnboardingIndexPage()).rejects.toThrow("NEXT_REDIRECT:/admin");
     expect(redirectMock).toHaveBeenCalledWith("/admin");
   });
 });

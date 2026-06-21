@@ -106,8 +106,7 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
   // Heading mirrors content state: diagrams + agenda together get the
   // combined label; either alone gets the single-domain label so the
   // block name doesn't lie about its contents.
-  const heading =
-    hasItems && hasAgendaPdf ? "Diagrams & agenda" : hasItems ? "Diagrams" : "Agenda";
+  const heading = hasItems && hasAgendaPdf ? "Diagrams & agenda" : hasItems ? "Diagrams" : "Agenda";
 
   return (
     <Section
@@ -131,11 +130,7 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
       }
     >
       {hasItems && diagrams ? (
-        <Gallery
-          showId={showId}
-          snapshotRevisionId={diagrams.snapshot_revision_id}
-          items={items}
-        />
+        <Gallery showId={showId} snapshotRevisionId={diagrams.snapshot_revision_id} items={items} />
       ) : null}
       {hasItems && hasAgendaPdf ? (
         <div className="mt-3 border-t border-border pt-3">

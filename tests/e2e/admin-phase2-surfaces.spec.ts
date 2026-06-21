@@ -41,9 +41,7 @@ test.describe("admin Phase 2 surfaces (mobile-safari)", () => {
     await signOut(page);
   });
 
-  test("/admin?step=2 renders the Step 2 verify form (when wizard mounted)", async ({
-    page,
-  }) => {
+  test("/admin?step=2 renders the Step 2 verify form (when wizard mounted)", async ({ page }) => {
     await signInAs(page, ADMIN_FIXTURE);
     const response = await page.goto("/admin?step=2");
     expect(response?.status()).toBe(200);
@@ -56,9 +54,7 @@ test.describe("admin Phase 2 surfaces (mobile-safari)", () => {
     await assertNoAdminDevLinks(page);
   });
 
-  test("/admin?step=3 renders the Step 3 review surface or empty placeholder", async ({
-    page,
-  }) => {
+  test("/admin?step=3 renders the Step 3 review surface or empty placeholder", async ({ page }) => {
     await signInAs(page, ADMIN_FIXTURE);
     const response = await page.goto("/admin?step=3");
     expect(response?.status()).toBe(200);
@@ -72,12 +68,10 @@ test.describe("admin Phase 2 surfaces (mobile-safari)", () => {
     const response = await page.goto("/admin/settings");
     expect(response?.status()).toBe(200);
 
-    await expect(
-      page.locator("[data-testid=drive-connection-rerun-setup-button]"),
-    ).toBeVisible();
-    await expect(
-      page.locator("[data-testid=drive-connection-rerun-setup-button]"),
-    ).toHaveText(/Re-run setup/i);
+    await expect(page.locator("[data-testid=drive-connection-rerun-setup-button]")).toBeVisible();
+    await expect(page.locator("[data-testid=drive-connection-rerun-setup-button]")).toHaveText(
+      /Re-run setup/i,
+    );
 
     await assertNoRawCodes(page);
     await assertNoAdminDevLinks(page);

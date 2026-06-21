@@ -155,7 +155,10 @@ describe("undo_change guards", () => {
       { name: "Bob", email: "bob@x" },
     ]);
     await runAutoApply(driveFileId, { crew: [{ name: "Bob", email: "bob@x" }] }); // remove Alice
-    const removed = await readChangeLog(showId, { change_kind: "crew_removed", entity_ref: "Alice" });
+    const removed = await readChangeLog(showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Alice",
+    });
     expect((await callUndoAsAdmin(removed.id)).ok).toBe(true);
     const second = await callUndoAsAdmin(removed.id);
     expect(second.ok).toBe(false);
@@ -182,7 +185,10 @@ describe("undo_change guards", () => {
     const r1 = await readChangeLog(showId, { change_kind: "crew_removed", entity_ref: "Alice" });
     // a newer same-entity sync (re-add Alice) fires cleanup.
     const items: TriggeredReviewItem[] = [];
-    await runAutoApply(driveFileId, { crew: [{ name: "Alice", email: "alice@v2" }], triggeredItems: items });
+    await runAutoApply(driveFileId, {
+      crew: [{ name: "Alice", email: "alice@v2" }],
+      triggeredItems: items,
+    });
     const r1After = (await readChangeLog(showId)).all.find((r) => r.id === r1.id)!;
     expect(r1After.status).toBe("superseded");
     expect(r1After.before_image).toBeNull();

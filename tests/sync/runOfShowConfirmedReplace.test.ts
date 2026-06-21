@@ -7,8 +7,8 @@ import type { DriveListedFile } from "@/lib/drive/list";
 // the @/lib/parser barrel is NOT guaranteed to re-export them).
 import { agendaGridMalformed } from "@/lib/parser/blocks/agendaWarnings";
 
-const d1 = "2026-05-09";          // a showDay in the base fixture below
-const d2 = "2026-05-10";          // a 2nd showDay
+const d1 = "2026-05-09"; // a showDay in the base fixture below
+const d2 = "2026-05-10"; // a 2nd showDay
 const e1: AgendaEntry[] = [{ start: "9:00 AM", title: "Keynote A" }];
 const e1b: AgendaEntry[] = [{ start: "9:00 AM", title: "Keynote A v2" }];
 const e2: AgendaEntry[] = [{ start: "1:00 PM", title: "Panel B" }];
@@ -17,25 +17,55 @@ const e2: AgendaEntry[] = [{ start: "1:00 PM", title: "Panel B" }];
 function parseResult(overrides: Partial<ParseResult> = {}): ParseResult {
   return {
     show: {
-      title: "T", client_label: "c", client_contact: null, template_version: "v4", venue: null,
-      dates: { travelIn: "2026-05-07", set: "2026-05-08", showDays: [d1, d2], travelOut: "2026-05-11" },
-      schedule_phases: {}, event_details: {}, agenda_links: [], coi_status: "Pending",
-      po: null, proposal: null, invoice: null, invoice_notes: null,
+      title: "T",
+      client_label: "c",
+      client_contact: null,
+      template_version: "v4",
+      venue: null,
+      dates: {
+        travelIn: "2026-05-07",
+        set: "2026-05-08",
+        showDays: [d1, d2],
+        travelOut: "2026-05-11",
+      },
+      schedule_phases: {},
+      event_details: {},
+      agenda_links: [],
+      coi_status: "Pending",
+      po: null,
+      proposal: null,
+      invoice: null,
+      invoice_notes: null,
     },
-    crewMembers: [], hotelReservations: [], rooms: [], transportation: null, contacts: [],
-    pullSheet: null, diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
-    openingReel: null, raw_unrecognized: [], warnings: [], hardErrors: [],
+    crewMembers: [],
+    hotelReservations: [],
+    rooms: [],
+    transportation: null,
+    contacts: [],
+    pullSheet: null,
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null,
+    raw_unrecognized: [],
+    warnings: [],
+    hardErrors: [],
     ...overrides,
   };
 }
 
 function fileMeta(modifiedTime = "2026-05-08T12:00:00.000Z"): DriveListedFile {
-  return { driveFileId: "file-1", name: "S", mimeType: "application/vnd.google-apps.spreadsheet", modifiedTime, parents: ["f"] };
+  return {
+    driveFileId: "file-1",
+    name: "S",
+    mimeType: "application/vnd.google-apps.spreadsheet",
+    modifiedTime,
+    parents: ["f"],
+  };
 }
 
 // FakePhase2Tx: captures the upsertShowsInternal payload; applyShowSnapshot returns a SEEDED priorRunOfShow.
 function makeFakeTx(priorRunOfShow: Record<string, AgendaEntry[]> | null) {
-  const captured: { payload?: { run_of_show: unknown; parse_warnings: ParseResult["warnings"] } } = {};
+  const captured: { payload?: { run_of_show: unknown; parse_warnings: ParseResult["warnings"] } } =
+    {};
   const tx = {
     async applyShowSnapshot() {
       return {
@@ -46,11 +76,18 @@ function makeFakeTx(priorRunOfShow: Record<string, AgendaEntry[]> | null) {
         priorRunOfShow, // the field under test — modeled on the new shows_internal SELECT
       };
     },
-    async deleteCrewMembersNotIn() {}, async upsertCrewMembers() {},
-    async provisionAddedCrewAuth() {}, async revokeRemovedCrewAuth() {},
-    async replaceHotelReservations() {}, async replaceRooms() {},
-    async replaceTransportation() {}, async replaceContacts() {},
-    async upsertShowsInternal(_showId: string, payload: { run_of_show: unknown; parse_warnings: ParseResult["warnings"] }) {
+    async deleteCrewMembersNotIn() {},
+    async upsertCrewMembers() {},
+    async provisionAddedCrewAuth() {},
+    async revokeRemovedCrewAuth() {},
+    async replaceHotelReservations() {},
+    async replaceRooms() {},
+    async replaceTransportation() {},
+    async replaceContacts() {},
+    async upsertShowsInternal(
+      _showId: string,
+      payload: { run_of_show: unknown; parse_warnings: ParseResult["warnings"] },
+    ) {
       captured.payload = payload;
     },
     async deleteLivePendingIngestion() {},
@@ -80,8 +117,11 @@ async function runWith(
   if (runOfShow === undefined) delete pr.runOfShow;
   else pr.runOfShow = runOfShow;
   const result = await runPhase2(tx as never, {
-    driveFileId: "file-1", mode: "cron" as const, fileMeta: fileMeta("2026-05-08T11:59:00.000Z"),
-    binding: { bindingToken: "tok", modifiedTime: "2026-05-08T12:00:00.000Z" }, parseResult: pr,
+    driveFileId: "file-1",
+    mode: "cron" as const,
+    fileMeta: fileMeta("2026-05-08T11:59:00.000Z"),
+    binding: { bindingToken: "tok", modifiedTime: "2026-05-08T12:00:00.000Z" },
+    parseResult: pr,
   });
   return result;
 }
@@ -140,13 +180,19 @@ describe("sync run_of_show CONFIRMED-ONLY full replace + AGENDA_DAY_EMPTIED live
   it("CHANNEL 1 (shows_internal) — an AGENDA_DAY_EMPTIED-emitting apply puts it in the upsertShowsInternal payload (NOT proof of sync_log — see runOfShowSyncLogChannel.test.ts)", async () => {
     const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
     await runWith(tx, { [d1]: e1b, [d2]: [] });
-    expect((captured.payload!.parse_warnings).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+    expect(captured.payload!.parse_warnings.some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(
+      true,
+    );
   });
   it("R6 cross-boundary: Phase2Result.applied.parseWarnings carries the apply-appended AGENDA_DAY_EMPTIED OUT of runPhase2", async () => {
     const { tx } = makeFakeTx({ [d1]: e1, [d2]: e2 });
     const result = await runWith(tx, { [d1]: e1b, [d2]: [] });
     expect(result.outcome).toBe("applied");
     // the applied result must surface the warning so the tail (PART C) can log it to sync_log
-    expect((result as { parseWarnings?: ParseResult["warnings"] }).parseWarnings?.some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+    expect(
+      (result as { parseWarnings?: ParseResult["warnings"] }).parseWarnings?.some(
+        (w) => w.code === "AGENDA_DAY_EMPTIED",
+      ),
+    ).toBe(true);
   });
 });

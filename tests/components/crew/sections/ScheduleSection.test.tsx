@@ -126,7 +126,14 @@ test("anchors present → right column renders a 'Daily call times' SectionCard 
   const { container } = render(
     <ScheduleSection
       data={withRooms([
-        { id: "r1", kind: "gs", name: "Hall A", set_time: "9:00 AM", show_time: "7:00 PM", strike_time: "11:00 PM" },
+        {
+          id: "r1",
+          kind: "gs",
+          name: "Hall A",
+          set_time: "9:00 AM",
+          show_time: "7:00 PM",
+          strike_time: "11:00 PM",
+        },
       ])}
       viewer={{ kind: "admin" }}
       today={TODAY}

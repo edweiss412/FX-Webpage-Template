@@ -21,7 +21,15 @@ function workbookBuffer(
 describe("synthesizeMarkdownFromXlsx", () => {
   test("emits a single GFM table with centered alignment delimiters", () => {
     const markdown = synthesizeMarkdownFromXlsx(
-      workbookBuffer([{ name: "INFO", rows: [["CLIENT", "EVENT"], ["ACME", "Forum"]] }]),
+      workbookBuffer([
+        {
+          name: "INFO",
+          rows: [
+            ["CLIENT", "EVENT"],
+            ["ACME", "Forum"],
+          ],
+        },
+      ]),
     );
 
     expect(markdown).toBe(
@@ -42,7 +50,13 @@ describe("synthesizeMarkdownFromXlsx", () => {
             ["5/1/25", "Ballroom"],
           ],
         },
-        { name: "CONTACTS", rows: [["NAME", "EMAIL"], ["Doug", "doug@example.com"]] },
+        {
+          name: "CONTACTS",
+          rows: [
+            ["NAME", "EMAIL"],
+            ["Doug", "doug@example.com"],
+          ],
+        },
       ]),
     );
 
@@ -68,7 +82,11 @@ describe("synthesizeMarkdownFromXlsx", () => {
       workbookBuffer([
         {
           name: "PULL SHEET",
-          rows: [["OLD PULL SHEET", "", ""], ["ITEM", "QTY", "NOTES"], ["Monitor", 2, ""]],
+          rows: [
+            ["OLD PULL SHEET", "", ""],
+            ["ITEM", "QTY", "NOTES"],
+            ["Monitor", 2, ""],
+          ],
           merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }],
         },
       ]),
@@ -121,7 +139,13 @@ describe("synthesizeMarkdownFromXlsx", () => {
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         { name: "INFO", rows: [["CLIENT", "ACME Forum"]] },
-        { name: "OLD PULL SHEET", rows: [["PULL SHEET", ""], [1, "Stale Prior-Show Gear"]] },
+        {
+          name: "OLD PULL SHEET",
+          rows: [
+            ["PULL SHEET", ""],
+            [1, "Stale Prior-Show Gear"],
+          ],
+        },
       ]),
     );
     // The OLD tab contributes nothing; only INFO survives.
@@ -174,9 +198,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
 
     expect(markdown).toBe(
-      ["| GS Setup | Pods |", "| :---: | :---: |", "| GS Set Time | 5/12 @ 6:30 AM |"].join(
-        "\n",
-      ),
+      ["| GS Setup | Pods |", "| :---: | :---: |", "| GS Set Time | 5/12 @ 6:30 AM |"].join("\n"),
     );
   });
 

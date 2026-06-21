@@ -1,8 +1,6 @@
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
-export type ParsedTriggeredReviewItems =
-  | { ok: true; items: TriggeredReviewItem[] }
-  | { ok: false };
+export type ParsedTriggeredReviewItems = { ok: true; items: TriggeredReviewItem[] } | { ok: false };
 
 /**
  * The single interpretation boundary for `pending_syncs.triggered_review_items`

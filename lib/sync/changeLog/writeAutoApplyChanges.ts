@@ -64,7 +64,10 @@ function crewImage(member: PreviousCrewMember): Record<string, unknown> {
   };
 }
 
-function hasInvariant(items: TriggeredReviewItem[], pred: (i: TriggeredReviewItem) => boolean): boolean {
+function hasInvariant(
+  items: TriggeredReviewItem[],
+  pred: (i: TriggeredReviewItem) => boolean,
+): boolean {
   return items.some(pred);
 }
 
@@ -157,7 +160,10 @@ export async function writeAutoApplyChanges(args: WriteAutoApplyChangesArgs): Pr
   }
   // Asset drift (DIAGRAMS_* / REEL_DRIFT).
   if (
-    hasInvariant(args.triggeredItems, (i) => i.invariant.startsWith("DIAGRAMS_") || i.invariant === "REEL_DRIFT_PENDING")
+    hasInvariant(
+      args.triggeredItems,
+      (i) => i.invariant.startsWith("DIAGRAMS_") || i.invariant === "REEL_DRIFT_PENDING",
+    )
   ) {
     rows.push({
       changeKind: "asset_drift",

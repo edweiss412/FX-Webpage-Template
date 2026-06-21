@@ -357,8 +357,7 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/ + components
       // a hole — a future edit that drops BOTH the direct call AND the wrapper
       // still fails this contract.
       const hasDirect =
-        /shouldHideGenericOptional\b/.test(source) &&
-        /shouldHideGenericOptional\s*\(/.test(source);
+        /shouldHideGenericOptional\b/.test(source) && /shouldHideGenericOptional\s*\(/.test(source);
       const hasWrapper = /resolveOptionalField\s*\(/.test(source);
 
       if (!hasDirect && !hasWrapper) {

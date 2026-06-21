@@ -54,9 +54,7 @@ describe("PerShowAlertResolveButton", () => {
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
-    expect(url).toBe(
-      "/api/admin/show/rpas-central-2026/alerts/alert-1/resolve",
-    );
+    expect(url).toBe("/api/admin/show/rpas-central-2026/alerts/alert-1/resolve");
     expect(init.method).toBe("POST");
     await waitFor(() => expect(refreshMock).toHaveBeenCalled());
   });
@@ -82,10 +80,7 @@ describe("PerShowAlertResolveButton", () => {
 
   test("on 404 ADMIN_ALERT_NOT_FOUND renders Doug-facing copy via messageFor (no raw code)", async () => {
     fetchMock.mockResolvedValueOnce(
-      mockJsonResponse(
-        { ok: false, code: "ADMIN_ALERT_NOT_FOUND" },
-        { status: 404 },
-      ),
+      mockJsonResponse({ ok: false, code: "ADMIN_ALERT_NOT_FOUND" }, { status: 404 }),
     );
     const { getByTestId, container } = render(
       <PerShowAlertResolveButton alertId="alert-1" slug="rpas-central-2026" />,
@@ -94,9 +89,9 @@ describe("PerShowAlertResolveButton", () => {
       fireEvent.click(getByTestId("per-show-alert-resolve-alert-1"));
     });
     await waitFor(() => {
-      expect(
-        getByTestId("per-show-alert-resolve-error-alert-1").textContent ?? "",
-      ).toContain(MESSAGE_CATALOG.ADMIN_ALERT_NOT_FOUND.dougFacing!);
+      expect(getByTestId("per-show-alert-resolve-error-alert-1").textContent ?? "").toContain(
+        MESSAGE_CATALOG.ADMIN_ALERT_NOT_FOUND.dougFacing!,
+      );
     });
     expect(container.textContent ?? "").not.toContain("ADMIN_ALERT_NOT_FOUND");
   });

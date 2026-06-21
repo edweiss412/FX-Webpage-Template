@@ -34,10 +34,7 @@ export default function Loading() {
   return (
     <LoadingShell testId="crew-loading-skeleton" label="Loading show…">
       {/* Header band placeholder — mirrors the context-strip Header. */}
-      <div
-        data-testid="crew-loading-header"
-        className="border-b border-border bg-bg"
-      >
+      <div data-testid="crew-loading-header" className="border-b border-border bg-bg">
         <div className="mx-auto flex w-full max-w-[1200px] items-baseline justify-between gap-6 px-4 py-3 sm:px-8 sm:py-4">
           <div className="min-w-0 flex-1">
             <Skeleton className="h-3 w-24" />
@@ -60,9 +57,7 @@ export default function Loading() {
               data-testid="crew-loading-tab"
               className="inline-flex min-h-tap-min items-center justify-center px-3"
             >
-              <span className="text-sm font-medium text-text-faint">
-                {SECTION_LABELS[id]}
-              </span>
+              <span className="text-sm font-medium text-text-faint">{SECTION_LABELS[id]}</span>
             </div>
           ))}
         </div>

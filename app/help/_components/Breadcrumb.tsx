@@ -23,7 +23,9 @@ export function Breadcrumb() {
             <li aria-hidden="true">/</li>
             <li>{NAV_GROUP_TITLES[entry.group]}</li>
             <li aria-hidden="true">/</li>
-            <li className="text-text-strong" aria-current="page">{entry.title}</li>
+            <li className="text-text-strong" aria-current="page">
+              {entry.title}
+            </li>
           </>
         )}
       </ol>

@@ -218,20 +218,22 @@ export async function readShowChangeFeed(
   //    they always render and never count toward truncation, resolution #8).
   const { count: totalLogRows } = await runFeedRead<unknown>(
     "readShowChangeFeed.showChangeLogCount",
-    () => supabase.from("show_change_log").select("id", { count: "exact", head: true }).eq("show_id", showId),
+    () =>
+      supabase
+        .from("show_change_log")
+        .select("id", { count: "exact", head: true })
+        .eq("show_id", showId),
   );
 
   // 3. Open pending MI-11 holds (actionable approve_reject entries). The select
   //    list MUST include base_modified_time (the PF40 staleness token). The
   //    kind='undo_override' holds are internal suppression state, NOT entries.
-  const { data: holdData } = await runFeedRead<HoldRow[]>(
-    "readShowChangeFeed.syncHolds",
-    () =>
-      supabase
-        .from("sync_holds")
-        .select("id, entity_key, held_value, proposed_value, base_modified_time, created_at")
-        .eq("show_id", showId)
-        .eq("kind", "mi11_pending"),
+  const { data: holdData } = await runFeedRead<HoldRow[]>("readShowChangeFeed.syncHolds", () =>
+    supabase
+      .from("sync_holds")
+      .select("id, entity_key, held_value, proposed_value, base_modified_time, created_at")
+      .eq("show_id", showId)
+      .eq("kind", "mi11_pending"),
   );
 
   // Each entry carries an INTERNAL full-precision sort key (`sortKey`) derived

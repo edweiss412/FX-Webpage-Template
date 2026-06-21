@@ -30,6 +30,36 @@ supabase/__generated__/
 # cells changes the generated copy. Never format it.
 docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
 
+# Generated TS — gen:* scripts emit raw (NOT piped through prettier), so a
+# reformat here would permanently drift vs the next gen run (dirty tree / would
+# fail format:check after any regen). Keep them in gen-script format.
+lib/messages/__generated__/
+lib/audit/*.generated.ts
+lib/admin/__generated__/
+
+# Parser input fixtures — markdown table column whitespace is load-bearing input
+# read by tests/parser/*; prettier table reflow would churn the test corpus.
+fixtures/shows/
+
+# Cross-cutting audit fixtures: intentional-malformation / controlled-input
+# corpora whose EXACT content (table shape, multiline messageFor, controlled
+# inputs, semantic cursor patterns) is asserted by the audit tests
+# (extract-spec-codes, no-raw-codes, no-global-cursor, email-canonicalization).
+# Prettier reflow would silently change what those tests detect. eslint already
+# special-cases several of these dirs; mirror that for prettier.
+tests/cross-cutting/fixtures/
+
+# Prose docs (plans, specs, handoffs, project docs). Prettier's markdown table +
+# emphasis normalization is the same hazard that exempts the master spec above;
+# several are asserted on by doc-guard tests and actively edited (merge-conflict
+# risk). The format gate covers code, not prose.
+docs/
+
+# DESIGN.md is a UI-surface gate trigger (AGENTS.md invariant 8 — changes require
+# the impeccable critique+audit pair). Keep it out of the mechanical format pass
+# so a reformat does not silently trip that gate.
+DESIGN.md
+
 # Editor / OS
 .DS_Store
 

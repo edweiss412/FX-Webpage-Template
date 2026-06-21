@@ -31,8 +31,13 @@ function makeChain(table: string) {
     return Promise.resolve({ data: Array.isArray(d) ? (d[0] ?? null) : d, error: response.error });
   };
   chain.select = self;
-  chain.eq = (col: string, val: unknown) => { filters[col] = val; return chain; };
-  chain.order = self; chain.limit = self; chain.like = self;
+  chain.eq = (col: string, val: unknown) => {
+    filters[col] = val;
+    return chain;
+  };
+  chain.order = self;
+  chain.limit = self;
+  chain.like = self;
   for (const w of ["insert", "update", "delete", "upsert"]) chain[w] = self;
   chain.maybeSingle = single;
   chain.single = single;
@@ -58,9 +63,17 @@ const CREW = { kind: "crew" as const, crewMemberId: "crew-self" };
 
 function crewRow(over: Record<string, unknown> = {}) {
   return {
-    id: "crew-self", show_id: SHOW_ID, name: "Doug Larson", email: null, phone: null,
-    role: "Lead", role_flags: [], date_restriction: null, stage_restriction: null,
-    flight_info: "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ",
+    id: "crew-self",
+    show_id: SHOW_ID,
+    name: "Doug Larson",
+    email: null,
+    phone: null,
+    role: "Lead",
+    role_flags: [],
+    date_restriction: null,
+    stage_restriction: null,
+    flight_info:
+      "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ",
     ...over,
   };
 }
@@ -72,11 +85,26 @@ function setup(over: Partial<Record<string, Resp>> = {}) {
     // assertion. Mirrors tests/data/getShowForViewerRunOfShow.test.ts showRow().
     shows: {
       data: {
-        id: SHOW_ID, title: "S", client_label: "c", template_version: "v4", published: true, coi_status: null,
-        client_contact: null, venue: null, dates: { travelIn: null, set: null, showDays: [], travelOut: null },
-        schedule_phases: null, event_details: {}, agenda_links: null, pull_sheet: null, diagrams: null,
-        opening_reel_drive_file_id: null, opening_reel_drive_modified_time: null,
-        opening_reel_head_revision_id: null, opening_reel_mime_type: null, last_synced_at: null, last_sync_status: null,
+        id: SHOW_ID,
+        title: "S",
+        client_label: "c",
+        template_version: "v4",
+        published: true,
+        coi_status: null,
+        client_contact: null,
+        venue: null,
+        dates: { travelIn: null, set: null, showDays: [], travelOut: null },
+        schedule_phases: null,
+        event_details: {},
+        agenda_links: null,
+        pull_sheet: null,
+        diagrams: null,
+        opening_reel_drive_file_id: null,
+        opening_reel_drive_modified_time: null,
+        opening_reel_head_revision_id: null,
+        opening_reel_mime_type: null,
+        last_synced_at: null,
+        last_sync_status: null,
       },
       error: null,
     },
@@ -150,7 +178,10 @@ describe("getShowForViewer — viewerFlightInfo projection", () => {
         error: null,
       },
     });
-    const out = await getShowForViewer(SHOW_ID, { kind: "admin_preview", crewMemberId: "crew-self" });
+    const out = await getShowForViewer(SHOW_ID, {
+      kind: "admin_preview",
+      crewMemberId: "crew-self",
+    });
     expect(out.viewerFlightInfo).toContain("PREVIEWED");
     expect(out.viewerFlightInfo).not.toContain("OTHER");
   });

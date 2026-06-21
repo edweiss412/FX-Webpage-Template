@@ -177,7 +177,12 @@ describe("POST /api/admin/onboarding/scan", () => {
       { driveFileId: "sheet-2", outcome: "staged" as const },
       { driveFileId: "sheet-3", outcome: "hard_failed" as const },
     ];
-    const expectedTotals = { staged: 0, hard_failed: 0, skipped_non_sheet: 0, live_row_conflict: 0 };
+    const expectedTotals = {
+      staged: 0,
+      hard_failed: 0,
+      skipped_non_sheet: 0,
+      live_row_conflict: 0,
+    };
     for (const p of processed) expectedTotals[p.outcome] += 1;
 
     const db = new FakeScanDb();
@@ -416,7 +421,12 @@ describe("POST /api/admin/onboarding/scan", () => {
       { driveFileId: "sheet-1", outcome: "staged" as const },
       { driveFileId: "sheet-2", outcome: "live_row_conflict" as const },
     ];
-    const expectedTotals = { staged: 0, hard_failed: 0, skipped_non_sheet: 0, live_row_conflict: 0 };
+    const expectedTotals = {
+      staged: 0,
+      hard_failed: 0,
+      skipped_non_sheet: 0,
+      live_row_conflict: 0,
+    };
     for (const p of processed) expectedTotals[p.outcome] += 1;
 
     const db = new FakeScanDb();

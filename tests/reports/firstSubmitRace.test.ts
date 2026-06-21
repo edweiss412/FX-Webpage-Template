@@ -19,11 +19,13 @@ function deferred<T>() {
 
 const githubMock = vi.hoisted(() => ({
   calls: [] as IssueInput[],
-  gate: null as null | ReturnType<typeof deferred<{
-    htmlUrl: string;
-    issueNumber: number;
-    labels: string[];
-  }>>,
+  gate: null as null | ReturnType<
+    typeof deferred<{
+      htmlUrl: string;
+      issueNumber: number;
+      labels: string[];
+    }>
+  >,
   createIssue: vi.fn(async (input: IssueInput) => {
     githubMock.calls.push(input);
     if (githubMock.gate) return await githubMock.gate.promise;

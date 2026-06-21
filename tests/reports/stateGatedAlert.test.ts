@@ -31,7 +31,17 @@ describe("state-gated report alert reconciliation", () => {
   test("redispatches and returns recovered when the row resolves before the gated alert write", async () => {
     const { db, calls } = scriptedDb([
       { pattern: /INSERT INTO admin_alerts[\s\S]*SELECT r\.show_id/, rows: [] },
-      { pattern: /SELECT show_id,\s*github_issue_url/, rows: [{ show_id: showId, github_issue_url: recoveredUrl, lease_live: false, within_horizon: true }] },
+      {
+        pattern: /SELECT show_id,\s*github_issue_url/,
+        rows: [
+          {
+            show_id: showId,
+            github_issue_url: recoveredUrl,
+            lease_live: false,
+            within_horizon: true,
+          },
+        ],
+      },
     ]);
 
     const result = await resolveStateGatedAlert(db, { kind: "admin", email: "admin.com" }, key, {
@@ -51,9 +61,19 @@ describe("state-gated report alert reconciliation", () => {
   test("writes one unconditional raced_back_twice alert after two gated misses and two stuck redispatches", async () => {
     const { db, calls } = scriptedDb([
       { pattern: /INSERT INTO admin_alerts[\s\S]*SELECT r\.show_id/, rows: [] },
-      { pattern: /SELECT show_id,\s*github_issue_url/, rows: [{ show_id: showId, github_issue_url: null, lease_live: false, within_horizon: true }] },
+      {
+        pattern: /SELECT show_id,\s*github_issue_url/,
+        rows: [
+          { show_id: showId, github_issue_url: null, lease_live: false, within_horizon: true },
+        ],
+      },
       { pattern: /INSERT INTO admin_alerts[\s\S]*SELECT r\.show_id/, rows: [] },
-      { pattern: /SELECT show_id,\s*github_issue_url/, rows: [{ show_id: showId, github_issue_url: null, lease_live: false, within_horizon: true }] },
+      {
+        pattern: /SELECT show_id,\s*github_issue_url/,
+        rows: [
+          { show_id: showId, github_issue_url: null, lease_live: false, within_horizon: true },
+        ],
+      },
       { pattern: /INSERT INTO admin_alerts[\s\S]*VALUES \(\$1::uuid, \$2, \$3::jsonb\)/, rows: [] },
     ]);
 

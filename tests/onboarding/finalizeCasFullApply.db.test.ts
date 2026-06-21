@@ -745,7 +745,10 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
         ),
       );
       expect(checkpoint.status).toBe("all_batches_complete");
-      const settings = one<{ pending_wizard_session_id: string | null; watched_folder_id: string | null }>(
+      const settings = one<{
+        pending_wizard_session_id: string | null;
+        watched_folder_id: string | null;
+      }>(
         await sql!.unsafe(
           `select pending_wizard_session_id, watched_folder_id from public.app_settings where id = 'default'`,
         ),

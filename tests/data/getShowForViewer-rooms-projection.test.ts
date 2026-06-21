@@ -135,8 +135,7 @@ function buildMockClient() {
 
   return {
     from: (table: string) => makeChain(table),
-    rpc: (_fn: string, _args: unknown) =>
-      Promise.resolve({ data: "1000", error: null }),
+    rpc: (_fn: string, _args: unknown) => Promise.resolve({ data: "1000", error: null }),
   };
 }
 

@@ -38,7 +38,8 @@ function coreSource(): string {
 // structural unreachability, otherwise the registry's own documentation would false-positive.
 function stripRegistry(src: string): string {
   const start = src.indexOf("export const LIVE_PARTITION_CLASSIFICATION");
-  if (start === -1) throw new Error("LIVE_PARTITION_CLASSIFICATION not found in applyStagedCore.ts");
+  if (start === -1)
+    throw new Error("LIVE_PARTITION_CLASSIFICATION not found in applyStagedCore.ts");
   const end = src.indexOf("];", start);
   if (end === -1) throw new Error("LIVE_PARTITION_CLASSIFICATION array is unterminated");
   return src.slice(0, start) + src.slice(end + 2);
@@ -54,7 +55,8 @@ function stripComments(source: string): string {
 // wizard-scope test below fails on an unprobed row).
 const STRUCTURAL_PROBES: Record<string, RegExp> = {
   resolveStaleSyncProblemAlerts: /resolveStaleSyncProblemAlerts/,
-  restoreDeleteAndIngest: /restoreDeleteAndIngest|restoreShowStatus\s*\(|upsertLivePendingIngestion/,
+  restoreDeleteAndIngest:
+    /restoreDeleteAndIngest|restoreShowStatus\s*\(|upsertLivePendingIngestion/,
   adminAlertWriters: /upsertAdminAlert|admin_alerts/,
 };
 

@@ -25,9 +25,7 @@ const auth = vi.hoisted(() => ({
 // `err instanceof AdminInfraError` check matches.
 vi.mock("@/lib/auth/requireAdmin", async () => {
   const actual =
-    await vi.importActual<typeof import("@/lib/auth/requireAdmin")>(
-      "@/lib/auth/requireAdmin",
-    );
+    await vi.importActual<typeof import("@/lib/auth/requireAdmin")>("@/lib/auth/requireAdmin");
   return {
     AdminInfraError: actual.AdminInfraError,
     requireAdminIdentity: vi.fn(async () => {
@@ -73,9 +71,7 @@ describe("AdminLayout identity fold (Task 2.2)", () => {
     await renderLayout();
     const surface = screen.getByTestId("admin-layout-infra-error");
     expect(surface).toBeInTheDocument();
-    expect(surface.textContent).toContain(
-      getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED"),
-    );
+    expect(surface.textContent).toContain(getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED"));
   });
 
   it("never renders crew-facing copy nor the raw error code on the admin shell", async () => {

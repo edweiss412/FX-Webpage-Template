@@ -83,7 +83,9 @@ describe("recovered report URL lease-holder fencing", () => {
     });
     const claim = calls[0];
     const tailUpdate = calls[1];
-    expect(claim?.sql).toMatch(/SET[\s\S]*processing_lease_until[\s\S]*lease_holder\s*=\s*\$2::uuid/i);
+    expect(claim?.sql).toMatch(
+      /SET[\s\S]*processing_lease_until[\s\S]*lease_holder\s*=\s*\$2::uuid/i,
+    );
     expect(tailUpdate?.sql).toMatch(/AND\s+lease_holder\s*=\s*\$3::uuid/i);
     expect(tailUpdate?.params[2]).toBe(claim?.params[1]);
     expect(githubMock.closeIssueAsOrphan).not.toHaveBeenCalled();

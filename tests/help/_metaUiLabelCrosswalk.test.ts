@@ -21,10 +21,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import {
-  DECLARED_UI_LABELS,
-  UI_LABEL_EXCEPTIONS,
-} from "./_uiLabelExceptions";
+import { DECLARED_UI_LABELS, UI_LABEL_EXCEPTIONS } from "./_uiLabelExceptions";
 
 const REPO_ROOT = process.cwd();
 
@@ -73,8 +70,8 @@ function productionSourceFiles(): string[] {
   const apiDir = join(REPO_ROOT, "app/api");
   out.push(
     ...walk(appRoot, (n) => /\.(tsx?|jsx?)$/.test(n)).filter(
-      (p) => !p.startsWith(helpDir) && !p.startsWith(apiDir)
-    )
+      (p) => !p.startsWith(helpDir) && !p.startsWith(apiDir),
+    ),
   );
   const componentsRoot = join(REPO_ROOT, "components");
   out.push(...walk(componentsRoot, (n) => /\.(tsx?|jsx?)$/.test(n)));
@@ -255,9 +252,7 @@ function extractCandidates(filePath: string, content: string): Candidate[] {
  * false-positive class this strip eliminates).
  */
 export function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/[^\n]*$/gm, "$1");
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*$/gm, "$1");
 }
 
 function buildProductionHaystack(): string {
@@ -328,7 +323,7 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
             `    Resolve via one of:\n` +
             `      (a) verify the label appears in app/ (excluding app/help) or components/ (typo/casing?);\n` +
             `      (b) remove the label from the MDX if it is drift; or\n` +
-            `      (c) add an entry to tests/help/_uiLabelExceptions.ts citing a DEFERRED.md M11-E-D<N> ID.`
+            `      (c) add an entry to tests/help/_uiLabelExceptions.ts citing a DEFERRED.md M11-E-D<N> ID.`,
         );
       }
     }
@@ -338,7 +333,7 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
         `UI-label crosswalk: ${findings.length} label(s) in app/help/ are missing from production source ` +
           `and not exempted.\n\n` +
           findings.join("\n\n") +
-          `\n\nSee tests/help/_metaUiLabelCrosswalk.test.ts and AGENTS.md §1.7 for the contract.`
+          `\n\nSee tests/help/_metaUiLabelCrosswalk.test.ts and AGENTS.md §1.7 for the contract.`,
       );
     }
   });
@@ -346,11 +341,15 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
   it("every exception entry references a real MDX file and a non-empty rationale", () => {
     for (const ex of UI_LABEL_EXCEPTIONS) {
       expect(ex.label.length, `Exception has empty label`).toBeGreaterThan(0);
-      expect(ex.file.startsWith("app/help/"), `Exception file must live under app/help/: ${ex.file}`).toBe(
-        true
-      );
+      expect(
+        ex.file.startsWith("app/help/"),
+        `Exception file must live under app/help/: ${ex.file}`,
+      ).toBe(true);
       expect(/^M11-E-D\d+$/.test(ex.deferredId), `Bad deferredId: ${ex.deferredId}`).toBe(true);
-      expect(ex.rationale.trim().length, `Exception missing rationale: ${ex.label}`).toBeGreaterThan(10);
+      expect(
+        ex.rationale.trim().length,
+        `Exception missing rationale: ${ex.label}`,
+      ).toBeGreaterThan(10);
       const abs = join(REPO_ROOT, ex.file);
       expect(() => statSync(abs)).not.toThrow();
     }
@@ -362,7 +361,7 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
       const content = readFileSync(abs, "utf8");
       expect(
         content.includes(ex.label),
-        `Stale exception: "${ex.label}" no longer appears in ${ex.file} — remove the exception entry.`
+        `Stale exception: "${ex.label}" no longer appears in ${ex.file} — remove the exception entry.`,
       ).toBe(true);
     }
   });
@@ -401,7 +400,7 @@ describe("Help MDX UI-label crosswalk — declared registry layer", () => {
       const exemptionsForFile = normalizedExceptions.get(entry.file);
       if (exemptionsForFile && exemptionsForFile.has(normLabel)) continue;
       findings.push(
-        `  ${entry.file}: declared label "${entry.label}" is not in production source AND not exempted in UI_LABEL_EXCEPTIONS`
+        `  ${entry.file}: declared label "${entry.label}" is not in production source AND not exempted in UI_LABEL_EXCEPTIONS`,
       );
     }
 
@@ -409,7 +408,7 @@ describe("Help MDX UI-label crosswalk — declared registry layer", () => {
       throw new Error(
         `Declared UI labels failing crosswalk:\n${findings.join("\n")}\n\n` +
           `Add a UI_LABEL_EXCEPTIONS entry citing a DEFERRED.md M11-E-D<N> ID, ` +
-          `or remove the label from DECLARED_UI_LABELS if it's not actually documented.`
+          `or remove the label from DECLARED_UI_LABELS if it's not actually documented.`,
       );
     }
   });
@@ -426,7 +425,7 @@ describe("Help MDX UI-label crosswalk — declared registry layer", () => {
       }
       if (!exists) {
         findings.push(
-          `  ${entry.file}: file does not exist (stale entry — remove from DECLARED_UI_LABELS)`
+          `  ${entry.file}: file does not exist (stale entry — remove from DECLARED_UI_LABELS)`,
         );
         continue;
       }
@@ -438,14 +437,12 @@ describe("Help MDX UI-label crosswalk — declared registry layer", () => {
       const normalizedLabel = normalizeForCompare(entry.label);
       if (!normalizedContent.includes(normalizedLabel)) {
         findings.push(
-          `  ${entry.file}: declared label "${entry.label}" no longer appears in the MDX (stale entry; remove from DECLARED_UI_LABELS)`
+          `  ${entry.file}: declared label "${entry.label}" no longer appears in the MDX (stale entry; remove from DECLARED_UI_LABELS)`,
         );
       }
     }
     if (findings.length > 0) {
-      throw new Error(
-        `Stale DECLARED_UI_LABELS entries:\n${findings.join("\n")}`
-      );
+      throw new Error(`Stale DECLARED_UI_LABELS entries:\n${findings.join("\n")}`);
     }
   });
 
@@ -453,7 +450,7 @@ describe("Help MDX UI-label crosswalk — declared registry layer", () => {
     for (const entry of DECLARED_UI_LABELS) {
       expect(
         entry.file.startsWith("app/help/"),
-        `DECLARED_UI_LABELS entry must reference a file under app/help/: ${entry.file}`
+        `DECLARED_UI_LABELS entry must reference a file under app/help/: ${entry.file}`,
       ).toBe(true);
     }
   });

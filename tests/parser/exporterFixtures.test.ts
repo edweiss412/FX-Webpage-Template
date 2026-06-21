@@ -28,9 +28,7 @@ describe("exporter fidelity — agenda_links label (East Coast bare 'AGENDA')", 
   });
 
   it("still captures the standard 'AGENDA LINK' shows (no regression)", () => {
-    expect(parse("fintech").show.agenda_links[0]!.fileId).toBe(
-      "1Lfncqubzk9x6gQH5Z7Sz_EQRJ_8BWtPF",
-    );
+    expect(parse("fintech").show.agenda_links[0]!.fileId).toBe("1Lfncqubzk9x6gQH5Z7Sz_EQRJ_8BWtPF");
     // Redefining carries two 'AGENDA LINK - RFI/PCF' rows (filename-only, no fileId)
     expect(parse("redefining-fi").show.agenda_links.length).toBeGreaterThanOrEqual(2);
   });
@@ -162,7 +160,15 @@ describe("exporter fidelity — A2 multi-reservation check-out (own per reservat
     expect([h[1]!.check_in, h[1]!.check_out]).toEqual(["2026-05-03", "2026-05-06"]);
   });
   it("no returned hotel has check_out < check_in (inversion class)", () => {
-    for (const slug of ["rpas", "fintech", "fixed-income", "redefining-fi", "ria", "consultants", "east-coast"]) {
+    for (const slug of [
+      "rpas",
+      "fintech",
+      "fixed-income",
+      "redefining-fi",
+      "ria",
+      "consultants",
+      "east-coast",
+    ]) {
       for (const r of parse(slug).hotelReservations) {
         if (r.check_in && r.check_out) {
           expect(r.check_out >= r.check_in, `${slug} ${r.hotel_name}`).toBe(true);
@@ -229,7 +235,9 @@ describe("exporter fidelity — AR R4: multi-stay inline cell splits into per-gr
 
   it("AR R7: split reservation hotel_name is the hotel/address, not glued guest names", () => {
     for (const r of parse("consultants").hotelReservations) {
-      expect(r.hotel_name, "hotel_name should not carry guest names").not.toMatch(/Doug Larson|Eric Weiss|\d{6,}/);
+      expect(r.hotel_name, "hotel_name should not carry guest names").not.toMatch(
+        /Doug Larson|Eric Weiss|\d{6,}/,
+      );
       expect(r.hotel_name).toContain("Four Seasons");
     }
   });
@@ -445,7 +453,9 @@ describe("exporter fidelity — AR: v4 additional rooms (content-gated, not drop
     expect(
       parse("fixed-income").rooms.filter((r) => r.kind === "breakout").length,
     ).toBeGreaterThanOrEqual(1);
-    expect(parse("rpas").rooms.filter((r) => r.kind === "breakout").length).toBeGreaterThanOrEqual(2);
+    expect(parse("rpas").rooms.filter((r) => r.kind === "breakout").length).toBeGreaterThanOrEqual(
+      2,
+    );
   });
   it("AR R7: a real name-only v4 room is kept; only template-named stubs are dropped", () => {
     const md = [
@@ -530,7 +540,8 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
         return;
       }
       if (Array.isArray(o)) o.forEach((v, i) => scan(v, `${path}[${i}]`));
-      else if (typeof o === "object") for (const k of Object.keys(o)) scan((o as never)[k], `${path}.${k}`);
+      else if (typeof o === "object")
+        for (const k of Object.keys(o)) scan((o as never)[k], `${path}.${k}`);
     };
     for (const s of SLUGS) scan(parse(s), s);
     expect(hits, `raw entity at:\n${hits.join("\n")}`).toEqual([]);

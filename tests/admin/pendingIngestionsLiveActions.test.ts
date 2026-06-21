@@ -33,7 +33,8 @@ class FakeLivePendingTx {
     if (/pg_locks/i.test(normalized)) return { held: true } as T;
     if (normalized.startsWith("select id, drive_file_id")) return this.row as T;
     if (normalized.startsWith("select exists")) return { exists: this.showExists } as T;
-    if (normalized.startsWith("select archived from public.shows")) return { archived: this.archived } as T; // DEF-5 guard
+    if (normalized.startsWith("select archived from public.shows"))
+      return { archived: this.archived } as T; // DEF-5 guard
     if (normalized.startsWith("select watched_folder_id")) {
       return { watched_folder_id: this.watchedFolderId } as T;
     }
@@ -57,7 +58,9 @@ function deps(
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     readDriveFileIdForPendingIngestion: vi.fn(async () => tx.row?.drive_file_id ?? null),
-    withRowTryLock: vi.fn(async (_driveFileId, fn) => fn(tx as unknown as LivePendingIngestionRouteTx)),
+    withRowTryLock: vi.fn(async (_driveFileId, fn) =>
+      fn(tx as unknown as LivePendingIngestionRouteTx),
+    ),
     fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
       driveFileId,
       name: `${driveFileId}.xlsx`,
@@ -69,7 +72,11 @@ function deps(
       outcome: "parsed_pending_review" as const,
       stagedId: "staged-1",
     })),
-    runManualSyncForShowUnlocked: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", parseWarnings: [] })),
+    runManualSyncForShowUnlocked: vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+      parseWarnings: [],
+    })),
     readFinalizeOwnershipGuardUnlocked: vi.fn(async () => false),
     prepareFirstSeenStage: vi.fn(async (fileMeta) => ({
       fileMeta,
@@ -132,7 +139,9 @@ describe("live pending-ingestions actions", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "parsed_pending_review", stagedId: "staged-1" });
     expect(routeDeps.withRowTryLock).toHaveBeenCalledWith("file-1", expect.any(Function));
-    expect(routeDeps.prepareFirstSeenStage).toHaveBeenCalledWith(expect.objectContaining({ driveFileId: "file-1" }));
+    expect(routeDeps.prepareFirstSeenStage).toHaveBeenCalledWith(
+      expect.objectContaining({ driveFileId: "file-1" }),
+    );
     expect(routeDeps.runManualStageForFirstSeen).toHaveBeenCalledWith(
       tx,
       "file-1",
@@ -259,9 +268,13 @@ describe("live pending-ingestions actions", () => {
   test("retry rejects transitioned and wizard rows", async () => {
     const transitioned = new FakeLivePendingTx();
     transitioned.row = null;
-    const transitionedResponse = await handleLivePendingIngestionRetry(req(), context, deps(transitioned, {
-      readDriveFileIdForPendingIngestion: vi.fn(async () => "file-1"),
-    }));
+    const transitionedResponse = await handleLivePendingIngestionRetry(
+      req(),
+      context,
+      deps(transitioned, {
+        readDriveFileIdForPendingIngestion: vi.fn(async () => "file-1"),
+      }),
+    );
     expect(transitionedResponse.status).toBe(409);
     expect(await json(transitionedResponse)).toEqual({
       ok: false,

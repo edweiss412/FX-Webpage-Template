@@ -51,11 +51,7 @@ vi.mock("@/components/agenda/AgendaEmbed", () => ({
     showId: string;
     agendaLinks: { label?: string; fileId?: string; url?: string }[];
   }) => (
-    <div
-      data-testid="agenda-stub"
-      data-show={showId}
-      data-links={JSON.stringify(agendaLinks)}
-    />
+    <div data-testid="agenda-stub" data-show={showId} data-links={JSON.stringify(agendaLinks)} />
   ),
 }));
 

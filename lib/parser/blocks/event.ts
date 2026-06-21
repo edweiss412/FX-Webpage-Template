@@ -88,7 +88,7 @@ const CANONICAL_KEY_MAP: Record<string, string> = {
 export function parseEventDetails(
   markdown: string,
   _version: "v1" | "v2" | "v4",
-   
+
   agg?: ParseAggregator,
 ): Record<string, string> {
   const result: Record<string, string> = {};

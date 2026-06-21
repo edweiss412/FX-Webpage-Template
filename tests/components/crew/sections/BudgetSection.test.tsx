@@ -27,11 +27,18 @@ test("BudgetSection renders financials iff financialsVisible; the SAME predicate
   });
   expect(
     render(
-      <BudgetSection data={lead} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+      <BudgetSection
+        data={lead}
+        viewer={{ kind: "crew", crewMemberId: "c1" }}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     ).container.textContent,
   ).toContain("PO-1");
   // The SAME single predicate gates the section selection: a non-lead direct ?s=budget falls back to today.
-  expect(resolveActiveSection("budget", { budgetVisible: financialsVisible([], false) })).toBe("today");
+  expect(resolveActiveSection("budget", { budgetVisible: financialsVisible([], false) })).toBe(
+    "today",
+  );
 });
 
 test("BudgetSection no-ops (no financials content) when data.financials is absent", () => {

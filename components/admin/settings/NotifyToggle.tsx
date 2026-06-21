@@ -28,9 +28,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
-export type NotifyToggleInitial =
-  | { kind: "value"; on: boolean }
-  | { kind: "infra_error" };
+export type NotifyToggleInitial = { kind: "value"; on: boolean } | { kind: "infra_error" };
 
 export type NotifyToggleResult = { ok: true } | { ok: false };
 

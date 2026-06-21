@@ -50,7 +50,9 @@ describe("mi11 collision graph — closure + IDENTITY_WOULD_COLLIDE (Task 3.4)",
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: false, code: "IDENTITY_WOULD_COLLIDE" });
 
     expect((await readCrewByName(mi11Sql, show.showId, "Alice"))?.email).toBe("alice@old");
@@ -72,7 +74,9 @@ describe("mi11 collision graph — closure + IDENTITY_WOULD_COLLIDE (Task 3.4)",
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
     expect(await readCrewByName(mi11Sql, show.showId, "Alice")).toBeNull();
     expect((await readCrewByName(mi11Sql, show.showId, "Alice2"))?.email).toBe("alice@old");
@@ -269,8 +273,12 @@ describe("mi11 closed-group atomic swap-safe park (Task 3.5)", () => {
     expect(alice?.email).toBe("bob@x"); // got Bob's freed email
     expect((await readHoldsByShow(mi11Sql, show.showId)).length).toBe(0);
     const log = await readChangeLogByShow(mi11Sql, show.showId);
-    expect(log.filter((r) => r.change_kind === "crew_removed" && r.status === "applied").length).toBe(1);
-    expect(log.filter((r) => r.change_kind === "crew_email_changed" && r.status === "applied").length).toBe(1);
+    expect(
+      log.filter((r) => r.change_kind === "crew_removed" && r.status === "applied").length,
+    ).toBe(1);
+    expect(
+      log.filter((r) => r.change_kind === "crew_email_changed" && r.status === "applied").length,
+    ).toBe(1);
   });
 
   it("name-takeover variant uses a rename node → crew_renamed, NOT crew_email_changed (PF32)", async () => {
@@ -296,8 +304,12 @@ describe("mi11 closed-group atomic swap-safe park (Task 3.5)", () => {
     expect(res).toEqual({ ok: true });
     expect((await readCrewByName(mi11Sql, show.showId, "Bob"))?.email).toBe("alice2@x"); // Alice→Bob
     const log = await readChangeLogByShow(mi11Sql, show.showId);
-    expect(log.filter((r) => r.change_kind === "crew_removed" && r.status === "applied").length).toBe(1);
-    expect(log.filter((r) => r.change_kind === "crew_renamed" && r.status === "applied").length).toBe(1);
+    expect(
+      log.filter((r) => r.change_kind === "crew_removed" && r.status === "applied").length,
+    ).toBe(1);
+    expect(
+      log.filter((r) => r.change_kind === "crew_renamed" && r.status === "applied").length,
+    ).toBe(1);
     expect(log.filter((r) => r.change_kind === "crew_email_changed").length).toBe(0);
   });
 

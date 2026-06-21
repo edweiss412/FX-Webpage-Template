@@ -269,7 +269,8 @@ export async function HEAD(
     if (satisfiableRange) {
       const sliceLen = satisfiableRange.end - satisfiableRange.start + 1;
       headers["Content-Length"] = String(sliceLen);
-      headers["Content-Range"] = `bytes ${satisfiableRange.start}-${satisfiableRange.end}/${declaredSize}`;
+      headers["Content-Range"] =
+        `bytes ${satisfiableRange.start}-${satisfiableRange.end}/${declaredSize}`;
       return new Response(null, { status: 206, headers });
     }
     if (Number.isFinite(declaredSize)) {

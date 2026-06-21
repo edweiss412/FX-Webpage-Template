@@ -22,7 +22,8 @@ const parseResult = {
 } as unknown as ParseResult;
 
 function fakeTx() {
-  const alerts: Array<{ showId: string | null; code: string; context: Record<string, unknown> }> = [];
+  const alerts: Array<{ showId: string | null; code: string; context: Record<string, unknown> }> =
+    [];
   const tx = {
     alerts,
     async queryOne<T>(sql: string) {

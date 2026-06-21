@@ -241,7 +241,10 @@ function MeShowSections({ shows, now }: { shows: readonly CrewShowSummary[]; now
             className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text"
           >
             Past ({past.length}){" "}
-            <span aria-hidden="true" className="ml-1 inline-block transition-transform group-open:rotate-90">
+            <span
+              aria-hidden="true"
+              className="ml-1 inline-block transition-transform group-open:rotate-90"
+            >
               ▸
             </span>
           </summary>
@@ -348,9 +351,7 @@ function NextUpCard({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
               ·
             </span>
           )}
-          {dateLabel && isoDate && (
-            <time dateTime={isoDate}>{dateLabel}</time>
-          )}
+          {dateLabel && isoDate && <time dateTime={isoDate}>{dateLabel}</time>}
         </p>
       )}
     </Link>
@@ -388,16 +389,12 @@ function ShowListRow({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
                   ·
                 </span>
               )}
-              {dateLabel && isoDate && (
-                <time dateTime={isoDate}>{dateLabel}</time>
-              )}
+              {dateLabel && isoDate && <time dateTime={isoDate}>{dateLabel}</time>}
             </div>
           )}
         </div>
         {chip && (
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${chipTone}`}
-          >
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${chipTone}`}>
             {chip}
           </span>
         )}

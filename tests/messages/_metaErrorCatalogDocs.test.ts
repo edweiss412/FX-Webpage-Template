@@ -58,9 +58,7 @@ describe("Catalog meta-test (test #2 — predicate-entry contract)", () => {
       helpHref: "/help/admin/parse-warnings#STALE",
     });
     expect(predicate(entry)).toBe(true);
-    expect(contractViolations(entry)).toEqual([
-      "predicate entry: longExplanation is null",
-    ]);
+    expect(contractViolations(entry)).toEqual(["predicate entry: longExplanation is null"]);
   });
 
   it("predicate-entry missing helpHref has the exact helpHref-null violation", () => {
@@ -109,9 +107,7 @@ describe("Catalog meta-test (test #2 — non-predicate-entry contract)", () => {
     });
     expect(predicate(entry)).toBe(false);
     expect(allM12FieldsNonNull(entry)).toBe(false);
-    expect(contractViolations(entry)).toEqual([
-      "non-predicate entry: helpHref must be null",
-    ]);
+    expect(contractViolations(entry)).toEqual(["non-predicate entry: helpHref must be null"]);
   });
 
   it("crew-only entry with stray title has the exact non-predicate title violation", () => {
@@ -120,9 +116,7 @@ describe("Catalog meta-test (test #2 — non-predicate-entry contract)", () => {
       title: "Stray title",
     });
     expect(predicate(entry)).toBe(false);
-    expect(contractViolations(entry)).toEqual([
-      "non-predicate entry: title must be null",
-    ]);
+    expect(contractViolations(entry)).toEqual(["non-predicate entry: title must be null"]);
   });
 
   it("crew-only entry with stray longExplanation has the exact non-predicate longExplanation violation", () => {

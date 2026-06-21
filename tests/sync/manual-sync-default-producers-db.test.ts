@@ -58,7 +58,10 @@ describe("runManualSyncForShow default-path real DB producers", () => {
       try {
         showId = await insertShow(sql, driveFileId, suffix);
         const processDeps = {
-          perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "manual" as const })),
+          perFileProcessor: vi.fn(async () => ({
+            outcome: "proceed" as const,
+            mode: "manual" as const,
+          })),
           captureBinding: vi.fn(async () => ({
             bindingToken: "binding-1",
             modifiedTime: "2026-05-08T12:00:00.000Z",
@@ -109,7 +112,10 @@ describe("runManualSyncForShow default-path real DB producers", () => {
       try {
         showId = await insertShow(sql, driveFileId, suffix);
         const processDeps = {
-          perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "manual" as const })),
+          perFileProcessor: vi.fn(async () => ({
+            outcome: "proceed" as const,
+            mode: "manual" as const,
+          })),
           captureBinding: vi.fn(async () => ({
             bindingToken: "binding-1",
             modifiedTime: "2026-05-08T12:00:00.000Z",

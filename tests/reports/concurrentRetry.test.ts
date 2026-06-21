@@ -19,11 +19,13 @@ function deferred<T>() {
 const githubMock = vi.hoisted(() => ({
   createIssue: vi.fn(),
   findIssueByMarker: vi.fn(),
-  gate: null as null | ReturnType<typeof deferred<{
-    htmlUrl: string;
-    issueNumber: number;
-    labels: string[];
-  }>>,
+  gate: null as null | ReturnType<
+    typeof deferred<{
+      htmlUrl: string;
+      issueNumber: number;
+      labels: string[];
+    }>
+  >,
 }));
 
 vi.mock("@/lib/github/issues", async (importOriginal) => {

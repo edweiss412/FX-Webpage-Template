@@ -136,9 +136,7 @@ const CREW_ID = "c1";
 
 // A populated projection so each real section has something distinctive to
 // render. Crew row id "c1" matches the default fixture crewMembers[0].id.
-function populated(
-  overrides?: Parameters<typeof makeShowForViewer>[0],
-): ShowForViewer {
+function populated(overrides?: Parameters<typeof makeShowForViewer>[0]): ShowForViewer {
   return makeShowForViewer({
     show: {
       dates: {
@@ -151,7 +149,9 @@ function populated(
       coi_status: "Approved",
       event_details: {},
     },
-    rooms: [{ id: "r1", kind: "gs", name: "Main", audio: "2x SM58", video: "1x PTZ", lighting: "8x par" }],
+    rooms: [
+      { id: "r1", kind: "gs", name: "Main", audio: "2x SM58", video: "1x PTZ", lighting: "8x par" },
+    ],
     hotelReservations: [
       {
         ordinal: 0,
@@ -164,7 +164,9 @@ function populated(
         notes: null,
       },
     ],
-    contacts: [{ kind: "venue", name: "Sam Venue", phone: "555-111-2222", email: null, notes: null }],
+    contacts: [
+      { kind: "venue", name: "Sam Venue", phone: "555-111-2222", email: null, notes: null },
+    ],
     ...overrides,
   });
 }
@@ -179,13 +181,16 @@ describe("CrewShell dispatches the real TodaySection", () => {
   it.each<[label: string, rawSection: string | undefined]>([
     ["today", "today"],
     ["undefined", undefined],
-  ])("rawSection=%s renders the RightNowHero and the today-tonight card", async (_l, rawSection) => {
-    await renderShell({ data: populated(), viewer: crewViewer, rawSection });
-    expect(screen.getByTestId("right-now-hero")).toBeTruthy();
-    expect(screen.getByTestId("today-tonight")).toBeTruthy();
-    // Real TodaySection root, not the Phase-2 placeholder.
-    expect(screen.getByTestId("section-today")).toBeTruthy();
-  });
+  ])(
+    "rawSection=%s renders the RightNowHero and the today-tonight card",
+    async (_l, rawSection) => {
+      await renderShell({ data: populated(), viewer: crewViewer, rawSection });
+      expect(screen.getByTestId("right-now-hero")).toBeTruthy();
+      expect(screen.getByTestId("today-tonight")).toBeTruthy();
+      // Real TodaySection root, not the Phase-2 placeholder.
+      expect(screen.getByTestId("section-today")).toBeTruthy();
+    },
+  );
 
   it("does NOT double-render the hero — only ONE right-now-hero (TodaySection owns it)", async () => {
     await renderShell({ data: populated(), viewer: crewViewer, rawSection: "today" });

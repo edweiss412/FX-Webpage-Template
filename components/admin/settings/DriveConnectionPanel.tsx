@@ -45,9 +45,7 @@ function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
 
   if (health.health === "positive") {
     const syncingLabel =
-      health.syncingCount === 0
-        ? "No shows syncing yet"
-        : `${health.syncingCount} shows syncing`;
+      health.syncingCount === 0 ? "No shows syncing yet" : `${health.syncingCount} shows syncing`;
     return `Connected · ${syncingLabel}${lastReadClause}`;
   }
 
@@ -137,112 +135,105 @@ export function DriveConnectionPanel({
           learnMore={{ href: "/help/admin/settings#drive-connection" }}
         >
           <p>
-            How FXAV connects to your Google Drive folder of show sheets, and
-            whether syncing is healthy.
+            How FXAV connects to your Google Drive folder of show sheets, and whether syncing is
+            healthy.
           </p>
         </HoverHelp>
       </div>
 
       <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-4">
-      {/* Info ⟷ pill row — wraps on narrow widths. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <FolderOpen
-            aria-hidden="true"
-            className="size-5 shrink-0 text-text-subtle"
-          />
-          <div className="flex flex-col">
-            <span className="text-base font-medium text-text-strong">
-              {folderName ?? "Your show-sheets folder"}
-            </span>
-            <span
-              data-testid="drive-connection-status-line"
-              className="text-sm text-text-subtle"
-            >
-              {statusLine}
-            </span>
+        {/* Info ⟷ pill row — wraps on narrow widths. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <FolderOpen aria-hidden="true" className="size-5 shrink-0 text-text-subtle" />
+            <div className="flex flex-col">
+              <span className="text-base font-medium text-text-strong">
+                {folderName ?? "Your show-sheets folder"}
+              </span>
+              <span data-testid="drive-connection-status-line" className="text-sm text-text-subtle">
+                {statusLine}
+              </span>
+            </div>
           </div>
-        </div>
-        {/* M12.4 item S1 — health pill badge (tinted, glyph + label) instead of
+          {/* M12.4 item S1 — health pill badge (tinted, glyph + label) instead of
             the bare dot. M12.4 item S2 — a "?" explainer tooltip rides ALONGSIDE
             every non-healthy badge. */}
-        {isPositive ? (
-          <span
-            data-testid="drive-connection-health-badge"
-            data-health="positive"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-positive)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-positive)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-positive-text"
-          >
-            <Check aria-hidden="true" className="size-3.5 shrink-0" />
-            Healthy
-          </span>
-        ) : (
-          // M12.5 item: the explainer is now a HOVER tooltip ON the badge
-          // itself (the badge is the trigger) — no separate "?" affordance.
-          <HoverHelp
-            label="What this status means"
-            testId="drive-connection-health-help"
-            rootTestId="help-affordance--settings-drive-health-badge--tooltip"
-            learnMore={{ href: "/help/admin/settings#drive-health" }}
-            align="right"
-            trigger={
-              <span
-                data-testid="drive-connection-health-badge"
-                data-health="warn"
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-warn)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-warn-text"
-              >
-                <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
-                Needs attention
-              </span>
-            }
-          >
-            <p>{healthExplainer}</p>
-          </HoverHelp>
-        )}
-      </div>
+          {isPositive ? (
+            <span
+              data-testid="drive-connection-health-badge"
+              data-health="positive"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-positive)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-positive)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-positive-text"
+            >
+              <Check aria-hidden="true" className="size-3.5 shrink-0" />
+              Healthy
+            </span>
+          ) : (
+            // M12.5 item: the explainer is now a HOVER tooltip ON the badge
+            // itself (the badge is the trigger) — no separate "?" affordance.
+            <HoverHelp
+              label="What this status means"
+              testId="drive-connection-health-help"
+              rootTestId="help-affordance--settings-drive-health-badge--tooltip"
+              learnMore={{ href: "/help/admin/settings#drive-health" }}
+              align="right"
+              trigger={
+                <span
+                  data-testid="drive-connection-health-badge"
+                  data-health="warn"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-warn)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-warn-text"
+                >
+                  <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+                  Needs attention
+                </span>
+              }
+            >
+              <p>{healthExplainer}</p>
+            </HoverHelp>
+          )}
+        </div>
 
-      <hr className="border-border" />
+        <hr className="border-border" />
 
-      {/* M12.3 item 8 / M12.7: helper text LEFT, both buttons grouped RIGHT on
+        {/* M12.3 item 8 / M12.7: helper text LEFT, both buttons grouped RIGHT on
           ONE row at ≥720px (the description WRAPS to multiple lines if needed
           rather than the buttons dropping to a new row — matching the design).
           Stacks vertically on mobile. "Re-run setup" is a NEUTRAL/outline button,
           not orange/accent. */}
-      <div className="flex flex-col gap-3 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
-        <p className="min-w-0 text-sm text-text-subtle">
-          Need to switch folders? Re-run setup. Your current shows keep syncing
-          the whole time.
-        </p>
-        <div className="flex flex-wrap items-center gap-2 min-[720px]:shrink-0">
-          {folderUrl && (
-            <a
-              data-testid="drive-connection-open-folder"
-              href={folderUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        <div className="flex flex-col gap-3 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
+          <p className="min-w-0 text-sm text-text-subtle">
+            Need to switch folders? Re-run setup. Your current shows keep syncing the whole time.
+          </p>
+          <div className="flex flex-wrap items-center gap-2 min-[720px]:shrink-0">
+            {folderUrl && (
+              <a
+                data-testid="drive-connection-open-folder"
+                href={folderUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                <FolderOpen aria-hidden="true" className="size-4 shrink-0" />
+                Open folder
+                <ExternalLink aria-hidden="true" className="size-4 shrink-0" />
+              </a>
+            )}
+            <form
+              data-testid="drive-connection-rerun-setup-form"
+              data-action="rerunSetupServerAction"
+              action={rerunSetupServerAction}
+              className="flex"
             >
-              <FolderOpen aria-hidden="true" className="size-4 shrink-0" />
-              Open folder
-              <ExternalLink aria-hidden="true" className="size-4 shrink-0" />
-            </a>
-          )}
-          <form
-            data-testid="drive-connection-rerun-setup-form"
-            data-action="rerunSetupServerAction"
-            action={rerunSetupServerAction}
-            className="flex"
-          >
-            <button
-              type="submit"
-              data-testid="drive-connection-rerun-setup-button"
-              className="inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-            >
-              <RotateCcw aria-hidden="true" className="size-4 shrink-0" />
-              Re-run setup
-            </button>
-          </form>
+              <button
+                type="submit"
+                data-testid="drive-connection-rerun-setup-button"
+                className="inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                <RotateCcw aria-hidden="true" className="size-4 shrink-0" />
+                Re-run setup
+              </button>
+            </form>
+          </div>
         </div>
-      </div>
       </div>
     </section>
   );

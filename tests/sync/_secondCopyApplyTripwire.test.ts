@@ -61,7 +61,10 @@ const ALLOWED: ReadonlyArray<{ file: string; symbol: string }> = [
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowDriveError(" },
   { file: "lib/sync/applyStaged.ts", symbol: "async function defaultRestoreShowStatus(" },
   { file: "lib/sync/discardStaged.ts", symbol: "async function defaultRestoreShowStatus(" },
-  { file: "lib/sync/runManualSyncForShow.ts", symbol: "export async function runManualSyncForShow(" },
+  {
+    file: "lib/sync/runManualSyncForShow.ts",
+    symbol: "export async function runManualSyncForShow(",
+  },
   { file: "lib/sync/promoteSnapshot.ts", symbol: "export async function promoteSnapshotUpload(" },
   { file: "lib/sync/promoteSnapshot.ts", symbol: "export async function repairSnapshotRollback(" },
   { file: "lib/sync/assetRecovery.ts", symbol: "async updateRecoveredDiagrams(" },

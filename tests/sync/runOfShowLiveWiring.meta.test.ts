@@ -10,7 +10,10 @@ function methodText(className: string, methodName: string): string {
   const visit = (n: ts.Node): void => {
     if (ts.isClassDeclaration(n) && n.name?.text === className) {
       for (const m of n.members) {
-        if (ts.isMethodDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === methodName) { found = m; return; }
+        if (ts.isMethodDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === methodName) {
+          found = m;
+          return;
+        }
       }
     }
     ts.forEachChild(n, visit);
@@ -24,7 +27,7 @@ describe("R20 live-wiring source-scan guards", () => {
   it("applyShowSnapshot reads shows_internal.run_of_show and returns it as priorRunOfShow", () => {
     const src = methodText("PostgresPipelineTx", "applyShowSnapshot");
     expect(src).toMatch(/run_of_show[\s\S]*from\s+public\.shows_internal/i); // the LIVE select exists
-    expect(src).toMatch(/priorRunOfShow\s*:/);                                // wired into the return
+    expect(src).toMatch(/priorRunOfShow\s*:/); // wired into the return
     // RED before impl: applyShowSnapshot has no shows_internal.run_of_show select → production never emits AGENDA_DAY_EMPTIED.
   });
   it("upsertShowsInternal writes run_of_show ($5::jsonb + excluded.run_of_show)", () => {

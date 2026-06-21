@@ -455,23 +455,24 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
         // we explicitly project each entry to make the contract obvious AND
         // to defend against a future projector dropping `assigned_names`
         // (regression test #7 enforces this).
-        schedule: (
-          // decodeJsonbColumn: a legacy double-encoded transportation.schedule is a
+        // decodeJsonbColumn: a legacy double-encoded transportation.schedule is a
+        schedule:
           // STRING scalar from Supabase-JS; without decoding, `.map` throws (R8).
-          decodeJsonbColumn<
-            Array<{
-              stage: string;
-              date: string | null;
-              time: string | null;
-              assigned_names: string[];
-            }>
-          >(transRes.data.schedule) ?? []
-        ).map((entry) => ({
-          stage: entry.stage,
-          date: entry.date ?? null,
-          time: entry.time ?? null,
-          assigned_names: Array.isArray(entry.assigned_names) ? entry.assigned_names : [],
-        })),
+          (
+            decodeJsonbColumn<
+              Array<{
+                stage: string;
+                date: string | null;
+                time: string | null;
+                assigned_names: string[];
+              }>
+            >(transRes.data.schedule) ?? []
+          ).map((entry) => ({
+            stage: entry.stage,
+            date: entry.date ?? null,
+            time: entry.time ?? null,
+            assigned_names: Array.isArray(entry.assigned_names) ? entry.assigned_names : [],
+          })),
         notes: (transRes.data.notes as string | null) ?? null,
       };
     }
@@ -544,11 +545,10 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   // show days), matching the Schedule day-set behavior.
   if (runOfShow !== null) {
     const showDaySet = new Set(show.dates.showDays ?? []);
-    const activeRestriction: DateRestriction =
-      needsCrewLookup
-        ? (crewMembers.find((m) => m.id === (viewer as { crewMemberId: string }).crewMemberId)
-            ?.dateRestriction ?? { kind: "none" })
-        : { kind: "none" };
+    const activeRestriction: DateRestriction = needsCrewLookup
+      ? (crewMembers.find((m) => m.id === (viewer as { crewMemberId: string }).crewMemberId)
+          ?.dateRestriction ?? { kind: "none" })
+      : { kind: "none" };
 
     let allowed: Set<string>;
     if (activeRestriction.kind === "unknown_asterisk") {
@@ -635,8 +635,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
       (showRowDb.opening_reel_drive_modified_time as string | null | undefined) ?? null,
     opening_reel_head_revision_id:
       (showRowDb.opening_reel_head_revision_id as string | null | undefined) ?? null,
-    opening_reel_mime_type:
-      (showRowDb.opening_reel_mime_type as string | null | undefined) ?? null,
+    opening_reel_mime_type: (showRowDb.opening_reel_mime_type as string | null | undefined) ?? null,
   });
 
   return {

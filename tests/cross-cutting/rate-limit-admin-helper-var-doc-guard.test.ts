@@ -147,10 +147,7 @@ function clusterIsContractDiscussion(window: string): boolean {
 
 // Returns null if the doc surface passes; otherwise a list of
 // finding strings.
-function scanFileForRateLimitAdminContract(
-  file: string,
-  source: string,
-): string[] {
+function scanFileForRateLimitAdminContract(file: string, source: string): string[] {
   const lines = source.split("\n");
   const findings: string[] = [];
 
@@ -280,10 +277,7 @@ describe("R35 commit 72 F33 helper-categorization — rate-limit-admin contract 
     // ADMIN_EMAIL or any cross-reference.
     const brokenFixture =
       "The harness writes a `report_rate_limits` row for the `rate-limit-admin` outcome with the identity field set to a canonicalized admin email and `count=11`; cleanup deletes the bucket via the standard predicate.";
-    const brokenFindings = scanFileForRateLimitAdminContract(
-      "synthetic-broken.md",
-      brokenFixture,
-    );
+    const brokenFindings = scanFileForRateLimitAdminContract("synthetic-broken.md", brokenFixture);
     expect(brokenFindings.length).toBeGreaterThan(0);
 
     // PASSING (a) — names ADMIN_EMAIL within window.
@@ -310,9 +304,9 @@ describe("R35 commit 72 F33 helper-categorization — rate-limit-admin contract 
     // PASSING (c) — inline waiver comment.
     const passingWaiver =
       "<!-- not-rate-limit-admin-class: historical finding quote, F32 narrative --> The harness writes a `report_rate_limits` row for the `rate-limit-admin` outcome with the identity field set to a canonicalized admin email.";
-    expect(
-      scanFileForRateLimitAdminContract("synthetic-passing-c.md", passingWaiver).length,
-    ).toBe(0);
+    expect(scanFileForRateLimitAdminContract("synthetic-passing-c.md", passingWaiver).length).toBe(
+      0,
+    );
 
     // PASSING (d) — historical-narrative qualifier.
     const passingHistorical =

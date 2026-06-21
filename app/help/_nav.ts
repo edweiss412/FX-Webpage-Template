@@ -6,8 +6,8 @@
 export type NavGroup = "get-started" | "admin-surface" | "reference";
 
 export type NavEntry = {
-  slug: string;       // e.g., "/help/admin/dashboard"
-  title: string;      // sidebar + breadcrumb label
+  slug: string; // e.g., "/help/admin/dashboard"
+  title: string; // sidebar + breadcrumb label
   group: NavGroup;
 };
 
