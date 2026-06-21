@@ -58,7 +58,7 @@ const SECTION_LABELS: Record<SectionId, string> = {
  * Per-section glyph (Task 8.5). Each is a `({ className }) => svg` from the
  * shared crew icon set; the glyph inherits color (`currentColor`) so the active
  * tab's text color drives the icon. Sizes are set per variant at the call site
- * (`size-4` desktop / `size-[22px]` mobile).
+ * (`size-4` desktop / `size-5.5` mobile).
  */
 const SECTION_ICON: Record<SectionId, (props: { className?: string }) => JSX.Element> = {
   today: HomeIcon,
@@ -121,7 +121,7 @@ export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
     // it `text-accent-on-bg`. The active MOBILE tab is already `text-accent`, so
     // the inherited color is correct and no override is needed.
     const Icon = SECTION_ICON[id];
-    const iconSize = variant === "desktop" ? "size-4" : "size-[22px]";
+    const iconSize = variant === "desktop" ? "size-4" : "size-5.5";
     const iconActiveTint = variant === "desktop" && isActive ? " text-accent-on-bg" : "";
 
     return (

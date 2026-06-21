@@ -66,7 +66,7 @@ export function FactRows({ rows }: FactRowsProps) {
               <span
                 data-slot="fact-row-icon"
                 aria-hidden="true"
-                className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-[15px]"
+                className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-3.75"
               >
                 {row.icon}
               </span>

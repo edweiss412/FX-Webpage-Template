@@ -579,7 +579,7 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
     ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
   });
 
-  // ── Schedule date badge is 50px wide (DayCard.tsx `w-[50px]`). ──
+  // ── Schedule date badge is 50px wide (DayCard.tsx `w-12.5` = 3.125rem = 50px). ──
   test("schedule date badge is 50px wide", async ({ page }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
     await page.setViewportSize({ width: 1000, height: 1000 });

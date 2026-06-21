@@ -69,7 +69,7 @@ export function DayCard({ day, phase, today, meta }: DayCardProps) {
         today ? "border-accent bg-stale-tint" : "border-border bg-surface",
       ].join(" ")}
     >
-      <div data-testid="day-card-date" className="flex w-[50px] shrink-0 flex-col items-center">
+      <div data-testid="day-card-date" className="flex w-12.5 shrink-0 flex-col items-center">
         <span
           className={[
             "text-[11px] font-bold uppercase leading-none tracking-eyebrow",
@@ -93,7 +93,7 @@ export function DayCard({ day, phase, today, meta }: DayCardProps) {
             data-tone={tone}
             aria-hidden="true"
             className={[
-              "size-[7px] shrink-0 rounded-full",
+              "size-1.75 shrink-0 rounded-full",
               tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong",
             ].join(" ")}
             // set tone is the mock's gold — no @theme token, so inline.

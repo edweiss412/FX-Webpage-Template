@@ -98,7 +98,7 @@ function TravelRow({
       <span
         data-slot="travelrow-icon"
         aria-hidden="true"
-        className="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-surface-sunken text-text-subtle [&_svg]:size-[17px]"
+        className="grid size-8.5 shrink-0 place-items-center rounded-[9px] bg-surface-sunken text-text-subtle [&_svg]:size-4.25"
       >
         <Glyph />
       </span>

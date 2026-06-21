@@ -123,7 +123,7 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
       headingIcon={
         <span
           aria-hidden="true"
-          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-[15px]"
+          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-3.75"
         >
           <MapIcon />
         </span>
