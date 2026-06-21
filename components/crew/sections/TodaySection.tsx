@@ -211,14 +211,24 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const anchors = resolveKeyTimes(data.show, data.rooms);
 
           const firstHotel = data.hotelReservations[0] ?? null;
+          // Tonight uses the 2-up grid (columns={2} on the card below): the Hotel
+          // headline spans both columns (`span: 2`) so the name sits full width
+          // above Check in | Check out, which pair into the grid's two columns
+          // and fill the card instead of leaving a tall empty right side. Below
+          // 720px the grid collapses to the single stacked column.
           const tonightRows: KeyValueRow[] = firstHotel
             ? [
-                { k: "Hotel", v: firstHotel.hotel_name ?? "" },
+                { k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 },
                 { k: "Check in", v: firstHotel.check_in ?? "" },
                 { k: "Check out", v: firstHotel.check_out ?? "" },
               ]
             : [];
 
+          // Where stays single-column: Venue + Address are inherently full-width
+          // prose and Loading dock is the lone short field, so a 2-up grid would
+          // only strand Loading dock half-width with a wrapped eyebrow and dead
+          // space beside it (re-introducing the gap this change removes). Nothing
+          // pairs here, so densification doesn't apply to this card.
           const venue = data.show.venue;
           const whereRows: KeyValueRow[] = venue
             ? [
@@ -312,7 +322,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                           </span>
                         }
                       >
-                        <KeyValueRows rows={tonightRows} />
+                        <KeyValueRows rows={tonightRows} columns={2} />
                       </SectionCard>
                     </div>
                   </div>
@@ -374,7 +384,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const keyTimesCard = anchorsPresent ? (
             <div data-testid="today-key-times">
               <SectionCard icon={<ClockIcon />} title="Key times">
-                <KeyTimesStrip anchors={anchors} />
+                <KeyTimesStrip anchors={anchors} layout="row" />
               </SectionCard>
             </div>
           ) : null;
@@ -472,6 +482,10 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
               {modeA ? (
                 <>
+                  {/* Bare, full-page-width banner: keep the vertical stack. The
+                      "row" posture is reserved for the CARDED Key times in the
+                      bounded 1.6fr column; a full-width row strip would spread 2
+                      anchors 50/50 across the page with a mid-page divider. */}
                   <KeyTimesStrip anchors={anchors} />
                   <div
                     data-testid="today-mode-a-grid"
