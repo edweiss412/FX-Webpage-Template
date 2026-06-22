@@ -51,7 +51,7 @@ export function displayableEntries(entries: AgendaEntry[] | undefined): AgendaEn
 
 export type SchedulePhase = "Travel In" | "Set" | "Show" | "Travel Out";
 
-export type ScheduleDay = {
+export type AggregateDay = {
   /** ISO 'YYYY-MM-DD'. */
   date: string;
   /** Phase tag — what's happening on this day. */
@@ -63,7 +63,7 @@ export type ScheduleDay = {
  * deduped by date (first phase in the workflow wins), sorted ASC by ISO date.
  * Ported verbatim from ScheduleTile.tsx:93-107.
  */
-export function aggregateDays(dates: ShowRow["dates"]): ScheduleDay[] {
+export function aggregateDays(dates: ShowRow["dates"]): AggregateDay[] {
   const seen = new Map<string, SchedulePhase>();
   const push = (date: string | null, phase: SchedulePhase): void => {
     if (!date) return;

@@ -52,7 +52,7 @@ import {
   aggregateDays,
   displayableEntries,
   RUN_OF_SHOW_DISPLAY_CAP,
-  type ScheduleDay,
+  type AggregateDay,
 } from "@/lib/crew/agendaDisplay";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -119,12 +119,9 @@ export function ScheduleSection({
           // Intersect the restriction against the FULL aggregate (travel / set /
           // showDays / travelOut — not just showDays).
           const allDays = aggregateDays(data.show.dates);
-          const visibleDays =
+          const visibleDays: AggregateDay[] =
             dateRestriction.kind === "explicit"
-              ? ((): ScheduleDay[] => {
-                  const allowed = new Set(dateRestriction.days);
-                  return allDays.filter((d) => allowed.has(d.date));
-                })()
+              ? allDays.filter((d) => dateRestriction.days.includes(d.date))
               : allDays; // kind === 'none'
 
           const todayIso = todayIsoInShowTimezone(data.show, today);
