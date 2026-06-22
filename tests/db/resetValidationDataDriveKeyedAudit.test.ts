@@ -169,7 +169,9 @@ describe("reset_validation_data() — drive-keyed completeness audit", () => {
         app_metadata: { role: "admin" },
       });
       await sql.begin(async (tx) => {
-        await tx`select set_config('role', 'authenticated', true)`;
+        // service-role-only (hotfix 20260622000002): the wipe runs via the service-role
+        // client; admin identity is enforced upstream by the action's session assert.
+        await tx`select set_config('role', 'service_role', true)`;
         await tx`select set_config('request.jwt.claims', ${ADMIN_CLAIMS}, true)`;
         await tx`select public.reset_validation_data()`;
       });

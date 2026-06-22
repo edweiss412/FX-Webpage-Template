@@ -80,7 +80,10 @@ describe("reset_validation_data() — in-flight advisory-lock serialization", ()
       // T1: reset_validation_data() — should block trying to acquire the same lock.
       const t1 = b
         .begin(async (tx) => {
-          await tx`select set_config('role', 'authenticated', true)`;
+          // reset_validation_data() is service-role-only (hotfix 20260622000002): admin
+          // identity is enforced upstream by the action's session-client assert; the wipe
+          // runs via the service-role client (no 8s statement_timeout).
+          await tx`select set_config('role', 'service_role', true)`;
           await tx`select set_config('request.jwt.claims', ${ADMIN_CLAIMS}, true)`;
           await tx`select public.reset_validation_data()`;
         })

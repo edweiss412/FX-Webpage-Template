@@ -49,20 +49,40 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
     return { ok: false, code: "VALIDATION_RESET_NOT_ALLOWED" };
   }
 
-  // Gate 3 + RPC: session client, let RLS enforce admin identity at the DB layer
-  const supabase = await createSupabaseServerClient();
+  // Gate 3: session-client assert RPC — is_admin() + gate at the DB layer. Fast (no
+  // locks), so it completes under the `authenticated` role's 8s statement_timeout.
+  // The DB gate fires BEFORE the service-role client is constructed.
+  const sessionClient = await createSupabaseServerClient();
+  let assertError: { message?: string } | null;
+  try {
+    const result = await sessionClient.rpc("assert_destructive_reset_enabled");
+    assertError = result.error;
+  } catch {
+    return { ok: false, code: "VALIDATION_RESET_FAILED" };
+  }
+  if (assertError) {
+    const msg = assertError.message ?? "";
+    if (msg.includes("destructive reset not enabled")) {
+      return { ok: false, code: "VALIDATION_RESET_NOT_ENABLED" };
+    }
+    return { ok: false, code: "VALIDATION_RESET_FAILED" };
+  }
+
+  // Assert passed — run the wipe via the SERVICE-ROLE client. service_role has NO
+  // statement_timeout (vs. authenticated's 8s), so the advisory-lock wait below —
+  // which serializes the wipe behind any in-flight sync (invariant 2) — can complete
+  // instead of being cancelled at 8s. reset_validation_data() is now service-role-only.
+  const serviceClient = createSupabaseServiceRoleClient();
   let data: { clearedShows: number } | null;
   let error: { message?: string } | null;
   try {
-    const result = await supabase.rpc("reset_validation_data");
+    const result = await serviceClient.rpc("reset_validation_data");
     data = result.data as { clearedShows: number } | null;
     error = result.error;
   } catch {
     return { ok: false, code: "VALIDATION_RESET_FAILED" };
   }
-
   if (error) {
-    // Distinguish the DB-side gate-disabled raise from other RPC errors
     const msg = error.message ?? "";
     if (msg.includes("destructive reset not enabled")) {
       return { ok: false, code: "VALIDATION_RESET_NOT_ENABLED" };
@@ -70,7 +90,7 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
     return { ok: false, code: "VALIDATION_RESET_FAILED" };
   }
 
-  const count = (data as { clearedShows: number } | null)?.clearedShows ?? 0;
+  const count = data?.clearedShows ?? 0;
   revalidatePath("/admin");
   revalidatePath("/admin/settings");
   return { ok: true, count };
