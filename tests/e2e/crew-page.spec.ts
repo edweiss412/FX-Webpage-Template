@@ -696,10 +696,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
         // owner amendment). align-items==="start" is pinned in crew-layout-dimensions.
         expect(a.height, `${section} col A must have non-zero height`).toBeGreaterThan(1);
         expect(b.height, `${section} col B must have non-zero height`).toBeGreaterThan(1);
-        expect(
-          b.left,
-          `@760px ${section} columns are side-by-side`,
-        ).toBeGreaterThan(a.left + 1);
+        expect(b.left, `@760px ${section} columns are side-by-side`).toBeGreaterThan(a.left + 1);
       }
 
       // Mobile: stacked. Re-navigate at 390px (CSS-only switch; re-goto keeps the
