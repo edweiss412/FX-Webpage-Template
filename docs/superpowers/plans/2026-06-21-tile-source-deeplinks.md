@@ -416,17 +416,21 @@ it("header-block: details keeps a 'Details note' data row (exact-match terminato
 1. In `runScheduledCronSync` (`~:2241-2275`), call `listSpreadsheetSheets(driveFileId)` **once** near the top of the parse step, into `const sheets: SpreadsheetSheet[]`. Build `const titleToGid = new Map(sheets.filter(s => typeof s.sheetId === "number").map(s => [s.title, s.sheetId!]))`.
 2. Change `enrichWithDrivePins` (`lib/sync/enrichWithDrivePins.ts:112-129`) to **accept a pre-fetched `sheets` list** via its `EnrichContext` (add `sheets?: SpreadsheetSheet[]`). `extractEmbeddedImages` uses `ctx.sheets ?? (driveClient.listSpreadsheetSheets ? await driveClient.listSpreadsheetSheets(ctx.driveFileId) : [])` — so when the pipeline passes `sheets`, enrich does NOT re-call the API.
 3. Obtain the raw XLSX bytes once: have `fetchSheetAsMarkdownAtRevision` (or a new sibling `fetchSheetXlsxAtRevision`) also return `{ markdown, bytes }` (the bytes already decoded at `lib/drive/fetch.ts:144`), or fetch bytes once and pass to both `synthesizeMarkdownFromXlsx` and `extractSourceAnchors`.
-4. `const sourceAnchors = extractSourceAnchors(bytes, titleToGid)`; attach to the snapshot args (Task 6) alongside `parseResult.openingReel`.
+4. `const sourceAnchors = extractSourceAnchors(bytes, titleToGid)`; add `sourceAnchors: Record<string, SourceAnchor>` to **`ApplyParseResultArgs`** (`lib/sync/applyParseResult.ts:26-53` args type) and pass the extracted value into the object handed to `tx.applyShowSnapshot` (alongside the existing `parseResult.openingReel` flow).
 
-- [ ] **Step 1: Write the failing test** — pipeline test (deps-injection style per `tests/sync/*`): stub `driveClient.listSpreadsheetSheets` (a `vi.fn()` returning `[{title:"INFO",sheetId:0}]`) + stub bytes with a VENUE row. Assert (a) the applied snapshot payload carries `sourceAnchors.venue.gid === 0`, and (b) **`listSpreadsheetSheets` was called exactly once** (`expect(stub).toHaveBeenCalledTimes(1)`) across both anchor extraction and enrichment.
+**Task-boundary (plan-R3 finding 1):** Task 5 is **in-memory threading ONLY** — it adds the field to the args type and populates it; it touches **no SQL and no DDL**. The `source_anchors` **column + the `applyShowSnapshot` UPDATE write + the persisted-row assertion are Task 6.** Task 5's test mocks `tx` and asserts the *value handed to the tx* carries the anchors; it does not hit a DB.
+
+- [ ] **Step 1: Write the failing test** — pipeline test (deps-injection style per `tests/sync/*`) with a **mock `tx`**: stub `driveClient.listSpreadsheetSheets` (a `vi.fn()` returning `[{title:"INFO",sheetId:0}]`) + stub bytes with a VENUE row. Assert (a) the object passed to the mocked `tx.applyShowSnapshot` (i.e. `ApplyParseResultArgs.sourceAnchors`) has `venue.gid === 0` (in-memory, no DB write), and (b) **`listSpreadsheetSheets` was called exactly once** (`expect(stub).toHaveBeenCalledTimes(1)`) across both anchor extraction and enrichment.
 - [ ] **Step 2: Run — verify FAIL.**
-- [ ] **Step 3: Implement the ownership change** (steps 1-4 above).
+- [ ] **Step 3: Implement the ownership change** (ownership steps 1-4 above; type + threading only, no SQL).
 - [ ] **Step 4: Run — verify PASS**; `pnpm test -- tests/sync` to confirm no sync/enrich regressions (esp. `tests/sync/embeddedImages.test.ts`).
-- [ ] **Step 5: Commit** `feat(sync): single sheet-metadata fetch → thread source_anchors through pipeline`
+- [ ] **Step 5: Commit** `feat(sync): extract source_anchors + thread onto the in-memory snapshot args`
 
 ---
 
 ## Task 6: Migration + persist `source_anchors` (Hop 4)
+
+**Owns persistence** (plan-R3 finding 1): the `source_anchors` DDL, the `applyShowSnapshot` UPDATE SQL that writes it, and the persisted-row assertion. Consumes `ApplyParseResultArgs.sourceAnchors` (populated in-memory by Task 5).
 
 **Files:**
 - Create: `supabase/migrations/20260621000000_add_source_anchors.sql`
