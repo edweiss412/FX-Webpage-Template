@@ -362,14 +362,15 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   });
 
   // ── Invariant 2 — Crew two columns (Show crew | Key contacts) ──
-  // At ≥720px the two columns are a stretched flex row (equal height). At 390px
-  // they STACK (column 2 below column 1) and are NOT forced equal-height.
-  test("inv2: Crew columns equal-height at ≥720px, stacked at 390px", async ({
+  // At ≥720px the two columns are side-by-side at the 1.6fr/1fr ratio with
+  // `items-start` (natural height — the short "Key contacts" card is NOT stretched
+  // to the tall roster; 2026-06-21 owner amendment). At 390px they STACK.
+  test("inv2: Crew columns side-by-side (natural height) at ≥720px, stacked at 390px", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
 
-    // Desktop-ish: side-by-side, equal height (items-stretch + h-full).
+    // Desktop-ish: side-by-side (items-start — natural height, NOT equal-height).
     await page.setViewportSize({ width: 760, height: 1000 });
     await gotoSection(page, "crew");
     const cols760 = page.getByTestId("crew-column");
@@ -378,12 +379,9 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     if (colCount >= 2) {
       const a = await rectOf(cols760.nth(0));
       const b = await rectOf(cols760.nth(1));
-      // Side-by-side (second column starts to the right of the first).
+      // Side-by-side (second column starts to the right of the first). Height
+      // equality is deliberately NOT asserted (items-start).
       expect(b.left, "at ≥720px crew columns are side-by-side").toBeGreaterThan(a.left + 1);
-      expect(
-        Math.abs(a.height - b.height),
-        `crew columns must be equal-height at ≥720px (items-stretch+h-full); a=${a.height} b=${b.height}`,
-      ).toBeLessThanOrEqual(TOL);
     }
 
     // Mobile: stacked. Re-navigate at 390px (CSS-only switch; re-goto keeps the
@@ -664,8 +662,9 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // Per the design mock these three sections are two columns at ≥720px and a single
   // stacked column at <720px. Mirrors the Crew inv2 shape: at ≥720px the two
   // `<section>-column` elements are side-by-side (col 2 starts right of col 1) with
-  // equal heights (CSS-grid align-items:stretch, ±0.5px); at 390px they stack (col 2
-  // top ≥ col 1 bottom, shared left edge) with NO equal-height constraint.
+  // `items-start` (natural height — the short right column is NOT stretched to the
+  // taller left; 2026-06-21 owner amendment); at 390px they stack (col 2 top ≥ col 1
+  // bottom, shared left edge).
   //
   // Venue + Travel render the split only when BOTH columns have content (Schedule
   // always renders two: day cards + times/heads-up). When the seed yields a single
@@ -680,7 +679,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
 
       const colTestId = `${section}-column`;
 
-      // Desktop-ish: side-by-side, equal height (grid stretch).
+      // Desktop-ish: side-by-side (items-start — natural height, NOT equal-height).
       await page.setViewportSize({ width: 760, height: 1000 });
       await gotoSection(page, section);
       const cols760 = page.getByTestId(colTestId);
@@ -692,18 +691,15 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       if (colCount >= 2) {
         const a = await rectOf(cols760.nth(0));
         const b = await rectOf(cols760.nth(1));
-        // Side-by-side (second column starts to the right of the first).
+        // Side-by-side (second column starts to the right of the first). Both must
+        // have non-trivial height; height EQUALITY is deliberately NOT asserted
+        // (items-start — the short column takes its natural height).
+        expect(a.height, `${section} col A must have non-zero height`).toBeGreaterThan(1);
+        expect(b.height, `${section} col B must have non-zero height`).toBeGreaterThan(1);
         expect(
           b.left,
           `@760px ${section} columns are side-by-side`,
         ).toBeGreaterThan(a.left + 1);
-        // Equal-height (grid align-items:stretch). Both must be non-trivial first.
-        expect(a.height, `${section} col A must have non-zero height`).toBeGreaterThan(1);
-        expect(b.height, `${section} col B must have non-zero height`).toBeGreaterThan(1);
-        expect(
-          Math.abs(a.height - b.height),
-          `@760px ${section} columns must be equal-height (grid stretch); a=${a.height} b=${b.height}`,
-        ).toBeLessThanOrEqual(TOL);
       }
 
       // Mobile: stacked. Re-navigate at 390px (CSS-only switch; re-goto keeps the

@@ -18,7 +18,9 @@
  * Layout: when BOTH columns have data the surface is a split-wide grid — Show
  * crew on the wide-left `1.6fr` track, Key contacts on the narrow-right `1fr` —
  * side-by-side at ≥720px, stacked (single column) below. The grid is
- * `items-stretch` so the two cards stay equal-height. When only ONE side has
+ * `items-start` so the SHORT "Key contacts" card takes its natural height
+ * instead of stretching to match the tall roster and leaving dead space below it
+ * (2026-06-21 owner amendment — see v1-pre-deployment-amendments). When only ONE side has
  * data (roster-only OR contacts-only) the wrapper is a plain `flex flex-col`
  * single full-width column so a one-sided surface never leaves a blank right
  * track at ≥720px. There is no `md` breakpoint in this project; the
@@ -138,7 +140,7 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                 <div
                   className={
                     bothColumns
-                      ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                      ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                       : "flex flex-col gap-4"
                   }
                 >

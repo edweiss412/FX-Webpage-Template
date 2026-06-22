@@ -131,11 +131,13 @@ export function ScheduleSection({
           // the day-card list (primary, wider via the 1.6fr track), RIGHT the
           // "Daily call times" SectionCard THEN (admin) the rooms-fetch degraded
           // tile, stacked. <720px it collapses to a single column (grid-cols-1)
-          // with the left column first, then the right column. CSS grid tracks
-          // default to `align-items: stretch`, so the two columns share an equal
-          // height at ≥720px without the Tailwind-v4 `.flex`-no-stretch trap
-          // (DESIGN §7). Each column carries `min-w-0` so long day/anchor strings
-          // wrap instead of overflowing 390px.
+          // with the left column first, then the right column. The grid uses
+          // `items-start` (NOT the default stretch) so the SHORT right column
+          // ("Daily call times", ~3 rows) takes its natural height instead of
+          // stretching to match the tall day list and leaving dead space below it
+          // (2026-06-21 owner amendment — see v1-pre-deployment-amendments). Each
+          // column carries `min-w-0` so long day/anchor strings wrap instead of
+          // overflowing 390px.
           //
           // One-sided collapse (Task 4 §6 / Codex plan R2, mirrors Crew Task 8):
           // when the RIGHT column would have NO content — no "Daily call times"
@@ -152,7 +154,7 @@ export function ScheduleSection({
               data-testid="schedule-grid"
               className={
                 rightHasContent
-                  ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                  ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                   : "flex flex-col gap-4"
               }
             >
@@ -197,10 +199,10 @@ export function ScheduleSection({
                 data-schedule-column="times"
                 className="flex min-w-0 flex-col gap-4"
               >
-                {/* Wrap the key-times in the mock's "Daily call times" card so
-                    the split-wide equal-height parity holds (a bare strip vs a
-                    card breaks items-stretch). Render NO card when all anchors
-                    are absent — no empty shell. */}
+                {/* Wrap the key-times in the mock's "Daily call times" card so the
+                    right column reads as a card (matching the left). With
+                    `items-start` the card takes its natural height. Render NO card
+                    when all anchors are absent — no empty shell. */}
                 {hasTimesCard ? (
                   <SectionCard icon={<ClockIcon />} title="Daily call times">
                     <KeyTimesStrip anchors={anchors} />

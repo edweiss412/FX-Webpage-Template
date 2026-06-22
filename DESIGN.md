@@ -269,6 +269,8 @@ Without both, tiles collapse to their intrinsic content height and the spec §8.
 
 This gotcha is the single most common failure mode on this project's UI work — see `memory/feedback_tailwind_v4_flex_items_stretch.md`. Every tile component's spec must call out the parent → child stretch relationship explicitly, and the M4 layout-dimensions Playwright task (the in-browser `getBoundingClientRect()` assertion) verifies it. jsdom is NOT sufficient — it doesn't compute real layout.
 
+> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue, Travel, and Today Mode A) are the one place this project deliberately does NOT use equal-height: they use `min-[720px]:items-start` so the shorter column (e.g. the ~3-row "Daily call times", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid, the CrewSubNav tab bar, and the admin Dashboard split all keep `items-stretch` + `h-full`.
+
 ---
 
 ## 8. Iconography

@@ -452,10 +452,10 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           //
           //  • Mode A (run-of-show present): the bare KeyTimesStrip ABOVE, then
           //    the split-wide grid — run-of-show timeline LEFT (1.6fr) + the
-          //    quick-cards stack RIGHT (1fr), equal-height (items-stretch) — then
-          //    the day-context cards (dress + notes) full-width below. Unchanged
-          //    from the ratified §5 fork apart from the card chrome (icon +
-          //    "Full agenda" chip on the run-of-show card).
+          //    quick-cards stack RIGHT (1fr), `items-start` (the short quick-cards
+          //    stack takes its natural height rather than stretching to the tall
+          //    run-of-show timeline; 2026-06-21 owner amendment) — then the
+          //    day-context cards (dress + notes) full-width below.
           //  • Mode B (NO run-of-show: wrapped / off-day / travel / countdown /
           //    date-restricted): the PERSISTENT split-wide grid — day-context
           //    cards (Key times + dress + notes) LEFT (1.6fr) + the quick-cards
@@ -489,7 +489,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                   <KeyTimesStrip anchors={anchors} />
                   <div
                     data-testid="today-mode-a-grid"
-                    className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                    className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                   >
                     <div data-testid="today-run-of-show" className="min-w-0">
                       <SectionCard
