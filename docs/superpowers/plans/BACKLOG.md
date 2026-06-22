@@ -359,6 +359,18 @@ bar (matches the existing per-task discipline). Capture the exact error list at 
 
 ---
 
+### BL-ACCENT-BUTTON-ATOM-SWEEP — Migrate remaining raw accent-button compositions to the shared `<AccentButton>` atom
+
+**Filed:** 2026-06-21, during M5-D7 (extract shared `components/shared/AccentButton.tsx`).
+
+**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)
+
+**Why backlog, not deferred:** The 4th-variant YAGNI gate justified the atom; migrating the long tail is mechanical but unbounded and touches crew-page + unpublish surfaces (UI gate work — Opus only). No correctness bug; the anti-drift meta-test at `tests/styles/accent-button-atom.test.ts` only pins the 8 MIGRATED files, so the untouched sites are not regressions, just un-DRYed. No concrete trigger.
+
+**Promotion prerequisite / mechanics:** For each site, swap `<button className="…bg-accent…">` for `<AccentButton …variant props…>` (matching size/fontWeight/ringOffset/inline/selfStart/shadow/minWidthTap to the existing classes), preserving every `data-testid` and pending/useFormStatus wiring, then ADD the file to `MIGRATED_FILES` in `tests/styles/accent-button-atom.test.ts` (the documented extension point) so it's pinned against future re-drift. Note several of these (Share/Rotate/AddAdmin/wizard) use a `selected ? accentClass : otherClass` ternary or `cn(...)`/array-join className — those need the atom's `className` escape hatch or a small refactor, not a pure prop swap. Promote when a className-helper standardization pass or a UI-consistency milestone makes the long tail worth closing in one batch.
+
+---
+
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
 **Filed:** 2026-06-15, during the crew-show-page redesign audit (Claude Design handoff bundle `fxav-crew-pages`; design source at `/tmp/design_extract/...` ephemeral, intent recorded in milestone memory). Owner is considering a **downloadable, standardized sheet template** Doug (and future operators) would fill in, so the richer crew-page surfaces have a reliable source instead of depending on organic per-show sheet conventions.

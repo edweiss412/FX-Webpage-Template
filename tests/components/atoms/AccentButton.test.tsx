@@ -45,7 +45,7 @@ const CANONICAL_BASE_TOKENS = [
 
 function classOf(markup: string): string {
   const match = markup.match(/class="([^"]*)"/);
-  return match ? match[1] : "";
+  return match?.[1] ?? "";
 }
 
 describe("AccentButton — canonical chrome", () => {
@@ -100,9 +100,9 @@ describe("AccentButton — variant props", () => {
   });
 
   it("fontWeight prop toggles medium vs semibold", () => {
-    expect(classOf(renderToStaticMarkup(<AccentButton fontWeight="medium">x</AccentButton>))).toContain(
-      "font-medium",
-    );
+    expect(
+      classOf(renderToStaticMarkup(<AccentButton fontWeight="medium">x</AccentButton>)),
+    ).toContain("font-medium");
     expect(
       classOf(renderToStaticMarkup(<AccentButton fontWeight="semibold">x</AccentButton>)),
     ).toContain("font-semibold");
@@ -179,7 +179,9 @@ describe("AccentButton — native prop pass-through", () => {
   });
 
   it("appends the className escape hatch after the canonical chrome", () => {
-    const cls = classOf(renderToStaticMarkup(<AccentButton className="disabled:hover:bg-accent">x</AccentButton>));
+    const cls = classOf(
+      renderToStaticMarkup(<AccentButton className="disabled:hover:bg-accent">x</AccentButton>),
+    );
     expect(cls).toContain("bg-accent");
     expect(cls).toContain("disabled:hover:bg-accent");
     // escape hatch must be appended (last), so its tokens win in cascade order.
