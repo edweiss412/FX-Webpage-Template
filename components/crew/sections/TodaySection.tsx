@@ -14,8 +14,10 @@
  *   - Where card — the show venue (name + address + dock + notes-free meta).
  *   - Need-something card — the deterministic actionable primary contact via
  *     `selectPrimaryContact(contacts)` (omitted when no actionable contact).
- *   - Dress code line — `event_details.{dress_code|dress|attire}`, gated by
- *     `shouldHideGenericOptional` so sentinels reflow out.
+ *   - Dress code line — the canonical `event_details.dress_code` key (the
+ *     attire/dress/dress-code label family is collapsed to it at parse time;
+ *     see lib/parser/blocks/event.ts CANONICAL_KEY_MAP, M4-D1), gated by
+ *     `shouldHideGenericOptional` so a sentinel value reflows out.
  *   - Show notes — the 5-source aggregation venue → hotel → room → transport →
  *     contact (`SOURCE_CAP` / `TRUNCATE_AT` ported from NotesTile). The
  *     transport note is gated on `transportTileVisible` so a non-assigned crew
@@ -231,23 +233,18 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
           const primaryContact = selectPrimaryContact(data.contacts);
 
-          // Dress code — first NON-SENTINEL of the candidate keys (ported verbatim
-          // from ShowStatusTile.pickDressCode, ShowStatusTile.tsx:66-77). A plain
-          // `??` chain is WRONG: a sentinel `dress_code:"N/A"` is non-null, so `??`
-          // would stop there and the real `attire:"Black tie"` would be dropped.
-          // Iterate candidates (case-insensitive, incl. the spaced "dress code"
-          // variant) and skip sentinels so a meaningful later key still surfaces.
-          const dressLower = new Map(
-            Object.entries(data.show.event_details).map(([k, v]) => [k.toLowerCase(), v]),
-          );
-          let dressRaw: string | null = null;
-          for (const key of ["dress_code", "dress code", "dress", "attire"]) {
-            const v = dressLower.get(key);
-            if (typeof v === "string" && !shouldHideGenericOptional(v)) {
-              dressRaw = v;
-              break;
-            }
-          }
+          // Dress code — read the single canonical `dress_code` key. The parser
+          // (lib/parser/blocks/event.ts CANONICAL_KEY_MAP) is now the sole
+          // dress-key authority: the "attire" / "dress" / "dress code" label
+          // variants all collapse to `dress_code` at parse time, with
+          // sentinel-aware precedence so a real value wins over a sentinel
+          // regardless of sheet row order (M4-D1). The cross-key probe that used
+          // to live here is gone. The VALUE-level sentinel guard stays: a
+          // canonical `dress_code:"N/A"` must still reflow the block out. No
+          // read-side legacy-key fallback — no live prod data exists yet and a
+          // re-sync re-canonicalizes any non-canonical persisted key.
+          const dressValue = data.show.event_details.dress_code ?? null;
+          const dressRaw = shouldHideGenericOptional(dressValue) ? null : dressValue;
           const showDress = dressRaw !== null;
 
           // 5-source notes — transport source gated on transportTileVisible (the gate
