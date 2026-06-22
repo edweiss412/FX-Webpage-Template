@@ -105,6 +105,21 @@ export async function fetchSheetAsMarkdownAtRevision(
   revisionId: string,
   options: DriveFetchOptions = {},
 ): Promise<string> {
+  const { markdown } = await fetchSheetMarkdownAndBytesAtRevision(driveFileId, revisionId, options);
+  return markdown;
+}
+
+/**
+ * Task 5: fetch the XLSX bytes ONCE and return both the synthesized markdown and the raw
+ * bytes in a single Drive export, using the same before/after binding-token race guard as
+ * fetchSheetAsMarkdownAtRevision. Callers that need both artifacts (markdown for parsing,
+ * bytes for extractSourceAnchors) use this to avoid a second Drive export.
+ */
+export async function fetchSheetMarkdownAndBytesAtRevision(
+  driveFileId: string,
+  revisionId: string,
+  options: DriveFetchOptions = {},
+): Promise<{ markdown: string; bytes: ArrayBuffer }> {
   const drive = options.drive ?? getDriveClient();
   const before = await fetchFileForExport(driveFileId, drive);
   const beforeToken = bindingToken(before);
@@ -141,5 +156,5 @@ export async function fetchSheetAsMarkdownAtRevision(
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
   }
 
-  return synthesizeMarkdownFromXlsx(bytes);
+  return { markdown: synthesizeMarkdownFromXlsx(bytes), bytes };
 }

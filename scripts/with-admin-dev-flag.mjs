@@ -40,7 +40,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = process.cwd();
-const FILES = ["app/admin/dev/page.tsx", "app/admin/dev/actions.ts"];
+const FILES = [
+  "app/admin/dev/page.tsx",
+  "app/admin/dev/actions.ts",
+  // Dimensional-invariant render harness (tile → source-sheet deep links, spec
+  // §5.4). Lives under app/admin/dev/ and MUST be renamed aside on flag-UNSET
+  // builds too, else the prod artifact would still contain the route — defeating
+  // the build-artifact gate. No actions.ts (pure static render, no server action).
+  "app/admin/dev/source-link-dim/page.tsx",
+];
 const DISABLED_SUFFIX = ".disabled-by-build-gate";
 
 // The build-baked presence flag the admin Settings UI reads to decide whether to

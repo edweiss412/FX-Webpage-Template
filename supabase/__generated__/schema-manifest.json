@@ -282,6 +282,7 @@
     "pull_sheet",
     "requires_resync",
     "slug",
+    "source_anchors",
     "template_version",
     "title",
     "unpublish_token",

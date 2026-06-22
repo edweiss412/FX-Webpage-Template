@@ -40,6 +40,8 @@ import { DiagramsTile } from "@/components/crew/DiagramsBlock";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
 import {
@@ -208,8 +210,17 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
   const leftTiles = (
     <>
       {hasWhere ? (
-        <div data-testid="venue-where">
-          <SectionCard icon={<MapPinIcon />} title="Where">
+        <div data-testid="venue-where" data-card-id="venue-where">
+          <SectionCard
+            icon={<MapPinIcon />}
+            title="Where"
+            action={
+              <SourceLink
+                driveFileId={data.driveFileId}
+                anchor={data.sourceAnchors[CARD_REGION_MAP["venue-where"]]}
+              />
+            }
+          >
             {/* Mock `kv` Address dd — 2-line: street on line 1, locality muted
                 on line 2 (split on the first comma; comma-less → single line). */}
             {hasAddress ? (
@@ -237,16 +248,34 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
       ) : null}
 
       {hasFacts ? (
-        <div data-testid="venue-facilities">
-          <SectionCard icon={<BuildingIcon />} title="Facilities">
+        <div data-testid="venue-facilities" data-card-id="venue-facilities">
+          <SectionCard
+            icon={<BuildingIcon />}
+            title="Facilities"
+            action={
+              <SourceLink
+                driveFileId={data.driveFileId}
+                anchor={data.sourceAnchors[CARD_REGION_MAP["venue-facilities"]]}
+              />
+            }
+          >
             <FactRows rows={factRows} />
           </SectionCard>
         </div>
       ) : null}
 
       {hasStatus ? (
-        <div data-testid="venue-status">
-          <SectionCard icon={<InfoIcon />} title="Venue status">
+        <div data-testid="venue-status" data-card-id="venue-status">
+          <SectionCard
+            icon={<InfoIcon />}
+            title="Venue status"
+            action={
+              <SourceLink
+                driveFileId={data.driveFileId}
+                anchor={data.sourceAnchors[CARD_REGION_MAP["venue-status"]]}
+              />
+            }
+          >
             {coi !== null ? (
               <div className="flex flex-col gap-1">
                 {/* Eyebrow label is a plain <p>, not a <dt>: these COI / notes
@@ -279,7 +308,7 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
   );
 
   const diagramsBlock = hasDiagrams ? (
-    <div data-testid="venue-diagrams">
+    <div data-testid="venue-diagrams" data-card-id="venue-diagrams">
       <WrappedSection
         tileId="crew:venue:diagrams"
         showId={showId}

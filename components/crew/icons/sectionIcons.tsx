@@ -209,6 +209,20 @@ export function MonitorIcon({ className }: GlyphProps) {
   );
 }
 
+/**
+ * Sheet — a spreadsheet/grid silhouette: a rounded frame with a header band and
+ * a single column divider. Used by <SourceLink> ("In sheet" deep link) so the
+ * affordance reads as part of the same thin-stroke glyph family.
+ */
+export function SheetIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <rect x="4" y="3.5" width="16" height="17" rx="2" />
+      <path d="M4 8.5h16M12 8.5v12" />
+    </svg>
+  );
+}
+
 /** Building — a venue silhouette with windows. Venue "Facilities" card (no
  *  direct mock glyph; traced in the same thin-stroke family). */
 export function BuildingIcon({ className }: GlyphProps) {

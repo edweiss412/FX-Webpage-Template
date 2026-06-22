@@ -105,6 +105,8 @@ const DEFAULT: ShowForViewer = {
   viewerName: "Test Crew",
   viewerFlightInfo: null,
   viewerVersionToken: "v1",
+  driveFileId: null,
+  sourceAnchors: {},
 };
 
 // ---------------------------------------------------------------------------

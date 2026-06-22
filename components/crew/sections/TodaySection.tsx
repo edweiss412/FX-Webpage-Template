@@ -38,6 +38,8 @@ import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/Key
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { SectionChipLink } from "@/components/crew/SectionChipLink";
 import {
   BedIcon,
@@ -300,21 +302,32 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
               <div data-testid="today-quick-cards" className="flex flex-col gap-3">
                 {firstHotel ? (
                   <div data-testid="today-card-tonight" className="flex min-w-0 flex-col">
-                    <div data-testid="today-tonight" className="flex flex-col">
+                    <div
+                      data-testid="today-tonight"
+                      data-card-id="today-tonight"
+                      className="flex flex-col"
+                    >
                       <SectionCard
                         icon={<BedIcon />}
                         title="Tonight"
                         action={
-                          // "Booked" status pill (mock `.pill.ok`). DESIGN.md §1
-                          // color-blind floor: the status-positive hue (calm
+                          // "Booked" status pill (mock `.pill.ok`) + the recessive
+                          // source link, sharing the header action slot. DESIGN.md
+                          // §1 color-blind floor: the status-positive hue (calm
                           // teal, NOT green) is ALWAYS paired with a text label;
                           // the dot + "Booked" word both carry the signal.
-                          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-positive)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-positive)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-positive-text">
-                            <span
-                              aria-hidden="true"
-                              className="size-1.5 rounded-pill bg-status-positive"
+                          <span className="flex items-center gap-2">
+                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-positive)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-positive)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-positive-text">
+                              <span
+                                aria-hidden="true"
+                                className="size-1.5 rounded-pill bg-status-positive"
+                              />
+                              Booked
+                            </span>
+                            <SourceLink
+                              driveFileId={data.driveFileId}
+                              anchor={data.sourceAnchors[CARD_REGION_MAP["today-tonight"]]}
                             />
-                            Booked
                           </span>
                         }
                       >
@@ -326,8 +339,21 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
                 {venue ? (
                   <div data-testid="today-card-where" className="flex min-w-0 flex-col">
-                    <div data-testid="today-where" className="flex flex-col">
-                      <SectionCard icon={<MapPinIcon />} title="Where">
+                    <div
+                      data-testid="today-where"
+                      data-card-id="today-where"
+                      className="flex flex-col"
+                    >
+                      <SectionCard
+                        icon={<MapPinIcon />}
+                        title="Where"
+                        action={
+                          <SourceLink
+                            driveFileId={data.driveFileId}
+                            anchor={data.sourceAnchors[CARD_REGION_MAP["today-where"]]}
+                          />
+                        }
+                      >
                         <KeyValueRows rows={whereRows} />
                       </SectionCard>
                     </div>
@@ -336,8 +362,21 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
                 {primaryContact ? (
                   <div data-testid="today-card-need-something" className="flex min-w-0 flex-col">
-                    <div data-testid="today-need-something" className="flex flex-col">
-                      <SectionCard icon={<PhoneIcon />} title="Need something">
+                    <div
+                      data-testid="today-need-something"
+                      data-card-id="today-contact"
+                      className="flex flex-col"
+                    >
+                      <SectionCard
+                        icon={<PhoneIcon />}
+                        title="Need something"
+                        action={
+                          <SourceLink
+                            driveFileId={data.driveFileId}
+                            anchor={data.sourceAnchors[CARD_REGION_MAP["today-contact"]]}
+                          />
+                        }
+                      >
                         <ul className="flex flex-col gap-3">
                           <PersonRow
                             person={{
@@ -373,22 +412,39 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const anchorsPresent =
             anchors.set != null || anchors.show != null || anchors.strike != null;
           const keyTimesCard = anchorsPresent ? (
-            <div data-testid="today-key-times">
-              <SectionCard icon={<ClockIcon />} title="Key times">
+            <div data-testid="today-key-times" data-card-id="today-key-times">
+              <SectionCard
+                icon={<ClockIcon />}
+                title="Key times"
+                action={
+                  <SourceLink
+                    driveFileId={data.driveFileId}
+                    anchor={data.sourceAnchors[CARD_REGION_MAP["today-key-times"]]}
+                  />
+                }
+              >
                 <KeyTimesStrip anchors={anchors} layout="row" />
               </SectionCard>
             </div>
           ) : null;
           const dressCard = showDress ? (
-            <div data-testid="today-dress">
-              <SectionCard title="Dress code">
+            <div data-testid="today-dress" data-card-id="today-dress">
+              <SectionCard
+                title="Dress code"
+                action={
+                  <SourceLink
+                    driveFileId={data.driveFileId}
+                    anchor={data.sourceAnchors[CARD_REGION_MAP["today-dress"]]}
+                  />
+                }
+              >
                 <p className="text-sm text-text">{dressRaw}</p>
               </SectionCard>
             </div>
           ) : null;
           const notesCard =
             visibleNotes.length > 0 ? (
-              <div data-testid="today-notes">
+              <div data-testid="today-notes" data-card-id="today-notes">
                 <SectionCard icon={<NoteIcon />} title="Show notes">
                   <ul className="flex flex-col gap-2">
                     {visibleNotes.map((entry, idx) => {
@@ -482,14 +538,24 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                     data-testid="today-mode-a-grid"
                     className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                   >
-                    <div data-testid="today-run-of-show" className="min-w-0">
+                    <div
+                      data-testid="today-run-of-show"
+                      data-card-id="today-run-of-show"
+                      className="min-w-0"
+                    >
                       <SectionCard
                         icon={<ClockIcon />}
                         title="Run of show"
                         action={
-                          <SectionChipLink section="schedule" icon={<CalendarIcon />}>
-                            Full agenda
-                          </SectionChipLink>
+                          <span className="flex items-center gap-2">
+                            <SectionChipLink section="schedule" icon={<CalendarIcon />}>
+                              Full agenda
+                            </SectionChipLink>
+                            <SourceLink
+                              driveFileId={data.driveFileId}
+                              anchor={data.sourceAnchors[CARD_REGION_MAP["today-run-of-show"]]}
+                            />
+                          </span>
                         }
                       >
                         <RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />

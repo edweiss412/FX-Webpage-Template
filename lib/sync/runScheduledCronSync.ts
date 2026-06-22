@@ -16,7 +16,9 @@ import {
 import { canonicalize } from "@/lib/email/canonicalize";
 import { runInvariants } from "@/lib/parser/invariants";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
-import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import { fetchDriveFileMetadata, fetchSheetMarkdownAndBytesAtRevision } from "@/lib/drive/fetch";
+import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
@@ -257,11 +259,18 @@ export type ProcessOneFileDeps = {
   perFileProcessor?: typeof perFileProcessor;
   captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
   fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
+  /**
+   * Task 5 (test injection): raw XLSX bytes for the revision (used by extractSourceAnchors).
+   * Only consulted when fetchMarkdownAtRevision is also injected (test path). On the real
+   * path, fetchSheetMarkdownAndBytesAtRevision performs a single Drive export and returns
+   * both markdown and bytes together — no second export ever occurs.
+   */
+  fetchXlsxBytes?: (driveFileId: string, revisionId: string) => Promise<ArrayBuffer>;
   parseSheet?: (markdown: string, filename?: string) => ParsedSheet;
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
     driveClient: DriveClient,
-    ctx: { driveFileId: string; fileMeta: DriveFileMeta; binding: Phase1Binding },
+    ctx: { driveFileId: string; fileMeta: DriveFileMeta; sheets?: SpreadsheetSheet[] },
   ) => Promise<ParseResult>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
@@ -1028,6 +1037,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
+      // Task 6: source_anchors — pass raw object to $18::jsonb (never JSON.stringify; postgres.js serializes)
+      args.sourceAnchors ?? {},
     ];
     const skipDiagramsParams = [
       args.driveFileId,
@@ -1046,6 +1057,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
+      // Task 6: source_anchors — pass raw object to $17::jsonb (never JSON.stringify; postgres.js serializes)
+      args.sourceAnchors ?? {},
     ];
     const insertParamsForSlug = (slug: string) => [
       args.driveFileId,
@@ -1068,6 +1081,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.parseResult.pullSheet,
       args.autoPublishFirstSeen?.unpublishToken ?? null,
       args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
+      // Task 6 (F1 fix): source_anchors on first-seen INSERT — pass raw object to $21::jsonb
+      args.sourceAnchors ?? {},
     ];
 
     const updated = existing
@@ -1090,6 +1105,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_seen_modified_time = $14::timestamptz,
                    coi_status = $15,
                    pull_sheet = $16::jsonb,
+                   source_anchors = $17::jsonb,
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
@@ -1116,6 +1132,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_seen_modified_time = $15::timestamptz,
                    coi_status = $16,
                    pull_sheet = $17::jsonb,
+                   source_anchors = $18::jsonb,
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
@@ -1130,15 +1147,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
           // R30-1 + R65-1 (F1): wizard Phase B first-seen INSERT variants. When
           // firstSeenPublished === false the column list gains `published` with literal false
           // (overriding the DDL default true); when wizardCreatedSessionId is set the column
-          // list gains `wizard_created_session_id` ($21::uuid) — the show-side provenance
+          // list gains `wizard_created_session_id` ($22::uuid) — the show-side provenance
           // discriminator every created_show_id consumer joins on. Both absent → the SQL is
           // byte-identical to the pre-F1 statement.
+          // NOTE: $21 is now source_anchors (F1 finding 1 fix); wizard extra is $22.
           const extraColumns =
             (args.firstSeenPublished === false ? ", published" : "") +
             (args.wizardCreatedSessionId ? ", wizard_created_session_id" : "");
           const extraValues =
             (args.firstSeenPublished === false ? ", false" : "") +
-            (args.wizardCreatedSessionId ? ", $21::uuid" : "");
+            (args.wizardCreatedSessionId ? ", $22::uuid" : "");
           const extraParams = args.wizardCreatedSessionId ? [args.wizardCreatedSessionId] : [];
           return insertFirstSeenShowWithSlugRetry({
             baseSlug: args.slug,
@@ -1151,13 +1169,13 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_drive_file_id, opening_reel_drive_modified_time,
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
-                  unpublish_token, unpublish_token_expires_at,
+                  unpublish_token, unpublish_token_expires_at, source_anchors,
                   last_synced_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, now(), 'ok', null${extraValues})
+                        $19::uuid, $20::timestamptz, $21::jsonb, now(), 'ok', null${extraValues})
                 on conflict do nothing
                 returning id
               `,
@@ -1546,12 +1564,14 @@ export function defaultDriveClient(): DriveClient {
       const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
       const response = await sheetsClient.spreadsheets.get({
         spreadsheetId,
-        fields: "sheets(properties(title))",
+        fields: "sheets(properties(sheetId,title))",
       });
       return ((response.data.sheets ?? []) as unknown[]).map((sheet) => {
-        const record = sheet as { properties?: { title?: string | null } };
+        const record = sheet as { properties?: { title?: string | null; sheetId?: number | null } };
         return {
           title: record.properties?.title ?? "",
+          sheetId:
+            typeof record.properties?.sheetId === "number" ? record.properties.sheetId : undefined,
           embeddedObjects: [],
         } satisfies SpreadsheetSheet;
       });
@@ -2154,6 +2174,8 @@ export type PreparedProcessOneFile =
       resolvedMode: Exclude<ResolvedSyncMode, "asset_recovery">;
       binding: Phase1Binding;
       parseResult: ParseResult;
+      /** Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call). */
+      sourceAnchors: Record<string, SourceAnchor>;
     };
 
 function defaultCooldownReader(
@@ -2236,15 +2258,35 @@ export async function prepareProcessOneFile(
     }
   }
 
+  // Task 5 — single Drive export: fetch markdown AND raw bytes in one call on the real path.
+  // When deps.fetchMarkdownAtRevision is injected (tests), fall back to separate markdown +
+  // fetchXlsxBytes injections. On the real path, fetchSheetMarkdownAndBytesAtRevision performs
+  // exactly ONE Drive export and returns both artifacts — no second export ever occurs.
   let markdown: string;
+  let xlsxBytes: ArrayBuffer | undefined;
   try {
-    markdown = await withStepTimeout(
-      "fetchMarkdownAtRevision",
-      (deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision)(
-        driveFileId,
-        binding.bindingToken,
-      ),
-    );
+    if (deps.fetchMarkdownAtRevision) {
+      // Test/injected path: markdown and bytes come from separate injected fns.
+      markdown = await withStepTimeout(
+        "fetchMarkdownAtRevision",
+        deps.fetchMarkdownAtRevision(driveFileId, binding.bindingToken),
+      );
+      try {
+        xlsxBytes = deps.fetchXlsxBytes
+          ? await deps.fetchXlsxBytes(driveFileId, binding.bindingToken)
+          : undefined;
+      } catch {
+        xlsxBytes = undefined;
+      }
+    } else {
+      // Real path: single Drive export, both markdown and bytes from one HTTP call.
+      const result = await withStepTimeout(
+        "fetchMarkdownAtRevision",
+        fetchSheetMarkdownAndBytesAtRevision(driveFileId, binding.bindingToken),
+      );
+      markdown = result.markdown;
+      xlsxBytes = result.bytes;
+    }
   } catch (error) {
     if (isSpreadsheetBindingRace(error)) {
       return {
@@ -2262,16 +2304,32 @@ export async function prepareProcessOneFile(
     };
   }
 
+  // Task 5 — exactly-once Sheets API list ownership:
+  // Call listSpreadsheetSheets HERE (once) so both enrichWithDrivePins AND
+  // extractSourceAnchors consume the same result — no second API call.
+  const driveClient = deps.driveClient ?? defaultDriveClient();
+  let sheets: SpreadsheetSheet[] | undefined;
+  if (!deps.enrichWithDrivePins && driveClient.listSpreadsheetSheets) {
+    // Real path: fetch the sheet list once; pass into enrich via ctx.sheets so
+    // extractEmbeddedImages does NOT re-call the API.
+    try {
+      sheets = await driveClient.listSpreadsheetSheets(driveFileId);
+    } catch {
+      // Non-fatal: extractEmbeddedImages falls back gracefully when sheets is undefined.
+      sheets = undefined;
+    }
+  }
+
   const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
   let enriched: ParseResult;
   try {
     enriched = await withStepTimeout(
       "enrichWithDrivePins",
-      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
-        parsed,
-        deps.driveClient ?? defaultDriveClient(),
-        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), binding },
-      ),
+      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(parsed, driveClient, {
+        driveFileId,
+        fileMeta: toDriveFileMeta(fileMeta),
+        ...(sheets !== undefined ? { sheets } : {}),
+      }),
     );
   } catch (error) {
     if (isBinaryAssetRevisionRace(error)) {
@@ -2289,6 +2347,14 @@ export async function prepareProcessOneFile(
       code: classifySyncFailure(error),
     };
   }
+
+  const titleToGid = new Map<string, number>(
+    (sheets ?? [])
+      .filter((s): s is SpreadsheetSheet & { sheetId: number } => typeof s.sheetId === "number")
+      .map((s) => [s.title, s.sheetId]),
+  );
+  const sourceAnchors: Record<string, SourceAnchor> =
+    xlsxBytes !== undefined ? extractSourceAnchors(xlsxBytes, titleToGid) : {};
 
   let currentBinding: Phase1Binding;
   try {
@@ -2321,6 +2387,7 @@ export async function prepareProcessOneFile(
     resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
     binding,
     parseResult: enriched,
+    sourceAnchors,
   };
 }
 
@@ -2505,6 +2572,8 @@ export async function processOneFile_unlocked(
       ...(phase1.outcome === "auto_apply_with_holds" ? { mi11Items: phase1.mi11Items } : {}),
       // Task 2.9: drive the auto-apply changes feed.
       notableItems,
+      // Task 5: thread source-region anchors into applyShowSnapshot (Task 6 persists them).
+      ...(pipeline.sourceAnchors !== undefined ? { sourceAnchors: pipeline.sourceAnchors } : {}),
     },
     txDeps,
   );

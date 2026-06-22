@@ -100,7 +100,7 @@ describe("embedded image extraction in enrichWithDrivePins", () => {
   // MIME type" source pin asserted a `sheets.drawings.*` fields mask that the
   // Sheets v4 schema does not define — the live API rejected it with 400
   // INVALID_ARGUMENT, failing every cron full re-parse. The inverse contract
-  // (mask is exactly `sheets(properties(title))`, no drawn-image enumeration)
+  // (mask is exactly `sheets(properties(sheetId,title))`, no drawn-image enumeration)
   // is pinned in tests/sync/defaultDriveClientSheetsFieldsMask.test.ts.
 
   test("extracts DIAGRAMS tab embedded images case-insensitively with revision id and content fingerprint", async () => {

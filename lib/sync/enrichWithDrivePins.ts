@@ -58,6 +58,7 @@ export type SpreadsheetEmbeddedObject = {
 
 export type SpreadsheetSheet = {
   title: string;
+  sheetId?: number | undefined;
   embeddedObjects?: SpreadsheetEmbeddedObject[];
 };
 
@@ -95,6 +96,13 @@ export type EnrichContext = {
   /** Pre-fetched metadata for the show sheet (typically the cron loop already
    *  fetched this before calling parseSheet, so we pass it through). */
   fileMeta: DriveFileMeta;
+  /**
+   * Pre-fetched sheet list (Task 5: exactly-once ownership). When present,
+   * `extractEmbeddedImages` uses this list instead of calling
+   * `driveClient.listSpreadsheetSheets` again, keeping the Sheets API call
+   * count at one per sync pass.
+   */
+  sheets?: SpreadsheetSheet[];
 };
 
 function warning(code: string, message: string): ParseWarning {
@@ -115,9 +123,9 @@ async function extractEmbeddedImages(
   ctx: EnrichContext,
   warnings: ParseWarning[],
 ): Promise<EmbeddedImageStub[]> {
-  if (!driveClient.listSpreadsheetSheets) return [];
+  if (!ctx.sheets && !driveClient.listSpreadsheetSheets) return [];
 
-  const sheets = await driveClient.listSpreadsheetSheets(ctx.driveFileId);
+  const sheets = ctx.sheets ?? (await driveClient.listSpreadsheetSheets!(ctx.driveFileId));
   const diagramsSheet = sheets.find(
     (sheet) => sheet.title.localeCompare("diagrams", undefined, { sensitivity: "accent" }) === 0,
   );

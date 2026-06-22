@@ -41,6 +41,8 @@ import { Lightbulb, Video, Volume2 } from "lucide-react";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { BoxIcon, MonitorIcon, NoteIcon } from "@/components/crew/icons/sectionIcons";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -221,6 +223,7 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                     <div
                       key={d.id}
                       data-testid={`gear-scope-${d.id}`}
+                      data-card-id={`gear-scope-${d.id}`}
                       {...(d.emphasized ? { "data-emphasis": "you" } : {})}
                       className={[
                         // Grid item (cell stretches to row height via grid's default
@@ -243,11 +246,19 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                         icon={d.icon}
                         title={d.heading}
                         action={
-                          d.emphasized ? (
-                            <span className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg">
-                              Your scope
-                            </span>
-                          ) : undefined
+                          // The viewer's-own-scope eyebrow (when emphasized) and the
+                          // recessive source link share the header action slot.
+                          <span className="flex items-center gap-2">
+                            {d.emphasized ? (
+                              <span className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg">
+                                Your scope
+                              </span>
+                            ) : null}
+                            <SourceLink
+                              driveFileId={data.driveFileId}
+                              anchor={data.sourceAnchors[CARD_REGION_MAP[`gear-scope-${d.id}`]]}
+                            />
+                          </span>
                         }
                       >
                         <KeyValueRows rows={d.rows} />
@@ -258,8 +269,17 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
               ) : null}
 
               {packVisible ? (
-                <div data-testid="gear-pack-list">
-                  <SectionCard icon={<BoxIcon />} title="Pack list">
+                <div data-testid="gear-pack-list" data-card-id="gear-pack-list">
+                  <SectionCard
+                    icon={<BoxIcon />}
+                    title="Pack list"
+                    action={
+                      <SourceLink
+                        driveFileId={data.driveFileId}
+                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-pack-list"]]}
+                      />
+                    }
+                  >
                     <ol className="flex flex-col gap-2">
                       {visibleCases.map((c, idx) => (
                         <li
@@ -336,16 +356,34 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
               ) : null}
 
               {keynote !== null ? (
-                <div data-testid="gear-keynote">
-                  <SectionCard icon={<NoteIcon />} title="Keynote requirements">
+                <div data-testid="gear-keynote" data-card-id="gear-keynote">
+                  <SectionCard
+                    icon={<NoteIcon />}
+                    title="Keynote requirements"
+                    action={
+                      <SourceLink
+                        driveFileId={data.driveFileId}
+                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-keynote"]]}
+                      />
+                    }
+                  >
                     <p className="text-sm text-text">{keynote}</p>
                   </SectionCard>
                 </div>
               ) : null}
 
               {hasReel ? (
-                <div data-testid="gear-opening-reel">
-                  <SectionCard icon={<MonitorIcon />} title="Opening reel">
+                <div data-testid="gear-opening-reel" data-card-id="gear-opening-reel">
+                  <SectionCard
+                    icon={<MonitorIcon />}
+                    title="Opening reel"
+                    action={
+                      <SourceLink
+                        driveFileId={data.driveFileId}
+                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-opening-reel"]]}
+                      />
+                    }
+                  >
                     <div className="flex flex-col gap-3">
                       {hasReelText ? (
                         <KeyValueRows

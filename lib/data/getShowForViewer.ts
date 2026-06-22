@@ -50,6 +50,7 @@ import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
 import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import { projectOpeningReelHasVideo } from "@/lib/data/openingReel";
 import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import type {
   AgendaEntry,
   ContactRow,
@@ -222,6 +223,21 @@ export type ShowForViewer = {
    * this by treating it as "no fence" (any subsequent token wins).
    */
   viewerVersionToken: string;
+
+  /**
+   * `shows.drive_file_id` — the Google Drive file ID of the source sheet for
+   * this show. Used by tile components to build deep links into the sheet via
+   * `buildSheetDeepLink`. Null when the column is absent or not yet populated.
+   */
+  driveFileId: string | null;
+
+  /**
+   * `shows.source_anchors` — per-section tab anchors keyed by section id
+   * (e.g. "schedule", "crew"). Each entry carries `{ title, gid, a1? }` so
+   * tile components can construct deep links without knowing the underlying
+   * sheet structure. Degrades to `{}` when the column is null or absent.
+   */
+  sourceAnchors: Record<string, SourceAnchor>;
 };
 
 export async function getShowForViewer(showId: string, viewer: Viewer): Promise<ShowForViewer> {
@@ -655,6 +671,10 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     lastSyncStatus: (showRowDb.last_sync_status as string | null | undefined) ?? null,
     tileErrors,
     runOfShow,
+    // not-subject-to-meta: projected from the already-fetched shows row
+    driveFileId: (showRowDb.drive_file_id as string | null | undefined) ?? null,
+    sourceAnchors:
+      (showRowDb.source_anchors as Record<string, SourceAnchor> | null | undefined) ?? {},
     ...(financials ? { financials } : {}),
   };
 }
