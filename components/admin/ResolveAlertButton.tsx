@@ -53,6 +53,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 const AUTO_REVERT_MS = 3_000;
 
@@ -97,14 +98,15 @@ export function ResolveAlertButton() {
 
   if (ui === "idle") {
     return (
-      <button
-        type="button"
+      <AccentButton
         data-testid="admin-alert-resolve-button"
         onClick={onResolveClick}
-        className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
+        fontWeight="medium"
+        minWidthTap
+        ringOffset="warning-bg"
       >
         Resolve
-      </button>
+      </AccentButton>
     );
   }
 
@@ -128,16 +130,20 @@ function ConfirmRow({
   const { pending } = useFormStatus();
   return (
     <div data-testid="admin-alert-confirm-row" className="flex flex-wrap items-center gap-3">
-      <button
+      <AccentButton
         type="submit"
         data-testid="admin-alert-confirm-resolve-button"
         onClick={onConfirmClick}
         disabled={pending}
         aria-busy={pending}
-        className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-accent"
+        minWidthTap
+        ringOffset="warning-bg"
+        // Preserve the M9-D-C4-1 stable-fill-under-pending treatment: while
+        // submitting, keep the accent fill rather than the hover shade.
+        className="disabled:hover:bg-accent"
       >
         {pending ? "Resolving…" : "Confirm resolve"}
-      </button>
+      </AccentButton>
       <button
         type="button"
         data-testid="admin-alert-cancel-button"

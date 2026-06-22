@@ -20,6 +20,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 export type ReSyncButtonProps = {
   slug: string;
@@ -88,16 +89,19 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <button
-        type="button"
+      <AccentButton
         onClick={handleClick}
         disabled={pending}
         data-testid="admin-resync-button"
         aria-busy={pending}
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center self-start rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
+        fontWeight="medium"
+        inline
+        selfStart
+        minWidthTap
+        ringOffset="bg"
       >
         {pending ? "Syncing…" : "Re-sync from Drive"}
-      </button>
+      </AccentButton>
       {errorCode ? (
         <div
           role="alert"
