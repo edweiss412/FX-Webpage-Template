@@ -187,7 +187,7 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     const r = parseSheet(md, "east-coast.md");
     expect(r.runOfShow).toBeDefined();
     expect(Object.keys(r.runOfShow!)).toEqual(expect.arrayContaining(["2024-05-15"]));
-    expect(r.runOfShow!["2024-05-15"]![0]!.title).toBe("Family Office Only Breakfast");
+    expect(r.runOfShow!["2024-05-15"]!.entries[0]!.title).toBe("Family Office Only Breakfast");
   });
 
   it("RIA production fixture → parseSheet emits runOfShow keyed by RIA show days (both filled shapes wired)", () => {
@@ -198,8 +198,8 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     expect(r.runOfShow).toBeDefined();
     expect(Object.keys(r.runOfShow!)).toEqual(expect.arrayContaining(["2025-06-25"]));
     // first Day-1 session — derived from ria.md:320 (clone-and-read), not hardcoded blind
-    expect(r.runOfShow!["2025-06-25"]![0]!.title).toBe("Attendee Registration and Breakfast");
-    expect(r.runOfShow!["2025-06-25"]![0]!.start).toBe("7:30 AM");
+    expect(r.runOfShow!["2025-06-25"]!.entries[0]!.title).toBe("Attendee Registration and Breakfast");
+    expect(r.runOfShow!["2025-06-25"]!.entries[0]!.start).toBe("7:30 AM");
   });
 
   it("a VERSION-VALID sheet whose AGENDA tab has NO token-header → runOfShow undefined + AGENDA_GRID_MALFORMED (parseAgenda runs)", () => {
@@ -217,5 +217,46 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     expect(r.hardErrors).toEqual([]); // version STILL detected — not the MI-1 early-return path
     expect(r.runOfShow).toBeUndefined(); // grid unlocatable → omitted optional property
     expect(r.warnings.map((w) => w.code)).toContain("AGENDA_GRID_MALFORMED");
+  });
+
+  it("D2 merge: grid-titled day keeps grid entries; DATES-only day recovered as ScheduleDay (one merged runOfShow)", () => {
+    // East Coast has a populated AGENDA grid (2024-05-15 titled). Use it as the
+    // 'grid wins' anchor; assert the merged value is a ScheduleDay, not a bare array.
+    const md = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
+    const r = parseSheet(md, "east-coast.md");
+    expect(r.runOfShow).toBeDefined();
+    const day = r.runOfShow!["2024-05-15"]!;
+    // Reshaped value — ScheduleDay, NOT AgendaEntry[]:
+    expect(Array.isArray(day)).toBe(false);
+    expect(day.entries[0]!.title).toBe("Family Office Only Breakfast"); // grid entries survive
+    expect(day.showStart).toBe(day.entries[0]!.start); // grid lift: showStart = first entry start
+    expect(day.window).toBeNull();
+  });
+
+  it("D2 merge: a bare-window DATES day (no grid entries) is recovered with window, entries:[]", () => {
+    // RIA has bare-window TIME cells ('7:30am - 5:50pm'). Strip the AGENDA grid
+    // so the DATES-column ScheduleDay is the only source for those days — verifying
+    // that DATES-only window days are not silently dropped when the grid is absent.
+    const full = readFileSync("fixtures/shows/exporter-xlsx/ria.md", "utf8");
+    const noGrid = full
+      .split("\n")
+      .filter((line) => !/NAME\s*\|\s*ARRIVAL\s*\|\s*FLIGHT/i.test(line))
+      .join("\n");
+    const r = parseSheet(noGrid, "ria-no-grid.md");
+    expect(r.runOfShow).toBeDefined();
+    const windowDays = Object.values(r.runOfShow!).filter((d) => d.window !== null);
+    expect(windowDays.length).toBeGreaterThanOrEqual(1);
+    const w = windowDays[0]!;
+    expect(w.entries).toEqual([]); // bare window → no titled entries fabricated
+    expect(w.window!.start).toMatch(/\d/); // a real clock, derived from the cell
+    expect(w.window!.end).toMatch(/\d/);
+  });
+
+  it("SCHEDULE_TIME_UNPARSED from a 'GS: ... - 6:00 PM' end-only SHOW DAY cell reaches ParsedSheet.warnings (index.ts merge)", () => {
+    // Redefining-FI SHOW DAY 2 has 'GS: ... - 6:00 PM' (end-only). The warning
+    // must survive the parseScheduleTimes → agg.warnings merge, not be unit-local.
+    const md = readFileSync("fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md", "utf8");
+    const r = parseSheet(md, "redefining-fi.md");
+    expect(r.warnings.map((w) => w.code)).toContain("SCHEDULE_TIME_UNPARSED");
   });
 });
