@@ -204,7 +204,7 @@ Stat omission is **two-level**: each stat whose value is null/empty/non-finite i
 Tailwind v4 has no implicit `align-items: stretch` — every equal-height relationship is explicit (`items-stretch` parent + `h-full` child) and **Playwright-asserted** (jsdom insufficient). Extends `tests/e2e/crew-page.spec.ts`:
 
 1. **Today quick-cards row** (Tonight / Where / Need-something): equal heights == row height (`items-stretch` + `h-full`), ±0.5px, across the band sweep.
-2. **Crew two columns** (Show crew | Key contacts): equal column heights at ≥720px (`items-stretch` + `h-full`); **<720px they stack single-column**, height unconstrained (no equal-height constraint).
+2. **Crew two columns** (Show crew | Key contacts): ~~equal column heights at ≥720px (`items-stretch` + `h-full`)~~ **SUPERSEDED 2026-06-21 — Crew split-wide now uses `items-start` (natural height, NOT equal-height); see `2026-06-21-split-wide-natural-height.md`.** Side-by-side at the 1.6fr/1fr ratio; **<720px they stack single-column**, height unconstrained.
 3. **Gear scope cards**: equal heights within their row when ≥2 render.
 4. **RightNowHero**: `min-h` == 176px (`--spacing-right-now-min-h`) held constant through a state crossfade (assert height stable before/after a forced state change, ±0.5px).
 5. **Sub-nav**: bottom tab-bar full-viewport-width, bottom-anchored, each tab `flex-1` equal width + full-bar height (`self-stretch`); respects `env(safe-area-inset-bottom)`. Top tabs ≥44px tap height.

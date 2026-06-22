@@ -311,8 +311,11 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
         </div>
       ) : null}
 
+      {/* items-start (NOT stretch): the right Diagrams column takes its natural
+          height rather than stretching to match the taller left detail stack
+          (2026-06-21 owner amendment, see v1-pre-deployment-amendments). */}
       {useSplit ? (
-        <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch">
+        <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start">
           <div
             data-testid="venue-column"
             data-venue-column="details"

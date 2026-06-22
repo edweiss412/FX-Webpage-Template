@@ -212,14 +212,24 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const anchors = resolveKeyTimes(data.show, data.rooms);
 
           const firstHotel = data.hotelReservations[0] ?? null;
+          // Tonight uses the 2-up grid (columns={2} on the card below): the Hotel
+          // headline spans both columns (`span: 2`) so the name sits full width
+          // above Check in | Check out, which pair into the grid's two columns
+          // and fill the card instead of leaving a tall empty right side. Below
+          // 720px the grid collapses to the single stacked column.
           const tonightRows: KeyValueRow[] = firstHotel
             ? [
-                { k: "Hotel", v: firstHotel.hotel_name ?? "" },
+                { k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 },
                 { k: "Check in", v: firstHotel.check_in ?? "" },
                 { k: "Check out", v: firstHotel.check_out ?? "" },
               ]
             : [];
 
+          // Where stays single-column: Venue + Address are inherently full-width
+          // prose and Loading dock is the lone short field, so a 2-up grid would
+          // only strand Loading dock half-width with a wrapped eyebrow and dead
+          // space beside it (re-introducing the gap this change removes). Nothing
+          // pairs here, so densification doesn't apply to this card.
           const venue = data.show.venue;
           const whereRows: KeyValueRow[] = venue
             ? [
@@ -308,7 +318,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                           </span>
                         }
                       >
-                        <KeyValueRows rows={tonightRows} />
+                        <KeyValueRows rows={tonightRows} columns={2} />
                       </SectionCard>
                     </div>
                   </div>
@@ -365,7 +375,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const keyTimesCard = anchorsPresent ? (
             <div data-testid="today-key-times">
               <SectionCard icon={<ClockIcon />} title="Key times">
-                <KeyTimesStrip anchors={anchors} />
+                <KeyTimesStrip anchors={anchors} layout="row" />
               </SectionCard>
             </div>
           ) : null;
@@ -433,10 +443,10 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           //
           //  • Mode A (run-of-show present): the bare KeyTimesStrip ABOVE, then
           //    the split-wide grid — run-of-show timeline LEFT (1.6fr) + the
-          //    quick-cards stack RIGHT (1fr), equal-height (items-stretch) — then
-          //    the day-context cards (dress + notes) full-width below. Unchanged
-          //    from the ratified §5 fork apart from the card chrome (icon +
-          //    "Full agenda" chip on the run-of-show card).
+          //    quick-cards stack RIGHT (1fr), `items-start` (the short quick-cards
+          //    stack takes its natural height rather than stretching to the tall
+          //    run-of-show timeline; 2026-06-21 owner amendment) — then the
+          //    day-context cards (dress + notes) full-width below.
           //  • Mode B (NO run-of-show: wrapped / off-day / travel / countdown /
           //    date-restricted): the PERSISTENT split-wide grid — day-context
           //    cards (Key times + dress + notes) LEFT (1.6fr) + the quick-cards
@@ -463,10 +473,14 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
               {modeA ? (
                 <>
+                  {/* Bare, full-page-width banner: keep the vertical stack. The
+                      "row" posture is reserved for the CARDED Key times in the
+                      bounded 1.6fr column; a full-width row strip would spread 2
+                      anchors 50/50 across the page with a mid-page divider. */}
                   <KeyTimesStrip anchors={anchors} />
                   <div
                     data-testid="today-mode-a-grid"
-                    className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                    className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                   >
                     <div data-testid="today-run-of-show" className="min-w-0">
                       <SectionCard

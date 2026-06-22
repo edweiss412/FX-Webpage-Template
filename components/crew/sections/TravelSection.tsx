@@ -272,10 +272,12 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
           // "Where you're staying" (hotels), at the mock's 1.6fr/1fr ratio. <720px
           // collapses to one column, getting-there above hotels. The grid only
           // mounts when BOTH blocks have content; with just one present it renders
-          // full-width (no dead 1.6fr track). CSS grid tracks default to
-          // align-items:stretch so the two columns are equal-height at ≥720px (no
-          // Tailwind-v4 `.flex` trap); each column carries `min-w-0` so long strings
-          // wrap rather than overflow.
+          // full-width (no dead 1.6fr track). The grid uses `items-start` (NOT the
+          // default stretch) so the SHORT right "Hotels" column takes its natural
+          // height instead of stretching to match the taller "Getting there" list
+          // and leaving dead space (2026-06-21 owner amendment — see
+          // v1-pre-deployment-amendments); each column carries `min-w-0` so long
+          // strings wrap rather than overflow.
           const useSplit = hasGettingThere && hasHotels;
 
           const gettingThereBlock = hasGettingThere ? (
@@ -480,7 +482,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
               ) : null}
 
               {useSplit ? (
-                <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch">
+                <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start">
                   <div
                     data-testid="travel-column"
                     data-travel-column="getting-there"
