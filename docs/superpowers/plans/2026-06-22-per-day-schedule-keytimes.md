@@ -495,7 +495,7 @@ export function extractClockTimes(raw: string): string[] {
 
 Steps:
 
-- [ ] **Rename the legacy type first.** In `lib/crew/agendaDisplay.ts` rename `export type ScheduleDay` (`:54`) → `AggregateDay` and `aggregateDays(...): ScheduleDay[]` (`:66`) → `: AggregateDay[]`. In `components/crew/sections/ScheduleSection.tsx` rename the `ScheduleDay` import (`:55`) and the `(): ScheduleDay[] =>` annotation (`:124`) → `AggregateDay`. Verify nothing else references the old name: `rg -n "\bScheduleDay\b" lib components app | rg -v "lib/parser/types"` returns only the new-type sites. Run `pnpm tsc --noEmit` (or the project's typecheck) → expected: no errors. Commit: `refactor(crew): rename legacy ScheduleDay→AggregateDay to free the name for the per-day type`.
+- [ ] **Rename the legacy type first — a pure, test-GUARDED refactor (no behavior change; plan-review finding 5).** This is the recognized TDD exception for a mechanical rename: the EXISTING suite is the guard, not a new failing test. (a) Run the existing guards GREEN first: `pnpm vitest run tests/crew/agendaDisplay-single-source.test.ts tests/components/crew/sections/ScheduleSection.test.tsx` → all pass (baseline). (b) In `lib/crew/agendaDisplay.ts` rename `export type ScheduleDay` (`:54`) → `AggregateDay` and `aggregateDays(...): ScheduleDay[]` (`:66`) → `: AggregateDay[]`. In `components/crew/sections/ScheduleSection.tsx` rename the `ScheduleDay` import (`:55`) and the `(): ScheduleDay[] =>` annotation (`:124`) → `AggregateDay`. (c) Confirm no stray refs: `rg -n "\bScheduleDay\b" lib components app | rg -v "lib/parser/types"` returns ONLY new-type sites. (d) Re-run the SAME existing tests GREEN + `pnpm exec tsc --noEmit` (no errors) — proving the refactor changed no behavior. Commit: `refactor(crew): rename legacy ScheduleDay→AggregateDay to free the name for the per-day type`.
 - [ ] Write the failing behavioral test `tests/crew/agendaDisplay.test.ts`:
   ```ts
   import { describe, it, expect } from "vitest";
@@ -975,14 +975,18 @@ Steps:
 
 **Files:**
 - Modify: `lib/sync/applyParseResult.ts:145-169` (the confirmed-day predicate at `:153-156`, the `AGENDA_DAY_EMPTIED` reconcile at `:163-168`, and the `runOfShowToStore`/`priorRunOfShow`/`upsertShowsInternal.run_of_show` types at `:24,50,146` — all retyped to `Record<string, ScheduleDay>`)
-- Test: `tests/sync/applyParseResult*.test.ts` (extend the existing apply-core suite; or new `tests/sync/applyParseResultScheduleDay.test.ts`)
+- **Modify the PRIOR-`run_of_show` PRODUCER (closes plan-review finding 2 — apply reads prior as `ScheduleDay`, so the producer MUST decode legacy arrays first):** `lib/sync/phase2.ts:67` (retype the `applyShowSnapshot` arg `priorRunOfShow` from `Record<string, AgendaEntry[]> | null` → `RunOfShow | null`); `lib/sync/runScheduledCronSync.ts:978-980` (the live `select run_of_show` — pass the raw column through `decodeRunOfShow(raw).value` so a legacy-array row is wrapped to `ScheduleDay` before it reaches apply) and `:1200` (forward the decoded value); plus any fake/in-memory tx fixtures that construct `priorRunOfShow` (e.g. `tests/**` fakes + `lib/sync/*` test doubles — grep `priorRunOfShow`).
+- Test: `tests/sync/applyParseResult*.test.ts` (extend the existing apply-core suite; or new `tests/sync/applyParseResultScheduleDay.test.ts`) + a **live-producer regression** seeding a LEGACY-ARRAY prior in stored `run_of_show`.
 
 **Interfaces:**
-- Consumes: `args.parseResult.runOfShow: Record<string, ScheduleDay> | undefined` (already merged in the parser, Task 5); `args.snapshot.priorRunOfShow: Record<string, ScheduleDay> | null` (legacy-array prior wrapped per §3.2 at the snapshot producer — for this task, the apply reads it AS `ScheduleDay`).
+- Consumes: `args.parseResult.runOfShow: Record<string, ScheduleDay> | undefined` (already merged in the parser, Task 5); `args.snapshot.priorRunOfShow: RunOfShow | null` (now decoded/wrapped by THIS task's producer step via `decodeRunOfShow`, so apply always reads `ScheduleDay`); `decodeRunOfShow` (Task 6).
 - Produces: `upsertShowsInternal({ run_of_show: Record<string, ScheduleDay> | null })` — `null` only when ZERO days qualify; `AGENDA_DAY_EMPTIED` (`agendaDayEmptied(index, iso)`, `lib/parser/blocks/agendaWarnings.ts:36`) appended to `args.parseResult.warnings` only when a prior-stored day is now fully empty.
 
 Steps:
 
+- [ ] **Producer decode first (plan-review finding 2).** Write a failing live-producer regression: seed stored `shows_internal.run_of_show` as a LEGACY ARRAY (`{ "2025-10-08": [{ start: "7:15am", title: "Reg" }] }`) and assert that after `applyShowSnapshot` reads it, `priorRunOfShow` is the wrapped `ScheduleDay` shape (`.["2025-10-08"].entries.length === 1`, `.showStart === null`) — NOT an array. (Use the runScheduledCronSync tx harness / the `priorRunOfShow` fake.) Run → FAIL (producer still returns the raw array).
+- [ ] Implement the producer decode: retype `lib/sync/phase2.ts:67` `priorRunOfShow` → `RunOfShow | null`; in `lib/sync/runScheduledCronSync.ts:978-980` pass the raw `select run_of_show` column through `decodeRunOfShow(raw).value` before assigning; forward the decoded value at `:1200`; update every fake/test-double constructing `priorRunOfShow` (grep `priorRunOfShow`). Run the regression → PASS. Commit: `fix(sync): decode prior run_of_show to ScheduleDay at the snapshot producer`.
+- [ ] Confirm `AGENDA_DAY_EMPTIED` still reconciles on the wrapped shape: with a legacy-array prior that had content for a day now fully-empty in the parse, assert the warning fires (prior read as wrapped `ScheduleDay`, `priorHadContent` checks `.entries.length||.showStart||.window`, not `.length` on an array).
 - [ ] Write the failing apply-persistence test. Create `tests/sync/applyParseResultScheduleDay.test.ts` (mirror the existing apply-core harness — a stub `ApplyParseResultTx` capturing `upsertShowsInternal`'s `run_of_show` payload + the mutated `args.parseResult.warnings`):
   ```ts
   import { describe, it, expect, vi } from "vitest";
@@ -1670,49 +1674,17 @@ Steps:
 **Files:**
 - Modify: `components/crew/sections/ScheduleSection.tsx` — change the resolver call at `:87` to `resolveKeyTimes(data.show, data.rooms, data.runOfShow, dateRestriction)`; replace the inline explicit-intersection IIFE at `:121-128` with the shared `visibleShowDays` helper; pass `DayCard.meta` (`:208`) per the meta rules; keep `hasTimesCard`/`rightHasContent` anchor-floor logic at `:152-153` working with `anchors.shows`
 - Modify: `components/crew/primitives/DayCard.tsx` — no structural change needed (`meta?` prop + `data-slot="day-card-meta"` render already wired at `:45-46`,`:104-108`); confirm it forwards a string meta
-- Modify: `lib/crew/agendaDisplay.ts` — add the shared `visibleShowDays(...)` helper (single source for `showDays ∩ DateRestriction`) and a `formatScheduleWindow(window)` formatter
-- Test: `tests/components/crew/sections/ScheduleSection.test.tsx`, `tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`, `tests/crew/agendaDisplay-single-source.test.ts`
+- CONSUME (do NOT redefine): `visibleShowDays(dates, dateRestriction)` and `formatScheduleWindow(window)` from `lib/crew/agendaDisplay.ts` — BOTH are produced by Task 4. Task 12 does NOT modify `agendaDisplay.ts`.
+- Test: `tests/components/crew/sections/ScheduleSection.test.tsx`, `tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`
 
 **Interfaces:**
-- Consumes: `type ScheduleDay = { entries: AgendaEntry[]; showStart: string | null; window: { start: string; end: string } | null }`; `type RunOfShow = Record<string, ScheduleDay>`; `data.runOfShow: RunOfShow | null`; `resolveKeyTimes(show, rooms, runOfShow, dateRestriction): KeyTimeAnchors`
-- Produces: `visibleShowDays(showDays: string[], dateRestriction: DateRestriction): string[]` (explicit→listed days ∩ showDays; none→all showDays; unknown_asterisk→[]) in `lib/crew/agendaDisplay.ts`; `formatScheduleWindow(window: { start: string; end: string }): string` → e.g. `"7:30am–5:50pm"`; `DayCard.meta` = `formatScheduleWindow(window)` (bare-window day) | single `showStart` time (fragment day) | `"Setup <setupTime>"` (Set day) | `undefined`
+- Consumes: the canonical `ScheduleDay = { entries: AgendaEntry[]; showStart: string | null; window: { start: string; end: string } | null }` and `RunOfShow = Record<string, ScheduleDay>` from `lib/parser/types.ts` (Task 2); `data.runOfShow: RunOfShow | null`; `resolveKeyTimes(show, rooms, runOfShow, dateRestriction): KeyTimeAnchors` (Task 9); `visibleShowDays(dates: Pick<ShowRow['dates'],'showDays'>, dateRestriction): string[]` + `formatScheduleWindow(window: {start;end}|null): string|null` (Task 4); `AggregateDay` (the day-list element `{date, phase}` — Task 4's rename of the legacy `ScheduleDay`).
+- Produces: `DayCard.meta` wiring in `ScheduleSection.tsx` = `formatScheduleWindow(window)` (bare-window day) | single `showStart` time (fragment day) | `"Setup <setupTime>"` (Set day) | `undefined` (else); the "Daily call times" `KeyTimesStrip` fed `resolveKeyTimes(data.show, data.rooms, data.runOfShow, dateRestriction)`.
 
-**Naming note for implementer:** `agendaDisplay.ts` ALREADY exports a `ScheduleDay` type meaning the day-list element `{ date, phase }` (`agendaDisplay.ts:54-58`), imported by `ScheduleSection.tsx:55`. The CONTRACT's new `ScheduleDay` (`{ entries, showStart, window }`) is the `run_of_show` VALUE type and lives in `lib/parser/types.ts` per §3.1. These are DISTINCT types with the same name in different modules — do NOT merge them. In `ScheduleSection.tsx` the day-list variable stays the `agendaDisplay.ScheduleDay`; `data.runOfShow[iso]` is the `types.ScheduleDay`. Keep imports disambiguated (e.g. `import type { ScheduleDay as ScheduleDayValue } from "@/lib/parser/types"`).
+**Naming note (post Task-4 rename):** the day-list element type is now `AggregateDay` (`{date, phase}`, renamed from the legacy `ScheduleDay` in Task 4). The ONLY `ScheduleDay` is the canonical `run_of_show` value type from `lib/parser/types.ts`. In `ScheduleSection.tsx` the day-list variable is `AggregateDay[]`; `data.runOfShow[iso]` is `ScheduleDay`. No import disambiguation needed (the names no longer collide).
 
 Steps:
-- [ ] Add a failing test (shared helper single-source): in `tests/crew/agendaDisplay-single-source.test.ts`, assert `visibleShowDays` exists and gives the SAME result as the rule Schedule/Today use, for all three restriction kinds:
-  ```ts
-  import { visibleShowDays } from "@/lib/crew/agendaDisplay";
-  test("visibleShowDays: explicit intersects, none returns all, unknown_asterisk returns []", () => {
-    const showDays = ["2026-10-08", "2026-10-09", "2026-10-10"];
-    expect(visibleShowDays(showDays, { kind: "none" })).toEqual(showDays);
-    expect(
-      visibleShowDays(showDays, { kind: "explicit", days: ["2026-10-09", "2026-10-99"] }),
-    ).toEqual(["2026-10-09"]); // off-aggregate day silently dropped, order preserved
-    expect(visibleShowDays(showDays, { kind: "unknown_asterisk" })).toEqual([]);
-  });
-  ```
-  Failure mode caught: a local copy of the intersection drifting from the shared one (the §5.1 / `agendaDisplay-single-source` contract — Today + Schedule + resolveKeyTimes must key off ONE predicate).
-- [ ] Run it, expect FAIL: `pnpm vitest run tests/crew/agendaDisplay-single-source.test.ts -t 'visibleShowDays'` → `1 failed` (`visibleShowDays` not exported).
-- [ ] Implement `visibleShowDays` + `formatScheduleWindow` in `lib/crew/agendaDisplay.ts`:
-  ```ts
-  import type { DateRestriction } from "@/lib/parser/types";
-
-  /** showDays ∩ DateRestriction — the SINGLE source for the visible show-day list
-   *  (Schedule day list, Today filter, resolveKeyTimes per-day Show anchors). */
-  export function visibleShowDays(showDays: string[], dr: DateRestriction): string[] {
-    if (dr.kind === "unknown_asterisk") return [];
-    if (dr.kind === "none") return [...showDays];
-    const allowed = new Set(dr.days);
-    return showDays.filter((d) => allowed.has(d));
-  }
-
-  /** "7:30am–5:50pm" (en dash, no spaces) for a bare-window DayCard meta. */
-  export function formatScheduleWindow(window: { start: string; end: string }): string {
-    return `${window.start}–${window.end}`;
-  }
-  ```
-- [ ] Run it, expect PASS: `pnpm vitest run tests/crew/agendaDisplay-single-source.test.ts -t 'visibleShowDays'` → `1 passed`.
+- [ ] Confirm the shared helpers exist (PRODUCED by Task 4 — do NOT redefine or re-test here): `rg -n "export function visibleShowDays|export function formatScheduleWindow" lib/crew/agendaDisplay.ts` returns both with the Task-4 signatures (`visibleShowDays(dates, dateRestriction)`, `formatScheduleWindow(window|null): string|null`). Task 12 IMPORTS them; the single-source drift guard lives in Task 4's `agendaDisplay-single-source.test.ts`.
 - [ ] Add a failing test (window meta): in `tests/components/crew/sections/ScheduleSection.test.tsx`, render a show whose `runOfShow` has a bare-window day and assert the Set/other-day DayCard meta:
   ```tsx
   test("bare-window day → DayCard meta = the window string from the data source", () => {
@@ -2136,17 +2108,27 @@ describe("downgradeRunOfShow — ScheduleDay map → legacy Record<iso, AgendaEn
     expect(out["2025-05-13"]).toEqual([]);
   });
 
-  test("round-trip: downgrade output is OLD-decoder-valid (the §14 rollback contract)", () => {
+  test("downgrade output is array-shaped (OLD-decoder-valid) AND decodes clean under the new decoder", () => {
     const legacy = downgradeRunOfShow(titled);
-    // The CURRENT decoder accepts arrays (decodeRunOfShow.ts:56-72). A ScheduleDay
-    // OBJECT day would be corrupt-skipped; the downgraded ARRAY day must NOT be.
+    // OLD-decoder validity == every day value is a bare ARRAY. The PRE-Task-6
+    // decoder requires arrays and corrupt-skips object days; downgrade restores
+    // that array shape. (Plan-review finding 3: do NOT assert the OLD bare-array
+    // shape out of the POST-Task-6 decoder — it now WRAPS arrays into ScheduleDay,
+    // so the correct expected value below is the WRAPPED shape. The OLD decoder's
+    // corrupt-skip-not-throw on a ScheduleDay object is pinned separately in
+    // Task 6's decodeRunOfShow.test.ts, not here.)
+    expect(Object.values(legacy).every((d) => Array.isArray(d))).toBe(true);
     const decoded = decodeRunOfShow(legacy);
     expect(decoded.corrupt).toBe(false);
     expect(decoded.value).toEqual({
-      "2025-10-08": [
-        { start: "7:15am", title: "Registration" },
-        { start: "8:00am", title: "Leaders Breakfast" },
-      ],
+      "2025-10-08": {
+        entries: [
+          { start: "7:15am", title: "Registration" },
+          { start: "8:00am", title: "Leaders Breakfast" },
+        ],
+        showStart: null,
+        window: null,
+      },
     });
   });
 });
@@ -2181,7 +2163,7 @@ export function downgradeRunOfShow(map: RunOfShow): Record<string, AgendaEntry[]
 ```
 
 - [ ] Run — expect pass: `pnpm vitest run tests/data/downgradeRunOfShow.test.ts`. Expected: `3 passed`.
-- [ ] Negative-regression: temporarily change `out[iso] = day.entries.map(...)` to `out[iso] = day as unknown as AgendaEntry[]` (i.e. pass the ScheduleDay object through un-downgraded). Re-run → the `round-trip` test FAILS (`decoded.corrupt` is `true`, day skipped). This proves the round-trip test actually pins "downgrade produces old-decoder-valid data", not a tautology. Revert the change → `3 passed`.
+- [ ] Negative-regression: temporarily change `out[iso] = day.entries.map(...)` to `out[iso] = day as unknown as AgendaEntry[]` (i.e. pass the ScheduleDay object through un-downgraded). Re-run → the round-trip test FAILS at `Object.values(legacy).every((d) => Array.isArray(d))` (the day is now an object, not an array) and at the wrapped-shape `toEqual` (the object's `showStart` is non-null). This proves the test pins "downgrade produces array-shaped, old-decoder-valid data", not a tautology. Revert → `3 passed`.
 
 **Verifier script (IMPLEMENT the script body; ASSERT-SHAPE the expected-map; do NOT run against live Supabase in CI — it is a deploy-time `pnpm` artifact):**
 
@@ -2210,24 +2192,44 @@ type DayExpectation =
   | { field: "showStart" }        // leading-start fragment (Redefining-FI Day 1)
   | { field: "unparsed" };        // deliberate end-only → expected SCHEDULE_TIME_UNPARSED, NOT a decoded day
 
-/** drive_file_id → { isoDate → expectation }. Derived from live gsheets-MCP recon
- *  + the committed fixtures (§7). Each ISO is a member of show.dates.showDays. */
+/** drive_file_id → { isoDate → expectation }. CANONICAL live Drive IDs (gsheets-MCP
+ *  recon 2026-06-22) + per-ISO field derived from each show's live DATES TIME cells.
+ *  Each ISO is a member of that show's show.dates.showDays. East Coast (v1, no DATES
+ *  TIME column — schedule rides the AGENDA grid) is intentionally EXCLUDED; it is not
+ *  affected by this change. VB01–VB10/DRILL are Consultants clones (same ISOs) — add
+ *  rows for any that are live-synced at deploy time. */
 const EXPECTED: Record<string, Record<string, DayExpectation>> = {
-  // Consultants Roundtable (titled both show days)
-  "<consultants-drive-file-id>": {
-    "2025-10-08": { field: "entries" },
-    "2025-10-09": { field: "entries" },
+  // Consultants Roundtable 2025 — titled both show days
+  "1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4": {
+    "2025-10-08": { field: "entries" }, // "7:15am - Registration … 5:35pm - Meeting Concludes"
+    "2025-10-09": { field: "entries" }, // "7:30am - Reg & Breakfast … 4:30pm - Meeting Concludes"
   },
-  // Redefining Fixed Income — Day 1 leading-start fragment, Day 2 end-only (expected unparsed)
-  "<redefining-fi-drive-file-id>": {
-    "2025-05-13": { field: "showStart" },
-    "2025-05-14": { field: "unparsed" }, // "GS: ... - 6:00 PM" — deliberate
+  // Redefining Fixed Income / Private Credit 2025 — Day 1 leading-start fragment, Day 2 end-only
+  "1HHw7vqCpnuxeDQDU5Gyxl70kyYV5-q6OFhcH_slXTcg": {
+    "2025-05-13": { field: "showStart" }, // "GS: 8:00 AM -"
+    "2025-05-14": { field: "unparsed" },  // "GS: ... - 6:00 PM" — deliberate end-only
   },
-  // RIA 2025 — bare window
-  "<ria-drive-file-id>": {
-    "<ria-show-day-iso>": { field: "window" },
+  // RIA Investment Forum - Central 2025 — bare windows both days
+  "1Ll_fx6Q24y6aTSqIV7YiruDKrYtezkkKrVCXVc4Cwkw": {
+    "2025-06-25": { field: "window" }, // "7:30am - 5:50pm"
+    "2025-06-26": { field: "window" }, // "7:45am - 12:15pm"
   },
-  // … RPAS, FinTech, Fixed Income Trading, East Coast, VB/DRILL copies …
+  // Retirement Plan Advisor Institute (RPAS) Central 2026 — titled both show days
+  "1vyZMRTqeFAJgocbSJM2_HDDMsUUJFBiLKk6WKq-dUYo": {
+    "2026-03-24": { field: "entries" }, // 16-line agenda
+    "2026-03-25": { field: "entries" },
+  },
+  // FinTech Forum CTO Summit 2026 — titled three show days
+  "1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY": {
+    "2026-05-04": { field: "entries" },
+    "2026-05-05": { field: "entries" },
+    "2026-05-06": { field: "entries" },
+  },
+  // Fixed Income Trading Summit 2025 — Day 1 empty TIME (no per-day data, not recoverable → omit),
+  // Day 2 single terminal token "4:15pm - Meeting Concludes" → entry kept (showStart guarded null)
+  "1xBbpHi_InDDC3V7Urg4LzA3NMD0qXOxJF0bKbw7Yt-4": {
+    "2025-10-21": { field: "entries" },
+  },
 };
 
 function dayHasExpectedField(day: RunOfShow[string] | undefined, exp: DayExpectation): boolean {
@@ -2240,6 +2242,14 @@ function dayHasExpectedField(day: RunOfShow[string] | undefined, exp: DayExpecta
   }
 }
 
+/** parse_warnings is a jsonb array of ParseWarning; the SCHEDULE_TIME_UNPARSED message
+ *  embeds the ISO (Task 1 constructor), so an end-only day is "confirmed unparsed" only
+ *  when BOTH (a) it is absent from run_of_show AND (b) its warning is present — a missing
+ *  warning must NOT silently pass (plan-review finding 4). */
+function hasUnparsedWarning(warnings: Array<{ code?: string; message?: string }>, iso: string): boolean {
+  return warnings.some((w) => w.code === "SCHEDULE_TIME_UNPARSED" && (w.message ?? "").includes(iso));
+}
+
 async function main() {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) { console.error("TEST_DATABASE_URL unset"); process.exit(2); }
@@ -2248,20 +2258,30 @@ async function main() {
   const rows: Array<{ show: string; iso: string; expect: string; got: string; pass: boolean }> = [];
 
   for (const [driveId, dayMap] of Object.entries(EXPECTED)) {
-    const [rec] = await sql<{ run_of_show: unknown }[]>`
-      SELECT si.run_of_show
+    const [rec] = await sql<{ run_of_show: unknown; parse_warnings: unknown }[]>`
+      SELECT si.run_of_show, si.parse_warnings
       FROM shows_internal si
       JOIN shows s ON s.id = si.show_id
       WHERE s.drive_file_id = ${driveId}
     `;
     const { value } = decodeRunOfShow(rec?.run_of_show ?? null);
     const decoded: RunOfShow = (value as RunOfShow) ?? {};
+    const warnings = (Array.isArray(rec?.parse_warnings) ? rec!.parse_warnings : []) as Array<{
+      code?: string; message?: string;
+    }>;
     for (const [iso, exp] of Object.entries(dayMap)) {
-      const pass = dayHasExpectedField(decoded[iso], exp);
+      // For an `unparsed` day, BOTH the absence AND the expected warning must hold.
+      const pass =
+        exp.field === "unparsed"
+          ? dayHasExpectedField(decoded[iso], exp) && hasUnparsedWarning(warnings, iso)
+          : dayHasExpectedField(decoded[iso], exp);
       if (!pass) anyFail = true;
       rows.push({
         show: driveId, iso, expect: exp.field,
-        got: decoded[iso] ? JSON.stringify(decoded[iso]).slice(0, 60) : "ABSENT",
+        got:
+          exp.field === "unparsed"
+            ? (decoded[iso] ? "PRESENT(!)" : "absent") + (hasUnparsedWarning(warnings, iso) ? "+warn" : "+NO-warn(!)")
+            : decoded[iso] ? JSON.stringify(decoded[iso]).slice(0, 60) : "ABSENT",
         pass,
       });
     }
@@ -2269,7 +2289,7 @@ async function main() {
   // Per-show / per-day PASS/FAIL table.
   console.table(rows);
   await sql.end();
-  if (anyFail) { console.error("verify-resync-scheduletimes: FAIL — recoverable day(s) missing"); process.exit(1); }
+  if (anyFail) { console.error("verify-resync-scheduletimes: FAIL — recoverable day(s) missing or unparsed warning absent"); process.exit(1); }
   console.log("verify-resync-scheduletimes: PASS — all recoverable days covered");
 }
 
@@ -2277,7 +2297,7 @@ main().catch((e) => { console.error(e); process.exit(2); });
 ```
 
 - [ ] Add the `pnpm` script. Edit `package.json` after `"test:e2e:ui"` (`:45`): add `"verify-resync-scheduletimes": "tsx scripts/verify-resync-scheduletimes.ts",`.
-- [ ] Verify the script TYPECHECKS (does NOT execute it against live Supabase — that runs only at deploy time per §7): `pnpm exec tsc --noEmit`. Expected: no errors referencing `scripts/verify-resync-scheduletimes.ts`. (The `<…-drive-file-id>` placeholders are valid string keys; they are filled with the canonical IDs at deploy time from `AGENTS.md` Codex-notes — East Coast `1N1PKmhcvLAn5UwHLn4Rplm1yeVeYMvwfL3eOzB4McnY`, RPAS `1vyZMRTqeFAJgocbSJM2_HDDMsUUJFBiLKk6WKq-dUYo`, etc.)
+- [ ] Verify the script TYPECHECKS (does NOT execute it against live Supabase — that runs only at deploy time per §7): `pnpm exec tsc --noEmit`. Expected: no errors referencing `scripts/verify-resync-scheduletimes.ts`. The `EXPECTED` map carries the CANONICAL live Drive IDs + concrete per-ISO field expectations inline (plan-review finding 4 — NOT placeholders); the only deploy-time addition is appending rows for any live-synced VB/DRILL Consultants clones.
 - [ ] DESCRIBE-only verification of the expected-map shape (no DB): add a fixture-shape unit test `tests/data/verifyResyncExpectedMap.test.ts` that imports nothing from the script (the script does live I/O) but re-states the contract — assert via `dayHasExpectedField`-style logic that (a) an `entries`-expectation day with `entries.length===0` FAILS, (b) a `window`-expectation day with `window:null` FAILS, (c) an `unparsed`-expectation day FAILS when the day IS present (it must be ABSENT). This pins the per-ISO, per-field contract (not "≥1 day") in CI without a live connection:
 
 ```ts
@@ -2310,9 +2330,26 @@ describe("verify-resync expected-map contract (per-ISO, per-field — NOT ≥1 d
   test("a fully-recovered show day PASSES", () => {
     expect(dayHasExpectedField({ entries: [{ start: "7:15am", title: "Reg" }], showStart: "7:15am", window: null }, { field: "entries" })).toBe(true);
   });
+
+  // unparsed days require BOTH absence AND the SCHEDULE_TIME_UNPARSED warning (finding 4).
+  function hasUnparsedWarning(ws: Array<{ code?: string; message?: string }>, iso: string): boolean {
+    return ws.some((w) => w.code === "SCHEDULE_TIME_UNPARSED" && (w.message ?? "").includes(iso));
+  }
+  test("unparsed day absent BUT no warning → must FAIL (a missing warning cannot silently pass)", () => {
+    const absent = dayHasExpectedField(undefined, { field: "unparsed" }); // true (absent)
+    const warned = hasUnparsedWarning([], "2025-05-14"); // false (no warning)
+    expect(absent && warned).toBe(false); // the script ANDs both → overall FAIL
+  });
+  test("unparsed day absent AND warning present → PASS", () => {
+    const warned = hasUnparsedWarning(
+      [{ code: "SCHEDULE_TIME_UNPARSED", message: "SHOW DAY 2025-05-14 TIME cell has content but…" }],
+      "2025-05-14",
+    );
+    expect(dayHasExpectedField(undefined, { field: "unparsed" }) && warned).toBe(true);
+  });
 });
 ```
-  Run: `pnpm vitest run tests/data/verifyResyncExpectedMap.test.ts`. Expected: `4 passed`. (Concrete failure mode caught: a "≥1 day recovered" verifier would PASS a 2-day show with Day 1 recovered but Day 2 still legacy/null; this contract FAILS it.)
+  Run: `pnpm vitest run tests/data/verifyResyncExpectedMap.test.ts`. Expected: `6 passed`. (Concrete failure modes caught: (a) a "≥1 day recovered" verifier would PASS a 2-day show with Day 1 recovered but Day 2 still legacy/null — this contract FAILS it; (b) an end-only day silently dropped WITHOUT its `SCHEDULE_TIME_UNPARSED` warning would pass an absence-only check — the AND with `hasUnparsedWarning` FAILS it.)
 - [ ] Commit: `git commit -am "feat(data): downgradeRunOfShow rollback converter + verify-resync-scheduletimes release-gate script"`
 
 ---
