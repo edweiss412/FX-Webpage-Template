@@ -89,3 +89,24 @@ it("header-block: details keeps a 'Details note' data row (exact-match terminato
   const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
   expect(a.details).toEqual({ title: "INFO", gid: 0, a1: "A1:B3" }); // LED + 'Details note' included, stops at CREW
 });
+
+it("non-A1 origin: absolute coordinates preserved when sheet data starts at C5", () => {
+  // Build a sheet whose !ref starts at C5 (col=2, row=4), not A1.
+  // aoa_to_sheet({origin:"C5"}) loses the offset after XLSX round-trip (write→read
+  // normalises to A1), so we set cell addresses and !ref manually so the buffer
+  // faithfully preserves the C5:D6 range.
+  const ws: XLSX.WorkSheet = {
+    "C5": { v: "VENUE",         t: "s" },
+    "D5": { v: "Four Seasons",  t: "s" },
+    "C6": { v: "Hotel Address", t: "s" },
+    "D6": { v: "525 N",         t: "s" },
+    "!ref": "C5:D6",
+  };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "INFO");
+  const b = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  // row-label-union for venue must return ABSOLUTE C5:D6, not zero-indexed A1:B2
+  expect(a.venue).toEqual({ title: "INFO", gid: 0, a1: "C5:D6" });
+});
