@@ -1292,6 +1292,30 @@ export const SPEC_CODES = {
     "followUp": "Doug → archive via dashboard",
     "helpfulContext": "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the admin dashboard and archive it from the show's parse panel.",
   },
+  "VALIDATION_RESEED_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "Reseeding the validation fixtures couldn't finish. Please try again.",
+    "followUp": "Doug → retry; if persistent, Eric",
+    "helpfulContext": "The validation-reseed endpoint started inserting fixture rows but hit an unexpected database or infrastructure fault partway through. The fixture data may be partially written. Running the reseed again is safe. If it keeps failing, the developer needs to investigate the underlying database error.",
+  },
+  "VALIDATION_RESET_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "The validation reset couldn't finish. Please try again.",
+    "followUp": "Doug → retry; if persistent, Eric",
+    "helpfulContext": "The validation-reset endpoint started the DB truncate and repopulate sequence but hit an unexpected database or infrastructure fault partway through. The database may be in a partially reset state. Running the reset again is safe — the sequence is designed to be idempotent. If it keeps failing, the developer needs to investigate the underlying database error.",
+  },
+  "VALIDATION_RESET_NOT_ALLOWED": {
+    "crewFacing": null,
+    "dougFacing": "Data reset is only available on the validation environment.",
+    "followUp": "Doug → use the validation environment",
+    "helpfulContext": "The validation-reset endpoint only runs against the validation Supabase project as a safety fence so it can never be triggered against a production or staging database. If you're seeing this, either the environment variable pointing at the Supabase project is wrong, or the request reached the wrong deployment. Use the validation environment URL to trigger a reset.",
+  },
+  "VALIDATION_RESET_NOT_ENABLED": {
+    "crewFacing": null,
+    "dougFacing": "Destructive reset isn't enabled for this database yet.",
+    "followUp": "Eric → enable the reset flag",
+    "helpfulContext": "The validation-reset endpoint reached the correct project but the destructive-reset flag is turned off, which prevents any data from being wiped. The developer needs to enable the flag for this project before resets are allowed. Once enabled, the endpoint will proceed normally.",
+  },
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
     "dougFacing": "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",

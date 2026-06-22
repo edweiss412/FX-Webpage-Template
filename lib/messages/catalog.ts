@@ -2791,6 +2791,55 @@ export const MESSAGE_CATALOG = {
       "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers, usually because a stale subscription is still firing or someone is probing the endpoint. The developer has been notified.",
     helpHref: "/help/errors#WEBHOOK_HEADERS_MISSING",
   },
+  // Validation-environment reset / reseed — admin-only routes, crew-invisible.
+  VALIDATION_RESET_NOT_ALLOWED: {
+    code: "VALIDATION_RESET_NOT_ALLOWED",
+    dougFacing: "Data reset is only available on the validation environment.",
+    crewFacing: null,
+    followUp: "Doug → use the validation environment",
+    helpfulContext:
+      "The validation-reset endpoint only runs against the validation Supabase project as a safety fence so it can never be triggered against a production or staging database. If you're seeing this, either the environment variable pointing at the Supabase project is wrong, or the request reached the wrong deployment. Use the validation environment URL to trigger a reset.",
+    title: "Reset only on validation",
+    longExplanation:
+      "The validation-reset endpoint only runs against the validation Supabase project as a safety fence so it can never be triggered against a production or staging database. Use the validation environment URL to trigger a reset.",
+    helpHref: "/help/errors#VALIDATION_RESET_NOT_ALLOWED",
+  },
+  VALIDATION_RESET_NOT_ENABLED: {
+    code: "VALIDATION_RESET_NOT_ENABLED",
+    dougFacing: "Destructive reset isn't enabled for this database yet.",
+    crewFacing: null,
+    followUp: "Eric → enable the reset flag",
+    helpfulContext:
+      "The validation-reset endpoint reached the correct project but the destructive-reset flag is turned off, which prevents any data from being wiped. The developer needs to enable the flag for this project before resets are allowed. Once enabled, the endpoint will proceed normally.",
+    title: "Reset flag not enabled",
+    longExplanation:
+      "The validation-reset endpoint reached the correct project but the destructive-reset flag is turned off. The developer needs to enable the flag for this project before resets are allowed.",
+    helpHref: "/help/errors#VALIDATION_RESET_NOT_ENABLED",
+  },
+  VALIDATION_RESET_FAILED: {
+    code: "VALIDATION_RESET_FAILED",
+    dougFacing: "The validation reset couldn't finish. Please try again.",
+    crewFacing: null,
+    followUp: "Doug → retry; if persistent, Eric",
+    helpfulContext:
+      "The validation-reset endpoint started the DB truncate and repopulate sequence but hit an unexpected database or infrastructure fault partway through. The database may be in a partially reset state. Running the reset again is safe — the sequence is designed to be idempotent. If it keeps failing, the developer needs to investigate the underlying database error.",
+    title: "Validation reset failed",
+    longExplanation:
+      "The validation-reset endpoint hit an unexpected fault partway through the DB truncate and repopulate sequence. Running the reset again is safe. If it keeps failing, the developer needs to investigate.",
+    helpHref: "/help/errors#VALIDATION_RESET_FAILED",
+  },
+  VALIDATION_RESEED_FAILED: {
+    code: "VALIDATION_RESEED_FAILED",
+    dougFacing: "Reseeding the validation fixtures couldn't finish. Please try again.",
+    crewFacing: null,
+    followUp: "Doug → retry; if persistent, Eric",
+    helpfulContext:
+      "The validation-reseed endpoint started inserting fixture rows but hit an unexpected database or infrastructure fault partway through. The fixture data may be partially written. Running the reseed again is safe. If it keeps failing, the developer needs to investigate the underlying database error.",
+    title: "Validation reseed failed",
+    longExplanation:
+      "The validation-reseed endpoint hit an unexpected fault partway through the fixture-insert sequence. Running the reseed again is safe. If it keeps failing, the developer needs to investigate.",
+    helpHref: "/help/errors#VALIDATION_RESEED_FAILED",
+  },
 } as const satisfies Record<string, MessageCatalogEntry>;
 
 export type MessageCode = keyof typeof MESSAGE_CATALOG;
