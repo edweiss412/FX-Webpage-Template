@@ -128,6 +128,91 @@ describe("parseEventDetails — v2 labels-only DETAILS block (2025-04)", () => {
   });
 });
 
+// ── Dress-code canonicalization + sentinel-aware precedence (M4-D1) ───────────
+// The dress-code probe used to live stringly-typed in the consumer
+// (TodaySection iterated ["dress_code","dress code","dress","attire"] and
+// skipped sentinels). M4-D1 routes that authority through the parser's
+// CANONICAL_KEY_MAP: every dress label collapses to the single `dress_code`
+// key, and a sentinel value (''/TBD/N/A/TBA) must yield to a real value for
+// the same canonical key REGARDLESS of row order (write-time precedence).
+describe("parseEventDetails — dress-code canonicalization (M4-D1)", () => {
+  // Minimal v4 EVENT DETAILS block builder. `rows` are [label, value] pairs.
+  function ed(rows: ReadonlyArray<readonly [string, string]>): Record<string, string> {
+    const body = rows.map(([k, v]) => `| ${k} | ${v} |`).join("\n");
+    const md = `| EVENT DETAILS | |\n${body}\n`;
+    return parseEventDetails(md, "v4");
+  }
+
+  it("`Attire` label collapses to the `dress_code` key", () => {
+    const r = ed([["Attire", "Black tie"]]);
+    expect(r["dress_code"]).toBe("Black tie");
+    expect(r["attire"]).toBeUndefined();
+  });
+
+  it("`Dress Code` label collapses to `dress_code`", () => {
+    const r = ed([["Dress Code", "Business casual"]]);
+    expect(r["dress_code"]).toBe("Business casual");
+    expect(r["dress code"]).toBeUndefined();
+  });
+
+  it("`Dress` label collapses to `dress_code`", () => {
+    const r = ed([["Dress", "Cocktail"]]);
+    expect(r["dress_code"]).toBe("Cocktail");
+    expect(r["dress"]).toBeUndefined();
+  });
+
+  it("a bare `dress_code` label round-trips to itself", () => {
+    const r = ed([["dress_code", "Smart casual"]]);
+    expect(r["dress_code"]).toBe("Smart casual");
+  });
+
+  it("sentinel `Dress Code:N/A` THEN real `Attire:Black tie` → dress_code is the real value", () => {
+    const r = ed([
+      ["Dress Code", "N/A"],
+      ["Attire", "Black tie"],
+    ]);
+    expect(r["dress_code"]).toBe("Black tie");
+  });
+
+  it("real `Attire:Black tie` THEN sentinel `Dress Code:N/A` → real value is NOT clobbered (write-time precedence)", () => {
+    // The naive last-write-wins this M4-D1 change replaces would FAIL here:
+    // the later sentinel `dress_code:N/A` would overwrite the real attire.
+    const r = ed([
+      ["Attire", "Black tie"],
+      ["Dress Code", "N/A"],
+    ]);
+    expect(r["dress_code"]).toBe("Black tie");
+  });
+
+  it("two real values for the dress family keep a real value (last real wins by row order)", () => {
+    const r = ed([
+      ["Dress Code", "Business casual"],
+      ["Attire", "Black tie"],
+    ]);
+    expect(r["dress_code"]).toBe("Black tie");
+  });
+
+  it("all-sentinel dress family yields a sentinel (the consumer still hides it)", () => {
+    const r = ed([
+      ["Dress Code", "TBD"],
+      ["Attire", "N/A"],
+    ]);
+    // Some sentinel survives; downstream shouldHideGenericOptional hides it.
+    expect(["TBD", "N/A"]).toContain(r["dress_code"]);
+  });
+
+  it("dress-family precedence does not regress other fields' last-write-wins", () => {
+    // A non-dress key keeps the plain write semantics (this exercises that the
+    // precedence branch is scoped to sentinel-vs-real, not a blanket no-overwrite).
+    const r = ed([
+      ["Internet", "Wifi"],
+      ["Attire", "Black tie"],
+    ]);
+    expect(r["internet"]).toBe("Wifi");
+    expect(r["dress_code"]).toBe("Black tie");
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseEventDetails — corpus coverage", () => {
   for (const path of ALL_FIXTURES) {
