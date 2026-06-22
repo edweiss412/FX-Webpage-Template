@@ -161,6 +161,7 @@ Uppercase eyebrow labels (`text-xs uppercase` + meta-label voice) use one of two
 | `--tracking-eyebrow`        | 0.12em  | Standard eyebrow voice — KeyValue dt, Section heading eyebrow, tile field labels (Schedule day labels, Contacts kind, etc.), admin StagedReviewCard source kicker.                                                                               |
 | `--tracking-eyebrow-strong` | 0.18em  | Emphasis eyebrow — Right Now card "RIGHT NOW" tag, Footer FXAV wordmark, Header crew tag.                                                                                                                                                        |
 | `--tracking-page-title`     | -0.02em | Admin page-title (`AdminPageHeader` h1) — matches the admin design bundle's `.page-title` letter-spacing (M12.8). Distinct from Tailwind's `tracking-tight` (-0.025em); named here because the meta-test bans the inline arbitrary bracket form. |
+| `--tracking-daynum`         | -0.03em | Schedule `DayCard` day-number badge (`.dnum`, a large extrabold display number, not an eyebrow). Preserves the exact value the badge has always used; named here (not an inline `tracking-[-0.03em]`) because the meta-test bans the arbitrary bracket form. |
 
 The consolidation absorbed four prior inline values (0.12 / 0.14 / 0.18 / 0.22em) into two semantic tokens. `tests/styles/eyebrow-tracking.test.ts` enforces the contract — adding a new arbitrary square-bracket tracking value to any source file under `components/` or `app/` (ts/tsx/js/jsx/css) fails the build. If a future surface genuinely needs a different tracking value, declare it as a named token in `app/globals.css` `@theme` and add a row to the table above before using it. Non-arbitrary Tailwind defaults (`tracking-wide`, `tracking-tight`, etc.) are not in scope for this meta-test — they're used elsewhere for non-eyebrow surfaces (display headings use `tracking-tight`); the meta-test specifically targets the bracket-form arbitrary leak class that R1 reviewer caught.
 
@@ -268,6 +269,8 @@ Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--b
 Without both, tiles collapse to their intrinsic content height and the spec §8.4 dimensional invariant fails.
 
 This gotcha is the single most common failure mode on this project's UI work — see `memory/feedback_tailwind_v4_flex_items_stretch.md`. Every tile component's spec must call out the parent → child stretch relationship explicitly, and the M4 layout-dimensions Playwright task (the in-browser `getBoundingClientRect()` assertion) verifies it. jsdom is NOT sufficient — it doesn't compute real layout.
+
+> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue, Travel, and Today Mode A) are the one place this project deliberately does NOT use equal-height: they use `min-[720px]:items-start` so the shorter column (e.g. the ~3-row "Daily call times", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid, the CrewSubNav tab bar, and the admin Dashboard split all keep `items-stretch` + `h-full`.
 
 ---
 

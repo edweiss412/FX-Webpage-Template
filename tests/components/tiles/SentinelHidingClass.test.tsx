@@ -202,29 +202,30 @@ describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
     expect(html(c)).not.toContain("N/A");
   });
 
-  test("cross-key fallback skips a sentinel earlier key and surfaces the real later key (M4 pickDressCode parity)", () => {
-    // M4 ShowStatusTile.pickDressCode (components/tiles/ShowStatusTile.tsx:66-77)
-    // probed candidate keys [dress_code, "dress code", dress, attire] IN ORDER
-    // and SKIPPED any whose value was a sentinel, so `dress_code:"N/A"` +
-    // `attire:"Black tie"` rendered "Black tie". TodaySection now ports that
-    // iterate-and-skip-sentinels logic verbatim (it previously used a plain `??`
-    // chain that stopped at the first non-null key and dropped the real value —
-    // a regression caught by the tile-test retarget and fixed in TodaySection.tsx).
+  test("canonical dress_code (post-parser collapse) renders; the consumer reads ONE key (M4-D1)", () => {
+    // M4-D1 moved the cross-key probe OUT of the consumer and INTO the parser.
+    // The attire/dress/dress-code label family now collapses to the single
+    // `dress_code` key at parse time, with sentinel-aware precedence so a real
+    // value wins over a sentinel regardless of sheet row order. That collapse
+    // (including the `dress_code:"N/A"` + `attire:"Black tie"` → "Black tie"
+    // case in both orders) is pinned by the parser test:
+    //   tests/parser/blocks/event.test.ts → "dress-code canonicalization (M4-D1)".
+    // TodaySection now reads `event_details.dress_code` only, so this component
+    // test exercises the POST-parser shape: a single canonical `dress_code`
+    // holding the resolved real value renders, and the value-level sentinel
+    // guard still applies (covered by the single-key sentinel test above).
     const c = render(
       <TodaySection
         data={makeShowForViewer({
-          show: { event_details: { dress_code: "N/A", attire: "Black tie" } },
+          show: { event_details: { dress_code: "Black tie" } },
         })}
         viewer={ADMIN}
         today={TODAY}
         showId={SHOW_ID}
       />,
     ).container;
-    // The sentinel dress_code is skipped; the real attire surfaces.
     expect(c.querySelector('[data-testid="today-dress"]')).toBeTruthy();
     expect(c.textContent ?? "").toContain("Black tie");
-    // The sentinel itself never leaks.
-    expect(html(c)).not.toContain("N/A");
   });
 });
 

@@ -36,6 +36,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 type PerRowFailure = {
   drive_file_id: string;
@@ -199,19 +200,21 @@ export function FinalizeButton({
 
   return (
     <div className="flex flex-col gap-3" data-testid="wizard-finalize">
-      <button
-        type="button"
+      <AccentButton
         data-testid="wizard-finalize-button"
         onClick={runLoop}
         disabled={buttonDisabled}
-        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        size="lg"
+        inline
+        selfStart
+        shadow
       >
         {isRunning
           ? state.phase === "cas"
             ? "Publishing…"
             : `Publishing batch ${state.batchIndex}…`
           : "Finish setup and publish"}
-      </button>
+      </AccentButton>
 
       {state.kind === "race_row" ? (
         <div

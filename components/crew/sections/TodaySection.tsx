@@ -14,8 +14,10 @@
  *   - Where card — the show venue (name + address + dock + notes-free meta).
  *   - Need-something card — the deterministic actionable primary contact via
  *     `selectPrimaryContact(contacts)` (omitted when no actionable contact).
- *   - Dress code line — `event_details.{dress_code|dress|attire}`, gated by
- *     `shouldHideGenericOptional` so sentinels reflow out.
+ *   - Dress code line — the canonical `event_details.dress_code` key (the
+ *     attire/dress/dress-code label family is collapsed to it at parse time;
+ *     see lib/parser/blocks/event.ts CANONICAL_KEY_MAP, M4-D1), gated by
+ *     `shouldHideGenericOptional` so a sentinel value reflows out.
  *   - Show notes — the 5-source aggregation venue → hotel → room → transport →
  *     contact (`SOURCE_CAP` / `TRUNCATE_AT` ported from NotesTile). The
  *     transport note is gated on `transportTileVisible` so a non-assigned crew
@@ -212,14 +214,24 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const anchors = resolveKeyTimes(data.show, data.rooms);
 
           const firstHotel = data.hotelReservations[0] ?? null;
+          // Tonight uses the 2-up grid (columns={2} on the card below): the Hotel
+          // headline spans both columns (`span: 2`) so the name sits full width
+          // above Check in | Check out, which pair into the grid's two columns
+          // and fill the card instead of leaving a tall empty right side. Below
+          // 720px the grid collapses to the single stacked column.
           const tonightRows: KeyValueRow[] = firstHotel
             ? [
-                { k: "Hotel", v: firstHotel.hotel_name ?? "" },
+                { k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 },
                 { k: "Check in", v: firstHotel.check_in ?? "" },
                 { k: "Check out", v: firstHotel.check_out ?? "" },
               ]
             : [];
 
+          // Where stays single-column: Venue + Address are inherently full-width
+          // prose and Loading dock is the lone short field, so a 2-up grid would
+          // only strand Loading dock half-width with a wrapped eyebrow and dead
+          // space beside it (re-introducing the gap this change removes). Nothing
+          // pairs here, so densification doesn't apply to this card.
           const venue = data.show.venue;
           const whereRows: KeyValueRow[] = venue
             ? [
@@ -233,23 +245,18 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
           const primaryContact = selectPrimaryContact(data.contacts);
 
-          // Dress code — first NON-SENTINEL of the candidate keys (ported verbatim
-          // from ShowStatusTile.pickDressCode, ShowStatusTile.tsx:66-77). A plain
-          // `??` chain is WRONG: a sentinel `dress_code:"N/A"` is non-null, so `??`
-          // would stop there and the real `attire:"Black tie"` would be dropped.
-          // Iterate candidates (case-insensitive, incl. the spaced "dress code"
-          // variant) and skip sentinels so a meaningful later key still surfaces.
-          const dressLower = new Map(
-            Object.entries(data.show.event_details).map(([k, v]) => [k.toLowerCase(), v]),
-          );
-          let dressRaw: string | null = null;
-          for (const key of ["dress_code", "dress code", "dress", "attire"]) {
-            const v = dressLower.get(key);
-            if (typeof v === "string" && !shouldHideGenericOptional(v)) {
-              dressRaw = v;
-              break;
-            }
-          }
+          // Dress code — read the single canonical `dress_code` key. The parser
+          // (lib/parser/blocks/event.ts CANONICAL_KEY_MAP) is now the sole
+          // dress-key authority: the "attire" / "dress" / "dress code" label
+          // variants all collapse to `dress_code` at parse time, with
+          // sentinel-aware precedence so a real value wins over a sentinel
+          // regardless of sheet row order (M4-D1). The cross-key probe that used
+          // to live here is gone. The VALUE-level sentinel guard stays: a
+          // canonical `dress_code:"N/A"` must still reflow the block out. No
+          // read-side legacy-key fallback — no live prod data exists yet and a
+          // re-sync re-canonicalizes any non-canonical persisted key.
+          const dressValue = data.show.event_details.dress_code ?? null;
+          const dressRaw = shouldHideGenericOptional(dressValue) ? null : dressValue;
           const showDress = dressRaw !== null;
 
           // 5-source notes — transport source gated on transportTileVisible (the gate
@@ -320,7 +327,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                           </span>
                         }
                       >
-                        <KeyValueRows rows={tonightRows} />
+                        <KeyValueRows rows={tonightRows} columns={2} />
                       </SectionCard>
                     </div>
                   </div>
@@ -404,7 +411,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                   />
                 }
               >
-                <KeyTimesStrip anchors={anchors} />
+                <KeyTimesStrip anchors={anchors} layout="row" />
               </SectionCard>
             </div>
           ) : null;
@@ -480,10 +487,10 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           //
           //  • Mode A (run-of-show present): the bare KeyTimesStrip ABOVE, then
           //    the split-wide grid — run-of-show timeline LEFT (1.6fr) + the
-          //    quick-cards stack RIGHT (1fr), equal-height (items-stretch) — then
-          //    the day-context cards (dress + notes) full-width below. Unchanged
-          //    from the ratified §5 fork apart from the card chrome (icon +
-          //    "Full agenda" chip on the run-of-show card).
+          //    quick-cards stack RIGHT (1fr), `items-start` (the short quick-cards
+          //    stack takes its natural height rather than stretching to the tall
+          //    run-of-show timeline; 2026-06-21 owner amendment) — then the
+          //    day-context cards (dress + notes) full-width below.
           //  • Mode B (NO run-of-show: wrapped / off-day / travel / countdown /
           //    date-restricted): the PERSISTENT split-wide grid — day-context
           //    cards (Key times + dress + notes) LEFT (1.6fr) + the quick-cards
@@ -510,10 +517,14 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
               {modeA ? (
                 <>
+                  {/* Bare, full-page-width banner: keep the vertical stack. The
+                      "row" posture is reserved for the CARDED Key times in the
+                      bounded 1.6fr column; a full-width row strip would spread 2
+                      anchors 50/50 across the page with a mid-page divider. */}
                   <KeyTimesStrip anchors={anchors} />
                   <div
                     data-testid="today-mode-a-grid"
-                    className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-stretch"
+                    className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                   >
                     <div data-testid="today-run-of-show" data-card-id="today-run-of-show" className="min-w-0">
                       <SectionCard

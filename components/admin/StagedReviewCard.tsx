@@ -59,6 +59,7 @@ import type { MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasisOr } from "@/components/messages/renderEmphasis";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 function safeDougFacing(code: string): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
@@ -624,16 +625,17 @@ export function StagedReviewCard({
       {!readOnly && (
         <div className="mt-6 flex flex-wrap gap-2">
           {!reviewItemsCorrupt && (
-            <button
-              type="button"
+            <AccentButton
               onClick={handleApply}
               disabled={pending}
               data-testid="staged-review-apply"
               aria-busy={pending}
-              className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+              fontWeight="medium"
+              minWidthTap
+              ringOffset="surface-raised"
             >
               Apply
-            </button>
+            </AccentButton>
           )}
           <button
             type="button"

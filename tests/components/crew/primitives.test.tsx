@@ -94,6 +94,36 @@ describe("<KeyValueRows>", () => {
     ).length;
     expect(container.querySelectorAll("dt").length).toBe(presentCount);
   });
+
+  test("default (no columns prop) → single-column flex stack, data-columns=1, no grid/col-span", () => {
+    const { getByTestId } = render(<KeyValueRows rows={rows} />);
+    const dl = getByTestId("key-value-rows");
+    expect(dl.getAttribute("data-columns")).toBe("1");
+    expect(dl.className).toContain("flex-col");
+    expect(dl.className).not.toContain("grid-cols-2");
+    expect(dl.innerHTML).not.toContain("col-span-2");
+  });
+
+  test("columns={2} → 2-up grid at >=720px (data-columns=2); a span:2 row spans both columns", () => {
+    const gridRows = [
+      { k: "Hotel", v: "Four Seasons", span: 2 as const },
+      { k: "Check in", v: "2026-06-13" },
+      { k: "Check out", v: "2026-06-15" },
+    ];
+    const { getByTestId } = render(<KeyValueRows rows={gridRows} columns={2} />);
+    const dl = getByTestId("key-value-rows");
+    expect(dl.getAttribute("data-columns")).toBe("2");
+    // grid (not the default flex stack), gated to the crew >=720px breakpoint so
+    // mobile keeps the single stacked column.
+    expect(dl.className).toContain("min-[720px]:grid-cols-2");
+    expect(dl.className).not.toContain("flex-col");
+    // The span:2 row (Hotel headline) opts into full width; the short date rows do not.
+    const dts = Array.from(dl.querySelectorAll("dt"));
+    const hotelWrapper = dts.find((dt) => dt.textContent === "Hotel")!.parentElement!;
+    const checkInWrapper = dts.find((dt) => dt.textContent === "Check in")!.parentElement!;
+    expect(hotelWrapper.className).toContain("min-[720px]:col-span-2");
+    expect(checkInWrapper.className).not.toContain("col-span-2");
+  });
 });
 
 describe("<DayCard> — horizontal date badge", () => {
@@ -195,5 +225,36 @@ describe("<KeyTimesStrip>", () => {
     expect(strip.querySelector('[data-anchor="set"]')).not.toBeNull();
     expect(strip.querySelector('[data-anchor="show"]')).not.toBeNull();
     expect(strip.querySelector('[data-anchor="strike"]')).not.toBeNull();
+  });
+
+  test('default layout → vertical stack (data-layout="stack"), no horizontal row classes', () => {
+    const anchors: KeyTimeAnchors = { set: "9:00 AM", show: "7:00 PM", strike: "11:00 PM" };
+    const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
+    const strip = getByTestId("key-times-strip");
+    expect(strip.getAttribute("data-layout")).toBe("stack");
+    expect(strip.className).toContain("flex-col");
+    expect(strip.className).not.toContain("flex-row");
+  });
+
+  test('layout="row" → horizontal N-across strip at >=720px (data-layout="row"); anchors + span order preserved', () => {
+    const anchors: KeyTimeAnchors = { set: "9:00 AM", show: "7:00 PM", strike: "11:00 PM" };
+    const { getByTestId } = render(<KeyTimesStrip anchors={anchors} layout="row" />);
+    const strip = getByTestId("key-times-strip");
+    expect(strip.getAttribute("data-layout")).toBe("row");
+    expect(strip.className).toContain("min-[720px]:flex-row");
+    expect(strip.className).toContain("min-[720px]:divide-x");
+    // All three anchors still render; each row keeps label-span-first / value-span-last
+    // (the e2e inv6 alignment contract reads span.first() / span.last()).
+    expect(strip.querySelectorAll("[data-anchor]").length).toBe(3);
+    const setRow = strip.querySelector('[data-anchor="set"]')!;
+    const spans = setRow.querySelectorAll("span");
+    expect(spans.length).toBe(2);
+    expect(spans[0]!.textContent).toBe("Set");
+    expect(spans[1]!.textContent).toBe(anchors.set);
+  });
+
+  test('layout="row" with all anchors absent → still renders nothing', () => {
+    const { container } = render(<KeyTimesStrip anchors={{}} layout="row" />);
+    expect(container.firstChild).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 type Props = { pendingIngestionId: string };
 
@@ -59,15 +60,16 @@ export function PendingPanelRetryButton({ pendingIngestionId }: Props) {
 
   return (
     <div className="flex flex-col gap-2">
-      <button
-        type="button"
+      <AccentButton
         data-testid={`admin-pending-retry-${pendingIngestionId}`}
         onClick={handleClick}
         disabled={state.kind === "running"}
-        className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        size="sm"
+        inline
+        shadow
       >
         {state.kind === "running" ? "Retrying…" : "Retry now"}
-      </button>
+      </AccentButton>
       {state.kind === "error" ? (
         <div
           role="alert"

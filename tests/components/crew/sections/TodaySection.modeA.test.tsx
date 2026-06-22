@@ -163,7 +163,9 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
   const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
   expect(grid).toBeTruthy();
   expect(grid!.className).toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
-  expect(grid!.className).toContain("min-[720px]:items-stretch");
+  // items-start (2026-06-21 owner amendment): the short quick-cards column takes
+  // its natural height rather than stretching to the tall run-of-show timeline.
+  expect(grid!.className).toContain("min-[720px]:items-start");
   // The quick-cards (RIGHT column) still render.
   expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-tonight"]')).toBeTruthy();
