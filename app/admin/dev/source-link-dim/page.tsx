@@ -40,6 +40,7 @@ import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { FactRows } from "@/components/crew/primitives/FactRows";
 import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 import type { ReactNode } from "react";
 
 // Never cache — the fixture is static, but force-dynamic keeps the harness
@@ -78,7 +79,10 @@ function MeasuredBody(): ReactNode {
   );
 }
 
-export default function SourceLinkDimPage() {
+export default async function SourceLinkDimPage() {
+  // Same chokepoint as /admin/dev (app/admin/dev/page.tsx) so the trust-domain
+  // auth-chain audit classifies this harness route identically (chain: requireAdmin).
+  await requireAdmin();
   return (
     <main className="mx-auto flex max-w-md flex-col gap-6 p-6" data-testid="source-link-dim-harness">
       <h1 className="text-sm font-semibold">source-link dimensional-invariant harness</h1>
