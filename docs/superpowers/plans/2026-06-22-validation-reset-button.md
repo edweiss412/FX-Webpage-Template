@@ -344,8 +344,9 @@ git commit -m "feat(validation): split mintFixtureCombos (mint-only) + finalizeF
   - `VALIDATION_RESET_FAILED` — dougFacing: "The validation reset couldn't finish. Please try again."
   - `VALIDATION_RESEED_FAILED` — dougFacing: "Reseeding the validation fixtures couldn't finish. Please try again."
   (These are crew-invisible admin codes; set `crewFacing` per the catalog convention for admin-only codes — copy a sibling admin code's posture.)
-- [ ] **Step 3:** `pnpm gen:spec-codes`; add the matching 4 rows to `lib/messages/catalog.ts` (same commit).
-- [ ] **Step 4:** Run `pnpm test:audit:x1-catalog-parity` → PASS. Run `pnpm gen:internal-code-enums` + `pnpm test:audit:x2-no-raw-codes` if the codes need the internal-enum (check whether admin codes are in the x2 set; align with the sibling code).
+- [ ] **Step 2b: Run the x1 gate RED (TDD invariant 1 — failing check before the generated/runtime layers exist):** with ONLY the §12.4 prose rows added (Step 2), run `pnpm test:audit:x1-catalog-parity`. Expected: FAIL — the parity gate reports the 4 new codes present in §12.4 prose but missing from `lib/messages/__generated__/spec-codes.ts` and `lib/messages/catalog.ts`. This proves the gate actually guards the lockstep.
+- [ ] **Step 3:** `pnpm gen:spec-codes` (regenerates `spec-codes.ts` from §12.4); add the matching 4 rows to `lib/messages/catalog.ts` (same commit).
+- [ ] **Step 4:** Re-run `pnpm test:audit:x1-catalog-parity` → now PASS (all three layers aligned). Run `pnpm gen:internal-code-enums` + `pnpm test:audit:x2-no-raw-codes` if the codes need the internal-enum (check whether admin codes are in the x2 set; align with the sibling code).
 - [ ] **Step 5: Commit** (all three layers together):
 
 ```bash
