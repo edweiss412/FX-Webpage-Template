@@ -10,7 +10,9 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("projectRefFromUrl (strict host boundary)", () => {
   it("parses the bare validation host", () => {
-    expect(projectRefFromUrl("https://vzakgrxqwcalbmagufjh.supabase.co")).toBe("vzakgrxqwcalbmagufjh");
+    expect(projectRefFromUrl("https://vzakgrxqwcalbmagufjh.supabase.co")).toBe(
+      "vzakgrxqwcalbmagufjh",
+    );
   });
   it("allows an optional port", () => {
     expect(projectRefFromUrl("http://abc123.supabase.co:54321")).toBe("abc123");

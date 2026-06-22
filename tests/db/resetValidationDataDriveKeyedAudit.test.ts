@@ -89,7 +89,8 @@ function resetRpcBody(): string {
   const m = source.match(
     /create\s+(?:or\s+replace\s+)?function\s+public\.reset_validation_data\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/i,
   );
-  if (!m || !m[1]) throw new Error(`could not extract reset_validation_data body from ${MIGRATION}`);
+  if (!m || !m[1])
+    throw new Error(`could not extract reset_validation_data body from ${MIGRATION}`);
   return m[1];
 }
 

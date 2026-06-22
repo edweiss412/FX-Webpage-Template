@@ -137,15 +137,13 @@ describe("resetValidationDataAction", () => {
   test("(a) gates fail → VALIDATION_RESET_NOT_ALLOWED, zero Supabase calls", async () => {
     mockState.destructiveResetAllowed = false;
 
-    const { resetValidationDataAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { resetValidationDataAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await resetValidationDataAction();
 
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESET_NOT_ALLOWED" });
 
-    const { createSupabaseServerClient, createSupabaseServiceRoleClient } =
-      await getServerMocks();
+    const { createSupabaseServerClient, createSupabaseServiceRoleClient } = await getServerMocks();
     expect(createSupabaseServerClient).not.toHaveBeenCalled();
     expect(createSupabaseServiceRoleClient).not.toHaveBeenCalled();
   });
@@ -153,9 +151,8 @@ describe("resetValidationDataAction", () => {
   test("(b) gate-disabled RPC raise → VALIDATION_RESET_NOT_ENABLED", async () => {
     mockState.rpcError = { message: "destructive reset not enabled" };
 
-    const { resetValidationDataAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { resetValidationDataAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await resetValidationDataAction();
 
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESET_NOT_ENABLED" });
@@ -164,9 +161,8 @@ describe("resetValidationDataAction", () => {
   test("(b) other RPC error → VALIDATION_RESET_FAILED", async () => {
     mockState.rpcError = { message: "connection refused" };
 
-    const { resetValidationDataAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { resetValidationDataAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await resetValidationDataAction();
 
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESET_FAILED" });
@@ -175,9 +171,8 @@ describe("resetValidationDataAction", () => {
   test("(d) success → returns { ok:true, count:N } and revalidatePath called", async () => {
     mockState.rpcData = { clearedShows: 7 };
 
-    const { resetValidationDataAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { resetValidationDataAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await resetValidationDataAction();
 
     expect(result).toEqual({ ok: true, count: 7 });
@@ -192,9 +187,8 @@ describe("resetValidationDataAction", () => {
 
     mockState.rpcData = { clearedShows: 0 };
 
-    const { resetValidationDataAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { resetValidationDataAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     await resetValidationDataAction();
 
     const requireAdminMock = vi.mocked(requireAdmin);
@@ -210,15 +204,13 @@ describe("reseedValidationFixturesAction", () => {
   test("(a) gates fail → VALIDATION_RESET_NOT_ALLOWED, zero Supabase calls", async () => {
     mockState.destructiveResetAllowed = false;
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await reseedValidationFixturesAction();
 
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESET_NOT_ALLOWED" });
 
-    const { createSupabaseServerClient, createSupabaseServiceRoleClient } =
-      await getServerMocks();
+    const { createSupabaseServerClient, createSupabaseServiceRoleClient } = await getServerMocks();
     expect(createSupabaseServerClient).not.toHaveBeenCalled();
     expect(createSupabaseServiceRoleClient).not.toHaveBeenCalled();
   });
@@ -226,9 +218,8 @@ describe("reseedValidationFixturesAction", () => {
   test("(b) gate-disabled RPC raise → VALIDATION_RESET_NOT_ENABLED, no service-role client", async () => {
     mockState.rpcError = { message: "destructive reset not enabled" };
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await reseedValidationFixturesAction();
 
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESET_NOT_ENABLED" });
@@ -240,9 +231,8 @@ describe("reseedValidationFixturesAction", () => {
   test("(b) other assert RPC error → VALIDATION_RESEED_FAILED, no service-role client", async () => {
     mockState.rpcError = { message: "permission denied" };
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await reseedValidationFixturesAction();
 
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESEED_FAILED" });
@@ -251,40 +241,35 @@ describe("reseedValidationFixturesAction", () => {
     expect(createSupabaseServiceRoleClient).not.toHaveBeenCalled();
   });
 
-  test(
-    "(c) SUCCESS-PATH — mintFixtureCombos called THEN finalizeFixtures, each exactly once, in order",
-    async () => {
-      // assert_destructive_reset_enabled returns null data (no output) on success
-      mockState.rpcData = null;
+  test("(c) SUCCESS-PATH — mintFixtureCombos called THEN finalizeFixtures, each exactly once, in order", async () => {
+    // assert_destructive_reset_enabled returns null data (no output) on success
+    mockState.rpcData = null;
 
-      mintSpy.mockImplementation(async () => ({ minted: 1 }));
-      finalizeSpy.mockImplementation(async () => {});
+    mintSpy.mockImplementation(async () => ({ minted: 1 }));
+    finalizeSpy.mockImplementation(async () => {});
 
-      const { reseedValidationFixturesAction } = await import(
-        "@/app/admin/settings/_actions/validationReset"
-      );
-      const result = await reseedValidationFixturesAction();
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
+    const result = await reseedValidationFixturesAction();
 
-      expect(result).toMatchObject({ ok: true });
+    expect(result).toMatchObject({ ok: true });
 
-      expect(mintSpy).toHaveBeenCalledTimes(1);
-      expect(finalizeSpy).toHaveBeenCalledTimes(1);
+    expect(mintSpy).toHaveBeenCalledTimes(1);
+    expect(finalizeSpy).toHaveBeenCalledTimes(1);
 
-      // P2-F1: mint must precede finalize (a mint-but-no-finalize implementation fails here)
-      const mintOrder = mintSpy.mock.invocationCallOrder[0]!;
-      const finalizeOrder = finalizeSpy.mock.invocationCallOrder[0]!;
-      expect(mintOrder).toBeLessThan(finalizeOrder);
-    },
-  );
+    // P2-F1: mint must precede finalize (a mint-but-no-finalize implementation fails here)
+    const mintOrder = mintSpy.mock.invocationCallOrder[0]!;
+    const finalizeOrder = finalizeSpy.mock.invocationCallOrder[0]!;
+    expect(mintOrder).toBeLessThan(finalizeOrder);
+  });
 
   test("(c) SUCCESS-PATH — service-role client is constructed AFTER assert passes", async () => {
     mockState.rpcData = null;
 
     const { createSupabaseServiceRoleClient } = await getServerMocks();
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     await reseedValidationFixturesAction();
 
     expect(createSupabaseServiceRoleClient).toHaveBeenCalledTimes(1);
@@ -294,9 +279,8 @@ describe("reseedValidationFixturesAction", () => {
     mockState.rpcData = null;
     mintSpy.mockImplementation(async () => ({ minted: 16 }));
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await reseedValidationFixturesAction();
 
     expect(result).toEqual({ ok: true, count: 16 });
@@ -305,9 +289,8 @@ describe("reseedValidationFixturesAction", () => {
   test("(c) SUCCESS-PATH — revalidatePath called for /admin and /admin/settings", async () => {
     mockState.rpcData = null;
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     await reseedValidationFixturesAction();
 
     expect(mockRevalidatePath).toHaveBeenCalledWith("/admin");
@@ -319,9 +302,8 @@ describe("reseedValidationFixturesAction", () => {
     mockState.rpcData = null;
     mintSpy.mockRejectedValue(new Error("mint RPC failed"));
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await reseedValidationFixturesAction();
 
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESEED_FAILED" });
@@ -333,9 +315,8 @@ describe("reseedValidationFixturesAction", () => {
     mintSpy.mockImplementation(async () => ({ minted: 1 }));
     finalizeSpy.mockRejectedValue(new Error("finalize RPC failed"));
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     const result = await reseedValidationFixturesAction();
 
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESEED_FAILED" });
@@ -347,9 +328,8 @@ describe("reseedValidationFixturesAction", () => {
 
     mockState.rpcData = null;
 
-    const { reseedValidationFixturesAction } = await import(
-      "@/app/admin/settings/_actions/validationReset"
-    );
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
     await reseedValidationFixturesAction();
 
     const requireAdminMock = vi.mocked(requireAdmin);

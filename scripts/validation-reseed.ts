@@ -17,12 +17,7 @@ import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
-import {
-  buildFixtures,
-  R_COMBOS,
-  SW_COMBOS,
-  type Combo,
-} from "../lib/validation/fixtures";
+import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "../lib/validation/fixtures";
 import {
   mintFixtureCombos,
   finalizeFixtures,
@@ -70,7 +65,6 @@ function requireEnv(name: string): string {
   }
   return v;
 }
-
 
 async function main(): Promise<void> {
   // Codex Phase 0.C R4 F2 — auto-load .env.local at CLI startup to mirror

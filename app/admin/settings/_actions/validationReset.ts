@@ -32,9 +32,7 @@ import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/lib/validation
 import { mintFixtureCombos, finalizeFixtures } from "@/lib/validation/reseedFixtures";
 import type { MessageCode } from "@/lib/messages/catalog";
 
-export type ValidationActionResult =
-  | { ok: true; count: number }
-  | { ok: false; code: MessageCode };
+export type ValidationActionResult = { ok: true; count: number } | { ok: false; code: MessageCode };
 
 // ---------------------------------------------------------------------------
 // resetValidationDataAction
@@ -120,7 +118,8 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
   // is passed to buildFixtures, mintFixtureCombos, and finalizeFixtures).
   // Pattern sourced from scripts/validation-reseed.ts:131.
   const validationTodayIso = new Date().toISOString().slice(0, 10);
-  const serviceClient = createSupabaseServiceRoleClient() as unknown as import("@/lib/validation/reseedFixtures").LooseSupabaseClient;
+  const serviceClient =
+    createSupabaseServiceRoleClient() as unknown as import("@/lib/validation/reseedFixtures").LooseSupabaseClient;
 
   const fixtures = buildFixtures(validationTodayIso);
   const ALL_COMBOS: Combo[] = [...R_COMBOS, ...SW_COMBOS];
