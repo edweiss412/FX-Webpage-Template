@@ -1753,7 +1753,11 @@ Steps:
     resolveOptionalField(v ?? undefined) ?? undefined;
   let meta: string | undefined;
   if (isSetDay) {
-    meta = guardMeta(setupTime != null ? `Setup ${setupTime.trim()}` : undefined);
+    // Guard the RAW setupTime FIRST, THEN prefix (plan-review R6): resolveOptionalField
+    // hides only EXACT sentinels after trim, so "Setup N/A" would NOT hide — guard the
+    // bare value ("N/A" → null), and prefix "Setup " only to a surviving real clock.
+    const t = guardMeta(setupTime);
+    meta = t != null ? `Setup ${t}` : undefined;
   } else if (sd?.window != null) {
     meta = guardMeta(formatScheduleWindow(sd.window));
   } else if (sd != null && sd.showStart != null && sd.entries.length === 0) {
