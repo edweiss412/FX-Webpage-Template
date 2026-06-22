@@ -516,3 +516,145 @@ describe("sourceAnchors persistence (Task 6)", () => {
     },
   );
 });
+
+// ── Task 6 regression: staged/manual apply MUST NOT wipe source_anchors ──────
+//
+// Bug: applyShowSnapshot UPDATE arms used `args.sourceAnchors ?? {}` as the
+// $N param. The staged/manual path never passes sourceAnchors → undefined → {}
+// → UPDATE overwrites the existing column value with {}, breaking deep-links.
+//
+// Fix: UPDATE arms use `coalesce($N::jsonb, source_anchors)` + param null (not {}).
+// INSERT arm stays as `args.sourceAnchors ?? {}` (new row has no prior value).
+
+const T6R_DRIVE_FILE_ID = "task6-regression-staged-wipe-fixture";
+const T6R_SLUG = "2026-06-task6-regression-staged-wipe";
+const T6R_MODIFIED_TIME_1 = "2026-06-21T02:00:00.000Z";
+const T6R_MODIFIED_TIME_2 = "2026-06-21T03:00:00.000Z";
+const T6R_MODIFIED_TIME_3 = "2026-06-21T04:00:00.000Z";
+
+const T6R_INITIAL_ANCHORS: Record<string, SourceAnchor> = {
+  crew: { title: "INFO", gid: 0, a1: "A1:B2" },
+};
+const T6R_REPLACEMENT_ANCHORS: Record<string, SourceAnchor> = {
+  crew: { title: "INFO", gid: 0, a1: "A1:C5" },
+  venue: { title: "INFO", gid: 0, a1: "B3" },
+};
+
+beforeEach(async () => {
+  if (!t6DbUp) return;
+  await t6Sql!
+    .unsafe("delete from public.shows where drive_file_id = $1", [T6R_DRIVE_FILE_ID])
+    .catch(() => {});
+});
+
+afterEach(async () => {
+  if (!t6DbUp) return;
+  await t6Sql!
+    .unsafe("delete from public.shows where drive_file_id = $1", [T6R_DRIVE_FILE_ID])
+    .catch(() => {});
+});
+
+describe("sourceAnchors staged-wipe regression (Task 6 regression)", () => {
+  test.skipIf(!t6DbUp)("(a) cron apply WITH sourceAnchors persists anchors", async () => {
+    // Seed existing row with default empty anchors
+    await t6Sql!.unsafe(
+      `insert into public.shows (drive_file_id, slug, title, client_label, template_version,
+           last_seen_modified_time, last_synced_at, last_sync_status, last_sync_error)
+         values ($1, $2, 'T6R Fixture Show', 'T6R Corp', 'v4', $3::timestamptz, now(), 'ok', null)`,
+      [T6R_DRIVE_FILE_ID, T6R_SLUG, T6R_MODIFIED_TIME_1],
+    );
+
+    await withPostgresSyncPipelineLock(T6R_DRIVE_FILE_ID, async (lockedTx) =>
+      lockedTx.applyShowSnapshot({
+        driveFileId: T6R_DRIVE_FILE_ID,
+        modifiedTime: T6R_MODIFIED_TIME_2,
+        staleGuard: "less_than_or_equal",
+        parseResult: T6_PARSE_RESULT,
+        slug: T6R_SLUG,
+        sourceAnchors: T6R_INITIAL_ANCHORS, // cron path: provides anchors
+      }),
+    );
+
+    const rows = (await t6Sql!.unsafe(
+      "select source_anchors from public.shows where drive_file_id = $1",
+      [T6R_DRIVE_FILE_ID],
+    )) as Array<{ source_anchors: unknown }>;
+    expect(rows[0]!.source_anchors, "cron apply should persist the anchors").toEqual(
+      T6R_INITIAL_ANCHORS,
+    );
+  });
+
+  test.skipIf(!t6DbUp)(
+    "(b) staged/manual apply WITHOUT sourceAnchors must NOT wipe existing anchors (regression)",
+    async () => {
+      // Seed row that already has source_anchors set (simulates post-cron state)
+      await t6Sql!.unsafe(
+        `insert into public.shows (drive_file_id, slug, title, client_label, template_version,
+           last_seen_modified_time, last_synced_at, last_sync_status, last_sync_error,
+           source_anchors)
+         values ($1, $2, 'T6R Fixture Show', 'T6R Corp', 'v4', $3::timestamptz, now(), 'ok', null,
+                 $4::jsonb)`,
+        [T6R_DRIVE_FILE_ID, T6R_SLUG, T6R_MODIFIED_TIME_1, T6R_INITIAL_ANCHORS],
+      );
+
+      // Staged/manual apply: sourceAnchors is undefined (not provided)
+      await withPostgresSyncPipelineLock(T6R_DRIVE_FILE_ID, async (lockedTx) =>
+        lockedTx.applyShowSnapshot({
+          driveFileId: T6R_DRIVE_FILE_ID,
+          modifiedTime: T6R_MODIFIED_TIME_2,
+          staleGuard: "less_than_or_equal",
+          parseResult: T6_PARSE_RESULT,
+          slug: T6R_SLUG,
+          // sourceAnchors intentionally omitted — simulates staged/manual apply path
+        }),
+      );
+
+      const rows = (await t6Sql!.unsafe(
+        "select source_anchors from public.shows where drive_file_id = $1",
+        [T6R_DRIVE_FILE_ID],
+      )) as Array<{ source_anchors: unknown }>;
+      // BUG (before fix): args.sourceAnchors ?? {} → UPDATE sets source_anchors = {}
+      // CORRECT (after fix): coalesce(null, source_anchors) → existing value preserved
+      expect(
+        rows[0]!.source_anchors,
+        "staged apply without sourceAnchors must preserve existing anchors, not wipe to {}",
+      ).toEqual(T6R_INITIAL_ANCHORS);
+    },
+  );
+
+  test.skipIf(!t6DbUp)(
+    "(c) cron apply WITH new sourceAnchors must overwrite existing (re-extract still works)",
+    async () => {
+      // Seed row with initial anchors
+      await t6Sql!.unsafe(
+        `insert into public.shows (drive_file_id, slug, title, client_label, template_version,
+           last_seen_modified_time, last_synced_at, last_sync_status, last_sync_error,
+           source_anchors)
+         values ($1, $2, 'T6R Fixture Show', 'T6R Corp', 'v4', $3::timestamptz, now(), 'ok', null,
+                 $4::jsonb)`,
+        [T6R_DRIVE_FILE_ID, T6R_SLUG, T6R_MODIFIED_TIME_2, T6R_INITIAL_ANCHORS],
+      );
+
+      // Cron re-extract provides different anchors → must overwrite
+      await withPostgresSyncPipelineLock(T6R_DRIVE_FILE_ID, async (lockedTx) =>
+        lockedTx.applyShowSnapshot({
+          driveFileId: T6R_DRIVE_FILE_ID,
+          modifiedTime: T6R_MODIFIED_TIME_3,
+          staleGuard: "less_than_or_equal",
+          parseResult: T6_PARSE_RESULT,
+          slug: T6R_SLUG,
+          sourceAnchors: T6R_REPLACEMENT_ANCHORS, // new extract → must overwrite
+        }),
+      );
+
+      const rows = (await t6Sql!.unsafe(
+        "select source_anchors from public.shows where drive_file_id = $1",
+        [T6R_DRIVE_FILE_ID],
+      )) as Array<{ source_anchors: unknown }>;
+      expect(
+        rows[0]!.source_anchors,
+        "cron apply with new anchors must overwrite the prior value",
+      ).toEqual(T6R_REPLACEMENT_ANCHORS);
+    },
+  );
+});
