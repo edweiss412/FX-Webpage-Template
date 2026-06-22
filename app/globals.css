@@ -136,6 +136,12 @@
      an inline arbitrary bracket value) per the no-arbitrary-tracking contract in
      tests/styles/eyebrow-tracking.test.ts + DESIGN.md §2. */
   --tracking-page-title: -0.02em;
+  /* Tight tracking for the Schedule DayCard day-number badge (`.dnum`, a large
+     extrabold display number, not an eyebrow). Named here (not an inline arbitrary
+     bracket value) per the no-arbitrary-tracking contract in
+     tests/styles/eyebrow-tracking.test.ts + DESIGN.md §2. Preserves the exact
+     -0.03em the badge has always used (avoids any screenshot-baseline drift). */
+  --tracking-daynum: -0.03em;
 
   /* ── Spacing ── */
   --spacing-tap-min: 44px;
