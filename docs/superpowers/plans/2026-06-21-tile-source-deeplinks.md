@@ -201,30 +201,60 @@ git commit --no-verify -m "feat(crew-page): buildSheetDeepLink helper with gid-0
 
 ---
 
-## Task 3: Region→labels map + `CARD_REGION_MAP` + `MIXED_SOURCE_REGISTRY` (data contract)
+## Task 3: `REGION_ANCHOR_SPEC` (per-region extraction strategy) + card/registry maps (data contract)
+
+Addresses plan-R1 findings 1 & 2: a **complete literal** spec with an explicit **extraction strategy per region** (a uniform first-cell-label scan is unsound — `contacts`/`financials` are global row-label scans, `gear_packlist`/`schedule` are whole-tab, `flights` aliases `crew`).
 
 **Files:**
-- Modify: `lib/sheet-links/buildSheetDeepLink.ts` (add the maps — they are pure data consumed by Task 4 scan, Task 9 UI, and the meta-tests)
+- Modify: `lib/sheet-links/buildSheetDeepLink.ts` (pure data consumed by Task 4 scan, Task 9 UI, meta-tests)
 - Test: `tests/sheet-links/allowlistMeta.test.ts`
 
-**Interfaces:**
-- Produces:
-  - `export const REGION_IDS = ["crew","contacts","hotels","transportation","flights","rooms","venue","financials","details","gear_packlist","schedule"] as const;`
-  - `export type RegionId = (typeof REGION_IDS)[number];`
-  - `export const REGION_LABELS: Record<RegionId, { tab: AllowedTabTitle; labels: RegExp[] }>` — the label patterns the scan matches per region, mirroring parser block constants (crew: `/^(CREW|TECH)$/i`; venue: venue.name/address/loading_dock aliases; dates: `/^DATES$/i`; hotels: `/^(HOTEL|HOTELS|Hotel Stays|Hotel Reservations)$/i`; transportation: `/^(TRANSPORTATION|Driver)$/i`; contacts: venue/in_house_av label regex; financials: `/^(COI|PO\b|PROPOSAL|INVOICE)/i`; details: `/^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)/i`; rooms: `/^(GENERAL SESSION|BREAKOUT|GS Setup|BO Setup)/i`; gear_packlist: tab PULL SHEET / GEAR; schedule: tab AGENDA; flights: shares the crew/TECH grid region).
-  - `export const CARD_REGION_MAP: Record<string /*cardId*/, RegionId>` — the spec §8.2 table.
-  - `export const MIXED_SOURCE_REGISTRY: Record<string /*cardId*/, { primary: RegionId; secondaryFields: string[] }>` — spec §8.2.1 (`venue-facilities`, `venue-status`).
-  - `export const OUT_OF_SCOPE_CARDS = ["today-rightnow","today-notes","venue-diagrams","gear-opening-reel-video"] as const;` — spec §8.3.
+**Interfaces — Produces (exact, no placeholders):**
+```ts
+export const REGION_IDS = ["crew","contacts","hotels","transportation","flights",
+  "rooms","venue","financials","details","gear_packlist","schedule"] as const;
+export type RegionId = (typeof REGION_IDS)[number];
+
+// Terminator labels that bound a "header-block" region (mirror of the parser's
+// per-block TERMINATING_LABELS; lib/parser/blocks/crew.ts:29-46 et al.)
+export const BLOCK_TERMINATORS: RegExp[] = [
+  /^(CREW|TECH|VENUE|DATES|HOTEL|HOTELS|ROOMS|TRANSPORTATION|CONTACTS|SCHEDULE|PULL SHEET|DIAGRAMS|EVENT\s+DETAILS|DETAILS|DRESS|GENERAL SESSION|BREAKOUT)\b/i,
+];
+
+export type RegionAnchorSpec =
+  | { tabs: AllowedTabTitle[]; strategy: "row-label-union"; labels: RegExp[] }
+  | { tabs: AllowedTabTitle[]; strategy: "header-block"; header: RegExp; terminators: RegExp[] }
+  | { tabs: AllowedTabTitle[]; strategy: "whole-tab" }
+  | { tabs: AllowedTabTitle[]; strategy: "alias-of"; region: RegionId };
+
+export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
+  crew:           { tabs: ["INFO"], strategy: "header-block", header: /^(CREW|TECH)$/i, terminators: BLOCK_TERMINATORS },
+  flights:        { tabs: ["INFO"], strategy: "alias-of", region: "crew" }, // legacy flights live in the INFO TECH grid arrival/departure cols (spec §10)
+  contacts:       { tabs: ["INFO"], strategy: "row-label-union", labels: [/contact\s*info/i, /in\s*house\s*av/i, /^contact\b/i] },
+  hotels:         { tabs: ["INFO"], strategy: "header-block", header: /^(HOTEL|HOTELS|Hotel Stays|Hotel Reservations)$/i, terminators: BLOCK_TERMINATORS },
+  transportation: { tabs: ["INFO"], strategy: "header-block", header: /^(TRANSPORTATION|Driver)$/i, terminators: BLOCK_TERMINATORS },
+  rooms:          { tabs: ["INFO"], strategy: "row-label-union", labels: [/^GENERAL SESSION/i, /^BREAKOUT/i, /^GS (Setup|Set Time|Strike Time|Audio|Video|Scenic|Other)/i, /^BO (Setup|Set Time|Strike Time|Audio|Video|Other)/i] },
+  venue:          { tabs: ["INFO"], strategy: "row-label-union", labels: [/^VENUE$/i, /Hotel Address/i, /Loading Dock/i, /Google/i] },
+  financials:     { tabs: ["INFO"], strategy: "row-label-union", labels: [/^COI$/i, /^PO\s*#?$/i, /^Proposal$/i, /^Invoice/i] },
+  details:        { tabs: ["INFO"], strategy: "header-block", header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)/i, terminators: BLOCK_TERMINATORS },
+  gear_packlist:  { tabs: ["PULL SHEET","GEAR"], strategy: "whole-tab" },
+  schedule:       { tabs: ["AGENDA"], strategy: "whole-tab" },
+};
+
+export const CARD_REGION_MAP: Record<string, RegionId> = { /* spec §8.2, e.g. */ "crew-roster":"crew", "crew-contacts":"contacts", "travel-flight":"flights", "travel-getting-there":"transportation", "travel-hotels":"hotels", "venue-where":"venue", "venue-facilities":"venue", "venue-status":"venue", "gear-scope-audio":"rooms", "gear-scope-video":"rooms", "gear-scope-lighting":"rooms", "gear-pack-list":"gear_packlist", "gear-keynote":"details", "gear-opening-reel":"details", "schedule-days":"schedule", "schedule-call-times":"rooms", "budget-main":"financials", "today-tonight":"hotels", "today-where":"venue", "today-contact":"contacts", "today-key-times":"rooms", "today-dress":"details", "today-run-of-show":"schedule" };
+export const MIXED_SOURCE_REGISTRY: Record<string, { primary: RegionId; secondaryFields: string[] }> = { "venue-facilities": { primary: "venue", secondaryFields: ["transportation.parking","event_details.internet","event_details.power"] }, "venue-status": { primary: "venue", secondaryFields: ["coi_status"] } };
+export const OUT_OF_SCOPE_CARDS = ["today-rightnow","today-notes","venue-diagrams","gear-opening-reel-video"] as const;
+```
 
 - [ ] **Step 1: Write the failing meta-test** (`tests/sheet-links/allowlistMeta.test.ts`)
 ```ts
 import { describe, it, expect } from "vitest";
-import { SOURCE_LINK_ALLOWLIST, REGION_LABELS, REGION_IDS } from "@/lib/sheet-links/buildSheetDeepLink";
+import { SOURCE_LINK_ALLOWLIST, REGION_ANCHOR_SPEC, REGION_IDS } from "@/lib/sheet-links/buildSheetDeepLink";
 
 describe("§8.1↔§9 consistency", () => {
-  it("every region's tab is in the allowlist", () => {
-    for (const id of REGION_IDS) {
-      expect(SOURCE_LINK_ALLOWLIST as readonly string[]).toContain(REGION_LABELS[id].tab);
+  it("every tab in every region spec is in the allowlist", () => {
+    for (const id of REGION_IDS) for (const tab of REGION_ANCHOR_SPEC[id].tabs) {
+      expect(SOURCE_LINK_ALLOWLIST as readonly string[]).toContain(tab);
     }
   });
   it("master-library tabs are NOT in the allowlist", () => {
@@ -232,19 +262,17 @@ describe("§8.1↔§9 consistency", () => {
       expect(SOURCE_LINK_ALLOWLIST as readonly string[]).not.toContain(t);
     }
   });
-  it("covers all 11 canonical regions", () => {
+  it("covers all 11 canonical regions and alias targets resolve", () => {
     expect(REGION_IDS.length).toBe(11);
+    for (const id of REGION_IDS) { const s = REGION_ANCHOR_SPEC[id]; if (s.strategy === "alias-of") expect(REGION_IDS).toContain(s.region); }
   });
 });
 ```
 
-- [ ] **Step 2: Run — verify FAIL** (REGION_LABELS undefined).
-
-- [ ] **Step 3: Implement the maps** in `lib/sheet-links/buildSheetDeepLink.ts` (full `REGION_LABELS`, `CARD_REGION_MAP`, `MIXED_SOURCE_REGISTRY`, `OUT_OF_SCOPE_CARDS` per spec §8.1/§8.2/§8.2.1/§8.3; every `.tab` ∈ allowlist).
-
+- [ ] **Step 2: Run — verify FAIL** (`pnpm test -- tests/sheet-links/allowlistMeta.test.ts` → REGION_ANCHOR_SPEC undefined).
+- [ ] **Step 3: Implement** the exact literals above in `lib/sheet-links/buildSheetDeepLink.ts`.
 - [ ] **Step 4: Run — verify PASS**.
-
-- [ ] **Step 5: Commit** `feat(crew-page): region→label + card→region + mixed-source registries`
+- [ ] **Step 5: Commit** `feat(crew-page): REGION_ANCHOR_SPEC (per-region strategy) + card/registry maps`
 
 ---
 
@@ -254,10 +282,15 @@ describe("§8.1↔§9 consistency", () => {
 - Create: `lib/drive/sourceAnchors.ts`, `tests/drive/sourceAnchors.test.ts`
 
 **Interfaces:**
-- Consumes: `SpreadsheetSheet[]` (Task 1) for `{title→gid}`; `REGION_LABELS`, `SOURCE_LINK_ALLOWLIST` (Task 3).
+- Consumes: `Map<string, number>` `{title→gid}` (from Task 1's `SpreadsheetSheet[]`); `REGION_ANCHOR_SPEC`, `REGION_IDS`, `SOURCE_LINK_ALLOWLIST` (Task 3).
 - Produces: `export function extractSourceAnchors(buffer: ArrayBuffer, titleToGid: Map<string, number>): Record<string, SourceAnchor>` — returns `{}` when nothing matches; keys ⊆ REGION_IDS; every value's `title` ∈ allowlist.
 
-Algorithm (spec §8.1.1): for each sheet whose title ∈ allowlist with a known gid, build the grid keeping the **absolute** `(row, col)` origin from `XLSX.utils.decode_range(sheet["!ref"])` (do NOT discard `range.s.r/s.c` the way `sheetGrid` does); apply merge-expansion so a merged label resolves at its top-left. For each region whose `.tab` matches the sheet, find all rows whose first non-blank cell matches a `REGION_LABELS[region].labels` pattern; compute the **union A1 bounding rectangle** (min top-left → max bottom-right) of the matched rows on that tab; emit `{title, gid, a1}`. Zero matches → omit the region. A1 is produced via `XLSX.utils.encode_range`/`encode_cell` (range-only, no sheet prefix).
+Algorithm (spec §8.1.1) — read the workbook; for each region, pick the **first tab in `spec.tabs` that exists in `titleToGid`** (so its title ∈ allowlist by Task-3's consistency test). Build that tab's grid keeping the **absolute** `(row,col)` origin from `XLSX.utils.decode_range(sheet["!ref"])` (do NOT discard `range.s.r/s.c`); merge-expand so a merged label resolves at its top-left. Then per **strategy**:
+- **`row-label-union`** (`contacts`, `rooms`, `venue`, `financials`): collect every row whose first non-blank cell text matches any `labels` regex; the anchor `a1` = the bounding rectangle from the min (row,col) to the max (row, last-non-blank-col) across matched rows.
+- **`header-block`** (`crew`, `hotels`, `transportation`, `details`): find the first row whose first cell matches `header`; extend downward until a row whose first cell matches any `terminators` regex (or a blank run / sheet end); `a1` = bounding rectangle of that span.
+- **`whole-tab`** (`gear_packlist`, `schedule`): `a1` = the tab's used range (`decode_range(!ref)` → top-left:bottom-right in A1).
+- **`alias-of`** (`flights`→`crew`): resolved in a second pass — copy the referenced region's computed anchor verbatim (or omit if the referent is absent).
+Zero matches / tab absent → omit the region. `a1` via `XLSX.utils.encode_range` (range-only, no sheet prefix). Apply the allowlist title check defensively before emitting (belt-and-suspenders with the tab selection).
 
 - [ ] **Step 1: Write the failing test** (`tests/drive/sourceAnchors.test.ts`) — build fixtures with the `workbookBuffer` helper pattern (`tests/drive/exportSheetToMarkdown.test.ts:5-19`):
 ```ts
@@ -294,14 +327,45 @@ it("zero matches → region omitted", () => {
   expect(extractSourceAnchors(b, new Map([["INFO", 0]])).rooms).toBeUndefined();
 });
 
-it("schedule anchors AGENDA only (cross-tab: INFO dates not in schedule)", () => {
+it("schedule = whole AGENDA tab (cross-tab: INFO dates excluded)", () => {
   const b = buf([
     { name: "INFO", rows: [["DATES"], ["Travel","5/13"]] },
     { name: "AGENDA", rows: [["NAME","START","FINISH"], ["","7:15 AM","7:30 AM"]] },
   ]);
   const a = extractSourceAnchors(b, new Map([["INFO", 0], ["AGENDA", 99]]));
-  expect(a.schedule?.title).toBe("AGENDA");
-  expect(a.schedule?.gid).toBe(99);
+  expect(a.schedule).toEqual({ title: "AGENDA", gid: 99, a1: "A1:C2" }); // whole used range
+});
+
+it("contacts = row-label union (global scan, no header)", () => {
+  const b = buf([{ name: "INFO", rows: [["CLIENT","x"], ["Hotal Contact Info","ashley@x"], ["In House AV","mark@y"]] }]);
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  expect(a.contacts).toEqual({ title: "INFO", gid: 0, a1: "A2:B3" });
+});
+
+it("transportation = header-block (header → terminator)", () => {
+  const b = buf([{ name: "INFO", rows: [["TRANSPORTATION","Van"], ["Driver","James"], ["Parking","#45"], ["HOTEL","Four Seasons"]] }]);
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  expect(a.transportation).toEqual({ title: "INFO", gid: 0, a1: "A1:B3" }); // stops before HOTEL terminator
+});
+
+it("flights aliases the crew anchor", () => {
+  const b = buf([{ name: "INFO", rows: [["TECH","PHONE"], ["Doug - Lead","917"], ["Eric - A1","508"], ["HOTEL","x"]] }]);
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  expect(a.flights).toEqual(a.crew); // same anchor as crew
+  expect(a.crew?.title).toBe("INFO");
+});
+
+it("gear_packlist = whole PULL SHEET tab; falls back to GEAR when PULL SHEET absent", () => {
+  const b1 = buf([{ name: "PULL SHEET", rows: [["QTY","ITEM"], ["2","QU32"]] }]);
+  expect(extractSourceAnchors(b1, new Map([["PULL SHEET", 7]])).gear_packlist).toEqual({ title: "PULL SHEET", gid: 7, a1: "A1:B2" });
+  const b2 = buf([{ name: "GEAR", rows: [["QTY","ITEM"], ["1","Eiki"]] }]);
+  expect(extractSourceAnchors(b2, new Map([["GEAR", 8]])).gear_packlist).toEqual({ title: "GEAR", gid: 8, a1: "A1:B2" });
+});
+
+it("rooms = row-label union of GS/BO scope rows", () => {
+  const b = buf([{ name: "INFO", rows: [["GS Audio","(1) QU32"], ["GS Video","(2) Eiki"], ["BO Audio","NONE"]] }]);
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  expect(a.rooms).toEqual({ title: "INFO", gid: 0, a1: "A1:B3" });
 });
 ```
 
@@ -327,13 +391,17 @@ it("schedule anchors AGENDA only (cross-tab: INFO dates not in schedule)", () =>
 - Consumes: `extractSourceAnchors` (Task 4), `listSpreadsheetSheets` (Task 1).
 - Produces: `sourceAnchors: Record<string, SourceAnchor>` reaches `applyShowSnapshot`'s shows-UPDATE payload (Task 6).
 
-Wiring: the pipeline already calls `listSpreadsheetSheets` inside `enrichWithDrivePins` — promote a single metadata fetch (now carrying `sheetId`) to build `titleToGid`, and fetch the raw XLSX bytes once (the same bytes `fetchSheetAsMarkdownAtRevision` decodes at `lib/drive/fetch.ts:144`). Call `extractSourceAnchors(bytes, titleToGid)` and attach the result to the snapshot the same way `parseResult.openingReel` flows. **No new Sheets API round-trip beyond the existing list call.**
+**Ownership change (plan-R1 finding 4 — exactly one Sheets API list call):**
+1. In `runScheduledCronSync` (`~:2241-2275`), call `listSpreadsheetSheets(driveFileId)` **once** near the top of the parse step, into `const sheets: SpreadsheetSheet[]`. Build `const titleToGid = new Map(sheets.filter(s => typeof s.sheetId === "number").map(s => [s.title, s.sheetId!]))`.
+2. Change `enrichWithDrivePins` (`lib/sync/enrichWithDrivePins.ts:112-129`) to **accept a pre-fetched `sheets` list** via its `EnrichContext` (add `sheets?: SpreadsheetSheet[]`). `extractEmbeddedImages` uses `ctx.sheets ?? (driveClient.listSpreadsheetSheets ? await driveClient.listSpreadsheetSheets(ctx.driveFileId) : [])` — so when the pipeline passes `sheets`, enrich does NOT re-call the API.
+3. Obtain the raw XLSX bytes once: have `fetchSheetAsMarkdownAtRevision` (or a new sibling `fetchSheetXlsxAtRevision`) also return `{ markdown, bytes }` (the bytes already decoded at `lib/drive/fetch.ts:144`), or fetch bytes once and pass to both `synthesizeMarkdownFromXlsx` and `extractSourceAnchors`.
+4. `const sourceAnchors = extractSourceAnchors(bytes, titleToGid)`; attach to the snapshot args (Task 6) alongside `parseResult.openingReel`.
 
-- [ ] **Step 1: Write the failing test** — a pipeline test (mirror `tests/sync/*` deps-injection style) asserting that, given a stub `driveClient.listSpreadsheetSheets` returning `[{title:"INFO",sheetId:0}]` and a stub bytes buffer with a VENUE block, the applied snapshot payload carries `sourceAnchors.venue.gid === 0`.
+- [ ] **Step 1: Write the failing test** — pipeline test (deps-injection style per `tests/sync/*`): stub `driveClient.listSpreadsheetSheets` (a `vi.fn()` returning `[{title:"INFO",sheetId:0}]`) + stub bytes with a VENUE row. Assert (a) the applied snapshot payload carries `sourceAnchors.venue.gid === 0`, and (b) **`listSpreadsheetSheets` was called exactly once** (`expect(stub).toHaveBeenCalledTimes(1)`) across both anchor extraction and enrichment.
 - [ ] **Step 2: Run — verify FAIL.**
-- [ ] **Step 3: Implement the wiring** (bytes + titleToGid + extractSourceAnchors call + attach to snapshot args).
-- [ ] **Step 4: Run — verify PASS**; run `pnpm test -- tests/sync` to confirm no sync regressions.
-- [ ] **Step 5: Commit** `feat(sync): extract + thread source_anchors through the parse pipeline`
+- [ ] **Step 3: Implement the ownership change** (steps 1-4 above).
+- [ ] **Step 4: Run — verify PASS**; `pnpm test -- tests/sync` to confirm no sync/enrich regressions (esp. `tests/sync/embeddedImages.test.ts`).
+- [ ] **Step 5: Commit** `feat(sync): single sheet-metadata fetch → thread source_anchors through pipeline`
 
 ---
 
@@ -415,29 +483,28 @@ git commit --no-verify -m "feat(db): add shows.source_anchors jsonb + persist vi
 
 ---
 
-## Task 9: Wire `SourceLink` into the 7 sections via `CARD_REGION_MAP` (Opus + impeccable)
+## Task 9: Field-aware coverage walker (TEST FIRST) → wire `SourceLink` into the 7 sections (Opus + impeccable)
+
+TDD per plan-R1 finding 3: the coverage walker is the **failing test authored first**; the section wiring is the implementation that makes it pass.
 
 **Files:**
-- Modify: all 7 `components/crew/sections/*Section.tsx` (add `action={<SourceLink driveFileId={data.driveFileId} anchor={data.sourceAnchors[CARD_REGION_MAP["<cardId>"]]} />}` to each source-backed `SectionCard`; Today reuses canonical anchors; omit on §8.3 out-of-scope cards).
-- Test: covered by Task 10 (coverage parity).
+- Create: `tests/components/crew/sourceLinkCoverage.test.tsx` (the walker — Step 1)
+- Modify: all 7 `components/crew/sections/*Section.tsx` (Step 3)
 
-- [ ] **Step 1:** Add the `action` prop to each source-backed `SectionCard` per the §8.2 `CARD_REGION_MAP`. Mixed cards (`venue-facilities`, `venue-status`) use their `MIXED_SOURCE_REGISTRY[...].primary` region. Do NOT add links to `today-rightnow`, `today-notes`, `venue-diagrams`, the opening-reel video.
-- [ ] **Step 2: Run the crew suite + sentinel meta-test** (`pnpm test -- tests/components/crew tests/components/tiles/_metaSentinelHidingContract.test.ts`) — a shared `SectionCard` change can break distant tiles (crew-wide sweep).
-- [ ] **Step 3: Run `/impeccable critique` + `/impeccable audit`** on the sections diff.
-- [ ] **Step 4: Commit** `feat(crew-page): source-sheet links on all 7 sections`
+The walker (spec §12 field-aware list): render each section with a full `makeShowForViewer` fixture (give every region a non-empty anchor in `data.sourceAnchors`); discover every source-backed `SectionCard` via `data-slot="section-card-action"` + a stable `data-card-id` added to each card; assert — (a) every source-backed card has an `action` link whose `href` === `buildSheetDeepLink(driveFileId, sourceAnchors[CARD_REGION_MAP[cardId]])` (anti-tautology: compare to the helper output, not a literal, and scope to the card header); (b) every card rendering >1 region's fields is in `MIXED_SOURCE_REGISTRY` with a matching field set; (c) every card with no link is in `OUT_OF_SCOPE_CARDS`; (d) every `REGION_ID` is referenced by ≥1 card in `CARD_REGION_MAP`. Walks rendered cards (not a hardcoded list) → a new SectionCard fails until classified.
+
+- [ ] **Step 1: Write the walker test** (`tests/components/crew/sourceLinkCoverage.test.tsx`, `@vitest-environment jsdom`). Add a `data-card-id="<cardId>"` to each `SectionCard` call site's wrapper as you reference them (the ids in `CARD_REGION_MAP`).
+- [ ] **Step 2: Run — verify FAIL** (`pnpm test -- tests/components/crew/sourceLinkCoverage.test.tsx`): no `action` links wired yet → coverage assertion (a) fails for every source-backed card.
+- [ ] **Step 3: Wire the sections** — add `action={<SourceLink driveFileId={data.driveFileId} anchor={data.sourceAnchors[CARD_REGION_MAP["<cardId>"]]} />}` to each source-backed `SectionCard` per `CARD_REGION_MAP`; mixed cards use `MIXED_SOURCE_REGISTRY[...].primary`; add no `action` to the four `OUT_OF_SCOPE_CARDS`. Today's cards reuse the canonical region anchors.
+- [ ] **Step 4: Run — verify PASS** + crew-wide sweep: `pnpm test -- tests/components/crew tests/components/tiles/_metaSentinelHidingContract.test.ts` (a shared `SectionCard` change can break distant tiles). Negative-regression: drop one card's `action`, confirm the walker FAILS, revert.
+- [ ] **Step 5: Run `/impeccable critique` + `/impeccable audit`** on the sections + walker diff; fix HIGH/CRITICAL or defer.
+- [ ] **Step 6: Commit** `feat(crew-page): source-sheet links on all 7 sections + field-aware coverage walker`
 
 ---
 
-## Task 10: Field-aware coverage parity walker (spec §12)
+## Task 10: (folded into Task 9) — field-aware coverage parity walker
 
-**Files:**
-- Create: `tests/components/crew/sourceLinkCoverage.test.tsx`
-
-Asserts (spec §12 field-aware list): render each section with a full `makeShowForViewer` fixture; for every source-backed card found, its `action` link's `href` targets the region in `CARD_REGION_MAP`; every mixed card is in `MIXED_SOURCE_REGISTRY` with a matching field set; every no-link card is in `OUT_OF_SCOPE_CARDS`; every `REGION_ID` is referenced by ≥1 card. Walks rendered cards (not a hardcoded list) so a new SectionCard fails until classified. Guarantee: no **undocumented** mis-coverage.
-
-- [ ] **Step 1: Write the walker test** (data-testid/`data-slot="section-card-action"` based card discovery).
-- [ ] **Step 2: Run — confirm it PASSES** for the Task 9 wiring; then temporarily drop one card's `action` and confirm it FAILS (negative-regression); revert.
-- [ ] **Step 3: Commit** `test(crew-page): field-aware source-link coverage parity walker`
+The walker is authored as Task 9 Step 1 (test-first per TDD). No separate task; see Task 9.
 
 ---
 
