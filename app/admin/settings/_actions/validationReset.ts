@@ -26,7 +26,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
-import { destructiveResetAllowed } from "@/lib/admin/validationDeployment";
+import { destructiveResetAllowed, VALIDATION_PROJECT_REF } from "@/lib/admin/validationDeployment";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/lib/validation/fixtures";
 import { mintFixtureCombos, finalizeFixtures } from "@/lib/validation/reseedFixtures";
@@ -142,15 +142,26 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
   // is passed to buildFixtures, mintFixtureCombos, and finalizeFixtures).
   // Pattern sourced from scripts/validation-reseed.ts:131.
   const validationTodayIso = new Date().toISOString().slice(0, 10);
-  const fixtures = buildFixtures(validationTodayIso);
   const ALL_COMBOS: Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
   try {
+    // FIX 2: buildFixtures is inside the fault boundary so a throw (e.g. missing
+    // VALIDATION_J3_CLAIM_EMAIL) maps to VALIDATION_RESEED_FAILED, not a bare rejection.
+    const fixtures = buildFixtures(validationTodayIso);
+
     // Service-role client constructed ONLY here (after the assert passed) and inside
     // the fault boundary — a construction throw maps to VALIDATION_RESEED_FAILED.
     const serviceClient =
       createSupabaseServiceRoleClient() as unknown as import("@/lib/validation/reseedFixtures").LooseSupabaseClient;
-    const { minted } = await mintFixtureCombos(serviceClient, fixtures, validationTodayIso);
+    // FIX 1: pass VALIDATION_PROJECT_REF as seededProjectRef so validation_state records
+    // the correct project ref instead of defaulting to "local".
+    const { minted } = await mintFixtureCombos(
+      serviceClient,
+      fixtures,
+      validationTodayIso,
+      "admin:reseedValidationFixturesAction",
+      VALIDATION_PROJECT_REF,
+    );
     await finalizeFixtures(serviceClient, ALL_COMBOS, validationTodayIso);
 
     revalidatePath("/admin");

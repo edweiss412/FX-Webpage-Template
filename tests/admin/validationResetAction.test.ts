@@ -32,10 +32,11 @@ const mockState = vi.hoisted(() => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock: destructiveResetAllowed
+// Mock: destructiveResetAllowed + VALIDATION_PROJECT_REF
 // ---------------------------------------------------------------------------
 vi.mock("@/lib/admin/validationDeployment", () => ({
   destructiveResetAllowed: () => mockState.destructiveResetAllowed,
+  VALIDATION_PROJECT_REF: "vzakgrxqwcalbmagufjh",
 }));
 
 // ---------------------------------------------------------------------------
@@ -459,5 +460,38 @@ describe("reseedValidationFixturesAction", () => {
     // mint/finalize must NOT have been called
     expect(mintSpy).not.toHaveBeenCalled();
     expect(finalizeSpy).not.toHaveBeenCalled();
+  });
+
+  // FIX 1: mintFixtureCombos must be called with VALIDATION_PROJECT_REF as 5th arg
+  test("(c) SUCCESS-PATH — mintFixtureCombos is called with VALIDATION_PROJECT_REF as 5th arg", async () => {
+    mockState.assertRpcData = null;
+    mintSpy.mockImplementation(async () => ({ minted: 1 }));
+    finalizeSpy.mockImplementation(async () => {});
+
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
+    await reseedValidationFixturesAction();
+
+    expect(mintSpy).toHaveBeenCalledTimes(1);
+    const callArgs = mintSpy.mock.calls[0] as unknown[];
+    // 5th arg (index 4) must be VALIDATION_PROJECT_REF, not "local"
+    expect(callArgs[4]).toBe("vzakgrxqwcalbmagufjh");
+  });
+
+  // FIX 2: buildFixtures throw must be caught and mapped to VALIDATION_RESEED_FAILED
+  test("(FIX-2) buildFixtures throws → VALIDATION_RESEED_FAILED, not a rejected promise", async () => {
+    mockState.assertRpcData = null;
+
+    const fixtures = await import("@/lib/validation/fixtures");
+    vi.mocked(fixtures.buildFixtures).mockImplementationOnce(() => {
+      throw new Error("VALIDATION_J3_CLAIM_EMAIL missing");
+    });
+
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
+    const result = await reseedValidationFixturesAction();
+
+    expect(result).toEqual({ ok: false, code: "VALIDATION_RESEED_FAILED" });
+    expect(mintSpy).not.toHaveBeenCalled();
   });
 });
