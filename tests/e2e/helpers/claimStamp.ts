@@ -7,9 +7,9 @@
  * data-claimed="true" + a lock glyph + a GET form to /auth/sign-in
  * (app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:151-187).
  *
- * IMPORTANT: the claim timestamp lives on `crew_members`, NOT on
- * `crew_member_auth` — that table was DROPPED in
- * supabase/migrations/20260523000099_cutover_drop_m9_5.sql. The resolver reads
+ * IMPORTANT: the claim timestamp lives on `crew_members`, NOT on the retired
+ * M9.5 per-crew auth table (dropped in
+ * supabase/migrations/20260523000099_cutover_drop_m9_5.sql). The resolver reads
  * `crew_members.claimed_via_oauth_at` (lib/auth/picker/resolvePickerSelection.ts:93).
  *
  * AGENTS invariant 9 (Supabase call-boundary): destructure { data, error } and

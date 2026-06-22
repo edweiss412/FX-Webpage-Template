@@ -13,9 +13,9 @@
  *     context.addCookies so a staged selection (fresh / stale / mismatched)
  *     is observable.
  *   - claimStamp        — sets `crew_members.claimed_via_oauth_at` directly
- *     (the column lives on crew_members; crew_member_auth was DROPPED in
- *     20260523000099_cutover_drop_m9_5.sql) so the deactivated-row test does
- *     not depend on running the OAuth callback chain.
+ *     (the column lives on crew_members; the retired M9.5 per-crew auth table
+ *     was dropped in 20260523000099_cutover_drop_m9_5.sql) so the
+ *     deactivated-row test does not depend on running the OAuth callback chain.
  *
  * Auth model: `signInAs(fixture)` mints a Supabase Auth session; the picker
  * chain's `validateGoogleSession` reads that session via
