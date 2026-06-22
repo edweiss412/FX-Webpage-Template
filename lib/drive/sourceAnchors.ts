@@ -149,7 +149,7 @@ function headerBlock(
   }
 
   // Compute bounding rect
-  let minCol = grid.minCol;
+  const minCol = grid.minCol;
   let maxCol = grid.minCol;
   for (let r = headerRow; r <= lastIncluded; r++) {
     const lnbc = lastNonBlankCol(grid, r);
