@@ -147,7 +147,13 @@ function fullFixture(): ShowForViewer {
       notes: "Curbside at door 4.",
     },
     contacts: [
-      { kind: "venue", name: "Sam Venue", phone: "555-111-2222", email: null, notes: "Ask for Sam." },
+      {
+        kind: "venue",
+        name: "Sam Venue",
+        phone: "555-111-2222",
+        email: null,
+        notes: "Ask for Sam.",
+      },
     ],
     pullSheet: [
       { caseLabel: "Case 1", items: [{ item: "Mixer", qty: 1, cat: null, subCat: null }] },
@@ -203,7 +209,9 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
   it("(c) every REGION_ID is referenced by ≥1 entry in CARD_REGION_MAP", () => {
     const referenced = new Set(Object.values(CARD_REGION_MAP));
     for (const region of REGION_IDS) {
-      expect(referenced.has(region), `region "${region}" has no card in CARD_REGION_MAP`).toBe(true);
+      expect(referenced.has(region), `region "${region}" has no card in CARD_REGION_MAP`).toBe(
+        true,
+      );
     }
   });
 

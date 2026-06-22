@@ -6,16 +6,19 @@ const base = `https://docs.google.com/spreadsheets/d/${ID}/edit`;
 
 describe("buildSheetDeepLink", () => {
   it("builds a range link", () => {
-    expect(buildSheetDeepLink(ID, { title: "INFO", gid: 0, a1: "A18:E21" }))
-      .toBe(`${base}#gid=0&range=A18%3AE21`);
+    expect(buildSheetDeepLink(ID, { title: "INFO", gid: 0, a1: "A18:E21" })).toBe(
+      `${base}#gid=0&range=A18%3AE21`,
+    );
   });
   it("gid 0 is valid (must not degrade)", () => {
-    expect(buildSheetDeepLink(ID, { title: "INFO", gid: 0, a1: "A1:B2" }))
-      .toBe(`${base}#gid=0&range=A1%3AB2`);
+    expect(buildSheetDeepLink(ID, { title: "INFO", gid: 0, a1: "A1:B2" })).toBe(
+      `${base}#gid=0&range=A1%3AB2`,
+    );
   });
   it("URL-encodes the range colon", () => {
-    expect(buildSheetDeepLink(ID, { title: "AGENDA", gid: 5, a1: "A1:C1" }))
-      .toBe(`${base}#gid=5&range=A1%3AC1`);
+    expect(buildSheetDeepLink(ID, { title: "AGENDA", gid: 5, a1: "A1:C1" })).toBe(
+      `${base}#gid=5&range=A1%3AC1`,
+    );
   });
   it("empty a1 → tab rung", () => {
     expect(buildSheetDeepLink(ID, { title: "INFO", gid: 0, a1: "" })).toBe(`${base}#gid=0`);

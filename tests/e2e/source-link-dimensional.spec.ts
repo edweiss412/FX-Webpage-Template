@@ -120,9 +120,10 @@ test.describe("SourceLink header does not change row heights (spec §5.4)", () =
       const withH = await heightOf(withRow);
       const noH = await heightOf(noRow);
 
-      expect(withH, `${testid} with-link height must be laid out (>0); got ${withH}`).toBeGreaterThan(
-        0,
-      );
+      expect(
+        withH,
+        `${testid} with-link height must be laid out (>0); got ${withH}`,
+      ).toBeGreaterThan(0);
       expect(noH, `${testid} no-link height must be laid out (>0); got ${noH}`).toBeGreaterThan(0);
 
       // The invariant: the header SourceLink must not change this row's height.

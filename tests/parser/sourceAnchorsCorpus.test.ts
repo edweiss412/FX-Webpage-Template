@@ -8,16 +8,11 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
-import {
-  SOURCE_LINK_ALLOWLIST,
-  REGION_IDS,
-} from "@/lib/sheet-links/buildSheetDeepLink";
+import { SOURCE_LINK_ALLOWLIST, REGION_IDS } from "@/lib/sheet-links/buildSheetDeepLink";
 
 // ── fixture builder ───────────────────────────────────────────────────────────
 
-function makeWorkbookBuffer(
-  sheets: Array<{ name: string; rows: unknown[][] }>,
-): ArrayBuffer {
+function makeWorkbookBuffer(sheets: Array<{ name: string; rows: unknown[][] }>): ArrayBuffer {
   const wb = XLSX.utils.book_new();
   for (const s of sheets) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s.rows), s.name);
@@ -136,17 +131,17 @@ const STANDARDIZED_TECH_ROWS: unknown[][] = [
 
 describe("Legacy single-INFO fixture (East Coast-style)", () => {
   const buffer = makeWorkbookBuffer([
-    { name: "INFO",       rows: LEGACY_INFO_ROWS },
-    { name: "AGENDA",     rows: LEGACY_AGENDA_ROWS },
+    { name: "INFO", rows: LEGACY_INFO_ROWS },
+    { name: "AGENDA", rows: LEGACY_AGENDA_ROWS },
     { name: "PULL SHEET", rows: LEGACY_PULL_SHEET_ROWS },
-    { name: "CLIENT",     rows: LEGACY_CLIENT_ROWS },
+    { name: "CLIENT", rows: LEGACY_CLIENT_ROWS },
   ]);
 
   const titleToGid = new Map<string, number>([
-    ["INFO",       0],
-    ["AGENDA",     1],
+    ["INFO", 0],
+    ["AGENDA", 1],
     ["PULL SHEET", 2],
-    ["CLIENT",     99],
+    ["CLIENT", 99],
   ]);
 
   const anchors = extractSourceAnchors(buffer, titleToGid);
@@ -177,7 +172,10 @@ describe("Legacy single-INFO fixture (East Coast-style)", () => {
     // then CREW header at row 3 (terminator). venue must end at row 2 (index 2), i.e. A1:B3.
     expect(anchors.venue).toBeDefined();
     const range = XLSX.utils.decode_range(anchors.venue!.a1!);
-    expect(range.e.r, "venue must not overreach past row 2 (before CREW at row 3)").toBeLessThanOrEqual(2);
+    expect(
+      range.e.r,
+      "venue must not overreach past row 2 (before CREW at row 3)",
+    ).toBeLessThanOrEqual(2);
   });
 
   it("hotels → INFO tab", () => {
@@ -233,17 +231,17 @@ describe("Legacy single-INFO fixture (East Coast-style)", () => {
 
 describe("Standardized multitab fixture (RPAS-style)", () => {
   const buffer = makeWorkbookBuffer([
-    { name: "INFO",  rows: STANDARDIZED_INFO_ROWS },
+    { name: "INFO", rows: STANDARDIZED_INFO_ROWS },
     { name: "AGENDA", rows: STANDARDIZED_AGENDA_ROWS },
-    { name: "GEAR",  rows: STANDARDIZED_GEAR_ROWS },
-    { name: "TECH",  rows: STANDARDIZED_TECH_ROWS },
+    { name: "GEAR", rows: STANDARDIZED_GEAR_ROWS },
+    { name: "TECH", rows: STANDARDIZED_TECH_ROWS },
   ]);
 
   const titleToGid = new Map<string, number>([
-    ["INFO",   0],
+    ["INFO", 0],
     ["AGENDA", 1],
-    ["GEAR",   2],
-    ["TECH",   99],
+    ["GEAR", 2],
+    ["TECH", 99],
   ]);
 
   const anchors = extractSourceAnchors(buffer, titleToGid);
@@ -274,7 +272,10 @@ describe("Standardized multitab fixture (RPAS-style)", () => {
     // Google row 5, then HOTEL header at row 6 (terminator). venue must end at row 5 (index 5).
     expect(anchors.venue).toBeDefined();
     const range = XLSX.utils.decode_range(anchors.venue!.a1!);
-    expect(range.e.r, "venue must not overreach past row 5 (before HOTEL at row 6)").toBeLessThanOrEqual(5);
+    expect(
+      range.e.r,
+      "venue must not overreach past row 5 (before HOTEL at row 6)",
+    ).toBeLessThanOrEqual(5);
   });
 
   it("hotels → INFO tab", () => {

@@ -20,7 +20,13 @@ function isBlank(s: string): boolean {
   return !/\S/.test(s);
 }
 
-type AbsGrid = { cell: (r: number, c: number) => string; minRow: number; maxRow: number; minCol: number; maxCol: number };
+type AbsGrid = {
+  cell: (r: number, c: number) => string;
+  minRow: number;
+  maxRow: number;
+  minCol: number;
+  maxCol: number;
+};
 
 /** Build an absolute-coordinate grid (row/col indices match the sheet's actual
  *  A1-notation). Merges are expanded so the top-left cell's value fills all
@@ -31,7 +37,10 @@ function buildAbsGrid(sheet: XLSX.WorkSheet): AbsGrid {
     return { cell: () => "", minRow: 0, maxRow: -1, minCol: 0, maxCol: -1 };
   }
   const range = XLSX.utils.decode_range(ref);
-  const { s: { r: minRow, c: minCol }, e: { r: maxRow, c: maxCol } } = range;
+  const {
+    s: { r: minRow, c: minCol },
+    e: { r: maxRow, c: maxCol },
+  } = range;
 
   // Build flat storage indexed [absRow][absCol]
   const data: Record<number, Record<number, string>> = {};
@@ -178,10 +187,7 @@ export function extractSourceAnchors(
     let chosenTitle: string | null = null;
     let chosenGid: number | null = null;
     for (const tab of spec.tabs) {
-      if (
-        titleToGid.has(tab) &&
-        (SOURCE_LINK_ALLOWLIST as readonly string[]).includes(tab)
-      ) {
+      if (titleToGid.has(tab) && (SOURCE_LINK_ALLOWLIST as readonly string[]).includes(tab)) {
         chosenTitle = tab;
         chosenGid = titleToGid.get(tab)!;
         break;

@@ -16,10 +16,7 @@ import {
 import { canonicalize } from "@/lib/email/canonicalize";
 import { runInvariants } from "@/lib/parser/invariants";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
-import {
-  fetchDriveFileMetadata,
-  fetchSheetMarkdownAndBytesAtRevision,
-} from "@/lib/drive/fetch";
+import { fetchDriveFileMetadata, fetchSheetMarkdownAndBytesAtRevision } from "@/lib/drive/fetch";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
@@ -1573,7 +1570,8 @@ export function defaultDriveClient(): DriveClient {
         const record = sheet as { properties?: { title?: string | null; sheetId?: number | null } };
         return {
           title: record.properties?.title ?? "",
-          sheetId: typeof record.properties?.sheetId === "number" ? record.properties.sheetId : undefined,
+          sheetId:
+            typeof record.properties?.sheetId === "number" ? record.properties.sheetId : undefined,
           embeddedObjects: [],
         } satisfies SpreadsheetSheet;
       });
@@ -2327,11 +2325,11 @@ export async function prepareProcessOneFile(
   try {
     enriched = await withStepTimeout(
       "enrichWithDrivePins",
-      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
-        parsed,
-        driveClient,
-        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), ...(sheets !== undefined ? { sheets } : {}) },
-      ),
+      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(parsed, driveClient, {
+        driveFileId,
+        fileMeta: toDriveFileMeta(fileMeta),
+        ...(sheets !== undefined ? { sheets } : {}),
+      }),
     );
   } catch (error) {
     if (isBinaryAssetRevisionRace(error)) {
@@ -2575,9 +2573,7 @@ export async function processOneFile_unlocked(
       // Task 2.9: drive the auto-apply changes feed.
       notableItems,
       // Task 5: thread source-region anchors into applyShowSnapshot (Task 6 persists them).
-      ...(pipeline.sourceAnchors !== undefined
-        ? { sourceAnchors: pipeline.sourceAnchors }
-        : {}),
+      ...(pipeline.sourceAnchors !== undefined ? { sourceAnchors: pipeline.sourceAnchors } : {}),
     },
     txDeps,
   );

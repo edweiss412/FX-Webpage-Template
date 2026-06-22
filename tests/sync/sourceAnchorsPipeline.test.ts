@@ -63,7 +63,12 @@ function emptyParsedSheet(overrides: Partial<ParsedSheet> = {}): ParsedSheet {
       client_contact: null,
       template_version: "v4",
       venue: null,
-      dates: { travelIn: "2026-05-07", set: "2026-05-08", showDays: ["2026-05-09"], travelOut: "2026-05-10" },
+      dates: {
+        travelIn: "2026-05-07",
+        set: "2026-05-08",
+        showDays: ["2026-05-09"],
+        travelOut: "2026-05-10",
+      },
       schedule_phases: {},
       event_details: {},
       agenda_links: [],
@@ -171,9 +176,7 @@ type PipelineTx = Phase1Tx &
       racedHeadRevisionId: string,
     ): Promise<{ retryCount: number; cooldownSeconds: number }>;
     deleteRevisionRaceCooldowns(driveFileId: string): Promise<void>;
-    readLiveDeferral(
-      driveFileId: string,
-    ): Promise<{
+    readLiveDeferral(driveFileId: string): Promise<{
       deferred_kind: "defer_until_modified" | "permanent_ignore";
       deferred_at_modified_time: string | null;
     } | null>;
@@ -187,10 +190,19 @@ type PipelineTx = Phase1Tx &
       code: string,
     ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
     insertSyncLog(
-      entry: { driveFileId: string | null; outcome: string; code?: string; payload?: Record<string, unknown> },
+      entry: {
+        driveFileId: string | null;
+        outcome: string;
+        code?: string;
+        payload?: Record<string, unknown>;
+      },
       showId?: string | null,
     ): Promise<void>;
-    upsertAdminAlert(input: { showId: string | null; code: string; context: Record<string, unknown> }): Promise<string | null>;
+    upsertAdminAlert(input: {
+      showId: string | null;
+      code: string;
+      context: Record<string, unknown>;
+    }): Promise<string | null>;
     capturedApplyArgs?: CapturedApplyArgs;
   };
 
@@ -209,7 +221,11 @@ function makeTx(): PipelineTx {
       const seconds = revisionRaceCooldownSeconds(row.retryCount);
       const remaining = row.lastRaceAtMs + seconds * 1000 - this.nowMs;
       if (remaining <= 0) return null;
-      return { retryCount: row.retryCount, cooldownSeconds: seconds, cooldownRemainingMs: remaining };
+      return {
+        retryCount: row.retryCount,
+        cooldownSeconds: seconds,
+        cooldownRemainingMs: remaining,
+      };
     },
     async upsertRevisionRaceCooldown(driveFileId, racedHeadRevisionId) {
       const key = cooldownKey(driveFileId, racedHeadRevisionId);
@@ -223,7 +239,9 @@ function makeTx(): PipelineTx {
         if (key.startsWith(`${driveFileId}\0`)) this.revisionRaceCooldowns.delete(key);
       }
     },
-    async readLiveDeferral() { return null; },
+    async readLiveDeferral() {
+      return null;
+    },
     async deleteLiveDeferral() {},
     // Phase1Tx
     async readShowForPhase1() {
@@ -235,10 +253,14 @@ function makeTx(): PipelineTx {
         priorParseResult: emptyParseResult(),
       };
     },
-    async readLivePendingSync() { return null; },
+    async readLivePendingSync() {
+      return null;
+    },
     async upsertLivePendingIngestion() {},
     async deleteLivePendingIngestion() {},
-    async upsertLivePendingSync() { return { stagedId: "staged-1" }; },
+    async upsertLivePendingSync() {
+      return { stagedId: "staged-1" };
+    },
     async updateShowParseError() {},
     async updateShowPendingReview() {},
     async deleteWizardPendingSyncsExcept() {},
@@ -263,91 +285,92 @@ function makeTx(): PipelineTx {
         priorRunOfShow: null,
       };
     },
-    async markShowSheetUnavailable() { return { showId: null, lastSeenModifiedTime: null }; },
-    async markShowDriveError() { return { showId: null, lastSeenModifiedTime: null }; },
+    async markShowSheetUnavailable() {
+      return { showId: null, lastSeenModifiedTime: null };
+    },
+    async markShowDriveError() {
+      return { showId: null, lastSeenModifiedTime: null };
+    },
     async insertSyncLog() {},
-    async upsertAdminAlert() { return null; },
+    async upsertAdminAlert() {
+      return null;
+    },
   };
 }
 
 // ── test ─────────────────────────────────────────────────────────────────────
 
 describe("sourceAnchors pipeline (Task 5)", () => {
-  test(
-    "sourceAnchors.venue.gid===0 reaches tx.applyShowSnapshot; listSpreadsheetSheets called exactly once",
-    async () => {
-      const DRIVE_FILE_ID = "file-1";
-      const fileMeta = makeFileMeta(DRIVE_FILE_ID);
+  test("sourceAnchors.venue.gid===0 reaches tx.applyShowSnapshot; listSpreadsheetSheets called exactly once", async () => {
+    const DRIVE_FILE_ID = "file-1";
+    const fileMeta = makeFileMeta(DRIVE_FILE_ID);
 
-      // Stub driveClient with a vi.fn() for listSpreadsheetSheets — exactly-once contract.
-      const listSpreadsheetSheetsMock = vi
-        .fn<(id: string) => Promise<SpreadsheetSheet[]>>()
-        .mockResolvedValue(SHEETS_RESPONSE);
+    // Stub driveClient with a vi.fn() for listSpreadsheetSheets — exactly-once contract.
+    const listSpreadsheetSheetsMock = vi
+      .fn<(id: string) => Promise<SpreadsheetSheet[]>>()
+      .mockResolvedValue(SHEETS_RESPONSE);
 
-      const mockDriveClient: DriveClient = {
-        async getFile() {
-          return {
-            driveFileId: DRIVE_FILE_ID,
-            headRevisionId: "rev-1",
-            md5Checksum: "a".repeat(32),
-            mimeType: "application/vnd.google-apps.spreadsheet",
-            modifiedTime: "2026-01-01T00:00:00.000Z",
-          };
-        },
-        async listFolder() { return { folderId: "folder-1", files: [] }; },
-        listSpreadsheetSheets: listSpreadsheetSheetsMock,
-      };
+    const mockDriveClient: DriveClient = {
+      async getFile() {
+        return {
+          driveFileId: DRIVE_FILE_ID,
+          headRevisionId: "rev-1",
+          md5Checksum: "a".repeat(32),
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: "2026-01-01T00:00:00.000Z",
+        };
+      },
+      async listFolder() {
+        return { folderId: "folder-1", files: [] };
+      },
+      listSpreadsheetSheets: listSpreadsheetSheetsMock,
+    };
 
-      const deps: ProcessOneFileDeps = {
-        captureBinding: async () => BINDING,
-        fetchMarkdownAtRevision: async () => "",
-        // Task 5 new injection point: raw XLSX bytes for anchor extraction
-        fetchXlsxBytes: async () => VENUE_BYTES,
-        parseSheet: () => emptyParsedSheet(),
-        driveClient: mockDriveClient,
-        // No enrichWithDrivePins override — use real impl so its listSpreadsheetSheets call is counted
-      };
+    const deps: ProcessOneFileDeps = {
+      captureBinding: async () => BINDING,
+      fetchMarkdownAtRevision: async () => "",
+      // Task 5 new injection point: raw XLSX bytes for anchor extraction
+      fetchXlsxBytes: async () => VENUE_BYTES,
+      parseSheet: () => emptyParsedSheet(),
+      driveClient: mockDriveClient,
+      // No enrichWithDrivePins override — use real impl so its listSpreadsheetSheets call is counted
+    };
 
-      // Step 1: prepare (fetch + parse + enrich + anchor extraction)
-      const prepared = await prepareProcessOneFile(
-        DRIVE_FILE_ID,
-        "cron",
-        fileMeta,
-        deps,
-        // readCooldown: pass the tx's reader to satisfy the interface
-        async () => null,
-      );
+    // Step 1: prepare (fetch + parse + enrich + anchor extraction)
+    const prepared = await prepareProcessOneFile(
+      DRIVE_FILE_ID,
+      "cron",
+      fileMeta,
+      deps,
+      // readCooldown: pass the tx's reader to satisfy the interface
+      async () => null,
+    );
 
-      expect(prepared.kind, "pipeline should reach ready state").toBe("ready");
-      if (prepared.kind !== "ready") return;
+    expect(prepared.kind, "pipeline should reach ready state").toBe("ready");
+    if (prepared.kind !== "ready") return;
 
-      // (b) listSpreadsheetSheets called EXACTLY ONCE in the prepare/parse phase (Phase 2 does not call it)
-      expect(listSpreadsheetSheetsMock).toHaveBeenCalledTimes(1);
+    // (b) listSpreadsheetSheets called EXACTLY ONCE in the prepare/parse phase (Phase 2 does not call it)
+    expect(listSpreadsheetSheetsMock).toHaveBeenCalledTimes(1);
 
-      // Step 2: run the locked phase with a mock tx
-      const pipelineTx = makeTx();
-      const lockedTx = pipelineTx as unknown as LockedShowTx<PipelineTx>;
+    // Step 2: run the locked phase with a mock tx
+    const pipelineTx = makeTx();
+    const lockedTx = pipelineTx as unknown as LockedShowTx<PipelineTx>;
 
-      await processOneFile_unlockedRaw(
-        lockedTx,
-        DRIVE_FILE_ID,
-        "cron",
-        fileMeta,
-        deps,
-        prepared,
-      );
+    await processOneFile_unlockedRaw(lockedTx, DRIVE_FILE_ID, "cron", fileMeta, deps, prepared);
 
-      // (a) sourceAnchors.venue.gid === 0 (INFO tab, sheetId 0)
-      const capturedArgs = pipelineTx.capturedApplyArgs;
-      expect(capturedArgs, "applyShowSnapshot should have been called").toBeDefined();
+    // (a) sourceAnchors.venue.gid === 0 (INFO tab, sheetId 0)
+    const capturedArgs = pipelineTx.capturedApplyArgs;
+    expect(capturedArgs, "applyShowSnapshot should have been called").toBeDefined();
 
-      const sourceAnchors = (capturedArgs as Record<string, unknown>)?.sourceAnchors as
-        | Record<string, SourceAnchor>
-        | undefined;
-      expect(sourceAnchors, "sourceAnchors should be present on the applyShowSnapshot args").toBeDefined();
-      expect(sourceAnchors?.venue?.gid, "venue.gid must equal 0 (INFO tab sheetId=0)").toBe(0);
-    },
-  );
+    const sourceAnchors = (capturedArgs as Record<string, unknown>)?.sourceAnchors as
+      | Record<string, SourceAnchor>
+      | undefined;
+    expect(
+      sourceAnchors,
+      "sourceAnchors should be present on the applyShowSnapshot args",
+    ).toBeDefined();
+    expect(sourceAnchors?.venue?.gid, "venue.gid must equal 0 (INFO tab sheetId=0)").toBe(0);
+  });
 });
 
 // ── Task 6: real-DB persistence test ─────────────────────────────────────────
@@ -380,7 +403,12 @@ const T6_PARSE_RESULT = {
     client_contact: null,
     template_version: "v4",
     venue: null,
-    dates: { travelIn: "2026-06-20", set: "2026-06-21", showDays: ["2026-06-22"], travelOut: "2026-06-23" },
+    dates: {
+      travelIn: "2026-06-20",
+      set: "2026-06-21",
+      showDays: ["2026-06-22"],
+      travelOut: "2026-06-23",
+    },
     event_details: null,
     agenda_links: [],
     coi_status: null,
@@ -401,7 +429,12 @@ const T6_PARSE_RESULT = {
 let t6Sql: ReturnType<typeof postgres> | null = null;
 let t6DbUp = false;
 try {
-  const probe = postgres(DB_URL_T6, { max: 1, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  const probe = postgres(DB_URL_T6, {
+    max: 1,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
   await probe.unsafe("select 1", []);
   t6Sql = probe;
   t6DbUp = true;
@@ -476,9 +509,10 @@ describe("sourceAnchors persistence (Task 6)", () => {
 
       // Concrete failure mode: if source_anchors = $N::jsonb is missing from the UPDATE,
       // the column stays '{}' (the DDL default) even though sourceAnchors was supplied.
-      expect(rows[0]!.source_anchors, "source_anchors must equal the passed object (not double-stringified)").toEqual(
-        SOURCE_ANCHORS_INPUT,
-      );
+      expect(
+        rows[0]!.source_anchors,
+        "source_anchors must equal the passed object (not double-stringified)",
+      ).toEqual(SOURCE_ANCHORS_INPUT);
     },
   );
 });

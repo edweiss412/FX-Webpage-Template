@@ -18,8 +18,19 @@ export function buildSheetDeepLink(
   return url;
 }
 
-export const REGION_IDS = ["crew","contacts","hotels","transportation","flights",
-  "rooms","venue","financials","details","gear_packlist","schedule"] as const;
+export const REGION_IDS = [
+  "crew",
+  "contacts",
+  "hotels",
+  "transportation",
+  "flights",
+  "rooms",
+  "venue",
+  "financials",
+  "details",
+  "gear_packlist",
+  "schedule",
+] as const;
 export type RegionId = (typeof REGION_IDS)[number];
 
 // EXACT full-cell section-header matches that bound a "header-block" region (mirror
@@ -38,17 +49,59 @@ export type RegionAnchorSpec =
   | { tabs: AllowedTabTitle[]; strategy: "alias-of"; region: RegionId };
 
 export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
-  crew:           { tabs: ["INFO"], strategy: "header-block", header: /^(CREW|TECH)$/i, terminators: BLOCK_TERMINATORS },
-  flights:        { tabs: ["INFO"], strategy: "alias-of", region: "crew" }, // legacy flights live in the INFO TECH grid arrival/departure cols (spec §10)
-  contacts:       { tabs: ["INFO"], strategy: "row-label-union", labels: [/contact\s*info/i, /in\s*house\s*av/i, /^contact\b/i] },
-  hotels:         { tabs: ["INFO"], strategy: "header-block", header: /^(HOTEL|HOTELS|Hotel Stays|Hotel Reservations)$/i, terminators: BLOCK_TERMINATORS },
-  transportation: { tabs: ["INFO"], strategy: "header-block", header: /^(TRANSPORTATION|Driver)$/i, terminators: BLOCK_TERMINATORS },
-  rooms:          { tabs: ["INFO"], strategy: "row-label-union", labels: [/^GENERAL SESSION/i, /^BREAKOUT/i, /^GS (Setup|Set Time|Strike Time|Audio|Video|Scenic|Other)/i, /^BO (Setup|Set Time|Strike Time|Audio|Video|Other)/i] },
-  venue:          { tabs: ["INFO"], strategy: "header-block", header: /^VENUE$/i, terminators: BLOCK_TERMINATORS },
-  financials:     { tabs: ["INFO"], strategy: "row-label-union", labels: [/^COI$/i, /^PO\s*#?$/i, /^Proposal$/i, /^Invoice/i] },
-  details:        { tabs: ["INFO"], strategy: "header-block", header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)/i, terminators: BLOCK_TERMINATORS },
-  gear_packlist:  { tabs: ["PULL SHEET","GEAR"], strategy: "whole-tab" },
-  schedule:       { tabs: ["AGENDA"], strategy: "whole-tab" },
+  crew: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^(CREW|TECH)$/i,
+    terminators: BLOCK_TERMINATORS,
+  },
+  flights: { tabs: ["INFO"], strategy: "alias-of", region: "crew" }, // legacy flights live in the INFO TECH grid arrival/departure cols (spec §10)
+  contacts: {
+    tabs: ["INFO"],
+    strategy: "row-label-union",
+    labels: [/contact\s*info/i, /in\s*house\s*av/i, /^contact\b/i],
+  },
+  hotels: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^(HOTEL|HOTELS|Hotel Stays|Hotel Reservations)$/i,
+    terminators: BLOCK_TERMINATORS,
+  },
+  transportation: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^(TRANSPORTATION|Driver)$/i,
+    terminators: BLOCK_TERMINATORS,
+  },
+  rooms: {
+    tabs: ["INFO"],
+    strategy: "row-label-union",
+    labels: [
+      /^GENERAL SESSION/i,
+      /^BREAKOUT/i,
+      /^GS (Setup|Set Time|Strike Time|Audio|Video|Scenic|Other)/i,
+      /^BO (Setup|Set Time|Strike Time|Audio|Video|Other)/i,
+    ],
+  },
+  venue: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^VENUE$/i,
+    terminators: BLOCK_TERMINATORS,
+  },
+  financials: {
+    tabs: ["INFO"],
+    strategy: "row-label-union",
+    labels: [/^COI$/i, /^PO\s*#?$/i, /^Proposal$/i, /^Invoice/i],
+  },
+  details: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)/i,
+    terminators: BLOCK_TERMINATORS,
+  },
+  gear_packlist: { tabs: ["PULL SHEET", "GEAR"], strategy: "whole-tab" },
+  schedule: { tabs: ["AGENDA"], strategy: "whole-tab" },
 };
 
 // `satisfies` (not an explicit `: Record<string, RegionId>` annotation) keeps the
@@ -57,7 +110,45 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
 // undefined`) under `noUncheckedIndexedAccess`. The card wiring (components/crew/
 // sections/*) indexes `sourceAnchors` with these values, which would error if the
 // lookup widened to `undefined`. `CardId` is exported for the same literal-key safety.
-export const CARD_REGION_MAP = { "crew-roster":"crew", "crew-contacts":"contacts", "travel-flight":"flights", "travel-getting-there":"transportation", "travel-hotels":"hotels", "venue-where":"venue", "venue-facilities":"venue", "venue-status":"venue", "gear-scope-audio":"rooms", "gear-scope-video":"rooms", "gear-scope-lighting":"rooms", "gear-pack-list":"gear_packlist", "gear-keynote":"details", "gear-opening-reel":"details", "schedule-days":"schedule", "schedule-call-times":"rooms", "budget-main":"financials", "today-tonight":"hotels", "today-where":"venue", "today-contact":"contacts", "today-key-times":"rooms", "today-dress":"details", "today-run-of-show":"schedule" } satisfies Record<string, RegionId>;
+export const CARD_REGION_MAP = {
+  "crew-roster": "crew",
+  "crew-contacts": "contacts",
+  "travel-flight": "flights",
+  "travel-getting-there": "transportation",
+  "travel-hotels": "hotels",
+  "venue-where": "venue",
+  "venue-facilities": "venue",
+  "venue-status": "venue",
+  "gear-scope-audio": "rooms",
+  "gear-scope-video": "rooms",
+  "gear-scope-lighting": "rooms",
+  "gear-pack-list": "gear_packlist",
+  "gear-keynote": "details",
+  "gear-opening-reel": "details",
+  "schedule-days": "schedule",
+  "schedule-call-times": "rooms",
+  "budget-main": "financials",
+  "today-tonight": "hotels",
+  "today-where": "venue",
+  "today-contact": "contacts",
+  "today-key-times": "rooms",
+  "today-dress": "details",
+  "today-run-of-show": "schedule",
+} satisfies Record<string, RegionId>;
 export type CardId = keyof typeof CARD_REGION_MAP;
-export const MIXED_SOURCE_REGISTRY: Record<string, { primary: RegionId; secondaryFields: string[] }> = { "venue-facilities": { primary: "venue", secondaryFields: ["transportation.parking","event_details.internet","event_details.power"] }, "venue-status": { primary: "venue", secondaryFields: ["coi_status"] } };
-export const OUT_OF_SCOPE_CARDS = ["today-rightnow","today-notes","venue-diagrams","gear-opening-reel-video"] as const;
+export const MIXED_SOURCE_REGISTRY: Record<
+  string,
+  { primary: RegionId; secondaryFields: string[] }
+> = {
+  "venue-facilities": {
+    primary: "venue",
+    secondaryFields: ["transportation.parking", "event_details.internet", "event_details.power"],
+  },
+  "venue-status": { primary: "venue", secondaryFields: ["coi_status"] },
+};
+export const OUT_OF_SCOPE_CARDS = [
+  "today-rightnow",
+  "today-notes",
+  "venue-diagrams",
+  "gear-opening-reel-video",
+] as const;

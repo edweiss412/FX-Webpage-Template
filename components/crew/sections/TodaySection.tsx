@@ -302,7 +302,11 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
               <div data-testid="today-quick-cards" className="flex flex-col gap-3">
                 {firstHotel ? (
                   <div data-testid="today-card-tonight" className="flex min-w-0 flex-col">
-                    <div data-testid="today-tonight" data-card-id="today-tonight" className="flex flex-col">
+                    <div
+                      data-testid="today-tonight"
+                      data-card-id="today-tonight"
+                      className="flex flex-col"
+                    >
                       <SectionCard
                         icon={<BedIcon />}
                         title="Tonight"
@@ -335,7 +339,11 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
                 {venue ? (
                   <div data-testid="today-card-where" className="flex min-w-0 flex-col">
-                    <div data-testid="today-where" data-card-id="today-where" className="flex flex-col">
+                    <div
+                      data-testid="today-where"
+                      data-card-id="today-where"
+                      className="flex flex-col"
+                    >
                       <SectionCard
                         icon={<MapPinIcon />}
                         title="Where"
@@ -354,7 +362,11 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
 
                 {primaryContact ? (
                   <div data-testid="today-card-need-something" className="flex min-w-0 flex-col">
-                    <div data-testid="today-need-something" data-card-id="today-contact" className="flex flex-col">
+                    <div
+                      data-testid="today-need-something"
+                      data-card-id="today-contact"
+                      className="flex flex-col"
+                    >
                       <SectionCard
                         icon={<PhoneIcon />}
                         title="Need something"
@@ -526,7 +538,11 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                     data-testid="today-mode-a-grid"
                     className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                   >
-                    <div data-testid="today-run-of-show" data-card-id="today-run-of-show" className="min-w-0">
+                    <div
+                      data-testid="today-run-of-show"
+                      data-card-id="today-run-of-show"
+                      className="min-w-0"
+                    >
                       <SectionCard
                         icon={<ClockIcon />}
                         title="Run of show"

@@ -18,9 +18,8 @@ import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 
 // ── Compile-time assertions ──────────────────────────────────────────────────
 type _HasDriveFileId = ShowForViewer["driveFileId"] extends string | null ? true : never;
-type _HasSourceAnchors = ShowForViewer["sourceAnchors"] extends Record<string, SourceAnchor>
-  ? true
-  : never;
+type _HasSourceAnchors =
+  ShowForViewer["sourceAnchors"] extends Record<string, SourceAnchor> ? true : never;
 const _assertDriveFileId: _HasDriveFileId = true;
 const _assertSourceAnchors: _HasSourceAnchors = true;
 

@@ -84,7 +84,10 @@ export default async function SourceLinkDimPage() {
   // auth-chain audit classifies this harness route identically (chain: requireAdmin).
   await requireAdmin();
   return (
-    <main className="mx-auto flex max-w-md flex-col gap-6 p-6" data-testid="source-link-dim-harness">
+    <main
+      className="mx-auto flex max-w-md flex-col gap-6 p-6"
+      data-testid="source-link-dim-harness"
+    >
       <h1 className="text-sm font-semibold">source-link dimensional-invariant harness</h1>
 
       {/* WITH the header SourceLink. Fixed-width column (max-w-md on <main>) so

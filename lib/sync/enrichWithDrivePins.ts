@@ -125,9 +125,7 @@ async function extractEmbeddedImages(
 ): Promise<EmbeddedImageStub[]> {
   if (!ctx.sheets && !driveClient.listSpreadsheetSheets) return [];
 
-  const sheets =
-    ctx.sheets ??
-    (await driveClient.listSpreadsheetSheets!(ctx.driveFileId));
+  const sheets = ctx.sheets ?? (await driveClient.listSpreadsheetSheets!(ctx.driveFileId));
   const diagramsSheet = sheets.find(
     (sheet) => sheet.title.localeCompare("diagrams", undefined, { sensitivity: "accent" }) === 0,
   );
