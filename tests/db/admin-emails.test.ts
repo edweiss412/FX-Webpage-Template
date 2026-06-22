@@ -459,11 +459,13 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     expect(out).toContain("status=invalid_email");
   });
 
-  test("revoke_admin_email_rpc: last_admin_lockout when actor revokes self AND no other active rows", () => {
+  test("revoke_admin_email_rpc: self_revoke_forbidden when actor revokes self AND no other active rows (M12.5-DEF-1)", () => {
     const suffix = randomUUID();
     const email = `c9-lockout-${suffix}@example.com`;
     // Actor is the target (JWT email = target email) AND no other
-    // active admins exist.
+    // active admins exist. M12.5-DEF-1: self-revoke is unconditionally
+    // refused at the RPC boundary regardless of peer count — this was
+    // previously the last_admin_lockout branch.
     const out = runPsql(`
       begin;
       update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-000000000008'
@@ -475,7 +477,7 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
       select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(email)}))->>'status');
       rollback;
     `);
-    expect(out).toContain("status=last_admin_lockout");
+    expect(out).toContain("status=self_revoke_forbidden");
   });
 
   test("revoke_admin_email_rpc: other-revoke of last admin is ALLOWED (rogue revoke per §5.5)", () => {
@@ -498,10 +500,14 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     expect(out).toContain("is_revoked=true");
   });
 
-  test("revoke_admin_email_rpc: self-revoke ALLOWED when other actives exist", () => {
+  test("revoke_admin_email_rpc: self-revoke REFUSED even when other actives exist (M12.5-DEF-1)", () => {
     const suffix = randomUUID();
     const self = `c9-self-${suffix}@example.com`;
     const peer = `c9-peer-${suffix}@example.com`;
+    // M12.5-DEF-1: defense-in-depth at the RPC boundary. An admin can
+    // NEVER revoke their OWN access, even when peers exist — the prior
+    // peer-count branch (which ALLOWED self-revoke-with-peers) is gone.
+    // The row stays active.
     const out = runPsql(`
       begin;
       insert into public.admin_emails (email, added_by, added_at)
@@ -509,9 +515,11 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
       set local role authenticated;
       set local request.jwt.claims = '${jwtAdmin(self)}';
       select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(self)}))->>'status');
+      select 'self_active=' || (revoked_at is null) from public.admin_emails where email = ${sqlString(self)};
       rollback;
     `);
-    expect(out).toContain("status=ok");
+    expect(out).toContain("status=self_revoke_forbidden");
+    expect(out).toContain("self_active=true");
   });
 
   // R2 CRITICAL FIX: non-admin direct RPC denial. These tests prove
@@ -582,16 +590,13 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     expect(out).toContain("active=true");
   });
 
-  test("R1 HIGH FIX: concurrent self-revoke of two-active deployment leaves exactly one active", async () => {
-    // The pre-fix code performed a read-then-write: count other actives →
-    // skip lockout → UPDATE. Two concurrent self-revokes could both
-    // observe one other active, both skip lockout, and both UPDATE,
-    // leaving zero active admins.
-    //
-    // The RPC now wraps the count + UPDATE under a single
-    // pg_advisory_xact_lock. This test fires two parallel sessions
-    // attempting self-revoke; the property under test is "at least one
-    // active admin remains regardless of which session won".
+  test("M12.5-DEF-1: concurrent self-revoke of two-active deployment leaves BOTH active (both refused)", async () => {
+    // Pre-M12.5-DEF-1 the RPC performed a self-revoke-with-peers branch
+    // (count other actives → if any, UPDATE) so one concurrent
+    // self-revoke could succeed. M12.5-DEF-1 makes self-revoke
+    // UNCONDITIONALLY refused — there is no longer any race because
+    // neither session ever reaches the UPDATE. The property under test
+    // is now "both self-revokes are refused and BOTH rows stay active".
     const suffix = randomUUID();
     const alpha = `c9-concurrent-alpha-${suffix}@example.com`;
     const beta = `c9-concurrent-beta-${suffix}@example.com`;
@@ -609,8 +614,7 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
 
     try {
       // Fire two concurrent self-revoke RPCs from separate psql
-      // processes (true OS-level parallelism via spawn). The advisory
-      // lock inside revoke_admin_email_rpc serializes them.
+      // processes (true OS-level parallelism via spawn).
       const [outA, outB] = await Promise.all([
         runPsqlAsync(
           `set role authenticated;
@@ -623,17 +627,15 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
            select 'b=' || ((public.revoke_admin_email_rpc(${sqlString(beta)}))->>'status');`,
         ),
       ]);
-      // One of the two must observe last_admin_lockout (the one that
-      // grabbed the lock SECOND saw zero other actives). The other
-      // succeeded. The PRE-FIX state was "both succeeded" → zero
-      // active admins.
-      const combined = `${outA}\n${outB}`;
-      expect(combined).toMatch(/last_admin_lockout/);
-      // Verify the deployment still has at least one active admin.
+      // BOTH sessions self-revoke → BOTH refused with self_revoke_forbidden.
+      expect(outA).toMatch(/a=self_revoke_forbidden/);
+      expect(outB).toMatch(/b=self_revoke_forbidden/);
+      // BOTH rows remain active — defense-in-depth never lets an admin
+      // self-lockout, even concurrently.
       const active = runPsql(
         `select 'active=' || count(*) from public.admin_emails where revoked_at is null and email in (${sqlString(alpha)}, ${sqlString(beta)});`,
       );
-      expect(active).toMatch(/active=1/);
+      expect(active).toMatch(/active=2/);
     } finally {
       // Cleanup test rows.
       runPsql(

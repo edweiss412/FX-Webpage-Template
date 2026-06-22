@@ -135,7 +135,13 @@ function releaseLock() {
   }
 }
 
-async function acquireLockWithRetry(maxWaitMs = 240_000) {
+// Default 600s (was 240s). The B1-D4 dev-gate CI workflow boots three
+// dev-gate webServers (:3001/:3002/:3003), each running `pnpm build`. Every
+// build serializes on this lock, so the third build can wait through two cold
+// CI builds before acquiring it — 240s was marginal under CI load (DEFERRED.md
+// B1-D4). 600s leaves ample headroom for three serial cold builds; the
+// stale-lock steal below still bounds waits on a genuinely dead holder.
+async function acquireLockWithRetry(maxWaitMs = 600_000) {
   const start = Date.now();
   while (!tryAcquireLock()) {
     // Stale-lock steal: if the held lock's pid is dead (killed mid-build, or an

@@ -53,7 +53,13 @@ export type AdminEmailWriteOutcome =
   | { kind: "ok"; row: AdminEmailRow | null }
   | { kind: "already_active"; email: string }
   | { kind: "re_add_required"; email: string; previously_revoked_at: string }
+  // M12.5-DEF-1: self-revoke is refused unconditionally at the RPC
+  // boundary (status='self_revoke_forbidden'). `last_admin_lockout` is
+  // the pre-DEF-1 RPC's self-revoke-of-only-admin status, kept so the
+  // page doesn't infra-error during the tables-before-migrations apply
+  // window; once the migration is everywhere it stops being returned.
   | { kind: "last_admin_lockout"; email: string }
+  | { kind: "self_revoke_forbidden"; email: string }
   | { kind: "invalid_email"; raw: string };
 
 /**
@@ -148,7 +154,13 @@ export async function revokeAdminEmail(opts: {
 // ---- private translation helpers ----------------------------------------
 
 type RpcEnvelope = {
-  status: "ok" | "already_active" | "re_add_required" | "last_admin_lockout" | "invalid_email";
+  status:
+    | "ok"
+    | "already_active"
+    | "re_add_required"
+    | "last_admin_lockout"
+    | "self_revoke_forbidden"
+    | "invalid_email";
   email?: string;
   previously_revoked_at?: string;
   row?: AdminEmailRow | null;
@@ -163,7 +175,15 @@ type RpcEnvelope = {
 // believe a revoke succeeded when no revoke happened. Invariant 9:
 // infra faults must NOT become benign signals.
 const UPSERT_STATUS_SET = new Set(["ok", "already_active", "re_add_required", "invalid_email"]);
-const REVOKE_STATUS_SET = new Set(["ok", "last_admin_lockout", "invalid_email"]);
+// M12.5-DEF-1: accept BOTH self_revoke_forbidden (new RPC) and
+// last_admin_lockout (old RPC, transitional apply window) so a revoke
+// during the tables-before-migrations window doesn't infra-error.
+const REVOKE_STATUS_SET = new Set([
+  "ok",
+  "last_admin_lockout",
+  "self_revoke_forbidden",
+  "invalid_email",
+]);
 
 function translateUpsertResult(
   data: unknown,
@@ -228,7 +248,11 @@ function translateRevokeResult(
     case "ok":
       return { kind: "ok", row: env.row ?? null };
     case "last_admin_lockout":
+      // Transitional: pre-M12.5-DEF-1 RPC self-revoke-of-only-admin.
       return { kind: "last_admin_lockout", email: env.email ?? canonicalEmail };
+    case "self_revoke_forbidden":
+      // M12.5-DEF-1: the new RPC refuses ANY self-revoke at the DB boundary.
+      return { kind: "self_revoke_forbidden", email: env.email ?? canonicalEmail };
     case "invalid_email":
       return { kind: "invalid_email", raw: rawEmail };
     default:

@@ -13,7 +13,8 @@
  *
  *   - Each split-wide section (Schedule, Venue, Travel, Crew, Today Mode A):
  *     at ≥720px the LEFT column width ≈ 1.6 × the RIGHT column (±2px) AND the
- *     two columns are equal-height (items-stretch / grid stretch); at 390px the
+ *     two columns use items-start natural height (the short column is NOT
+ *     stretched to the taller; 2026-06-21 owner amendment, NOT equal-height); at 390px the
  *     columns STACK to a single full-width column with NO horizontal overflow.
  *   - Schedule date badge `[data-testid="day-card-date"]` is 50px wide.
  *   - `[data-testid="avatar"]` is 40px square.
@@ -138,14 +139,14 @@ async function lookupShareToken(showId: string): Promise<string> {
   return res.data.share_token as string;
 }
 
-test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 10)", () => {
+test.describe("crew layout dimensions — split-wide ratio + natural height (Task 10)", () => {
   // First-hit cold render of the crew shell touches a wide module graph; the
   // budget absorbs that. The layout reads themselves are sub-second once warm.
   test.setTimeout(180_000);
 
   /** ≥720px tolerance for the 1.6 ratio + the sub-nav alignment (px). */
   const TOL_PX = 2;
-  /** equal-height / equal-width tolerance (grid stretch is pixel-exact, ±0.5px). */
+  /** tight tolerance for stack-edge / shared-left-edge / overflow / ratio checks (±0.5px). */
   const TOL_TIGHT = 0.5;
 
   let slug = "";
@@ -243,7 +244,8 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
 
   /**
    * The shared split-wide contract: at ≥720px the LEFT (first) column is ≈ 1.6×
-   * the RIGHT (second) column's width AND both are equal-height (items-stretch);
+   * the RIGHT (second) column's width, side by side, with items-start natural
+   * height (NOT equal-height; 2026-06-21 owner amendment);
    * at 390px the columns STACK (col2 below col1, shared left edge, full-width).
    * `columnsLocator` returns the section's two `*-column` divs in DOM order
    * (left/wide first). Derives the expected ratio from the measured rects — the
@@ -255,7 +257,7 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
     columnsTestId: string,
     expectTwoColumns: boolean,
   ): Promise<{ assertedSideBySide: boolean }> {
-    // ── ≥720px (viewport 1000): side-by-side, 1.6 ratio, equal height. ──
+    // ── ≥720px (viewport 1000): side-by-side, 1.6 ratio, natural height. ──
     await page.setViewportSize({ width: 1000, height: 1000 });
     await gotoSection(page, section);
     const colsWide = page.getByTestId(columnsTestId);
@@ -289,11 +291,25 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
         `@1000px ${section} left column must be ≈1.6× the right (1.6fr/1fr); left=${a.width} right=${b.width} ratio=${(a.width / b.width).toFixed(4)} expectedLeft=${expectedLeft.toFixed(2)}`,
       ).toBeLessThanOrEqual(TOL_PX);
 
-      // (2) Equal height (items-stretch / grid align-items:stretch).
+      // (2) Natural height — NOT equal-height. Per the 2026-06-21 owner amendment
+      // the split-wide grids use `items-start`, so the shorter column (e.g. the
+      // ~3-row "Daily call times" / ~2-contact "Key contacts" card) takes its
+      // own height instead of stretching to the taller column and leaving dead
+      // space. We assert the grid's computed align-items POSITIVELY: a regression
+      // that drops `min-[720px]:items-start` would otherwise still pass the ratio
+      // + side-by-side checks (CSS grid defaults to align-items:normal, which
+      // renders as stretch) while reintroducing the dead-space bug. Chromium
+      // reports `start` for items-start, `stretch` for the old items-stretch, and
+      // `normal` for the unset default — so `toBe("start")` catches both regressions.
+      // The grid is the column's direct parent (both `*-column` divs are direct
+      // children of the `grid-cols-[1.6fr_1fr]` container).
+      const align = await colsWide
+        .nth(0)
+        .evaluate((el) => getComputedStyle(el.parentElement as HTMLElement).alignItems);
       expect(
-        Math.abs(a.height - b.height),
-        `@1000px ${section} columns must be equal-height (items-stretch); a=${a.height} b=${b.height}`,
-      ).toBeLessThanOrEqual(TOL_TIGHT);
+        align,
+        `@1000px ${section} split-wide grid must be items-start (natural height), not stretched; got align-items=${align}`,
+      ).toBe("start");
       assertedSideBySide = true;
     } else if (expectTwoColumns) {
       throw new Error(
@@ -347,17 +363,18 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
   // ── Schedule / Venue / Travel / Crew — the four standing split-wide sections.
   // Schedule ALWAYS renders two columns (day cards + times/heads-up); Venue /
   // Travel / Crew render the split only when BOTH columns have content (one-sided
-  // collapse → flex-col full-width). The 1.6 / equal-height assertion runs when
-  // two columns exist (colCount ≥ 2); the contract is "IF two columns, they are
-  // split-wide," never "two columns MUST exist" — except Schedule, which always
-  // does, so we pin expectTwoColumns=true for it.
+  // collapse → flex-col full-width). The 1.6-ratio / side-by-side assertion runs
+  // when two columns exist (colCount ≥ 2); the contract is "IF two columns, they
+  // are split-wide," never "two columns MUST exist" — except Schedule, which always
+  // does, so we pin expectTwoColumns=true for it. Height equality is NOT part of
+  // the contract (items-start, 2026-06-21 owner amendment).
   for (const { section, columnsTestId, expectTwoColumns } of [
     { section: "schedule", columnsTestId: "schedule-column", expectTwoColumns: true },
     { section: "venue", columnsTestId: "venue-column", expectTwoColumns: false },
     { section: "travel", columnsTestId: "travel-column", expectTwoColumns: false },
     { section: "crew", columnsTestId: "crew-column", expectTwoColumns: false },
   ] as const) {
-    test(`${section}: split-wide 1.6 ratio + equal-height (≥720px) / stacked (390px)`, async ({
+    test(`${section}: split-wide 1.6 ratio + natural height (≥720px) / stacked (390px)`, async ({
       page,
     }, testInfo) => {
       if (testInfo.project.name !== "mobile-safari") return;
@@ -368,11 +385,11 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
         expectTwoColumns,
       );
       // For the always-two-column Schedule the side-by-side branch MUST have run
-      // (otherwise the 1.6/equal-height assertions never executed → silent pass).
+      // (otherwise the 1.6-ratio assertions never executed → silent pass).
       if (expectTwoColumns) {
         expect(
           assertedSideBySide,
-          `${section}: the ≥720px 1.6/equal-height assertions must have executed (two columns present)`,
+          `${section}: the ≥720px 1.6-ratio assertions must have executed (two columns present)`,
         ).toBe(true);
       }
     });
@@ -384,7 +401,7 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
   // `today-run-of-show` card (LEFT, 1.6fr) and the quick-cards stack (RIGHT, 1fr).
   // The grid's direct children carry no shared testid, so we measure the two
   // `:scope > *` children of the grid directly.
-  test("today Mode A: split-wide 1.6 ratio + equal-height (≥720px) / stacked (390px)", async ({
+  test("today Mode A: split-wide 1.6 ratio + natural height (≥720px) / stacked (390px)", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
@@ -401,7 +418,8 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
     // the full-width Mode B stack.
     await expect(page.getByTestId("today-run-of-show")).toBeVisible();
 
-    // ≥720px: the two grid children are side-by-side, 1.6 ratio, equal-height.
+    // ≥720px: the two grid children are side-by-side, 1.6 ratio, natural height
+    // (items-start per the 2026-06-21 owner amendment — NOT equal-height).
     const childRects: Rect[] = await grid.evaluate((el) =>
       Array.from(el.children).map((c) => {
         const r = (c as HTMLElement).getBoundingClientRect();
@@ -425,10 +443,14 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
       Math.abs(left.width - expectedLeft),
       `@1000px Today Mode A left (run-of-show) must be ≈1.6× the right (quick-cards); left=${left.width} right=${right.width} ratio=${(left.width / right.width).toFixed(4)}`,
     ).toBeLessThanOrEqual(TOL_PX);
+    // Natural height: assert items-start POSITIVELY (Chromium reports `start` for
+    // items-start, `stretch`/`normal` for the regression) so dropping
+    // `min-[720px]:items-start` can't pass on ratio + side-by-side alone.
+    const alignA = await grid.evaluate((el) => getComputedStyle(el as HTMLElement).alignItems);
     expect(
-      Math.abs(left.height - right.height),
-      `@1000px Today Mode A columns must be equal-height (items-stretch); left=${left.height} right=${right.height}`,
-    ).toBeLessThanOrEqual(TOL_TIGHT);
+      alignA,
+      `@1000px Today Mode A grid must be items-start (natural height), not stretched; got align-items=${alignA}`,
+    ).toBe("start");
 
     // 390px: stacked, single full-width column, no horizontal overflow.
     await page.setViewportSize({ width: 390, height: 844 });
@@ -540,6 +562,13 @@ test.describe("crew layout dimensions — split-wide ratio + equal-height (Task 
       Math.abs(left.width - expectedLeft),
       `@1000px Today Mode B left (day-context) must be ≈1.6× the right (quick-cards); left=${left.width} right=${right.width} ratio=${(left.width / right.width).toFixed(4)}`,
     ).toBeLessThanOrEqual(TOL_PX);
+    // Natural height: items-start asserted positively (Mode B has always been
+    // items-start; pinning it keeps the whole split-wide family uniform).
+    const alignB = await grid.evaluate((el) => getComputedStyle(el as HTMLElement).alignItems);
+    expect(
+      alignB,
+      `@1000px Today Mode B grid must be items-start (natural height), not stretched; got align-items=${alignB}`,
+    ).toBe("start");
 
     // 390px: stacked, single full-width column, no horizontal overflow.
     await page.setViewportSize({ width: 390, height: 844 });

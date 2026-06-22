@@ -1,0 +1,12 @@
+# Fixture help page (M11-A-D3)
+
+This fixture exists ONLY to prove the runtime no-raw-codes crawl
+(`tests/e2e/no-raw-codes.spec.ts`) catches a raw §12.4 catalog code when it
+appears on an MDX-authored help surface. The static AST audit historically
+skipped `.mdx`; this fixture demonstrates the runtime DOM crawl supersedes
+that gap — MDX compiles to ordinary HTML text nodes + attributes, which the
+crawl already walks. See `DEFERRED.md` (M11-A-D3) for the rationale.
+
+If the sheet cannot be read you may see SHEET_UNAVAILABLE in the banner.
+
+<abbr title="SHEET_UNAVAILABLE">missing sheet</abbr>

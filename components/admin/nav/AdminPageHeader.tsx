@@ -55,13 +55,22 @@ export function AdminPageHeader({
             rightSlot (per-show share-link chip) vertically centers against the
             whole title+subtitle block, not just the title. */}
         <div className="flex min-w-0 flex-col gap-0.5">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             {/* M12.8: tracking-page-title (= -0.02em) matches the design bundle's
                 `.page-title` letter-spacing exactly (Tailwind's `tracking-tight`
-                is -0.025em). Named token per the no-arbitrary-tracking contract. */}
+                is -0.025em). Named token per the no-arbitrary-tracking contract.
+                B1-D1: `min-w-0 truncate` lets a long per-show title shrink inside
+                the flex-wrap row (and the title column's own `min-w-0`) instead of
+                forcing the header box wider than its content column — at the
+                min-[720px] col→row switch a ~64-char title otherwise pushed the
+                shrink-0 share chip past the right edge (header scrollWidth overrun).
+                The full title stays reachable via the `title` hover tooltip; the
+                inline status pill (titleAppendSlot) wraps to the next line under
+                flex-wrap when the truncated title still fills the row. */}
             <h1
-              className="text-2xl font-semibold leading-[1.1] tracking-page-title text-text-strong"
+              className="min-w-0 truncate text-2xl font-semibold leading-[1.1] tracking-page-title text-text-strong"
               data-testid="admin-page-header-title"
+              title={title}
             >
               {title}
             </h1>

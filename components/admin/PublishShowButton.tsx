@@ -27,6 +27,7 @@ import { useFormStatus } from "react-dom";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -126,14 +127,16 @@ export function PublishShowButton({ publishAction, slug }: PublishShowButtonProp
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
+    <AccentButton
       type="submit"
       data-testid="publish-show-button"
       disabled={pending}
       aria-busy={pending}
-      className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+      size="sm"
+      inline
+      minWidthTap
     >
       {pending ? "Publishing…" : "Publish"}
-    </button>
+    </AccentButton>
   );
 }

@@ -131,6 +131,16 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   const lockoutMessage =
     result?.kind === "last_admin_lockout" ? getDougFacing("LAST_ADMIN_LOCKOUT_REFUSED") : null;
 
+  // M12.5-DEF-1: a POST-reachable forged self-revoke (the row's Revoke
+  // control is normally hidden on the actor's own row) resolves to
+  // self_revoke_forbidden — both the Server-Action guard and the
+  // RPC-boundary refusal map to this kind. Render the dedicated copy
+  // (distinct from the last-administrator lockout message).
+  const selfRevokeMessage =
+    result?.kind === "self_revoke_forbidden"
+      ? getRequiredDougFacing("SELF_REVOKE_FORBIDDEN")
+      : null;
+
   // Task 6.4: transient DB / permissions fault on the revoke RPC,
   // caught as AdminEmailsInfraError and surfaced inline so Doug can
   // retry. Like lockoutMessage, the non-ok result snaps ui→idle (see
@@ -225,6 +235,15 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             {lockoutMessage}
           </p>
         )}
+        {selfRevokeMessage && (
+          <p
+            data-testid="admin-allowlist-self-revoke-error"
+            role="alert"
+            className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          >
+            {selfRevokeMessage}
+          </p>
+        )}
         {writeFailMessage && (
           <p
             data-testid="admin-allowlist-error-write-failed"
@@ -288,6 +307,15 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
         >
           {lockoutMessage}
+        </p>
+      )}
+      {selfRevokeMessage && (
+        <p
+          data-testid="admin-allowlist-self-revoke-error"
+          role="alert"
+          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+        >
+          {selfRevokeMessage}
         </p>
       )}
       {writeFailMessage && (
