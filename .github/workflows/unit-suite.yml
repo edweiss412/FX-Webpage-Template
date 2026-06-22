@@ -1,0 +1,72 @@
+name: Unit + DB suite (full vitest gate)
+# Root-cause fix for the "no CI gate runs the full `pnpm test` suite" gap:
+# before this job, the workflows only ran TARGETED vitest files (x-audits,
+# deep-link-walker, postgrest-dml-lockdown, affordance-matrix). The 6800+
+# unit/DB tests that implementers + reviewers rely on for "all green" were
+# NOT gated, so PRs merged with failing/stale tests undetected (e.g. an
+# orphaned construction-in-try fix + stale applyStagedCore INSERT-param
+# assertions both landed red on main; the validation-reset feature shipped
+# violating the server-time + emphasis-render meta-tests).
+#
+# This job boots local Supabase (same shared bootstrap as dev-gate-e2e.yml /
+# screenshots-drift.yml) and runs the WHOLE vitest suite so any unit or
+# local-DB test failure blocks merge.
+#
+# Two files are EXCLUDED — they need environments this local-bootstrap runner
+# cannot provide, and each is tracked for separate gating:
+#   - tests/cross-cutting/pg-cron-coverage.test.ts — live-DB introspection of
+#     cron.job rows; the bootstrap deliberately HOLDS ASIDE the two GUC-guarded
+#     pg_cron migrations (app.fxav_vercel_url), so no cron jobs exist locally.
+#     It is designed to run against the validation project (TEST_DATABASE_URL +
+#     VALIDATION_SUPABASE_PROJECT_REF), like validation-schema-parity.
+#   - tests/admin/test-auth-gate.test.ts — Layer 2 drives a real Supabase
+#     auth.admin.createUser → signInWithPassword chain that needs the running
+#     instance's matching service-role key + GoTrue; it returns 501 without it.
+#   - tests/cross-cutting/email-canonicalization.test.ts — three tests set an
+#     EXPLICIT 15s per-test timeout while doc-scanning the (large) master spec +
+#     plan; under full-suite concurrency on the 2-core CI runner they starve and
+#     time out (they pass STANDALONE, with isolated resources, in x5-email-
+#     canonicalization which already gates this file).
+# All three were ALREADY gated (x5) or ungated before this job, so excluding
+# them is not a regression. Follow-up: BL-CI-UNIT-GATE-EXCLUSIONS (BACKLOG.md).
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: unit-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Install psql (local-DB tests + bootstrap shell out to psql)
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Boot local Supabase (guarded migrations)
+        # Shared bootstrap (M12.12 Task 14) — same Supabase + GUC + guarded-
+        # migration setup dev-gate-e2e.yml / screenshots-drift.yml use, so the
+        # hold-aside list cannot drift between workflows. DB tests default to
+        # the local instance (127.0.0.1:54322) when TEST_DATABASE_URL is unset.
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      - name: Run full vitest suite (minus the two env-bound files; see header)
+        run: |
+          pnpm exec vitest run \
+            --exclude '**/tests/admin/test-auth-gate.test.ts' \
+            --exclude '**/tests/cross-cutting/pg-cron-coverage.test.ts' \
+            --exclude '**/tests/cross-cutting/email-canonicalization.test.ts'

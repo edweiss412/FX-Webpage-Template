@@ -47,6 +47,10 @@ const MARKER_RE = /\*\*[^*]+\*\*|\*[^*]+\*|(^|[\s("'])_(\S(?:.*?\S)?)_(?=[\s)"'.
  */
 const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> = [
   { file: "app/admin/error.tsx", reason: "ADMIN_ROUTE_LOAD_FAILED only; marker-free." },
+  {
+    file: "components/admin/MaintenanceResetButtons.tsx",
+    reason: "VALIDATION_RESET_*/RESEED_* dougFacing status copy; marker-free.",
+  },
   { file: "app/admin/layout.tsx", reason: "Passes codes/copy to children; no raw copy render." },
   {
     file: "app/admin/settings/admins/ReAddRowButton.tsx",

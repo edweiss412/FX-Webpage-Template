@@ -141,7 +141,7 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
   // Compute validationTodayIso ONCE (UTC-midnight-drift safe; same value
   // is passed to buildFixtures, mintFixtureCombos, and finalizeFixtures).
   // Pattern sourced from scripts/validation-reseed.ts:131.
-  const validationTodayIso = new Date().toISOString().slice(0, 10);
+  const validationTodayIso = new Date().toISOString().slice(0, 10); // not-render-side: one-shot admin reseed; dates fixtures by wall-clock today, no render output.
   const ALL_COMBOS: Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
   try {

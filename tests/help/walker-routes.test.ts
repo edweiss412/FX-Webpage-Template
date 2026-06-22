@@ -85,6 +85,15 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     ["admin-nav-layout-dimensions.spec.ts", 2],
     ["admin-parse-panel.spec.ts", 2],
     ["admin-route-boundaries.spec.ts", 2],
+    // claimStamp.ts / seedShowWithCrew.ts / picker-flow.spec.ts write locked tables
+    // (crew_members, shows) via the SERVICE-ROLE admin client (helpers/supabaseAdmin.ts)
+    // — elevated test setup/cleanup that bypasses the PostgREST DML lockdown by design
+    // (the lockdown REVOKEs from authenticated, not service_role). Frozen at their
+    // current counts; these are seed/cleanup/claim-stamp writes, distinct from the
+    // date_restriction locked-seed concern this pin guards.
+    ["claimStamp.ts", 1],
+    ["seedShowWithCrew.ts", 3],
+    ["picker-flow.spec.ts", 1],
     // crew-page.spec.ts: the crew-redesign §4.9/§4.10/nav rewrite (Phase 4) replaced
     // the legacy today-band blocks that carried the 2 frozen locked-table fixture
     // writes with seeded-slug + signInAs flows that perform NO unlocked PostgREST
