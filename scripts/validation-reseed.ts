@@ -17,13 +17,12 @@ import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
+import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "../lib/validation/fixtures";
 import {
-  buildFixtures,
-  R_COMBOS,
-  SW_COMBOS,
-  type Combo,
-  type FixtureRow,
-} from "./lib/validation-fixtures";
+  mintFixtureCombos,
+  finalizeFixtures,
+  type LooseSupabaseClient,
+} from "../lib/validation/reseedFixtures";
 
 const USAGE = `Usage: pnpm validation:reseed [--combo <id>|all] [--allow-local-override] [--help]
 
@@ -65,75 +64,6 @@ function requireEnv(name: string): string {
     );
   }
   return v;
-}
-
-// Loose-typed SupabaseClient — the validation tooling doesn't have generated
-// DB types (the runtime project uses arbitrary RPC names) and the script
-// runs as service_role; trust the response shape and check {data, error}.
-type LooseSupabaseClient = {
-  rpc: (
-    fnName: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
-};
-
-async function mintCombo(
-  supabase: LooseSupabaseClient,
-  fixture: FixtureRow,
-  validationTodayIso: string,
-  seededBy: string,
-  seededProjectRef: string,
-): Promise<void> {
-  const payload = {
-    showName: fixture.showName,
-    dates: fixture.dates,
-    crewMembers: fixture.crewMembers.map((c) => ({
-      alias: c.alias,
-      name: c.name,
-      email: c.email,
-      roleFlags: c.roleFlags,
-      dateRestriction: fixture.dateRestriction,
-      stageRestriction: fixture.stageRestriction,
-    })),
-    validationTodayIso,
-    seededBy,
-    seededProjectRef,
-  };
-  const { data, error } = await supabase.rpc("mint_validation_fixture_atomic", {
-    p_combo: fixture.combo,
-    p_fixture_payload: payload,
-  });
-  if (error) {
-    throw new Error(
-      `mint_validation_fixture_atomic(${fixture.combo}) failed: ${error.message ?? JSON.stringify(error)}`,
-    );
-  }
-  if (data === null || data === undefined) {
-    throw new Error(
-      `mint_validation_fixture_atomic(${fixture.combo}) returned no data — expected {show_id, alias_map_slice}.`,
-    );
-  }
-}
-
-async function finalizeAll(
-  supabase: LooseSupabaseClient,
-  requiredCombos: Combo[],
-  validationTodayIso: string,
-): Promise<void> {
-  const { data, error } = await supabase.rpc("validation_finalize_all_atomic", {
-    p_required_combos: requiredCombos,
-    p_validation_today_iso: validationTodayIso,
-  });
-  if (error) {
-    throw new Error(
-      `validation_finalize_all_atomic failed: ${error.message ?? JSON.stringify(error)}`,
-    );
-  }
-  if (data === null || data === undefined) {
-    throw new Error(
-      "validation_finalize_all_atomic returned no data — expected {finalized_combos, last_seed_date}.",
-    );
-  }
 }
 
 async function main(): Promise<void> {
@@ -206,27 +136,30 @@ async function main(): Promise<void> {
   }) as unknown as LooseSupabaseClient;
 
   const allFixtures = buildFixtures(validationTodayIso);
-  const fixturesByCombo = new Map<Combo, FixtureRow>(allFixtures.map((fx) => [fx.combo, fx]));
+  const fixturesByCombo = new Map(allFixtures.map((fx) => [fx.combo, fx]));
+  const requestedFixtures = combosToReseed.map((combo) => {
+    const fixture = fixturesByCombo.get(combo);
+    if (!fixture) throw new Error(`Internal error: no fixture found for combo ${combo}`);
+    return fixture;
+  });
 
   const seededBy = `validation-reseed cli (${process.env.USER ?? "unknown"})`;
 
-  let succeeded = 0;
-  for (const combo of combosToReseed) {
-    const fixture = fixturesByCombo.get(combo);
-    if (!fixture) {
-      throw new Error(`Internal error: no fixture found for combo ${combo}`);
-    }
-    log(`mint ${combo}…`);
-    await mintCombo(supabase, fixture, validationTodayIso, seededBy, supabaseProjectRef);
-    succeeded += 1;
-  }
+  log(`mint [${combosToReseed.join(",")}]…`);
+  const { minted: succeeded } = await mintFixtureCombos(
+    supabase,
+    requestedFixtures,
+    validationTodayIso,
+    seededBy,
+    supabaseProjectRef,
+  );
 
   // R55 commit 94 F48 — finalizer ONLY fires on --combo all. Single-combo
   // dispatch leaves last_seed_date alone; check-seed predicate (b') reads
   // combos_seeded_dates[<single>] instead.
   if (requestedCombo === "all") {
     log("finalize…");
-    await finalizeAll(supabase, ALL_COMBOS, validationTodayIso);
+    await finalizeFixtures(supabase, ALL_COMBOS, validationTodayIso);
   }
 
   process.stdout.write(`seeded ${succeeded} combos at ${new Date().toISOString()}\n`);

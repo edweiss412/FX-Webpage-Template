@@ -367,6 +367,24 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     },
     rowFilter: "?show_id=eq.00000000-0000-0000-0000-000000000000",
   },
+  {
+    // Task 2 — destructive-reset prod-safety gate. The single boolean that
+    // decides whether reset_validation_data() (a DELETE-ALL-SHOWS SECURITY
+    // DEFINER RPC) may run on THIS database. Ships migration-owned at
+    // enabled=false everywhere; only validation projects flip it true
+    // out-of-band. NO PostgREST access of any kind: no anon/authenticated DML
+    // grant AND RLS-deny (enabled, no policy) — so a signed-in admin cannot
+    // SELECT/INSERT/UPDATE it via /rest/v1 to flip it on. service_role only.
+    table: "destructive_reset_gate",
+    closed_at: "supabase/migrations/20260622000001_validation_reset_rpc.sql:10",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      id: "default",
+      enabled: true,
+    },
+    rowFilter: "?id=eq.default-no-such-row",
+  },
 ] as const;
 
 // =============================================================================

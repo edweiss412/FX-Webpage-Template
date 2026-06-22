@@ -19,7 +19,7 @@
 import { describe, expect, test } from "vitest";
 
 import { selectRightNowState } from "@/lib/time/rightNow";
-import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/scripts/lib/validation-fixtures";
+import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/lib/validation/fixtures";
 
 // Use a midday UTC instant to avoid TZ-midnight edge cases — the
 // fixtures themselves are TZ-pinned to UTC via venue.timezone in the

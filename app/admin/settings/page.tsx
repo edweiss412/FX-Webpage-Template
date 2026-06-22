@@ -42,6 +42,8 @@ import { NotifyToggle, type NotifyToggleInitial } from "@/components/admin/setti
 import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { ReapStaleSessionsButton } from "@/components/admin/ReapStaleSessionsButton";
+import { MaintenanceResetButtons } from "@/components/admin/MaintenanceResetButtons";
+import { destructiveResetAllowed } from "@/lib/admin/validationDeployment";
 import { Bell, Sparkles, ShieldCheck, Trash2 } from "lucide-react";
 import { getAutoPublishCleanFirstSeen } from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
 import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
@@ -66,6 +68,11 @@ export const metadata = { title: "Settings · Admin · FXAV" };
 export default async function AdminSettingsPage() {
   const identity = await requireAdminIdentity();
   const now = await nowDate();
+
+  // Validation-only maintenance affordances (Task 7): render-gated to the
+  // validation deployment with the destructive-reset flag set. Never shown on
+  // production/staging. Computed once here; the component carries no secret prop.
+  const canReset = destructiveResetAllowed();
 
   // Fail-closed read of the auto-publish toggle (infra_error → degraded control;
   // never a silent wrong/falsely-ON state — §4). Map the reader's
@@ -226,6 +233,7 @@ export default async function AdminSettingsPage() {
               </div>
             </div>
             <ReapStaleSessionsButton />
+            {canReset && <MaintenanceResetButtons />}
           </div>
         </section>
       </div>
