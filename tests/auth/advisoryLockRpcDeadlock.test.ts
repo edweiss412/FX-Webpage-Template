@@ -28,6 +28,9 @@ function lockTakingRpcNames(): string[] {
     // Sync changes-feed Phase 4 — undo_change acquires the per-show advisory lock itself
     // (admin path, §4.1); _undo_tombstone runs inside that lock and never re-takes it.
     "supabase/migrations/20260608000003_undo_change_rpc.sql",
+    // Task 2 — reset_validation_data() acquires the per-show advisory lock for
+    // EVERY affected drive_file_id (sorted, single-holder) before any delete.
+    "supabase/migrations/20260622000001_validation_reset_rpc.sql",
   ];
 
   const names = new Set<string>();
@@ -65,6 +68,10 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(lockTakingNames).toContain("mi11_reject_hold");
     // Sync changes-feed Phase 4 — undo_change is a single-holder admin lock-taker.
     expect(lockTakingNames).toContain("undo_change");
+    // Task 2 — reset_validation_data() is a single-holder admin lock-taker over the
+    // sorted distinct affected-key set (shows ∪ pending_syncs ∪ pending_ingestions ∪
+    // deferred_ingestions) before any delete.
+    expect(lockTakingNames).toContain("reset_validation_data");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
@@ -140,6 +147,9 @@ describe("advisory-lock RPC deadlock guard", () => {
       "supabase/migrations/20260527210001_validation_finalize_all_atomic.sql",
       "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
       "supabase/migrations/20260608000003_undo_change_rpc.sql",
+      // Task 2 — reset_validation_data() takes its advisory locks before any
+      // mutation and takes no FOR UPDATE row locks at all (trivially passes).
+      "supabase/migrations/20260622000001_validation_reset_rpc.sql",
     ];
 
     for (const file of lockTakingMigrations) {
@@ -174,6 +184,52 @@ describe("advisory-lock RPC deadlock guard", () => {
       /for\s+r\s+in[\s\S]*?order\s+by\s+s\.drive_file_id[\s\S]*?loop[\s\S]*?pg_advisory_xact_lock\(hashtext\('show:'\s*\|\|\s*r\.drive_file_id\)\)/i,
     );
     expect(source).toMatch(/end\s+loop;\s*v_claim_at\s*:=\s*clock_timestamp\(\);/i);
+  });
+
+  test("reset_validation_data acquires multi-show locks in deterministic drive_file_id order, single-holder, before any delete", () => {
+    // Task 2 — the reset is a single-holder lock-taker over the sorted distinct
+    // affected-key set (shows ∪ pending_syncs ∪ pending_ingestions ∪
+    // deferred_ingestions). Pin: a `for … in (…) u order by drive_file_id loop`
+    // that takes pg_advisory_xact_lock(hashtext('show:' || <var>)), the lock
+    // loop ends BEFORE the first delete, and there is NO nested SECURITY DEFINER
+    // re-acquire (the body calls no other lock-taking RPC).
+    const source = stripComments(
+      readFileSync(
+        join(ROOT, "supabase/migrations/20260622000001_validation_reset_rpc.sql"),
+        "utf8",
+      ),
+    );
+
+    const m = source.match(
+      /create\s+(?:or\s+replace\s+)?function\s+public\.reset_validation_data\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/i,
+    );
+    expect(m, "reset_validation_data body must be present").toBeTruthy();
+    const body = m![1]!;
+
+    // Sorted multi-show lock loop over the distinct affected-key set.
+    expect(body).toMatch(
+      /for\s+\w+\s+in[\s\S]*?order\s+by\s+drive_file_id[\s\S]*?loop[\s\S]*?pg_advisory_xact_lock\(hashtext\('show:'\s*\|\|\s*\w+\)\)/i,
+    );
+
+    // The lock loop must close BEFORE the first delete (locks acquired before any mutation).
+    const endLoopAt = body.search(/end\s+loop\s*;/i);
+    const firstDeleteAt = body.search(/delete\s+from\s+public\./i);
+    expect(endLoopAt, "reset_validation_data must contain an `end loop;`").toBeGreaterThan(-1);
+    expect(firstDeleteAt, "reset_validation_data must contain a delete").toBeGreaterThan(-1);
+    expect(
+      endLoopAt < firstDeleteAt,
+      "all per-show advisory locks must be acquired (loop closed) BEFORE the first delete",
+    ).toBe(true);
+
+    // Single-holder: the body must take the advisory lock exactly via the loop
+    // and call no OTHER lock-taking RPC (no nested SECURITY DEFINER re-acquire).
+    const otherLockTakers = lockTakingRpcNames().filter((n) => n !== "reset_validation_data");
+    for (const name of otherLockTakers) {
+      expect(
+        body,
+        `reset_validation_data must not call rpc/SELECT public.${name}() (nested lock-taker → double-hold)`,
+      ).not.toMatch(new RegExp(`\\bpublic\\.${name}\\s*\\(`, "i"));
+    }
   });
 
   test("abandoned finalize cleanup uses direct SQL locks and no lock-taking RPC boundary", () => {

@@ -79,6 +79,10 @@
     "reason",
     "wizard_session_id"
   ],
+  "destructive_reset_gate": [
+    "enabled",
+    "id"
+  ],
   "drive_watch_channels": [
     "activated_at",
     "created_at",
