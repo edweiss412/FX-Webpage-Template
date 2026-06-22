@@ -1,4 +1,4 @@
-import type { AgendaEntry, CrewMemberRow, ParseResult } from "@/lib/parser/types";
+import type { CrewMemberRow, ParseResult, ScheduleDay } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { agendaDayEmptied } from "@/lib/parser/blocks/agendaWarnings";
 import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
@@ -21,7 +21,7 @@ export type ApplyParseResultSnapshot = {
   // warnings to emit (observability) — never to preserve content (CONFIRMED-ONLY full replace).
   // Optional here (tolerates other snapshot sources); the applyShowSnapshot RETURN is the required
   // live producer (phase2.ts). first-seen / nothing-prior = null.
-  priorRunOfShow?: Record<string, AgendaEntry[]> | null;
+  priorRunOfShow?: Record<string, ScheduleDay> | null;
 };
 
 export type ApplyParseResultTx = {
@@ -47,7 +47,7 @@ export type ApplyParseResultTx = {
       // §02 (D-2): CONFIRMED-ONLY full replace — exactly the latest parse's confirmed (non-empty)
       // days, or null when none remain. Persisted as $5::jsonb (postgres.js serializes; never
       // JSON.stringify — double-encode trap).
-      run_of_show: Record<string, AgendaEntry[]> | null;
+      run_of_show: Record<string, ScheduleDay> | null;
     },
   ): Promise<void>;
   deleteLivePendingIngestion(driveFileId: string): Promise<void>;
@@ -143,7 +143,7 @@ export async function applyParseResult(
   // BLOCK_UNRESOLVED/DAY_AMBIGUOUS/DAY_TRUNCATED (already in warnings); the sync emits DAY_EMPTIED
   // ONLY (it alone needs prior-stored state the parser lacks). NO write-time date prune (R12).
   const parsedRunOfShow = args.parseResult.runOfShow;
-  let runOfShowToStore: Record<string, AgendaEntry[]> | null;
+  let runOfShowToStore: Record<string, ScheduleDay> | null;
   if (parsedRunOfShow === undefined) {
     // Grid unlocatable (converter/header failure): store null and append NOTHING — the parser
     // already put AGENDA_GRID_MALFORMED in warnings; the sync carries it, never re-emits, and never
@@ -151,17 +151,22 @@ export async function applyParseResult(
     runOfShowToStore = null;
   } else {
     const confirmed = Object.fromEntries(
-      Object.entries(parsedRunOfShow).filter(([, entries]) => entries.length > 0),
+      Object.entries(parsedRunOfShow).filter(
+        ([, day]) => day.entries.length > 0 || day.showStart !== null || day.window !== null,
+      ),
     );
     runOfShowToStore = Object.keys(confirmed).length > 0 ? confirmed : null;
     // AGENDA_DAY_EMPTIED ONLY on the LOCATED-grid read-empty shape: a day that was previously
-    // stored AND is present-as-[] in the parsed Record but not in the write value. A day merely
-    // ABSENT from the parsed Record (unresolved block → parser's AGENDA_BLOCK_UNRESOLVED) does NOT
-    // qualify.
+    // stored AND is now FULLY empty (no entries/showStart/window). A day merely ABSENT from the
+    // parsed Record (unresolved block → parser's AGENDA_BLOCK_UNRESOLVED) does NOT qualify.
     const prior = args.snapshot.priorRunOfShow;
     let emittedIndex = 0;
-    for (const [iso, entries] of Object.entries(parsedRunOfShow)) {
-      if (entries.length === 0 && (prior?.[iso]?.length ?? 0) > 0) {
+    const isFullyEmpty = (d: ScheduleDay | undefined): boolean =>
+      d != null && d.entries.length === 0 && d.showStart === null && d.window === null;
+    const priorHadContent = (d: ScheduleDay | undefined): boolean =>
+      d != null && (d.entries.length > 0 || d.showStart !== null || d.window !== null);
+    for (const [iso, day] of Object.entries(parsedRunOfShow)) {
+      if (isFullyEmpty(day) && priorHadContent(prior?.[iso])) {
         args.parseResult.warnings.push(agendaDayEmptied(emittedIndex, iso));
         emittedIndex += 1;
       }

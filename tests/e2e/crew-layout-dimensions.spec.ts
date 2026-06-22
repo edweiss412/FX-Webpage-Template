@@ -69,23 +69,45 @@ const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const SHOW_DAY_1_INSTANT = "2026-04-21T12:00:00Z";
 const SHOW_DAY_1_ISO = "2026-04-21";
 
-/** Real show-day-1 agenda (verbatim from the Waldorf fixture's TIME/AGENDA cell)
- *  shaped for shows_internal.run_of_show: each entry needs a string `start` + a
- *  real (non-sentinel) string `title` to survive decodeRunOfShow + the
- *  displayableEntries filter (decodeRunOfShow.ts:80-96, agendaDisplay.ts:43-45). */
-const SHOW_DAY_1_AGENDA = {
-  [SHOW_DAY_1_ISO]: [
-    { start: "7:30am", title: "Registration & Breakfast" },
-    { start: "8:15am", title: "Welcome & Polling" },
-    { start: "8:30am", title: "Panel 1 - 4 chairs" },
-    { start: "9:20am", title: "Panel 2 - 4 chairs" },
-    { start: "10:05am", title: "Coffee Break" },
-    { start: "10:20am", title: "General Session" },
-    { start: "12:45pm", title: "Lunch" },
-    { start: "4:45pm", title: "Keynote" },
-    { start: "5:30pm", title: "Meeting Concludes" },
-  ],
-} as const;
+/** Seed run_of_show in the new ScheduleDay shape (§3.2 reshape).
+ *
+ *  Day 1 (2026-04-21): titled show day — entries from the Waldorf fixture's
+ *  TIME/AGENDA cell. Each entry needs `start` (string) + `title` (string) to
+ *  survive decodeRunOfShow + displayableEntries (decodeRunOfShow.ts:80-96,
+ *  agendaDisplay.ts:43-45). showStart drives the "Set" anchor in KeyTimesStrip;
+ *  window:null (no bare-window overlay on day 1).
+ *
+ *  Day 2 (2026-04-22): bare-window show day — no agenda entries, showStart seeds
+ *  the Key Times anchor, window provides the "8:00am–5:30pm" meta line rendered
+ *  by DayCard's `data-slot="day-card-meta"` row. This is the TALLER card that
+ *  makes the §5.5 `self-stretch` vline assertion meaningful.
+ *
+ *  Both ISOs are members of show.dates.showDays ([2026-04-21, 2026-04-22]) so the
+ *  read-time intersection at getShowForViewer.ts:545-571 retains them for the
+ *  admin {kind:'none'} viewer. */
+const SEED_RUN_OF_SHOW = {
+  [SHOW_DAY_1_ISO]: {
+    entries: [
+      { start: "7:30am", title: "Registration & Breakfast" },
+      { start: "8:15am", title: "Welcome & Polling" },
+      { start: "8:30am", title: "Panel 1 - 4 chairs" },
+      { start: "9:20am", title: "Panel 2 - 4 chairs" },
+      { start: "10:05am", title: "Coffee Break" },
+      { start: "10:20am", title: "General Session" },
+      { start: "12:45pm", title: "Lunch" },
+      { start: "4:45pm", title: "Keynote" },
+      { start: "5:30pm", title: "Meeting Concludes" },
+    ],
+    showStart: "7:30am",
+    window: null,
+  },
+  "2026-04-22": {
+    // bare-window show day 2 → DayCard meta "8:00am–5:30pm"
+    entries: [],
+    showStart: "8:00am",
+    window: { start: "8:00am", end: "5:30pm" },
+  },
+};
 
 type Rect = {
   top: number;
@@ -176,7 +198,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     runOfShowOriginal = (si.data as { run_of_show?: unknown }).run_of_show ?? null;
     const upd = await admin
       .from("shows_internal")
-      .update({ run_of_show: SHOW_DAY_1_AGENDA })
+      .update({ run_of_show: SEED_RUN_OF_SHOW })
       .eq("show_id", showInternalId);
     if (upd.error) throw new Error(`Mode A setup: run_of_show seed failed: ${upd.error.message}`);
   });
@@ -620,6 +642,107 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       Math.abs(r.width - 50),
       `[data-testid="day-card-date"] must be 50px wide; got ${r.width}`,
     ).toBeLessThanOrEqual(TOL_TIGHT);
+  });
+
+  // ── §5.5 KeyTimesStrip row-layout equal-width cells ──────────────────────
+  // At ≥720px the `layout="row"` posture gives every [data-anchor] cell
+  // `min-[720px]:flex-1`. With ≥2 anchors present the cells must be equal-width
+  // (±2px). The seed populates two show days (2026-04-21 + 2026-04-22), so the
+  // strip renders ≥2 [data-anchor] cells (Set + Show×2 or Show×2 at minimum).
+  // Expected fail mode before §5 UI tasks: the strip renders only the single
+  // legacy `show` anchor → `n < 2` → the `≥2 row anchors` assertion fails.
+  test("§5.5 KeyTimesStrip row cells are equal-width at ≥720px", async ({ page }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 1000, height: 1200 });
+    await gotoSection(page, "today"); // Today wide → KeyTimesStrip layout="row"
+    const cells = page.locator('[data-testid="key-times-strip"][data-layout="row"] [data-anchor]');
+    const n = await cells.count();
+    expect(n, "expected ≥2 row anchors (Set + ≥1 Show)").toBeGreaterThanOrEqual(2);
+    const widths: number[] = [];
+    for (let i = 0; i < n; i++) widths.push((await rectOf(cells.nth(i))).width);
+    // DERIVED expectation (anti-hardcode): every cell ≈ the first cell's width.
+    // widths.length >= n >= 2 so widths[0] is always defined here.
+    const w0 = widths[0] as number;
+    for (const w of widths) expect(Math.abs(w - w0)).toBeLessThanOrEqual(2);
+  });
+
+  // ── §5.5 DayCard self-stretch vline fills the taller (meta-bearing) row ───
+  // The bare-window day 2 card carries [data-slot="day-card-meta"] → it is the
+  // taller of the two day cards. The vline span carries `self-stretch` (DayCard
+  // :86) so it fills the full row height. Without `self-stretch` (the regression:
+  // drop the class from the vline span) the vline collapses to content height and
+  // this assertion fails — that is the concrete failure mode this test catches.
+  // Tailwind v4 does NOT default .flex to align-items:stretch, so self-stretch is
+  // the load-bearing guarantee (AGENTS.md §Dimensional invariants).
+  //
+  // Negative-regression proof (documented step — not re-run in CI, run manually):
+  //   1. Edit DayCard.tsx:87 vline span: change `w-px self-stretch bg-border` →
+  //      `w-px bg-border` (drop `self-stretch`).
+  //   2. Re-run this test → it FAILS: vlineRect.height collapses to ~0 (content
+  //      height), no longer `cardRect.height - 24`.
+  //   3. Revert the change. Test passes again.
+  test("§5.5 DayCard self-stretch vline fills the TALLER (meta-bearing) row", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 1000, height: 1200 });
+    await gotoSection(page, "schedule");
+    // The bare-window day-2 card carries a meta line → it is the taller card.
+    const metaCard = page
+      .locator('[data-testid="day-card"]', {
+        has: page.locator('[data-slot="day-card-meta"]'),
+      })
+      .first();
+    const cardRect = await rectOf(metaCard);
+    const vline = metaCard.locator("span.self-stretch").first();
+    const vlineRect = await rectOf(vline);
+    // The vline must fill the full row height (Tailwind v4 .flex ≠ items-stretch;
+    // self-stretch is the guarantee). Account for the card's p-3 (12px each side).
+    expect(Math.abs(vlineRect.height - (cardRect.height - 24))).toBeLessThanOrEqual(0.5);
+  });
+
+  // ── §5.5 date badge is the fixed 50px (w-12.5) column regardless of meta ──
+  // Every [data-testid="day-card-date"] must be 50px wide — the `w-12.5 shrink-0`
+  // classes (DayCard.tsx:72) guarantee a fixed column regardless of whether the
+  // card carries a meta line or not.
+  test("§5.5 date badge is the fixed 50px (w-12.5) column regardless of meta", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 1000, height: 1200 });
+    await gotoSection(page, "schedule");
+    const badges = page.locator('[data-testid="day-card-date"]');
+    const count = await badges.count();
+    expect(count, "expected ≥1 day-card-date badge").toBeGreaterThanOrEqual(1);
+    for (let i = 0; i < count; i++) {
+      expect((await rectOf(badges.nth(i))).width).toBeCloseTo(50, 0); // w-12.5 = 3.125rem = 50px
+    }
+  });
+
+  // ── §5.5 schedule split-wide grid is items-start (natural height) ─────────
+  // At ≥720px the schedule-grid uses `min-[720px]:grid-cols-[1.6fr_1fr]
+  // min-[720px]:items-start` (ScheduleSection.tsx:166). The 1.6fr/1fr ratio is
+  // asserted positively; items-start is asserted via the height-inequality check:
+  // with two show days of differing content the columns WILL differ in height, so
+  // the shorter column NOT being stretched to the taller's height produces a
+  // measurable difference (>2px). This complements the existing
+  // `assertSplitWide` check which reads `getComputedStyle.alignItems === "start"`.
+  test("§5.5 schedule split-wide grid is items-start (natural height, NOT stretch) at ≥720px", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 1000, height: 1200 });
+    await gotoSection(page, "schedule");
+    const cols = page.locator('[data-testid="schedule-column"]');
+    expect(await cols.count()).toBe(2);
+    const left = await rectOf(cols.nth(0));
+    const right = await rectOf(cols.nth(1));
+    // 1.6fr / 1fr ratio (DERIVED tolerance, not a hardcoded px width).
+    expect(left.width / right.width).toBeGreaterThan(1.45);
+    expect(left.width / right.width).toBeLessThan(1.75);
+    // items-start: the SHORTER column is NOT stretched to the taller's height.
+    // With two show days of differing entry counts, the columns differ in height.
+    expect(Math.abs(left.height - right.height)).toBeGreaterThan(2);
   });
 
   // ── Avatar is 40px square (Avatar.tsx `size-10`). Reachable on the Crew

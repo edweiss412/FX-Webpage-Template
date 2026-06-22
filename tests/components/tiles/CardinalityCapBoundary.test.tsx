@@ -413,7 +413,7 @@ describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, Schedu
       <ScheduleSection
         data={makeShowForViewer({
           show: { dates: RS_DATES },
-          runOfShow: { [D1]: makeEntries(count) },
+          runOfShow: { [D1]: { entries: makeEntries(count), showStart: "8:00AM", window: null } },
         })}
         viewer={VIEWER}
         today={RS_TODAY}

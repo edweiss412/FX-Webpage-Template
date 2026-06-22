@@ -896,6 +896,12 @@ export const SPEC_CODES = {
     "followUp": "none (informational)",
     "helpfulContext": "A crew member's role flags changed in a way that doesn't affect LEAD status — for example, a department designation swap (A1 → V1), or an additive flag like BO. These changes affect which scope tile the crew member sees on their own page but don't grant or remove admin/ops access, so we apply them automatically and log this entry for your audit trail. No action needed; if you want to see the prior value, the audit page captures it.",
   },
+  "SCHEDULE_TIME_UNPARSED": {
+    "crewFacing": null,
+    "dougFacing": "A show-day TIME entry in _<sheet-name>_'s DATES tab has text we couldn't read as a start time, window, or agenda, so that day shows the standard anchor schedule. Check the TIME cell reads like '7:15am - Registration …' or '7:30am - 5:50pm', or tell the developer if it keeps happening.",
+    "followUp": "Doug → check sheet",
+    "helpfulContext": "Each show day's TIME column in the DATES tab is parsed for a first call time, a start–end window, or a titled run-of-show. When a cell has content but none of those can be read — an end-only fragment like 'GS: ... - 6:00 PM', or a placeholder like 'General Session TBD' — we store no per-day time for that day and it falls back to the always-correct anchor schedule. Restoring a readable start (e.g. '7:15am - Registration') re-publishes the per-day time on the next sync.",
+  },
   "SECTION_HEADER_NO_FIELDS": {
     "crewFacing": null,
     "dougFacing": null,

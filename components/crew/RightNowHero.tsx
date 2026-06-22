@@ -48,6 +48,7 @@ import {
   type RightNowState,
 } from "@/lib/time/rightNow";
 import { transitionTreatment, type TransitionTreatment } from "@/lib/time/rightNowTransitions";
+import { todayShowAnchors } from "@/lib/crew/agendaDisplay";
 import { formatIsoDate } from "@/lib/format/date";
 import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
 
@@ -139,8 +140,26 @@ function renderHeroBody(state: RightNowState, ctx: RightNowContext, now: Date): 
   };
   switch (state.kind) {
     case "show_day_n": {
+      // Select the call-time from the per-day Show anchors by the CLIENT-computed
+      // show-tz `todayIso` (mirrors :215) so a 60s-tick / visibilitychange
+      // re-derive picks the new day after a show-tz midnight rollover (no stale
+      // freeze). Uses the shared §5.4 `todayShowAnchors` filter.
+      //
+      // "Omit rather than cross-label" (cross-task composition contract): when
+      // per-day anchors EXIST but none match today (the date-safe resolver
+      // intentionally omitted today's anchor — e.g. a contentful-unparsed Day 2
+      // whose room show_time date doesn't match Day 2), the Show stat is OMITTED
+      // (null → statOrNull hides it). It must NOT fall back to `ctx.callTime`,
+      // which is the FIRST/Day-1 anchor and would mislabel Day 1's time as
+      // today's. The `ctx.callTime` fallback applies ONLY in the legacy
+      // single-anchor case where there are NO per-day anchors at all
+      // (`ctx.showAnchors.length === 0`).
+      const todayIso = formatIsoForTimezone(now, ctx.timezone);
+      const showTime =
+        todayShowAnchors(ctx.showAnchors, todayIso)[0]?.time ??
+        (ctx.showAnchors.length === 0 ? ctx.callTime : null);
       const stats = [
-        statOrNull("Show", ctx.callTime, true),
+        statOrNull("Show", showTime, true),
         state.isLast ? statOrNull("Strike", ctx.strikeTime) : null,
       ].filter((s): s is HeroStat => s !== null);
       return {

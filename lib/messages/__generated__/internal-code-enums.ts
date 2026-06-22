@@ -176,6 +176,9 @@ export const INTERNAL_CODE_ENUMS = {
   REPORT_PIPELINE_FAILED: {
     source: "admin_alerts.code"
   },
+  SCHEDULE_TIME_UNPARSED: {
+    source: "parse_warnings.code"
+  },
   SECTION_HEADER_NO_FIELDS: {
     source: "parse_warnings.code"
   },

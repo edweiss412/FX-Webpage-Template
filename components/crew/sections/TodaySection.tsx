@@ -52,7 +52,7 @@ import {
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { aggregateDays, displayableEntries } from "@/lib/crew/agendaDisplay";
-import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
+import { resolveKeyTimes, type KeyTimeAnchors } from "@/lib/crew/resolveKeyTimes";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -201,7 +201,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const todays =
             dateRestriction.kind === "unknown_asterisk"
               ? []
-              : displayableEntries(data.runOfShow?.[todayIso]);
+              : displayableEntries(data.runOfShow?.[todayIso]?.entries);
           const modeA = isShowDay && eligible && todays.length > 0;
 
           const rightNowContext = buildRightNowContext({
@@ -209,9 +209,26 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
             dateRestriction: ctx.dateRestriction,
             hotelReservations: data.hotelReservations,
             rooms: data.rooms,
+            runOfShow: data.runOfShow ?? null, // NEW — carry per-day ShowAnchors
           });
 
-          const anchors = resolveKeyTimes(data.show, data.rooms);
+          // Today shows ONLY today's Show anchor — the full per-day breakdown
+          // belongs in Schedule (§5.4 / D6). set/strike are SHOW-WIDE milestones
+          // (§13.8) → pass through untouched. unknown_asterisk → resolveKeyTimes
+          // returns {} (§5.1) → all anchors absent → no strip / no card / no leak.
+          const resolved = resolveKeyTimes(
+            data.show,
+            data.rooms,
+            data.runOfShow ?? null,
+            ctx.dateRestriction,
+          );
+          const anchors: KeyTimeAnchors = {
+            ...(resolved.set != null ? { set: resolved.set } : {}),
+            ...(resolved.strike != null ? { strike: resolved.strike } : {}),
+            ...((resolved.shows ?? []).some((s) => s.date === todayIso)
+              ? { shows: resolved.shows!.filter((s) => s.date === todayIso) }
+              : {}),
+          };
 
           const firstHotel = data.hotelReservations[0] ?? null;
           // Tonight uses the 2-up grid (columns={2} on the card below): the Hotel
@@ -410,7 +427,9 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           // card. `anchorsPresent` mirrors KeyTimesStrip's own all-absent → null
           // rule, so the "Key times" card never wraps an empty strip.
           const anchorsPresent =
-            anchors.set != null || anchors.show != null || anchors.strike != null;
+            anchors.set != null ||
+            (anchors.shows != null && anchors.shows.length > 0) ||
+            anchors.strike != null;
           const keyTimesCard = anchorsPresent ? (
             <div data-testid="today-key-times" data-card-id="today-key-times">
               <SectionCard
@@ -558,7 +577,10 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                           </span>
                         }
                       >
-                        <RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />
+                        <RunOfShowList
+                          entries={data.runOfShow![todayIso]!.entries}
+                          isoDate={todayIso}
+                        />
                       </SectionCard>
                     </div>
                     <div className="min-w-0">{quickCardsStack}</div>

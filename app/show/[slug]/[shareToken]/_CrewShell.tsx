@@ -210,6 +210,7 @@ export async function CrewShell({
         dateRestriction: ctx.dateRestriction,
         hotelReservations: data.hotelReservations ?? [],
         rooms: data.rooms ?? [],
+        runOfShow: data.runOfShow ?? null, // NEW — keeps rightNowState in sync, no stale context
       })
     : null;
 

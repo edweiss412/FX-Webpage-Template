@@ -1,7 +1,7 @@
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { deriveSlug } from "@/lib/parser/slug";
-import type { AgendaEntry, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { AgendaEntry, ParseResult, RunOfShow, TriggeredReviewItem } from "@/lib/parser/types";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
 import { readOpenHolds } from "@/lib/sync/holds/holdPort";
 import {
@@ -64,7 +64,7 @@ export type Phase2Tx = ApplyParseResultTx & {
         // Postgres one AND every fake — must populate it; an impl that extends the type but forgets
         // the live `select run_of_show` cannot silently typecheck-and-pass while production never
         // emits AGENDA_DAY_EMPTIED (the R20 dead-producer class). first-seen / nothing prior = null.
-        priorRunOfShow: Record<string, AgendaEntry[]> | null;
+        priorRunOfShow: RunOfShow | null;
       }
     | {
         outcome: "stale";

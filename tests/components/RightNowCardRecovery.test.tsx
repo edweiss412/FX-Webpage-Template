@@ -63,6 +63,7 @@ function makeContext(overrides: Partial<RightNowContext>): RightNowContext {
     callTime: null,
     roomName: null,
     strikeTime: null,
+    showAnchors: [],
     timezone: "America/New_York",
     ...overrides,
   };
@@ -319,6 +320,7 @@ describe("RightNowCard — prefers-reduced-motion (Codex round-19 MEDIUM)", () =
       callTime: "14:00",
       roomName: null,
       strikeTime: null,
+      showAnchors: [] as import("@/lib/crew/resolveKeyTimes").ShowAnchor[],
       timezone: "America/New_York",
     };
     const { container } = render(<RightNowCard context={ctx} />);
@@ -348,6 +350,7 @@ describe("RightNowCard — prefers-reduced-motion (Codex round-19 MEDIUM)", () =
       callTime: "14:00",
       roomName: null,
       strikeTime: null,
+      showAnchors: [] as import("@/lib/crew/resolveKeyTimes").ShowAnchor[],
       timezone: "America/New_York",
     };
     const { container } = render(<RightNowCard context={ctx} />);
