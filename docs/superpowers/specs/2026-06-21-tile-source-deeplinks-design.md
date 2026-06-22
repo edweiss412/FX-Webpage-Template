@@ -1,7 +1,7 @@
 # Tile → Source-Sheet Deep Links — Design Spec
 
 - **Date:** 2026-06-21
-- **Status:** Draft (self-review + adversarial R1–R3 applied; pending adversarial re-review)
+- **Status:** Draft (self-review + adversarial R1–R4 applied; pending adversarial re-review)
 - **Branch / worktree:** `worktree-tile-source-deeplinks`
 - **Author:** Opus 4.8 (Claude Code), orchestrated session
 
@@ -185,16 +185,16 @@ No zombie flag: every region id written maps to ≥1 rendered card; the §12 par
 
 ### 8.1 Canonical source-region set (11)
 
-The anchor map is keyed by **parser source-region**, not by card — cards that render the same parsed data share one region anchor. The 11 regions mirror the parser's block modules / entities:
+The anchor map is keyed by **parser source-region**, not by card — cards that render the same parsed data share one region anchor. The 11 regions mirror the parser's block modules / entities. **Tab(s)** below are the real source tabs the parser reads from (all members of the §9 allowlist — there are no dedicated `CREW`/`ROOMS` tabs in the corpus; crew lives in the CREW block / legacy TECH grid *within INFO*, rooms in the GS/BO scope blocks *within INFO*):
 
 | Region id | Parser source | Tab(s) | Precision ceiling |
 |---|---|---|---|
-| `crew` | `crewMembers[]` | INFO / CREW | block |
+| `crew` | `crewMembers[]` | INFO | block |
 | `contacts` | `contacts[]` | INFO | block |
 | `hotels` | `hotelReservations[]` | INFO / TRAVEL | block |
 | `transportation` | `transportation` | INFO / TRAVEL | block |
 | `flights` | viewer `crewMembers[].flight_info` | INFO / TRAVEL | block |
-| `rooms` | `rooms[]` (AVL scope + set/show/strike times) | INFO / ROOMS | block |
+| `rooms` | `rooms[]` (AVL scope + set/show/strike times) | INFO | block |
 | `venue` | `show.venue` (name/address/dock/link/notes) | INFO | block (cell for scalar rows) |
 | `financials` | `coi_status` + `po/proposal/invoice` | INFO | block (cell for clean rows) |
 | `details` | `event_details` (keynote, opening-reel text, dress, internet, power) | INFO | block |
@@ -314,7 +314,7 @@ Per AGENTS.md "Every migration must reach the validation project":
 
 - **Unit — `buildSheetDeepLink`:** every fallback rung (range / gid-only / none / null id → null); the **`gid === 0` case** — `buildSheetDeepLink(driveFileId, { title:"INFO", gid:0, a1:"A1:B2" })` MUST emit `…/edit#gid=0&range=A1%3AB2` (not degrade); the **URL-encoding** assertion (`a1="A1:C1"` → `…&range=A1%3AC1`); empty-string inputs (`driveFileId=''` → null; `a1=''` → gid-only rung); the `a1`-without-`gid` → whole-spreadsheet invariant; the **disallowed-`title`** anchor → whole-spreadsheet. **Negative-regression:** a truthy `if (gid)` impl must fail the gid-0 test; a no-op allowlist check must fail the disallowed-title test.
 - **Export/parser — anchored-block emission:** against committed exporter fixtures (`tests/drive/exportSheetToMarkdown.test.ts`, `tests/parser/exporterFixtures.test.ts`), assert each emitted block's `{title, gid, a1}` matches expected, including a **merge-origin** case (anchor = merge top-left) and a **trimmed-block** case (origin shifted by `trimBlock`). Plus a **region-reduction** fixture set (§8.1.1): a single-block region, a same-tab **union-with-overreach** region (e.g. `rooms`/`details`/`financials` — assert `a1` is the bounding rectangle covering all the region's blocks), and the **cross-tab `schedule`** case (assert the anchor is the AGENDA `runOfShow` grid and that INFO `dates` is NOT separately anchored).
-- **Allowlist meta-test (§9):** (a) walk corpus fixtures, assert no **persisted** anchor `title` is excluded; (b) `buildSheetDeepLink` drops a hand-crafted disallowed-`title` anchor (corrupted-JSON defense); (c) master-library titles absent from the allowlist constant.
+- **Allowlist meta-test (§9):** (a) walk corpus fixtures, assert no **persisted** anchor `title` is excluded; (b) `buildSheetDeepLink` drops a hand-crafted disallowed-`title` anchor (corrupted-JSON defense); (c) master-library titles absent from the allowlist constant; (d) **§8.1↔§9 consistency** — every tab title named in the §8.1 region-source map is a member of the §9 allowlist constant, so the canonical region map and the enforcement allowlist can never disagree (this would have caught the round-4 `CREW`/`ROOMS` drift).
 - **Field-aware coverage parity (§8):** a walker over the rendered fixture suite that tags **every rendered source-backed datum** (not just every card) with the parser region that produces it. It asserts: (a) every rendered source-backed field maps to a known region; (b) each card's single link targets the region of its **primary** field (§8.2); (c) every card that renders fields from >1 region appears in the mixed-source registry (§8.2.1) with a **matching field set**; (d) a card with no link is on the §8.3 out-of-scope list with a composite/non-sheet rationale; (e) every region id in §8.1 is referenced by ≥1 card. Because it walks fields — not a hardcoded card list — a new SectionCard, a new rendered field, or a newly-mixed card fails the test until classified. The guarantee is **no _undocumented_ mis-coverage**: the test fails if a visible source-backed datum is **unclassified**, a card's rendered field set **drifts** from its §8.2.1 registry entry, or a card with source-backed fields has **neither** a link **nor** an §8.3 out-of-scope rationale. Registered secondary fields on the two mixed cards are **intentionally** not precisely link-covered (the link is scoped to the primary region per §5.1/§8.2.1) — that is the documented, accepted limitation, not a silent gap. This closes the round-2 card-vs-field gap by guaranteeing every visible datum is either precisely covered or explicitly documented.
 - **Corpus regression:** for representative committed fixtures across both format eras (per D11), assert region anchors resolve to the right tab + region per §8.1.
 - **Projection guard:** `getShowForViewer` projects `drive_file_id` + `source_anchors`; assert the empty-object (`{}`) and null-`drive_file_id` paths render no broken links.
