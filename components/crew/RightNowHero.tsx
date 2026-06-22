@@ -48,6 +48,7 @@ import {
   type RightNowState,
 } from "@/lib/time/rightNow";
 import { transitionTreatment, type TransitionTreatment } from "@/lib/time/rightNowTransitions";
+import { todayShowAnchors } from "@/lib/crew/agendaDisplay";
 import { formatIsoDate } from "@/lib/format/date";
 import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
 
@@ -139,8 +140,15 @@ function renderHeroBody(state: RightNowState, ctx: RightNowContext, now: Date): 
   };
   switch (state.kind) {
     case "show_day_n": {
+      // Select the call-time from the per-day Show anchors by the CLIENT-computed
+      // show-tz `todayIso` (mirrors :215) so a 60s-tick / visibilitychange
+      // re-derive picks the new day after a show-tz midnight rollover (no stale
+      // freeze). Falls back to the legacy single `ctx.callTime` when no anchor
+      // matches today. Uses the shared §5.4 `todayShowAnchors` filter.
+      const todayIso = formatIsoForTimezone(now, ctx.timezone);
+      const showTime = todayShowAnchors(ctx.showAnchors, todayIso)[0]?.time ?? ctx.callTime;
       const stats = [
-        statOrNull("Show", ctx.callTime, true),
+        statOrNull("Show", showTime, true),
         state.isLast ? statOrNull("Strike", ctx.strikeTime) : null,
       ].filter((s): s is HeroStat => s !== null);
       return {

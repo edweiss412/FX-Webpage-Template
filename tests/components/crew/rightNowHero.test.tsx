@@ -40,7 +40,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { RightNowHero } from "@/components/crew/RightNowHero";
 import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
-import { selectRightNowState, type RightNowState } from "@/lib/time/rightNow";
+import {
+  formatIsoForTimezone,
+  selectRightNowState,
+  type RightNowState,
+} from "@/lib/time/rightNow";
 
 /** Build a complete RightNowContext from just the bits a test cares about. */
 function makeContext(overrides: Partial<RightNowContext>): RightNowContext {
@@ -381,6 +385,44 @@ describe("RightNowHero — §4.3 12-state map (Test 5)", () => {
     const strip2 = statsStrip(c2)!;
     expect(strip2.textContent).toContain("7:00 PM"); // Show value
     expect(strip2.textContent).toContain("11:00 PM"); // Strike now shown
+  });
+});
+
+describe("RightNowHero — per-day Show anchor selection (Task 14 / §5.1)", () => {
+  test("show_day_n: Show stat = the showAnchors entry for the current show-tz day (Day 2, not Day 1)", () => {
+    vi.setSystemTime(at("2026-04-23")); // showDays[1] in the showDates() fixture
+    const showAnchors = [
+      { date: "2026-04-22", label: "Day 1", time: "7:15am" },
+      { date: "2026-04-23", label: "Day 2", time: "8:00am" },
+    ];
+    const ctx = makeContext({ dates: showDates(), showAnchors, strikeTime: "11:00 PM" });
+    const { container } = render(<RightNowHero context={ctx} />);
+    // Sanity: the machine is in show_day_n.
+    expect(stateMarker(container).getAttribute("data-state")).toBe("show_day_n");
+    const showStat = container.querySelector('[data-stat="Show"] dd');
+    // Expected time derived from the fixture's Day-2 anchor (the current show-tz day), never hardcoded.
+    const expected = showAnchors.find((a) => a.date === formatIsoForTimezone(at("2026-04-23"), ctx.timezone))!.time;
+    expect(showStat!.textContent).toBe(expected); // "8:00am", NOT Day 1's "7:15am"
+    expect(showStat!.textContent).not.toBe(showAnchors[0]!.time);
+  });
+
+  test("show-tz midnight rollover Day1→Day2 → Show stat re-selects to Day 2's anchor (no freeze on Day 1)", () => {
+    vi.setSystemTime(at("2026-04-22")); // Day 1
+    const showAnchors = [
+      { date: "2026-04-22", label: "Day 1", time: "7:15am" },
+      { date: "2026-04-23", label: "Day 2", time: "8:00am" },
+    ];
+    const ctx = makeContext({ dates: showDates(), showAnchors });
+    const { container } = render(<RightNowHero context={ctx} />);
+    expect(container.querySelector('[data-stat="Show"] dd')!.textContent).toBe(showAnchors[0]!.time); // Day 1
+    act(() => {
+      vi.setSystemTime(at("2026-04-23")); // cross to Day 2 in show tz
+      vi.advanceTimersByTime(60_000); // 60s tick → setNow(new Date()) re-derives
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    // Re-selected to Day 2's anchor — derived from the fixture, must NOT keep Day 1's.
+    expect(container.querySelector('[data-stat="Show"] dd')!.textContent).toBe(showAnchors[1]!.time);
+    expect(container.querySelector('[data-stat="Show"] dd')!.textContent).not.toBe(showAnchors[0]!.time);
   });
 });
 
