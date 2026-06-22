@@ -6,7 +6,7 @@
  *
  * PERMISSIVE form (this module): no-colon bare-hour (`4pm`), semicolon-typo
  * separator (`5;30pm`), AM/PM casing variants — all accepted. Deliberately
- * distinct from the SET-row colon-required extractClockTime (dates.ts).
+ * distinct from the SET-row colon-required extractClockTimes (dates.ts).
  */
 
 import type { AgendaEntry, ParseWarning, RunOfShow, ScheduleDay, ShowRow } from "../types";

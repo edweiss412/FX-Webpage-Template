@@ -1,4 +1,4 @@
-import type { AgendaEntry, CrewMemberRow, ParseResult, ScheduleDay } from "@/lib/parser/types";
+import type { CrewMemberRow, ParseResult, ScheduleDay } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { agendaDayEmptied } from "@/lib/parser/blocks/agendaWarnings";
 import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
