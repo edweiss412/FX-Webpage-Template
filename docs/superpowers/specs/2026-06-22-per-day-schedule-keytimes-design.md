@@ -1,0 +1,277 @@
+# Per-Day Schedule & Key-Times Fix — Design Spec
+
+**Date:** 2026-06-22
+**Status:** Draft (pre spec-self-review)
+**Author:** Opus orchestrator session
+**Scope:** Crew-page Schedule + Today "Key times", and the DATES-block parser. Fixes three audit gaps where per-show-day schedule data present in the source sheet is dropped or mis-displayed.
+
+---
+
+## 1. Problem (audit findings)
+
+On the crew page for "AVIII / Consultants Roundtable" (and every other v4 show), useful schedule data that exists in the Google Sheet never reaches the page. Three concrete gaps, all confirmed **live via gsheets MCP across 7 distinct shows** (East Coast v1, Consultants, RPAS 2026, Redefining Fixed Income, Fixed Income Trading, FinTech 2026, RIA 2025) and all 10 committed fixtures:
+
+1. **Set key-time loses its date.** Key Times renders `Set = "9:00PM"` (a bare clock) beside `Show`/`Strike` which carry dates (`"10/8 @ 8:45am"`, `"10/9 @ 4:30pm"`). Root: `Set` is sourced from `dates.loadIn`, which `extractClockTime` strips to the first `HH:MM` only (`lib/parser/blocks/dates.ts:263-272`); `resolveKeyTimes` renders it verbatim (`lib/crew/resolveKeyTimes.ts:54-56`). The set DATE (`dates.set`) is already parsed but never joined.
+2. **Show-day TIME column dropped wholesale.** Each SHOW DAY row's TIME column holds a full per-day run-of-show (e.g. Consultants Day 1: "7:15am Registration … 5:35pm Meeting Concludes"). `parseDates`' `show_day` case reads only the DATE (col 3) and never touches `row[4]` (`dates.ts:223-229`). The separate AGENDA-grid parser (`lib/parser/blocks/agenda.ts:351-393`) IS read, but for v4 shows that grid is time-rich/title-empty, and `buildEntry` returns null on an empty title (`agenda.ts:294-295`) → `runOfShow[date] = []` → no per-day list renders (`components/crew/sections/ScheduleSection.tsx:213-218`).
+3. **No per-show-day Show time anywhere.** Key Times collapses Show into one anchor (`KeyTimeAnchors.show: string`, `resolveKeyTimes.ts:7`), and the Schedule day list renders `DayCard` with no time (`ScheduleSection.tsx:208`; `DayCard.meta` is wired but unused, `components/crew/primitives/DayCard.tsx:45-46,104-108`). A 2- or 3-show-day show cannot express "Day 2 starts at X."
+
+### 1.1 Two data flavors (drives the design)
+
+Show-day TIME cells come in two shapes (both verified live):
+- **Titled agenda** (Consultants, RPAS, FinTech): `"7:15am - Registration  8:00am - Leaders Breakfast …"` → a list of `{time, title}`.
+- **Bare window** (RIA `"7:30am - 5:50pm"`, Asset-Mgmt `"8:00 AM - 5:30 PM"`): start–end span with no event titles.
+
+The markdown export **flattens intra-cell newlines to spaces**, so the live cell `"7:15am - Registration\n8:00am - …"` reaches the parser as one space-joined string. Parsing therefore tokenizes by **clock-time boundaries**, not newlines.
+
+### 1.2 Screenshot anomaly (non-blocking)
+
+The reporting screenshot shows `Show 10/9 @ 8:45am`; live + fixtures show GS `Show = 10/8 @ 8:45am`, `Strike = 10/9 @ 4:30pm` (`fixtures/shows/raw/2025-10-consultants-roundtable.md:103-105`). The audit's original "Show 10/9" conflated Show with Strike's date. The fix targets live/fixture truth; the screenshot was an edited/transcribed sheet state. Not in scope to reconcile.
+
+---
+
+## 2. Resolved decisions (owner-ratified 2026-06-22)
+
+| # | Decision | Choice |
+|---|---|---|
+| D1 | Carrier for the captured per-day agenda | Feed `runOfShow` (admin-only `shows_internal`, date-gated) — reuse the existing per-day render + privacy gate + caps. |
+| D2 | Merge precedence (AGENDA grid vs DATES col4) | AGENDA grid wins per-day **where it has ≥1 titled entry**; DATES col4 fills days the grid leaves empty. No per-template branching. |
+| D3 | Set anchor | Compose `dates.set` + `loadIn` → `"10/7 @ 9:00PM"`, sentinel-guarded. |
+| D4 | Day-2 Show surface | Reshape `KeyTimeAnchors`/`KeyTimesStrip` to carry **per-day Show anchors** (Day-1 vs Day-2 distinct). |
+| D5 | Bare-window days | **Anchor + window meta**: per-day Show anchor = first clock; render the full window (`"7:30am–5:50pm"`) as the `DayCard` meta line; no run-of-show list (nothing titled). No fabricated entries. |
+| D6 | Today scope | **Today-focused**: Today's Key Times surfaces only the anchor(s) for today's date; the full per-day breakdown lives in the Schedule section. |
+| D7 | 2nd/setup time | **Capture it**: preserve the second clock `extractClockTime` currently drops (e.g. "10:00PM SETUP", "Room Access 8:30 PM"). |
+| D8 | Per-day Show anchor semantics | **First-call** (the day's first clock), not the GS/main-session line — robust across all observed formats; answers "when does day N start." |
+
+---
+
+## 3. Data model
+
+### 3.1 `ScheduleDay` — reshaped `run_of_show` value
+
+`shows_internal.run_of_show` is schemaless `jsonb`, so the value type is reshaped with **no schema migration**:
+
+```ts
+// was: Record<isoDate, AgendaEntry[]>
+type ScheduleDay = {
+  entries: AgendaEntry[];                          // titled run-of-show (may be [])
+  showStart: string | null;                        // per-day first-call anchor (first clock)
+  window: { start: string; end: string } | null;   // bare-window days only
+};
+type RunOfShow = Record<string, ScheduleDay>;       // keyed by ISO 'YYYY-MM-DD'
+```
+
+`AgendaEntry` is unchanged (`lib/parser/types.ts:320-327`: required `start` + `title`; optional `finish`/`trt`/`room`/`av`).
+
+The `ShowRow.runOfShow?` and `ShowForViewer.runOfShow?` types (`types.ts:348,374`) change from `Record<string, AgendaEntry[]>` to `Record<string, ScheduleDay>`.
+
+### 3.2 Backward compatibility (legacy decode)
+
+Existing rows hold the old `Record<isoDate, AgendaEntry[]>` shape until re-sync. `decodeRunOfShow` (`lib/data/decodeRunOfShow.ts:32-95`) MUST accept **both**:
+- New object shape → validate `entries[]` (existing per-entry title/start gates at `:74-82`), `showStart` (string|null, sentinel-guarded), `window` (`{start,end}` both strings sentinel-guarded, else null).
+- **Legacy array shape** → wrap as `{entries: <decoded array>, showStart: null, window: null}`.
+- Corrupt/partial → existing `corrupt` flag path (`:41`).
+
+This keeps the page correct in the window between deploy and the forced re-sync (§7).
+
+### 3.3 `KeyTimeAnchors` reshape
+
+```ts
+// lib/crew/resolveKeyTimes.ts
+type ShowAnchor = { date: string; label: string; time: string };   // date = ISO
+export type KeyTimeAnchors = {
+  set?: string;
+  shows?: ShowAnchor[];   // was: show?: string  — ordered ASC by date
+  strike?: string;
+};
+```
+
+- Single show day → `shows` has exactly 1 element (renders like today: label `"Show"`, value the time). No multi-day regression.
+- Multiple show days → 1 element per **visible** show day; `label` = `"Day N"` plus weekday/date (e.g. `"Day 1 · Wed 10/8"`). Final label copy fixed in the plan; both stack/row layouts use the same string.
+
+---
+
+## 4. Parser
+
+### 4.1 New module `lib/parser/blocks/scheduleTimes.ts`
+
+A pure function invoked from `lib/parser/index.ts` after `parseDates` + `parseAgenda`, producing `Record<isoDate, ScheduleDay>` from the DATES block's per-show-day TIME column (and the bare-window / titled split). Keyed by the same normalized ISO dates `parseDates` produces for `showDays`.
+
+**Tokenizer (clock-boundary, not line-based):**
+1. Find all clock tokens in the cell. Must tolerate observed variants: `7:15am`, `8:00 AM`, `4pm` (no colon), `5;30pm` (semicolon typo), `12:50pm`, leading/trailing space, and `GS:`/label prefixes. Normalize casing to uppercase AM/PM, collapse internal whitespace (mirrors `extractClockTime`'s normalization at `dates.ts:268-271`).
+2. For each token, the **title** = text from after the token up to the next token, with a leading separator (`-`, `–`, `:`, whitespace) stripped.
+3. **Window detection:** exactly 2 tokens, both with empty titles, with only a separator between them → `window = {start: token1, end: token2}`, `entries = []`. (Handles `"7:30am - 5:50pm"`, `"8:00 AM - 5:30 PM"`.)
+4. Otherwise → titled list: each token whose stripped title is **non-empty and non-sentinel** (`shouldHideGenericOptional`, `lib/visibility/emptyState.ts`) becomes an `AgendaEntry {start, title}`. Tokens with empty/sentinel titles are dropped from `entries` but still count toward `showStart`.
+5. `showStart` = the **first** clock token of the cell (universal across both flavors); null if no clock.
+
+**Edge cases (guard conditions):**
+- Empty/whitespace col4 → `{entries:[], showStart:null, window:null}` (no key emitted, or emitted-empty — see §5.5 anchor-floor).
+- Single titled token (`"4:15pm - Meeting Concludes"`) → `entries:[{start, title}]`, `showStart:"4:15pm"`, `window:null`.
+- Fragment (`"GS: 8:00 AM -"`) → `showStart:"8:00 AM"`, no end → `window:null`; `entries` empty (title after the dash is empty). DayCard meta shows just the showStart-derived single time (see §5.3).
+- `>` 5 day-rows or `>` per-day entry cap: §6 caps.
+
+### 4.2 Set-row second-time capture (D7)
+
+`extractClockTime` (`dates.ts:263-272`) → add `extractClockTimes(raw): string[]` returning **all** clock tokens in document order. `parseDates` set/travel_set cases (`dates.ts:207-221`) keep `loadIn = times[0]` (unchanged precedence: explicit `set` overrides `travel_set`) and add `dates.setupTime = times[1] ?? null` (free-text, e.g. `"10:00PM"` / `"8:30 PM"`). `dates.loadIn` semantics + precedence + rooms-independence are **unchanged** (`resolveKeyTimes.ts:54-59`; ratified Phase-1 change-1).
+
+`ShowRow.dates` gains `setupTime?: string | null` (rides existing `shows.dates` jsonb, no migration; `dates` column has no CHECK, `supabase/migrations/20260501000000_initial_public_schema.sql:12`).
+
+---
+
+## 5. Display
+
+### 5.1 `resolveKeyTimes` — new signature + precedence
+
+`resolveKeyTimes(show, rooms)` → `resolveKeyTimes(show, rooms, runOfShow)` where `runOfShow` is the **already-date-gated** projection from `getShowForViewer` (§5.6). It is fed the post-intersection structure, so per-day anchors are inherently privacy-safe.
+
+- **`set`** (D3): if `dates.loadIn` non-sentinel → compose with `dates.set`: `${formatMD(dates.set)} @ ${loadIn}` (e.g. `"10/7 @ 9:00PM"`). If `dates.set` absent → bare `loadIn` (today's behavior). Else GS room `set_time` (unchanged fallback). Compose ONLY when the clock portion is non-sentinel (a `"10/7 @ TBD"` still resolves absent via `isAbsentTime`, `resolveKeyTimes.ts:16-21`).
+- **`shows`** (D4/D8): for each show day in `show.dates.showDays` that is present in the gated `runOfShow`, push `{date, label, time}` where `time = runOfShow[date].showStart ?? runOfShow[date].window?.start`. If a show day has no per-day data but the GS room carries a `show_time`, fall back to a single anchor from the room (preserves single-day shows with no DATES col4). Sort ASC by date. Empty → omit `shows`.
+- **`strike`**: unchanged (selected GS room `strike_time`, sentinel-guarded).
+- **All-absent → `{}`** (strip omitted; `resolveKeyTimes.ts:53-56`).
+
+**Consumers updated** for `show?: string` → `shows?: ShowAnchor[]`:
+- `components/crew/primitives/KeyTimesStrip.tsx` (renderer, §5.2)
+- `components/crew/sections/TodaySection.tsx` (call + render; today-filter §5.4)
+- `components/right-now/buildRightNowContext.ts:79-82` (uses `anchors.set` → `loadInTime`; Show/Strike adaptation — confirm RightNow "Load-in:" copy reads acceptably with composed Set)
+- `components/crew/sections/ScheduleSection.tsx` (call + "Daily call times" card)
+- `app/admin/dev/source-link-dim/page.tsx` (type-shape consumer)
+
+### 5.2 `KeyTimesStrip`
+
+Renders `set`, then **N** `shows[]` rows, then `strike`. Per-row inv6 contract preserved (first `<span>` = label, last `<span>` = value; `KeyTimesStrip.tsx:73-81`).
+- **`"stack"`** (Schedule narrow / mobile): vertical, `Set` / `Show · Wed 10/8` / `Show · Thu 10/9` / `Strike`.
+- **`"row"`** (Today wide / Mode A banner): equal-width flex children, hairline-divided.
+
+### 5.3 `DayCard` meta (D5)
+
+`ScheduleSection` passes `DayCard.meta`:
+- Bare-window day → meta = `"7:30am–5:50pm"` (the window).
+- Fragment day (showStart only, no window, no entries) → meta = the single showStart time.
+- Titled day → no meta; the existing `RunOfShowList` renders below (entries).
+- Non-show-day (travel/set) → no meta (unless set day shows load-in; out of scope — set day already covered by Key Times).
+
+### 5.4 `ScheduleSection` / `TodaySection`
+
+- **Schedule** "Daily call times" card → `KeyTimesStrip` with **all** visible show days' anchors. Day list: each `DayCard` gains meta (window) and/or `RunOfShowList` (entries), both inheriting the date-restriction gate. One-sided-collapse logic (`ScheduleSection.tsx` `rightHasContent`) unchanged.
+- **Today** (D6): filters `anchors.shows` to today's ISO date (`todayIsoInShowTimezone`); if today is not a show day, `shows` is empty and only `set`/`strike` (today-relevant) render. `unknown_asterisk` Mode A still forces zero leak (`TodaySection` Mode A early return).
+
+### 5.5 Dimensional Invariants (Tailwind v4 — `.flex` ≠ `align-items: stretch`)
+
+| Parent → child | Relationship | Guaranteeing class/style |
+|---|---|---|
+| `KeyTimesStrip` row-layout container → each anchor cell | equal width across N cells | `min-[720px]:flex-1` on each cell |
+| row-layout container → hairline dividers | full-height rules between cells | `min-[720px]:divide-x min-[720px]:divide-border`, `first:pl-0/last:pr-0` |
+| `DayCard` row → `self-stretch` vline | vline fills the taller (meta-bearing) row height | `self-stretch` on the vline span (`DayCard.tsx:87`) — must still fill when meta adds height |
+| `DayCard` → date badge | fixed 50px column regardless of meta | `w-12.5 shrink-0` (`DayCard.tsx:72`) |
+| Schedule split-wide grid → columns | natural height (not stretch) | `min-[720px]:items-start` (DESIGN.md 2026-06-21 amendment) |
+
+All verified by a **real-browser** `getBoundingClientRect` assertion (`tests/e2e/crew-layout-dimensions.spec.ts`); jsdom is insufficient. Baselines regenerated via the **amd64 docker `screenshots-regen` workflow_dispatch**, never local arm64 (byte-comparison gate).
+
+### 5.6 Privacy / date-restriction
+
+`showStart`/`window`/`entries` all live inside `run_of_show`, which `getShowForViewer` reads service-role and **intersects with the viewer's `DateRestriction` (`showDays ∩ allowed`) at read time** (`lib/data/getShowForViewer.ts:524-588`). `resolveKeyTimes` receives the post-intersection projection, so a non-assigned day's time never reaches the client. `unknown_asterisk` leaks zero days (Schedule early return + Today Mode A). Every free-text field routes through `shouldHideGenericOptional`/`resolveOptionalField` (`lib/crew/agendaDisplay.ts:26-31,43-45`).
+
+### 5.7 Transition Inventory
+
+Every affected surface is a **synchronous Server Component** — `KeyTimesStrip`, `DayCard`, `ScheduleSection`, `TodaySection` carry no `'use client'`, no `framer-motion`, no `AnimatePresence`. The strip is fixed per server render; differences across viewers/days/show-counts are distinct renders, not in-page animated transitions. The only motion on the crew page is the page-level route transition (M12.11), which is unchanged.
+
+| State pair | Treatment |
+|---|---|
+| KeyTimesStrip: zero anchors ↔ set/strike-only ↔ single-show ↔ multi-show (1↔N rows) | instant — SSR render fork, no animation |
+| DayCard: meta present ↔ absent (window vs none) | instant — SSR render fork |
+| ScheduleSection: per-day `RunOfShowList` present ↔ absent | instant — SSR render fork (existing behavior, unchanged) |
+| Today Key Times: today-filtered (`shows` 0/1) ↔ Schedule full (`shows` N) | instant — distinct renders, not a runtime transition |
+
+No new ternary render or conditional block gains an `AnimatePresence`/`exit`; all are deliberately instant. Compound transitions (e.g. show-count change while `unknown_asterisk`) are N/A — `unknown_asterisk` short-circuits before any anchor renders.
+
+---
+
+## 6. Cap / truncation behavior
+
+- **Show anchor rows:** max **5** in `KeyTimesStrip`; beyond that render first 4 + a `"+N more"` row (realistic max is 3 — FinTech — but `showDays` is unbounded so the boundary is stated). Schedule "Daily call times" applies the same cap.
+- **Run-of-show entries per day:** existing 200-entry / 32 KB storage caps + `capDay` preserved (`agenda.ts:310-348`); display cap `RUN_OF_SHOW_DISPLAY_CAP = 20` per day unchanged (`agendaDisplay.ts:16`).
+- **`window` strings:** title-style truncation not applied (short by construction); sentinel-guarded only.
+
+---
+
+## 7. Persistence, merge & re-sync
+
+- **Merge (`lib/sync/applyParseResult.ts:136-169`), per ISO date:** `entries` = AGENDA-grid entries when the grid has ≥1 titled entry that day (D2), else DATES-col4 `entries`. `showStart`/`window` always from DATES col4 (the grid carries neither first-call nor window for v4); when grid wins and DATES col4 is absent, `showStart` = first grid entry's `start`. Confirmed-only full-replace (D-2) + caps preserved.
+- **Write path** (`lib/sync/runScheduledCronSync.ts:1370-1394`, `upsertShowsInternal`): writes the reshaped value to the same `run_of_show` jsonb column — **no SQL change**. `shows.dates` write (`:1029`) carries the new `setupTime` field for free (jsonb).
+- **No migration** → no `validation-schema-parity` delta. **No advisory-lock change** — rides the single existing JS-wrapper holder (`lib/sync/lockedShowTx.ts:59/61`); no new/nested holder (advisory-lock topology unchanged).
+- **Forced re-sync:** parser changes affect only future parses. Deployment step re-syncs the 7 live shows (+ VB/DRILL copies) via the existing retry/`requires_resync` path. `decodeRunOfShow` legacy-array tolerance (§3.2) covers the interim.
+
+---
+
+## 8. Tests & meta-tests
+
+**Anti-tautology / negative-regression mandatory** (assert against the data source, not the rendering container; derive expectations from fixture dimensions; stash-the-fix to prove the test fails).
+
+- **Parser:** new `tests/parser/blocks/scheduleTimes.test.ts` — tokenizer, window-vs-list detection, every observed variant (`4pm`, `5;30pm`, `GS:` prefix, AM/PM casing), both flavors, empty/sentinel, single-token, `showStart` derivation. Revise `tests/parser/blocks/dates.test.ts` loadIn suite (the suite that currently asserts SHOW DAY TIME fills nothing — must flip to assert capture + `setupTime`). `tests/parser/parseAgenda.test.ts` — encode the D2 merge precedence (it currently pins parseAgenda as the sole runOfShow source and uses consultants as an all-`[]` fixture).
+- **Data:** `tests/data/decodeRunOfShow.test.ts` — new `ScheduleDay` shape **+ legacy-array negative-regression** (old data still decodes). `tests/data/getShowForViewerRunOfShow.test.ts` — date-intersection holds on the new shape; `showStart`/`window` gated.
+- **Display:** `tests/crew/resolveKeyTimes.test.ts` — per-day `shows[]`, Set compose, sentinel guards, `loadIn` precedence + rooms-independence preserved, single-day back-compat, all-absent → `{}`. `KeyTimesStrip` — N-row render, inv6 first/last span, both layouts, the 5-row cap. `ScheduleSection.{anchorFloor,agenda,caps,fieldGuards}` extended; **anchor-floor negative-regression** (no times → zero Phase-2 markup) must still hold with the updated wrapper-child shape. `TodaySection.modeA` no-leak + today-filter. `buildRightNowContext` `shows[]` adaptation.
+- **Real-browser:** `tests/e2e/crew-layout-dimensions.spec.ts` — DayCard-meta height + `self-stretch` vline, KeyTimesStrip equal-width row cells, 50px badge, `items-start`, 1.6fr/1fr.
+
+**Meta-tests (declared per project rule):**
+- `tests/components/tiles/_metaSentinelHidingContract.test.ts` — register the new free-text fields (`window.start`, `window.end`, `showStart`, anchor `time`) so each is wired through `shouldHideGenericOptional`, or add the row + reason.
+- `tests/crew/agendaDisplay-single-source.test.ts` — any new shared per-day helper (e.g. a window-formatter, today-filter) lives in `lib/crew/agendaDisplay.ts` (Today + Schedule import the same predicate; no local copy).
+- **Advisory-lock topology:** `tests/auth/advisoryLockRpcDeadlock.test.ts` — **no change** (no new lock holder); declared explicitly.
+- **PostgREST DML lockdown:** no new RPC-gated table; no change.
+
+---
+
+## 9. Spec amendments & catalog
+
+- **Phase-1 design (`docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-15-crew-page-redesign-phase1-design.md`):** amend the two ratified claims that the live sheets disprove — the §4.4-area "Multi-day shows carry one show-wide Set/Show/Strike (sheets store one value, not per-day)" and the out-of-scope list item "Per-day call times (sheets store one show-wide value)." Replace with: per-day Show/agenda IS captured from the DATES TIME column (cite live-MCP recon + `fixtures/shows/raw/2025-10-consultants-roundtable.md:62-67`), superseding the premise. Per invariant 7, this is an explicit ratified amendment, not a silent fix.
+- **§12.4 catalog (3-part lockstep if a code is added):** add parse-warning `SCHEDULE_TIME_UNPARSED` (emitted when a SHOW DAY TIME cell has content but yields no `showStart`/entries) — requires (a) master-spec §12.4 prose, (b) `pnpm gen:spec-codes`, (c) `lib/messages/catalog.ts` row, all in one commit (`x1-catalog-parity`). If the plan determines the warning is unnecessary, this item is dropped with a note (no zombie code).
+
+---
+
+## 10. Flag lifecycle
+
+No new boolean config flags or toggles introduced. (`dates.setupTime` and the per-day structure are data fields, not flags; each has a parser write path → jsonb storage → `getShowForViewer` read → display consumer, all enumerated above.)
+
+---
+
+## 11. Out of scope
+
+- GS/main-session-start anchor semantics (D8 chose first-call; not revisited).
+- v1 2-col DATES TIME parsing (v1 has no TIME column; its schedule rides the AGENDA grid, which already works — D2 merge keeps it correct).
+- Reconciling the §1.2 screenshot anomaly (edited sheet state).
+- Per-crew flight surfacing, client-contact visibility, v2 sheet template (pre-existing backlog, unrelated).
+- Any change to room `set_time`/`show_time`/`strike_time` parsing (rooms block untouched).
+
+---
+
+## 12. Files touched (map)
+
+| Layer | File(s) |
+|---|---|
+| Parser | `lib/parser/blocks/scheduleTimes.ts` (new), `lib/parser/blocks/dates.ts` (extractClockTimes + setupTime), `lib/parser/index.ts` (wire), `lib/parser/types.ts` (ScheduleDay, dates.setupTime, runOfShow type) |
+| Persistence | `lib/sync/applyParseResult.ts` (merge), `lib/sync/runScheduledCronSync.ts` (passthrough, no SQL change) |
+| Projection | `lib/data/decodeRunOfShow.ts` (ScheduleDay + legacy tolerance), `lib/data/getShowForViewer.ts` (type + intersection on new shape) |
+| Key times | `lib/crew/resolveKeyTimes.ts` (KeyTimeAnchors reshape + signature + Set compose), `lib/crew/agendaDisplay.ts` (shared helpers) |
+| UI | `components/crew/primitives/KeyTimesStrip.tsx`, `components/crew/primitives/DayCard.tsx` (meta wired), `components/crew/sections/ScheduleSection.tsx`, `components/crew/sections/TodaySection.tsx`, `components/right-now/buildRightNowContext.ts`, `app/admin/dev/source-link-dim/page.tsx` |
+| Tests | per §8 |
+| Docs | this spec + Phase-1 amendment (§9) |
+
+UI files (`components/**`, `app/**` non-api) → Opus + impeccable v3 dual-gate (critique + audit) before milestone close (invariant 8).
+
+### 12.1 N/A matrices (declared explicitly per project rule)
+
+- **Tier × domain completeness matrix:** N/A — this change touches no surcharge tiers/domains and no DB tier columns; it is parser + jsonb-value-shape + display only.
+- **CHECK / enum migration matrix:** N/A — no CHECK constraint or enum is added or altered (`shows.dates` and `shows_internal.run_of_show` are schemaless `jsonb` with no CHECK; `initial_public_schema.sql:12`). Backward compatibility is handled in code (`decodeRunOfShow` legacy tolerance, §3.2), not via a DB migration.
+- **Advisory-lock topology:** N/A change — no new/nested holder (§7).
+
+---
+
+## 13. Watchpoints — do NOT relitigate (pre-load the reviewer)
+
+Cite these to the adversarial reviewer; each is a ratified contract, not an oversight:
+
+1. **Confirmed-only full-replace run-of-show (D-2).** Non-confirmed/empty shapes coarsen to the anchor strip; no preserve-last-known-good. Reopening this reopens the R17/R21/R22 stale-data class. The reshape preserves it (`applyParseResult.ts:136-169`).
+2. **`run_of_show` home is admin-only `shows_internal`, NOT crew-readable `shows` (D-3 + DML lockdown `20260619000000`).** Per-day-gated data does not move to `shows`. The reshape keeps it in place.
+3. **`loadIn` precedence + rooms-independence (Phase-1 change-1, wp-23).** `dates.loadIn` wins over room `set_time`; the Set anchor renders even with null rooms. The D3 compose preserves both (`resolveKeyTimes.ts:54-59`).
+4. **Split-wide grids use `items-start` (natural height), deliberate** (DESIGN.md 2026-06-21 owner amendment) — not a missing `items-stretch`.
+5. **Per-day Show anchor = first-call (D8), intentionally NOT the GS/main-session time.** The displayed Day-1 number shifting from `8:45am` (room GS) to `7:15am` (first call) is by design; GS-line text-matching was rejected as fragile.
+6. **No migration is correct, not an omission.** The jsonb value reshape needs no DDL; backward compat is the `decodeRunOfShow` legacy-array path (§3.2) + forced re-sync (§7), so `validation-schema-parity` has no delta.
+7. **Timing contracts live in the redesign Phase-1/Phase-2 specs, not master-spec §4.4** (which is the LEAD/COI privacy split). Code comments citing "§4.4" point at the redesign specs.
