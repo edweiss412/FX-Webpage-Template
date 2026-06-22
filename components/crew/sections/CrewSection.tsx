@@ -42,6 +42,8 @@ import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { PhoneIcon, UsersIcon } from "@/components/crew/icons/sectionIcons";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -147,8 +149,18 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                       className="flex min-w-0 flex-col"
                       data-testid="crew-column"
                       data-crew-column="roster"
+                      data-card-id="crew-roster"
                     >
-                      <SectionCard icon={<UsersIcon />} title="Show crew">
+                      <SectionCard
+                        icon={<UsersIcon />}
+                        title="Show crew"
+                        action={
+                          <SourceLink
+                            driveFileId={data.driveFileId}
+                            anchor={data.sourceAnchors[CARD_REGION_MAP["crew-roster"]]}
+                          />
+                        }
+                      >
                         <ul className="flex flex-col gap-4">
                           {visibleCrew.map((member) => {
                             // Sentinel-guard the free-text heading source: a sentinel
@@ -192,8 +204,18 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                       className="flex min-w-0 flex-col"
                       data-testid="crew-column"
                       data-crew-column="contacts"
+                      data-card-id="crew-contacts"
                     >
-                      <SectionCard icon={<PhoneIcon />} title="Key contacts">
+                      <SectionCard
+                        icon={<PhoneIcon />}
+                        title="Key contacts"
+                        action={
+                          <SourceLink
+                            driveFileId={data.driveFileId}
+                            anchor={data.sourceAnchors[CARD_REGION_MAP["crew-contacts"]]}
+                          />
+                        }
+                      >
                         <ul className="flex flex-col gap-4">
                           {visibleContacts.map((contact, idx) => {
                             const name =

@@ -42,6 +42,8 @@ import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { BedIcon, CarIcon, PlaneIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -279,8 +281,17 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
           const useSplit = hasGettingThere && hasHotels;
 
           const gettingThereBlock = hasGettingThere ? (
-            <div data-testid="travel-getting-there">
-              <SectionCard icon={<PlaneIcon />} title="Getting there">
+            <div data-testid="travel-getting-there" data-card-id="travel-getting-there">
+              <SectionCard
+                icon={<PlaneIcon />}
+                title="Getting there"
+                action={
+                  <SourceLink
+                    driveFileId={data.driveFileId}
+                    anchor={data.sourceAnchors[CARD_REGION_MAP["travel-getting-there"]]}
+                  />
+                }
+              >
                 {/* Mock `.travelrow` list — driver / vehicle / itinerary legs as
                     icon-led rows. The list is a single flush column; each row's
                     first/last padding + hairline border is handled by TravelRow. */}
@@ -369,8 +380,17 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
           ) : null;
 
           const hotelsBlock = hasHotels ? (
-            <div data-testid="travel-hotels">
-              <SectionCard icon={<BedIcon />} title="Hotels">
+            <div data-testid="travel-hotels" data-card-id="travel-hotels">
+              <SectionCard
+                icon={<BedIcon />}
+                title="Hotels"
+                action={
+                  <SourceLink
+                    driveFileId={data.driveFileId}
+                    anchor={data.sourceAnchors[CARD_REGION_MAP["travel-hotels"]]}
+                  />
+                }
+              >
                 <div className="flex flex-col gap-4">
                   {reservations.map((res, idx) => {
                     const hotelAddress = !shouldHideGenericOptional(res.hotel_address)
@@ -454,8 +474,18 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
               {/* Flight: the viewer's own itinerary, rendered first — the most personal
                   Travel datum. Full-width, above the getting-there/hotels split. */}
               {showFlight ? (
-                <SectionCard icon={<PlaneIcon />} title="Your flight">
-                  <div data-testid="travel-flight" className="flex flex-col gap-1">
+                <div data-card-id="travel-flight">
+                  <SectionCard
+                    icon={<PlaneIcon />}
+                    title="Your flight"
+                    action={
+                      <SourceLink
+                        driveFileId={data.driveFileId}
+                        anchor={data.sourceAnchors[CARD_REGION_MAP["travel-flight"]]}
+                      />
+                    }
+                  >
+                    <div data-testid="travel-flight" className="flex flex-col gap-1">
                     {flightLegs.map((leg, i) => (
                       <span
                         key={i}
@@ -469,8 +499,9 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                         {leg}
                       </span>
                     ))}
-                  </div>
-                </SectionCard>
+                    </div>
+                  </SectionCard>
+                </div>
               ) : null}
 
               {allHidden && !hotelFetchFailed && !transportFetchFailed ? (

@@ -39,6 +39,8 @@ import type { JSX } from "react";
 
 import { DayCard } from "@/components/crew/primitives/DayCard";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { buildSheetDeepLink, CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { ClockIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
@@ -156,7 +158,31 @@ export function ScheduleSection({
                   : "flex flex-col gap-4"
               }
             >
-              <div data-testid="schedule-column" data-schedule-column="days" className="min-w-0">
+              <div
+                data-testid="schedule-column"
+                data-schedule-column="days"
+                data-card-id="schedule-days"
+                className="min-w-0"
+              >
+                {/* The Schedule day-cards are not wrapped in a SectionCard shell,
+                    so the source link sits in a flush, right-aligned header above
+                    the day list — rendered only when a link exists (no empty
+                    header band). The `section-card-action` slot keeps it discover-
+                    able by the §12 coverage walker, matching the SectionCard
+                    header contract. */}
+                {buildSheetDeepLink(
+                  data.driveFileId,
+                  data.sourceAnchors[CARD_REGION_MAP["schedule-days"]],
+                ) !== null ? (
+                  <div className="mb-2 flex justify-end">
+                    <div data-slot="section-card-action" className="flex shrink-0 items-center">
+                      <SourceLink
+                        driveFileId={data.driveFileId}
+                        anchor={data.sourceAnchors[CARD_REGION_MAP["schedule-days"]]}
+                      />
+                    </div>
+                  </div>
+                ) : null}
                 {visibleDays.length === 0 ? (
                   <EmptyState label="Show dates haven't been confirmed yet." />
                 ) : (
@@ -205,9 +231,20 @@ export function ScheduleSection({
                     card breaks items-stretch). Render NO card when all anchors
                     are absent — no empty shell. */}
                 {hasTimesCard ? (
-                  <SectionCard icon={<ClockIcon />} title="Daily call times">
-                    <KeyTimesStrip anchors={anchors} />
-                  </SectionCard>
+                  <div data-card-id="schedule-call-times">
+                    <SectionCard
+                      icon={<ClockIcon />}
+                      title="Daily call times"
+                      action={
+                        <SourceLink
+                          driveFileId={data.driveFileId}
+                          anchor={data.sourceAnchors[CARD_REGION_MAP["schedule-call-times"]]}
+                        />
+                      }
+                    >
+                      <KeyTimesStrip anchors={anchors} />
+                    </SectionCard>
+                  </div>
                 ) : null}
                 {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
               </div>

@@ -51,6 +51,13 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
   schedule:       { tabs: ["AGENDA"], strategy: "whole-tab" },
 };
 
-export const CARD_REGION_MAP: Record<string, RegionId> = { "crew-roster":"crew", "crew-contacts":"contacts", "travel-flight":"flights", "travel-getting-there":"transportation", "travel-hotels":"hotels", "venue-where":"venue", "venue-facilities":"venue", "venue-status":"venue", "gear-scope-audio":"rooms", "gear-scope-video":"rooms", "gear-scope-lighting":"rooms", "gear-pack-list":"gear_packlist", "gear-keynote":"details", "gear-opening-reel":"details", "schedule-days":"schedule", "schedule-call-times":"rooms", "budget-main":"financials", "today-tonight":"hotels", "today-where":"venue", "today-contact":"contacts", "today-key-times":"rooms", "today-dress":"details", "today-run-of-show":"schedule" };
+// `satisfies` (not an explicit `: Record<string, RegionId>` annotation) keeps the
+// KEYS as a literal union so a known-literal-key lookup — `CARD_REGION_MAP["crew-roster"]`
+// or `CARD_REGION_MAP[`gear-scope-${id}`]` — resolves to `RegionId` (NOT `RegionId |
+// undefined`) under `noUncheckedIndexedAccess`. The card wiring (components/crew/
+// sections/*) indexes `sourceAnchors` with these values, which would error if the
+// lookup widened to `undefined`. `CardId` is exported for the same literal-key safety.
+export const CARD_REGION_MAP = { "crew-roster":"crew", "crew-contacts":"contacts", "travel-flight":"flights", "travel-getting-there":"transportation", "travel-hotels":"hotels", "venue-where":"venue", "venue-facilities":"venue", "venue-status":"venue", "gear-scope-audio":"rooms", "gear-scope-video":"rooms", "gear-scope-lighting":"rooms", "gear-pack-list":"gear_packlist", "gear-keynote":"details", "gear-opening-reel":"details", "schedule-days":"schedule", "schedule-call-times":"rooms", "budget-main":"financials", "today-tonight":"hotels", "today-where":"venue", "today-contact":"contacts", "today-key-times":"rooms", "today-dress":"details", "today-run-of-show":"schedule" } satisfies Record<string, RegionId>;
+export type CardId = keyof typeof CARD_REGION_MAP;
 export const MIXED_SOURCE_REGISTRY: Record<string, { primary: RegionId; secondaryFields: string[] }> = { "venue-facilities": { primary: "venue", secondaryFields: ["transportation.parking","event_details.internet","event_details.power"] }, "venue-status": { primary: "venue", secondaryFields: ["coi_status"] } };
 export const OUT_OF_SCOPE_CARDS = ["today-rightnow","today-notes","venue-diagrams","gear-opening-reel-video"] as const;

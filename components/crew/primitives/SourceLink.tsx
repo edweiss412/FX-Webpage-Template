@@ -27,8 +27,14 @@ import { SheetIcon } from "@/components/crew/icons/sectionIcons";
 type SourceLinkProps = {
   /** The source sheet's Drive file id. A null/empty id renders nothing. */
   driveFileId: string | null;
-  /** Optional section anchor (tab + gid + a1). Absent/disallowed → un-anchored base link. */
-  anchor?: SourceAnchor | null;
+  /**
+   * Optional section anchor (tab + gid + a1). Absent/disallowed → un-anchored
+   * base link. `undefined` is accepted (mirrors `buildSheetDeepLink`'s
+   * `anchor?` contract) so call sites can pass `sourceAnchors[regionId]` — an
+   * indexed read that widens to `SourceAnchor | undefined` under
+   * `noUncheckedIndexedAccess` — without a non-null assertion.
+   */
+  anchor?: SourceAnchor | null | undefined;
 };
 
 export function SourceLink({ driveFileId, anchor }: SourceLinkProps): ReactNode {

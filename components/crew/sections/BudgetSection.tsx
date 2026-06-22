@@ -22,6 +22,8 @@ import type { JSX } from "react";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
+import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -93,9 +95,19 @@ export function BudgetSection({
         }
 
         return (
-          <SectionCard title="Budget">
-            <KeyValueRows rows={rows} />
-          </SectionCard>
+          <div data-card-id="budget-main">
+            <SectionCard
+              title="Budget"
+              action={
+                <SourceLink
+                  driveFileId={data.driveFileId}
+                  anchor={data.sourceAnchors[CARD_REGION_MAP["budget-main"]]}
+                />
+              }
+            >
+              <KeyValueRows rows={rows} />
+            </SectionCard>
+          </div>
         );
       }}
     />
