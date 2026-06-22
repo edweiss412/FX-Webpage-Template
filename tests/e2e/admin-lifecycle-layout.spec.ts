@@ -38,6 +38,8 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import {
   seedArchivedShow,
   seedHeldShow,
+  seedLongTitleLiveShow,
+  LONG_SHOW_TITLE,
   readShow,
   sqlClient,
   type SeededShow,
@@ -75,6 +77,7 @@ async function rect(page: Page, testid: string): Promise<Rect> {
 
 let archived: SeededShow & { slug: string };
 let held: SeededShow & { slug: string };
+let longTitleLive: SeededShow & { slug: string };
 
 async function slugOf(s: SeededShow): Promise<string> {
   const row = await readShow(s.showId);
@@ -85,8 +88,10 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
   test.beforeAll(async () => {
     const a = await seedArchivedShow();
     const h = await seedHeldShow();
+    const l = await seedLongTitleLiveShow();
     archived = { ...a, slug: await slugOf(a) };
     held = { ...h, slug: await slugOf(h) };
+    longTitleLive = { ...l, slug: await slugOf(l) };
   });
 
   test.afterAll(async () => {
@@ -96,7 +101,7 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     // admin-lifecycle-transitions.spec.ts in the same single-worker Playwright
     // process; closing it would CONNECTION_ENDED the next spec's seeds. The pool
     // is torn down at process exit.
-    for (const s of [archived, held]) {
+    for (const s of [archived, held, longTitleLive]) {
       if (!s) continue;
       await sqlClient`delete from public.shows where id = ${s.showId}::uuid`;
     }
@@ -239,6 +244,137 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         after.width,
         `archive confirm: armed width does not collapse below resting @ ${width}px`,
       ).toBeGreaterThanOrEqual(before.width - TOL);
+    });
+
+    test(`per-show long-title header @ ${width}px: AdminPageHeader density — no overflow, no collapse (B1-D1, ${
+      isMobile ? "mobile" : "desktop"
+    })`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto(`/admin/show/${longTitleLive.slug}`);
+
+      // A LIVE show renders the worst-case header density: the long title (left
+      // column), the inline "Published" status pill (appended after the title),
+      // AND the share-link chip (rightSlot — present only for published+
+      // non-archived shows with a token). At the project's min-[720px] boundary
+      // the flex row switches col→row + justify-between, so this is where a long
+      // title can shove the shrink-0 chip past the viewport edge (horizontal
+      // overflow) or collide with the pill (vertical overlap). jsdom can't catch
+      // either; this is the real-browser guard for B1-D1.
+      const header = page.getByTestId("admin-page-header");
+      await expect(header).toBeVisible();
+      // The rendered title must actually be the long one (the seed plumbed it
+      // through). Guards against a regression that silently drops the override.
+      await expect(page.getByTestId("admin-page-header-title")).toHaveText(LONG_SHOW_TITLE);
+
+      const pillEl = page.getByTestId("admin-show-status-pill");
+      const chipEl = page.getByTestId("admin-show-share-chip");
+      await expect(pillEl).toBeVisible();
+      // The share chip is gated on published+non-archived+token; the long-title
+      // seed is Live, so it MUST render — its absence would mean the worst-case
+      // density isn't actually being exercised (a tautological pass).
+      await expect(chipEl).toBeVisible();
+
+      // ── INVARIANT A: zero horizontal overflow. Assert (1) the header's own
+      // box does not exceed the viewport width, and (2) NO descendant of the
+      // header (title, pill wrapper, chip, the inner flex row) spills past the
+      // header's right edge. scrollWidth > clientWidth on the header (or the
+      // document) is the canonical "something overflowed horizontally" signal;
+      // pair it with a per-child right-edge check so a regression names the
+      // offender. ──
+      const overflow = await header.evaluate((el) => {
+        const root = document.documentElement;
+        const headerRect = el.getBoundingClientRect();
+        // The inner flex row is the col→row container at min-[720px] holding the
+        // title column + right slot. DOM nesting (components/admin/nav/
+        // AdminPageHeader.tsx:53-89): h1[title] → div.flex-wrap → div.title-col
+        // → div.flex-row. So three parentElement hops from the title h1.
+        const flexRow = el.querySelector<HTMLElement>(
+          '[data-testid="admin-page-header-title"]',
+        )?.parentElement?.parentElement?.parentElement;
+        const offenders: { id: string; right: number }[] = [];
+        for (const sel of [
+          '[data-testid="admin-page-header-title"]',
+          '[data-testid="admin-page-header-title-append"]',
+          '[data-testid="admin-show-status-pill"]',
+          '[data-testid="admin-page-header-right"]',
+          '[data-testid="admin-show-share-chip"]',
+        ]) {
+          const child = el.querySelector<HTMLElement>(sel);
+          if (!child) continue;
+          const r = child.getBoundingClientRect();
+          // A child whose right edge exceeds the header's right edge (beyond
+          // tolerance) has overflowed the header box horizontally.
+          if (r.right > headerRect.right + 0.5) offenders.push({ id: sel, right: r.right });
+        }
+        return {
+          docScrollW: root.scrollWidth,
+          docClientW: root.clientWidth,
+          headerScrollW: el.scrollWidth,
+          headerClientW: el.clientWidth,
+          headerRight: headerRect.right,
+          viewportW: window.innerWidth,
+          rowOverflows: flexRow ? flexRow.scrollWidth > flexRow.clientWidth + 0.5 : false,
+          offenders,
+        };
+      });
+      // (1) The document does not gain a horizontal scrollbar from this page.
+      expect(
+        overflow.docScrollW,
+        `document has no horizontal overflow @ ${width}px (scrollW ${overflow.docScrollW} vs clientW ${overflow.docClientW})`,
+      ).toBeLessThanOrEqual(overflow.docClientW + TOL);
+      // (2) The header's own content does not overflow its box.
+      expect(
+        overflow.headerScrollW,
+        `header content does not overflow its box @ ${width}px (scrollW ${overflow.headerScrollW} vs clientW ${overflow.headerClientW})`,
+      ).toBeLessThanOrEqual(overflow.headerClientW + TOL);
+      // (3) The inner flex row (title col + right slot) does not overflow.
+      expect(
+        overflow.rowOverflows,
+        `header flex row does not overflow horizontally @ ${width}px`,
+      ).toBe(false);
+      // (4) No individual header child spills past the header's right edge.
+      expect(
+        overflow.offenders,
+        `no header child overflows the header right edge @ ${width}px`,
+      ).toEqual([]);
+
+      // ── INVARIANT B: no collapse / overlap among title, status pill, and
+      // share chip. "Collapse" = a zero-area box (display:none-style failure or
+      // a width/height collapse under flex). "Overlap" = the chip's box
+      // intersects the title's box (the row failed to keep them side-by-side at
+      // desktop OR stacked at mobile). Below the breakpoint the layout is a
+      // column (chip BELOW the title block); at/above it is a row (chip to the
+      // RIGHT). Either way the title and chip rectangles must NOT intersect. ──
+      const title = await rect(page, "admin-page-header-title");
+      const pill = await rect(page, "admin-show-status-pill");
+      const chip = await rect(page, "admin-show-share-chip");
+      for (const [name, r] of [
+        ["title", title],
+        ["status pill", pill],
+        ["share chip", chip],
+      ] as const) {
+        expect(r.width, `${name} has non-zero width (not collapsed) @ ${width}px`).toBeGreaterThan(
+          0,
+        );
+        expect(
+          r.height,
+          `${name} has non-zero height (not collapsed) @ ${width}px`,
+        ).toBeGreaterThan(0);
+      }
+      // Rectangle intersection test (title ∩ chip). Two boxes overlap iff they
+      // overlap on BOTH axes. At desktop they are separated horizontally
+      // (justify-between row); at mobile they are separated vertically (column).
+      const intersects =
+        title.left < chip.right - TOL &&
+        chip.left < title.right - TOL &&
+        title.top < chip.bottom - TOL &&
+        chip.top < title.bottom - TOL;
+      expect(
+        intersects,
+        `title and share chip do not overlap @ ${width}px (title ${JSON.stringify(
+          title,
+        )} chip ${JSON.stringify(chip)})`,
+      ).toBe(false);
     });
   }
 });

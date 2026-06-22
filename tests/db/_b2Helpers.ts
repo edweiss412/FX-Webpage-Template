@@ -102,6 +102,7 @@ type SeedOpts = {
   scratchTables?: ScratchTable[]; // seed EXACTLY these live non-wizard scratch rows (one per table)
   deferral?: "permanent_ignore" | "defer_until_modified"; // kind for a seeded deferred_ingestions row
   finalizeOwned?: boolean; // seed shows_pending_changes + in_progress wizard_finalize_checkpoints
+  title?: string; // override the default 'Test Show' (B1-D1: long-title AdminPageHeader density sweep)
 };
 
 export type SeededShow = {
@@ -120,7 +121,7 @@ async function seedShow(opts: SeedOpts = {}): Promise<SeededShow> {
   await sql`
     insert into public.shows (id, drive_file_id, slug, title, client_label, template_version,
                               archived, published, archived_at, requires_resync, picker_epoch)
-    values (${showId}::uuid, ${driveFileId}, ${`slug-${showId.slice(0, 8)}`}, 'Test Show', 'Client',
+    values (${showId}::uuid, ${driveFileId}, ${`slug-${showId.slice(0, 8)}`}, ${opts.title ?? "Test Show"}, 'Client',
             'v1', ${archived}, ${published}, ${archivedAt}, ${opts.requiresResync ?? false}, 1)`;
   // The show_share_tokens row is created by the shows_create_share_token_after_insert trigger
   // (supabase/migrations/20260523000002_show_share_tokens.sql:69-70) - do NOT insert it here (PK collision).
@@ -160,6 +161,20 @@ export const seedLiveShowWithToken = (opts: { withScratch?: boolean } = {}) =>
       : [],
   });
 export const seedArchivedShow = () => seedShow({ archived: true, published: false });
+/**
+ * B1-D1: a LIVE show (published, not archived) with a deliberately long, real-world-style
+ * title. Live is the worst-case density for <AdminPageHeader> at the min-[720px] flex-row
+ * boundary — all three header children compete for the row: the long title (left column),
+ * the inline "Published" status pill (appended after the title), AND the share-link chip
+ * (rightSlot, present only for published+non-archived shows with a token). The default
+ * "Test Show" cannot stress the row; this title is ~60 chars to force the title column to
+ * its narrowest while the shrink-0 chip holds its width. Subject of the density sweep in
+ * tests/e2e/admin-lifecycle-layout.spec.ts.
+ */
+export const LONG_SHOW_TITLE =
+  "II - Northwind Banking & Capital Markets Annual Leadership Summit";
+export const seedLongTitleLiveShow = () =>
+  seedShow({ archived: false, published: true, title: LONG_SHOW_TITLE });
 /**
  * A DRIFTED archived row: archived=true AND published=true (the two booleans are independent — no CHECK
  * couples them). archive_show_core always clears published, but a legacy/drifted row may carry published=true;
