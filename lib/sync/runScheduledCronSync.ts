@@ -16,7 +16,13 @@ import {
 import { canonicalize } from "@/lib/email/canonicalize";
 import { runInvariants } from "@/lib/parser/invariants";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
-import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import {
+  fetchDriveFileMetadata,
+  fetchSheetAsMarkdownAtRevision,
+  fetchSheetXlsxBytesAtRevision,
+} from "@/lib/drive/fetch";
+import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
@@ -257,6 +263,12 @@ export type ProcessOneFileDeps = {
   perFileProcessor?: typeof perFileProcessor;
   captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
   fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
+  /**
+   * Task 5: raw XLSX bytes for the revision (used by extractSourceAnchors). When absent
+   * the pipeline fetches bytes via fetchSheetAsMarkdownAtRevision's internal copy and
+   * re-parses — tests inject this to avoid a real Drive call.
+   */
+  fetchXlsxBytes?: (driveFileId: string, revisionId: string) => Promise<ArrayBuffer>;
   parseSheet?: (markdown: string, filename?: string) => ParsedSheet;
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
@@ -2155,6 +2167,8 @@ export type PreparedProcessOneFile =
       resolvedMode: Exclude<ResolvedSyncMode, "asset_recovery">;
       binding: Phase1Binding;
       parseResult: ParseResult;
+      /** Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call). */
+      sourceAnchors: Record<string, SourceAnchor>;
     };
 
 function defaultCooldownReader(
@@ -2263,6 +2277,22 @@ export async function prepareProcessOneFile(
     };
   }
 
+  // Task 5 — exactly-once Sheets API list ownership:
+  // Call listSpreadsheetSheets HERE (once) so both enrichWithDrivePins AND
+  // extractSourceAnchors consume the same result — no second API call.
+  const driveClient = deps.driveClient ?? defaultDriveClient();
+  let sheets: SpreadsheetSheet[] | undefined;
+  if (!deps.enrichWithDrivePins && driveClient.listSpreadsheetSheets) {
+    // Real path: fetch the sheet list once; pass into enrich via ctx.sheets so
+    // extractEmbeddedImages does NOT re-call the API.
+    try {
+      sheets = await driveClient.listSpreadsheetSheets(driveFileId);
+    } catch {
+      // Non-fatal: extractEmbeddedImages falls back gracefully when sheets is undefined.
+      sheets = undefined;
+    }
+  }
+
   const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
   let enriched: ParseResult;
   try {
@@ -2270,8 +2300,8 @@ export async function prepareProcessOneFile(
       "enrichWithDrivePins",
       (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
         parsed,
-        deps.driveClient ?? defaultDriveClient(),
-        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), binding },
+        driveClient,
+        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), binding, sheets },
       ),
     );
   } catch (error) {
@@ -2290,6 +2320,26 @@ export async function prepareProcessOneFile(
       code: classifySyncFailure(error),
     };
   }
+
+  // Task 5 — extract source anchors from the XLSX bytes (same revision, no extra Drive call).
+  let xlsxBytes: ArrayBuffer | undefined;
+  try {
+    xlsxBytes = await (deps.fetchXlsxBytes ?? fetchSheetXlsxBytesAtRevision)(
+      driveFileId,
+      binding.bindingToken,
+    );
+  } catch {
+    // Non-fatal: if bytes are unavailable we emit an empty anchors map.
+    xlsxBytes = undefined;
+  }
+
+  const titleToGid = new Map<string, number>(
+    (sheets ?? [])
+      .filter((s): s is SpreadsheetSheet & { sheetId: number } => typeof s.sheetId === "number")
+      .map((s) => [s.title, s.sheetId]),
+  );
+  const sourceAnchors: Record<string, SourceAnchor> =
+    xlsxBytes !== undefined ? extractSourceAnchors(xlsxBytes, titleToGid) : {};
 
   let currentBinding: Phase1Binding;
   try {
@@ -2322,6 +2372,7 @@ export async function prepareProcessOneFile(
     resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
     binding,
     parseResult: enriched,
+    sourceAnchors,
   };
 }
 
@@ -2506,6 +2557,10 @@ export async function processOneFile_unlocked(
       ...(phase1.outcome === "auto_apply_with_holds" ? { mi11Items: phase1.mi11Items } : {}),
       // Task 2.9: drive the auto-apply changes feed.
       notableItems,
+      // Task 5: thread source-region anchors into applyShowSnapshot (Task 6 persists them).
+      ...(pipeline.sourceAnchors !== undefined
+        ? { sourceAnchors: pipeline.sourceAnchors }
+        : {}),
     },
     txDeps,
   );

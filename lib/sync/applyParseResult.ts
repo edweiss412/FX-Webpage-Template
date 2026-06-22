@@ -1,4 +1,5 @@
 import type { AgendaEntry, CrewMemberRow, ParseResult } from "@/lib/parser/types";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { agendaDayEmptied } from "@/lib/parser/blocks/agendaWarnings";
 import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
 import { readOpenHolds, type HoldPort } from "@/lib/sync/holds/holdPort";
@@ -66,6 +67,12 @@ export type ApplyParseResultArgs = {
     port: HoldPort;
     baseModifiedTime: string;
   };
+  /**
+   * Task 5: source-region anchors extracted from the XLSX bytes. Optional — callers that
+   * don't yet supply XLSX bytes (wizard, manual-resync) omit this field. Task 6 will
+   * consume this to persist the anchors via the shows UPDATE.
+   */
+  sourceAnchors?: Record<string, SourceAnchor>;
 };
 
 function difference(left: string[], right: string[]): string[] {

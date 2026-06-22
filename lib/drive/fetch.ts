@@ -143,3 +143,54 @@ export async function fetchSheetAsMarkdownAtRevision(
 
   return synthesizeMarkdownFromXlsx(bytes);
 }
+
+/**
+ * Task 5: fetch the raw XLSX bytes for a sheet at a specific revision, using the same
+ * before/after binding-token race guard as fetchSheetAsMarkdownAtRevision.
+ * The bytes are suitable for passing to extractSourceAnchors.
+ */
+export async function fetchSheetXlsxBytesAtRevision(
+  driveFileId: string,
+  revisionId: string,
+  options: DriveFetchOptions = {},
+): Promise<ArrayBuffer> {
+  const drive = options.drive ?? getDriveClient();
+  const before = await fetchFileForExport(driveFileId, drive);
+  const beforeToken = bindingToken(before);
+  if (beforeToken !== revisionId) {
+    throw new DriveFetchError(
+      `Drive bound revision token for ${driveFileId} changed before xlsx export (bytes)`,
+    );
+  }
+
+  const exportUrl = before.exportLinks?.[XLSX_EXPORT_MIME_TYPE];
+  if (!exportUrl) {
+    throw new DriveFetchError(
+      `Drive revision token ${revisionId} for ${driveFileId} did not include an xlsx export link`,
+    );
+  }
+  const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
+  const fetchImpl = options.fetch ?? fetch;
+  const exportResponse = await fetchImpl(exportUrl, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: XLSX_EXPORT_MIME_TYPE,
+    },
+  });
+  if (!exportResponse.ok) {
+    throw new DriveFetchError(
+      `Drive revision xlsx export failed with HTTP ${exportResponse.status}`,
+    );
+  }
+
+  const bytes = await exportResponse.arrayBuffer();
+  const after = await fetchFileForExport(driveFileId, drive);
+  const afterToken = bindingToken(after);
+  if (afterToken !== revisionId) {
+    throw new DriveFetchError(
+      `Drive revision token for ${driveFileId} changed during xlsx export (bytes)`,
+    );
+  }
+
+  return bytes;
+}

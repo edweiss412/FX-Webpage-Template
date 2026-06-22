@@ -1,4 +1,5 @@
 import type { DriveListedFile } from "@/lib/drive/list";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { deriveSlug } from "@/lib/parser/slug";
 import type { AgendaEntry, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
@@ -46,6 +47,12 @@ export type Phase2Tx = ApplyParseResultTx & {
     // F1 (R60-1/R65-1): wizard Phase B first-seen INSERT writes shows.wizard_created_session_id —
     // the show-side provenance discriminator every created_show_id consumer joins on.
     wizardCreatedSessionId?: string;
+    /**
+     * Task 5: source-region anchors extracted from the XLSX bytes. Optional so callers
+     * that don't yet supply bytes (wizard, manual-resync, etc.) remain compatible; Task 6
+     * will persist the value via the shows UPDATE.
+     */
+    sourceAnchors?: Record<string, SourceAnchor>;
   }): Promise<
     | {
         outcome: "updated";
@@ -103,6 +110,11 @@ export type Phase2Args = {
   // Phase 2 Task 2.9: the full set of triggered review items for this sync (renames, section
   // shrink, field changes, asset drift) — drives the auto-apply show_change_log feed rows.
   notableItems?: TriggeredReviewItem[];
+  /**
+   * Task 5: source-region anchors from the XLSX bytes. Optional — wizard/manual callers
+   * do not yet supply bytes; Task 6 persists these via the shows UPDATE.
+   */
+  sourceAnchors?: Record<string, SourceAnchor>;
 };
 
 export type RoleFlagsNotice = {
@@ -286,6 +298,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       ...(args.wizardCreatedSessionId
         ? { wizardCreatedSessionId: args.wizardCreatedSessionId }
         : {}),
+      ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
     }),
   );
 
