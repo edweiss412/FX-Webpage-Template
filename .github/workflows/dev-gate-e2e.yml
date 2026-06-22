@@ -1,0 +1,94 @@
+name: Dev-gate e2e (build-vs-runtime)
+# B1-D4 (DEFERRED.md, M12.2 admin-redesign plan tree). Runs the three dev-gate
+# Playwright projects against tests/e2e/admin-dev.spec.ts to verify the
+# build-vs-runtime contract for the /admin/dev panel end-to-end:
+#
+#   dev-build (:3001)        — built ADMIN_DEV_PANEL_ENABLED=true  → /admin/dev 200, settings link visible
+#   prod-build (:3002)       — built UNSET                         → /admin/dev 404, no settings link
+#   prod-runtime-flip (:3003) — built UNSET, started runtime=true   → /admin/dev STILL 404, no link
+#                              (artifact-time gate wins over runtime env — the M3 build-vs-runtime class)
+#
+# The three projects are chained via Playwright `dependencies` (prod-runtime-flip
+# → prod-build → dev-build), so they run sequentially. DEV_GATE_ONLY=1 boots ONLY
+# the :3001/:3002/:3003 webServers (playwright.config.ts filter); without it,
+# the :3000 + :3004 servers ALSO run `pnpm build` and all five cold builds
+# contend on the shared with-admin-dev-flag lock (the B1-D4 timeout class).
+#
+# These specs assert HTTP status codes (200/404), NOT pixel bytes, so the
+# amd64 Docker raster pin used by screenshots-drift.yml is NOT needed here —
+# this mirrors help-affordances.yml's native-runner + `playwright install`
+# shape instead. `workflow_dispatch` so the orchestrator can fire it during
+# close-out (real-CI-green is its own gate — local-passes-CI-fails class).
+on:
+  pull_request:
+    paths:
+      - "app/admin/dev/**"
+      - "app/admin/settings/**"
+      - "components/admin/DevToolsRow.tsx"
+      - "lib/admin/__generated__/devPanelPresent.ts"
+      - "scripts/with-admin-dev-flag.mjs"
+      - "tests/e2e/admin-dev.spec.ts"
+      - "tests/e2e/helpers/**"
+      - "playwright.config.ts"
+      - "scripts/ci/**"
+      - "supabase/migrations/**"
+      - ".github/workflows/dev-gate-e2e.yml"
+  workflow_dispatch:
+
+jobs:
+  dev-gate-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Install psql (signInAs admin client + bootstrap shell out to psql)
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Boot local Supabase (guarded migrations)
+        # Shared bootstrap (M12.12 Task 14) — same Supabase + GUC + guarded-
+        # migration setup screenshots-drift.yml and help-affordances.yml use, so
+        # the hold-aside list cannot drift between workflows.
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      # The dev-gate projects all spread devices["Desktop Chrome"] → chromium only.
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run dev-gate projects (three serialized builds)
+        env:
+          # signInAs (tests/e2e/helpers/signInAs.ts) runs in the TEST-RUNNER
+          # process and reads the Supabase service-role client (supabaseAdmin.ts)
+          # to delete/create the fixture user, then POSTs the per-run secret as
+          # Authorization: Bearer to /api/test-auth/set-session. The webServer.env
+          # only reaches the Next server processes, NOT the Playwright workers, so
+          # these must be set on the runner here (mirrors help-affordances.yml).
+          ENABLE_TEST_AUTH: "true"
+          # Must MATCH the three dev-gate webServers' build/start secret
+          # (playwright.config.ts: fxav-m3-test-auth-2026-DO-NOT-SHIP), NOT the
+          # :3004 server's test-secret-fixture — signInAs sends this as Bearer
+          # and the server compares against its own TEST_AUTH_SECRET.
+          TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
+          # Boot ONLY the :3001/:3002/:3003 dev-gate webServers — see the
+          # workflow header + playwright.config.ts filter. Without this, all five
+          # servers cold-build and contend on the with-admin-dev-flag lock.
+          DEV_GATE_ONLY: "1"
+        # prod-runtime-flip depends on prod-build depends on dev-build, so naming
+        # all three runs them in that serialized dependency order.
+        run: pnpm exec playwright test --project=dev-build --project=prod-build --project=prod-runtime-flip
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-gate-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
