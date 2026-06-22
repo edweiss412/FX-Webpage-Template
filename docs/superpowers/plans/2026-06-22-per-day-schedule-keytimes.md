@@ -143,23 +143,9 @@ export type ShowAnchor = { date: string; label: string; time: string };
 export function parseScheduleTimes(markdown: string, dates: ShowRow['dates']): { scheduleDays: RunOfShow; warnings: ParseWarning[] };
 ```
 
-TDD steps:
+TDD steps (test-FIRST — the failing test drives the types + impl; plan-review R4):
 
-- [ ] Add the type declarations to `lib/parser/types.ts` (near `AgendaEntry`, before the `ParsedSheet` block) and retype the two `runOfShow?` fields:
-```ts
-export type ScheduleDay = {
-  entries: AgendaEntry[];                          // titled run-of-show (may be [])
-  showStart: string | null;                        // per-day first-call anchor
-  window: { start: string; end: string } | null;   // bare-window days only
-};
-export type RunOfShow = Record<string, ScheduleDay>; // keyed by ISO 'YYYY-MM-DD'
-export type ShowAnchor = { date: string; label: string; time: string }; // date = ISO
-```
-  and change `runOfShow?: Record<string, AgendaEntry[]>;` → `runOfShow?: RunOfShow;` at both `ParsedSheet` (`:347`) and `ParseResult` (`:373`).
-- [ ] Confirm the project still type-checks after the retype (downstream consumers are fixed in later tasks; this step only proves the type module itself is valid):
-  `pnpm tsc --noEmit -p tsconfig.json 2>&1 | head -30`
-  Expected: only EXPECTED downstream errors in `enrichWithDrivePins.ts`/`applyParseResult.ts`/`decodeRunOfShow.ts` (retype propagation, handled in their tasks) — note them; the `types.ts` declarations themselves must produce no error.
-- [ ] Write the failing tokenizer test in `tests/parser/blocks/scheduleTimes.test.ts`. Derive every expectation from the fixture cell text (no hardcoded magic times unrelated to the input). The `datesTable` helper mirrors `tests/parser/blocks/dates.test.ts:306-312` (5-col DATES table) so the `dates` arg gets real `showDays` ISO keys:
+- [ ] Write the failing tokenizer test FIRST in `tests/parser/blocks/scheduleTimes.test.ts` — it imports `parseScheduleTimes` from the not-yet-created module (and the `ScheduleDay`/`RunOfShow` types), so it RED-fails on the missing module. Derive every expectation from the fixture cell text (no hardcoded magic times unrelated to the input). The `datesTable` helper mirrors `tests/parser/blocks/dates.test.ts:306-312` (5-col DATES table) so the `dates` arg gets real `showDays` ISO keys:
 ```ts
 import { describe, it, expect } from "vitest";
 import { parseScheduleTimes } from "@/lib/parser/blocks/scheduleTimes";
@@ -257,6 +243,17 @@ describe("parseScheduleTimes — tokenizer", () => {
 - [ ] Run it and confirm RED (module does not exist):
   `pnpm vitest run tests/parser/blocks/scheduleTimes.test.ts`
   Expected: `Failed to resolve import "@/lib/parser/blocks/scheduleTimes"` → all tests fail to collect.
+- [ ] Now make it GREEN — first add the type declarations the test + impl need to `lib/parser/types.ts` (near `AgendaEntry`, before the `ParsedSheet` block), and retype the two `runOfShow?` fields:
+```ts
+export type ScheduleDay = {
+  entries: AgendaEntry[];                          // titled run-of-show (may be [])
+  showStart: string | null;                        // per-day first-call anchor
+  window: { start: string; end: string } | null;   // bare-window days only
+};
+export type RunOfShow = Record<string, ScheduleDay>; // keyed by ISO 'YYYY-MM-DD'
+export type ShowAnchor = { date: string; label: string; time: string }; // date = ISO
+```
+  and change `runOfShow?: Record<string, AgendaEntry[]>;` → `runOfShow?: RunOfShow;` at both `ParsedSheet` (`:347`) and `ParseResult` (`:373`). (Foundational type change — downstream consumers `enrichWithDrivePins.ts`/`applyParseResult.ts`/`decodeRunOfShow.ts` get EXPECTED tsc errors until their own tasks land; the `types.ts` declarations themselves must be error-free. `pnpm tsc --noEmit 2>&1 | head -30` to confirm only those expected downstream errors.)
 - [ ] Create `lib/parser/blocks/scheduleTimes.ts` with the clock-boundary tokenizer. The clock regex is the PERMISSIVE show-day form (no-colon/semicolon allowed) — deliberately distinct from the SET-row colon-required `extractClockTimes` (Task 3):
 ```ts
 import type { AgendaEntry, ParseWarning, RunOfShow, ScheduleDay, ShowRow } from "../types";
@@ -2578,7 +2575,7 @@ describe("§5.7 RightNowHero IS the single client component (inverse guard)", ()
 
 - [ ] Run — expect PASS already for the SSR surfaces (they have no client motion today and the reshape adds none), and the inverse guard passes (RightNowHero is already a client component): `pnpm vitest run tests/crew/transitionAudit.test.ts`. Expected: `5 passed` (4 SSR + 1 inverse). If any SSR surface FAILS, a UI task wrongly added `'use client'`/motion — STOP and remove it (the reshape is render-fork-only per §5.7).
 - [ ] Negative-regression (prove the SSR audit is live): temporarily add `'use client';` to the top of `components/crew/primitives/KeyTimesStrip.tsx`. Re-run → the `KeyTimesStrip … synchronous Server Component` test FAILS. Revert → `5 passed`. (Concrete failure mode caught: a future task converting a render-fork into a client animation — §5.7 mandates all four surfaces stay instant.)
-- [ ] Now the RightNowHero CLIENT-STATE transitions (the substantive part). Add a **NON-skipped** `test.describe` to `tests/e2e/right-now-transitions.spec.ts` (the file's existing audits are `test.describe.skip(...)` — this NEW describe must NOT be skipped, R3 finding 3). Use the LIVE harness exactly: `lookupSeededShow()` → `s`, the real crew URL `/show/${s.slug}?crew=${s.leadCrewId}` (NO `crewUrl`), `pinClock`/`driveToState(page, s, state)` (3-arg). Seed a 2-show-day `run_of_show` with DISTINCT Day-1/Day-2 anchors in `beforeAll` (mirror Task 17's `SEED_RUN_OF_SHOW`) and derive expected times from the seed.
+- [ ] Now the RightNowHero CLIENT-STATE transitions (the substantive part). Add a **NON-skipped** `test.describe` to `tests/e2e/right-now-transitions.spec.ts` (the file's existing audits are `test.describe.skip(...)` — this NEW describe must NOT be skipped, R3 finding 3). Use the LIVE harness exactly: `lookupSeededShow()` → `s`, and the crew URL `/show/${s.slug}?crew=${s.leadCrewId}` (NO `crewUrl`). NOTE the `?crew=<id>` form is this harness's established **test-auth mock** — the live `right-now-transitions.spec.ts:358` uses exactly this form (TODO at `:146`/`:283`: "migrate off `?crew=`/`?as=admin` mock to `signInAs`"); it is NOT the canonical prod route `/show/[slug]/[shareToken]` (the layout suite uses that). Match whichever the file you're extending already uses — for `right-now-transitions.spec.ts` that is `?crew=`. Plus `pinClock`/`driveToState(page, s, state)` (3-arg). Seed a 2-show-day `run_of_show` with DISTINCT Day-1/Day-2 anchors in `beforeAll` (mirror Task 17's `SEED_RUN_OF_SHOW`) and derive expected times from the seed.
 
   **Client-clock control:** per-day re-selection is CLIENT-side (`RightNowHero` reads `now` via the 60s tick, `RightNowHero.tsx:215`/`:327`), so these tests drive the CLIENT clock with Playwright's `page.clock` API (distinct from the server-side frozen-now header `pinClock` uses). **Implementer verify step:** before writing assertions, confirm (a) `RightNowHero`'s `now` is `page.clock`-controllable (if the app pins the client clock only via the frozen-now header, drive each render with `pinClock(page, iso)` + reload instead, asserting the per-render selection), and (b) the hero root test-id (`grep data-testid components/crew/RightNowHero.tsx` — the body island is `right-now-body` per `:32`). Adapt the two mechanisms below to whichever the live hero uses.
 
