@@ -18,7 +18,11 @@ import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { createClient } from "@supabase/supabase-js";
 
 import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/lib/validation/fixtures";
-import { mintFixtureCombos, finalizeFixtures } from "@/lib/validation/reseedFixtures";
+import {
+  mintFixtureCombos,
+  finalizeFixtures,
+  type LooseSupabaseClient,
+} from "@/lib/validation/reseedFixtures";
 import { safeValidationCleanup } from "./_validation-cleanup-helpers";
 
 // ---------------------------------------------------------------------------
@@ -53,11 +57,10 @@ const SUPABASE_URL = "http://127.0.0.1:54321";
 const SERVICE_ROLE_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 
-// Loose-typed client — mirrors the type in scripts/validation-reseed.ts.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Loose-typed client — mirrors the cast in scripts/validation-reseed.ts.
 const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
-}) as any;
+}) as unknown as LooseSupabaseClient;
 
 // Fixed date so tests are deterministic regardless of when they run.
 const VALIDATION_TODAY_ISO = "2026-06-22";

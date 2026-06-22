@@ -57,7 +57,7 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
     const result = await supabase.rpc("reset_validation_data");
     data = result.data as { clearedShows: number } | null;
     error = result.error;
-  } catch (err) {
+  } catch {
     return { ok: false, code: "VALIDATION_RESET_FAILED" };
   }
 
@@ -101,7 +101,7 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
   try {
     const result = await sessionClient.rpc("assert_destructive_reset_enabled");
     assertError = result.error;
-  } catch (err) {
+  } catch {
     return { ok: false, code: "VALIDATION_RESEED_FAILED" };
   }
 
@@ -131,7 +131,7 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
     revalidatePath("/admin");
     revalidatePath("/admin/settings");
     return { ok: true, count: minted };
-  } catch (err) {
+  } catch {
     return { ok: false, code: "VALIDATION_RESEED_FAILED" };
   }
 }
