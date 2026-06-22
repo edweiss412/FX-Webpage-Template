@@ -97,7 +97,7 @@ function hasHistoricalKeywordNearby(lines: string[], index: number): boolean {
   const lo = Math.max(0, index - HISTORICAL_WINDOW);
   const hi = Math.min(lines.length - 1, index + HISTORICAL_WINDOW);
   for (let i = lo; i <= hi; i += 1) {
-    const lower = lines[i].toLowerCase();
+    const lower = (lines[i] ?? "").toLowerCase();
     if (HISTORICAL_KEYWORDS.some((kw) => lower.includes(kw))) return true;
   }
   return false;
@@ -109,10 +109,11 @@ function hasHistoricalKeywordNearby(lines: string[], index: number): boolean {
  *  as part of the historical convergence log. */
 function inAuditTrailSection(lines: string[], index: number): boolean {
   for (let i = index; i >= 0; i -= 1) {
-    const m = lines[i].match(/^#{1,4}\s+(?:§\s*)?15(\.|\s|$)/);
+    const ln = lines[i] ?? "";
+    const m = ln.match(/^#{1,4}\s+(?:§\s*)?15(\.|\s|$)/);
     if (m) return true;
     // A higher-or-equal-level heading that is NOT §15 closes the window.
-    if (/^#{1,2}\s+/.test(lines[i]) && !/^#{1,2}\s+(?:§\s*)?15(\.|\s|$)/.test(lines[i])) {
+    if (/^#{1,2}\s+/.test(ln) && !/^#{1,2}\s+(?:§\s*)?15(\.|\s|$)/.test(ln)) {
       return false;
     }
   }
@@ -125,7 +126,7 @@ function scanFile(file: string): Offender[] {
   const offenders: Offender[] = [];
   const lines = readFileSync(file, "utf8").split("\n");
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
+    const line = lines[i] ?? "";
     for (const term of TERMS) {
       if (!line.includes(term)) continue;
       if (isStrikethrough(line, term)) continue;
@@ -148,7 +149,9 @@ describe("M9.5 signed-link surfaces are absent from M12 amendment docs", () => {
     const canonical = readFileSync(CANONICAL_X3_TEST, "utf8");
     const block = canonical.match(/const TERMS = \[([\s\S]*?)\];/);
     expect(block, "canonical X.3 TERMS array not found").not.toBeNull();
-    const canonicalTerms = [...block![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
+    const canonicalTerms = [...(block![1] ?? "").matchAll(/"([^"]+)"/g)]
+      .map((m) => m[1] ?? "")
+      .sort();
     expect([...TERMS].sort()).toEqual(canonicalTerms);
   });
 

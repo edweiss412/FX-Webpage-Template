@@ -20,19 +20,10 @@ name: Dev-gate e2e (build-vs-runtime)
 # shape instead. `workflow_dispatch` so the orchestrator can fire it during
 # close-out (real-CI-green is its own gate — local-passes-CI-fails class).
 on:
-  pull_request:
-    paths:
-      - "app/admin/dev/**"
-      - "app/admin/settings/**"
-      - "components/admin/DevToolsRow.tsx"
-      - "lib/admin/__generated__/devPanelPresent.ts"
-      - "scripts/with-admin-dev-flag.mjs"
-      - "tests/e2e/admin-dev.spec.ts"
-      - "tests/e2e/helpers/**"
-      - "playwright.config.ts"
-      - "scripts/ci/**"
-      - "supabase/migrations/**"
-      - ".github/workflows/dev-gate-e2e.yml"
+  # workflow_dispatch-only: the three serialized cold builds make this gate
+  # heavy + slow, so it is fired as an orchestrator close-out via
+  # `gh workflow run dev-gate-e2e.yml` (real-CI-green is its own gate — the
+  # local-passes-CI-fails class), NOT on every PR. B1-D4.
   workflow_dispatch:
 
 jobs:
