@@ -20,8 +20,8 @@ describe("parseScheduleTimes — tokenizer", () => {
       ["SHOW DAY 1", "Wed", "10/8/25", "7:15am - Registration  8:00am - Leaders Breakfast"],
     ]);
     const iso = dates.showDays[0]!; // "2025-10-08"
-    expect(scheduleDays[iso].showStart).toBe("7:15AM");
-    expect(scheduleDays[iso].window).toBeNull();
+    expect(scheduleDays[iso]!.showStart).toBe("7:15AM");
+    expect(scheduleDays[iso]!.window).toBeNull();
     expect(scheduleDays[iso]!.entries.map((e) => [e.start, e.title])).toEqual([
       ["7:15AM", "Registration"],
       ["8:00AM", "Leaders Breakfast"],

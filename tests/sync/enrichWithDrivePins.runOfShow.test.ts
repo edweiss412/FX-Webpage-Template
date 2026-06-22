@@ -49,7 +49,7 @@ const baseCtx = {
 
 describe("enrichWithDrivePins — runOfShow survives the ParsedSheet→ParseResult bridge", () => {
   test("a filled runOfShow deep-equals on the ParseResult (NOT dropped)", async () => {
-    const runOfShow = { "2026-05-14": [{ start: "8:00 AM", title: "X" }] };
+    const runOfShow = { "2026-05-14": { entries: [{ start: "8:00 AM", title: "X" }], showStart: "8:00 AM", window: null } };
     const parsed = emptyParsed({ runOfShow });
     const result = await enrichWithDrivePins(parsed, mockDriveClient, baseCtx);
     expect(result.runOfShow).toEqual(runOfShow);

@@ -1,5 +1,5 @@
 import { describe, it, expect, expectTypeOf } from "vitest";
-import type { AgendaEntry, ParsedSheet, ParseResult } from "@/lib/parser/types";
+import type { AgendaEntry, ParsedSheet, ParseResult, ScheduleDay } from "@/lib/parser/types";
 
 describe("AgendaEntry + runOfShow type surface", () => {
   it("AgendaEntry requires start+title, optionals are string|undefined", () => {
@@ -15,10 +15,10 @@ describe("AgendaEntry + runOfShow type surface", () => {
 
   it("ParsedSheet + ParseResult carry an optional runOfShow Record", () => {
     expectTypeOf<ParsedSheet["runOfShow"]>().toEqualTypeOf<
-      Record<string, AgendaEntry[]> | undefined
+      Record<string, ScheduleDay> | undefined
     >();
     expectTypeOf<ParseResult["runOfShow"]>().toEqualTypeOf<
-      Record<string, AgendaEntry[]> | undefined
+      Record<string, ScheduleDay> | undefined
     >();
   });
 
