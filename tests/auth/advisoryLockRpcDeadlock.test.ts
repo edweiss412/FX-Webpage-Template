@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { latestResetValidationDataBody } from "../db/_resetRpcSource.js";
 
 const ROOT = process.cwd();
 function stripComments(source: string): string {
@@ -30,7 +31,11 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260608000003_undo_change_rpc.sql",
     // Task 2 — reset_validation_data() acquires the per-show advisory lock for
     // EVERY affected drive_file_id (sorted, single-holder) before any delete.
-    "supabase/migrations/20260622000001_validation_reset_rpc.sql",
+    // NOTE: intentionally points at the HOTFIX migration (20260622000002) which
+    // `create or replace`s the function — latestResetValidationDataBody() is the
+    // canonical source for body-inspection tests; this list is only used to
+    // detect lock-taking RPCs for the deadlock-topology scan.
+    "supabase/migrations/20260622000002_validation_reset_timeout.sql",
   ];
 
   const names = new Set<string>();
@@ -149,7 +154,9 @@ describe("advisory-lock RPC deadlock guard", () => {
       "supabase/migrations/20260608000003_undo_change_rpc.sql",
       // Task 2 — reset_validation_data() takes its advisory locks before any
       // mutation and takes no FOR UPDATE row locks at all (trivially passes).
-      "supabase/migrations/20260622000001_validation_reset_rpc.sql",
+      // Points at the HOTFIX migration (20260622000002) which is the LATEST
+      // definition; the original (20260622000001) is superseded.
+      "supabase/migrations/20260622000002_validation_reset_timeout.sql",
     ];
 
     for (const file of lockTakingMigrations) {
@@ -193,18 +200,9 @@ describe("advisory-lock RPC deadlock guard", () => {
     // that takes pg_advisory_xact_lock(hashtext('show:' || <var>)), the lock
     // loop ends BEFORE the first delete, and there is NO nested SECURITY DEFINER
     // re-acquire (the body calls no other lock-taking RPC).
-    const source = stripComments(
-      readFileSync(
-        join(ROOT, "supabase/migrations/20260622000001_validation_reset_rpc.sql"),
-        "utf8",
-      ),
-    );
-
-    const m = source.match(
-      /create\s+(?:or\s+replace\s+)?function\s+public\.reset_validation_data\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/i,
-    );
-    expect(m, "reset_validation_data body must be present").toBeTruthy();
-    const body = m![1]!;
+    // Uses latestResetValidationDataBody() so a future replace-function migration
+    // is automatically picked up rather than silently validating the superseded body.
+    const body = latestResetValidationDataBody();
 
     // Sorted multi-show lock loop over the distinct affected-key set.
     expect(body).toMatch(

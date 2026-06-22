@@ -15,12 +15,8 @@
  * — the regression cannot ship silently.
  */
 import { afterAll, describe, expect, test } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import postgres, { type Sql } from "postgres";
-
-const ROOT = process.cwd();
-const MIGRATION = "supabase/migrations/20260622000001_validation_reset_rpc.sql";
+import { latestResetValidationDataBody } from "./_resetRpcSource.js";
 
 const DB_URL =
   process.env.TEST_DATABASE_URL ??
@@ -32,21 +28,6 @@ const sql: Sql = postgres(DB_URL, { max: 2, prepare: false });
 afterAll(async () => {
   await sql.end({ timeout: 5 });
 });
-
-function stripSqlComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*--.*$/gm, "");
-}
-
-/** Extract the reset_validation_data() function body ($$ … $$) from the migration text. */
-function resetRpcBody(): string {
-  const source = stripSqlComments(readFileSync(join(ROOT, MIGRATION), "utf8"));
-  const m = source.match(
-    /create\s+(?:or\s+replace\s+)?function\s+public\.reset_validation_data\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/i,
-  );
-  if (!m || !m[1])
-    throw new Error(`could not extract reset_validation_data body from ${MIGRATION}`);
-  return m[1];
-}
 
 describe("reset_validation_data() — FK-ordering audit", () => {
   test("every non-cascade/non-setnull FK child of shows is pre-deleted BEFORE `delete from public.shows`", async () => {
@@ -61,7 +42,7 @@ describe("reset_validation_data() — FK-ordering audit", () => {
     // Sanity: the audit must observe at least the known `reports` regression target.
     expect(nonCascadeChildren).toContain("reports");
 
-    const body = resetRpcBody();
+    const body = latestResetValidationDataBody();
     const showsDeleteAt = body.search(/delete\s+from\s+public\.shows\b/i);
     expect(showsDeleteAt, "RPC body must contain `delete from public.shows`").toBeGreaterThan(-1);
 
