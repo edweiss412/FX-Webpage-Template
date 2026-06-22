@@ -205,7 +205,7 @@ describe("revokeAdminAction — M12.5 self-revoke is enforced server-side", () =
     const fd = new FormData();
     fd.set("email", "self@example.com");
     const out = await revokeAdminAction(null, fd);
-    expect(out.kind).toBe("last_admin_lockout"); // refused
+    expect(out.kind).toBe("self_revoke_forbidden"); // refused (M12.5-DEF-1)
     expect(dataLayerCalled).toBe(false); // never reached revokeAdminEmail
   });
 
@@ -219,8 +219,28 @@ describe("revokeAdminAction — M12.5 self-revoke is enforced server-side", () =
     const fd = new FormData();
     fd.set("email", "  SELF@Example.com  "); // same identity, drifted casing/space
     const out = await revokeAdminAction(null, fd);
-    expect(out.kind).toBe("last_admin_lockout");
+    expect(out.kind).toBe("self_revoke_forbidden");
     expect(dataLayerCalled).toBe(false);
+  });
+
+  test("M12.5-DEF-1: a data-layer self_revoke_forbidden outcome maps to the self_revoke_forbidden result", async () => {
+    // Defense-in-depth path: if the Server-Action guard were ever bypassed
+    // (e.g. actor email unavailable for comparison) the DB still refuses and
+    // the data layer returns { kind: 'self_revoke_forbidden' }. The action
+    // surfaces it as-is rather than mislabeling it.
+    let dataLayerCalled = false;
+    // Actor identity that won't equal the target, so the action-level guard
+    // does NOT short-circuit and the data layer is actually consulted.
+    mockState.requireAdminIdentityImpl = async () => ({ email: "actor@example.com" });
+    mockState.revokeAdminEmailImpl = async () => {
+      dataLayerCalled = true;
+      return { kind: "self_revoke_forbidden", email: "target@example.com" };
+    };
+    const fd = new FormData();
+    fd.set("email", "target@example.com");
+    const out = await revokeAdminAction(null, fd);
+    expect(out.kind).toBe("self_revoke_forbidden");
+    expect(dataLayerCalled).toBe(true);
   });
 
   test("revoking a PEER (different admin) still flows through to the data layer", async () => {
