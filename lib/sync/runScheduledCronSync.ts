@@ -1546,12 +1546,13 @@ export function defaultDriveClient(): DriveClient {
       const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
       const response = await sheetsClient.spreadsheets.get({
         spreadsheetId,
-        fields: "sheets(properties(title))",
+        fields: "sheets(properties(sheetId,title))",
       });
       return ((response.data.sheets ?? []) as unknown[]).map((sheet) => {
-        const record = sheet as { properties?: { title?: string | null } };
+        const record = sheet as { properties?: { title?: string | null; sheetId?: number | null } };
         return {
           title: record.properties?.title ?? "",
+          sheetId: typeof record.properties?.sheetId === "number" ? record.properties.sheetId : undefined,
           embeddedObjects: [],
         } satisfies SpreadsheetSheet;
       });
