@@ -171,8 +171,7 @@ export const seedArchivedShow = () => seedShow({ archived: true, published: fals
  * its narrowest while the shrink-0 chip holds its width. Subject of the density sweep in
  * tests/e2e/admin-lifecycle-layout.spec.ts.
  */
-export const LONG_SHOW_TITLE =
-  "II - Northwind Banking & Capital Markets Annual Leadership Summit";
+export const LONG_SHOW_TITLE = "II - Northwind Banking & Capital Markets Annual Leadership Summit";
 export const seedLongTitleLiveShow = () =>
   seedShow({ archived: false, published: true, title: LONG_SHOW_TITLE });
 /**

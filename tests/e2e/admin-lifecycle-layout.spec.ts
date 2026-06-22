@@ -288,9 +288,8 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         // title column + right slot. DOM nesting (components/admin/nav/
         // AdminPageHeader.tsx:53-89): h1[title] → div.flex-wrap → div.title-col
         // → div.flex-row. So three parentElement hops from the title h1.
-        const flexRow = el.querySelector<HTMLElement>(
-          '[data-testid="admin-page-header-title"]',
-        )?.parentElement?.parentElement?.parentElement;
+        const flexRow = el.querySelector<HTMLElement>('[data-testid="admin-page-header-title"]')
+          ?.parentElement?.parentElement?.parentElement;
         const offenders: { id: string; right: number }[] = [];
         for (const sel of [
           '[data-testid="admin-page-header-title"]',
