@@ -97,6 +97,7 @@ export type ShowRow = {
     showDays: string[];
     travelOut: string | null;
     loadIn?: string | null; // free-text load-in clock time from the DATES TIME column (set/travel_set rows). §4.4
+    setupTime?: string | null; // second clock in the SET-row TIME cell (e.g. "10:00PM SETUP"). §4.2 / D7
   };
   // per-day work-phase mapping. Each entry maps a calendar date (ISO 'YYYY-MM-DD')
   // to the set of WorkPhases active on that day. Derived by the parser from shows.dates blocks AND

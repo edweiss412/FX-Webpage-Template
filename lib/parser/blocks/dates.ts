@@ -57,6 +57,7 @@ export function parseDates(
     showDays: [],
     travelOut: null,
     loadIn: null,
+    setupTime: null,
   };
 
   // v2 can still have a 2-col DATES table (e.g. 2024-05-east-coast-family-office),
@@ -208,15 +209,17 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
         const iso = presence(rawDate) ? normalizeDate(rawDate) : null;
         result.set = iso;
         if (!result.travelIn) result.travelIn = iso;
-        const t = extractClockTime(row[4] ?? "");
-        if (t && !result.loadIn) result.loadIn = t; // travel_set fills loadIn only if unset
+        const times = extractClockTimes(row[4] ?? "");
+        if (times[0] && !result.loadIn) result.loadIn = times[0]; // travel_set fills loadIn only if unset
+        if (times[1] && result.setupTime == null) result.setupTime = times[1];
         break;
       }
 
       case "set": {
         result.set = presence(rawDate) ? normalizeDate(rawDate) : null;
-        const t = extractClockTime(row[4] ?? "");
-        if (t) result.loadIn = t; // explicit SET row overrides any travel_set value
+        const times = extractClockTimes(row[4] ?? "");
+        if (times[0]) result.loadIn = times[0]; // explicit SET row overrides any travel_set value
+        if (times[1]) result.setupTime = times[1];
         break;
       }
 
@@ -256,19 +259,19 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
 // ── Utility ───────────────────────────────────────────────────────────────────
 
 /**
- * Extract a clock time (HH:MM with optional AM/PM) from a free-text TIME cell.
- * Position-independent: "12:30 PM LOAD IN" and "Load In: 7:00 PM" both match;
- * cells with no HH:MM ("LOAD IN", "AFTER 8PM") → null. §4.4 / §9 test 4.
+ * Extract ALL clock times (HH:MM with optional AM/PM) from a free-text TIME cell,
+ * in document order. COLON-REQUIRED (no-colon "8PM" / semicolon "5;30pm" are
+ * NOT matched here — that tolerance is exclusive to the SHOW DAY tokenizer in
+ * scheduleTimes.ts, §4.2 R12 finding 19). "LOAD IN" / "AFTER 8PM" → []. §4.2.
  */
-function extractClockTime(raw: string): string | null {
+export function extractClockTimes(raw: string): string[] {
   const c = clean(raw);
-  if (!c) return null;
-  const m = c.match(/\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/);
-  if (!m) return null;
-  return m[0]
-    .replace(/\s+/g, " ")
-    .replace(/([AaPp][Mm])$/, (s) => s.toUpperCase())
-    .trim();
+  if (!c) return [];
+  const matches = c.match(/\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/g);
+  if (!matches) return [];
+  return matches.map((m) =>
+    m.replace(/\s+/g, " ").replace(/([AaPp][Mm])$/, (s) => s.toUpperCase()).trim(),
+  );
 }
 
 function extractAllDates(text: string): string[] {
