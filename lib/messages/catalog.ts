@@ -1140,6 +1140,19 @@ export const MESSAGE_CATALOG = {
       "A previously-published run-of-show day is now empty in the sheet, so it reverts to the standard anchor schedule. Restore the rows to re-publish it.",
     helpHref: "/help/errors#AGENDA_DAY_EMPTIED",
   },
+  SCHEDULE_TIME_UNPARSED: {
+    code: "SCHEDULE_TIME_UNPARSED",
+    dougFacing:
+      "A show-day TIME entry in _<sheet-name>_'s DATES tab has text we couldn't read as a start time, window, or agenda, so that day shows the standard anchor schedule. Check the TIME cell reads like '7:15am - Registration …' or '7:30am - 5:50pm', or tell the developer if it keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "Each show day's TIME column in the DATES tab is parsed for a first call time, a start–end window, or a titled run-of-show. When a cell has content but none of those can be read — an end-only fragment like 'GS: ... - 6:00 PM', or a placeholder like 'General Session TBD' — we store no per-day time for that day and it falls back to the always-correct anchor schedule. Restoring a readable start (e.g. '7:15am - Registration') re-publishes the per-day time on the next sync.",
+    title: "Show-day time unreadable",
+    longExplanation:
+      "A show day's DATES TIME cell has content but no readable start time, window, or agenda, so that day reverts to the standard anchor schedule. Give the cell a readable start time to re-publish it.",
+    helpHref: "/help/errors#SCHEDULE_TIME_UNPARSED",
+  },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     code: "PULL_SHEET_AMBIGUOUS_FORMAT",
     dougFacing:
