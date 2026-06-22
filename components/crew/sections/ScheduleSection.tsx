@@ -51,6 +51,8 @@ import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import {
   aggregateDays,
   displayableEntries,
+  formatScheduleWindow,
+  resolveOptionalField,
   visibleShowDays,
   RUN_OF_SHOW_DISPLAY_CAP,
   type AggregateDay,
@@ -85,7 +87,7 @@ export function ScheduleSection({
   // route-level infra arm catches it, not the per-block fallback).
   const { dateRestriction, isAdmin } = resolveViewerContext(viewer, data);
 
-  const anchors = resolveKeyTimes(data.show, data.rooms);
+  const anchors = resolveKeyTimes(data.show, data.rooms, data.runOfShow, dateRestriction);
 
   // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
   // KeyTimesStrip anchors are derived from data.rooms (scope shown to all →
@@ -196,6 +198,31 @@ export function ScheduleSection({
                   <div className="flex flex-col gap-2">
                     {visibleDays.map((day) => {
                       const isToday = day.date === todayIso;
+                      const sd = data.runOfShow?.[day.date] ?? null; // types.ScheduleDay | null
+                      const isSetDay = day.phase === "Set";
+                      // EVERY meta source is routed through resolveOptionalField (strips
+                      // URLs + hides 'TBD'/'N/A'/'TBA' sentinels). The file-level sentinel
+                      // meta-test (Task 15) is VACUOUS for ScheduleSection (the import is
+                      // already present for other fields), so THIS per-value guard + the
+                      // behavioral tests are the real enforcement for showStart/window/
+                      // setupTime (plan-review R5 finding).
+                      const guardMeta = (v: string | null | undefined): string | undefined =>
+                        resolveOptionalField(v ?? undefined) ?? undefined;
+                      let meta: string | undefined;
+                      if (isSetDay) {
+                        // Guard the RAW setupTime FIRST, THEN prefix (plan-review R6):
+                        // resolveOptionalField hides only EXACT sentinels after trim, so
+                        // "Setup N/A" would NOT hide — guard the bare value ("N/A" → null)
+                        // and prefix "Setup " only to a surviving real clock.
+                        const t = guardMeta(data.show.dates.setupTime);
+                        meta = t != null ? `Setup ${t}` : undefined;
+                      } else if (sd?.window != null) {
+                        meta = guardMeta(formatScheduleWindow(sd.window));
+                      } else if (sd != null && sd.showStart != null && sd.entries.length === 0) {
+                        meta = guardMeta(sd.showStart); // fragment day: single showStart
+                      }
+                      // titled day (entries.length > 0) → meta stays undefined; the
+                      // RunOfShowList renders below instead.
                       // DayCard's typed props don't forward `data-testid`, so the testid
                       // lives on a wrapper. The pinned-today card uses the dedicated
                       // testid; every other card carries its date. Both forms match the
@@ -210,16 +237,13 @@ export function ScheduleSection({
                           data-day={day.date}
                           {...(isToday ? { "data-today": "true" } : {})}
                         >
-                          <DayCard day={day.date} phase={day.phase} today={isToday} />
+                          <DayCard day={day.date} phase={day.phase} today={isToday} meta={meta} />
                           {/* Gate on the DISPLAYABLE count, not the raw stored
                               count: a day whose entries are all URL-only (stripped
                               title → "") has zero displayable entries → no
                               run-of-show container → the Phase-1 anchor floor shows. */}
-                          {displayableEntries(data.runOfShow?.[day.date]).length > 0 ? (
-                            <RunOfShowList
-                              entries={data.runOfShow![day.date]!}
-                              isoDate={day.date}
-                            />
+                          {displayableEntries(sd?.entries).length > 0 ? (
+                            <RunOfShowList entries={sd!.entries} isoDate={day.date} />
                           ) : null}
                         </div>
                       );

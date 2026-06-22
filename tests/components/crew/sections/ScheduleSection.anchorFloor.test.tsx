@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
-import type { AgendaEntry } from "@/lib/parser/types";
+import type { AgendaEntry, ScheduleDay } from "@/lib/parser/types";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -11,6 +11,21 @@ const D1 = "2026-05-14";
 const D2 = "2026-05-15";
 const DATES = { travelIn: null, set: null, showDays: [D1, D2], travelOut: null };
 const VIEWER = { kind: "admin" } as const;
+const adminViewer = VIEWER;
+const at = (iso: string): Date => new Date(`${iso}T12:00:00Z`);
+
+// `runOfShow` is now Record<string, ScheduleDay> (Task 2 reshape). The existing
+// floor tests still express days as bare AgendaEntry[]; lift them into the
+// canonical ScheduleDay value (entries + null showStart/window) so the contract
+// stays "titled entries gate the run-of-show list" without re-stating the shape
+// in every test body.
+function ros(entryMap: Record<string, AgendaEntry[]>): Record<string, ScheduleDay> {
+  const out: Record<string, ScheduleDay> = {};
+  for (const [iso, entries] of Object.entries(entryMap)) {
+    out[iso] = { entries, showStart: null, window: null };
+  }
+  return out;
+}
 
 function renderRos(
   runOfShow: Record<string, AgendaEntry[]> | null,
@@ -18,7 +33,11 @@ function renderRos(
 ) {
   return render(
     <ScheduleSection
-      data={makeShowForViewer({ show: { dates: DATES }, runOfShow, ...extra })}
+      data={makeShowForViewer({
+        show: { dates: DATES },
+        runOfShow: runOfShow === null ? null : ros(runOfShow),
+        ...extra,
+      })}
       viewer={VIEWER}
       today={TODAY}
       showId={SHOW_ID}
@@ -100,4 +119,75 @@ describe("Schedule anchor floor + CONFIRMED-ONLY (test 6 — UI half)", () => {
     // No raw infra text in the crew DOM.
     expect(c.textContent).not.toContain("boom");
   });
+});
+
+// ---------------------------------------------------------------------------
+// Task 12 — anchor-floor holds with the new ScheduleDay wrapper child shape;
+// date-safe room fallback never cross-labels Day 2 with Day 1's value.
+// ---------------------------------------------------------------------------
+
+test("no anchors, no runOfShow → right column emitted but empty; grid falls back to flex (anchor floor holds)", () => {
+  // This suite has no afterEach(cleanup), so scope to THIS render's container (the
+  // global getByTestId would see every mounted tree). Matches the file's pattern.
+  const c = render(
+    <ScheduleSection
+      data={makeShowForViewer({
+        show: { dates: { showDays: ["2026-10-08"], travelIn: null, travelOut: null, set: null } },
+        runOfShow: null,
+        rooms: [], // no room → resolveKeyTimes yields {}
+      })}
+      viewer={adminViewer}
+      today={at("2026-10-08")}
+      showId="s1"
+    />,
+  ).container;
+  const grid = c.querySelector('[data-testid="schedule-grid"]')!;
+  expect(grid.className).toContain("flex flex-col"); // rightHasContent === false
+  // Anti-tautology: the times column container is STILL present (the floor contract)…
+  const timesCol = grid.querySelector('[data-schedule-column="times"]');
+  expect(timesCol).not.toBeNull();
+  // …but holds NO call-times card (no anchors → KeyTimesStrip null → no card shell).
+  expect(grid.querySelector('[data-card-id="schedule-call-times"]')).toBeNull();
+});
+
+test("Redefining-FI Day 2 absent from runOfShow + cross-dated room → day renders, no cross-day anchor", () => {
+  // Day 2 (5/14) intentionally absent (GS: ... - 6:00 PM → showStart null); room show_time dated 5/13.
+  const c = render(
+    <ScheduleSection
+      data={makeShowForViewer({
+        show: {
+          dates: {
+            showDays: ["2026-05-13", "2026-05-14"],
+            travelIn: null,
+            travelOut: null,
+            set: null,
+          },
+        },
+        runOfShow: { "2026-05-13": { entries: [], showStart: "8:00 AM", window: null } },
+        rooms: [
+          {
+            id: "r1",
+            kind: "gs",
+            name: "GS",
+            set_time: null,
+            show_time: "5/13 @ 8:00 AM",
+            strike_time: null,
+          },
+        ],
+      })}
+      viewer={adminViewer}
+      today={at("2026-05-13")}
+      showId="s1"
+    />,
+  ).container;
+  // Day 2 card still renders (from dates.showDays) — date-safe fallback, no crash.
+  expect(c.querySelector('[data-testid="schedule-day-2026-05-14"]')).not.toBeNull();
+  // The strip's show anchors come from resolveKeyTimes (data source) — Day 2 must NOT inherit 5/13's value.
+  const showRows = c
+    .querySelector('[data-testid="key-times-strip"]')!
+    .querySelectorAll('[data-anchor="show"]');
+  const day2Row = Array.from(showRows).find(
+    (r) => r.getAttribute("data-anchor-date") === "2026-05-14",
+  );
+  expect(day2Row).toBeUndefined(); // omitted, not cross-labeled (§5.1 row 6)
 });

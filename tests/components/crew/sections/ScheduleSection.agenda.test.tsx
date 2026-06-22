@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
-import type { AgendaEntry } from "@/lib/parser/types";
+import type { AgendaEntry, ScheduleDay } from "@/lib/parser/types";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -37,10 +37,22 @@ const D1_ENTRIES: AgendaEntry[] = [
   },
 ];
 
+// runOfShow is now Record<string, ScheduleDay> (Task 2). These tests express days
+// as bare AgendaEntry[]; lift each into the canonical day value (null showStart/
+// window) so the agenda-enrichment contract stays "titled entries gate the list".
 function renderAgenda(runOfShow: Record<string, AgendaEntry[]> | null) {
+  const ros: Record<string, ScheduleDay> | null =
+    runOfShow === null
+      ? null
+      : Object.fromEntries(
+          Object.entries(runOfShow).map(([iso, entries]) => [
+            iso,
+            { entries, showStart: null, window: null },
+          ]),
+        );
   return render(
     <ScheduleSection
-      data={makeShowForViewer({ show: { dates: DATES }, runOfShow })}
+      data={makeShowForViewer({ show: { dates: DATES }, runOfShow: ros })}
       viewer={VIEWER}
       today={TODAY}
       showId={SHOW_ID}
