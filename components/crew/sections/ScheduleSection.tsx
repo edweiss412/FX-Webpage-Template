@@ -51,6 +51,7 @@ import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import {
   aggregateDays,
   displayableEntries,
+  visibleShowDays,
   RUN_OF_SHOW_DISPLAY_CAP,
   type AggregateDay,
 } from "@/lib/crew/agendaDisplay";
@@ -119,9 +120,16 @@ export function ScheduleSection({
           // Intersect the restriction against the FULL aggregate (travel / set /
           // showDays / travelOut — not just showDays).
           const allDays = aggregateDays(data.show.dates);
+          // visibleShowDays is the SINGLE SOURCE for the SHOW-DAY ∩ restriction set;
+          // the full schedule list also shows travel/set/strike, so for explicit we
+          // intersect the FULL aggregate against (restriction.days) — but the show-day
+          // SUBSET of that intersection MUST equal visibleShowDays(...) (drift guard).
+          const allowedShowDays = new Set(visibleShowDays(data.show.dates, dateRestriction));
           const visibleDays: AggregateDay[] =
             dateRestriction.kind === "explicit"
-              ? allDays.filter((d) => dateRestriction.days.includes(d.date))
+              ? allDays.filter(
+                  (d) => allowedShowDays.has(d.date) || dateRestriction.days.includes(d.date),
+                )
               : allDays; // kind === 'none'
 
           const todayIso = todayIsoInShowTimezone(data.show, today);

@@ -33,4 +33,20 @@ describe("agenda-display single source (Today/Schedule privacy-contract drift gu
     expect(t).toMatch(/aggregateDays/); // the show-day membership source
     expect(t).not.toMatch(/function isDisplayableEntry/); // never re-implemented locally
   });
+  it("the shared module exports the new per-day helpers (single source)", () => {
+    const m = src("lib/crew/agendaDisplay.ts");
+    expect(m).toMatch(/export function visibleShowDays/);
+    expect(m).toMatch(/export function formatScheduleWindow/);
+    expect(m).toMatch(/export function todayShowAnchors/);
+  });
+  it("ScheduleSection routes its show-day intersection through visibleShowDays (no inline copy)", () => {
+    const s = src("components/crew/sections/ScheduleSection.tsx");
+    expect(s).toMatch(/visibleShowDays\(data\.show\.dates,\s*dateRestriction\)/);
+  });
+  it("the legacy ScheduleDay name is gone — no ScheduleDay imported from agendaDisplay (rename complete)", () => {
+    // plan-review R2 finding 3: post-rename, the ONLY ScheduleDay is the parser-types value type.
+    const s = src("components/crew/sections/ScheduleSection.tsx");
+    expect(s).not.toMatch(/import[^;]*\bScheduleDay\b[^;]*from\s+["']@\/lib\/crew\/agendaDisplay["']/);
+    expect(src("lib/crew/agendaDisplay.ts")).not.toMatch(/export type ScheduleDay\b/);
+  });
 });
