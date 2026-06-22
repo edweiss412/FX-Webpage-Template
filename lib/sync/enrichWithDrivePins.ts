@@ -58,7 +58,7 @@ export type SpreadsheetEmbeddedObject = {
 
 export type SpreadsheetSheet = {
   title: string;
-  sheetId?: number;
+  sheetId?: number | undefined;
   embeddedObjects?: SpreadsheetEmbeddedObject[];
 };
 

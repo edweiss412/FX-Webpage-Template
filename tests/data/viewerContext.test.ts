@@ -50,6 +50,8 @@ function makeData(crewMembers: ShowForViewer["crewMembers"]): ShowForViewer {
     lastSyncStatus: null,
     tileErrors: {},
     runOfShow: null,
+    driveFileId: null,
+    sourceAnchors: {},
   };
 }
 

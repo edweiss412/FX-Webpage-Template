@@ -2327,7 +2327,7 @@ export async function prepareProcessOneFile(
       (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
         parsed,
         driveClient,
-        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), sheets },
+        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), ...(sheets !== undefined ? { sheets } : {}) },
       ),
     );
   } catch (error) {
