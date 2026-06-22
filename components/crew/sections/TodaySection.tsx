@@ -52,7 +52,7 @@ import {
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { aggregateDays, displayableEntries } from "@/lib/crew/agendaDisplay";
-import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
+import { resolveKeyTimes, type KeyTimeAnchors } from "@/lib/crew/resolveKeyTimes";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -212,7 +212,23 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
             runOfShow: data.runOfShow ?? null, // NEW — carry per-day ShowAnchors
           });
 
-          const anchors = resolveKeyTimes(data.show, data.rooms, data.runOfShow ?? null, ctx.dateRestriction);
+          // Today shows ONLY today's Show anchor — the full per-day breakdown
+          // belongs in Schedule (§5.4 / D6). set/strike are SHOW-WIDE milestones
+          // (§13.8) → pass through untouched. unknown_asterisk → resolveKeyTimes
+          // returns {} (§5.1) → all anchors absent → no strip / no card / no leak.
+          const resolved = resolveKeyTimes(
+            data.show,
+            data.rooms,
+            data.runOfShow ?? null,
+            ctx.dateRestriction,
+          );
+          const anchors: KeyTimeAnchors = {
+            ...(resolved.set != null ? { set: resolved.set } : {}),
+            ...(resolved.strike != null ? { strike: resolved.strike } : {}),
+            ...((resolved.shows ?? []).some((s) => s.date === todayIso)
+              ? { shows: resolved.shows!.filter((s) => s.date === todayIso) }
+              : {}),
+          };
 
           const firstHotel = data.hotelReservations[0] ?? null;
           // Tonight uses the 2-up grid (columns={2} on the card below): the Hotel

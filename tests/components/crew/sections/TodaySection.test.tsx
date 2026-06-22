@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
 /**
  * tests/components/crew/sections/TodaySection.test.tsx (crew-redesign Task 1)
  *
@@ -192,4 +193,114 @@ test("contacts fetch error → admin sees the contacts degraded block; crew sees
     />,
   ).container;
   expect(crew.querySelector('[data-testid="section-tile-error-contacts"]')).toBeNull(); // omission
+});
+
+// ---------------------------------------------------------------------------
+// Task 13 — Today key-times: today-filtered shows[], show-wide set/strike.
+//
+// admin viewer → `none` dateRestriction (all show days visible). `at(iso)` is a
+// show-tz-stable instant (noon UTC = mid-afternoon EDT/EST, no boundary cross),
+// so `todayIsoInShowTimezone(show, at(iso)) === iso`.
+// ---------------------------------------------------------------------------
+const adminViewer = { kind: "admin" } as const;
+const at = (iso: string): Date => new Date(`${iso}T12:00:00Z`);
+
+function makeMultiDay() {
+  return makeShowForViewer({
+    show: {
+      dates: {
+        travelIn: "2026-10-06",
+        set: "2026-10-07",
+        showDays: ["2026-10-08", "2026-10-09"],
+        travelOut: "2026-10-10",
+        loadIn: "9:00PM",
+      },
+    },
+    runOfShow: {
+      "2026-10-08": { entries: [], showStart: "7:15am", window: null },
+      "2026-10-09": { entries: [], showStart: "8:00am", window: null },
+    },
+    rooms: [
+      {
+        id: "r1",
+        kind: "gs",
+        name: "GS",
+        set_time: null,
+        show_time: "10/8 @ 8:45am",
+        strike_time: "4:30pm",
+      },
+    ],
+  });
+}
+
+const matrix: Array<{ label: string; today: string; showAnchorDate: string | null }> = [
+  { label: "set day", today: "2026-10-07", showAnchorDate: null },
+  { label: "show day 1", today: "2026-10-08", showAnchorDate: "2026-10-08" },
+  { label: "show day 2", today: "2026-10-09", showAnchorDate: "2026-10-09" },
+  { label: "strike/travel-out day", today: "2026-10-10", showAnchorDate: null },
+  { label: "travel-in day", today: "2026-10-06", showAnchorDate: null },
+];
+
+test.each(matrix)(
+  "Today $label → Set+Strike always; Show only on show days, today's time",
+  ({ today, showAnchorDate }) => {
+    const data = makeMultiDay();
+    const { getByTestId } = render(
+      <TodaySection data={data} viewer={adminViewer} today={at(today)} showId="s1" />,
+    );
+    // Key times card exists (set/strike are show-wide → always present here).
+    const strip = getByTestId("key-times-strip");
+    expect(strip.querySelector('[data-anchor="set"]')).not.toBeNull();
+    expect(strip.querySelector('[data-anchor="strike"]')).not.toBeNull();
+    const showRows = Array.from(strip.querySelectorAll('[data-anchor="show"]'));
+    if (showAnchorDate === null) {
+      expect(showRows.length).toBe(0); // non-show day: no Show anchor
+    } else {
+      // Exactly today's show anchor, carrying today's showStart from the data source.
+      expect(showRows.length).toBe(1);
+      expect(showRows[0]!.getAttribute("data-anchor-date")).toBe(showAnchorDate);
+      const expectedTime = data.runOfShow![showAnchorDate]!.showStart;
+      expect(showRows[0]!.textContent).toContain(expectedTime);
+    }
+  },
+);
+
+// unknown_asterisk → resolveKeyTimes returns {} → NO strip / NO card shell, and
+// NONE of the room-sourced Show/Strike date strings leak. Negative-regression:
+// stash the resolver's unknown_asterisk → {} early-return and `4:30pm` reappears.
+test("unknown_asterisk viewer → resolveKeyTimes {} → NO set/show/strike rows, zero date text", () => {
+  const data = makeMultiDay(); // room show_time '10/8 @ 8:45am', strike_time '4:30pm'
+  // The viewer's crew row carries the *** marker (dateRestriction is derived from
+  // the matched crew row by resolveViewerContext, not the viewer prop directly).
+  data.crewMembers = [
+    {
+      id: "ua",
+      name: "Asterisk Crew",
+      email: null,
+      phone: null,
+      role: "",
+      roleFlags: [],
+      dateRestriction: { kind: "unknown_asterisk", days: null },
+      stageRestriction: { kind: "none" },
+    },
+  ];
+  const { queryByTestId, container } = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "ua" }}
+      today={at("2026-10-08")}
+      showId="s1"
+    />,
+  );
+  expect(queryByTestId("key-times-strip")).toBeNull(); // strip fully suppressed
+  expect(queryByTestId("today-key-times")).toBeNull(); // no card shell either
+  // Anti-tautology: clone the section and strip RightNowHero (it independently
+  // renders copy) before scanning for leaked date strings, so a hero label can't
+  // mask the leak.
+  const section = container
+    .querySelector('[data-testid="section-today"]')!
+    .cloneNode(true) as HTMLElement;
+  section.querySelector('[data-testid="right-now-hero"]')?.remove();
+  expect(section.textContent).not.toContain("8:45am"); // room Show date must NOT leak
+  expect(section.textContent).not.toContain("4:30pm"); // room Strike date must NOT leak
 });
