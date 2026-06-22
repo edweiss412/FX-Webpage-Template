@@ -215,10 +215,13 @@ export const REGION_IDS = ["crew","contacts","hotels","transportation","flights"
   "rooms","venue","financials","details","gear_packlist","schedule"] as const;
 export type RegionId = (typeof REGION_IDS)[number];
 
-// Terminator labels that bound a "header-block" region (mirror of the parser's
-// per-block TERMINATING_LABELS; lib/parser/blocks/crew.ts:29-46 et al.)
+// EXACT full-cell section-header matches that bound a "header-block" region (mirror
+// of the parser's per-block TERMINATING_LABELS; lib/parser/blocks/crew.ts:29-46 et al.).
+// Anchored with $ so a region's OWN data rows (e.g. "Hotel Address", "Details note",
+// "Driver") do NOT terminate its block (plan-R2 finding 2). The header row is excluded
+// from terminator evaluation by scanning from the row AFTER the header (plan-R2 finding 1).
 export const BLOCK_TERMINATORS: RegExp[] = [
-  /^(CREW|TECH|VENUE|DATES|HOTEL|HOTELS|ROOMS|TRANSPORTATION|CONTACTS|SCHEDULE|PULL SHEET|DIAGRAMS|EVENT\s+DETAILS|DETAILS|DRESS|GENERAL SESSION|BREAKOUT)\b/i,
+  /^(CREW|TECH|VENUE|DATES|HOTEL|HOTELS|ROOMS|TRANSPORTATION|CONTACTS|SCHEDULE|PULL SHEET|DIAGRAMS|EVENT DETAILS|DETAILS|DRESS|GENERAL SESSION|BREAKOUT(?:\s+\d+)?|TO DO)$/i,
 ];
 
 export type RegionAnchorSpec =
@@ -287,7 +290,7 @@ describe("§8.1↔§9 consistency", () => {
 
 Algorithm (spec §8.1.1) — read the workbook; for each region, pick the **first tab in `spec.tabs` that exists in `titleToGid`** (so its title ∈ allowlist by Task-3's consistency test). Build that tab's grid keeping the **absolute** `(row,col)` origin from `XLSX.utils.decode_range(sheet["!ref"])` (do NOT discard `range.s.r/s.c`); merge-expand so a merged label resolves at its top-left. Then per **strategy**:
 - **`row-label-union`** (`contacts`, `rooms`, `venue`, `financials`): collect every row whose first non-blank cell text matches any `labels` regex; the anchor `a1` = the bounding rectangle from the min (row,col) to the max (row, last-non-blank-col) across matched rows.
-- **`header-block`** (`crew`, `hotels`, `transportation`, `details`): find the first row whose first cell matches `header`; extend downward until a row whose first cell matches any `terminators` regex (or a blank run / sheet end); `a1` = bounding rectangle of that span.
+- **`header-block`** (`crew`, `hotels`, `transportation`, `details`): find the first row whose first cell matches `header`; **include that header row**, then scan **from the NEXT row** downward, stopping (exclusive) at the first row whose first cell **exactly** matches a `terminators` header, or a blank run / sheet end. The header row is never evaluated as its own terminator (plan-R2 finding 1). Because terminators are exact full-cell matches anchored with `$`, a region's own data rows (`Hotel Address`, a `Details note`, `Driver`, `Parking`) do NOT terminate the block (plan-R2 finding 2). `a1` = bounding rectangle from the header row through the last included row.
 - **`whole-tab`** (`gear_packlist`, `schedule`): `a1` = the tab's used range (`decode_range(!ref)` → top-left:bottom-right in A1).
 - **`alias-of`** (`flights`→`crew`): resolved in a second pass — copy the referenced region's computed anchor verbatim (or omit if the referent is absent).
 Zero matches / tab absent → omit the region. `a1` via `XLSX.utils.encode_range` (range-only, no sheet prefix). Apply the allowlist title check defensively before emitting (belt-and-suspenders with the tab selection).
@@ -366,6 +369,24 @@ it("rooms = row-label union of GS/BO scope rows", () => {
   const b = buf([{ name: "INFO", rows: [["GS Audio","(1) QU32"], ["GS Video","(2) Eiki"], ["BO Audio","NONE"]] }]);
   const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
   expect(a.rooms).toEqual({ title: "INFO", gid: 0, a1: "A1:B3" });
+});
+
+it("header-block: header row is NOT its own terminator (crew spans header+data)", () => {
+  const b = buf([{ name: "INFO", rows: [["CREW","NAME"], ["Doug - Lead","917"], ["VENUE","Four Seasons"]] }]);
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  expect(a.crew).toEqual({ title: "INFO", gid: 0, a1: "A1:B2" }); // CREW header + 1 data row, stops at VENUE — NOT an empty/one-row block
+});
+
+it("header-block: a region's own data row sharing the header prefix does NOT terminate (hotels keeps 'Hotel Address')", () => {
+  const b = buf([{ name: "INFO", rows: [["HOTEL","Four Seasons"], ["Hotel Address","525 N"], ["DATES","5/13"]] }]);
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  expect(a.hotels).toEqual({ title: "INFO", gid: 0, a1: "A1:B2" }); // includes 'Hotel Address', stops at exact DATES header
+});
+
+it("header-block: details keeps a 'Details note' data row (exact-match terminators)", () => {
+  const b = buf([{ name: "INFO", rows: [["EVENT DETAILS","x"], ["LED","NO"], ["Details note","keep me"], ["CREW","NAME"]] }]);
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  expect(a.details).toEqual({ title: "INFO", gid: 0, a1: "A1:B3" }); // LED + 'Details note' included, stops at CREW
 });
 ```
 
