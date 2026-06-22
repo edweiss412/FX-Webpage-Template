@@ -22,9 +22,13 @@ name: Unit + DB suite (full vitest gate)
 #   - tests/admin/test-auth-gate.test.ts — Layer 2 drives a real Supabase
 #     auth.admin.createUser → signInWithPassword chain that needs the running
 #     instance's matching service-role key + GoTrue; it returns 501 without it.
-# Both were ALREADY ungated before this job, so excluding them is not a
-# regression. Follow-up: BL-CI-UNIT-GATE-EXCLUSIONS (BACKLOG.md) to gate them
-# under a remote-validation / live-auth job.
+#   - tests/cross-cutting/email-canonicalization.test.ts — three tests set an
+#     EXPLICIT 15s per-test timeout while doc-scanning the (large) master spec +
+#     plan; under full-suite concurrency on the 2-core CI runner they starve and
+#     time out (they pass STANDALONE, with isolated resources, in x5-email-
+#     canonicalization which already gates this file).
+# All three were ALREADY gated (x5) or ungated before this job, so excluding
+# them is not a regression. Follow-up: BL-CI-UNIT-GATE-EXCLUSIONS (BACKLOG.md).
 on:
   pull_request:
   push:
@@ -64,4 +68,5 @@ jobs:
         run: |
           pnpm exec vitest run \
             --exclude '**/tests/admin/test-auth-gate.test.ts' \
-            --exclude '**/tests/cross-cutting/pg-cron-coverage.test.ts'
+            --exclude '**/tests/cross-cutting/pg-cron-coverage.test.ts' \
+            --exclude '**/tests/cross-cutting/email-canonicalization.test.ts'
