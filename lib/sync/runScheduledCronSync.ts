@@ -1040,6 +1040,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
+      // Task 6: source_anchors — pass raw object to $18::jsonb (never JSON.stringify; postgres.js serializes)
+      args.sourceAnchors ?? {},
     ];
     const skipDiagramsParams = [
       args.driveFileId,
@@ -1058,6 +1060,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
+      // Task 6: source_anchors — pass raw object to $17::jsonb (never JSON.stringify; postgres.js serializes)
+      args.sourceAnchors ?? {},
     ];
     const insertParamsForSlug = (slug: string) => [
       args.driveFileId,
@@ -1102,6 +1106,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_seen_modified_time = $14::timestamptz,
                    coi_status = $15,
                    pull_sheet = $16::jsonb,
+                   source_anchors = $17::jsonb,
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
@@ -1128,6 +1133,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_seen_modified_time = $15::timestamptz,
                    coi_status = $16,
                    pull_sheet = $17::jsonb,
+                   source_anchors = $18::jsonb,
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
