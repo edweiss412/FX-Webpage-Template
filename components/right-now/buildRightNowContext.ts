@@ -15,7 +15,11 @@
  */
 import type { DateRestriction, HotelReservationRow, RunOfShow, ShowRow } from "@/lib/parser/types";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
-import { resolveKeyTimes, type ProjectedRoomRow, type ShowAnchor } from "@/lib/crew/resolveKeyTimes";
+import {
+  resolveKeyTimes,
+  type ProjectedRoomRow,
+  type ShowAnchor,
+} from "@/lib/crew/resolveKeyTimes";
 
 /**
  * Everything the card needs to render any of the 12 §8.2 states.

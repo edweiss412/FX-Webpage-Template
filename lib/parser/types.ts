@@ -328,9 +328,9 @@ export type AgendaEntry = {
 };
 
 export type ScheduleDay = {
-  entries: AgendaEntry[];                          // titled run-of-show (may be [])
-  showStart: string | null;                        // per-day first-call anchor
-  window: { start: string; end: string } | null;   // bare-window days only
+  entries: AgendaEntry[]; // titled run-of-show (may be [])
+  showStart: string | null; // per-day first-call anchor
+  window: { start: string; end: string } | null; // bare-window days only
 };
 export type RunOfShow = Record<string, ScheduleDay>; // keyed by ISO 'YYYY-MM-DD'
 export type ShowAnchor = { date: string; label: string; time: string }; // date = ISO

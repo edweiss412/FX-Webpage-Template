@@ -99,9 +99,7 @@ export function visibleShowDays(
 }
 
 /** §5.3 bare-window DayCard meta: '7:30am–5:50pm'. Sentinel-guarded both ends → null. */
-export function formatScheduleWindow(
-  window: { start: string; end: string } | null,
-): string | null {
+export function formatScheduleWindow(window: { start: string; end: string } | null): string | null {
   if (window == null) return null;
   if (resolveOptionalField(window.start) == null) return null;
   if (resolveOptionalField(window.end) == null) return null;

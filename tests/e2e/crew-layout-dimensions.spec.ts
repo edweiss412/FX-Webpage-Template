@@ -681,7 +681,9 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   //   2. Re-run this test → it FAILS: vlineRect.height collapses to ~0 (content
   //      height), no longer `cardRect.height - 24`.
   //   3. Revert the change. Test passes again.
-  test("§5.5 DayCard self-stretch vline fills the TALLER (meta-bearing) row", async ({ page }, testInfo) => {
+  test("§5.5 DayCard self-stretch vline fills the TALLER (meta-bearing) row", async ({
+    page,
+  }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
     await page.setViewportSize({ width: 1000, height: 1200 });
     await gotoSection(page, "schedule");
@@ -703,7 +705,9 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // Every [data-testid="day-card-date"] must be 50px wide — the `w-12.5 shrink-0`
   // classes (DayCard.tsx:72) guarantee a fixed column regardless of whether the
   // card carries a meta line or not.
-  test("§5.5 date badge is the fixed 50px (w-12.5) column regardless of meta", async ({ page }, testInfo) => {
+  test("§5.5 date badge is the fixed 50px (w-12.5) column regardless of meta", async ({
+    page,
+  }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
     await page.setViewportSize({ width: 1000, height: 1200 });
     await gotoSection(page, "schedule");
@@ -723,7 +727,9 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // the shorter column NOT being stretched to the taller's height produces a
   // measurable difference (>2px). This complements the existing
   // `assertSplitWide` check which reads `getComputedStyle.alignItems === "start"`.
-  test("§5.5 schedule split-wide grid is items-start (natural height, NOT stretch) at ≥720px", async ({ page }, testInfo) => {
+  test("§5.5 schedule split-wide grid is items-start (natural height, NOT stretch) at ≥720px", async ({
+    page,
+  }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
     await page.setViewportSize({ width: 1000, height: 1200 });
     await gotoSection(page, "schedule");

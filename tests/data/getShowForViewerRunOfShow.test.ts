@@ -244,7 +244,12 @@ describe("getShowForViewer.runOfShow ScheduleDay projection (per-day-schedule)",
   it("ADMIN/none → both ScheduleDay days survive with showStart + window intact", async () => {
     setup({
       showDays: [d1, d2],
-      showsInternal: { data: { run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd(null, { start: "8:00am", end: "5:00pm" }) } }, error: null },
+      showsInternal: {
+        data: {
+          run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd(null, { start: "8:00am", end: "5:00pm" }) },
+        },
+        error: null,
+      },
     });
     const r = await getShowForViewer(SHOW_ID, ADMIN);
     expect(Object.keys(r.runOfShow ?? {})).toEqual([d1, d2]);
@@ -256,7 +261,10 @@ describe("getShowForViewer.runOfShow ScheduleDay projection (per-day-schedule)",
     setup({
       showDays: [d1, d2],
       crew: { data: [crewRow({ kind: "explicit", days: [d1] })], error: null },
-      showsInternal: { data: { run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd("8:00 AM") } }, error: null },
+      showsInternal: {
+        data: { run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd("8:00 AM") } },
+        error: null,
+      },
     });
     const r = await getShowForViewer(SHOW_ID, CREW);
     expect(Object.keys(r.runOfShow ?? {})).toEqual([d1]); // Day 2 dropped at read
@@ -267,7 +275,10 @@ describe("getShowForViewer.runOfShow ScheduleDay projection (per-day-schedule)",
     setup({
       showDays: [d1, d2],
       crew: { data: [crewRow({ kind: "unknown_asterisk", days: null })], error: null },
-      showsInternal: { data: { run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd("8:00 AM") } }, error: null },
+      showsInternal: {
+        data: { run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd("8:00 AM") } },
+        error: null,
+      },
     });
     const r = await getShowForViewer(SHOW_ID, CREW);
     expect(r.runOfShow).toBeNull();

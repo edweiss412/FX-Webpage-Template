@@ -270,7 +270,10 @@ export function extractClockTimes(raw: string): string[] {
   const matches = c.match(/\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/g);
   if (!matches) return [];
   return matches.map((m) =>
-    m.replace(/\s+/g, " ").replace(/([AaPp][Mm])$/, (s) => s.toUpperCase()).trim(),
+    m
+      .replace(/\s+/g, " ")
+      .replace(/([AaPp][Mm])$/, (s) => s.toUpperCase())
+      .trim(),
   );
 }
 

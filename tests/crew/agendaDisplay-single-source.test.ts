@@ -46,7 +46,9 @@ describe("agenda-display single source (Today/Schedule privacy-contract drift gu
   it("the legacy ScheduleDay name is gone — no ScheduleDay imported from agendaDisplay (rename complete)", () => {
     // plan-review R2 finding 3: post-rename, the ONLY ScheduleDay is the parser-types value type.
     const s = src("components/crew/sections/ScheduleSection.tsx");
-    expect(s).not.toMatch(/import[^;]*\bScheduleDay\b[^;]*from\s+["']@\/lib\/crew\/agendaDisplay["']/);
+    expect(s).not.toMatch(
+      /import[^;]*\bScheduleDay\b[^;]*from\s+["']@\/lib\/crew\/agendaDisplay["']/,
+    );
     expect(src("lib/crew/agendaDisplay.ts")).not.toMatch(/export type ScheduleDay\b/);
   });
 });

@@ -17,7 +17,9 @@ describe("OLD decoder shape on a ScheduleDay value → corrupt-skip, NOT throw (
     // dropped + corrupt:true, and MUST NOT throw. This pins graceful rollback.
     // After the reshape, the production decoder ACCEPTS this shape (corrupt:false);
     // the not.toThrow() invariant is unconditional in both states.
-    const scheduleDayValue = { "2026-01-02": { entries: [good], showStart: "7:15 AM", window: null } };
+    const scheduleDayValue = {
+      "2026-01-02": { entries: [good], showStart: "7:15 AM", window: null },
+    };
     expect(() => decodeRunOfShow(scheduleDayValue)).not.toThrow();
   });
 });
@@ -85,7 +87,9 @@ describe("decodeRunOfShow — ScheduleDay reshape (§3.2)", () => {
     const day = { entries: [good], showStart: "7:15 AM", window: null };
     const r = decodeRunOfShow({ "2026-01-02": day });
     expect(r.corrupt).toBe(false);
-    expect(r.value).toEqual({ "2026-01-02": { entries: [good], showStart: "7:15 AM", window: null } });
+    expect(r.value).toEqual({
+      "2026-01-02": { entries: [good], showStart: "7:15 AM", window: null },
+    });
   });
   it("new object shape: bare-window day (entries:[], window present, showStart null) survives", () => {
     const day = { entries: [], showStart: null, window: { start: "7:30am", end: "5:50pm" } };

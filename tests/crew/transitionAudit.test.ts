@@ -25,7 +25,10 @@ describe("§5.7 SSR surfaces stay instant (no client motion)", () => {
       expect(/AnimatePresence/.test(src), "must NOT use AnimatePresence").toBe(false);
       // No motion props on any ternary/conditional render — these surfaces fork
       // SSR output, they do not animate between states.
-      expect(/\b(exit|initial|animate)\s*=/.test(src), "must carry NO exit/initial/animate motion props").toBe(false);
+      expect(
+        /\b(exit|initial|animate)\s*=/.test(src),
+        "must carry NO exit/initial/animate motion props",
+      ).toBe(false);
     });
   }
 });

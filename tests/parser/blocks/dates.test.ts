@@ -409,7 +409,7 @@ describe("parseDates — loadIn capture (§9 test 4)", () => {
       ["SHOW DAY 1", "Wed", "3/24/26", ""],
     ]);
     const d = parseDates(md, "v4");
-    expect(d.loadIn).toBe("9:00PM");   // first clock — unchanged precedence
+    expect(d.loadIn).toBe("9:00PM"); // first clock — unchanged precedence
     expect(d.setupTime).toBe("10:00PM"); // second clock — newly captured
   });
 

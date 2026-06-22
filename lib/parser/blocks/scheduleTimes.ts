@@ -174,13 +174,10 @@ export function parseScheduleTimes(
     // its title is non-terminal (for single-token case).
     const first = toks[0]!;
     const lead = cell.slice(0, first.start);
-    const isLeadingStart =
-      /^(\s*[A-Za-z][\w ]*:\s*)?$/.test(lead) && !PLACEHOLDER_RE.test(lead);
+    const isLeadingStart = /^(\s*[A-Za-z][\w ]*:\s*)?$/.test(lead) && !PLACEHOLDER_RE.test(lead);
     const firstTitle = titleAfter(cell, first.end, toks[1]?.start ?? cell.length);
     const showStart =
-      isLeadingStart && !(toks.length === 1 && TERMINAL_RE.test(firstTitle))
-        ? first.norm
-        : null;
+      isLeadingStart && !(toks.length === 1 && TERMINAL_RE.test(firstTitle)) ? first.norm : null;
 
     const day: ScheduleDay = { entries, showStart, window: null };
 

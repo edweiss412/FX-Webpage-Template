@@ -15,10 +15,10 @@ import type { RunOfShow } from "@/lib/parser/types";
 
 /** Per recoverable show day: which ScheduleDay field MUST be populated. */
 type DayExpectation =
-  | { field: "entries" }          // titled run-of-show (Consultants, RPAS, FinTech)
-  | { field: "window" }           // bare-window span (RIA, Asset-Mgmt)
-  | { field: "showStart" }        // leading-start fragment (Redefining-FI Day 1)
-  | { field: "unparsed" };        // deliberate end-only → expected SCHEDULE_TIME_UNPARSED, NOT a decoded day
+  | { field: "entries" } // titled run-of-show (Consultants, RPAS, FinTech)
+  | { field: "window" } // bare-window span (RIA, Asset-Mgmt)
+  | { field: "showStart" } // leading-start fragment (Redefining-FI Day 1)
+  | { field: "unparsed" }; // deliberate end-only → expected SCHEDULE_TIME_UNPARSED, NOT a decoded day
 
 /** drive_file_id → { isoDate → expectation }. CANONICAL live Drive IDs (gsheets-MCP
  *  recon 2026-06-22) + per-ISO field derived from each show's live DATES TIME cells.
@@ -35,7 +35,7 @@ const EXPECTED: Record<string, Record<string, DayExpectation>> = {
   // Redefining Fixed Income / Private Credit 2025 — Day 1 leading-start fragment, Day 2 end-only
   "1HHw7vqCpnuxeDQDU5Gyxl70kyYV5-q6OFhcH_slXTcg": {
     "2025-05-13": { field: "showStart" }, // "GS: 8:00 AM -"
-    "2025-05-14": { field: "unparsed" },  // "GS: ... - 6:00 PM" — deliberate end-only
+    "2025-05-14": { field: "unparsed" }, // "GS: ... - 6:00 PM" — deliberate end-only
   },
   // RIA Investment Forum - Central 2025 — bare windows both days
   "1Ll_fx6Q24y6aTSqIV7YiruDKrYtezkkKrVCXVc4Cwkw": {
@@ -85,9 +85,12 @@ function dayHasExpectedField(day: RunOfShow[string] | undefined, exp: DayExpecta
   if (exp.field === "unparsed") return day === undefined; // must be ABSENT from runOfShow
   if (day === undefined) return false;
   switch (exp.field) {
-    case "entries": return day.entries.length > 0;
-    case "window": return day.window != null;
-    case "showStart": return day.showStart != null;
+    case "entries":
+      return day.entries.length > 0;
+    case "window":
+      return day.window != null;
+    case "showStart":
+      return day.showStart != null;
   }
 }
 
@@ -95,13 +98,21 @@ function dayHasExpectedField(day: RunOfShow[string] | undefined, exp: DayExpecta
  *  embeds the ISO (Task 1 constructor), so an end-only day is "confirmed unparsed" only
  *  when BOTH (a) it is absent from run_of_show AND (b) its warning is present — a missing
  *  warning must NOT silently pass (plan-review finding 4). */
-function hasUnparsedWarning(warnings: Array<{ code?: string; message?: string }>, iso: string): boolean {
-  return warnings.some((w) => w.code === "SCHEDULE_TIME_UNPARSED" && (w.message ?? "").includes(iso));
+function hasUnparsedWarning(
+  warnings: Array<{ code?: string; message?: string }>,
+  iso: string,
+): boolean {
+  return warnings.some(
+    (w) => w.code === "SCHEDULE_TIME_UNPARSED" && (w.message ?? "").includes(iso),
+  );
 }
 
 async function main() {
   const url = process.env.TEST_DATABASE_URL;
-  if (!url) { console.error("TEST_DATABASE_URL unset"); process.exit(2); }
+  if (!url) {
+    console.error("TEST_DATABASE_URL unset");
+    process.exit(2);
+  }
   const sql = postgres(url, { prepare: false });
   let anyFail = false;
   const rows: Array<{ show: string; iso: string; expect: string; got: string; pass: boolean }> = [];
@@ -116,7 +127,8 @@ async function main() {
     const { value } = decodeRunOfShow(rec?.run_of_show ?? null);
     const decoded: RunOfShow = (value as RunOfShow) ?? {};
     const warnings = (Array.isArray(rec?.parse_warnings) ? rec!.parse_warnings : []) as Array<{
-      code?: string; message?: string;
+      code?: string;
+      message?: string;
     }>;
     for (const [iso, exp] of Object.entries(dayMap)) {
       // For an `unparsed` day, BOTH the absence AND the expected warning must hold.
@@ -126,11 +138,16 @@ async function main() {
           : dayHasExpectedField(decoded[iso], exp);
       if (!pass) anyFail = true;
       rows.push({
-        show: driveId, iso, expect: exp.field,
+        show: driveId,
+        iso,
+        expect: exp.field,
         got:
           exp.field === "unparsed"
-            ? (decoded[iso] ? "PRESENT(!)" : "absent") + (hasUnparsedWarning(warnings, iso) ? "+warn" : "+NO-warn(!)")
-            : decoded[iso] ? JSON.stringify(decoded[iso]).slice(0, 60) : "ABSENT",
+            ? (decoded[iso] ? "PRESENT(!)" : "absent") +
+              (hasUnparsedWarning(warnings, iso) ? "+warn" : "+NO-warn(!)")
+            : decoded[iso]
+              ? JSON.stringify(decoded[iso]).slice(0, 60)
+              : "ABSENT",
         pass,
       });
     }
@@ -153,8 +170,17 @@ async function main() {
     const pass = rec !== undefined && !corrupt && recoveredSomething;
     if (!pass) anyFail = true;
     rows.push({
-      show: driveId, iso: "(clone)", expect: "present+recovered",
-      got: rec === undefined ? "NO-ROW(!)" : corrupt ? "CORRUPT(!)" : recoveredSomething ? "ok" : "EMPTY(!)",
+      show: driveId,
+      iso: "(clone)",
+      expect: "present+recovered",
+      got:
+        rec === undefined
+          ? "NO-ROW(!)"
+          : corrupt
+            ? "CORRUPT(!)"
+            : recoveredSomething
+              ? "ok"
+              : "EMPTY(!)",
       pass,
     });
   }
@@ -162,8 +188,16 @@ async function main() {
   // Per-show / per-day PASS/FAIL table.
   console.table(rows);
   await sql.end();
-  if (anyFail) { console.error("verify-resync-scheduletimes: FAIL — recoverable day(s) missing, unparsed warning absent, or a required clone unverified"); process.exit(1); }
+  if (anyFail) {
+    console.error(
+      "verify-resync-scheduletimes: FAIL — recoverable day(s) missing, unparsed warning absent, or a required clone unverified",
+    );
+    process.exit(1);
+  }
   console.log("verify-resync-scheduletimes: PASS — all recoverable days + required clones covered");
 }
 
-main().catch((e) => { console.error(e); process.exit(2); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(2);
+});

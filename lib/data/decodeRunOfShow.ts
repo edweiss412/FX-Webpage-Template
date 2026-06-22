@@ -10,10 +10,7 @@ const OPTIONAL_FIELDS = ["finish", "trt", "room", "av"] as const;
  * Validate and decode a raw array of entries. Mutates the outer `corruptRef`
  * array (single-element box) when a bad entry is encountered.
  */
-function decodeEntries(
-  rawArr: unknown[],
-  corruptRef: [boolean],
-): AgendaEntry[] {
+function decodeEntries(rawArr: unknown[], corruptRef: [boolean]): AgendaEntry[] {
   const validEntries: AgendaEntry[] = [];
   for (const entryRaw of rawArr) {
     // Entry must be a plain, non-null object.

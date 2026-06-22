@@ -427,7 +427,9 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           // card. `anchorsPresent` mirrors KeyTimesStrip's own all-absent → null
           // rule, so the "Key times" card never wraps an empty strip.
           const anchorsPresent =
-            anchors.set != null || (anchors.shows != null && anchors.shows.length > 0) || anchors.strike != null;
+            anchors.set != null ||
+            (anchors.shows != null && anchors.shows.length > 0) ||
+            anchors.strike != null;
           const keyTimesCard = anchorsPresent ? (
             <div data-testid="today-key-times" data-card-id="today-key-times">
               <SectionCard
@@ -575,7 +577,10 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                           </span>
                         }
                       >
-                        <RunOfShowList entries={data.runOfShow![todayIso]!.entries} isoDate={todayIso} />
+                        <RunOfShowList
+                          entries={data.runOfShow![todayIso]!.entries}
+                          isoDate={todayIso}
+                        />
                       </SectionCard>
                     </div>
                     <div className="min-w-0">{quickCardsStack}</div>

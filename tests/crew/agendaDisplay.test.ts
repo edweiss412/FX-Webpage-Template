@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  visibleShowDays,
-  formatScheduleWindow,
-  todayShowAnchors,
-} from "@/lib/crew/agendaDisplay";
+import { visibleShowDays, formatScheduleWindow, todayShowAnchors } from "@/lib/crew/agendaDisplay";
 
 const SHOW_DAYS = ["2025-10-08", "2025-10-09"]; // Consultants Day1/Day2, ASC
 
@@ -14,16 +10,24 @@ describe("visibleShowDays (showDays ∩ DateRestriction — single source)", () 
   it("explicit → only listed days, preserving showDays order (not restriction order)", () => {
     // restriction lists Day2 first; result must follow showDays ASC, not restriction order
     expect(
-      visibleShowDays({ showDays: SHOW_DAYS }, { kind: "explicit", days: ["2025-10-09", "2025-10-08"] }),
+      visibleShowDays(
+        { showDays: SHOW_DAYS },
+        { kind: "explicit", days: ["2025-10-09", "2025-10-08"] },
+      ),
     ).toEqual(SHOW_DAYS);
   });
   it("explicit → drops restriction days not in showDays (no fabricated day)", () => {
     expect(
-      visibleShowDays({ showDays: SHOW_DAYS }, { kind: "explicit", days: ["2025-10-08", "2025-12-31"] }),
+      visibleShowDays(
+        { showDays: SHOW_DAYS },
+        { kind: "explicit", days: ["2025-10-08", "2025-12-31"] },
+      ),
     ).toEqual(["2025-10-08"]);
   });
   it("unknown_asterisk → [] (whole-strip suppression upstream relies on this)", () => {
-    expect(visibleShowDays({ showDays: SHOW_DAYS }, { kind: "unknown_asterisk", days: null })).toEqual([]);
+    expect(
+      visibleShowDays({ showDays: SHOW_DAYS }, { kind: "unknown_asterisk", days: null }),
+    ).toEqual([]);
   });
 });
 

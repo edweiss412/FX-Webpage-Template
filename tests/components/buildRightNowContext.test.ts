@@ -69,7 +69,9 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
   it("no gs room → first room in total order supplies Show/Strike", () => {
     const breakout = room({ kind: "breakout", name: "B", show_time: "2:00 PM" });
     const ctx = buildRightNowContext({
-      show: show({ dates: { travelIn: null, set: null, showDays: ["2026-10-08"], travelOut: null } }),
+      show: show({
+        dates: { travelIn: null, set: null, showDays: ["2026-10-08"], travelOut: null },
+      }),
       dateRestriction: { kind: "none" },
       hotelReservations: [],
       rooms: [breakout],
@@ -181,9 +183,21 @@ describe("buildRightNowContext — showAnchors carry (D6/§5.1)", () => {
 
 describe("buildRightNowContext — unknown_asterisk zero-leak (D6/§5.1)", () => {
   it("unknown_asterisk → loadInTime/callTime/strikeTime all null AND showAnchors empty (zero leak)", () => {
-    const gs = room({ set_time: "9:00 AM", show_time: "10/8 @ 8:45am", strike_time: "10/9 @ 4:30pm" });
+    const gs = room({
+      set_time: "9:00 AM",
+      show_time: "10/8 @ 8:45am",
+      strike_time: "10/9 @ 4:30pm",
+    });
     const ctx = buildRightNowContext({
-      show: show({ dates: { travelIn: null, set: "2026-10-07", showDays: ["2026-10-08"], travelOut: null, loadIn: "9:00PM" } }),
+      show: show({
+        dates: {
+          travelIn: null,
+          set: "2026-10-07",
+          showDays: ["2026-10-08"],
+          travelOut: null,
+          loadIn: "9:00PM",
+        },
+      }),
       dateRestriction: { kind: "unknown_asterisk", days: null },
       hotelReservations: [],
       rooms: [gs],

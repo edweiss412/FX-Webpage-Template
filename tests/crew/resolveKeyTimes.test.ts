@@ -149,7 +149,7 @@ describe("resolveKeyTimes — per-day shows[] (decision table rows 1-3)", () => 
   it("emits one ShowAnchor per visible show day, each carrying that day's own anchor", () => {
     const showDays = ["2026-10-08", "2026-10-09", "2026-10-10"];
     const runOfShow: RunOfShow = {
-      "2026-10-08": { entries: [], showStart: "7:15am", window: null },                  // row 1
+      "2026-10-08": { entries: [], showStart: "7:15am", window: null }, // row 1
       "2026-10-09": { entries: [], showStart: null, window: { start: "7:30am", end: "5:50pm" } }, // row 2
       "2026-10-10": { entries: [{ start: "8:00am", title: "GS" }], showStart: null, window: null }, // row 3
     };
@@ -185,7 +185,9 @@ describe("resolveKeyTimes — gating + fallback (decision table rows 4-6)", () =
   it("single show day, room show_time present → shows[0] from room (row 4, RAW count===1)", () => {
     const gs = room({ show_time: "10/8 @ 8:45am" });
     const a = resolveKeyTimes(dates({ showDays: ["2026-10-08"] }), [gs], null, NONE);
-    expect(a.shows).toEqual([{ date: "2026-10-08", label: expect.any(String), time: "10/8 @ 8:45am" }]);
+    expect(a.shows).toEqual([
+      { date: "2026-10-08", label: expect.any(String), time: "10/8 @ 8:45am" },
+    ]);
   });
   it("all anchors absent → {} (no set/shows/strike)", () => {
     const a = resolveKeyTimes(dates({ showDays: [] }), [], null, NONE);
@@ -193,22 +195,37 @@ describe("resolveKeyTimes — gating + fallback (decision table rows 4-6)", () =
   });
   it("legacy-wrapped day (entries only, showStart null) → anchor from entries[0].start (row 3)", () => {
     const runOfShow: RunOfShow = {
-      "2026-10-08": { entries: [{ start: "7:15am", title: "Registration" }], showStart: null, window: null },
+      "2026-10-08": {
+        entries: [{ start: "7:15am", title: "Registration" }],
+        showStart: null,
+        window: null,
+      },
     };
     const a = resolveKeyTimes(dates({ showDays: ["2026-10-08"] }), null, runOfShow, NONE);
     expect(a.shows?.[0]?.time).toBe("7:15am");
   });
   it("unknown_asterisk → {} (entire strip suppressed, even with rooms + set)", () => {
     const gs = room({ show_time: "10/8 @ 8:45am", strike_time: "10/9 @ 4:30pm" });
-    const a = resolveKeyTimes(dates({ set: "2026-10-07", loadIn: "9:00PM", showDays: ["2026-10-08"] }),
-      [gs], null, { kind: "unknown_asterisk", days: null });
+    const a = resolveKeyTimes(
+      dates({ set: "2026-10-07", loadIn: "9:00PM", showDays: ["2026-10-08"] }),
+      [gs],
+      null,
+      { kind: "unknown_asterisk", days: null },
+    );
     expect(a).toEqual({}); // no set, no shows, no strike, zero date text
   });
   it("explicit Day-1-only on a multi-day show → no Day-2 anchor via fallback; set/strike still render", () => {
-    const gs = room({ set_time: "9:00 AM", show_time: "10/8 @ 8:45am", strike_time: "10/9 @ 4:30pm" });
+    const gs = room({
+      set_time: "9:00 AM",
+      show_time: "10/8 @ 8:45am",
+      strike_time: "10/9 @ 4:30pm",
+    });
     const a = resolveKeyTimes(
       dates({ set: "2026-10-07", loadIn: "9:00PM", showDays: ["2026-10-08", "2026-10-09"] }),
-      [gs], null, { kind: "explicit", days: ["2026-10-08"] });
+      [gs],
+      null,
+      { kind: "explicit", days: ["2026-10-08"] },
+    );
     expect(a.shows?.map((s) => s.date)).toEqual(["2026-10-08"]); // ONLY visible Day 1
     expect(a.set).toBe("10/7 @ 9:00PM"); // show-wide Set renders for explicit viewer
     expect(a.strike).toBe("10/9 @ 4:30pm"); // show-wide Strike renders
@@ -219,16 +236,22 @@ describe("resolveKeyTimes — gating + fallback (decision table rows 4-6)", () =
       "2026-05-13": { entries: [], showStart: "8:00 AM", window: null }, // Day 1 recovered
       // 2026-05-14 deliberately absent (contentful-unparsed end-only cell)
     };
-    const a = resolveKeyTimes(dates({ showDays: ["2026-05-13", "2026-05-14"] }), [gs], runOfShow, NONE);
+    const a = resolveKeyTimes(
+      dates({ showDays: ["2026-05-13", "2026-05-14"] }),
+      [gs],
+      runOfShow,
+      NONE,
+    );
     const d14 = a.shows?.find((s) => s.date === "2026-05-14");
     expect(d14).toBeUndefined(); // room's 5/13 value must NOT cross-label 5/14 (row 6 OMIT)
     expect(a.shows?.find((s) => s.date === "2026-05-13")?.time).toBe("8:00 AM");
   });
   it("Day-2-only restricted viewer on RAW-multi-day (2 show days) → no 5/14 anchor (row 4 keys on RAW count, not visible)", () => {
     const gs = room({ show_time: "5/13 @ 8:00 AM" });
-    const a = resolveKeyTimes(
-      dates({ showDays: ["2026-05-13", "2026-05-14"] }), [gs], null,
-      { kind: "explicit", days: ["2026-05-14"] });
+    const a = resolveKeyTimes(dates({ showDays: ["2026-05-13", "2026-05-14"] }), [gs], null, {
+      kind: "explicit",
+      days: ["2026-05-14"],
+    });
     expect(a.shows ?? []).toEqual([]); // exactly one VISIBLE day, but RAW count===2 → row 4 N/A; 5/13≠5/14 → row 5 N/A → OMIT
   });
 });
@@ -238,14 +261,14 @@ describe("resolveKeyTimes — ShowAnchor.time is sentinel-guarded at the source"
     const showDays = ["2026-10-08", "2026-10-09", "2026-10-10"];
     const runOfShow: RunOfShow = {
       "2026-10-08": { entries: [], showStart: "TBD", window: { start: "7:30am", end: "5:50pm" } }, // showStart sentinel → window.start
-      "2026-10-09": { entries: [{ start: "N/A", title: "GS" }], showStart: null, window: null },    // entries[0].start sentinel → omit (no room)
-      "2026-10-10": { entries: [], showStart: "TBA", window: null },                                  // all sentinel/absent → omit
+      "2026-10-09": { entries: [{ start: "N/A", title: "GS" }], showStart: null, window: null }, // entries[0].start sentinel → omit (no room)
+      "2026-10-10": { entries: [], showStart: "TBA", window: null }, // all sentinel/absent → omit
     };
     const a = resolveKeyTimes(dates({ showDays }), null, runOfShow, NONE);
     // No anchor.time may equal a sentinel.
     expect((a.shows ?? []).every((s) => !/\b(TBD|TBA|N\/A)\b/i.test(s.time))).toBe(true);
     expect(a.shows?.find((s) => s.date === "2026-10-08")?.time).toBe("7:30am"); // fell through to window.start
-    expect(a.shows?.some((s) => s.date === "2026-10-09")).toBe(false);          // sentinel entry → omitted
-    expect(a.shows?.some((s) => s.date === "2026-10-10")).toBe(false);          // all sentinel → omitted
+    expect(a.shows?.some((s) => s.date === "2026-10-09")).toBe(false); // sentinel entry → omitted
+    expect(a.shows?.some((s) => s.date === "2026-10-10")).toBe(false); // all sentinel → omitted
   });
 });

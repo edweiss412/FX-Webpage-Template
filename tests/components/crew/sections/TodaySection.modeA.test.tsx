@@ -195,8 +195,16 @@ test("Mode A keys off the SHOW-tz ISO across the UTC midnight boundary, not UTC"
     },
     // Distinct entries under each key so we can tell which day rendered.
     runOfShow: {
-      [showTzIso]: { entries: [{ start: "9:00 AM", title: "Show-tz day session" }], showStart: "9:00 AM", window: null },
-      [utcIso]: { entries: [{ start: "9:00 AM", title: "UTC day session" }], showStart: "9:00 AM", window: null },
+      [showTzIso]: {
+        entries: [{ start: "9:00 AM", title: "Show-tz day session" }],
+        showStart: "9:00 AM",
+        window: null,
+      },
+      [utcIso]: {
+        entries: [{ start: "9:00 AM", title: "UTC day session" }],
+        showStart: "9:00 AM",
+        window: null,
+      },
     },
   });
 

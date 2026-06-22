@@ -67,12 +67,16 @@ describe("parseScheduleTimes — tokenizer", () => {
   });
 
   it("non-terminal single token '8:45am - General Session' → showStart promoted", () => {
-    const { dates, scheduleDays } = run([["SHOW DAY 1", "Wed", "10/8/25", "8:45am - General Session"]]);
+    const { dates, scheduleDays } = run([
+      ["SHOW DAY 1", "Wed", "10/8/25", "8:45am - General Session"],
+    ]);
     expect(scheduleDays[dates.showDays[0]!]!.showStart).toBe("8:45AM");
   });
 
   it("no-clock contentful cell 'General Session TBD' → no ScheduleDay + SCHEDULE_TIME_UNPARSED", () => {
-    const { dates, scheduleDays, warnings } = run([["SHOW DAY 1", "Wed", "10/8/25", "General Session TBD"]]);
+    const { dates, scheduleDays, warnings } = run([
+      ["SHOW DAY 1", "Wed", "10/8/25", "General Session TBD"],
+    ]);
     expect(scheduleDays[dates.showDays[0]!]).toBeUndefined();
     expect(warnings.map((w) => w.code)).toContain("SCHEDULE_TIME_UNPARSED");
   });
@@ -84,7 +88,9 @@ describe("parseScheduleTimes — tokenizer", () => {
   });
 
   it("variants: 4pm (no colon), 5;30pm (semicolon), AM/PM casing all tokenize", () => {
-    const { dates, scheduleDays } = run([["SHOW DAY 1", "Wed", "10/8/25", "4pm - Doors  5;30pm - Dinner"]]);
+    const { dates, scheduleDays } = run([
+      ["SHOW DAY 1", "Wed", "10/8/25", "4pm - Doors  5;30pm - Dinner"],
+    ]);
     const iso = dates.showDays[0]!;
     expect(scheduleDays[iso]!.entries.map((e) => e.start)).toEqual(["4PM", "5:30PM"]);
     expect(scheduleDays[iso]!.showStart).toBe("4PM");

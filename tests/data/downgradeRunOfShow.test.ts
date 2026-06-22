@@ -29,7 +29,11 @@ describe("downgradeRunOfShow — ScheduleDay map → legacy Record<iso, AgendaEn
 
   test("bare-window day (entries:[]) → empty legacy array (the window is unrepresentable in the old shape)", () => {
     const win: RunOfShow = {
-      "2025-05-13": { entries: [], showStart: "7:30am", window: { start: "7:30am", end: "5:50pm" } },
+      "2025-05-13": {
+        entries: [],
+        showStart: "7:30am",
+        window: { start: "7:30am", end: "5:50pm" },
+      },
     };
     const out = downgradeRunOfShow(win);
     expect(out["2025-05-13"]).toEqual([]);

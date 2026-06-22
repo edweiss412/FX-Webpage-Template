@@ -15,21 +15,38 @@ function dayHasExpectedField(day: RunOfShow[string] | undefined, exp: DayExpecta
 
 describe("verify-resync expected-map contract (per-ISO, per-field — NOT ≥1 day)", () => {
   test("entries-expectation day with empty entries FAILS (a recovered-titled-day miss is not masked)", () => {
-    expect(dayHasExpectedField({ entries: [], showStart: null, window: null }, { field: "entries" })).toBe(false);
+    expect(
+      dayHasExpectedField({ entries: [], showStart: null, window: null }, { field: "entries" }),
+    ).toBe(false);
   });
   test("window-expectation day with null window FAILS", () => {
-    expect(dayHasExpectedField({ entries: [], showStart: "7:30am", window: null }, { field: "window" })).toBe(false);
+    expect(
+      dayHasExpectedField({ entries: [], showStart: "7:30am", window: null }, { field: "window" }),
+    ).toBe(false);
   });
   test("unparsed-expectation day FAILS when the day is PRESENT (deliberate-absence must stay absent)", () => {
-    expect(dayHasExpectedField({ entries: [], showStart: "6:00pm", window: null }, { field: "unparsed" })).toBe(false);
+    expect(
+      dayHasExpectedField(
+        { entries: [], showStart: "6:00pm", window: null },
+        { field: "unparsed" },
+      ),
+    ).toBe(false);
     expect(dayHasExpectedField(undefined, { field: "unparsed" })).toBe(true);
   });
   test("a fully-recovered show day PASSES", () => {
-    expect(dayHasExpectedField({ entries: [{ start: "7:15am", title: "Reg" }], showStart: "7:15am", window: null }, { field: "entries" })).toBe(true);
+    expect(
+      dayHasExpectedField(
+        { entries: [{ start: "7:15am", title: "Reg" }], showStart: "7:15am", window: null },
+        { field: "entries" },
+      ),
+    ).toBe(true);
   });
 
   // unparsed days require BOTH absence AND the SCHEDULE_TIME_UNPARSED warning (finding 4).
-  function hasUnparsedWarning(ws: Array<{ code?: string; message?: string }>, iso: string): boolean {
+  function hasUnparsedWarning(
+    ws: Array<{ code?: string; message?: string }>,
+    iso: string,
+  ): boolean {
     return ws.some((w) => w.code === "SCHEDULE_TIME_UNPARSED" && (w.message ?? "").includes(iso));
   }
   test("unparsed day absent BUT no warning → must FAIL (a missing warning cannot silently pass)", () => {
@@ -39,7 +56,12 @@ describe("verify-resync expected-map contract (per-ISO, per-field — NOT ≥1 d
   });
   test("unparsed day absent AND warning present → PASS", () => {
     const warned = hasUnparsedWarning(
-      [{ code: "SCHEDULE_TIME_UNPARSED", message: "SHOW DAY 2025-05-14 TIME cell has content but…" }],
+      [
+        {
+          code: "SCHEDULE_TIME_UNPARSED",
+          message: "SHOW DAY 2025-05-14 TIME cell has content but…",
+        },
+      ],
       "2025-05-14",
     );
     expect(dayHasExpectedField(undefined, { field: "unparsed" }) && warned).toBe(true);
