@@ -15,5 +15,13 @@ export function isValidationDeployment(): boolean {
 }
 
 export function destructiveResetAllowed(): boolean {
-  return isValidationDeployment() && process.env.ALLOW_DESTRUCTIVE_RESET === "true";
+  // FIX 3: require SUPABASE_URL specifically (the same source createSupabaseServiceRoleClient
+  // uses) so the wipe-guard and the actual wipe target always agree. isValidationDeployment()
+  // falls back to NEXT_PUBLIC_SUPABASE_URL (fine for render gates) but that would allow the
+  // guard to pass while the service-role client targets localhost. We do NOT change
+  // isValidationDeployment() — it's used by other callers that legitimately want the fallback.
+  return (
+    projectRefFromUrl(process.env.SUPABASE_URL) === VALIDATION_PROJECT_REF &&
+    process.env.ALLOW_DESTRUCTIVE_RESET === "true"
+  );
 }

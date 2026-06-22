@@ -26,7 +26,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
-import { destructiveResetAllowed } from "@/lib/admin/validationDeployment";
+import { destructiveResetAllowed, VALIDATION_PROJECT_REF } from "@/lib/admin/validationDeployment";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/lib/validation/fixtures";
 import { mintFixtureCombos, finalizeFixtures } from "@/lib/validation/reseedFixtures";
@@ -51,10 +51,12 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
 
   // Gate 3: session-client assert RPC — is_admin() + gate at the DB layer. Fast (no
   // locks), so it completes under the `authenticated` role's 8s statement_timeout.
-  // The DB gate fires BEFORE the service-role client is constructed.
-  const sessionClient = await createSupabaseServerClient();
+  // The DB gate fires BEFORE the service-role client is constructed. Client
+  // construction is inside the fault boundary (invariant 9): a throw from
+  // createSupabaseServerClient() maps to VALIDATION_RESET_FAILED, never propagates.
   let assertError: { message?: string } | null;
   try {
+    const sessionClient = await createSupabaseServerClient();
     const result = await sessionClient.rpc("assert_destructive_reset_enabled");
     assertError = result.error;
   } catch {
@@ -72,10 +74,12 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
   // statement_timeout (vs. authenticated's 8s), so the advisory-lock wait below —
   // which serializes the wipe behind any in-flight sync (invariant 2) — can complete
   // instead of being cancelled at 8s. reset_validation_data() is now service-role-only.
-  const serviceClient = createSupabaseServiceRoleClient();
+  // The service-role client is constructed ONLY here (after the assert passed) and
+  // inside the fault boundary (a construction throw maps to FAILED, invariant 9).
   let data: { clearedShows: number } | null;
   let error: { message?: string } | null;
   try {
+    const serviceClient = createSupabaseServiceRoleClient();
     const result = await serviceClient.rpc("reset_validation_data");
     data = result.data as { clearedShows: number } | null;
     error = result.error;
@@ -113,12 +117,12 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
     return { ok: false, code: "VALIDATION_RESET_NOT_ALLOWED" };
   }
 
-  // Gate 3: session-client assert RPC — DB-side gate fires BEFORE service-role
-  // client is constructed. Per brief: "Construct the service-role client ONLY
-  // after the assert passes."
-  const sessionClient = await createSupabaseServerClient();
+  // Gate 3: session-client assert RPC — DB-side gate fires BEFORE the service-role
+  // client is constructed. Client construction is inside the fault boundary
+  // (invariant 9): a throw from createSupabaseServerClient() maps to a typed code.
   let assertError: { message?: string } | null;
   try {
+    const sessionClient = await createSupabaseServerClient();
     const result = await sessionClient.rpc("assert_destructive_reset_enabled");
     assertError = result.error;
   } catch {
@@ -138,14 +142,26 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
   // is passed to buildFixtures, mintFixtureCombos, and finalizeFixtures).
   // Pattern sourced from scripts/validation-reseed.ts:131.
   const validationTodayIso = new Date().toISOString().slice(0, 10);
-  const serviceClient =
-    createSupabaseServiceRoleClient() as unknown as import("@/lib/validation/reseedFixtures").LooseSupabaseClient;
-
-  const fixtures = buildFixtures(validationTodayIso);
   const ALL_COMBOS: Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
   try {
-    const { minted } = await mintFixtureCombos(serviceClient, fixtures, validationTodayIso);
+    // FIX 2: buildFixtures is inside the fault boundary so a throw (e.g. missing
+    // VALIDATION_J3_CLAIM_EMAIL) maps to VALIDATION_RESEED_FAILED, not a bare rejection.
+    const fixtures = buildFixtures(validationTodayIso);
+
+    // Service-role client constructed ONLY here (after the assert passed) and inside
+    // the fault boundary — a construction throw maps to VALIDATION_RESEED_FAILED.
+    const serviceClient =
+      createSupabaseServiceRoleClient() as unknown as import("@/lib/validation/reseedFixtures").LooseSupabaseClient;
+    // FIX 1: pass VALIDATION_PROJECT_REF as seededProjectRef so validation_state records
+    // the correct project ref instead of defaulting to "local".
+    const { minted } = await mintFixtureCombos(
+      serviceClient,
+      fixtures,
+      validationTodayIso,
+      "admin:reseedValidationFixturesAction",
+      VALIDATION_PROJECT_REF,
+    );
     await finalizeFixtures(serviceClient, ALL_COMBOS, validationTodayIso);
 
     revalidatePath("/admin");
