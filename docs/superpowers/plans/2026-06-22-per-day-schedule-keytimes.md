@@ -991,8 +991,27 @@ Steps:
 
 Steps:
 
-- [ ] **Producer decode first (plan-review finding 2).** Write a failing live-producer regression: seed stored `shows_internal.run_of_show` as a LEGACY ARRAY (`{ "2025-10-08": [{ start: "7:15am", title: "Reg" }] }`) and assert that after `applyShowSnapshot` reads it, `priorRunOfShow` is the wrapped `ScheduleDay` shape (`.["2025-10-08"].entries.length === 1`, `.showStart === null`) — NOT an array. (Use the runScheduledCronSync tx harness / the `priorRunOfShow` fake.) Run → FAIL (producer still returns the raw array).
-- [ ] Implement the producer decode: retype `lib/sync/phase2.ts:67` `priorRunOfShow` → `RunOfShow | null`; in `lib/sync/runScheduledCronSync.ts:978-980` pass the raw `select run_of_show` column through `decodeRunOfShow(raw).value` before assigning; forward the decoded value at `:1200`; update every fake/test-double constructing `priorRunOfShow` (grep `priorRunOfShow`). Run the regression → PASS. Commit: `fix(sync): decode prior run_of_show to ScheduleDay at the snapshot producer`.
+- [ ] **Producer decode first — CONCRETE test (plan-review R1 finding 2 + R3 finding 5).** The prior `run_of_show` SELECT must be decoded (legacy array → wrapped `ScheduleDay`) before apply reads it. The wrapping BEHAVIOR is already pinned by Task 6's `decodeRunOfShow` legacy-array test; here add a concrete STRUCTURAL test that the real producer routes the SELECT through `decodeRunOfShow` (the fake `makeFakeTx` in `runOfShowConfirmedReplace.test.ts` seeds `priorRunOfShow` directly and so CANNOT exercise the real decode — hence a source-scan, the project's meta-test idiom). Create `tests/sync/priorRunOfShowDecode.test.ts`:
+  ```ts
+  import { readFileSync } from "node:fs";
+  import { describe, expect, it } from "vitest";
+
+  describe("prior run_of_show is decoded at the producer (R3 finding 5)", () => {
+    const src = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
+    it("imports decodeRunOfShow", () => {
+      expect(src).toMatch(/import[^;]*\bdecodeRunOfShow\b[^;]*from\s+["']@\/lib\/data\/decodeRunOfShow["']/);
+    });
+    it("wraps the prior run_of_show read in decodeRunOfShow(...).value (not the raw array)", () => {
+      // The applyShowSnapshot prior-read region must not assign run_of_show raw.
+      expect(src).toMatch(/decodeRunOfShow\(\s*[^)]*run_of_show[^)]*\)\.value/);
+      // Guard against the legacy raw assignment surviving.
+      expect(src).not.toMatch(/priorRunOfShow:\s*priorInternal\?\.run_of_show\s*\?\?\s*null/);
+    });
+  });
+  ```
+  Run → FAIL (producer still assigns the raw array at `:1200`). `pnpm vitest run tests/sync/priorRunOfShowDecode.test.ts`.
+- [ ] Implement the producer decode: retype `lib/sync/phase2.ts:67` `priorRunOfShow` → `RunOfShow | null`; import `decodeRunOfShow`; in `lib/sync/runScheduledCronSync.ts:978-980` read into a raw local then assign `priorRunOfShow: decodeRunOfShow(priorInternal?.run_of_show ?? null).value` at `:1200`; update every fake/test-double constructing `priorRunOfShow` to the `RunOfShow` shape (grep `priorRunOfShow` — incl. `runOfShowConfirmedReplace.test.ts`'s `makeFakeTx`). Run the structural test → PASS. Commit: `fix(sync): decode prior run_of_show to ScheduleDay at the snapshot producer`.
+- [ ] Behavioral confirmation (no new code): re-run Task 6's `tests/data/decodeRunOfShow.test.ts` legacy-array case (array `{ "2025-10-08": [{start,title}] }` → `{ "2025-10-08": { entries:[…], showStart:null, window:null } }`) — this IS the wrapping the producer now applies. `pnpm vitest run tests/data/decodeRunOfShow.test.ts -t 'legacy'` → green.
 - [ ] Confirm `AGENDA_DAY_EMPTIED` still reconciles on the wrapped shape: with a legacy-array prior that had content for a day now fully-empty in the parse, assert the warning fires (prior read as wrapped `ScheduleDay`, `priorHadContent` checks `.entries.length||.showStart||.window`, not `.length` on an array).
 - [ ] Write the failing apply-persistence test. Create `tests/sync/applyParseResultScheduleDay.test.ts` (mirror the existing apply-core harness — a stub `ApplyParseResultTx` capturing `upsertShowsInternal`'s `run_of_show` payload + the mutated `args.parseResult.warnings`):
   ```ts
@@ -1297,7 +1316,13 @@ Steps:
       const day = runOfShow?.[D] ?? null;
       let time: string | null = null;
       if (day) {
-        time = day.showStart ?? day.window?.start ?? day.entries[0]?.start ?? null; // rows 1-3
+        // rows 1-3, EACH sentinel-guarded via isAbsentTime so a 'TBD'/'N/A'/'TBA'
+        // candidate (incl. a legacy-wrapped entries[0].start) never becomes a
+        // ShowAnchor.time — this is what makes ShowAnchor.time SOURCE-guarded
+        // (R3 finding 1; it stays OUT of the render sentinel meta-test, Task 15).
+        for (const cand of [day.showStart, day.window?.start, day.entries[0]?.start]) {
+          if (!isAbsentTime(cand)) { time = (cand as string).trim(); break; }
+        }
       }
       if (time == null && roomShow) {
         if (rawShowDayCount === 1) time = roomShow;                 // row 4 (RAW count)
@@ -1315,6 +1340,27 @@ Steps:
 - [ ] Run all resolveKeyTimes tests — expect PASS: `pnpm vitest run tests/crew/resolveKeyTimes.test.ts`
   Expected output: `Test Files  1 passed`, all `resolveKeyTimes —` describes green. Also re-run the determinism suite (`:31`) — its 2-arg calls become 4-arg; update those existing calls to pass `null, NONE` (no behavior change for the room path).
 
+- [ ] **Sentinel-anchor guard test (R3 finding 1 — proves ShowAnchor.time is source-guarded).** Append to `tests/crew/resolveKeyTimes.test.ts`:
+  ```ts
+  describe("resolveKeyTimes — ShowAnchor.time is sentinel-guarded at the source", () => {
+    const NONE = { kind: "none" } as const;
+    it("a sentinel showStart/window.start/entries[0].start never becomes a ShowAnchor.time; falls through", () => {
+      const showDays = ["2026-10-08", "2026-10-09", "2026-10-10"];
+      const runOfShow: RunOfShow = {
+        "2026-10-08": { entries: [], showStart: "TBD", window: { start: "7:30am", end: "5:50pm" } }, // showStart sentinel → window.start
+        "2026-10-09": { entries: [{ start: "N/A", title: "GS" }], showStart: null, window: null },    // entries[0].start sentinel → omit (no room)
+        "2026-10-10": { entries: [], showStart: "TBA", window: null },                                  // all sentinel/absent → omit
+      };
+      const a = resolveKeyTimes(dates({ showDays }), null, runOfShow, NONE);
+      // No anchor.time may equal a sentinel.
+      expect((a.shows ?? []).every((s) => !/\b(TBD|TBA|N\/A)\b/i.test(s.time))).toBe(true);
+      expect(a.shows?.find((s) => s.date === "2026-10-08")?.time).toBe("7:30am"); // fell through to window.start
+      expect(a.shows?.some((s) => s.date === "2026-10-09")).toBe(false);          // sentinel entry → omitted
+      expect(a.shows?.some((s) => s.date === "2026-10-10")).toBe(false);          // all sentinel → omitted
+    });
+  });
+  ```
+  Negative-regression: stash the per-candidate `isAbsentTime` loop back to `day.showStart ?? day.window?.start ?? day.entries[0]?.start` → the `2026-10-08` anchor wrongly becomes `"TBD"` and the every-non-sentinel assertion FAILS. Confirms the source-guard is real (and justifies omitting ShowAnchor.time from the Task-15 render meta-test).
 - [ ] **Negative-regression** (date-safe guard): temporarily change `else if (roomMD != null && roomMD === formatMD(D))` to `else` (blanket fallback), re-run `pnpm vitest run tests/crew/resolveKeyTimes.test.ts -t 'date-safe'` → the `5/14`-no-anchor test MUST fail (the `5/13` room value wrongly appears on `5/14`). Revert. Confirms the test pins the leak fix, not a tautology.
 
 - [ ] Commit: `git commit -m 'feat(crew-page): reshape resolveKeyTimes to per-day shows[] with date-safe room fallback'`
@@ -1959,32 +2005,7 @@ Steps:
   ```
   Failure mode caught: §5.7 client-state transition — the displayed call time freezing on Day 1's anchor after a show-tz midnight rollover (stale-anchor freeze).
 - [ ] Run it, expect PASS: `pnpm vitest run tests/components/crew/rightNowHero.test.tsx -t 'midnight rollover'` → `1 passed`.
-- [ ] Add a failing test (recovery / last-good does not pin a prior day): drive the hero through a degraded `morph-to-last-good` cycle while "now" is Day 2 and assert that on recovery the Show stat reflects Day 2, not a cached Day 1:
-  ```tsx
-  test("recovery from degraded → Show stat re-selects by current todayIso, not a last-good Day-1 cache", () => {
-    // Mount on Day 1 (good), so lastGoodBody captures Day-1 stats.
-    vi.setSystemTime(at("2026-04-22"));
-    const showAnchors = [
-      { date: "2026-04-22", label: "Day 1", time: "7:15am" },
-      { date: "2026-04-23", label: "Day 2", time: "8:00am" },
-    ];
-    const ctx = makeContext({ dates: showDates(), showAnchors });
-    const { container } = render(<RightNowHero context={ctx} />);
-    expect(container.querySelector('[data-stat="Show"] dd')!.textContent).toBe(showAnchors[0]!.time);
-    // Advance to Day 2 (still a valid show day → recovers to show_day_n, not degraded).
-    act(() => {
-      vi.setSystemTime(at("2026-04-23"));
-      vi.advanceTimersByTime(60_000);
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    expect(stateMarker(container).getAttribute("data-rendered-state")).toBe("show_day_n");
-    // The stat is selected from showAnchors by the CURRENT todayIso each render —
-    // a last-good cache from Day 1 must not pin 7:15am.
-    expect(container.querySelector('[data-stat="Show"] dd')!.textContent).toBe(showAnchors[1]!.time);
-  });
-  ```
-  Failure mode caught: §5.7 — the `lastGood`/`morph-to-last-good` machinery (`RightNowHero.tsx:344-392`) caching a stat payload that pins a prior day's call time after recovery.
-- [ ] Run it, expect PASS: `pnpm vitest run tests/components/crew/rightNowHero.test.tsx -t 'recovery from degraded'` → `1 passed`. (This holds because the Show stat is recomputed in `renderHeroBody` from `now`/`showAnchors` every render and the `show_day_n` path is never in the degraded zone — so `showLastGood` is false and `renderBodyResolved` is the fresh body.)
+- [ ] **Recovery / last-good — scope note (R3 finding 4: NOT a jsdom test here).** The per-day Show stat is rendered ONLY in the `show_day_n` body (`RightNowHero.tsx:141-143`), which is NOT in the degraded zone (`isDegradedState`, `:95-107`). The `lastGood`/`morph-to-last-good` machinery (`:344-392`) only freezes a body WHILE inside the degraded zone — where there is no Show stat — so it structurally cannot pin a stale per-day Show anchor across a recovery. The ONLY real per-day client transition is the show-tz midnight rollover (tested above). The genuine degraded→recover transition (entering `isDegradedState` then returning to `show_day_n`) is exercised end-to-end in the **Task 18** e2e transition audit via `driveToState`, where real state transitions are drivable — not faked in jsdom. (Documenting this here closes the §5.7 recovery requirement honestly instead of with a tautological jsdom test that never enters the degraded zone.)
 - [ ] Run the full RightNowHero + transition-audit + buildRightNowContext suites (client-component + transition surfaces): `pnpm vitest run tests/components/crew/rightNowHero.test.tsx tests/components/crew/transitionAudit.test.tsx` → all green.
 - [ ] Run `pnpm tsc --noEmit` to confirm the `RightNowContext.showAnchors` addition + 4-arg `resolveKeyTimes`/`runOfShow` opts compile across both `buildRightNowContext` call sites.
 - [ ] Commit: `git commit -m "feat(crew-page): RightNowHero selects per-day show anchor by client show-tz todayIso"`
@@ -2427,7 +2448,7 @@ const SEED_RUN_OF_SHOW = {
 ```ts
 test("§5.5 KeyTimesStrip row cells are equal-width at ≥720px", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 1200 });
-  await page.goto(crewUrl); // the resolved share-token URL from the harness
+  await gotoSection(page, "today"); // Today wide → KeyTimesStrip layout="row". NO crewUrl — gotoSection is the harness helper (crew-layout-dimensions.spec.ts:226) that navigates /show/${slug}/${shareToken}?s=<section> with the frozen-now header.
   const cells = page.locator('[data-testid="key-times-strip"][data-layout="row"] [data-anchor]');
   const n = await cells.count();
   expect(n, "expected ≥2 row anchors (Set + ≥1 Show)").toBeGreaterThanOrEqual(2);
@@ -2440,7 +2461,7 @@ test("§5.5 KeyTimesStrip row cells are equal-width at ≥720px", async ({ page 
 
 test("§5.5 DayCard self-stretch vline fills the TALLER (meta-bearing) row", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 1200 });
-  await page.goto(crewUrl);
+  await gotoSection(page, "schedule");
   // The bare-window day-2 card carries a meta line → it is the taller card.
   const metaCard = page.locator('[data-testid="day-card"]', {
     has: page.locator('[data-slot="day-card-meta"]'),
@@ -2455,7 +2476,7 @@ test("§5.5 DayCard self-stretch vline fills the TALLER (meta-bearing) row", asy
 
 test("§5.5 date badge is the fixed 50px (w-12.5) column regardless of meta", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 1200 });
-  await page.goto(crewUrl);
+  await gotoSection(page, "schedule");
   const badges = page.locator('[data-testid="day-card-date"]');
   for (let i = 0; i < (await badges.count()); i++) {
     expect((await rectOf(badges.nth(i))).width).toBeCloseTo(50, 0); // w-12.5 = 3.125rem = 50px
@@ -2464,7 +2485,7 @@ test("§5.5 date badge is the fixed 50px (w-12.5) column regardless of meta", as
 
 test("§5.5 schedule split-wide grid is items-start (natural height, NOT stretch) at ≥720px", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 1200 });
-  await page.goto(crewUrl);
+  await gotoSection(page, "schedule");
   const cols = page.locator('[data-testid="schedule-grid"] [data-testid="schedule-column"]');
   expect(await cols.count()).toBe(2);
   const left = await rectOf(cols.nth(0));
@@ -2557,54 +2578,56 @@ describe("§5.7 RightNowHero IS the single client component (inverse guard)", ()
 
 - [ ] Run — expect PASS already for the SSR surfaces (they have no client motion today and the reshape adds none), and the inverse guard passes (RightNowHero is already a client component): `pnpm vitest run tests/crew/transitionAudit.test.ts`. Expected: `5 passed` (4 SSR + 1 inverse). If any SSR surface FAILS, a UI task wrongly added `'use client'`/motion — STOP and remove it (the reshape is render-fork-only per §5.7).
 - [ ] Negative-regression (prove the SSR audit is live): temporarily add `'use client';` to the top of `components/crew/primitives/KeyTimesStrip.tsx`. Re-run → the `KeyTimesStrip … synchronous Server Component` test FAILS. Revert → `5 passed`. (Concrete failure mode caught: a future task converting a render-fork into a client animation — §5.7 mandates all four surfaces stay instant.)
-- [ ] Now the RightNowHero CLIENT-STATE transitions (the substantive part). Extend `tests/e2e/right-now-transitions.spec.ts`. Seed a 2-show-day fixture with DISTINCT Day-1/Day-2 anchors so a stale-anchor freeze is detectable; derive both expected times from the seed (NOT hardcoded). Add:
+- [ ] Now the RightNowHero CLIENT-STATE transitions (the substantive part). Add a **NON-skipped** `test.describe` to `tests/e2e/right-now-transitions.spec.ts` (the file's existing audits are `test.describe.skip(...)` — this NEW describe must NOT be skipped, R3 finding 3). Use the LIVE harness exactly: `lookupSeededShow()` → `s`, the real crew URL `/show/${s.slug}?crew=${s.leadCrewId}` (NO `crewUrl`), `pinClock`/`driveToState(page, s, state)` (3-arg). Seed a 2-show-day `run_of_show` with DISTINCT Day-1/Day-2 anchors in `beforeAll` (mirror Task 17's `SEED_RUN_OF_SHOW`) and derive expected times from the seed.
+
+  **Client-clock control:** per-day re-selection is CLIENT-side (`RightNowHero` reads `now` via the 60s tick, `RightNowHero.tsx:215`/`:327`), so these tests drive the CLIENT clock with Playwright's `page.clock` API (distinct from the server-side frozen-now header `pinClock` uses). **Implementer verify step:** before writing assertions, confirm (a) `RightNowHero`'s `now` is `page.clock`-controllable (if the app pins the client clock only via the frozen-now header, drive each render with `pinClock(page, iso)` + reload instead, asserting the per-render selection), and (b) the hero root test-id (`grep data-testid components/crew/RightNowHero.tsx` — the body island is `right-now-body` per `:32`). Adapt the two mechanisms below to whichever the live hero uses.
 
 ```ts
-test("§5.7 midnight rollover Day1→Day2: call time re-selects the NEW day's anchor (no stale freeze)", async ({ page }) => {
-  // showAnchors seeded: Day1 2026-04-21 @ 7:30am, Day2 2026-04-22 @ 8:00am
-  // (distinct — so a freeze is observable). Derive expectations from the seed.
-  const day1Iso = "2026-04-21", day1Time = "7:30am";
-  const day2Iso = "2026-04-22", day2Time = "8:00am";
-  await page.clock.install({ time: new Date(`${day1Iso}T12:00:00Z`) });
-  await page.goto(crewUrl);
-  // Day 1: the hero's Show stat shows Day 1's anchor.
-  await expect(page.getByTestId("right-now-hero")).toContainText(day1Time);
-  // Advance the show-tz clock across midnight into Day 2 + run the 60s tick.
-  await page.clock.setSystemTime(new Date(`${day2Iso}T12:00:00Z`));
-  await page.clock.runFor(60_000);
-  // It MUST re-select Day 2's anchor — NOT keep Day 1's (no stale-anchor freeze).
-  await expect(page.getByTestId("right-now-hero")).toContainText(day2Time);
-  await expect(page.getByTestId("right-now-hero")).not.toContainText(day1Time);
-});
+test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
+  let s: Awaited<ReturnType<typeof lookupSeededShow>>;
+  test.beforeAll(async () => {
+    s = await lookupSeededShow();
+    // seed s.showId run_of_show: Day1 2026-04-21 → showStart 7:30am; Day2 2026-04-22 → showStart 8:00am
+    // (distinct anchors so a stale freeze is observable). Use the same seed helper Task 17 uses.
+  });
 
-test("§5.7 recovery/last-good does not pin a prior day's call time", async ({ page }) => {
-  // Drive into a degraded (last-good) state on Day 1, then recover on Day 2;
-  // the recovered render must select by the CURRENT todayIso (Day 2), not the
-  // cached Day-1 anchor. driveToState + STATE_DRIVERS from the existing harness.
-  const day1Iso = "2026-04-21", day2Iso = "2026-04-22", day2Time = "8:00am";
-  await page.clock.install({ time: new Date(`${day1Iso}T12:00:00Z`) });
-  await page.goto(crewUrl);
-  await driveToState(page, "degraded"); // enters morph-to-last-good zone
-  await page.clock.setSystemTime(new Date(`${day2Iso}T12:00:00Z`));
-  await driveToState(page, "recovered");
-  await page.clock.runFor(60_000);
-  await expect(page.getByTestId("right-now-hero")).toContainText(day2Time);
-});
+  test("midnight rollover Day1→Day2: call time re-selects the NEW day's anchor (no stale freeze)", async ({ page }) => {
+    const day1Time = "7:30am", day2Time = "8:00am";
+    await page.clock.install({ time: new Date("2026-04-21T12:00:00Z") });
+    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await expect(page.getByTestId("right-now-body")).toContainText(day1Time);
+    await page.clock.setSystemTime(new Date("2026-04-22T12:00:00Z"));
+    await page.clock.runFor(60_000); // the hero's 60s re-derive tick
+    await expect(page.getByTestId("right-now-body")).toContainText(day2Time);
+    await expect(page.getByTestId("right-now-body")).not.toContainText(day1Time);
+  });
 
-test("§5.7 non-show now → show day: call time appears only once now is a show day", async ({ page }) => {
-  const travelIso = "2026-04-20"; // a travel/non-show day before show day 1
-  const showIso = "2026-04-21", showTime = "7:30am";
-  await page.clock.install({ time: new Date(`${travelIso}T12:00:00Z`) });
-  await page.goto(crewUrl);
-  await expect(page.getByTestId("right-now-hero")).not.toContainText(showTime);
-  await page.clock.setSystemTime(new Date(`${showIso}T12:00:00Z`));
-  await page.clock.runFor(60_000);
-  await expect(page.getByTestId("right-now-hero")).toContainText(showTime);
+  test("recovery/last-good does not pin a prior day's call time", async ({ page }) => {
+    // Real degraded→recover via the harness STATE_DRIVERS (the skipped 66-pair suite
+    // drives `driveToState(page, s, entry.from/to)`). Enter a degraded-zone kind, then
+    // recover into show_day_n on Day 2 and assert the CURRENT day's anchor.
+    const day2Time = "8:00am";
+    await driveToState(page, s, "viewer_off_day"); // a degraded-zone kind (RightNowHero §4.3 set)
+    await page.clock.install({ time: new Date("2026-04-22T12:00:00Z") });
+    await driveToState(page, s, "show_day_n");      // recover to Day 2
+    await page.clock.runFor(60_000);
+    await expect(page.getByTestId("right-now-body")).toContainText(day2Time);
+  });
+
+  test("non-show now → show day: call time appears only once now is a show day", async ({ page }) => {
+    const showTime = "7:30am";
+    await page.clock.install({ time: new Date("2026-04-20T12:00:00Z") }); // pre-show travel day
+    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await expect(page.getByTestId("right-now-body")).not.toContainText(showTime);
+    await page.clock.setSystemTime(new Date("2026-04-21T12:00:00Z"));
+    await page.clock.runFor(60_000);
+    await expect(page.getByTestId("right-now-body")).toContainText(showTime);
+  });
 });
 ```
-  (`right-now-hero` testid: confirm the actual hero root testid in `RightNowHero.tsx` during impl and adjust the selector; the body island is `right-now-body` per `RightNowHero.tsx:32`.)
+  (Confirm `driveToState`'s exact state keys against the harness's `STATE_DRIVERS`/the existing skipped suite during impl; `viewer_off_day`/`show_day_n` are `RightNowState` kinds from `lib/time/rightNow.ts:57-77`.)
 
-- [ ] Run — expect failure until `RightNowContext.showAnchors` + the `RightNowHero` `todayIso`-selection (`RightNowHero.tsx:215`) land: `pnpm test:e2e -- right-now-transitions.spec.ts --project=mobile-safari`. Expected: the 3 new tests FAIL (e.g. Day-2 time never appears — selection not yet wired).
+- [ ] Run — expect failure until `RightNowContext.showAnchors` + the `RightNowHero` `todayIso`-selection (`RightNowHero.tsx:215`) land: `pnpm test:e2e -- right-now-transitions.spec.ts --project=mobile-safari`. Expected: the 3 new tests FAIL (e.g. Day-2 time never appears — selection not yet wired). Confirm the new describe is NOT skipped (it appears in the run, does not report `skipped`).
 - [ ] After the `buildRightNowContext` (`showAnchors`) + `RightNowHero` selection tasks land, re-run: `pnpm test:e2e -- right-now-transitions.spec.ts --project=mobile-safari`. Expected: all pass (existing matrix + 3 new client-state transitions).
 - [ ] Negative-regression (prove the midnight-rollover test catches a freeze): temporarily change the `RightNowHero` anchor selection to always pick `showAnchors[0]` (ignore `todayIso`). Re-run the midnight-rollover test → it FAILS (`day1Time` persists into Day 2, `not.toContainText(day1Time)` trips). Revert. (Concrete failure mode caught: the §5.7 stale-anchor freeze — the live clock advances but the displayed call time pins Day 1's anchor.)
 - [ ] Commit: `git commit -am "test(crew): §5.7 transition audit — SSR surfaces instant + RightNowHero day-anchor re-selection"`
