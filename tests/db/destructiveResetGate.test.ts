@@ -1,5 +1,5 @@
 /**
- * tests/db/destructiveResetGate.test.ts (Task 2)
+ * tests/db/destructiveResetGate.test.ts (Task 2, updated for hotfix)
  *
  * Prod-safety gate for the "reset validation data" admin feature.
  *
@@ -20,10 +20,14 @@
  *    `Authorization: Bearer` (PostgREST-verified). Mirrors the gateway pattern
  *    in tests/db/postgrest-dml-lockdown.test.ts:451-486 (resolveRestConfig()).
  *
- * 2. RPC gate check (Layer B, via psql/postgres.js). While enabled=false,
- *    reset_validation_data() raises 'destructive reset not enabled …' even for
- *    an admin. A non-admin call raises 'not authorized' (the is_admin() gate
- *    fires first, before the enabled check).
+ * 2. RPC gate check (Layer B, via psql/postgres.js).
+ *    - assert_destructive_reset_enabled(): callable by authenticated; checks
+ *      is_admin() AND the gate. While enabled=false, raises 'destructive reset
+ *      not enabled …' for an admin. A non-admin call raises 'not authorized'
+ *      (the is_admin() gate fires first).
+ *    - reset_validation_data(): service-role-only (revoked from authenticated).
+ *      An authenticated call is DENIED (PG 42501). A service-role call still
+ *      raises 'destructive reset not enabled' while the gate is false.
  *
  * Env-gating mirrors postgrest-dml-lockdown: REST_URL + JWT_SECRET +
  * PUBLISHABLE_KEY all unset => LOCAL Supabase defaults; all set => configured
@@ -66,20 +70,56 @@ async function withGate<T>(enabled: boolean, body: () => Promise<T>): Promise<T>
   }
 }
 
-async function callResetAsAdmin(): Promise<void> {
+/**
+ * Calls assert_destructive_reset_enabled() as an authenticated admin.
+ * This RPC is authenticated-callable and checks is_admin() + the gate.
+ */
+async function callAssertAsAdmin(): Promise<void> {
   await sql.begin(async (tx) => {
     await tx`select set_config('role', 'authenticated', true)`;
     await tx`select set_config('request.jwt.claims', ${ADMIN_CLAIMS}, true)`;
-    await tx`select public.reset_validation_data()`;
+    await tx`select public.assert_destructive_reset_enabled()`;
   });
 }
 
-async function callResetAsNonAdmin(): Promise<void> {
+/**
+ * Calls assert_destructive_reset_enabled() as a non-admin authenticated user.
+ */
+async function callAssertAsNonAdmin(): Promise<void> {
   await sql.begin(async (tx) => {
     await tx`select set_config('role', 'authenticated', true)`;
     await tx`select set_config('request.jwt.claims', ${NON_ADMIN_CLAIMS}, true)`;
-    await tx`select public.reset_validation_data()`;
+    await tx`select public.assert_destructive_reset_enabled()`;
   });
+}
+
+/**
+ * Returns whether the `authenticated` role has EXECUTE on reset_validation_data().
+ *
+ * NOTE: We do NOT attempt to actually call reset_validation_data() as the
+ * `authenticated` role via set_config('role', ...) in a superuser session.
+ * Under Supabase local Docker, switching to `authenticated` inside a
+ * superuser connection and executing a SECURITY DEFINER function that hits a
+ * permission check triggers a PG backend crash (SIGQUIT / code 57P02 —
+ * "quickdie"), crashing the entire test runner. The privilege catalogue check
+ * via has_function_privilege() is the correct and stable assertion for this
+ * contract: it proves at the grant level (not just the call level) that the
+ * revoke landed, without executing the function.
+ */
+async function authenticatedHasResetExecutePrivilege(): Promise<boolean> {
+  const [row] = await sql<[{ has: boolean }]>`
+    select has_function_privilege('authenticated', 'public.reset_validation_data()', 'execute') as has
+  `;
+  return row!.has;
+}
+
+/**
+ * Calls reset_validation_data() without switching role — runs as the
+ * superuser/service_role connection (postgres). This is how the action
+ * now invokes it after the hotfix.
+ */
+async function callResetAsServiceRole(): Promise<void> {
+  await sql`select public.reset_validation_data()`;
 }
 
 afterAll(async () => {
@@ -87,16 +127,40 @@ afterAll(async () => {
 });
 
 describe("destructive_reset_gate — RPC gate check (Layer B)", () => {
-  test("reset_validation_data() raises 'destructive reset not enabled' for an admin while enabled=false", async () => {
+  // --- assert_destructive_reset_enabled() — authenticated-callable ---
+
+  test("assert_destructive_reset_enabled() raises 'destructive reset not enabled' for an admin while enabled=false", async () => {
     await withGate(false, async () => {
-      await expect(callResetAsAdmin()).rejects.toThrow(/destructive reset not enabled/i);
+      await expect(callAssertAsAdmin()).rejects.toThrow(/destructive reset not enabled/i);
     });
   });
 
-  test("reset_validation_data() raises 'not authorized' for a non-admin (admin gate fires before the enabled check)", async () => {
+  test("assert_destructive_reset_enabled() raises 'not authorized' for a non-admin (is_admin() gate fires before the enabled check)", async () => {
     // Even with the gate ENABLED, a non-admin must be rejected by is_admin() first.
     await withGate(true, async () => {
-      await expect(callResetAsNonAdmin()).rejects.toThrow(/not authorized/i);
+      await expect(callAssertAsNonAdmin()).rejects.toThrow(/not authorized/i);
+    });
+  });
+
+  // --- reset_validation_data() — service-role-only (hotfix) ---
+
+  test("reset_validation_data() EXECUTE is revoked from authenticated (service-role-only after hotfix)", async () => {
+    // Migration 20260622000002 revoked EXECUTE on reset_validation_data() from
+    // authenticated/anon/public. Assert via privilege catalogue — attempting to
+    // actually call the function via set_config('role','authenticated') in a
+    // superuser connection crashes the PG backend under Supabase local Docker
+    // (SIGQUIT / code 57P02), so the privilege check is the correct assertion.
+    const hasPriv = await authenticatedHasResetExecutePrivilege();
+    expect(
+      hasPriv,
+      "authenticated role must NOT have EXECUTE on reset_validation_data() after migration 20260622000002",
+    ).toBe(false);
+  });
+
+  test("reset_validation_data() raises 'destructive reset not enabled' for service_role while enabled=false", async () => {
+    // The gate check inside the function still fires even when called via service_role.
+    await withGate(false, async () => {
+      await expect(callResetAsServiceRole()).rejects.toThrow(/destructive reset not enabled/i);
     });
   });
 });

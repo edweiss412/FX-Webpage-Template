@@ -31,20 +31,18 @@ const DB_URL =
 
 const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
 
-const ADMIN_CLAIMS = JSON.stringify({
-  sub: "00000000-0000-0000-0000-000000000020",
-  email: "dlarson@fxav.net",
-  app_metadata: { role: "admin" },
-});
-
-async function callResetAsAdmin(): Promise<{ clearedShows: number }> {
-  return sql.begin(async (tx) => {
-    await tx`select set_config('role', 'authenticated', true)`;
-    await tx`select set_config('request.jwt.claims', ${ADMIN_CLAIMS}, true)`;
-    const [row] = await tx`select public.reset_validation_data() as result`;
-    if (!row) throw new Error("reset_validation_data returned no row");
-    return (row as unknown as { result: { clearedShows: number } }).result;
-  }) as Promise<{ clearedShows: number }>;
+/**
+ * Calls reset_validation_data() as the postgres superuser — this is the
+ * service_role equivalent for direct-DB tests. Since migration
+ * 20260622000002 revoked execute from authenticated/anon, the RPC is only
+ * callable via the service_role (or the postgres superuser, which has all
+ * privileges). The postgres:postgres direct connection used by `sql` is
+ * equivalent to service_role for permission purposes.
+ */
+async function callResetAsServiceRole(): Promise<{ clearedShows: number }> {
+  const [row] = await sql`select public.reset_validation_data() as result`;
+  if (!row) throw new Error("reset_validation_data returned no row");
+  return (row as unknown as { result: { clearedShows: number } }).result;
 }
 
 async function count(table: string, where = ""): Promise<number> {
@@ -127,7 +125,7 @@ describe("reset_validation_data() — full reset behaviour", () => {
     expect(showsBefore).toBeGreaterThanOrEqual(2);
 
     // --- act ---
-    const result = await callResetAsAdmin();
+    const result = await callResetAsServiceRole();
 
     // --- assert: counts ---
     expect(result.clearedShows).toBe(showsBefore);
@@ -172,7 +170,7 @@ describe("reset_validation_data() — full reset behaviour", () => {
 
   test("returns clearedShows: 0 on an already-empty database (idempotent re-run)", async () => {
     // After the first test cleared everything; a fresh reset over an empty DB is a no-op.
-    const result = await callResetAsAdmin();
+    const result = await callResetAsServiceRole();
     expect(result.clearedShows).toBe(await count("shows")); // both 0
     expect(result.clearedShows).toBe(0);
   });
