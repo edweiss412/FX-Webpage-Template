@@ -217,8 +217,12 @@ describe("<KeyTimesStrip>", () => {
     expect(strip.textContent).toContain(anchors.strike);
   });
 
-  test("all three present → three anchor rows, each with its data-anchor key", () => {
-    const anchors: KeyTimeAnchors = { set: "9:00 AM", show: "7:00 PM", strike: "11:00 PM" };
+  test("set + one show + strike present → three anchor rows, each with its data-anchor key", () => {
+    const anchors: KeyTimeAnchors = {
+      set: "9:00 AM",
+      shows: [{ date: "2026-10-08", label: "Show", time: "7:00 PM" }],
+      strike: "11:00 PM",
+    };
     const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
     const strip = getByTestId("key-times-strip");
     expect(strip.querySelectorAll("[data-anchor]").length).toBe(3);
@@ -228,7 +232,11 @@ describe("<KeyTimesStrip>", () => {
   });
 
   test('default layout → vertical stack (data-layout="stack"), no horizontal row classes', () => {
-    const anchors: KeyTimeAnchors = { set: "9:00 AM", show: "7:00 PM", strike: "11:00 PM" };
+    const anchors: KeyTimeAnchors = {
+      set: "9:00 AM",
+      shows: [{ date: "2026-10-08", label: "Show", time: "7:00 PM" }],
+      strike: "11:00 PM",
+    };
     const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
     const strip = getByTestId("key-times-strip");
     expect(strip.getAttribute("data-layout")).toBe("stack");
@@ -237,7 +245,11 @@ describe("<KeyTimesStrip>", () => {
   });
 
   test('layout="row" → horizontal N-across strip at >=720px (data-layout="row"); anchors + span order preserved', () => {
-    const anchors: KeyTimeAnchors = { set: "9:00 AM", show: "7:00 PM", strike: "11:00 PM" };
+    const anchors: KeyTimeAnchors = {
+      set: "9:00 AM",
+      shows: [{ date: "2026-10-08", label: "Show", time: "7:00 PM" }],
+      strike: "11:00 PM",
+    };
     const { getByTestId } = render(<KeyTimesStrip anchors={anchors} layout="row" />);
     const strip = getByTestId("key-times-strip");
     expect(strip.getAttribute("data-layout")).toBe("row");
@@ -256,5 +268,110 @@ describe("<KeyTimesStrip>", () => {
   test('layout="row" with all anchors absent → still renders nothing', () => {
     const { container } = render(<KeyTimesStrip anchors={{}} layout="row" />);
     expect(container.firstChild).toBeNull();
+  });
+
+  test("N shows[] → set row, one show row per anchor (in array order), strike row", () => {
+    const shows = [
+      { date: "2026-10-08", label: "Day 1 · Wed 10/8", time: "7:15am" },
+      { date: "2026-10-09", label: "Day 2 · Thu 10/9", time: "8:00am" },
+    ];
+    const anchors: KeyTimeAnchors = { set: "10/7 @ 9:00PM", shows, strike: "10/9 @ 4:30pm" };
+    const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
+    const strip = getByTestId("key-times-strip");
+    // Total rows = 1 set + shows.length + 1 strike (derived from the fixture, not hardcoded).
+    const expectedRows =
+      (anchors.set != null ? 1 : 0) + shows.length + (anchors.strike != null ? 1 : 0);
+    expect(strip.querySelectorAll("[data-anchor]").length).toBe(expectedRows); // = 4
+    expect(strip.querySelectorAll('[data-anchor="show"]').length).toBe(shows.length); // = 2
+    // Each show row carries its date hook + its label + its time, in array order.
+    const showRows = Array.from(strip.querySelectorAll('[data-anchor="show"]'));
+    showRows.forEach((row, i) => {
+      expect(row.getAttribute("data-anchor-date")).toBe(shows[i]!.date);
+      expect(row.textContent).toContain(shows[i]!.label);
+      expect(row.textContent).toContain(shows[i]!.time);
+    });
+  });
+
+  test("inv6: each row's FIRST span = label, LAST span = value (set + N shows + strike)", () => {
+    const shows = [{ date: "2026-10-08", label: "Day 1 · Wed 10/8", time: "7:15am" }];
+    const anchors: KeyTimeAnchors = { set: "10/7 @ 9:00PM", shows, strike: "10/9 @ 4:30pm" };
+    const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
+    const strip = getByTestId("key-times-strip");
+    for (const row of Array.from(strip.querySelectorAll("[data-anchor]"))) {
+      const spans = row.querySelectorAll("span");
+      expect(spans.length).toBe(2);
+      // First span is the label, last is the value — pin per row, derive expected from the row's own data.
+      const isShow = row.getAttribute("data-anchor") === "show";
+      const expectedLabel = isShow
+        ? shows[0]!.label
+        : row.getAttribute("data-anchor") === "set"
+          ? "Set"
+          : "Strike";
+      const expectedValue = isShow
+        ? shows[0]!.time
+        : row.getAttribute("data-anchor") === "set"
+          ? anchors.set
+          : anchors.strike;
+      expect(spans[0]!.textContent).toBe(expectedLabel);
+      expect(spans[1]!.textContent).toBe(expectedValue);
+    }
+  });
+
+  test('layout="row" with N shows → row container divider classes + every cell gets min-[720px]:flex-1', () => {
+    const shows = [
+      { date: "2026-10-08", label: "Day 1", time: "7:15am" },
+      { date: "2026-10-09", label: "Day 2", time: "8:00am" },
+    ];
+    const anchors: KeyTimeAnchors = { set: "9:00PM", shows, strike: "4:30pm" };
+    const { getByTestId } = render(<KeyTimesStrip anchors={anchors} layout="row" />);
+    const strip = getByTestId("key-times-strip");
+    expect(strip.getAttribute("data-layout")).toBe("row");
+    expect(strip.className).toContain("min-[720px]:flex-row");
+    expect(strip.className).toContain("min-[720px]:divide-x");
+    // Equal-width cells: every present row carries the flex-1 cell class (Dimensional Invariants §5.5).
+    for (const row of Array.from(strip.querySelectorAll("[data-anchor]"))) {
+      expect(row.className).toContain("min-[720px]:flex-1");
+      expect(row.className).toContain("min-[720px]:first:pl-0");
+      expect(row.className).toContain("min-[720px]:last:pr-0");
+    }
+  });
+
+  test('layout="stack" with N shows → vertical, no horizontal row classes', () => {
+    const shows = [{ date: "2026-10-08", label: "Day 1", time: "7:15am" }];
+    const { getByTestId } = render(<KeyTimesStrip anchors={{ shows }} layout="stack" />);
+    const strip = getByTestId("key-times-strip");
+    expect(strip.getAttribute("data-layout")).toBe("stack");
+    expect(strip.className).toContain("flex-col");
+    expect(strip.className).not.toContain("flex-row");
+  });
+
+  test("shows[] longer than the cap → first 4 show rows + a single '+N more' row", () => {
+    const shows = Array.from({ length: 7 }, (_, i) => ({
+      date: `2026-10-${String(8 + i).padStart(2, "0")}`,
+      label: `Day ${i + 1}`,
+      time: `${7 + i}:00am`,
+    }));
+    const anchors: KeyTimeAnchors = { shows };
+    const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
+    const strip = getByTestId("key-times-strip");
+    // First 4 show rows render; the 5th..Nth collapse into one overflow row.
+    expect(strip.querySelectorAll('[data-anchor="show"]').length).toBe(4);
+    const overflow = strip.querySelector('[data-testid="key-times-shows-overflow"]');
+    expect(overflow).not.toBeNull();
+    // Overflow count derived from the fixture (7 - 4 = 3), never hardcoded.
+    const hidden = shows.length - 4;
+    expect(overflow!.textContent).toContain(`+${hidden}`);
+  });
+
+  test("exactly 5 shows → all 5 render, no overflow row (boundary)", () => {
+    const shows = Array.from({ length: 5 }, (_, i) => ({
+      date: `2026-10-${String(8 + i).padStart(2, "0")}`,
+      label: `Day ${i + 1}`,
+      time: `${7 + i}:00am`,
+    }));
+    const { getByTestId } = render(<KeyTimesStrip anchors={{ shows }} />);
+    const strip = getByTestId("key-times-strip");
+    expect(strip.querySelectorAll('[data-anchor="show"]').length).toBe(5);
+    expect(strip.querySelector('[data-testid="key-times-shows-overflow"]')).toBeNull();
   });
 });
