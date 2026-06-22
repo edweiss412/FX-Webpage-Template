@@ -91,11 +91,18 @@ describe("isValidationDeployment / destructiveResetAllowed", () => {
     vi.stubEnv("ALLOW_DESTRUCTIVE_RESET", "");
     expect(destructiveResetAllowed()).toBe(false);
   });
-  it("falls back to NEXT_PUBLIC_SUPABASE_URL when SUPABASE_URL unset", () => {
-    vi.stubEnv("SUPABASE_URL", "");
+  it("falls back to NEXT_PUBLIC_SUPABASE_URL when SUPABASE_URL is UNSET (undefined)", () => {
+    // `?? ` only falls back on null/undefined, so SUPABASE_URL must be truly unset, NOT "".
+    vi.stubEnv("SUPABASE_URL", undefined as unknown as string); // vitest deletes the var
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", `https://${VALIDATION_PROJECT_REF}.supabase.co`);
     vi.stubEnv("ALLOW_DESTRUCTIVE_RESET", "true");
     expect(destructiveResetAllowed()).toBe(true);
+  });
+  it("empty-string SUPABASE_URL closes the guard (does NOT fall back — `??` is not triggered by '')", () => {
+    vi.stubEnv("SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", `https://${VALIDATION_PROJECT_REF}.supabase.co`);
+    vi.stubEnv("ALLOW_DESTRUCTIVE_RESET", "true");
+    expect(destructiveResetAllowed()).toBe(false);
   });
 });
 ```
@@ -174,10 +181,14 @@ select table_name from information_schema.columns
 
 - [ ] **Step 4: Write the in-flight concurrency test** (`resetValidationDataConcurrency.test.ts`): T2 opens a tx, takes `pg_advisory_xact_lock(hashtext('show:'||did))` for an existing show + begins an UPDATE; T1 `reset_validation_data()` BLOCKS until T2 commits/rolls back (assert it does not return while T2 holds the lock). After T1 commits, every row that existed when the reset ran is deleted. Do NOT assert "stays empty" (spec D10).
 
-- [ ] **Step 5: Run all five to verify they fail**
+- [ ] **Step 4b: Write the meta-test EXTENSIONS now (red, BEFORE the migration — TDD invariant 1):**
+  - `tests/db/postgrest-dml-lockdown.test.ts`: add a registry row for `destructive_reset_gate` (no DML grant + RLS-deny → all PostgREST DML fails). Red now (table absent), green after the migration.
+  - `tests/auth/advisoryLockRpcDeadlock.test.ts`: add the assertion pinning `reset_validation_data()` as a sorted single-holder advisory taker (`order by drive_file_id` + `pg_advisory_xact_lock(hashtext('show:'||…))`, no nested SECURITY DEFINER re-acquire). Red now (the RPC source isn't in the migration yet), green after.
 
-Run: `pnpm exec vitest run tests/db/destructiveResetGate.test.ts tests/db/resetValidationData.test.ts tests/db/resetValidationDataFkAudit.test.ts tests/db/resetValidationDataDriveKeyedAudit.test.ts tests/db/resetValidationDataConcurrency.test.ts`
-Expected: FAIL (RPC/table do not exist).
+- [ ] **Step 5: Run all tests + meta-tests to verify they fail (red)**
+
+Run: `pnpm exec vitest run tests/db/destructiveResetGate.test.ts tests/db/resetValidationData.test.ts tests/db/resetValidationDataFkAudit.test.ts tests/db/resetValidationDataDriveKeyedAudit.test.ts tests/db/resetValidationDataConcurrency.test.ts tests/db/postgrest-dml-lockdown.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts`
+Expected: the 5 new files FAIL (RPC/table absent); the 2 meta-tests FAIL on their NEW assertions (gate row / reset topology) while their existing assertions still pass.
 
 - [ ] **Step 6: Write the migration** (`supabase/migrations/<ts>_validation_reset_rpc.sql`):
 
@@ -251,19 +262,15 @@ grant execute on function public.assert_destructive_reset_enabled() to authentic
 ```
 NOTE: verify each `delete from` target's wizard-session/checkpoint table name against the live schema during Step-3 audit (the spec names "wizard sessions/checkpoints" — confirm `wizard_finalize_checkpoints` is the table and whether a separate wizard-session table exists; add it to the clear-explicit deletes if so). Drop tables that the audit shows are cascade children from the explicit delete list.
 
-- [ ] **Step 7: Apply locally + run the five tests + meta-tests**
+- [ ] **Step 7: Apply locally + run ALL tests + meta-tests green**
 
 ```bash
 psql "$LOCAL_DB_URL" -f supabase/migrations/<ts>_validation_reset_rpc.sql && psql "$LOCAL_DB_URL" -c "notify pgrst, 'reload schema';"
-pnpm exec vitest run tests/db/destructiveResetGate.test.ts tests/db/resetValidationData.test.ts tests/db/resetValidationDataFkAudit.test.ts tests/db/resetValidationDataDriveKeyedAudit.test.ts tests/db/resetValidationDataConcurrency.test.ts
+pnpm exec vitest run tests/db/destructiveResetGate.test.ts tests/db/resetValidationData.test.ts tests/db/resetValidationDataFkAudit.test.ts tests/db/resetValidationDataDriveKeyedAudit.test.ts tests/db/resetValidationDataConcurrency.test.ts tests/db/postgrest-dml-lockdown.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts
 ```
-Expected: PASS. (Use the project's standard local-DB harness env var for `$LOCAL_DB_URL`.)
+Expected: PASS (including the meta-test extensions written red in Step 4b — they now go green). (Use the project's standard local-DB harness env var for `$LOCAL_DB_URL`.)
 
-- [ ] **Step 8: Extend the two meta-tests**
-  - `tests/db/postgrest-dml-lockdown.test.ts`: add a registry row for `destructive_reset_gate` (no DML grant + RLS-deny → all PostgREST DML fails). Run it.
-  - `tests/auth/advisoryLockRpcDeadlock.test.ts`: add an assertion pinning `reset_validation_data()` as a sorted single-holder advisory taker (`order by drive_file_id` + `pg_advisory_xact_lock(hashtext('show:'||…))`, no nested SECURITY DEFINER re-acquire). Run it.
-
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add supabase/migrations/<ts>_validation_reset_rpc.sql tests/db/destructiveResetGate.test.ts tests/db/resetValidationData.test.ts tests/db/resetValidationDataFkAudit.test.ts tests/db/resetValidationDataDriveKeyedAudit.test.ts tests/db/resetValidationDataConcurrency.test.ts tests/db/postgrest-dml-lockdown.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts
@@ -282,9 +289,9 @@ git commit -m "feat(db): destructive_reset_gate + reset_validation_data/assert R
 **Interfaces:**
 - Produces: `buildFixtures(todayIso: string): <existing return type>`, `R_COMBOS`, `SW_COMBOS` from `@/lib/validation/fixtures`.
 
-- [ ] **Step 1:** Move the module. `git mv scripts/lib/validation-fixtures.ts lib/validation/fixtures.ts` (or copy + re-export to keep `scripts/lib` import working). Update `scripts/validation-reseed.ts` to `import { buildFixtures } from "@/lib/validation/fixtures"` (verify the `@/` alias resolves in the scripts tsconfig; if scripts use relative paths, use the correct relative import). Update any other importer found via `grep -rn "validation-fixtures" scripts/ lib/ tests/`.
-- [ ] **Step 2: Write a light test** asserting `buildFixtures("2026-06-22")` returns the 16-combo set and `R_COMBOS.length + SW_COMBOS.length === 16` (derive, don't hardcode the breakdown). Run it; expect PASS once the import resolves.
-- [ ] **Step 3:** Run the existing validation-fixtures/reseed unit tests (`grep -rl "validation-fixtures\|buildFixtures" tests/`) to prove no regression. Run `pnpm exec tsc --noEmit`.
+- [ ] **Step 1: Write the failing test FIRST** (`tests/validation/fixtures.test.ts`): `import { buildFixtures, R_COMBOS, SW_COMBOS } from "@/lib/validation/fixtures"`; assert `buildFixtures("2026-06-22")` returns the full combo set and `R_COMBOS.length + SW_COMBOS.length === 16` (derive, don't hardcode the breakdown). Run → FAIL (`@/lib/validation/fixtures` does not exist).
+- [ ] **Step 2: Move the module.** `git mv scripts/lib/validation-fixtures.ts lib/validation/fixtures.ts` (or copy + re-export to keep the `scripts/lib` import path working). Update `scripts/validation-reseed.ts` to import `buildFixtures` from `@/lib/validation/fixtures` (verify the `@/` alias resolves in the scripts tsconfig; if scripts use relative paths, use the correct relative import). Update any other importer found via `grep -rn "validation-fixtures" scripts/ lib/ tests/`.
+- [ ] **Step 3:** Run the new test → PASS. Run the existing validation-fixtures/reseed unit tests (`grep -rl "validation-fixtures\|buildFixtures" tests/`) to prove no regression. Run `pnpm exec tsc --noEmit`.
 - [ ] **Step 4: Commit**
 
 ```bash
@@ -303,16 +310,18 @@ git commit -m "refactor(validation): promote fixtures to lib/validation/fixtures
 
 **Interfaces:**
 - Consumes: `buildFixtures` from Task 3; the existing RPCs `mint_validation_fixture_atomic`, `validation_finalize_all_atomic`.
-- Produces: `mintFixtureCombos(client: SupabaseClient, fixtures: ReturnType<typeof buildFixtures>): Promise<{ seeded: number }>` (loops the existing mint RPC per combo, then calls finalize once; mirrors `scripts/validation-reseed.ts:102-134`).
+- Produces: `mintFixtureCombos(client, fixtures): Promise<{ minted: number }>` — **mint loop ONLY, no finalize** (each combo → `client.rpc("mint_validation_fixture_atomic", {...})`, `{data,error}` destructure + throw on error; mirrors `scripts/validation-reseed.ts:102-118`). AND `finalizeFixtures(client, requiredCombos): Promise<void>` — the single `validation_finalize_all_atomic` call (`scripts/validation-reseed.ts:123-134`).
 
-- [ ] **Step 1: Write the real-DB test:** against an empty local DB, build fixtures, call `mintFixtureCombos(serviceClient, fixtures)`; assert the seeded show count equals the fixtures' combo count (derive from `fixtures`, not a literal) and `validation_state` is populated. Run → FAIL (module missing).
-- [ ] **Step 2: Implement** `mintFixtureCombos` by extracting the loop currently inline in `scripts/validation-reseed.ts` (each combo → `client.rpc("mint_validation_fixture_atomic", {...})` with `{ data, error }` destructure + throw on error; then one `client.rpc("validation_finalize_all_atomic", {...})`). Re-point the CLI to call it.
-- [ ] **Step 3:** Run the test → PASS. Run the existing reseed CLI test (no behavior change). `pnpm exec tsc --noEmit`.
+**Why the split (P1-F1):** `validation_finalize_all_atomic` rewrites `combos_materialized = p_required_combos` and **prunes validation shows not in that list** (`supabase/migrations/20260527210001_validation_finalize_all_atomic.sql:113-138`). The CLI finalizes ONLY for `--combo all` (`scripts/validation-reseed.ts:224-230`); a single-combo run must NOT finalize/prune. So mint and finalize stay separate functions: the CLI preserves its `requestedCombo === "all"` branch; the reseed button always seeds the full 16 (mint-all + finalize-all).
+
+- [ ] **Step 1: Write the failing real-DB tests** (`tests/db/reseedFixtures.test.ts`): (a) `mintFixtureCombos(serviceClient, buildFixtures(...))` then `finalizeFixtures(serviceClient, allCombos)` against an empty DB → seeded show count equals the fixtures' combo count (derive from `fixtures`, not a literal) and `validation_state.combos_materialized` lists all combos; (b) **single-combo regression:** `mintFixtureCombos` for ONE combo's fixtures WITHOUT `finalizeFixtures` → that combo's shows exist AND no prune occurred (a pre-seeded other-combo show survives, `validation_state` not rewritten). Run → FAIL (module missing).
+- [ ] **Step 2: Implement** `mintFixtureCombos` (mint loop only) + `finalizeFixtures` by extracting from `scripts/validation-reseed.ts`. Re-point the CLI: mint via `mintFixtureCombos` for the requested combos; call `finalizeFixtures` **only when `requestedCombo === "all"`** (keep the existing branch at `:224-230`).
+- [ ] **Step 3:** Run both tests → PASS (the single-combo regression proves no finalize/prune). Run the existing reseed CLI test (no behavior change). `pnpm exec tsc --noEmit`.
 - [ ] **Step 4: Commit**
 
 ```bash
 git add lib/validation/reseedFixtures.ts scripts/validation-reseed.ts tests/db/reseedFixtures.test.ts
-git commit -m "feat(validation): mintFixtureCombos shared reseed loop (CLI + server action share one path)"
+git commit -m "feat(validation): split mintFixtureCombos (mint-only) + finalizeFixtures; CLI finalizes only for --combo all"
 ```
 
 ---
@@ -354,17 +363,18 @@ git commit -m "feat(messages): VALIDATION_RESET_* catalog codes (§12.4 lockstep
 - Modify (meta-test): `tests/admin/_metaInfraContract.test.ts`
 
 **Interfaces:**
-- Consumes: `destructiveResetAllowed` (Task 1); `requireAdmin` (`@/lib/auth/requireAdmin`); the RPCs (Task 2); `buildFixtures` + `mintFixtureCombos` (Tasks 3–4); the session client (`createSupabaseServerClient`) + service-role client (`createSupabaseServiceRoleClient`) from `@/lib/supabase/server`; the codes (Task 5).
+- Consumes: `destructiveResetAllowed` (Task 1); `requireAdmin` (`@/lib/auth/requireAdmin`); the RPCs (Task 2); `buildFixtures` (Task 3) + `mintFixtureCombos` + `finalizeFixtures` (Task 4); the session client (`createSupabaseServerClient`) + service-role client (`createSupabaseServiceRoleClient`) from `@/lib/supabase/server`; the codes (Task 5).
 - Produces: `resetValidationDataAction(): Promise<{ ok:true; count:number } | { ok:false; code: MessageCode }>`; `reseedValidationFixturesAction(): Promise<same>`.
 
-- [ ] **Step 1: Write the guard-refusal test** (`tests/admin/validationResetAction.test.ts`), split by layer (spec §8): (a) gates fail (`destructiveResetAllowed()` false — stub env) → `VALIDATION_RESET_NOT_ALLOWED`, and NO Supabase call (mock `createSupabaseServerClient`/`createSupabaseServiceRoleClient` and assert zero calls); (b) gates pass but the RPC raises gate-disabled → `VALIDATION_RESET_NOT_ENABLED`; reseed path does NOT construct the service-role client when the assert RPC raises. Mock the clients; assert `requireAdmin` is called first.
-- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 1: Write the failing tests FIRST — action test AND the meta-test extension** (TDD invariant 1):
+  - `tests/admin/validationResetAction.test.ts`, split by layer (spec §8): (a) gates fail (`destructiveResetAllowed()` false — stub env) → `VALIDATION_RESET_NOT_ALLOWED`, and NO Supabase call (mock `createSupabaseServerClient`/`createSupabaseServiceRoleClient`, assert zero calls); (b) gates pass but the RPC raises gate-disabled → `VALIDATION_RESET_NOT_ENABLED`; reseed path does NOT construct the service-role client when the assert RPC raises. Mock the clients; assert `requireAdmin` is called first.
+  - `tests/admin/_metaInfraContract.test.ts`: add the registry rows for `resetValidationDataAction` + `reseedValidationFixturesAction` (both destructure `{ data, error }`, distinguish returned vs thrown faults, map to the typed codes, no silent continue, service-role constructed only post-assert). Red now (the actions file doesn't exist).
+- [ ] **Step 2: Run both → FAIL** (action module + registered actions absent).
 - [ ] **Step 3: Implement** (`"use server"`):
   - `resetValidationDataAction`: `await requireAdmin()` → `if (!destructiveResetAllowed()) return { ok:false, code:"VALIDATION_RESET_NOT_ALLOWED" }` → session client `.rpc("reset_validation_data")`, destructure `{ data, error }`; if `error` message matches the gate-disabled raise → `VALIDATION_RESET_NOT_ENABLED`, else any error → `VALIDATION_RESET_FAILED`; on success `revalidatePath("/admin"); revalidatePath("/admin/settings"); return { ok:true, count: data.clearedShows }`.
-  - `reseedValidationFixturesAction`: `requireAdmin` → gate → session client `.rpc("assert_destructive_reset_enabled")` (gate-disabled → `VALIDATION_RESET_NOT_ENABLED`); on success build the service-role client, `mintFixtureCombos(serviceClient, buildFixtures(<todayIso>))` (infra fault → `VALIDATION_RESEED_FAILED`); `revalidatePath` + `return { ok:true, count: seeded }`. Construct the service-role client ONLY after the assert passes.
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5:** Add the two call sites to `tests/admin/_metaInfraContract.test.ts` (both actions destructure `{ data, error }`, distinguish returned vs thrown faults, map to the typed codes, no silent continue, service-role constructed only post-assert). Run it → PASS. `pnpm exec tsc --noEmit`.
-- [ ] **Step 6: Commit**
+  - `reseedValidationFixturesAction`: `requireAdmin` → gate → session client `.rpc("assert_destructive_reset_enabled")` (gate-disabled → `VALIDATION_RESET_NOT_ENABLED`); on success build the service-role client, `const fixtures = buildFixtures(<todayIso>)`, `await mintFixtureCombos(serviceClient, fixtures)` THEN `await finalizeFixtures(serviceClient, allCombos)` (the button always seeds the full 16, so finalize IS called here — unlike a single-combo CLI run; any infra fault → `VALIDATION_RESEED_FAILED`); `revalidatePath` + `return { ok:true, count: minted }`. Construct the service-role client ONLY after the assert passes. For `<todayIso>`: derive the validation "today" ISO the same way the CLI does (`scripts/validation-reseed.ts` — check how it computes `validationTodayIso`; reuse that helper, do not hardcode).
+- [ ] **Step 4: Run both (action test + the _metaInfraContract extension from Step 1) → PASS.** `pnpm exec tsc --noEmit`.
+- [ ] **Step 5: Commit**
 
 ```bash
 git add app/admin/settings/_actions/validationReset.ts tests/admin/validationResetAction.test.ts tests/admin/_metaInfraContract.test.ts
