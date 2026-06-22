@@ -7,11 +7,7 @@ export function predicate(entry: MessageCatalogEntry): boolean {
 }
 
 export function allM12FieldsNonNull(entry: MessageCatalogEntry): boolean {
-  return (
-    entry.title !== null &&
-    entry.longExplanation !== null &&
-    entry.helpHref !== null
-  );
+  return entry.title !== null && entry.longExplanation !== null && entry.helpHref !== null;
 }
 
 export function helpHrefShapeOk(href: string | null): boolean {

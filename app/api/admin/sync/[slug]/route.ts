@@ -15,10 +15,10 @@ function statusForManualSyncCode(code: string): number {
   return code === "SYNC_INFRA_ERROR" ? 500 : 409;
 }
 
-async function readDriveFileIdForSlug(slug: string): Promise<
-  | { kind: "found"; driveFileId: string }
-  | { kind: "not_found" }
-  | { kind: "infra_error" }
+async function readDriveFileIdForSlug(
+  slug: string,
+): Promise<
+  { kind: "found"; driveFileId: string } | { kind: "not_found" } | { kind: "infra_error" }
 > {
   let supabase: ReturnType<typeof createSupabaseServiceRoleClient>;
   try {

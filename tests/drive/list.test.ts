@@ -42,7 +42,8 @@ describe("listFolder", () => {
     expect(filesList).toHaveBeenCalledWith({
       q: `'${FOLDER_ID}' in parents and mimeType = '${GOOGLE_SHEETS_MIME_TYPE}' and trashed = false`,
       pageSize: 100,
-      fields: "nextPageToken, files(id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum)",
+      fields:
+        "nextPageToken, files(id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum)",
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
       corpora: "allDrives",
@@ -155,9 +156,7 @@ describe("listFolder", () => {
 
     expect(files.map((file) => file.driveFileId)).toEqual(["sheet-1"]);
     expect(filesList).toHaveBeenCalledTimes(2);
-    expect(filesList.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({ pageToken: "page-2" }),
-    );
+    expect(filesList.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ pageToken: "page-2" }));
   });
 
   test("drops files whose parents do not include the watched folder and emits UNEXPECTED_PARENT", async () => {

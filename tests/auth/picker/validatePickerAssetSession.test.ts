@@ -27,7 +27,8 @@ describe("validatePickerAssetSession", () => {
 
   test("resolved picker cookie authorizes and passes only the picker cookie value", async () => {
     state.picker = { kind: "resolved", crewMemberId: "11111111-1111-4111-8111-111111111111" };
-    const { validatePickerAssetSession } = await import("@/lib/auth/picker/validatePickerAssetSession");
+    const { validatePickerAssetSession } =
+      await import("@/lib/auth/picker/validatePickerAssetSession");
 
     const result = await validatePickerAssetSession(
       req("other=value; __Host-fxav_picker=signed-value"),
@@ -50,7 +51,8 @@ describe("validatePickerAssetSession", () => {
       expectedEpoch: 1,
       expectedCrewMemberId: "11111111-1111-4111-8111-111111111111",
     };
-    const { validatePickerAssetSession } = await import("@/lib/auth/picker/validatePickerAssetSession");
+    const { validatePickerAssetSession } =
+      await import("@/lib/auth/picker/validatePickerAssetSession");
 
     const result = await validatePickerAssetSession(req("__Host-fxav_picker=signed"), "show-id");
 
@@ -65,7 +67,8 @@ describe("validatePickerAssetSession", () => {
 
   test("infra_error maps to 500", async () => {
     state.picker = { kind: "infra_error", code: "PICKER_RESOLVER_LOOKUP_FAILED" };
-    const { validatePickerAssetSession } = await import("@/lib/auth/picker/validatePickerAssetSession");
+    const { validatePickerAssetSession } =
+      await import("@/lib/auth/picker/validatePickerAssetSession");
 
     const result = await validatePickerAssetSession(req("__Host-fxav_picker=signed"), "show-id");
 

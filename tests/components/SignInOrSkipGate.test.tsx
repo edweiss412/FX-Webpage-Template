@@ -32,12 +32,7 @@ const ENCODED = encodeURIComponent(TOKENIZED_URL);
 describe("<SignInOrSkipGate> — Mode A (first_contact)", () => {
   test("renders cataloged Mode-A prompt copy", () => {
     const { getByTestId } = render(
-      <SignInOrSkipGate
-        slug={SLUG}
-        shareToken={TOKEN}
-        showId={SHOW_ID}
-        reason="first_contact"
-      />,
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="first_contact" />,
     );
     expect(getByTestId("sign-in-or-skip-gate").textContent).toContain(
       MESSAGE_CATALOG.SIGN_IN_OR_SKIP_PROMPT.crewFacing!,
@@ -46,12 +41,7 @@ describe("<SignInOrSkipGate> — Mode A (first_contact)", () => {
 
   test("primary CTA navigates to the same URL with ?gate=skip", () => {
     const { getByTestId } = render(
-      <SignInOrSkipGate
-        slug={SLUG}
-        shareToken={TOKEN}
-        showId={SHOW_ID}
-        reason="first_contact"
-      />,
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="first_contact" />,
     );
     const skip = getByTestId("sign-in-or-skip-gate-skip-cta") as HTMLAnchorElement;
     expect(skip.tagName).toBe("A");
@@ -60,27 +50,15 @@ describe("<SignInOrSkipGate> — Mode A (first_contact)", () => {
 
   test("secondary CTA links to /auth/sign-in with the tokenized URL as next", () => {
     const { getByTestId } = render(
-      <SignInOrSkipGate
-        slug={SLUG}
-        shareToken={TOKEN}
-        showId={SHOW_ID}
-        reason="first_contact"
-      />,
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="first_contact" />,
     );
-    const signIn = getByTestId(
-      "sign-in-or-skip-gate-sign-in-cta",
-    ) as HTMLAnchorElement;
+    const signIn = getByTestId("sign-in-or-skip-gate-sign-in-cta") as HTMLAnchorElement;
     expect(signIn.getAttribute("href")).toBe(`/auth/sign-in?next=${ENCODED}`);
   });
 
   test("does NOT render the Mode-B mismatch header", () => {
     const { queryByTestId } = render(
-      <SignInOrSkipGate
-        slug={SLUG}
-        shareToken={TOKEN}
-        showId={SHOW_ID}
-        reason="first_contact"
-      />,
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="first_contact" />,
     );
     expect(queryByTestId("sign-in-or-skip-gate-mismatch-header")).toBeNull();
   });
@@ -89,16 +67,9 @@ describe("<SignInOrSkipGate> — Mode A (first_contact)", () => {
 describe("<SignInOrSkipGate> — Mode B (google_mismatch)", () => {
   test("renders 'Signed in as someone else' header + cataloged mismatch copy", () => {
     const { getByTestId } = render(
-      <SignInOrSkipGate
-        slug={SLUG}
-        shareToken={TOKEN}
-        showId={SHOW_ID}
-        reason="google_mismatch"
-      />,
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="google_mismatch" />,
     );
-    expect(
-      getByTestId("sign-in-or-skip-gate-mismatch-header"),
-    ).not.toBeNull();
+    expect(getByTestId("sign-in-or-skip-gate-mismatch-header")).not.toBeNull();
     expect(getByTestId("sign-in-or-skip-gate").textContent).toContain(
       MESSAGE_CATALOG.SIGN_IN_OR_SKIP_PROMPT_MISMATCH.crewFacing!,
     );
@@ -106,19 +77,10 @@ describe("<SignInOrSkipGate> — Mode B (google_mismatch)", () => {
 
   test("primary CTA links DIRECTLY to /api/auth/google/start (P-R29 Fix-2; NOT /auth/sign-in)", () => {
     const { getByTestId } = render(
-      <SignInOrSkipGate
-        slug={SLUG}
-        shareToken={TOKEN}
-        showId={SHOW_ID}
-        reason="google_mismatch"
-      />,
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="google_mismatch" />,
     );
-    const signIn = getByTestId(
-      "sign-in-or-skip-gate-sign-in-cta",
-    ) as HTMLAnchorElement;
-    expect(signIn.getAttribute("href")).toBe(
-      `/api/auth/google/start?next=${ENCODED}`,
-    );
+    const signIn = getByTestId("sign-in-or-skip-gate-sign-in-cta") as HTMLAnchorElement;
+    expect(signIn.getAttribute("href")).toBe(`/api/auth/google/start?next=${ENCODED}`);
     // Negative-regression: must NOT route through /auth/sign-in (that
     // page short-circuits when already signed in, exactly the Mode-B
     // state — would loop the user).
@@ -127,16 +89,9 @@ describe("<SignInOrSkipGate> — Mode B (google_mismatch)", () => {
 
   test("Continue-as-guest CTA submits a form bound to clearIdentityAndSkip (P-R29 Fix-3 atomic)", () => {
     const { getByTestId } = render(
-      <SignInOrSkipGate
-        slug={SLUG}
-        shareToken={TOKEN}
-        showId={SHOW_ID}
-        reason="google_mismatch"
-      />,
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="google_mismatch" />,
     );
-    const guestBtn = getByTestId(
-      "sign-in-or-skip-gate-continue-as-guest-cta",
-    ) as HTMLButtonElement;
+    const guestBtn = getByTestId("sign-in-or-skip-gate-continue-as-guest-cta") as HTMLButtonElement;
     expect(guestBtn.tagName).toBe("BUTTON");
     expect(guestBtn.getAttribute("type")).toBe("submit");
     const form = guestBtn.closest("form")!;
@@ -144,8 +99,7 @@ describe("<SignInOrSkipGate> — Mode B (google_mismatch)", () => {
     // React 19 emits the javascript: safety prefix.
     expect(form.getAttribute("action") ?? "").toMatch(/^javascript:/);
     const fieldOf = (n: string) =>
-      (form.querySelector(`input[name="${n}"]`) as HTMLInputElement | null)
-        ?.value;
+      (form.querySelector(`input[name="${n}"]`) as HTMLInputElement | null)?.value;
     expect(fieldOf("slug")).toBe(SLUG);
     expect(fieldOf("shareToken")).toBe(TOKEN);
     expect(fieldOf("showId")).toBe(SHOW_ID);
@@ -157,12 +111,7 @@ describe("<SignInOrSkipGate> — Mode B (google_mismatch)", () => {
     // even when the test setup seeds a picker cookie elsewhere — we
     // simulate by inspecting the rendered HTML.
     const { container } = render(
-      <SignInOrSkipGate
-        slug={SLUG}
-        shareToken={TOKEN}
-        showId={SHOW_ID}
-        reason="google_mismatch"
-      />,
+      <SignInOrSkipGate slug={SLUG} shareToken={TOKEN} showId={SHOW_ID} reason="google_mismatch" />,
     );
     expect(container.innerHTML).not.toContain("Alice");
     expect(container.innerHTML).not.toContain("Bob");

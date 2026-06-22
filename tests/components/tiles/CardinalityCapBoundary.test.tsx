@@ -55,7 +55,10 @@ import {
 } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { TodaySection } from "@/components/crew/sections/TodaySection";
-import { ScheduleSection, RUN_OF_SHOW_DISPLAY_CAP } from "@/components/crew/sections/ScheduleSection";
+import {
+  ScheduleSection,
+  RUN_OF_SHOW_DISPLAY_CAP,
+} from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry, ContactRow } from "@/lib/parser/types";
 
@@ -331,7 +334,9 @@ describe("§8.4 cardinality-cap — Pack list (CASE_CAP, GearSection)", () => {
     return Array.from({ length: count }, (_, i) => ({
       // Zero-padded so "Road Case 01" is never a substring of "Road Case 10".
       caseLabel: `Road Case ${String(i + 1).padStart(2, "0")}`,
-      items: [{ qty: 1, cat: null, subCat: null, item: `Cable Loom ${String(i + 1).padStart(2, "0")}` }],
+      items: [
+        { qty: 1, cat: null, subCat: null, item: `Cable Loom ${String(i + 1).padStart(2, "0")}` },
+      ],
     }));
   }
 
@@ -406,7 +411,10 @@ describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, Schedu
   function renderRunOfShow(count: number) {
     return render(
       <ScheduleSection
-        data={makeShowForViewer({ show: { dates: RS_DATES }, runOfShow: { [D1]: makeEntries(count) } })}
+        data={makeShowForViewer({
+          show: { dates: RS_DATES },
+          runOfShow: { [D1]: makeEntries(count) },
+        })}
         viewer={VIEWER}
         today={RS_TODAY}
         showId={SHOW_ID}
@@ -433,8 +441,12 @@ describe("§8.4 cardinality-cap — Run-of-show (RUN_OF_SHOW_DISPLAY_CAP, Schedu
         // Positive tail-trim presence SCOPED to the run-of-show list (anti-
         // tautology); the absence check on the whole container is stronger.
         const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
-        expect(list.textContent ?? "").toContain(`Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`);
-        expect(c.textContent ?? "").not.toContain(`Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`);
+        expect(list.textContent ?? "").toContain(
+          `Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`,
+        );
+        expect(c.textContent ?? "").not.toContain(
+          `Agenda Item ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`,
+        );
       }
     },
   );

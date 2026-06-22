@@ -68,7 +68,13 @@ describe("cutover — retire live pending_syncs (Task 2.10b)", () => {
         binding: { bindingToken: "t", modifiedTime: MT },
         verifyReelOnApply: false,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
         ] as never,
         notableItems: [],
       });
@@ -98,7 +104,9 @@ describe("cutover — retire live pending_syncs (Task 2.10b)", () => {
 
       expect(await tripped()).toBe(false);
       // The show was reset so the next cron re-processes under the new rule.
-      const [show] = await tx<{ requires_resync: boolean; last_seen_modified_time: string | null }[]>`
+      const [show] = await tx<
+        { requires_resync: boolean; last_seen_modified_time: string | null }[]
+      >`
         select requires_resync, last_seen_modified_time from public.shows where drive_file_id = ${driveFileId}
       `;
       expect(show!.requires_resync).toBe(true);
@@ -167,11 +175,9 @@ describe("cutover — retire live pending_syncs (Task 2.10b)", () => {
 
       // Session B: run the cutover. It must BLOCK on this show's lock while A holds it.
       let bCompleted = false;
-      const bDone = b
-        .unsafe(CUTOVER_SQL)
-        .then(() => {
-          bCompleted = true;
-        });
+      const bDone = b.unsafe(CUTOVER_SQL).then(() => {
+        bCompleted = true;
+      });
 
       // Within a short window B must NOT complete (it's blocked on the advisory lock).
       await new Promise((r) => setTimeout(r, 400));

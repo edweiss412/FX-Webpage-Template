@@ -163,7 +163,7 @@ describe("Drive watch lifecycle", () => {
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 
     const result = await subscribeToWatchedFolder("folder-1", {
-      withTx: async <R,>(fn: (tx: FakeWatchTx) => Promise<R>) => {
+      withTx: async <R>(fn: (tx: FakeWatchTx) => Promise<R>) => {
         events.push("tx:start");
         const value = await fn(tx);
         events.push("tx:commit");
@@ -183,13 +183,7 @@ describe("Drive watch lifecycle", () => {
 
     expect(result).toEqual({ outcome: "orphaned", channelId: "new-channel" });
     expect(tx.rows).toEqual([expect.objectContaining({ id: "new-channel", status: "orphaned" })]);
-    expect(events).toEqual([
-      "tx:start",
-      "tx:commit",
-      "drive:watch",
-      "tx:start",
-      "tx:commit",
-    ]);
+    expect(events).toEqual(["tx:start", "tx:commit", "drive:watch", "tx:start", "tx:commit"]);
     expect(tx.alerts).toEqual([
       {
         code: "WATCH_CHANNEL_ORPHANED",
@@ -292,7 +286,7 @@ describe("Drive watch lifecycle", () => {
     });
 
     const result = await refreshWatchSubscriptions({
-      withTx: async <R,>(fn: (tx: FakeWatchTx) => Promise<R>) => {
+      withTx: async <R>(fn: (tx: FakeWatchTx) => Promise<R>) => {
         events.push("tx:start");
         const value = await fn(tx);
         events.push("tx:commit");
@@ -323,7 +317,7 @@ describe("Drive watch lifecycle", () => {
 
     await expect(
       refreshWatchSubscriptions({
-        withTx: async <R,>(fn: (tx: FakeWatchTx) => Promise<R>) => {
+        withTx: async <R>(fn: (tx: FakeWatchTx) => Promise<R>) => {
           events.push("tx:start");
           const value = await fn(tx);
           events.push("tx:commit");
@@ -405,7 +399,7 @@ describe("Drive watch lifecycle", () => {
     });
 
     const result = await gcWatchChannels({
-      withTx: async <R,>(fn: (tx: FakeWatchTx) => Promise<R>) => {
+      withTx: async <R>(fn: (tx: FakeWatchTx) => Promise<R>) => {
         events.push("tx:start");
         const value = await fn(tx);
         events.push("tx:commit");

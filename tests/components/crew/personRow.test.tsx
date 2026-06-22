@@ -25,9 +25,7 @@ afterEach(cleanup);
 
 /** Collect every rendered tel:/mailto: anchor href under a container. */
 function actionHrefs(root: ParentNode): string[] {
-  return Array.from(root.querySelectorAll("a[href]")).map(
-    (a) => a.getAttribute("href") ?? "",
-  );
+  return Array.from(root.querySelectorAll("a[href]")).map((a) => a.getAttribute("href") ?? "");
 }
 const telHrefs = (root: ParentNode) => actionHrefs(root).filter((h) => h.startsWith("tel:"));
 const mailHrefs = (root: ParentNode) => actionHrefs(root).filter((h) => h.startsWith("mailto:"));
@@ -176,8 +174,8 @@ describe("<PersonRow> — icon-only 44px contact buttons (mock .cbtn)", () => {
     // mask a regression — and so the aria-label (which legitimately contains
     // "Call"/"Email") is not what we're scanning. We read textContent, which
     // excludes attribute values.
-    expect((call?.textContent ?? "")).not.toContain("Call");
-    expect((email?.textContent ?? "")).not.toContain("Email");
+    expect(call?.textContent ?? "").not.toContain("Call");
+    expect(email?.textContent ?? "").not.toContain("Email");
 
     // Each control is a square 44px tap target per the mock `.cbtn` spec:
     // the centered glyph fills the square, so the anchor carries both the
@@ -194,12 +192,12 @@ describe("<PersonRow> — icon-only 44px contact buttons (mock .cbtn)", () => {
     const person = { name: "X", phone: "TBD", email: "N/A" };
     const { container } = render(<PersonRow person={person} />);
     const anchors = Array.from(container.querySelectorAll("a[href]"));
-    expect(
-      anchors.some((a) => (a.getAttribute("aria-label") ?? "").startsWith("Call")),
-    ).toBe(false);
-    expect(
-      anchors.some((a) => (a.getAttribute("aria-label") ?? "").startsWith("Email")),
-    ).toBe(false);
+    expect(anchors.some((a) => (a.getAttribute("aria-label") ?? "").startsWith("Call"))).toBe(
+      false,
+    );
+    expect(anchors.some((a) => (a.getAttribute("aria-label") ?? "").startsWith("Email"))).toBe(
+      false,
+    );
     expect(anchors).toHaveLength(0);
   });
 });

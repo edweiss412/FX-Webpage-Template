@@ -33,13 +33,15 @@ const SCHEMED_URL_RE = /https?:\/\/\S+/gi;
 const SCHEMELESS_GOOGLE_RE = /(?:drive|docs)\.google\.com\/\S+/gi;
 
 export function stripAgendaUrls(value: string): string {
-  return value
-    .replace(SCHEMED_URL_RE, "")
-    .replace(SCHEMELESS_GOOGLE_RE, "")
-    // Orphan connectors the URL strip leaves behind (mirrors openingReelText).
-    .replace(/\s*-\s*$/, "")
-    .replace(/^\s*-\s*/, "")
-    // Collapse whitespace runs + trim.
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    value
+      .replace(SCHEMED_URL_RE, "")
+      .replace(SCHEMELESS_GOOGLE_RE, "")
+      // Orphan connectors the URL strip leaves behind (mirrors openingReelText).
+      .replace(/\s*-\s*$/, "")
+      .replace(/^\s*-\s*/, "")
+      // Collapse whitespace runs + trim.
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }

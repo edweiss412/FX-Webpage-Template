@@ -9,10 +9,7 @@ import {
 import { canonicalize } from "@/lib/email/canonicalize";
 
 export type CleanupAbandonedFinalizeRouteTx = {
-  query<T>(
-    sql: string,
-    params?: readonly unknown[],
-  ): Promise<{ rows: T[]; rowCount: number }>;
+  query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }>;
 };
 
 export type CleanupAbandonedFinalizeRouteDeps = {
@@ -59,7 +56,9 @@ async function defaultWithTx<R>(
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     return (await sql.begin(async (rawTx) =>
-      fn(postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> })),
+      fn(
+        postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> }),
+      ),
     )) as R;
   } finally {
     await sql.end({ timeout: 5 });
@@ -80,7 +79,11 @@ function depsWithDefaults(deps: CleanupAbandonedFinalizeRouteDeps) {
   };
 }
 
-function errorResponse(status: number, code: string, extra: Record<string, unknown> = {}): Response {
+function errorResponse(
+  status: number,
+  code: string,
+  extra: Record<string, unknown> = {},
+): Response {
   return NextResponse.json({ ok: false, code, ...extra }, { status });
 }
 
@@ -178,7 +181,8 @@ export async function handleCleanupAbandonedFinalize(
   try {
     admin = await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
       return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
     }

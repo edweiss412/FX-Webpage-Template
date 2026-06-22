@@ -243,7 +243,10 @@ async function readWatchedFolderId(tx: LivePendingIngestionRouteTx): Promise<str
   return row?.watched_folder_id ?? null;
 }
 
-async function readShowSlug(tx: LivePendingIngestionRouteTx, driveFileId: string): Promise<string | null> {
+async function readShowSlug(
+  tx: LivePendingIngestionRouteTx,
+  driveFileId: string,
+): Promise<string | null> {
   const row = await tx.queryOne<{ slug: string } | null>(
     `select slug from public.shows where drive_file_id = $1 limit 1`,
     [driveFileId],
@@ -316,7 +319,8 @@ export async function handleLivePendingIngestionRetry(
   try {
     await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, code);
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
@@ -387,7 +391,4 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   return await handleLivePendingIngestionRetry(request, context);
 }
 
-export {
-  depsWithDefaults as livePendingIngestionDepsWithDefaults,
-  readLockedPendingIngestion,
-};
+export { depsWithDefaults as livePendingIngestionDepsWithDefaults, readLockedPendingIngestion };

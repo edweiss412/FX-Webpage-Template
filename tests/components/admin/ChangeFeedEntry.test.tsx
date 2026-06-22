@@ -20,7 +20,13 @@ const noop = vi.fn();
 it("auto_applied crew row offers Undo, no Approve/Reject", () => {
   render(
     <ChangeFeedEntry
-      entry={{ ...base, status: "applied", action: "undo", summary: "Removed Alice", changeLogId: "cl-1" }}
+      entry={{
+        ...base,
+        status: "applied",
+        action: "undo",
+        summary: "Removed Alice",
+        changeLogId: "cl-1",
+      }}
       now={now}
       undoAction={noop}
       approveAction={noop}
@@ -114,7 +120,13 @@ it("pending MI-11 row renders old→new from entry.summary and mounts Approve/Re
 it("undo row wires the Undo button to entry.changeLogId", () => {
   render(
     <ChangeFeedEntry
-      entry={{ ...base, status: "applied", action: "undo", summary: "Removed Alice", changeLogId: "cl-9" }}
+      entry={{
+        ...base,
+        status: "applied",
+        action: "undo",
+        summary: "Removed Alice",
+        changeLogId: "cl-9",
+      }}
       now={now}
       undoAction={noop}
       approveAction={noop}

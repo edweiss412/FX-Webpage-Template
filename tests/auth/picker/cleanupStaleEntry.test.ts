@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { COOKIE_NAME, decodePickerCookie, encodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
+import {
+  COOKIE_NAME,
+  decodePickerCookie,
+  encodePickerCookie,
+} from "@/lib/auth/picker/cookieEnvelope";
 import { cleanupStaleEntry, cleanupStaleEntryCore } from "@/lib/auth/picker/cleanupStaleEntry";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { revalidatePath } from "next/cache";
@@ -20,7 +24,11 @@ const TOKEN = "a".repeat(64);
 const cookieSet = vi.fn();
 let existingCookie: string | undefined;
 
-function fd(input: Partial<Record<"slug" | "shareToken" | "showId" | "expectedEpoch" | "expectedCrewMemberId", string>> = {}) {
+function fd(
+  input: Partial<
+    Record<"slug" | "shareToken" | "showId" | "expectedEpoch" | "expectedCrewMemberId", string>
+  > = {},
+) {
   const form = new FormData();
   for (const [key, value] of Object.entries(input)) {
     if (value !== undefined) form.set(key, value);
@@ -35,7 +43,8 @@ beforeEach(() => {
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(upsertAdminAlert).mockReset();
   vi.mocked(cookies).mockResolvedValue({
-    get: (name: string) => (name === COOKIE_NAME && existingCookie ? { name, value: existingCookie } : undefined),
+    get: (name: string) =>
+      name === COOKIE_NAME && existingCookie ? { name, value: existingCookie } : undefined,
     set: cookieSet,
   } as never);
 });
@@ -79,7 +88,10 @@ describe("cleanupStaleEntry", () => {
   });
 
   test("noop preserves newer state when epoch or crew member differs", async () => {
-    existingCookie = encodePickerCookie({ v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 2, t: 100 } } }, KEY);
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 2, t: 100 } } },
+      KEY,
+    );
 
     await expect(
       cleanupStaleEntryCore({
@@ -96,7 +108,10 @@ describe("cleanupStaleEntry", () => {
   });
 
   test("clears the cookie when the matching stale entry is the only entry", async () => {
-    existingCookie = encodePickerCookie({ v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } }, KEY);
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
 
     await expect(
       cleanupStaleEntryCore({
@@ -116,7 +131,9 @@ describe("cleanupStaleEntry", () => {
   });
 
   test("validates FormData and parsed expected epoch", async () => {
-    await expect(cleanupStaleEntry(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID, expectedEpoch: "x" }))).resolves.toEqual({
+    await expect(
+      cleanupStaleEntry(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID, expectedEpoch: "x" })),
+    ).resolves.toEqual({
       ok: false,
       code: "PICKER_INVALID_INPUT",
     });

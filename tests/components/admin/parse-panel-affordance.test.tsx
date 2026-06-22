@@ -20,10 +20,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { messageFor } from "@/lib/messages/lookup";
 import { testidForErrorCode } from "@/app/help/_affordanceMatrix";
-import {
-  StagedReviewCard,
-  type StagedRow,
-} from "@/components/admin/StagedReviewCard";
+import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({

@@ -29,9 +29,7 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 
 const archiveShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
 const publishShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
-const unarchiveShow = vi.fn(
-  async (_id: string, _drive: string) => ({ ok: true }) as const,
-);
+const unarchiveShow = vi.fn(async (_id: string, _drive: string) => ({ ok: true }) as const);
 vi.mock("@/lib/showLifecycle/archiveShow", () => ({
   archiveShow: (...a: unknown[]) => archiveShow(...(a as [string])),
 }));

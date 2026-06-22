@@ -26,11 +26,7 @@ const LAST_SYNC_STATUS_VALUES = new Set([
   "pending_review",
 ]);
 
-function add(
-  out: Map<string, Set<string>>,
-  code: string,
-  source: string,
-): void {
+function add(out: Map<string, Set<string>>, code: string, source: string): void {
   if (!code) return;
   const sources = out.get(code) ?? new Set<string>();
   sources.add(source);
@@ -79,11 +75,21 @@ export function extractInternalCodeEnums(): InternalCodeEnums {
     }
   }
 
-  for (const { source } of readFiles(["lib/parser", "lib/sync", "lib/onboarding", "app/api/admin"])) {
+  for (const { source } of readFiles([
+    "lib/parser",
+    "lib/sync",
+    "lib/onboarding",
+    "app/api/admin",
+  ])) {
     if (
       /\blast_error_code\b|hardErrors|pending_ingestions|still_failed|staged_parse/i.test(source)
     ) {
-      addCodeLiteralsFromSource(out, source, "pending_ingestions.last_error_code", CODE_PROPERTY_RE);
+      addCodeLiteralsFromSource(
+        out,
+        source,
+        "pending_ingestions.last_error_code",
+        CODE_PROPERTY_RE,
+      );
       addCodeLiteralsFromSource(
         out,
         source,

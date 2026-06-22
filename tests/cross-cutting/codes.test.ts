@@ -29,10 +29,7 @@ const RETIRED_LITERAL_ALLOWLIST: Record<string, ReadonlySet<string>> = {
 function codeProducerLiterals(): Set<string> {
   const codes = new Set<string>();
   for (const file of walkSourceFiles(ACTIVE_PRODUCER_ROOTS)) {
-    if (
-      file === "lib/messages/catalog.ts" ||
-      file.startsWith("lib/messages/__generated__/")
-    ) {
+    if (file === "lib/messages/catalog.ts" || file.startsWith("lib/messages/__generated__/")) {
       continue;
     }
     const source = readFileSync(file, "utf8");
@@ -175,10 +172,7 @@ describe("AC-X.1 §12.4 catalog parity", () => {
       expect(Object.keys(CODE_SCENARIOS), `retired code ${code} still in scenarios`).not.toContain(
         code,
       );
-      expect(
-        producerLocations(code),
-        `retired code ${code} still has a producer`,
-      ).toEqual([]);
+      expect(producerLocations(code), `retired code ${code} still has a producer`).toEqual([]);
       expect(
         retiredLiteralLocations(code),
         `retired code ${code} still has a non-allowlisted string literal`,
@@ -203,7 +197,9 @@ describe("AC-X.1 §12.4 catalog parity", () => {
     expect(workflow).toContain("pnpm gen:spec-codes");
     expect(workflow).toContain("uses: actions/upload-artifact@v4");
     expect(workflow).toContain("if: always()");
-    expect(workflow).toContain("name: x1-catalog-parity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}");
+    expect(workflow).toContain(
+      "name: x1-catalog-parity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}",
+    );
     expect(workflow).toContain("x1-catalog-parity-generated.diff");
     expect(workflow).toContain("x1-catalog-parity.log");
   });

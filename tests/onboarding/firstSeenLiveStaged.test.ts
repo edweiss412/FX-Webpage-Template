@@ -32,8 +32,16 @@ function deps(
     withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx as unknown as LiveStagedRouteTx)),
     readDriveFileIdForStagedId: vi.fn(async () => tx.driveFileId),
     readShowSlug: vi.fn(async () => tx.slug),
-    applyStaged: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", syncAuditId: null, derivedSideEffects: { revokeFloorForNames: [] } })),
-    discardStaged: vi.fn(async () => ({ outcome: "discarded" as const, variant: "defer_until_modified" as const })),
+    applyStaged: vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+      syncAuditId: null,
+      derivedSideEffects: { revokeFloorForNames: [] },
+    })),
+    discardStaged: vi.fn(async () => ({
+      outcome: "discarded" as const,
+      variant: "defer_until_modified" as const,
+    })),
     ...overrides,
   };
 }
@@ -57,11 +65,7 @@ describe("live first-seen staged apply/discard", () => {
     const tx = new FakeLiveStagedTx();
     const routeDeps = deps(tx);
 
-    const response = await handleLiveStagedApply(
-      req({ reviewer_choices: [] }),
-      context,
-      routeDeps,
-    );
+    const response = await handleLiveStagedApply(req({ reviewer_choices: [] }), context, routeDeps);
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ slug: "first-seen-show" });

@@ -24,8 +24,10 @@ import { parseContacts } from "@/lib/parser/blocks/contacts";
 import { parseSheet } from "@/lib/parser";
 import { describe, it, expect } from "vitest";
 
-const emptyOf = (agg: { warnings: { code: string; blockRef?: { kind: string } }[] }, kind: string) =>
-  agg.warnings.filter((w) => w.code === SECTION_HEADER_NO_FIELDS && w.blockRef?.kind === kind);
+const emptyOf = (
+  agg: { warnings: { code: string; blockRef?: { kind: string } }[] },
+  kind: string,
+) => agg.warnings.filter((w) => w.code === SECTION_HEADER_NO_FIELDS && w.blockRef?.kind === kind);
 
 describe("D1 — emitEmptySection helper", () => {
   it("pushes exactly one warn-severity SECTION_HEADER_NO_FIELDS warning with the section's blockRef", () => {
@@ -52,9 +54,9 @@ describe("D1 — emitEmptySection helper", () => {
     // If a future refactor swaps it back to the constant, this + no-raw-codes fail.
     expect(SECTION_HEADER_NO_FIELDS).toBe("SECTION_HEADER_NO_FIELDS");
     expect(INTERNAL_CODE_ENUMS).toHaveProperty(SECTION_HEADER_NO_FIELDS);
-    expect((INTERNAL_CODE_ENUMS as Record<string, { source: string }>)[SECTION_HEADER_NO_FIELDS]?.source).toBe(
-      "parse_warnings.code",
-    );
+    expect(
+      (INTERNAL_CODE_ENUMS as Record<string, { source: string }>)[SECTION_HEADER_NO_FIELDS]?.source,
+    ).toBe("parse_warnings.code");
   });
 });
 
@@ -83,7 +85,12 @@ describe("D1 — event_details hook", () => {
 describe("D1 — transportation hook", () => {
   it("warns when a recognized transport header parses an all-empty row", () => {
     const agg = newAggregator();
-    parseTransportation("| TRANSPORTATION | NAME | PHONE |\n| :---: | :---: | :---: |", "v2", [], agg);
+    parseTransportation(
+      "| TRANSPORTATION | NAME | PHONE |\n| :---: | :---: | :---: |",
+      "v2",
+      [],
+      agg,
+    );
     expect(emptyOf(agg, "transportation")).toHaveLength(1);
   });
   it("does NOT warn when transportation has a real driver (anti-tautology)", () => {
@@ -113,7 +120,11 @@ describe("D1 — hotels hook", () => {
   });
   it("does NOT warn when hotels parse, nor when no hotel header is present", () => {
     const ok = newAggregator();
-    parseHotels("| Hotel Reservations | The Drake Check In: 5/11 Check Out: 5/15 Eric Carroll |", "v2", ok);
+    parseHotels(
+      "| Hotel Reservations | The Drake Check In: 5/11 Check Out: 5/15 Eric Carroll |",
+      "v2",
+      ok,
+    );
     expect(emptyOf(ok, "hotels")).toHaveLength(0);
     const none = newAggregator();
     parseHotels("| SOMETHING | x |", "v2", none);

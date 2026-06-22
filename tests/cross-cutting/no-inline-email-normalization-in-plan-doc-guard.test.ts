@@ -134,8 +134,7 @@ const FORBIDDEN_PATTERNS: PatternSpec[] = [
     // Bare `lower(<email-value-or-placeholder>)` — same invariant-3
     // violation shape without the trim wrapper.
     rx: /\blower\s*\(\s*(?:'[^']*@[^']*'|<[\w-]*email[\w-]*>)/i,
-    explain:
-      "actionable `lower(<email>)` SQL fragment bypasses `lib/email/canonicalize.ts`.",
+    explain: "actionable `lower(<email>)` SQL fragment bypasses `lib/email/canonicalize.ts`.",
     scope: "respects-exclusions",
   },
   {
@@ -160,7 +159,7 @@ const FORBIDDEN_PATTERNS: PatternSpec[] = [
     // strip-plus mapping that R50 F46 flagged.
     rx: /\b([\w][\w.-]*)\+[\w.-]+@([\w][\w.-]*\.[\w][\w.-]*)\b[\s\S]{0,120}?\bcanonicaliz\w+\s+to\s+`?\1@\2`?/i,
     explain:
-      "actionable FALSE-SEMANTICS claim that a plus-alias email canonicalizes to the non-plus form. The live `lib/email/canonicalize.ts:2-6` helper performs `raw.trim().toLowerCase()` ONLY — it does NOT strip plus aliases. Correct the prose to reflect actual semantics or qualify the claim with a HISTORICAL_QUALIFIER (\"pre-R51\", \"was FALSE\", etc.) / NEGATION_QUALIFIER (\"does NOT canonicalize to\", etc.).",
+      'actionable FALSE-SEMANTICS claim that a plus-alias email canonicalizes to the non-plus form. The live `lib/email/canonicalize.ts:2-6` helper performs `raw.trim().toLowerCase()` ONLY — it does NOT strip plus aliases. Correct the prose to reflect actual semantics or qualify the claim with a HISTORICAL_QUALIFIER ("pre-R51", "was FALSE", etc.) / NEGATION_QUALIFIER ("does NOT canonicalize to", etc.).',
     scope: "all-files",
   },
   {
@@ -283,8 +282,7 @@ function scanFile(rel: string, scopeFilter?: PatternSpec["scope"]): Finding[] {
         beforeMatch.lastIndexOf("```sql\r\n"),
       );
       const lastSqlFenceClose = beforeMatch.lastIndexOf("\n```");
-      const insideSqlBlock =
-        lastSqlFenceOpen !== -1 && lastSqlFenceOpen > lastSqlFenceClose;
+      const insideSqlBlock = lastSqlFenceOpen !== -1 && lastSqlFenceOpen > lastSqlFenceClose;
 
       if (!insideSqlBlock) {
         // Narrow window (200 chars before + 200 after) for retrospective
@@ -339,10 +337,7 @@ describe("R49 commit 89 F44 — no inline email normalization in plan/spec markd
     expect(
       findings,
       `inline-email-normalization patterns found in plan markdown (AGENTS.md invariant 3 violation):\n${findings
-        .map(
-          (f) =>
-            `  ${f.file}:${f.line} [${f.matchedClass}]\n    ${f.snippet}`,
-        )
+        .map((f) => `  ${f.file}:${f.line} [${f.matchedClass}]\n    ${f.snippet}`)
         .join("\n")}`,
     ).toEqual([]);
   });
@@ -355,10 +350,7 @@ describe("R49 commit 89 F44 — no inline email normalization in plan/spec markd
     expect(
       findings,
       `inline-email-normalization patterns found in spec markdown:\n${findings
-        .map(
-          (f) =>
-            `  ${f.file}:${f.line} [${f.matchedClass}]\n    ${f.snippet}`,
-        )
+        .map((f) => `  ${f.file}:${f.line} [${f.matchedClass}]\n    ${f.snippet}`)
         .join("\n")}`,
     ).toEqual([]);
   });
@@ -457,10 +449,7 @@ describe("R51 commit 92 F46 — no false-semantics claims about canonicalize.ts 
     expect(
       findings,
       `false-semantics claims about canonicalize.ts found in plan markdown (live helper at lib/email/canonicalize.ts:2-6 does trim+toLowerCase ONLY):\n${findings
-        .map(
-          (f) =>
-            `  ${f.file}:${f.line} [${f.matchedClass}]\n    ${f.snippet}`,
-        )
+        .map((f) => `  ${f.file}:${f.line} [${f.matchedClass}]\n    ${f.snippet}`)
         .join("\n")}`,
     ).toEqual([]);
   });
@@ -471,10 +460,7 @@ describe("R51 commit 92 F46 — no false-semantics claims about canonicalize.ts 
     expect(
       findings,
       `false-semantics claims about canonicalize.ts found in spec markdown:\n${findings
-        .map(
-          (f) =>
-            `  ${f.file}:${f.line} [${f.matchedClass}]\n    ${f.snippet}`,
-        )
+        .map((f) => `  ${f.file}:${f.line} [${f.matchedClass}]\n    ${f.snippet}`)
         .join("\n")}`,
     ).toEqual([]);
   });
@@ -493,9 +479,7 @@ describe("R51 commit 92 F46 — no false-semantics claims about canonicalize.ts 
 
   test("synthetic broken fixture: strip-plus claim about canonicalize.ts FIRES (forward order)", () => {
     const fixture = `The canonicalize.ts helper performs strip-plus on alias segments before write.`;
-    const stripPlusRx = FORBIDDEN_PATTERNS.find(
-      (p) => p.class === "prose:strip-plus-claim",
-    )!.rx;
+    const stripPlusRx = FORBIDDEN_PATTERNS.find((p) => p.class === "prose:strip-plus-claim")!.rx;
     expect(stripPlusRx.test(fixture)).toBe(true);
   });
 
@@ -509,9 +493,7 @@ describe("R51 commit 92 F46 — no false-semantics claims about canonicalize.ts 
 
   test("synthetic broken fixture: 'removes plus aliases' claim FIRES", () => {
     const fixture = `canonicalize() removes plus aliases and lowercases the host.`;
-    const stripPlusRx = FORBIDDEN_PATTERNS.find(
-      (p) => p.class === "prose:strip-plus-claim",
-    )!.rx;
+    const stripPlusRx = FORBIDDEN_PATTERNS.find((p) => p.class === "prose:strip-plus-claim")!.rx;
     expect(stripPlusRx.test(fixture)).toBe(true);
   });
 
@@ -569,9 +551,7 @@ describe("R51 commit 92 F46 — no false-semantics claims about canonicalize.ts 
     // An unrelated mention of "strip-plus" without a canonicalize anchor
     // within 160 chars should NOT trip either prose:strip-plus-* pattern.
     const fixture = `The SMTP relay handles plus-alias forwarding by routing strip-plus rewrites at the MX layer.`;
-    const stripPlusRx = FORBIDDEN_PATTERNS.find(
-      (p) => p.class === "prose:strip-plus-claim",
-    )!.rx;
+    const stripPlusRx = FORBIDDEN_PATTERNS.find((p) => p.class === "prose:strip-plus-claim")!.rx;
     const reverseRx = FORBIDDEN_PATTERNS.find(
       (p) => p.class === "prose:strip-plus-claim-reverse",
     )!.rx;

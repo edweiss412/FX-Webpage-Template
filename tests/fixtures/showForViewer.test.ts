@@ -17,7 +17,9 @@ describe("makeShowForViewer", () => {
     expect(d.financials).toBeUndefined(); // financials OMITTED by default (exactOptionalPropertyTypes)
   });
   test("a financials override is applied (Budget test path)", () => {
-    const d = makeShowForViewer({ financials: { po: "PO-1", proposal: "P", invoice: "I", invoice_notes: "N" } });
+    const d = makeShowForViewer({
+      financials: { po: "PO-1", proposal: "P", invoice: "I", invoice_notes: "N" },
+    });
     expect(d.financials?.po).toBe("PO-1");
   });
 });

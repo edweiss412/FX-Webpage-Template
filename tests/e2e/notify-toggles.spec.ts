@@ -41,7 +41,14 @@ const TOGGLE_IDS = [
 async function rect(page: Page, testid: string) {
   return page.getByTestId(testid).evaluate((el) => {
     const r = el.getBoundingClientRect();
-    return { top: r.top, left: r.left, right: r.right, width: r.width, height: r.height, bottom: r.bottom };
+    return {
+      top: r.top,
+      left: r.left,
+      right: r.right,
+      width: r.width,
+      height: r.height,
+      bottom: r.bottom,
+    };
   });
 }
 
@@ -79,9 +86,10 @@ test.describe("notify toggles — layout + dispatch (real browser, §7.4/.5)", (
         ).toBeLessThanOrEqual(TOL);
         // shrink-0: the switch keeps its natural width (never squeezed by a
         // long text column on a narrow row).
-        expect(t.width, `toggle switch keeps natural width (shrink-0) @ ${width}px`).toBeGreaterThan(
-          40,
-        );
+        expect(
+          t.width,
+          `toggle switch keeps natural width (shrink-0) @ ${width}px`,
+        ).toBeGreaterThan(40);
       }
 
       if (!isMobile) {
@@ -147,13 +155,17 @@ test.describe("notify toggles — layout + dispatch (real browser, §7.4/.5)", (
     await toggle.click();
     // Wait for the action round-trip + router.refresh() to settle the new state.
     await expect
-      .poll(async () => page.getByTestId("alert-on-sync-problems-toggle").getAttribute("aria-checked"), {
-        timeout: 10_000,
-      })
+      .poll(
+        async () => page.getByTestId("alert-on-sync-problems-toggle").getAttribute("aria-checked"),
+        {
+          timeout: 10_000,
+        },
+      )
       .toBe(before === "true" ? "false" : "true");
 
-    expect(posts, "exactly one Server-Action POST fired (not zero — B1 self-disable regression)").toBe(
-      1,
-    );
+    expect(
+      posts,
+      "exactly one Server-Action POST fired (not zero — B1 self-disable regression)",
+    ).toBe(1);
   });
 });

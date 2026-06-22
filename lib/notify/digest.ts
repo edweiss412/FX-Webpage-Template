@@ -78,7 +78,9 @@ function asIso(value: string | Date | null): string | null {
   return value instanceof Date ? value.toISOString() : value;
 }
 
-function groupTitleFor(item: ReturnType<typeof buildNeedsAttention>["items"][number]): string | null {
+function groupTitleFor(
+  item: ReturnType<typeof buildNeedsAttention>["items"][number],
+): string | null {
   if (item.variant === "pending_ingestion") return item.driveFileName;
   if (item.variant === "first_seen") return item.candidateTitle;
   return item.title;
@@ -94,7 +96,9 @@ function slugFor(item: ReturnType<typeof buildNeedsAttention>["items"][number]):
   return item.variant === "existing_staged" ? item.slug : null;
 }
 
-function groupNeedsAttention(items: ReturnType<typeof buildNeedsAttention>["items"]): DigestShowInput[] {
+function groupNeedsAttention(
+  items: ReturnType<typeof buildNeedsAttention>["items"],
+): DigestShowInput[] {
   const groups = new Map<string, DigestShowInput>();
   for (const item of items) {
     const title = groupTitleFor(item);
@@ -210,7 +214,11 @@ export async function buildDigestModel(
     });
 
     const groups = groupNeedsAttention(mirrored.items);
-    const sourceTotals = { ingestions: ingestions.length, syncs: syncs.length, shows: groups.length };
+    const sourceTotals = {
+      ingestions: ingestions.length,
+      syncs: syncs.length,
+      shows: groups.length,
+    };
     if (mirrored.items.length === 0) return { kind: "no_send", sourceTotals };
     return {
       kind: "ok",

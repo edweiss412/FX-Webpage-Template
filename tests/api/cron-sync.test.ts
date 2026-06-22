@@ -8,7 +8,9 @@ const cronMock = vi.hoisted(() => ({
   refreshWatchSubscriptions: vi.fn(async () => ({ refreshed: ["folder-1"] })),
   gcWatchChannels: vi.fn(async () => ({ stopped: ["channel-1"] })),
   runAssetRecoveryCron: vi.fn(async () => ({
-    processed: [{ showId: "show-1", result: { outcome: "recovered", snapshotRevisionId: "rev-1" } }],
+    processed: [
+      { showId: "show-1", result: { outcome: "recovered", snapshotRevisionId: "rev-1" } },
+    ],
   })),
   runDiagramGc: vi.fn(async () => ({
     orphanBlobsDeleted: 1,

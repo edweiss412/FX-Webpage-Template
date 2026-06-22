@@ -139,12 +139,14 @@ describe("<DayCard> — horizontal date badge", () => {
   });
 
   test('today={true} → node carries data-today="true" + the Today pill', () => {
-    const { getByTestId, getByText } = render(<DayCard day="2026-06-14" phase="Show" today={true} />);
+    const { getByTestId, getByText } = render(
+      <DayCard day="2026-06-14" phase="Show" today={true} />,
+    );
     expect(getByTestId("day-card").getAttribute("data-today")).toBe("true");
     expect(getByText("Today")).toBeTruthy();
   });
 
-  test('today={false} → no data-today attr, no Today pill', () => {
+  test("today={false} → no data-today attr, no Today pill", () => {
     const { getByTestId, queryByText } = render(<DayCard {...base} today={false} />);
     expect(getByTestId("day-card").getAttribute("data-today")).not.toBe("true");
     expect(queryByText("Today")).toBeNull();

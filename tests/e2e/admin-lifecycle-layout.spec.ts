@@ -170,18 +170,15 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       const archivedRow = page.getByTestId(`archived-show-row-${archived.slug}`);
       await expect(archivedRow).toBeVisible();
 
-      const widths = await showsCol.evaluate(
-        (col, rowSel) => {
-          const cs = getComputedStyle(col);
-          const padL = Number.parseFloat(cs.paddingLeft) || 0;
-          const padR = Number.parseFloat(cs.paddingRight) || 0;
-          const colContentW = col.getBoundingClientRect().width - padL - padR;
-          const row = document.querySelector(rowSel) as HTMLElement | null;
-          const rowW = row ? row.getBoundingClientRect().width : -1;
-          return { colContentW, rowW };
-        },
-        `[data-testid="archived-show-row-${archived.slug}"]`,
-      );
+      const widths = await showsCol.evaluate((col, rowSel) => {
+        const cs = getComputedStyle(col);
+        const padL = Number.parseFloat(cs.paddingLeft) || 0;
+        const padR = Number.parseFloat(cs.paddingRight) || 0;
+        const colContentW = col.getBoundingClientRect().width - padL - padR;
+        const row = document.querySelector(rowSel) as HTMLElement | null;
+        const rowW = row ? row.getBoundingClientRect().width : -1;
+        return { colContentW, rowW };
+      }, `[data-testid="archived-show-row-${archived.slug}"]`);
       // The row (list region) fills the column content width — not capped.
       expect(
         Math.abs(widths.rowW - widths.colContentW),
@@ -198,14 +195,12 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
         ["archived pill", pill],
         ["unarchive action", unarchive],
       ] as const) {
-        expect(
-          child.top,
-          `${name} top within row @ ${width}px`,
-        ).toBeGreaterThanOrEqual(row.top - TOL);
-        expect(
-          child.bottom,
-          `${name} bottom within row @ ${width}px`,
-        ).toBeLessThanOrEqual(row.bottom + TOL);
+        expect(child.top, `${name} top within row @ ${width}px`).toBeGreaterThanOrEqual(
+          row.top - TOL,
+        );
+        expect(child.bottom, `${name} bottom within row @ ${width}px`).toBeLessThanOrEqual(
+          row.bottom + TOL,
+        );
       }
     });
 

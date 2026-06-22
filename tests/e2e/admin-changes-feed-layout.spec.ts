@@ -45,15 +45,15 @@ async function resolveShow(): Promise<{ id: string; slug: string; driveFileId: s
       `admin-changes-feed-layout: seeded show not found (run \`pnpm db:seed\`). error=${res.error?.message ?? "no row"}`,
     );
   }
-  return { id: res.data.id as string, slug: res.data.slug as string, driveFileId: res.data.drive_file_id as string };
+  return {
+    id: res.data.id as string,
+    slug: res.data.slug as string,
+    driveFileId: res.data.drive_file_id as string,
+  };
 }
 
 async function cleanup(showId: string): Promise<void> {
-  await admin
-    .from("show_change_log")
-    .delete()
-    .eq("show_id", showId)
-    .eq("entity_ref", UNDO_ENTITY);
+  await admin.from("show_change_log").delete().eq("show_id", showId).eq("entity_ref", UNDO_ENTITY);
   await admin.from("sync_holds").delete().eq("show_id", showId).eq("entity_key", HOLD_ENTITY);
 }
 
@@ -81,7 +81,11 @@ async function seedFeed(show: { id: string; driveFileId: string }): Promise<void
     domain: "crew_email",
     entity_key: HOLD_ENTITY,
     held_value: { name: HOLD_ENTITY, email: "phase6-old@example.com" },
-    proposed_value: { disposition: "email_change", name: HOLD_ENTITY, email: "phase6-new@example.com" },
+    proposed_value: {
+      disposition: "email_change",
+      name: HOLD_ENTITY,
+      email: "phase6-new@example.com",
+    },
     base_modified_time: "2026-06-09T10:00:00.000Z",
     kind: "mi11_pending",
     created_by: "system",

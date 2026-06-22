@@ -140,13 +140,7 @@ vi.mock("@/components/crew/CrewSubNav", () => ({
 }));
 
 vi.mock("@/components/crew/CrewSectionTransition", () => ({
-  CrewSectionTransition: ({
-    sectionId,
-    children,
-  }: {
-    sectionId: string;
-    children: ReactNode;
-  }) => (
+  CrewSectionTransition: ({ sectionId, children }: { sectionId: string; children: ReactNode }) => (
     <div data-testid="crew-section-transition" data-section-id={sectionId}>
       {children}
     </div>
@@ -165,7 +159,11 @@ vi.mock("@/components/crew/RightNowHero", () => ({
 // the real sections dereference (e.g. `agenda_links`). Section CONTENT is pinned
 // elsewhere (section unit tests + crewShellSections.test.tsx), so each section is
 // mocked to a marker — mirroring the crewShell.test.tsx island-mock strategy.
-const previewSectionMarker = (testid: string) => () => <section data-testid={testid} />;
+const previewSectionMarker = (testid: string) => {
+  const MockSection = () => <section data-testid={testid} />;
+  MockSection.displayName = `MockSection(${testid})`;
+  return MockSection;
+};
 vi.mock("@/components/crew/sections/TodaySection", () => ({
   TodaySection: previewSectionMarker("section-today"),
 }));
@@ -189,13 +187,7 @@ vi.mock("@/components/crew/sections/BudgetSection", () => ({
 }));
 
 vi.mock("@/components/realtime/ShowRealtimeBridge", () => ({
-  ShowRealtimeBridge: ({
-    showId,
-    renderVersion,
-  }: {
-    showId: string;
-    renderVersion: string;
-  }) => (
+  ShowRealtimeBridge: ({ showId, renderVersion }: { showId: string; renderVersion: string }) => (
     <div
       data-testid="mock-realtime-bridge"
       data-show-id={showId}
@@ -227,10 +219,7 @@ function makeData(): ShowForViewer {
       dates: { travelIn: null, set: null, showDays: [], travelOut: null },
       event_details: {},
     },
-    crewMembers: [
-      crewRow(HAND_ID, state.previewCrewRoleFlags),
-      crewRow(LEAD_ID, ["LEAD"]),
-    ],
+    crewMembers: [crewRow(HAND_ID, state.previewCrewRoleFlags), crewRow(LEAD_ID, ["LEAD"])],
     hotelReservations: [],
     rooms: [],
     transportation: null,

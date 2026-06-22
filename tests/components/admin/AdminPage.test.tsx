@@ -47,11 +47,8 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 }));
 
 vi.mock("@/app/admin/_finalizeCheckpoint", () => ({
-  readFinalizeCheckpoint: (sessionId: string) =>
-    readFinalizeCheckpointMock(sessionId),
-  isInfraError: (
-    result: unknown,
-  ): result is { kind: "infra_error"; message: string } =>
+  readFinalizeCheckpoint: (sessionId: string) => readFinalizeCheckpointMock(sessionId),
+  isInfraError: (result: unknown): result is { kind: "infra_error"; message: string } =>
     result !== null &&
     typeof result === "object" &&
     "kind" in (result as Record<string, unknown>) &&
@@ -101,10 +98,7 @@ vi.mock("@/components/admin/ReadyToPublish", () => ({
 
 vi.mock("@/components/admin/StaleReadyToPublish", () => ({
   StaleReadyToPublish: (props: { sessionId: string }) => (
-    <div
-      data-testid="admin-stale-ready-to-publish-spy"
-      data-session={props.sessionId}
-    />
+    <div data-testid="admin-stale-ready-to-publish-spy" data-session={props.sessionId} />
   ),
 }));
 
@@ -209,16 +203,12 @@ describe("AdminPage Phase 2 routing", () => {
       rotated: false,
     });
     readFinalizeCheckpointMock.mockResolvedValue(null);
-    const { getByTestId } = render(
-      await AdminPage({ searchParams: Promise.resolve({}) }),
-    );
+    const { getByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
     expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
     expect(getByTestId("onboarding-wizard-spy").dataset.pendingSession).toBe(
       "11111111-1111-1111-1111-111111111111",
     );
-    expect(readFinalizeCheckpointMock).toHaveBeenCalledWith(
-      "11111111-1111-1111-1111-111111111111",
-    );
+    expect(readFinalizeCheckpointMock).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
   });
 
   test("wizard mid-flight + checkpoint status='in_progress' → FinalizeInProgress", async () => {
@@ -235,9 +225,7 @@ describe("AdminPage Phase 2 routing", () => {
     const { getByTestId, queryByTestId } = render(
       await AdminPage({ searchParams: Promise.resolve({}) }),
     );
-    expect(getByTestId("admin-finalize-in-progress-spy").dataset.batches).toBe(
-      "100",
-    );
+    expect(getByTestId("admin-finalize-in-progress-spy").dataset.batches).toBe("100");
     expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
   });
 
@@ -342,12 +330,8 @@ describe("AdminPage Phase 2 routing", () => {
     readFinalizeCheckpointMock.mockResolvedValue(null);
     render(await AdminPage({ searchParams: Promise.resolve({}) }));
     expect(onboardingWizardSpy).toHaveBeenCalledTimes(1);
-    const [props] = onboardingWizardSpy.mock.calls[0]! as [
-      { settings: AppSettingsRow },
-    ];
-    expect(props.settings.pending_wizard_session_id).toBe(
-      "33333333-3333-3333-3333-333333333333",
-    );
+    const [props] = onboardingWizardSpy.mock.calls[0]! as [{ settings: AppSettingsRow }];
+    expect(props.settings.pending_wizard_session_id).toBe("33333333-3333-3333-3333-333333333333");
   });
 
   test("forwards searchParams.step to OnboardingWizard", async () => {
@@ -361,9 +345,7 @@ describe("AdminPage Phase 2 routing", () => {
       }),
     );
     expect(onboardingWizardSpy).toHaveBeenCalledTimes(1);
-    const [props] = onboardingWizardSpy.mock.calls[0]! as [
-      { searchParams: { step?: string } },
-    ];
+    const [props] = onboardingWizardSpy.mock.calls[0]! as [{ searchParams: { step?: string } }];
     expect(props.searchParams.step).toBe("2");
   });
 

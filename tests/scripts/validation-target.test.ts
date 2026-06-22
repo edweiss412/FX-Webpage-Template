@@ -28,17 +28,12 @@ describe("assertProdEquivalentTarget", () => {
   });
 
   it("permits localhost with --allow-local-override", () => {
-    expect(() =>
-      assertProdEquivalentTarget("http://127.0.0.1:54321", true),
-    ).not.toThrow();
+    expect(() => assertProdEquivalentTarget("http://127.0.0.1:54321", true)).not.toThrow();
   });
 
   it("permits prod-equivalent URL", () => {
     expect(() =>
-      assertProdEquivalentTarget(
-        "https://vzakgrxqwcalbmagufjh.supabase.co",
-        false,
-      ),
+      assertProdEquivalentTarget("https://vzakgrxqwcalbmagufjh.supabase.co", false),
     ).not.toThrow();
   });
 
@@ -68,11 +63,7 @@ describe("assertSupabaseTargetMatchesProjectRef (F2 wrong-project guard — Code
 
   it("permits the .supabase.in legacy host", () => {
     expect(() =>
-      assertSupabaseTargetMatchesProjectRef(
-        "https://abcd1234.supabase.in",
-        "abcd1234",
-        false,
-      ),
+      assertSupabaseTargetMatchesProjectRef("https://abcd1234.supabase.in", "abcd1234", false),
     ).not.toThrow();
   });
 
@@ -92,11 +83,7 @@ describe("assertSupabaseTargetMatchesProjectRef (F2 wrong-project guard — Code
 
   it("rejects when URL host prefix does not match project_ref", () => {
     expect(() =>
-      assertSupabaseTargetMatchesProjectRef(
-        "https://projectA.supabase.co",
-        "projectB",
-        false,
-      ),
+      assertSupabaseTargetMatchesProjectRef("https://projectA.supabase.co", "projectB", false),
     ).toThrow(/Project-ref mismatch.*F2 wrong-project guard/);
   });
 
@@ -125,18 +112,10 @@ describe("assertSupabaseTargetMatchesProjectRef (F2 wrong-project guard — Code
     // (per R2 F2 — the flag was overloaded; URL inspection is the
     // load-bearing signal).
     expect(() =>
-      assertSupabaseTargetMatchesProjectRef(
-        "http://127.0.0.1:54321",
-        "local",
-        false,
-      ),
+      assertSupabaseTargetMatchesProjectRef("http://127.0.0.1:54321", "local", false),
     ).not.toThrow();
     expect(() =>
-      assertSupabaseTargetMatchesProjectRef(
-        "http://localhost:54321",
-        "local",
-        false,
-      ),
+      assertSupabaseTargetMatchesProjectRef("http://localhost:54321", "local", false),
     ).not.toThrow();
   });
 
@@ -159,28 +138,18 @@ describe("assertSupabaseTargetMatchesProjectRef (F2 wrong-project guard — Code
 describe("R2 F1 — plaintext-http guard (assertProdEquivalentTarget)", () => {
   it("rejects http:// for hosted Supabase URLs (service-role credential leakage risk)", () => {
     expect(() =>
-      assertProdEquivalentTarget(
-        "http://vzakgrxqwcalbmagufjh.supabase.co",
-        false,
-      ),
+      assertProdEquivalentTarget("http://vzakgrxqwcalbmagufjh.supabase.co", false),
     ).toThrow(/not https:\/\/.*plaintext/);
   });
 
   it("permits https:// for hosted Supabase URLs", () => {
     expect(() =>
-      assertProdEquivalentTarget(
-        "https://vzakgrxqwcalbmagufjh.supabase.co",
-        false,
-      ),
+      assertProdEquivalentTarget("https://vzakgrxqwcalbmagufjh.supabase.co", false),
     ).not.toThrow();
   });
 
   it("permits http:// only for localhost + --allow-local-override (no plaintext rule)", () => {
-    expect(() =>
-      assertProdEquivalentTarget("http://127.0.0.1:54321", true),
-    ).not.toThrow();
-    expect(() =>
-      assertProdEquivalentTarget("http://localhost:54321", true),
-    ).not.toThrow();
+    expect(() => assertProdEquivalentTarget("http://127.0.0.1:54321", true)).not.toThrow();
+    expect(() => assertProdEquivalentTarget("http://localhost:54321", true)).not.toThrow();
   });
 });

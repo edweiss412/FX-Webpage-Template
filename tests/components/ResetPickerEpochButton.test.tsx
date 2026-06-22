@@ -5,22 +5,8 @@
  * Pins the two-tap state machine + success/failure feedback for the
  * Reset picker selections admin button.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/auth/picker/resetPickerEpoch", () => ({
   resetPickerEpoch: vi.fn(),
@@ -41,16 +27,11 @@ beforeEach(() => {
   vi.useFakeTimers();
 });
 
-const idleBtn = () =>
-  screen.getByTestId("admin-reset-picker-epoch-button") as HTMLButtonElement;
+const idleBtn = () => screen.getByTestId("admin-reset-picker-epoch-button") as HTMLButtonElement;
 const confirmBtn = () =>
-  screen.getByTestId(
-    "admin-reset-picker-epoch-confirm-button",
-  ) as HTMLButtonElement;
+  screen.getByTestId("admin-reset-picker-epoch-confirm-button") as HTMLButtonElement;
 const cancelBtn = () =>
-  screen.getByTestId(
-    "admin-reset-picker-epoch-cancel-button",
-  ) as HTMLButtonElement;
+  screen.getByTestId("admin-reset-picker-epoch-cancel-button") as HTMLButtonElement;
 
 describe("ResetPickerEpochButton — two-tap state machine", () => {
   test("idle: shows 'Reset picker selections' label", () => {
@@ -127,9 +108,10 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
   });
 
   test("confirm-click → invokes resetPickerEpoch with the showId; success banner renders", async () => {
-    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: true, new_epoch: 2 },
-    );
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      new_epoch: 2,
+    });
     render(<ResetPickerEpochButton showId={SHOW_ID} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -140,16 +122,17 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     });
     expect(resetPickerEpoch).toHaveBeenCalledWith({ showId: SHOW_ID });
     await waitFor(() => {
-      expect(
-        screen.getByTestId("admin-reset-picker-epoch-ok").textContent,
-      ).toContain("Picker selections reset.");
+      expect(screen.getByTestId("admin-reset-picker-epoch-ok").textContent).toContain(
+        "Picker selections reset.",
+      );
     });
   });
 
   test("confirm-click → failure result renders the refused banner with role=alert", async () => {
-    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: false, code: "PICKER_RESET_FORBIDDEN" },
-    );
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      code: "PICKER_RESET_FORBIDDEN",
+    });
     render(<ResetPickerEpochButton showId={SHOW_ID} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -166,9 +149,10 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
   });
 
   test("refused banner has no 'Last attempt:' prefix (parity with OK banner per attestation)", async () => {
-    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: false, code: "PICKER_RESET_FORBIDDEN" },
-    );
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      code: "PICKER_RESET_FORBIDDEN",
+    });
     render(<ResetPickerEpochButton showId={SHOW_ID} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -177,16 +161,15 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const refused = await waitFor(() =>
-      screen.getByTestId("admin-reset-picker-epoch-refused"),
-    );
+    const refused = await waitFor(() => screen.getByTestId("admin-reset-picker-epoch-refused"));
     expect(refused.textContent).not.toMatch(/last attempt/i);
   });
 
   test("re-entering confirm clears any stale OK/refused banner (no zombie state)", async () => {
-    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: false, code: "PICKER_RESET_FORBIDDEN" },
-    );
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      code: "PICKER_RESET_FORBIDDEN",
+    });
     render(<ResetPickerEpochButton showId={SHOW_ID} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -196,15 +179,11 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(
-        screen.getByTestId("admin-reset-picker-epoch-refused"),
-      ).toBeTruthy(),
+      expect(screen.getByTestId("admin-reset-picker-epoch-refused")).toBeTruthy(),
     );
     vi.useFakeTimers();
     // Re-enter confirm — the prior refused banner must NOT persist.
     fireEvent.click(idleBtn());
-    expect(
-      screen.queryByTestId("admin-reset-picker-epoch-refused"),
-    ).toBeNull();
+    expect(screen.queryByTestId("admin-reset-picker-epoch-refused")).toBeNull();
   });
 });

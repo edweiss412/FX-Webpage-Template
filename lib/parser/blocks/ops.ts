@@ -42,7 +42,7 @@ const ADMIN_PLACEHOLDER_VALUES = new Set(["FALSE", "TRUE", "N/A", "TBD", "—", 
 export function parseOps(
   markdown: string,
   _version: "v1" | "v2" | "v4",
-   
+
   _agg?: ParseAggregator,
 ): OpsResult {
   let po: string | null = null;

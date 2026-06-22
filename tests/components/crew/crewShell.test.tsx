@@ -99,7 +99,11 @@ vi.mock("@/components/crew/RightNowHero", () => ({
 // RightNowHero so the existing "Today path → hero built from the projection"
 // assertion (data-show-title) is preserved — the shell still routes ?s=today to
 // a Today surface that leads with the hero.
-const sectionMarker = (testid: string) => () => <section data-testid={testid} />;
+const sectionMarker = (testid: string) => {
+  const MockSection = () => <section data-testid={testid} />;
+  MockSection.displayName = `MockSection(${testid})`;
+  return MockSection;
+};
 vi.mock("@/components/crew/sections/TodaySection", () => ({
   TodaySection: ({ data }: { data: ShowForViewer }) => (
     <section data-testid="section-today">

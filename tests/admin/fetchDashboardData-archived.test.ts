@@ -75,19 +75,21 @@ function makeClient() {
         if (ctx.head) {
           if (table === "shows") {
             const count =
-              ctx.eq.archived === true ? seed.archivedCount ?? 0 : seed.activeCount ?? 0;
+              ctx.eq.archived === true ? (seed.archivedCount ?? 0) : (seed.activeCount ?? 0);
             return { data: null, count, error: null };
           }
           if (table === "crew_members") return { data: null, count: 0, error: null };
           if (table === "pending_ingestions") return { data: null, count: 0, error: null };
-          if (table === "pending_syncs") return { data: null, count: seed.syncCount ?? 0, error: null };
+          if (table === "pending_syncs")
+            return { data: null, count: seed.syncCount ?? 0, error: null };
           return { data: null, count: 0, error: null };
         }
         if (table === "shows" && ctx.inCol === "drive_file_id") {
           return { data: seed.existenceRows ?? [], error: null };
         }
         if (table === "shows") {
-          const list = ctx.eq.archived === true ? seed.archivedShows ?? [] : seed.activeShows ?? [];
+          const list =
+            ctx.eq.archived === true ? (seed.archivedShows ?? []) : (seed.activeShows ?? []);
           return { data: list, error: null };
         }
         if (table === "crew_members") return { data: [], error: null };
@@ -133,7 +135,12 @@ vi.mock("@/lib/time/now", () => ({
   nowDate: async () => new Date("2026-06-03T12:00:00.000Z"),
 }));
 
-const DATES = { travelIn: "2026-06-01", set: null, showDays: ["2026-06-03"], travelOut: "2026-06-05" };
+const DATES = {
+  travelIn: "2026-06-01",
+  set: null,
+  showDays: ["2026-06-03"],
+  travelOut: "2026-06-05",
+};
 
 async function run(arg?: { bucket?: "active" | "archived" }) {
   const { fetchDashboardData } = await import("@/components/admin/Dashboard");
@@ -150,12 +157,25 @@ describe("fetchDashboardData — archived bucket", () => {
   it("default bucket is 'active' (no arg) and returns the active list", async () => {
     state.seed = {
       activeShows: [
-        { id: "1", slug: "a", title: "A", drive_file_id: "d1", dates: DATES, venue: null, published: true, requires_resync: false },
+        {
+          id: "1",
+          slug: "a",
+          title: "A",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: true,
+          requires_resync: false,
+        },
       ],
       activeCount: 1,
       archivedCount: 4,
     };
-    const r = (await run()) as { rows: Array<{ slug: string }>; activeCount: number; archivedCount: number };
+    const r = (await run()) as {
+      rows: Array<{ slug: string }>;
+      activeCount: number;
+      archivedCount: number;
+    };
     expect(r.rows.map((x) => x.slug)).toEqual(["a"]);
     expect(r.activeCount).toBe(1);
     // archivedCount is ALWAYS computed (the inactive segment label needs it)
@@ -168,7 +188,18 @@ describe("fetchDashboardData — archived bucket", () => {
   it("bucket='archived' fetches the archived list ordered archived_at DESC NULLS LAST, id", async () => {
     state.seed = {
       archivedShows: [
-        { id: "1", slug: "x", title: "X", drive_file_id: "d1", dates: DATES, venue: null, published: false, archived: true, archived_at: "2026-05-20T00:00:00Z", requires_resync: false },
+        {
+          id: "1",
+          slug: "x",
+          title: "X",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: false,
+          archived: true,
+          archived_at: "2026-05-20T00:00:00Z",
+          requires_resync: false,
+        },
       ],
       activeCount: 2,
       archivedCount: 1,
@@ -203,7 +234,15 @@ describe("fetchDashboardData — archived bucket", () => {
       activeShows: [],
       activeCount: 0,
       archivedCount: 0,
-      syncRows: [{ staged_id: "s1", drive_file_id: "df1", staged_modified_time: "2026-06-02T00:00:00Z", parse_result: { show: { title: "X" } }, triggered_review_items: ["FIRST_SEEN_REVIEW"] }],
+      syncRows: [
+        {
+          staged_id: "s1",
+          drive_file_id: "df1",
+          staged_modified_time: "2026-06-02T00:00:00Z",
+          parse_result: { show: { title: "X" } },
+          triggered_review_items: ["FIRST_SEEN_REVIEW"],
+        },
+      ],
       syncCount: 1,
     };
     await run();
@@ -222,9 +261,27 @@ describe("fetchDashboardData — archived bucket", () => {
       activeShows: [
         // Held, clean catch-up cleared requires_resync, NO active checkpoint →
         // NOT finalize-owned. Old formula wrongly called this finalize-owned.
-        { id: "held-clean", slug: "held-clean", title: "Held", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
+        {
+          id: "held-clean",
+          slug: "held-clean",
+          title: "Held",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: false,
+          requires_resync: false,
+        },
         // Wizard finalize genuinely in flight → finalize-owned (RPC true).
-        { id: "publishing", slug: "publishing", title: "Pub", drive_file_id: "d2", dates: DATES, venue: null, published: false, requires_resync: false },
+        {
+          id: "publishing",
+          slug: "publishing",
+          title: "Pub",
+          drive_file_id: "d2",
+          dates: DATES,
+          venue: null,
+          published: false,
+          requires_resync: false,
+        },
       ],
       activeCount: 2,
       archivedCount: 0,
@@ -241,7 +298,16 @@ describe("fetchDashboardData — archived bucket", () => {
     // Override rpc to error for this case (fail-toward-Held safety).
     state.seed = {
       activeShows: [
-        { id: "1", slug: "errd", title: "E", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
+        {
+          id: "1",
+          slug: "errd",
+          title: "E",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: false,
+          requires_resync: false,
+        },
       ],
       activeCount: 1,
       archivedCount: 0,
@@ -255,7 +321,18 @@ describe("fetchDashboardData — archived bucket", () => {
   it("a null archived_at row surfaces archivedAt=null (UI renders 'date unknown' + sorts last)", async () => {
     state.seed = {
       archivedShows: [
-        { id: "1", slug: "noTime", title: "No time", drive_file_id: "d1", dates: DATES, venue: null, published: false, archived: true, archived_at: null, requires_resync: false },
+        {
+          id: "1",
+          slug: "noTime",
+          title: "No time",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: false,
+          archived: true,
+          archived_at: null,
+          requires_resync: false,
+        },
       ],
       activeCount: 0,
       archivedCount: 1,

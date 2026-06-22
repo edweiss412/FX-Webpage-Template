@@ -15,7 +15,12 @@ export function NotifBell({ alertCount }: { alertCount: AlertCountResult }) {
         className="relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-warning-text hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
       >
         <Bell className="size-5" aria-hidden="true" />
-        <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 inline-flex size-4 items-center justify-center rounded-pill bg-warning-bg text-xs font-semibold text-warning-text">!</span>
+        <span
+          aria-hidden="true"
+          className="absolute -right-0.5 -top-0.5 inline-flex size-4 items-center justify-center rounded-pill bg-warning-bg text-xs font-semibold text-warning-text"
+        >
+          !
+        </span>
       </Link>
     );
   }

@@ -229,7 +229,7 @@ function parseClientV2orV1(rows: string[][]): Pick<ShowRow, "client_label" | "cl
 export function parseClient(
   markdown: string,
   version: "v1" | "v2" | "v4",
-   
+
   _agg?: ParseAggregator,
 ): Pick<ShowRow, "client_label" | "client_contact"> {
   const rows = parseTableRows(markdown);

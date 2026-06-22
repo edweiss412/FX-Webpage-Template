@@ -120,9 +120,11 @@ const CREW_DIRS: ReadonlyArray<string> = [
  *   - `\.audio\b` / `\.video\b` /
  *     `\.lighting\b`             — room scope strings. Round-12
  *                                  reclassification.
- *   - `event_details\["dress_code"\]`
- *     / `dress_code|dress code|attire|dress`
- *                                — round-11 named via pickDressCode.
+ *   - `event_details.dress_code`     — round-11 named via pickDressCode; the
+ *                                  attire/dress/dress-code label family now
+ *                                  collapses to this ONE canonical key at
+ *                                  parse time (M4-D1), so the pattern anchors
+ *                                  on the single read path.
  *   - `event_details\["power"\]` /
  *     `\["internet"\]` /
  *     `\["keynote_requirements"\]`
@@ -157,8 +159,19 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     pattern: /\br\.(audio|video|lighting)\b/,
   },
   {
-    description: "event_details dress_code candidates",
-    pattern: /event_details\["?(dress_code|dress|attire)"?\]|"dress_code"|"attire"|"dress code"/,
+    // M4-D1: dress-code is now a SINGLE canonical key. The parser
+    // (lib/parser/blocks/event.ts CANONICAL_KEY_MAP) collapses the
+    // attire/dress/dress-code label family to `dress_code`, so the consumer
+    // reads `event_details.dress_code` only (dot or bracket access). The old
+    // pattern also matched the bare quoted strings "dress_code"/"attire"/
+    // "dress code" from the now-deleted 4-key probe loop — those alternatives
+    // are dropped because they would only match prose/comments after the
+    // collapse (a fragile match that lets the contract pass for the wrong
+    // reason). This pattern anchors on the actual read path so the contract
+    // still enforces: any tile/crew file reading `event_details.dress_code`
+    // must route it through `shouldHideGenericOptional`.
+    description: "event_details.dress_code (canonical, M4-D1)",
+    pattern: /event_details(\.dress_code\b|\[\s*"dress_code"\s*\])/,
   },
   // Round-13 reclassification: vehicle metadata on TransportationRow.
   // The pattern anchors on `transportation.` to avoid matching unrelated
@@ -357,8 +370,7 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/ + components
       // a hole — a future edit that drops BOTH the direct call AND the wrapper
       // still fails this contract.
       const hasDirect =
-        /shouldHideGenericOptional\b/.test(source) &&
-        /shouldHideGenericOptional\s*\(/.test(source);
+        /shouldHideGenericOptional\b/.test(source) && /shouldHideGenericOptional\s*\(/.test(source);
       const hasWrapper = /resolveOptionalField\s*\(/.test(source);
 
       if (!hasDirect && !hasWrapper) {

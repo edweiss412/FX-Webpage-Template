@@ -23,7 +23,10 @@ describe("Catalog ↔ master-spec admin-log-only alignment (test #17)", () => {
         `${code} present in master spec but missing from live catalog — B.3 must add a null stub`,
       ).toBeDefined();
       if (!entry) throw new Error(`${code} missing from live catalog`);
-      expect(entry.dougFacing, `${code}.dougFacing should be null per master-spec admin-log-only`).toBeNull();
+      expect(
+        entry.dougFacing,
+        `${code}.dougFacing should be null per master-spec admin-log-only`,
+      ).toBeNull();
       expect(entry.crewFacing, `${code}.crewFacing should be null`).toBeNull();
       expect(entry.helpfulContext, `${code}.helpfulContext should be null`).toBeNull();
       expect(entry.title, `${code}.title should be null`).toBeNull();

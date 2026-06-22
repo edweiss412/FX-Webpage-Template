@@ -98,7 +98,7 @@ function TravelRow({
       <span
         data-slot="travelrow-icon"
         aria-hidden="true"
-        className="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-surface-sunken text-text-subtle [&_svg]:size-[17px]"
+        className="grid size-8.5 shrink-0 place-items-center rounded-[9px] bg-surface-sunken text-text-subtle [&_svg]:size-4.25"
       >
         <Glyph />
       </span>
@@ -110,20 +110,20 @@ function TravelRow({
         </p>
         <p
           data-testid="travelrow-primary"
-          className="min-w-0 break-words text-[15px] font-bold leading-snug text-text-strong"
+          className="min-w-0 wrap-break-word text-[15px] font-bold leading-snug text-text-strong"
         >
           {primary}
         </p>
         {meta !== undefined && meta !== null ? (
           <p
             data-testid="travelrow-meta"
-            className="min-w-0 break-words text-[13px] leading-snug text-text-subtle"
+            className="min-w-0 wrap-break-word text-[13px] leading-snug text-text-subtle"
           >
             {meta}
           </p>
         ) : null}
         {conf !== undefined && conf !== null ? (
-          <p className="min-w-0 break-words text-[11.5px] leading-snug tabular-nums text-text-faint">
+          <p className="min-w-0 wrap-break-word text-[11.5px] leading-snug tabular-nums text-text-faint">
             {conf}
           </p>
         ) : null}
@@ -233,13 +233,11 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
           const hasVehicle = vehicleFields.length > 0;
           const vehiclePrimary = vehicleFields[0] ?? null;
           const vehicleMetaLines = vehicleFields.slice(1, -1);
-          const vehicleConf = vehicleFields.length > 1 ? vehicleFields[vehicleFields.length - 1] : null;
+          const vehicleConf =
+            vehicleFields.length > 1 ? vehicleFields[vehicleFields.length - 1] : null;
 
           const hasGettingThere =
-            hasDriver ||
-            hasVehicle ||
-            legs.length > 0 ||
-            transportNotes !== null;
+            hasDriver || hasVehicle || legs.length > 0 || transportNotes !== null;
 
           // --- Hotels: sort ascending by ordinal, regardless of array order ---------
           const reservations = [...data.hotelReservations].sort((a, b) => a.ordinal - b.ordinal);
@@ -307,9 +305,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                       mode="ground"
                       label="Vehicle"
                       primary={vehiclePrimary}
-                      meta={
-                        vehicleMetaLines.length > 0 ? vehicleMetaLines.join(" · ") : undefined
-                      }
+                      meta={vehicleMetaLines.length > 0 ? vehicleMetaLines.join(" · ") : undefined}
                       conf={vehicleConf ?? undefined}
                     />
                   ) : null}
@@ -334,16 +330,13 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                     const legMeta =
                       showTimeInMeta || hasNames ? (
                         <>
-                          {showTimeInMeta ? (
-                            <span className="tabular-nums">{leg.time}</span>
-                          ) : null}
+                          {showTimeInMeta ? <span className="tabular-nums">{leg.time}</span> : null}
                           {showTimeInMeta && hasNames ? (
                             <span className="text-text-faint"> · </span>
                           ) : null}
                           {hasNames ? (
                             <span>
-                              With{" "}
-                              <span className="text-text">{leg.assignedNames.join(", ")}</span>
+                              With <span className="text-text">{leg.assignedNames.join(", ")}</span>
                             </span>
                           ) : null}
                         </>
@@ -378,81 +371,81 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
           ) : null;
 
           const hotelsBlock = hasHotels ? (
-                <div data-testid="travel-hotels">
-                  <SectionCard icon={<BedIcon />} title="Hotels">
-                    <div className="flex flex-col gap-4">
-                      {reservations.map((res, idx) => {
-                        const hotelAddress = !shouldHideGenericOptional(res.hotel_address)
-                          ? res.hotel_address
-                          : null;
-                        const confirmation = !shouldHideGenericOptional(res.confirmation_no)
-                          ? res.confirmation_no
-                          : null;
-                        const resNotes = !shouldHideGenericOptional(res.notes) ? res.notes : null;
+            <div data-testid="travel-hotels">
+              <SectionCard icon={<BedIcon />} title="Hotels">
+                <div className="flex flex-col gap-4">
+                  {reservations.map((res, idx) => {
+                    const hotelAddress = !shouldHideGenericOptional(res.hotel_address)
+                      ? res.hotel_address
+                      : null;
+                    const confirmation = !shouldHideGenericOptional(res.confirmation_no)
+                      ? res.confirmation_no
+                      : null;
+                    const resNotes = !shouldHideGenericOptional(res.notes) ? res.notes : null;
 
-                        const stayRows: KeyValueRow[] = [];
-                        if (confirmation) stayRows.push({ k: "Confirmation", v: confirmation });
-                        if (resNotes) stayRows.push({ k: "Notes", v: resNotes });
+                    const stayRows: KeyValueRow[] = [];
+                    if (confirmation) stayRows.push({ k: "Confirmation", v: confirmation });
+                    if (resNotes) stayRows.push({ k: "Notes", v: resNotes });
 
-                        return (
-                          <div
-                            key={res.ordinal}
-                            className={[
-                              "flex flex-col gap-3",
-                              idx > 0 ? "border-t border-border pt-4" : "",
-                            ]
-                              .filter(Boolean)
-                              .join(" ")}
+                    return (
+                      <div
+                        key={res.ordinal}
+                        className={[
+                          "flex flex-col gap-3",
+                          idx > 0 ? "border-t border-border pt-4" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        {res.hotel_name ? (
+                          <p
+                            data-testid="travel-hotel-name"
+                            className="text-base font-semibold leading-tight text-text-strong"
                           >
-                            {res.hotel_name ? (
-                              <p
-                                data-testid="travel-hotel-name"
-                                className="text-base font-semibold leading-tight text-text-strong"
-                              >
-                                {res.hotel_name}
-                              </p>
-                            ) : null}
+                            {res.hotel_name}
+                          </p>
+                        ) : null}
 
-                            {hotelAddress !== null ? (
-                              <p className="text-sm text-text-subtle">{hotelAddress}</p>
-                            ) : null}
+                        {hotelAddress !== null ? (
+                          <p className="text-sm text-text-subtle">{hotelAddress}</p>
+                        ) : null}
 
-                            {res.check_in !== null || res.check_out !== null ? (
-                              <dl className="grid grid-cols-2 gap-3">
-                                {res.check_in !== null ? (
-                                  <div className="flex flex-col gap-1">
-                                    <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                                      Check in
-                                    </dt>
-                                    <dd className="text-sm text-text">
-                                      <time dateTime={res.check_in}>
-                                        {formatIsoDate(res.check_in, "short")}
-                                      </time>
-                                    </dd>
-                                  </div>
-                                ) : null}
-                                {res.check_out !== null ? (
-                                  <div className="flex flex-col gap-1">
-                                    <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                                      Check out
-                                    </dt>
-                                    <dd className="text-sm text-text">
-                                      <time dateTime={res.check_out}>
-                                        {formatIsoDate(res.check_out, "short")}
-                                      </time>
-                                    </dd>
-                                  </div>
-                                ) : null}
-                              </dl>
+                        {res.check_in !== null || res.check_out !== null ? (
+                          <dl className="grid grid-cols-2 gap-3">
+                            {res.check_in !== null ? (
+                              <div className="flex flex-col gap-1">
+                                <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                                  Check in
+                                </dt>
+                                <dd className="text-sm text-text">
+                                  <time dateTime={res.check_in}>
+                                    {formatIsoDate(res.check_in, "short")}
+                                  </time>
+                                </dd>
+                              </div>
                             ) : null}
+                            {res.check_out !== null ? (
+                              <div className="flex flex-col gap-1">
+                                <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                                  Check out
+                                </dt>
+                                <dd className="text-sm text-text">
+                                  <time dateTime={res.check_out}>
+                                    {formatIsoDate(res.check_out, "short")}
+                                  </time>
+                                </dd>
+                              </div>
+                            ) : null}
+                          </dl>
+                        ) : null}
 
-                            {stayRows.length > 0 ? <KeyValueRows rows={stayRows} /> : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </SectionCard>
+                        {stayRows.length > 0 ? <KeyValueRows rows={stayRows} /> : null}
+                      </div>
+                    );
+                  })}
                 </div>
+              </SectionCard>
+            </div>
           ) : null;
 
           return (
@@ -473,7 +466,7 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                         // (e.g. "11:29am", "5/13", "HQQ79F"); tabular figures so the
                         // digits read at a glance and don't shift width. Alphabetic
                         // tokens (airport codes, carrier) are unaffected by tnum.
-                        className="text-sm leading-relaxed text-text tabular-nums"
+                        className="text-sm/relaxed  text-text tabular-nums"
                       >
                         {leg}
                       </span>

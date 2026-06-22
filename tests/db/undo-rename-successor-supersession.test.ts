@@ -82,7 +82,9 @@ async function seedNewerCrewRow(
 describe("rename successor-identity supersession (P4-F1)", () => {
   it("a newer REMOVAL of the successor (Alicia) supersedes the original Alice→Alicia rename row", async () => {
     // Current sheet state: only Alicia exists (Alice was renamed to her). priorRowId is Alice's.
-    const { showId, driveFileId } = await seedShowWithCrew([{ name: "Alicia", email: "alicia@new" }]);
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Alicia", email: "alicia@new" },
+    ]);
     const alicia = await readCrewByName(showId, "Alicia");
     const ALICE_ROW_ID = randomUUID();
 

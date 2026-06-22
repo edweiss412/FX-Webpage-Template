@@ -18,6 +18,7 @@ const mockState = vi.hoisted(() => ({
   nextResult: { kind: "ok" } as
     | { kind: "ok" }
     | { kind: "last_admin_lockout"; email: string }
+    | { kind: "self_revoke_forbidden"; email: string }
     | { kind: "invalid_email" },
 }));
 
@@ -62,6 +63,32 @@ describe("RevokeRowButton — R8 MEDIUM lockout UI reset", () => {
     expect(getByTestId("admin-allowlist-lockout-error").textContent ?? "").toContain(
       "last administrator",
     );
+  });
+
+  it("M12.5-DEF-1: self_revoke_forbidden result renders the self-revoke message + returns to idle", async () => {
+    // A POST-reachable forged self-revoke (UI guard bypassed) resolves to
+    // self_revoke_forbidden. The component must render the dedicated
+    // SELF_REVOKE_FORBIDDEN copy (NOT the last-administrator lockout copy)
+    // and snap back to idle so Doug can dismiss it.
+    mockState.nextResult = { kind: "self_revoke_forbidden", email: "self@example.com" };
+    const { getByTestId, queryByTestId } = render(
+      <RevokeRowButton email="self@example.com" disabled={false} />,
+    );
+
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("admin-allowlist-revoke-confirm-button"));
+    });
+
+    await waitFor(() => {
+      expect(queryByTestId("admin-allowlist-revoke-confirm-row")).toBeNull();
+    });
+    expect(getByTestId("admin-allowlist-revoke-button").textContent?.trim()).toBe("Revoke");
+    // Dedicated self-revoke message, not the last-administrator lockout copy.
+    expect(getByTestId("admin-allowlist-self-revoke-error").textContent ?? "").toContain(
+      "your own administrator access",
+    );
+    expect(queryByTestId("admin-allowlist-lockout-error")).toBeNull();
   });
 
   it("R8 fix: invalid_email result also returns to idle (any non-ok terminal result)", async () => {

@@ -26,7 +26,8 @@ export function travelFlightAmbiguousTable(): ParseWarning {
   return {
     severity: "warn",
     code: "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
-    message: "More than one TRAVEL flight table found; flights not attached (remove the duplicate/old one)",
+    message:
+      "More than one TRAVEL flight table found; flights not attached (remove the duplicate/old one)",
     blockRef: travel(),
   };
 }

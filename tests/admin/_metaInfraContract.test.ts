@@ -87,9 +87,7 @@ function makeThrowingClient() {
         typeof table === "string" &&
         table === infraMock.throwOnFromTable
       ) {
-        throw new Error(
-          `META: simulated from('${table}') infrastructure fault`,
-        );
+        throw new Error(`META: simulated from('${table}') infrastructure fault`);
       }
       const seededData =
         typeof table === "string" && table in infraMock.dataByTable
@@ -99,7 +97,11 @@ function makeThrowingClient() {
       // else 0) so helpers with a count-integrity guard (loadNeedsAttention:
       // non-number head-count → infra_error, R2-F3) proceed past earlier
       // head-counts and reach the table under test in per-table throw cases.
-      const result = { data: seededData, error: null, count: Array.isArray(seededData) ? seededData.length : 0 } as {
+      const result = {
+        data: seededData,
+        error: null,
+        count: Array.isArray(seededData) ? seededData.length : 0,
+      } as {
         data: unknown;
         error: null;
         count: number;
@@ -114,8 +116,7 @@ function makeThrowingClient() {
       builder.limit = passthrough;
       builder.range = passthrough;
       builder.returns = passthrough;
-      builder.maybeSingle = async () =>
-        result as { data: null; error: null };
+      builder.maybeSingle = async () => result as { data: null; error: null };
       // Make the builder itself awaitable so `await supabase.from().select()...`
       // resolves with a `{data, error}` shape when no terminal is called.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -208,16 +209,33 @@ const infraRegistry = [
   {
     helper: "loadNeedsAttention",
     path: "lib/admin/loadNeedsAttention.ts",
-    contract: "pending_ingestions/pending_syncs/shows await throws + construction throw → infra_error",
+    contract:
+      "pending_ingestions/pending_syncs/shows await throws + construction throw → infra_error",
   },
   {
     helper: "loadNeedsAttentionCount",
     path: "lib/admin/needsAttentionCount.ts",
-    contract: "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error",
+    contract:
+      "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error",
   },
-  { helper: "fetchUnresolvedAlertCount", path: "lib/admin/alertCount.ts", contract: "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)" },
-  { helper: "getActiveWatchedFolder", path: "lib/appSettings/getWatchedFolderId.ts", contract: "app_settings { watched_folder_id, watched_folder_name } maybeSingle; client construction (createClientResult) + returned-error + thrown await → { kind:'infra_error' }; destructures { data, error }" },
-  { helper: "fetchDriveConnectionHealth", path: "lib/admin/driveConnectionHealth.ts", contract: "watch-status row + per-predicate active-shows head:true counts + max last_synced_at; client construction + any await/throw → { kind:'infra_error' } (never a false Healthy)" },
+  {
+    helper: "fetchUnresolvedAlertCount",
+    path: "lib/admin/alertCount.ts",
+    contract:
+      "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)",
+  },
+  {
+    helper: "getActiveWatchedFolder",
+    path: "lib/appSettings/getWatchedFolderId.ts",
+    contract:
+      "app_settings { watched_folder_id, watched_folder_name } maybeSingle; client construction (createClientResult) + returned-error + thrown await → { kind:'infra_error' }; destructures { data, error }",
+  },
+  {
+    helper: "fetchDriveConnectionHealth",
+    path: "lib/admin/driveConnectionHealth.ts",
+    contract:
+      "watch-status row + per-predicate active-shows head:true counts + max last_synced_at; client construction + any await/throw → { kind:'infra_error' } (never a false Healthy)",
+  },
 ];
 
 // Every helper file gets a grep-shape assertion that EVERY supabase-derived
@@ -280,8 +298,7 @@ describe("META §B Supabase call-boundary contract", () => {
       //    inside try/catch because `.from()` is a synchronous throw site).
       const builderNames = new Set<string>();
       const builderAssignLines: number[] = [];
-      const directBuilderRe =
-        /\b(?:let|const|var)\s+([A-Za-z_$][\w$]*)\s*=\s*supabase\b/g;
+      const directBuilderRe = /\b(?:let|const|var)\s+([A-Za-z_$][\w$]*)\s*=\s*supabase\b/g;
       lines.forEach((line, idx) => {
         for (const m of line.matchAll(directBuilderRe)) {
           if (m[1]) {
@@ -301,10 +318,7 @@ describe("META §B Supabase call-boundary contract", () => {
         prevSize = builderNames.size;
         const namesAlt = Array.from(builderNames).join("|");
         if (!namesAlt) break;
-        const chainRe = new RegExp(
-          `\\b([A-Za-z_$][\\w$]*)\\s*=\\s*(?:${namesAlt})\\b`,
-          "g",
-        );
+        const chainRe = new RegExp(`\\b([A-Za-z_$][\\w$]*)\\s*=\\s*(?:${namesAlt})\\b`, "g");
         lines.forEach((line, idx) => {
           for (const m of line.matchAll(chainRe)) {
             if (m[1]) {
@@ -340,9 +354,7 @@ describe("META §B Supabase call-boundary contract", () => {
       // 3. Assert every supabase-derived await is inside a try/catch.
       for (const lineIdx of awaitLineNumbers) {
         const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
-        const forward = lines
-          .slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30))
-          .join("\n");
+        const forward = lines.slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30)).join("\n");
         const hasTryBefore = /\btry\s*\{/.test(back);
         const hasCatchAfter = /\}\s*catch\s*[({]/.test(forward);
         expect(
@@ -360,9 +372,7 @@ describe("META §B Supabase call-boundary contract", () => {
       //    despite the await staying inside its try.
       for (const lineIdx of builderAssignLines) {
         const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
-        const forward = lines
-          .slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30))
-          .join("\n");
+        const forward = lines.slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30)).join("\n");
         const hasTryBefore = /\btry\s*\{/.test(back);
         const hasCatchAfter = /\}\s*catch\s*[({]/.test(forward);
         expect(
@@ -388,9 +398,7 @@ describe("META §B Supabase call-boundary contract", () => {
       expect(result).toMatchObject({ kind: "infra_error" });
       // The message MUST identify the threw-path, not the .error-path —
       // that's the contract that R6 found violated.
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /threw/,
-      );
+      expect((result as { kind: string; message: string }).message).toMatch(/threw/);
     });
 
     // Codex R6 #1: pin each individual table's throw path so a regression
@@ -404,16 +412,10 @@ describe("META §B Supabase call-boundary contract", () => {
       "from('%s') throw → typed infra_error with table-specific message",
       async (table, messageRe) => {
         infraMock.throwOnFromTable = table;
-        const { fetchStep3Data } = await import(
-          "@/components/admin/OnboardingWizard"
-        );
-        const result = await fetchStep3Data(
-          "00000000-0000-0000-0000-000000000001",
-        );
+        const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+        const result = await fetchStep3Data("00000000-0000-0000-0000-000000000001");
         expect(result).toMatchObject({ kind: "infra_error" });
-        expect((result as { kind: string; message: string }).message).toMatch(
-          messageRe,
-        );
+        expect((result as { kind: string; message: string }).message).toMatch(messageRe);
       },
     );
   });
@@ -431,9 +433,7 @@ describe("META §B Supabase call-boundary contract", () => {
       const { fetchDashboardData } = await import("@/components/admin/Dashboard");
       const result = await fetchDashboardData();
       expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /threw/,
-      );
+      expect((result as { kind: string; message: string }).message).toMatch(/threw/);
     });
 
     // Codex R6 #1: pin every query in the pipeline. The shows table is
@@ -452,14 +452,10 @@ describe("META §B Supabase call-boundary contract", () => {
       "from('%s') throw → typed infra_error with table-specific message",
       async (table, messageRe) => {
         infraMock.throwOnFromTable = table;
-        const { fetchDashboardData } = await import(
-          "@/components/admin/Dashboard"
-        );
+        const { fetchDashboardData } = await import("@/components/admin/Dashboard");
         const result = await fetchDashboardData();
         expect(result).toMatchObject({ kind: "infra_error" });
-        expect((result as { kind: string; message: string }).message).toMatch(
-          messageRe,
-        );
+        expect((result as { kind: string; message: string }).message).toMatch(messageRe);
       },
     );
 
@@ -471,14 +467,10 @@ describe("META §B Supabase call-boundary contract", () => {
         shows: [{ id: "s1", slug: "rpas", drive_file_id: "df-1" }],
       };
       infraMock.throwOnFromTable = "crew_members";
-      const { fetchDashboardData } = await import(
-        "@/components/admin/Dashboard"
-      );
+      const { fetchDashboardData } = await import("@/components/admin/Dashboard");
       const result = await fetchDashboardData();
       expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /crew_members.*threw/,
-      );
+      expect((result as { kind: string; message: string }).message).toMatch(/crew_members.*threw/);
     });
   });
 
@@ -504,9 +496,7 @@ describe("META §B Supabase call-boundary contract", () => {
         const { loadNeedsAttention } = await import("@/lib/admin/loadNeedsAttention");
         const result = await loadNeedsAttention({ cap: 20 });
         expect(result).toMatchObject({ kind: "infra_error" });
-        expect((result as { kind: string; message: string }).message).toMatch(
-          messageRe,
-        );
+        expect((result as { kind: string; message: string }).message).toMatch(messageRe);
       },
     );
 
@@ -546,9 +536,7 @@ describe("META §B Supabase call-boundary contract", () => {
   describe("loadNeedsAttentionCount", () => {
     test("server-client construction throw → { kind: 'infra_error' } (never rejects)", async () => {
       infraMock.throwOnConstruct = true;
-      const { loadNeedsAttentionCount } = await import(
-        "@/lib/admin/needsAttentionCount"
-      );
+      const { loadNeedsAttentionCount } = await import("@/lib/admin/needsAttentionCount");
       await expect(loadNeedsAttentionCount()).resolves.toEqual({
         kind: "infra_error",
       });
@@ -558,9 +546,7 @@ describe("META §B Supabase call-boundary contract", () => {
       "from('%s') throw → { kind: 'infra_error' }",
       async (table) => {
         infraMock.throwOnFromTable = table;
-        const { loadNeedsAttentionCount } = await import(
-          "@/lib/admin/needsAttentionCount"
-        );
+        const { loadNeedsAttentionCount } = await import("@/lib/admin/needsAttentionCount");
         const result = await loadNeedsAttentionCount();
         expect(result).toEqual({ kind: "infra_error" });
       },
@@ -570,23 +556,17 @@ describe("META §B Supabase call-boundary contract", () => {
   describe("fetchLiveFirstSeenRow", () => {
     test("server-client construction throw → typed infra_error", async () => {
       infraMock.throwOnConstruct = true;
-      const { fetchLiveFirstSeenRow } = await import(
-        "@/app/admin/show/staged/[stagedId]/page"
-      );
+      const { fetchLiveFirstSeenRow } = await import("@/app/admin/show/staged/[stagedId]/page");
       const result = await fetchLiveFirstSeenRow("00000000-0000-0000-0000-000000000abc");
       expect(result).toMatchObject({ kind: "infra_error" });
     });
 
     test("from('pending_syncs') throw → typed infra_error", async () => {
       infraMock.throwOnFromTable = "pending_syncs";
-      const { fetchLiveFirstSeenRow } = await import(
-        "@/app/admin/show/staged/[stagedId]/page"
-      );
+      const { fetchLiveFirstSeenRow } = await import("@/app/admin/show/staged/[stagedId]/page");
       const result = await fetchLiveFirstSeenRow("00000000-0000-0000-0000-000000000abc");
       expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /pending_syncs.*threw/,
-      );
+      expect((result as { kind: string; message: string }).message).toMatch(/pending_syncs.*threw/);
     });
 
     test("from('shows') throw (with seeded pending_syncs row) → typed infra_error", async () => {
@@ -606,23 +586,18 @@ describe("META §B Supabase call-boundary contract", () => {
         },
       };
       infraMock.throwOnFromTable = "shows";
-      const { fetchLiveFirstSeenRow } = await import(
-        "@/app/admin/show/staged/[stagedId]/page"
-      );
+      const { fetchLiveFirstSeenRow } = await import("@/app/admin/show/staged/[stagedId]/page");
       const result = await fetchLiveFirstSeenRow("00000000-0000-0000-0000-000000000abc");
       expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /shows.*threw/,
-      );
+      expect((result as { kind: string; message: string }).message).toMatch(/shows.*threw/);
     });
   });
 
   describe("fetchWizardStagedRow", () => {
     test("server-client construction throw → typed infra_error", async () => {
       infraMock.throwOnConstruct = true;
-      const { fetchWizardStagedRow } = await import(
-        "@/app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page"
-      );
+      const { fetchWizardStagedRow } =
+        await import("@/app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page");
       const result = await fetchWizardStagedRow(
         "00000000-0000-0000-0000-000000000001",
         "drive-file-1",
@@ -632,71 +607,48 @@ describe("META §B Supabase call-boundary contract", () => {
 
     test("from() throw → typed infra_error", async () => {
       infraMock.throwOnFrom = true;
-      const { fetchWizardStagedRow } = await import(
-        "@/app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page"
-      );
+      const { fetchWizardStagedRow } =
+        await import("@/app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page");
       const result = await fetchWizardStagedRow(
         "00000000-0000-0000-0000-000000000001",
         "drive-file-1",
       );
       expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /threw/,
-      );
+      expect((result as { kind: string; message: string }).message).toMatch(/threw/);
     });
   });
 
   describe("readFinalizeCheckpoint", () => {
     test("server-client construction throw → typed infra_error", async () => {
       infraMock.throwOnConstruct = true;
-      const { readFinalizeCheckpoint } = await import(
-        "@/app/admin/_finalizeCheckpoint"
-      );
-      const result = await readFinalizeCheckpoint(
-        "00000000-0000-0000-0000-000000000001",
-      );
+      const { readFinalizeCheckpoint } = await import("@/app/admin/_finalizeCheckpoint");
+      const result = await readFinalizeCheckpoint("00000000-0000-0000-0000-000000000001");
       expect(result).toMatchObject({ kind: "infra_error" });
     });
 
     test("from() throw → typed infra_error", async () => {
       infraMock.throwOnFrom = true;
-      const { readFinalizeCheckpoint } = await import(
-        "@/app/admin/_finalizeCheckpoint"
-      );
-      const result = await readFinalizeCheckpoint(
-        "00000000-0000-0000-0000-000000000001",
-      );
+      const { readFinalizeCheckpoint } = await import("@/app/admin/_finalizeCheckpoint");
+      const result = await readFinalizeCheckpoint("00000000-0000-0000-0000-000000000001");
       expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /threw/,
-      );
+      expect((result as { kind: string; message: string }).message).toMatch(/threw/);
     });
   });
 
   describe("fetchPerShowAlerts", () => {
     test("server-client construction throw → typed infra_error", async () => {
       infraMock.throwOnConstruct = true;
-      const { fetchPerShowAlerts } = await import(
-        "@/components/admin/PerShowAlertSection"
-      );
-      const result = await fetchPerShowAlerts(
-        "00000000-0000-0000-0000-000000000001",
-      );
+      const { fetchPerShowAlerts } = await import("@/components/admin/PerShowAlertSection");
+      const result = await fetchPerShowAlerts("00000000-0000-0000-0000-000000000001");
       expect(result).toMatchObject({ kind: "infra_error" });
     });
 
     test("from() throw → typed infra_error", async () => {
       infraMock.throwOnFrom = true;
-      const { fetchPerShowAlerts } = await import(
-        "@/components/admin/PerShowAlertSection"
-      );
-      const result = await fetchPerShowAlerts(
-        "00000000-0000-0000-0000-000000000001",
-      );
+      const { fetchPerShowAlerts } = await import("@/components/admin/PerShowAlertSection");
+      const result = await fetchPerShowAlerts("00000000-0000-0000-0000-000000000001");
       expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /threw/,
-      );
+      expect((result as { kind: string; message: string }).message).toMatch(/threw/);
     });
   });
 
@@ -710,18 +662,14 @@ describe("META §B Supabase call-boundary contract", () => {
   describe("lookupShow (preview-as page)", () => {
     test("server-client construction throw → { kind: 'infra_error' }", async () => {
       infraMock.throwOnConstruct = true;
-      const { lookupShow } = await import(
-        "@/app/admin/show/[slug]/preview/[crewId]/page"
-      );
+      const { lookupShow } = await import("@/app/admin/show/[slug]/preview/[crewId]/page");
       const result = await lookupShow("any-slug");
       expect(result).toEqual({ kind: "infra_error" });
     });
 
     test("from('shows') throw → { kind: 'infra_error' }", async () => {
       infraMock.throwOnFromTable = "shows";
-      const { lookupShow } = await import(
-        "@/app/admin/show/[slug]/preview/[crewId]/page"
-      );
+      const { lookupShow } = await import("@/app/admin/show/[slug]/preview/[crewId]/page");
       const result = await lookupShow("any-slug");
       expect(result).toEqual({ kind: "infra_error" });
     });
@@ -730,9 +678,7 @@ describe("META §B Supabase call-boundary contract", () => {
   describe("lookupCrewMember (preview-as page)", () => {
     test("server-client construction throw → { kind: 'infra_error' }", async () => {
       infraMock.throwOnConstruct = true;
-      const { lookupCrewMember } = await import(
-        "@/app/admin/show/[slug]/preview/[crewId]/page"
-      );
+      const { lookupCrewMember } = await import("@/app/admin/show/[slug]/preview/[crewId]/page");
       const result = await lookupCrewMember(
         "00000000-0000-0000-0000-000000000001",
         "00000000-0000-0000-0000-0000000000aa",
@@ -742,9 +688,7 @@ describe("META §B Supabase call-boundary contract", () => {
 
     test("from('crew_members') throw → { kind: 'infra_error' }", async () => {
       infraMock.throwOnFromTable = "crew_members";
-      const { lookupCrewMember } = await import(
-        "@/app/admin/show/[slug]/preview/[crewId]/page"
-      );
+      const { lookupCrewMember } = await import("@/app/admin/show/[slug]/preview/[crewId]/page");
       const result = await lookupCrewMember(
         "00000000-0000-0000-0000-000000000001",
         "00000000-0000-0000-0000-0000000000aa",

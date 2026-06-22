@@ -80,18 +80,14 @@ test("rooms fetch error: admin sees degraded block, crew sees omission, no upser
   upsertSpy.mockClear();
   const data = makeShowForViewer(err("rooms"));
 
-  const admin = render(
-    <GearSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
-  );
+  const admin = render(<GearSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
   const block = admin.container.querySelector('[data-testid="section-tile-error-rooms"]');
   expect(block).not.toBeNull();
   assertHumanReadable(block!.textContent ?? "");
   // No genuine scope card rendered alongside the degraded block.
   expect(admin.container.querySelector('[data-testid^="gear-scope-"]')).toBeNull();
 
-  const crew = render(
-    <GearSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
-  );
+  const crew = render(<GearSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />);
   expect(crew.container.querySelector('[data-testid="section-tile-error-rooms"]')).toBeNull();
 
   expect(upsertSpy).toHaveBeenCalledTimes(0);
@@ -104,16 +100,12 @@ test("hotel fetch error: admin sees degraded block, crew sees omission", () => {
   upsertSpy.mockClear();
   const data = makeShowForViewer(err("hotel"));
 
-  const admin = render(
-    <TravelSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
-  );
+  const admin = render(<TravelSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
   const block = admin.container.querySelector('[data-testid="section-tile-error-hotel"]');
   expect(block).not.toBeNull();
   assertHumanReadable(block!.textContent ?? "");
 
-  const crew = render(
-    <TravelSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
-  );
+  const crew = render(<TravelSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />);
   // hotel gate is admin-only → crew never sees the degraded block (gate false).
   expect(crew.container.querySelector('[data-testid="section-tile-error-hotel"]')).toBeNull();
   expect(upsertSpy).toHaveBeenCalledTimes(0);
@@ -121,15 +113,9 @@ test("hotel fetch error: admin sees degraded block, crew sees omission", () => {
 
 test("hotel fetch error on Today Tonight: admin degraded, crew omission", () => {
   const data = makeShowForViewer(err("hotel"));
-  const admin = render(
-    <TodaySection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
-  );
-  expect(
-    admin.container.querySelector('[data-testid="section-tile-error-hotel"]'),
-  ).not.toBeNull();
-  const crew = render(
-    <TodaySection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
-  );
+  const admin = render(<TodaySection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
+  expect(admin.container.querySelector('[data-testid="section-tile-error-hotel"]')).not.toBeNull();
+  const crew = render(<TodaySection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />);
   expect(crew.container.querySelector('[data-testid="section-tile-error-hotel"]')).toBeNull();
 });
 
@@ -140,21 +126,15 @@ test("contacts fetch error: admin sees degraded block, crew sees omission (ungat
   upsertSpy.mockClear();
   const data = makeShowForViewer(err("contacts"));
 
-  const admin = render(
-    <CrewSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
-  );
+  const admin = render(<CrewSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
   const block = admin.container.querySelector('[data-testid="section-tile-error-contacts"]');
   expect(block).not.toBeNull();
   assertHumanReadable(block!.textContent ?? "");
 
   // Crew sees omission even though the contacts gate is viewer-independent:
   // only admin renders the visible degraded block; crew gets null.
-  const crew = render(
-    <CrewSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
-  );
-  expect(
-    crew.container.querySelector('[data-testid="section-tile-error-contacts"]'),
-  ).toBeNull();
+  const crew = render(<CrewSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />);
+  expect(crew.container.querySelector('[data-testid="section-tile-error-contacts"]')).toBeNull();
   expect(upsertSpy).toHaveBeenCalledTimes(0);
 });
 
@@ -169,12 +149,8 @@ test("transportation fetch error: admin sees degraded; assigned crew sees degrad
   // degraded block (no boundary widening).
   const data = makeShowForViewer(err("transportation"));
 
-  const admin = render(
-    <TravelSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
-  );
-  const block = admin.container.querySelector(
-    '[data-testid="section-tile-error-transportation"]',
-  );
+  const admin = render(<TravelSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
+  const block = admin.container.querySelector('[data-testid="section-tile-error-transportation"]');
   expect(block).not.toBeNull();
   assertHumanReadable(block!.textContent ?? "");
 
@@ -192,9 +168,7 @@ test("transportation fetch error: admin sees degraded; assigned crew sees degrad
 
 test("transportation fetch error on Venue parking: admin degraded, unassigned crew omission", () => {
   const data = makeShowForViewer(err("transportation"));
-  const admin = render(
-    <VenueSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
-  );
+  const admin = render(<VenueSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
   expect(
     admin.container.querySelector('[data-testid="section-tile-error-transportation"]'),
   ).not.toBeNull();
@@ -213,23 +187,15 @@ test("financials fetch error: admin (lead-equivalent) sees degraded; non-lead cr
   upsertSpy.mockClear();
   const data = makeShowForViewer(err("financials"));
 
-  const admin = render(
-    <BudgetSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
-  );
-  const block = admin.container.querySelector(
-    '[data-testid="section-tile-error-financials"]',
-  );
+  const admin = render(<BudgetSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
+  const block = admin.container.querySelector('[data-testid="section-tile-error-financials"]');
   expect(block).not.toBeNull();
   assertHumanReadable(block!.textContent ?? "");
 
   // A plain (non-lead) crew viewer fails financialsVisible → gate closed → no
   // degraded block (no boundary widening of the budget surface).
-  const crew = render(
-    <BudgetSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
-  );
-  expect(
-    crew.container.querySelector('[data-testid="section-tile-error-financials"]'),
-  ).toBeNull();
+  const crew = render(<BudgetSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />);
+  expect(crew.container.querySelector('[data-testid="section-tile-error-financials"]')).toBeNull();
   expect(upsertSpy).toHaveBeenCalledTimes(0);
 });
 
@@ -239,15 +205,11 @@ test("financials fetch error: admin (lead-equivalent) sees degraded; non-lead cr
 test("rooms fetch error on Today + Schedule: admin degraded, crew omission", () => {
   const data = makeShowForViewer(err("rooms"));
   for (const Section of [TodaySection, ScheduleSection]) {
-    const admin = render(
-      <Section data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
-    );
+    const admin = render(<Section data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
     expect(
       admin.container.querySelector('[data-testid="section-tile-error-rooms"]'),
     ).not.toBeNull();
-    const crew = render(
-      <Section data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
-    );
+    const crew = render(<Section data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />);
     expect(crew.container.querySelector('[data-testid="section-tile-error-rooms"]')).toBeNull();
   }
 });
@@ -308,9 +270,7 @@ test("admin can distinguish fetch-error from absence — financials", () => {
 // ---------------------------------------------------------------------------
 test("successful transportation (no error) renders data for assignee, not a degraded block", () => {
   const data = makeShowForViewer({ transportation: TRANSPORT, tileErrors: {} });
-  const crew = render(
-    <TravelSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
-  );
+  const crew = render(<TravelSection data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />);
   expect(
     crew.container.querySelector('[data-testid="section-tile-error-transportation"]'),
   ).toBeNull();

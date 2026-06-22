@@ -17,14 +17,10 @@ import { type CliRun, runValidationCli } from "./_cli-helpers";
 
 export const REPO_ROOT = process.cwd();
 export const TSCONFIG_PATH = join(REPO_ROOT, "tsconfig.json");
-export const REPORT_FIXTURES_SCRIPT = join(
-  REPO_ROOT,
-  "scripts/validation-report-fixtures.ts",
-);
+export const REPORT_FIXTURES_SCRIPT = join(REPO_ROOT, "scripts/validation-report-fixtures.ts");
 
 export const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 export const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 export const LOCAL_SERVICE_ROLE_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
@@ -38,25 +34,20 @@ export const CANONICAL_ADMIN_IDENTITY: string = _canonicalAdminIdentity;
 
 export const TODAY = new Date().toISOString().slice(0, 10);
 
-const LOCAL_DB_GUARD =
-  /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])/;
+const LOCAL_DB_GUARD = /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])/;
 
 export function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 export function pgQuote(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-export function runHarness(
-  args: string[],
-  extraEnv: Record<string, string> = {},
-): CliRun {
+export function runHarness(args: string[], extraEnv: Record<string, string> = {}): CliRun {
   return runValidationCli({
     scriptPath: REPORT_FIXTURES_SCRIPT,
     args: [...args, "--allow-local-override"],
@@ -96,14 +87,7 @@ export function runHarnessInCwd(
   writeFileSync(join(cwd, ".env.local"), lines + "\n");
   const result = spawnSync(
     "npx",
-    [
-      "tsx",
-      "--tsconfig",
-      TSCONFIG_PATH,
-      REPORT_FIXTURES_SCRIPT,
-      ...args,
-      "--allow-local-override",
-    ],
+    ["tsx", "--tsconfig", TSCONFIG_PATH, REPORT_FIXTURES_SCRIPT, ...args, "--allow-local-override"],
     { cwd, encoding: "utf-8", env: process.env },
   );
   return {
@@ -120,17 +104,13 @@ export function runHarnessInCwd(
  */
 export function reportFixturesCleanup(crewIds: string[] = []): void {
   if (!LOCAL_DB_GUARD.test(DATABASE_URL)) {
-    throw new Error(
-      `reportFixturesCleanup refused: DATABASE_URL=${DATABASE_URL} is not local`,
-    );
+    throw new Error(`reportFixturesCleanup refused: DATABASE_URL=${DATABASE_URL} is not local`);
   }
   const crewIdList = crewIds
     .filter((id) => /^[0-9a-f-]+$/i.test(id))
     .map((id) => `'${id}'`)
     .join(",");
-  const crewClause = crewIdList
-    ? `OR (kind='crew' AND identity IN (${crewIdList}))`
-    : "";
+  const crewClause = crewIdList ? `OR (kind='crew' AND identity IN (${crewIdList}))` : "";
   runPsql(`
     DELETE FROM public.admin_alerts
       WHERE context->>'validation_tag' LIKE 'm12-fixture-%';
@@ -168,16 +148,12 @@ export function mintCombo(combo: string, showTitle: string): void {
     seededProjectRef: "local",
   });
   runPsql(
-    `SELECT public.mint_validation_fixture_atomic(${pgQuote(combo)}, ${pgQuote(
-      payload,
-    )}::jsonb);`,
+    `SELECT public.mint_validation_fixture_atomic(${pgQuote(combo)}, ${pgQuote(payload)}::jsonb);`,
   );
 }
 
 export function showIdByDrive(driveFileId: string): string {
-  return runPsql(
-    `SELECT id FROM public.shows WHERE drive_file_id=${pgQuote(driveFileId)};`,
-  );
+  return runPsql(`SELECT id FROM public.shows WHERE drive_file_id=${pgQuote(driveFileId)};`);
 }
 
 export function crewIdFor(driveFileId: string): string {

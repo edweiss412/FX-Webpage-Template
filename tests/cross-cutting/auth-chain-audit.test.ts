@@ -25,11 +25,7 @@ describe("X.3 trust-domain auth-chain audit", () => {
   test("source-level audit rejects unclassified API route entries", () => {
     const findings = auditAuthSource(
       "app/api/example/route.ts",
-      [
-        "export async function GET() {",
-        "  return Response.json({ ok: true });",
-        "}",
-      ].join("\n"),
+      ["export async function GET() {", "  return Response.json({ ok: true });", "}"].join("\n"),
     );
 
     expect(findings).toContain("app/api/example/route.ts is not classified in TRUST_DOMAINS");

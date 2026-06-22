@@ -204,7 +204,11 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
     // a real admin screenshot that lost its MDX consumer. If a crew section is
     // added/removed this list is updated deliberately — never to mask drift.
     expect([...CREW_DRIFT_ONLY_KEYS].sort()).toEqual(
-      ["crew-preview-gear-mobile", "crew-preview-schedule-mobile", "crew-preview-today-mobile"].sort(),
+      [
+        "crew-preview-gear-mobile",
+        "crew-preview-schedule-mobile",
+        "crew-preview-today-mobile",
+      ].sort(),
     );
 
     // Every exempted key must actually exist in the manifest — an exemption for a
@@ -271,8 +275,6 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
 
     expect(source).toContain("stableUuid(");
     expect(source).toContain("RPAS_CENTRAL_2026_PREVIEW_CREW_NAME");
-    expect(source).not.toMatch(
-      /RPAS_CENTRAL_2026_PREVIEW_CREW_ID\s*=\s*["'][0-9a-f-]{36}["']/i,
-    );
+    expect(source).not.toMatch(/RPAS_CENTRAL_2026_PREVIEW_CREW_ID\s*=\s*["'][0-9a-f-]{36}["']/i);
   });
 });

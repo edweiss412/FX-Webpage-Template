@@ -128,7 +128,11 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
     }
 
     // 4. Watch row (ANY status) — latest for the folder.
-    let watchRow: { status: string | null; expires_at: string | null; activated_at: string | null } | null;
+    let watchRow: {
+      status: string | null;
+      expires_at: string | null;
+      activated_at: string | null;
+    } | null;
     try {
       const { data, error } = await supabase
         .from("drive_watch_channels")
@@ -160,20 +164,47 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
     }
 
     // tier 4a/4b/4c: hard-failure statuses (red regardless of age).
-    const driveErrorCount = await countActive(supabase, (q) => q.eq("last_sync_status", "drive_error"));
+    const driveErrorCount = await countActive(supabase, (q) =>
+      q.eq("last_sync_status", "drive_error"),
+    );
     if (driveErrorCount === null) return INFRA_ERROR;
     if (driveErrorCount > 0) {
-      return warn("sync_drive_error", folderName, folderId, syncingCount, driveErrorCount, lastReadAt);
+      return warn(
+        "sync_drive_error",
+        folderName,
+        folderId,
+        syncingCount,
+        driveErrorCount,
+        lastReadAt,
+      );
     }
-    const sheetUnavailableCount = await countActive(supabase, (q) => q.eq("last_sync_status", "sheet_unavailable"));
+    const sheetUnavailableCount = await countActive(supabase, (q) =>
+      q.eq("last_sync_status", "sheet_unavailable"),
+    );
     if (sheetUnavailableCount === null) return INFRA_ERROR;
     if (sheetUnavailableCount > 0) {
-      return warn("sync_sheet_unavailable", folderName, folderId, syncingCount, sheetUnavailableCount, lastReadAt);
+      return warn(
+        "sync_sheet_unavailable",
+        folderName,
+        folderId,
+        syncingCount,
+        sheetUnavailableCount,
+        lastReadAt,
+      );
     }
-    const parseErrorCount = await countActive(supabase, (q) => q.eq("last_sync_status", "parse_error"));
+    const parseErrorCount = await countActive(supabase, (q) =>
+      q.eq("last_sync_status", "parse_error"),
+    );
     if (parseErrorCount === null) return INFRA_ERROR;
     if (parseErrorCount > 0) {
-      return warn("sync_parse_error", folderName, folderId, syncingCount, parseErrorCount, lastReadAt);
+      return warn(
+        "sync_parse_error",
+        folderName,
+        folderId,
+        syncingCount,
+        parseErrorCount,
+        lastReadAt,
+      );
     }
 
     // tier 5: sync_unknown — unrecognized non-null status OR null-status-fresh-ts.
@@ -209,7 +240,14 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
     );
     if (staleModerateCount === null) return INFRA_ERROR;
     if (staleModerateCount > 0) {
-      return warn("stale_moderate", folderName, folderId, syncingCount, staleModerateCount, lastReadAt);
+      return warn(
+        "stale_moderate",
+        folderName,
+        folderId,
+        syncingCount,
+        staleModerateCount,
+        lastReadAt,
+      );
     }
 
     // ✓ positive
@@ -261,7 +299,11 @@ async function countActive(
       .select("id", { count: "exact", head: true })
       .eq("archived", false) as unknown as CountQuery;
     const query = refine(base);
-    const { data: _d, count, error } = await (query as unknown as Promise<{
+    const {
+      data: _d,
+      count,
+      error,
+    } = await (query as unknown as Promise<{
       data: unknown;
       count: number | null;
       error: unknown;

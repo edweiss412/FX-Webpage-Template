@@ -2,10 +2,7 @@
 // M11 Phase E.13: catalog-iterating reference page. Server component — no
 // client JS. Per AC-11.11 r10 the trailing CTA is "tell Eric →" (the
 // destination page never self-links back to itself).
-import {
-  MESSAGE_CATALOG,
-  type MessageCatalogEntry,
-} from "@/lib/messages/catalog";
+import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { RefAnchor } from "@/app/help/_components/RefAnchor";
 
 // AC-11.6 predicate: severity !== "info" AND dougFacing != null AND all three
@@ -31,9 +28,8 @@ export default function ErrorsPage() {
     <article className="prose prose-neutral max-w-none">
       <h1>Errors</h1>
       <p>
-        Every error this app surfaces has a plain-language explanation here.
-        If you see one in <code>/admin</code> and want more context, look up
-        the code below.
+        Every error this app surfaces has a plain-language explanation here. If you see one in{" "}
+        <code>/admin</code> and want more context, look up the code below.
       </p>
       {entries.map((entry) => (
         <section key={entry.code} className="mt-6">

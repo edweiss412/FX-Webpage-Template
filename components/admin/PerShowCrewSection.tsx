@@ -40,8 +40,8 @@ export function PerShowCrewSection({
           role="alert"
           className="rounded-md border border-warning-text/40 bg-warning-bg p-tile-pad text-sm text-warning-text"
         >
-          Crew list temporarily unavailable. Refresh to retry. If this
-          persists, check Supabase health or page on-call.
+          Crew list temporarily unavailable. Refresh to retry. If this persists, check Supabase
+          health or page on-call.
         </p>
       </section>
     );
@@ -73,12 +73,8 @@ export function PerShowCrewSection({
             className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
           >
             <div className="min-w-0 flex-1">
-              <p className="text-base font-medium text-text-strong wrap-break-word">
-                {row.name}
-              </p>
-              {row.role !== null && (
-                <p className="mt-1 text-xs text-text-faint">{row.role}</p>
-              )}
+              <p className="text-base font-medium text-text-strong wrap-break-word">{row.name}</p>
+              {row.role !== null && <p className="mt-1 text-xs text-text-faint">{row.role}</p>}
             </div>
           </li>
         ))}

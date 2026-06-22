@@ -5,15 +5,20 @@ import { parseSheet } from "@/lib/parser";
 
 function flightOf(md: string, name: string) {
   const r = parseSheet(md, "t.md");
-  return { crew: r.crewMembers, warnings: r.warnings, row: r.crewMembers.find((m) => (m.name ?? "").includes(name)) };
+  return {
+    crew: r.crewMembers,
+    warnings: r.warnings,
+    row: r.crewMembers.find((m) => (m.name ?? "").includes(name)),
+  };
 }
 
 // ── minimal TRAVEL-block builder ────────────────────────────────────────────
 // Produces a minimal markdown string with the full TRAVEL header signature
 // plus the given data rows.
 function makeTravelMd(dataRows: string[], extraBlocks: string[] = []): string {
-  const header = "| NAME | ROLE |  | CONFIRMED | FLIGHT BOOKED |  | OK to BOOK? | NOTES | FLIGHT DETAILS | FLIGHT DETAILS |";
-  const sep    = "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |";
+  const header =
+    "| NAME | ROLE |  | CONFIRMED | FLIGHT BOOKED |  | OK to BOOK? | NOTES | FLIGHT DETAILS | FLIGHT DETAILS |";
+  const sep = "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |";
   return [header, sep, ...dataRows, "", ...extraBlocks].join("\n");
 }
 
@@ -59,14 +64,26 @@ describe("parseTravelFlights — fixtures", () => {
   it("fintech.md → John Carleo flight_info (no conf), zero travel warnings", () => {
     const md = readFileSync("fixtures/shows/exporter-xlsx/fintech.md", "utf8");
     const { warnings, row: r } = flightOf(md, "John Carleo");
-    expect(r?.flight_info).toBe("5/2 AA1080 LGA - ORD 12:00pm - 1:00pm | 5/7 AA3237 ORD - LGA 10:02am - 1:17pm");
+    expect(r?.flight_info).toBe(
+      "5/2 AA1080 LGA - ORD 12:00pm - 1:00pm | 5/7 AA3237 ORD - LGA 10:02am - 1:17pm",
+    );
     expect(warnings.filter((w) => w.code.startsWith("TRAVEL_FLIGHT_"))).toEqual([]);
   });
 });
 
 describe("parseTravelFlights — synthetic edge cases", () => {
   it("unmatched name: flyer not on roster → TRAVEL_FLIGHT_NAME_UNMATCHED, no mutation", () => {
-    const dataRow = row("Jane Doe", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 AA123 JFK - LAX 8:00am - 11:00am");
+    const dataRow = row(
+      "Jane Doe",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/15 AA123 JFK - LAX 8:00am - 11:00am",
+    );
     const md = crewSection(["Alice Smith"]) + "\n\n" + makeTravelMd([dataRow]);
     const { crew, warnings } = flightOf(md, "Jane Doe");
     expect(crew.every((m) => m.flight_info == null)).toBe(true);
@@ -74,7 +91,17 @@ describe("parseTravelFlights — synthetic edge cases", () => {
   });
 
   it("ambiguous name: two roster entries with same name → TRAVEL_FLIGHT_NAME_UNMATCHED, no mutation", () => {
-    const dataRow = row("John Carleo", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 AA123 JFK - LAX 8:00am - 11:00am");
+    const dataRow = row(
+      "John Carleo",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/15 AA123 JFK - LAX 8:00am - 11:00am",
+    );
     const md = crewSection(["John Carleo", "John Carleo"]) + "\n\n" + makeTravelMd([dataRow]);
     const r = parseSheet(md, "t.md");
     expect(r.crewMembers.every((m) => m.flight_info == null)).toBe(true);
@@ -82,7 +109,17 @@ describe("parseTravelFlights — synthetic edge cases", () => {
   });
 
   it("format-drift: matched flyer, non-sentinel cell, no M/D → TRAVEL_FLIGHT_UNPARSEABLE, flight_info stays null", () => {
-    const dataRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "UNKNOWN FLIGHT INFO NO DATE");
+    const dataRow = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "UNKNOWN FLIGHT INFO NO DATE",
+    );
     const md = crewSection(["Alice Smith"]) + "\n\n" + makeTravelMd([dataRow]);
     const r = parseSheet(md, "t.md");
     const alice = r.crewMembers.find((m) => (m.name ?? "").includes("Alice"));
@@ -92,7 +129,17 @@ describe("parseTravelFlights — synthetic edge cases", () => {
 
   it("named cell with date AND 'FLIGHT #' text → PARSES (not legend-dropped)", () => {
     // A real flight cell that happens to contain the text "FLIGHT #" — must parse
-    const dataRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 FLIGHT # AA123 JFK - LAX");
+    const dataRow = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/15 FLIGHT # AA123 JFK - LAX",
+    );
     const md = crewSection(["Alice Smith"]) + "\n\n" + makeTravelMd([dataRow]);
     const r = parseSheet(md, "t.md");
     const alice = r.crewMembers.find((m) => (m.name ?? "").includes("Alice"));
@@ -103,8 +150,28 @@ describe("parseTravelFlights — synthetic edge cases", () => {
 
   it("blank-NAME legend row (CODE/XXX-XXX) → no flight, no warning", () => {
     // The fintech pattern: last row has blank NAME cell but flight-like content
-    const legendRow = row("", "ROLE", "", "", "", "", "", "CODE DATE FLIGHT \\# XXX - XXX TIME", "CODE DATE FLIGHT \\# XXX - XXX TIME");
-    const dataRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 AA123 JFK - LAX 8:00am");
+    const legendRow = row(
+      "",
+      "ROLE",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "CODE DATE FLIGHT \\# XXX - XXX TIME",
+      "CODE DATE FLIGHT \\# XXX - XXX TIME",
+    );
+    const dataRow = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/15 AA123 JFK - LAX 8:00am",
+    );
     const md = crewSection(["Alice Smith"]) + "\n\n" + makeTravelMd([dataRow, legendRow]);
     const r = parseSheet(md, "t.md");
     // Only Alice gets a flight; blank-name row triggers break → no warning for it
@@ -143,8 +210,28 @@ describe("parseTravelFlights — synthetic edge cases", () => {
     // AND in a synthetic TRAVEL table with a real flight — the NOTES/DRIVING TECH-col would be null,
     // so we need another approach.
     // The cleanest way: ensure TRAVEL path assigns only once. Duplicate TRAVEL rows for same person.
-    const dataRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 AA123 JFK - LAX 8:00am");
-    const dataRow2 = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/20 AA999 LAX - JFK 9:00am");
+    const dataRow = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/15 AA123 JFK - LAX 8:00am",
+    );
+    const dataRow2 = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/20 AA999 LAX - JFK 9:00am",
+    );
     const md = crewSection(["Alice Smith"]) + "\n\n" + makeTravelMd([dataRow, dataRow2]);
     const r = parseSheet(md, "t.md");
     const alice = r.crewMembers.find((m) => (m.name ?? "").includes("Alice"));
@@ -175,9 +262,12 @@ describe("parseTravelFlights — synthetic edge cases", () => {
   it("non-TRAVEL scoping: NAME…FLIGHT DETAILS table lacking FLIGHT BOOKED/OK TO BOOK? → not matched", () => {
     // A table with NAME and FLIGHT DETAILS but WITHOUT the sibling cols → not a TRAVEL block
     const nonTravelHeader = "| NAME | ROLE | NOTES | FLIGHT DETAILS |";
-    const nonTravelSep    = "| :---: | :---: | :---: | :---: |";
-    const nonTravelRow    = "| Alice Smith | CREW |  | 3/15 AA123 JFK - LAX 8:00am |";
-    const md = crewSection(["Alice Smith"]) + "\n\n" + [nonTravelHeader, nonTravelSep, nonTravelRow].join("\n");
+    const nonTravelSep = "| :---: | :---: | :---: | :---: |";
+    const nonTravelRow = "| Alice Smith | CREW |  | 3/15 AA123 JFK - LAX 8:00am |";
+    const md =
+      crewSection(["Alice Smith"]) +
+      "\n\n" +
+      [nonTravelHeader, nonTravelSep, nonTravelRow].join("\n");
     const r = parseSheet(md, "t.md");
     const alice = r.crewMembers.find((m) => (m.name ?? "").includes("Alice"));
     expect(alice?.flight_info).toBeNull();
@@ -185,7 +275,17 @@ describe("parseTravelFlights — synthetic edge cases", () => {
   });
 
   it("duplicate TRAVEL blocks → no mutation, one TRAVEL_FLIGHT_AMBIGUOUS_TABLE", () => {
-    const dataRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 AA123 JFK - LAX 8:00am");
+    const dataRow = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/15 AA123 JFK - LAX 8:00am",
+    );
     const block1 = makeTravelMd([dataRow]);
     const block2 = makeTravelMd([dataRow]);
     const md = crewSection(["Alice Smith"]) + "\n\n" + block1 + "\n\n" + block2;
@@ -200,10 +300,31 @@ describe("parseTravelFlights — synthetic edge cases", () => {
     // SINGLE contiguous pipe block holding two header-signature rows. The duplicate fail-safe
     // must still fire — otherwise the stale rows are processed first and attach the wrong flight
     // (TECH-style precedence then blocks the current row from overwriting it).
-    const header = "| NAME | ROLE |  | CONFIRMED | FLIGHT BOOKED |  | OK to BOOK? | NOTES | FLIGHT DETAILS | FLIGHT DETAILS |";
+    const header =
+      "| NAME | ROLE |  | CONFIRMED | FLIGHT BOOKED |  | OK to BOOK? | NOTES | FLIGHT DETAILS | FLIGHT DETAILS |";
     const sep = "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |";
-    const staleRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/01 AA999 OLD - STALE 1:00am");
-    const currentRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 AA123 JFK - LAX 8:00am");
+    const staleRow = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/01 AA999 OLD - STALE 1:00am",
+    );
+    const currentRow = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/15 AA123 JFK - LAX 8:00am",
+    );
     // NO blank line anywhere → one contiguous pipe block with TWO TRAVEL headers.
     const adjacentDup = [header, sep, staleRow, header, sep, currentRow].join("\n");
     const md = crewSection(["Alice Smith"]) + "\n\n" + adjacentDup;
@@ -217,13 +338,28 @@ describe("parseTravelFlights — synthetic edge cases", () => {
     // The TRAVEL block ends at first non-pipe line; a second table after a blank line is NOT part of the TRAVEL block.
     // Build a TRAVEL block for Alice; after a blank line, a plain table with Bob (non-TRAVEL signature).
     // Bob should NOT have flight_info assigned (the second table lacks FLIGHT BOOKED/OK TO BOOK?).
-    const dataRow = row("Alice Smith", "CREW", "", "TRUE", "TRUE", "", "TRUE", "", "3/15 AA123 JFK - LAX 8:00am");
+    const dataRow = row(
+      "Alice Smith",
+      "CREW",
+      "",
+      "TRUE",
+      "TRUE",
+      "",
+      "TRUE",
+      "",
+      "3/15 AA123 JFK - LAX 8:00am",
+    );
     // Following table has NAME + FLIGHT DETAILS but no FLIGHT BOOKED sibling → not a TRAVEL block
     const followingTableHeader = "| NAME | NOTES | FLIGHT DETAILS |";
-    const followingTableSep    = "| :---: | :---: | :---: |";
-    const followingTableRow    = "| Bob Jones | note | 3/20 AA999 LAX - JFK 9:00am |";
+    const followingTableSep = "| :---: | :---: | :---: |";
+    const followingTableRow = "| Bob Jones | note | 3/20 AA999 LAX - JFK 9:00am |";
     const followingTable = [followingTableHeader, followingTableSep, followingTableRow].join("\n");
-    const md = crewSection(["Alice Smith", "Bob Jones"]) + "\n\n" + makeTravelMd([dataRow]) + "\n\n" + followingTable;
+    const md =
+      crewSection(["Alice Smith", "Bob Jones"]) +
+      "\n\n" +
+      makeTravelMd([dataRow]) +
+      "\n\n" +
+      followingTable;
     const r = parseSheet(md, "t.md");
     // Only the real TRAVEL block is parsed; the following table (no FLIGHT BOOKED sibling) is ignored
     const bob = r.crewMembers.find((m) => (m.name ?? "").includes("Bob"));

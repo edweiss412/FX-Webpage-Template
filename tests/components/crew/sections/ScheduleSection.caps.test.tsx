@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
 import { render } from "@testing-library/react";
-import { ScheduleSection, RUN_OF_SHOW_DISPLAY_CAP } from "@/components/crew/sections/ScheduleSection";
+import {
+  ScheduleSection,
+  RUN_OF_SHOW_DISPLAY_CAP,
+} from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry } from "@/lib/parser/types";
 
@@ -22,7 +25,10 @@ function renderEntries(entries: AgendaEntry[]) {
   ).container;
 }
 const mkEntries = (n: number): AgendaEntry[] =>
-  Array.from({ length: n }, (_, i) => ({ start: `${i}:00`, title: `Session ${String(i + 1).padStart(2, "0")}` }));
+  Array.from({ length: n }, (_, i) => ({
+    start: `${i}:00`,
+    title: `Session ${String(i + 1).padStart(2, "0")}`,
+  }));
 
 describe("Schedule run-of-show — display cap + 80-char title truncation (test 7a)", () => {
   test(`cap+1 (${RUN_OF_SHOW_DISPLAY_CAP + 1}) → exactly cap rows + stub count = length − cap (tail-trim)`, () => {
@@ -37,8 +43,12 @@ describe("Schedule run-of-show — display cap + 80-char title truncation (test 
     // SCOPED to the run-of-show list (anti-tautology); the absence check on the
     // whole container is strictly stronger.
     const list = c.querySelector(`[data-testid="run-of-show-${D1}"]`)!;
-    expect(list.textContent ?? "").toContain(`Session ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`);
-    expect(c.textContent ?? "").not.toContain(`Session ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`);
+    expect(list.textContent ?? "").toContain(
+      `Session ${String(RUN_OF_SHOW_DISPLAY_CAP).padStart(2, "0")}`,
+    );
+    expect(c.textContent ?? "").not.toContain(
+      `Session ${String(RUN_OF_SHOW_DISPLAY_CAP + 1).padStart(2, "0")}`,
+    );
   });
 
   test(`exactly cap (${RUN_OF_SHOW_DISPLAY_CAP}) → all rows, NO stub (no +0 at >= cap)`, () => {

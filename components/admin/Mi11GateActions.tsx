@@ -127,11 +127,7 @@ export function Mi11GateActions({
   // NO error. So a newer submission (pending or success) immediately supersedes any
   // prior error.
   const lastResult =
-    lastSubmitted === "approve"
-      ? approveResult
-      : lastSubmitted === "reject"
-        ? rejectResult
-        : null;
+    lastSubmitted === "approve" ? approveResult : lastSubmitted === "reject" ? rejectResult : null;
   const lastPending =
     lastSubmitted === "approve"
       ? approvePending

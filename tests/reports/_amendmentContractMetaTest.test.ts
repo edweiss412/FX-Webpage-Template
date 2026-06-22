@@ -10,7 +10,9 @@ const REAPER_SOURCE = readFileSync(
 );
 
 function urlWritingUpdates(source: string): string[] {
-  const matches = source.match(/UPDATE\s+reports\s+SET\s+github_issue_url[\s\S]*?(?:RETURNING|;)/gi);
+  const matches = source.match(
+    /UPDATE\s+reports\s+SET\s+github_issue_url[\s\S]*?(?:RETURNING|;)/gi,
+  );
   return matches ?? [];
 }
 
@@ -23,7 +25,9 @@ describe("META §13.2.3 amendment structural contract", () => {
   test("every URL-writing reports UPDATE is lease-holder fenced", () => {
     const updates = urlWritingUpdates(REPORT_SOURCE);
 
-    expect(updates.length, "expected at least one reports.github_issue_url UPDATE").toBeGreaterThan(0);
+    expect(updates.length, "expected at least one reports.github_issue_url UPDATE").toBeGreaterThan(
+      0,
+    );
     for (const update of updates) {
       const leaseFenced = /AND\s+lease_holder\s*=\s*\$\d+::uuid/i.test(update);
       expect(

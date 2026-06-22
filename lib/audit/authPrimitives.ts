@@ -1,14 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import {
-  CallExpression,
-  Node,
-  Project,
-  ScriptKind,
-  SourceFile,
-  SyntaxKind,
-} from "ts-morph";
+import { CallExpression, Node, Project, ScriptKind, SourceFile, SyntaxKind } from "ts-morph";
 
 import { ADMIN_TABLES } from "@/lib/audit/admin-tables.generated";
 import { auditProtectedRouteCompleteness } from "@/lib/audit/protectedRoutes";
@@ -100,7 +93,10 @@ const RPC_ALLOWLIST: readonly string[] = [];
 
 function makeSourceFile(filePath: string, source: string): SourceFile {
   const project = new Project({ useInMemoryFileSystem: true });
-  return project.createSourceFile(filePath, source, { overwrite: true, scriptKind: ScriptKind.TSX });
+  return project.createSourceFile(filePath, source, {
+    overwrite: true,
+    scriptKind: ScriptKind.TSX,
+  });
 }
 
 function repoPath(filePath: string): string {
@@ -137,10 +133,7 @@ function callName(call: CallExpression): string | null {
 
 function normalizeValidator(name: string | null): ChainStep | null {
   if (name === "requireAdmin" || name === "requireAdminIdentity") return "requireAdmin";
-  if (
-    name === "validateGoogleSession" ||
-    name === "validateGoogleIdentity"
-  ) {
+  if (name === "validateGoogleSession" || name === "validateGoogleIdentity") {
     return name;
   }
   return null;
@@ -180,7 +173,11 @@ function exportedFunctionNodes(sf: SourceFile): ServerActionEntry[] {
   const entries: ServerActionEntry[] = [];
   for (const statement of sf.getStatements()) {
     if (Node.isFunctionDeclaration(statement) && isExportedDeclaration(statement)) {
-      entries.push({ name: statement.getName() ?? "default", node: statement, directiveKind: "module" });
+      entries.push({
+        name: statement.getName() ?? "default",
+        node: statement,
+        directiveKind: "module",
+      });
     }
     if (Node.isVariableStatement(statement) && isExportedDeclaration(statement)) {
       for (const declaration of statement.getDeclarations()) {
@@ -212,7 +209,7 @@ export function findServerActionsInFile(sf: SourceFile): ServerActionEntry[] {
         name:
           Node.isFunctionDeclaration(fn) || Node.isMethodDeclaration(fn)
             ? (fn.getName() ?? "<anonymous>")
-            : getVariableNameForFunction(fn) ?? "<anonymous>",
+            : (getVariableNameForFunction(fn) ?? "<anonymous>"),
         node: fn,
         directiveKind: "function-scoped",
       });
@@ -241,11 +238,17 @@ function defaultExportNode(sf: SourceFile): Node | null {
 
 function exportedNamedNode(sf: SourceFile, name: string): Node | null {
   for (const statement of sf.getStatements()) {
-    if (Node.isFunctionDeclaration(statement) && statement.isExported() && statement.getName() === name) {
+    if (
+      Node.isFunctionDeclaration(statement) &&
+      statement.isExported() &&
+      statement.getName() === name
+    ) {
       return statement;
     }
     if (Node.isVariableStatement(statement) && statement.isExported()) {
-      const declaration = statement.getDeclarations().find((candidate) => candidate.getName() === name);
+      const declaration = statement
+        .getDeclarations()
+        .find((candidate) => candidate.getName() === name);
       if (declaration) return declaration.getInitializer() ?? declaration;
     }
   }
@@ -257,9 +260,11 @@ export function findRequestEntries(sf: SourceFile): RequestEntry[] {
   const base = path.split("/").at(-1) ?? "";
   const entries: RequestEntry[] = [];
   const generated = exportedNamedNode(sf, "generateMetadata");
-  if (generated) entries.push({ kind: "generate-metadata", name: "generateMetadata", node: generated });
+  if (generated)
+    entries.push({ kind: "generate-metadata", name: "generateMetadata", node: generated });
   const viewport = exportedNamedNode(sf, "generateViewport");
-  if (viewport) entries.push({ kind: "generate-viewport", name: "generateViewport", node: viewport });
+  if (viewport)
+    entries.push({ kind: "generate-viewport", name: "generateViewport", node: viewport });
   for (const method of ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"]) {
     const node = exportedNamedNode(sf, method);
     if (node) entries.push({ kind: "route-handler", name: method, node });
@@ -372,7 +377,11 @@ function statementIndexFor(node: Node): number {
   return parent.getStatements().findIndex((statement) => statement === current);
 }
 
-function wrapperSegments(fn: Node): { base: string | null; segments: string[]; bodyIndex?: number } {
+function wrapperSegments(fn: Node): {
+  base: string | null;
+  segments: string[];
+  bodyIndex?: number;
+} {
   const segments: string[] = [];
   let current: Node | undefined = fn;
   let cursor: Node | undefined = fn;
@@ -533,13 +542,21 @@ function collectEvents(sf: SourceFile, root: Node, options: AuthAuditOptions): E
     if (isDynamicFromCall(call)) {
       const finding = dynamicFromAllowlistFinding(sf, call, options.dynamicFromAllowlist ?? []);
       if (finding) {
-        events.push({ kind: "sink", name: "dynamic .from(<arg>)", pos: call.getStart(), node: call });
+        events.push({
+          kind: "sink",
+          name: "dynamic .from(<arg>)",
+          pos: call.getStart(),
+          node: call,
+        });
       }
     }
     if (name) {
       const helperSource = resolveImportedHelperSource(sf, name);
       if (helperSource) {
-        const helperSf = makeSourceFile(`${dirname(repoPath(sf.getFilePath()))}/${name}.inline.ts`, helperSource);
+        const helperSf = makeSourceFile(
+          `${dirname(repoPath(sf.getFilePath()))}/${name}.inline.ts`,
+          helperSource,
+        );
         const helperNode = exportedNamedNode(helperSf, name);
         if (helperNode) {
           const helperEvents = collectEvents(helperSf, helperNode, options);
@@ -562,7 +579,12 @@ function sourceSlice(root: Node, start: number, end: number): string {
   return full.slice(start, end);
 }
 
-function kindChecked(root: Node, event: Event, required: "success" | "continue", before: number): boolean {
+function kindChecked(
+  root: Node,
+  event: Event,
+  required: "success" | "continue",
+  before: number,
+): boolean {
   if (event.name === "requireAdmin") return true;
   if (!event.binding) return false;
   const window = sourceSlice(root, event.pos, before);
@@ -570,11 +592,20 @@ function kindChecked(root: Node, event: Event, required: "success" | "continue",
   return new RegExp(`${binding}\\s*\\.\\s*kind\\s*={2,3}\\s*["']${required}["']`).test(window);
 }
 
-function previous(events: readonly Event[], pos: number, predicate: (event: Event) => boolean): Event[] {
+function previous(
+  events: readonly Event[],
+  pos: number,
+  predicate: (event: Event) => boolean,
+): Event[] {
   return events.filter((event) => event.pos < pos && predicate(event));
 }
 
-function chainAccepted(root: Node, chain: readonly ChainStep[], events: readonly Event[], sink: Event): string | null {
+function chainAccepted(
+  root: Node,
+  chain: readonly ChainStep[],
+  events: readonly Event[],
+  sink: Event,
+): string | null {
   const validators = previous(events, sink.pos, (event) => event.kind === "validator");
   const positions = chain.map((step) => validators.find((event) => event.name === step));
   for (let index = 1; index < positions.length; index += 1) {
@@ -591,7 +622,11 @@ function chainAccepted(root: Node, chain: readonly ChainStep[], events: readonly
   if (chain[0] === "requireAdmin") {
     const first = concrete[0];
     if (!first) return `missing validator ${chain[0]}`;
-    const adminPredicate = previous(events, first.pos, (event) => event.kind === "admin-predicate").at(-1);
+    const adminPredicate = previous(
+      events,
+      first.pos,
+      (event) => event.kind === "admin-predicate",
+    ).at(-1);
     if (!adminPredicate) return "requireAdmin must be under isAdminSession admin precedence guard";
   }
   for (let index = 0; index < concrete.length; index += 1) {
@@ -617,7 +652,10 @@ function auditEntry(
   options: AuthAuditOptions,
 ): string[] {
   const findings: string[] = [];
-  const events = collectEvents(sf, entry.node, options).map((event) => ({ ...event, entryKind: entry.kind as RequestEntryKind }));
+  const events = collectEvents(sf, entry.node, options).map((event) => ({
+    ...event,
+    entryKind: entry.kind as RequestEntryKind,
+  }));
   const candidates = candidateChains(chain);
   for (const sink of events.filter((event) => event.kind === "sink")) {
     const priorRequireAdmin = previous(
@@ -645,13 +683,21 @@ function auditEntry(
       if (!lastReason || reason.includes("continue")) lastReason = reason;
     }
     if (!accepted) {
-      const firstValidator = previous(events, sink.pos, (event) => event.kind === "validator").at(-1);
+      const firstValidator = previous(events, sink.pos, (event) => event.kind === "validator").at(
+        -1,
+      );
       const laterValidator = events.some(
         (event) => event.kind === "validator" && event.pos > sink.pos,
       );
-      const orderReason = firstValidator ? lastReason : laterValidator ? "sink before terminal validator" : "missing validator";
+      const orderReason = firstValidator
+        ? lastReason
+        : laterValidator
+          ? "sink before terminal validator"
+          : "missing validator";
       const sinkBefore =
-        firstValidator && sink.pos < firstValidator.pos ? "sink before terminal validator" : orderReason;
+        firstValidator && sink.pos < firstValidator.pos
+          ? "sink before terminal validator"
+          : orderReason;
       findings.push(
         `${repoPath(sf.getFilePath())}: ${entry.kind} ${entry.name}: ${sinkBefore} for ${sink.name}`,
       );
@@ -714,7 +760,11 @@ function auditDynamicFromAllowlist(sf: SourceFile, options: AuthAuditOptions): s
   return findings;
 }
 
-export function auditAuthSource(filePath: string, source: string, options: AuthAuditOptions = {}): string[] {
+export function auditAuthSource(
+  filePath: string,
+  source: string,
+  options: AuthAuditOptions = {},
+): string[] {
   const sf = makeSourceFile(filePath, source);
   const path = repoPath(filePath);
   const findings = [...auditBannedPrimitives(sf), ...auditDynamicFromAllowlist(sf, options)];
@@ -726,7 +776,12 @@ export function auditAuthSource(filePath: string, source: string, options: AuthA
     const domain = inheritedActionDomain(path);
     const chain = expectedChainForDomain(path, domain) ?? CREW_SESSION_CHAINS;
     findings.push(
-      ...auditEntry(sf, { node: action.node, kind: "server-action", name: action.name }, chain, options),
+      ...auditEntry(
+        sf,
+        { node: action.node, kind: "server-action", name: action.name },
+        chain,
+        options,
+      ),
     );
   }
 
@@ -774,11 +829,7 @@ export function auditProjectAuthChains(options: AuthAuditOptions = {}): string[]
     // suite above pins the raw primitive failure modes; live-route scanning
     // keeps the registry and banned-primitive gates active without forcing
     // route rewrites in this backend-audit task.
-    if (
-      /resolveViewer\s*\(|requireAdmin(?:Identity)?\s*\(/.test(
-        source,
-      )
-    ) {
+    if (/resolveViewer\s*\(|requireAdmin(?:Identity)?\s*\(/.test(source)) {
       findings.push(...auditBannedPrimitives(makeSourceFile(file, source)));
       continue;
     }

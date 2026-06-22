@@ -242,10 +242,7 @@ describe("applyStaged live-scope", () => {
 
   test("wrapper aborts live Apply when staged_id changes between Drive verification and locked CAS", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
-    const pendingRows = [
-      pending(),
-      pending({ stagedId: "staged-from-concurrent-reviewer" }),
-    ];
+    const pendingRows = [pending(), pending({ stagedId: "staged-from-concurrent-reviewer" })];
     const syncDeps = deps({
       withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
       readLivePendingSyncForApply: vi.fn(async () => pendingRows.shift() ?? null),
@@ -342,7 +339,10 @@ describe("applyStaged live-scope", () => {
     const syncDeps = deps({
       readLivePendingSyncForApply: vi.fn(async () =>
         // First-seen: baseModifiedTime must be null to match a null show watermark (else superseded).
-        pending({ triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }], baseModifiedTime: null }),
+        pending({
+          triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }],
+          baseModifiedTime: null,
+        }),
       ),
       readShowForApply: vi.fn(async () => null), // first-seen: no show row yet
       liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
@@ -368,7 +368,10 @@ describe("applyStaged live-scope", () => {
     // Adversarial R2: the SAME token must reach BOTH runPhase2 (→ applyShowSnapshot PERSISTS
     // shows.unpublish_token — the only persistence path) AND the tail (the SHOW_FIRST_PUBLISHED notice).
     // Passing it only to the tail emails a rollback link that unpublishShow can't honor (null token).
-    const tokenPayload = { unpublishToken: "tok-1", unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z" };
+    const tokenPayload = {
+      unpublishToken: "tok-1",
+      unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
+    };
     expect(syncDeps.runPhase2).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({ autoPublishFirstSeen: tokenPayload }),
@@ -384,31 +387,54 @@ describe("applyStaged live-scope", () => {
   });
 
   // (added — reuses this file's top-of-file fixtures + imports)
-  const EMPTIED2 = { severity: "warn" as const, code: "AGENDA_DAY_EMPTIED", message: "d went read-empty" };
+  const EMPTIED2 = {
+    severity: "warn" as const,
+    code: "AGENDA_DAY_EMPTIED",
+    message: "d went read-empty",
+  };
   test("R17: a staged first-seen auto-publish apply whose runPhase2 returns AGENDA_DAY_EMPTIED passes it to the tail's applied result", async () => {
     // Typed param so tail.mock.calls[0][0] is the args object (an untyped spy has an empty-tuple call signature).
     const tail = vi.fn(
-      async (_args: Parameters<NonNullable<ApplyStagedDeps["emitSuccessfulPhase2Tail"]>>[0]) => undefined,
+      async (_args: Parameters<NonNullable<ApplyStagedDeps["emitSuccessfulPhase2Tail"]>>[0]) =>
+        undefined,
     );
-    const syncDeps = deps({                                 // applyStaged.test.ts:149 — supplies ALL required deps
+    const syncDeps = deps({
+      // applyStaged.test.ts:149 — supplies ALL required deps
       readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }], baseModifiedTime: null })),
-      readShowForApply: vi.fn(async () => null),             // first-seen: no show row yet
+        pending({
+          triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }],
+          baseModifiedTime: null,
+        }),
+      ),
+      readShowForApply: vi.fn(async () => null), // first-seen: no show row yet
       liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
-      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new", parseWarnings: [EMPTIED2] })),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-new",
+        parseWarnings: [EMPTIED2],
+      })),
       emitSuccessfulPhase2Tail: tail,
       createUnpublishToken: () => "tok-1",
       now: () => new Date("2026-05-08T12:00:00.000Z"),
     });
     await applyStaged_unlocked(
-      fakeTx() as LockedShowTx<FakeTx>,                      // applyStaged.test.ts:107 — queryOne→{held:true} satisfies the lock assert
-      { driveFileId: "drive-file-1", sourceScope: "live", stagedId: "staged-live",
-        reviewerChoices: [{ item_id: "fs-1", action: "apply" }], appliedByEmail: "doug@fxav.test" },
+      fakeTx() as LockedShowTx<FakeTx>, // applyStaged.test.ts:107 — queryOne→{held:true} satisfies the lock assert
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "fs-1", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
       syncDeps,
     );
     expect(tail).toHaveBeenCalledTimes(1);
-    const tailArg = tail.mock.calls[0]![0] as { result: { parseWarnings?: Array<{ code: string }> } };
-    expect((tailArg.result.parseWarnings ?? []).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+    const tailArg = tail.mock.calls[0]![0] as {
+      result: { parseWarnings?: Array<{ code: string }> };
+    };
+    expect((tailArg.result.parseWarnings ?? []).some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(
+      true,
+    );
     // EXPECTED RED (sourcing, NOT precondition/compile): all required deps + the first-seen pending row are supplied, so the
     //   auto_publish_ready path reaches the tail; before impl, applyStaged.ts:1280 builds `result:{outcome:"applied",showId}`
     //   with no parseWarnings (and applyStagedCore drops phase2.parseWarnings) → tailArg.result.parseWarnings is undefined → fails for the RIGHT reason.
@@ -429,7 +455,10 @@ describe("applyStaged live-scope", () => {
     // args.deps.upsertAdminAlert, which here is applyStaged's DEFAULT tx-bound writer.
     const syncDeps = deps({
       readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }], baseModifiedTime: null }),
+        pending({
+          triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }],
+          baseModifiedTime: null,
+        }),
       ),
       readShowForApply: vi.fn(async () => null),
       liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
@@ -453,9 +482,14 @@ describe("applyStaged live-scope", () => {
     );
 
     const alertCall = tx.queryOneCalls.find((c) => /upsert_admin_alert/i.test(c.sql));
-    expect(alertCall, "default first-published writer must route through tx.queryOne(upsert_admin_alert)").toBeDefined();
+    expect(
+      alertCall,
+      "default first-published writer must route through tx.queryOne(upsert_admin_alert)",
+    ).toBeDefined();
     // Exact production statement (same as tests/db/b2-first-published-alert-tx-boundary.test.ts).
-    expect(alertCall!.sql).toBe("select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id");
+    expect(alertCall!.sql).toBe(
+      "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
+    );
     expect(alertCall!.params[0]).toBe("show-new");
     expect(alertCall!.params[1]).toBe("SHOW_FIRST_PUBLISHED");
     // Context passed RAW as an object (NOT JSON.stringify'd): postgres.js serializes the $3::jsonb param

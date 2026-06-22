@@ -23,13 +23,7 @@ const DOT_BG: Record<StatusKind, string> = {
   idle: "bg-status-idle",
 };
 
-export function StatusIndicator({
-  status,
-  label,
-}: {
-  status: StatusKind;
-  label: string;
-}) {
+export function StatusIndicator({ status, label }: { status: StatusKind; label: string }) {
   const known: StatusKind = (STATUSES as readonly string[]).includes(status)
     ? (status as StatusKind)
     : "idle";

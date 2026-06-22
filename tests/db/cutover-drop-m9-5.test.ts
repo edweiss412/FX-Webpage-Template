@@ -17,7 +17,9 @@ describe("M11.5 G3 M9.5 cutover migration", () => {
       "link_sessions",
       "bootstrap_nonces",
     ]) {
-      expect(sql).toMatch(new RegExp(`drop\\s+policy\\s+if\\s+exists\\s+admin_only\\s+on\\s+public\\.${table}`, "i"));
+      expect(sql).toMatch(
+        new RegExp(`drop\\s+policy\\s+if\\s+exists\\s+admin_only\\s+on\\s+public\\.${table}`, "i"),
+      );
       expect(sql).toMatch(new RegExp(`drop\\s+table\\s+if\\s+exists\\s+public\\.${table}`, "i"));
     }
 

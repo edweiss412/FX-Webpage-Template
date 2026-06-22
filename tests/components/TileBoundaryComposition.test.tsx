@@ -149,8 +149,7 @@ describe("TileErrorBoundary + TileServerFallback composition", () => {
       // Mimic the page-level View behavior: View returns null when not
       // visible; WrappedTile's `?? <></>` fallback materializes the null
       // result as an empty fragment so the tile reflows away.
-      render: () =>
-        audioScopeVisible(viewerFlagsNoScope) ? <HappyView value="audio" /> : <></>,
+      render: () => (audioScopeVisible(viewerFlagsNoScope) ? <HappyView value="audio" /> : <></>),
       tileId: "audio-scope-tile",
       showId: "show-1",
     });

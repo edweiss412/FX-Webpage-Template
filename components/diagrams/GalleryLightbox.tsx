@@ -521,22 +521,13 @@ export function GalleryLightbox({
                         // a subsequent + keypress targets 1.5 from
                         // a clamped 1.0 base, not 1.1 from 0.6.
                         onPinchStop={(ref) => {
-                          requestedScaleRef.current = Math.max(
-                            1,
-                            Math.min(4, ref.state.scale),
-                          );
+                          requestedScaleRef.current = Math.max(1, Math.min(4, ref.state.scale));
                         }}
                         onZoomStop={(ref) => {
-                          requestedScaleRef.current = Math.max(
-                            1,
-                            Math.min(4, ref.state.scale),
-                          );
+                          requestedScaleRef.current = Math.max(1, Math.min(4, ref.state.scale));
                         }}
                         onWheelStop={(ref) => {
-                          requestedScaleRef.current = Math.max(
-                            1,
-                            Math.min(4, ref.state.scale),
-                          );
+                          requestedScaleRef.current = Math.max(1, Math.min(4, ref.state.scale));
                         }}
                         smooth={!prefersReducedMotion}
                         // Codex R5 HIGH (zoomed-toggle): library

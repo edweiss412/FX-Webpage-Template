@@ -126,9 +126,7 @@ function maybeForceTestInfraFail(
   }
 }
 
-export async function requireAdminIdentity(
-  opts?: RequireAdminOpts,
-): Promise<AdminIdentity> {
+export async function requireAdminIdentity(opts?: RequireAdminOpts): Promise<AdminIdentity> {
   const layer = opts?.layer ?? "page";
   let forceHeaders: Awaited<ReturnType<typeof headers>> | null = null;
   try {

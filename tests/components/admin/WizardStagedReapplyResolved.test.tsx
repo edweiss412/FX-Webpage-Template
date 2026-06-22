@@ -98,12 +98,12 @@ describe("F3 — already-resolved state (spec §5)", () => {
         "It was applied or set aside, possibly from another tab. Nothing else is needed here.",
       ),
     ).toBeTruthy();
-    expect(
-      resolved.getByRole("link", { name: "Back to setup" }).getAttribute("href"),
-    ).toBe("/admin/onboarding");
-    expect(
-      resolved.getByRole("link", { name: "Go to dashboard" }).getAttribute("href"),
-    ).toBe("/admin");
+    expect(resolved.getByRole("link", { name: "Back to setup" }).getAttribute("href")).toBe(
+      "/admin/onboarding",
+    );
+    expect(resolved.getByRole("link", { name: "Go to dashboard" }).getAttribute("href")).toBe(
+      "/admin",
+    );
     expect(notFoundMock).not.toHaveBeenCalled();
     // The re-apply working shell must NOT render alongside the resolved state.
     expect(queryByTestId("wizard-staged-reapply-page")).toBeNull();
@@ -156,9 +156,7 @@ describe("F3 — already-resolved state (spec §5)", () => {
     expect((await metadataFor(WSID)).title).toBe("Sheet already resolved · Admin · FXAV");
     // Malformed id → resolved title WITHOUT querying (same pre-query guard).
     state.queryCount = 0;
-    expect((await metadataFor("not-a-uuid")).title).toBe(
-      "Sheet already resolved · Admin · FXAV",
-    );
+    expect((await metadataFor("not-a-uuid")).title).toBe("Sheet already resolved · Admin · FXAV");
     expect(state.queryCount).toBe(0);
     // Found row → the working-shell title (sibling-page format, page.tsx:33 form).
     state.row = {

@@ -33,9 +33,7 @@ test.describe("AC-X.2 no raw codes runtime crawl", () => {
   });
 
   for (const name of ["bad-controlled-input.html", "bad-controlled-textarea.html"]) {
-    test(`live DOM property crawl catches controlled ${name} raw code values`, async ({
-      page,
-    }) => {
+    test(`live DOM property crawl catches controlled ${name} raw code values`, async ({ page }) => {
       await page.setContent(readFileSync(`${RUNTIME_FIXTURE_ROOT}/${name}`, "utf8"));
       const leaks = await scanPage(page);
       expect(leaks.map((leak) => leak.phase)).toContain("live-dom-property");

@@ -300,10 +300,7 @@ export function auditNoRawCodesInSourceFiles(
  * — only the link href carries the code, and the rendered link text is
  * "Learn more →" not the code.
  */
-const HELP_DOCS_CATALOG_RENDER_PATHS = new Set([
-  "/help/errors",
-  "/help/admin/parse-warnings",
-]);
+const HELP_DOCS_CATALOG_RENDER_PATHS = new Set(["/help/errors", "/help/admin/parse-warnings"]);
 
 export function discoverStaticAppRoutePaths(): string[] {
   return walkSourceFiles(["app"])
@@ -334,11 +331,7 @@ export async function collectRawCodeLeaksInPage(
         sources: string[];
       };
       const leaks: Leak[] = [];
-      const check = (
-        phase: Leak["phase"],
-        kind: string,
-        value: string | null | undefined,
-      ) => {
+      const check = (phase: Leak["phase"], kind: string, value: string | null | undefined) => {
         if (!value) return;
         for (const entry of codeEntries) {
           if (value.includes(entry.code)) {
@@ -347,11 +340,15 @@ export async function collectRawCodeLeaksInPage(
         }
       };
       const walk = (root: Element | ShadowRoot) => {
-        const children = root instanceof Element ? [root, ...root.querySelectorAll("*")] : [...root.querySelectorAll("*")];
+        const children =
+          root instanceof Element
+            ? [root, ...root.querySelectorAll("*")]
+            : [...root.querySelectorAll("*")];
         for (const node of children) {
           check("textContent", node.tagName.toLowerCase(), node.textContent ?? "");
           for (const attr of attrs) check("attribute", `@${attr}`, node.getAttribute(attr));
-          if (node instanceof HTMLInputElement) check("live-dom-property", "input.value", node.value);
+          if (node instanceof HTMLInputElement)
+            check("live-dom-property", "input.value", node.value);
           if (node instanceof HTMLTextAreaElement)
             check("live-dom-property", "textarea.value", node.value);
           if (node instanceof HTMLSelectElement) {

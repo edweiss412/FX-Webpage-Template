@@ -353,8 +353,7 @@ export async function getStagedResult(filename: string): Promise<ParseAndStageRe
   };
   const parseResult = row.parse_result;
   const triggeredReviewItems = asTriggeredReviewItems(row.triggered_review_items);
-  const outcome: InvariantOutcome["outcome"] =
-    triggeredReviewItems.length > 0 ? "stage" : "pass";
+  const outcome: InvariantOutcome["outcome"] = triggeredReviewItems.length > 0 ? "stage" : "pass";
 
   return {
     filename,

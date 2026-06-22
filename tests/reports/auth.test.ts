@@ -110,9 +110,7 @@ describe("POST /api/report auth skeleton", () => {
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ ok: false });
-    expect(authMock.pickerCalls).toEqual([
-      { showId: validBody.show_id, cookie: undefined },
-    ]);
+    expect(authMock.pickerCalls).toEqual([{ showId: validBody.show_id, cookie: undefined }]);
     expect(authMock.requireAdminIdentity).toHaveBeenCalledOnce();
   });
 

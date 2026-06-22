@@ -1,13 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { relative } from "node:path";
-import {
-  Node,
-  Project,
-  ScriptKind,
-  SourceFile,
-  SyntaxKind,
-  type BinaryExpression,
-} from "ts-morph";
+import { Node, Project, ScriptKind, SourceFile, SyntaxKind, type BinaryExpression } from "ts-morph";
 
 import {
   AUTHORITATIVE_GATING_WATERMARKS,
@@ -138,7 +131,9 @@ export function extractAllowedWatermarkColumnPairs(): SchemaColumn[] {
 }
 
 function allowedColumnKeys(): Set<string> {
-  return new Set(extractAllowedWatermarkColumnPairs().map((pair) => `${pair.table_name}.${pair.column_name}`));
+  return new Set(
+    extractAllowedWatermarkColumnPairs().map((pair) => `${pair.table_name}.${pair.column_name}`),
+  );
 }
 
 export function auditSchemaColumns(columns: readonly SchemaColumn[]): string[] {
@@ -158,7 +153,10 @@ export function auditSchemaColumns(columns: readonly SchemaColumn[]): string[] {
 
 function makeSourceFile(filePath: string, source: string): SourceFile {
   const project = new Project({ useInMemoryFileSystem: true });
-  return project.createSourceFile(filePath, source, { overwrite: true, scriptKind: ScriptKind.TSX });
+  return project.createSourceFile(filePath, source, {
+    overwrite: true,
+    scriptKind: ScriptKind.TSX,
+  });
 }
 
 function qualifiedPropertyAccess(node: Node): string | null {
@@ -167,7 +165,10 @@ function qualifiedPropertyAccess(node: Node): string | null {
   if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) {
     const expression = parent.getExpression();
     if (Node.isIdentifier(expression)) return `${expression.getText()}.${node.getText()}`;
-    if (Node.isPropertyAccessExpression(expression) && Node.isIdentifier(expression.getExpression())) {
+    if (
+      Node.isPropertyAccessExpression(expression) &&
+      Node.isIdentifier(expression.getExpression())
+    ) {
       return `${expression.getText()}.${node.getText()}`;
     }
     return node.getText();
@@ -193,7 +194,9 @@ export function auditTokenAwareSource(filePath: string, source: string): string[
     const value = qualified ?? identifier.getText();
     if (!isBannedName(value)) continue;
     if (allowedRef(value) || allowedRef(identifier.getText())) continue;
-    findings.push(`Banned watermark identifier '${value}' at ${repoPath(filePath)}:${identifier.getStartLineNumber()}`);
+    findings.push(
+      `Banned watermark identifier '${value}' at ${repoPath(filePath)}:${identifier.getStartLineNumber()}`,
+    );
   }
   for (const literal of [
     ...sf.getDescendantsOfKind(SyntaxKind.StringLiteral),
@@ -212,7 +215,10 @@ export function auditTokenAwareSource(filePath: string, source: string): string[
 }
 
 function projectSourceFiles(): SourceFile[] {
-  const project = new Project({ tsConfigFilePath: "tsconfig.json", skipAddingFilesFromTsConfig: false });
+  const project = new Project({
+    tsConfigFilePath: "tsconfig.json",
+    skipAddingFilesFromTsConfig: false,
+  });
   return project.getSourceFiles().filter((sf) => {
     const path = repoPath(sf.getFilePath());
     return (
@@ -229,7 +235,9 @@ function collectSchemaColumnsFromMigrations(): SchemaColumn[] {
   const migration = "supabase/migrations/20260501000000_initial_public_schema.sql";
   if (!existsSync(migration)) return columns;
   const sql = readFileSync(migration, "utf8");
-  for (const tableMatch of sql.matchAll(/create table(?: if not exists)? ([a-z][a-z0-9_]*) \(([\s\S]*?)\);/gi)) {
+  for (const tableMatch of sql.matchAll(
+    /create table(?: if not exists)? ([a-z][a-z0-9_]*) \(([\s\S]*?)\);/gi,
+  )) {
     const table = tableMatch[1];
     const body = tableMatch[2] ?? "";
     if (!table) continue;
@@ -301,7 +309,10 @@ function propertyPath(node: Node): string[] | null {
   return null;
 }
 
-function sourceFromDbPropertyPath(path: readonly string[], context: AnalysisContext): SourceRef | null {
+function sourceFromDbPropertyPath(
+  path: readonly string[],
+  context: AnalysisContext,
+): SourceRef | null {
   const [root, maybeData, ...dataPath] = path;
   if (!root || maybeData !== "data") return null;
   const read = context.dbReads.get(root);
@@ -330,7 +341,11 @@ function sourceFromHelperCall(node: Node, context: AnalysisContext): SourceRef |
   if (context.seenHelpers.has(helperName)) return null;
   const helper = localFunctionNamed(context.sourceFiles, helperName);
   if (!helper) return null;
-  const nextContext = collectContext(helper, context.sourceFiles, new Set([...context.seenHelpers, helperName]));
+  const nextContext = collectContext(
+    helper,
+    context.sourceFiles,
+    new Set([...context.seenHelpers, helperName]),
+  );
   for (const returnStatement of helper.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
     const returned = returnStatement.getExpression();
     if (!returned) continue;
@@ -342,7 +357,8 @@ function sourceFromHelperCall(node: Node, context: AnalysisContext): SourceRef |
 
 function isUntypedAnyEscape(node: Node): boolean {
   const expression = unwrapExpression(node);
-  if (Node.isCallExpression(expression) && Node.isIdentifier(expression.getExpression())) return false;
+  if (Node.isCallExpression(expression) && Node.isIdentifier(expression.getExpression()))
+    return false;
   try {
     return expression.getType().isAny();
   } catch {
@@ -389,9 +405,14 @@ function collectContext(
       if (source) context.variableSources.set(declaration.getName(), source);
       continue;
     }
-    const envName = text.match(/process\.env(?:\[['"]([^'"]+)['"]\]|\.(\w+))/)?.[1] ?? text.match(/process\.env(?:\[['"]([^'"]+)['"]\]|\.(\w+))/)?.[2];
+    const envName =
+      text.match(/process\.env(?:\[['"]([^'"]+)['"]\]|\.(\w+))/)?.[1] ??
+      text.match(/process\.env(?:\[['"]([^'"]+)['"]\]|\.(\w+))/)?.[2];
     if (envName) {
-      context.variableSources.set(declaration.getName(), { name: `process.env.${envName}`, origin: "env" });
+      context.variableSources.set(declaration.getName(), {
+        name: `process.env.${envName}`,
+        origin: "env",
+      });
       continue;
     }
     const helperSource = sourceFromHelperCall(initializer, context);
@@ -400,7 +421,10 @@ function collectContext(
       continue;
     }
     if (isUntypedAnyEscape(initializer)) {
-      context.variableSources.set(declaration.getName(), { name: declaration.getName(), origin: "unresolved" });
+      context.variableSources.set(declaration.getName(), {
+        name: declaration.getName(),
+        origin: "unresolved",
+      });
       continue;
     }
   }
@@ -419,9 +443,13 @@ function resolveSource(node: Node, context: AnalysisContext): SourceRef | null {
   if (/shows\.diagrams\s*->>\s*['"]snapshot_revision_id['"]/.test(text)) {
     return contextSource("shows.diagrams->>snapshot_revision_id");
   }
-  const fileMeta = text.match(/\bfileMeta\.(modifiedTime|driveModifiedTime|headRevisionId|md5Checksum)\b/);
+  const fileMeta = text.match(
+    /\bfileMeta\.(modifiedTime|driveModifiedTime|headRevisionId|md5Checksum)\b/,
+  );
   if (fileMeta?.[1]) return contextSource(`fileMeta.${fileMeta[1]}`);
-  const envName = text.match(/process\.env(?:\[['"]([^'"]+)['"]\]|\.(\w+))/)?.[1] ?? text.match(/process\.env(?:\[['"]([^'"]+)['"]\]|\.(\w+))/)?.[2];
+  const envName =
+    text.match(/process\.env(?:\[['"]([^'"]+)['"]\]|\.(\w+))/)?.[1] ??
+    text.match(/process\.env(?:\[['"]([^'"]+)['"]\]|\.(\w+))/)?.[2];
   if (envName) return { name: `process.env.${envName}`, origin: "env" };
 
   const helperSource = sourceFromHelperCall(node, context);
@@ -504,12 +532,14 @@ function analyzeBinary(file: string, binary: BinaryExpression, context: Analysis
   const findings: string[] = [];
   const line = lineFor(binary);
   for (const source of sources) {
-    if (DISPLAY_ONLY_TIMESTAMPS.has(source.name)) findings.push(displayFinding(file, line, source.name));
+    if (DISPLAY_ONLY_TIMESTAMPS.has(source.name))
+      findings.push(displayFinding(file, line, source.name));
   }
   const gating = sources.find((source) => AUTHORITATIVE_GATING_WATERMARKS.has(source.name));
   if (!gating || findings.length > 0) return findings;
   const other = gating === left ? right : left;
-  if (!other) return [semanticViolation(file, line, { name: binary.getText(), origin: "unresolved" })];
+  if (!other)
+    return [semanticViolation(file, line, { name: binary.getText(), origin: "unresolved" })];
   if (other.origin === "db-read" && other.name === gating.name) {
     return [
       `AC-X.4 violation: gating-watermark CAS at ${repoPath(file)}:${line} compares ${gating.name} against a fresh-read value; the other operand must come from the reviewed/staged context (e.g., reviewedStagedId, payload.expected_revision), NOT from a fresh SELECT inside the comparison.`,
@@ -548,7 +578,10 @@ function requiredEntriesForSources(sourceFiles: readonly SourceFile[], forceAll 
   return all;
 }
 
-function precheckEntries(sourceFiles: readonly SourceFile[], requiredEntries: readonly string[]): string[] {
+function precheckEntries(
+  sourceFiles: readonly SourceFile[],
+  requiredEntries: readonly string[],
+): string[] {
   const unresolved: string[] = [];
   const ambiguous: string[] = [];
   for (const entry of requiredEntries) {
@@ -558,14 +591,20 @@ function precheckEntries(sourceFiles: readonly SourceFile[], requiredEntries: re
   }
   if (unresolved.length === 0 && ambiguous.length === 0) return [];
   const parts: string[] = [];
-  if (unresolved.length > 0) parts.push(`unresolved sync entry points (zero declarations): ${unresolved.join(", ")}`);
-  if (ambiguous.length > 0) parts.push(`ambiguous sync entry points (multiple declarations): ${ambiguous.join(", ")}`);
+  if (unresolved.length > 0)
+    parts.push(`unresolved sync entry points (zero declarations): ${unresolved.join(", ")}`);
+  if (ambiguous.length > 0)
+    parts.push(`ambiguous sync entry points (multiple declarations): ${ambiguous.join(", ")}`);
   return [
     `AC-X.4 semantic-layer precheck failed — ${parts.join("; ")}. Update SYNC_ENTRY_POINTS to match the live codebase, or restore the missing declarations.`,
   ];
 }
 
-function jsonbCasFindings(file: string, root: Node, context: AnalysisContext): { findings: string[]; compared: Set<string>; read: Set<string> } {
+function jsonbCasFindings(
+  file: string,
+  root: Node,
+  context: AnalysisContext,
+): { findings: string[]; compared: Set<string>; read: Set<string> } {
   const jsonb = "shows.diagrams->>snapshot_revision_id";
   const findings: string[] = [];
   const compared = new Set<string>();
@@ -582,7 +621,10 @@ function jsonbCasFindings(file: string, root: Node, context: AnalysisContext): {
           findings.push(
             `AC-X.4 violation: gating-watermark CAS at ${repoPath(file)}:${line} compares ${jsonb} against a fresh-read value; the other operand must come from the reviewed/staged context (e.g., reviewedStagedId, payload.expected_revision), NOT from a fresh SELECT inside the comparison.`,
           );
-        } else if (source.origin === "context" || AUTHORITATIVE_GATING_WATERMARKS.has(source.name)) {
+        } else if (
+          source.origin === "context" ||
+          AUTHORITATIVE_GATING_WATERMARKS.has(source.name)
+        ) {
           compared.add(jsonb);
         } else {
           findings.push(semanticViolation(file, line, source));
@@ -599,9 +641,15 @@ export function auditSemanticWatermarks(
 ): string[] {
   const project = new Project({ useInMemoryFileSystem: true });
   const sourceFiles = sources.map((source) =>
-    project.createSourceFile(source.path, source.source, { overwrite: true, scriptKind: ScriptKind.TSX }),
+    project.createSourceFile(source.path, source.source, {
+      overwrite: true,
+      scriptKind: ScriptKind.TSX,
+    }),
   );
-  const requiredEntries = requiredEntriesForSources(sourceFiles, options.requireAllEntries ?? sources.length > 1);
+  const requiredEntries = requiredEntriesForSources(
+    sourceFiles,
+    options.requireAllEntries ?? sources.length > 1,
+  );
   const precheck = precheckEntries(sourceFiles, requiredEntries);
   if (precheck.length > 0) return precheck;
 
@@ -630,7 +678,8 @@ export function auditSemanticWatermarks(
             const left = resolveSource(binary.getLeft(), context);
             const right = resolveSource(binary.getRight(), context);
             for (const source of [left, right]) {
-              if (source && AUTHORITATIVE_GATING_WATERMARKS.has(source.name)) compared.add(source.name);
+              if (source && AUTHORITATIVE_GATING_WATERMARKS.has(source.name))
+                compared.add(source.name);
             }
           }
         }
@@ -669,8 +718,12 @@ export function auditGlobalCursorDdl(sql: string): string[] {
   }
   if (!/ddl_command_end/i.test(sql)) findings.push("event trigger must run on ddl_command_end");
   const migration = parseWatermarkMigration(sql);
-  const expected = extractAllowedWatermarkColumnPairs().map((pair) => `${pair.table_name}.${pair.column_name}`);
-  const actual = new Set(migration.allowlist.map((pair) => `${pair.table_name}.${pair.column_name}`));
+  const expected = extractAllowedWatermarkColumnPairs().map(
+    (pair) => `${pair.table_name}.${pair.column_name}`,
+  );
+  const actual = new Set(
+    migration.allowlist.map((pair) => `${pair.table_name}.${pair.column_name}`),
+  );
   for (const key of expected) {
     if (!actual.has(key)) findings.push(`missing _allowed_watermark_columns seed ${key}`);
   }
@@ -678,7 +731,11 @@ export function auditGlobalCursorDdl(sql: string): string[] {
 }
 
 export function auditProjectNoGlobalCursor(
-  options: { syncSources?: readonly SourceInput[]; skipTokenLayer?: boolean; requireAllEntries?: boolean } = {},
+  options: {
+    syncSources?: readonly SourceInput[];
+    skipTokenLayer?: boolean;
+    requireAllEntries?: boolean;
+  } = {},
 ): string[] {
   const findings = auditSchemaColumns(collectSchemaColumnsFromMigrations());
   if (!options.skipTokenLayer) {
@@ -698,6 +755,10 @@ export function auditProjectNoGlobalCursor(
       "lib/sync/applyStaged.ts",
       "lib/sync/discardStaged.ts",
     ].flatMap((path) => (existsSync(path) ? [{ path, source: readFileSync(path, "utf8") }] : []));
-  findings.push(...auditSemanticWatermarks(syncSources, { requireAllEntries: options.requireAllEntries ?? true }));
+  findings.push(
+    ...auditSemanticWatermarks(syncSources, {
+      requireAllEntries: options.requireAllEntries ?? true,
+    }),
+  );
   return findings.map((finding) => finding.replace(relative(process.cwd(), process.cwd()), ""));
 }

@@ -174,7 +174,7 @@ export function HoverHelp({
         data-testid={`${testId}-body`}
         onPointerEnter={openNow}
         onPointerLeave={scheduleClose}
-        className={`absolute top-[calc(100%+6px)] z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs font-normal normal-case leading-relaxed tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
+        className={`absolute top-[calc(100%+6px)] z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
           open ? "visible opacity-100" : "pointer-events-none invisible opacity-0"
         } ${align === "right" ? "right-0" : "left-0"}`}
       >

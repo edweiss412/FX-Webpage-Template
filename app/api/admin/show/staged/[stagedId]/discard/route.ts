@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { defaultReadDriveFileIdForStagedId, type LiveStagedRouteDeps } from "../apply/route";
 import {
-  defaultReadDriveFileIdForStagedId,
-  type LiveStagedRouteDeps,
-} from "../apply/route";
-import { discardStaged as defaultDiscardStaged, type DiscardVariant } from "@/lib/sync/discardStaged";
+  discardStaged as defaultDiscardStaged,
+  type DiscardVariant,
+} from "@/lib/sync/discardStaged";
 
 type RouteContext = {
   params: Promise<{ stagedId: string }>;
@@ -51,7 +51,8 @@ export async function handleLiveStagedDiscard(
   try {
     admin = await requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, code);
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }

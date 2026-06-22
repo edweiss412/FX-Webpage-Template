@@ -159,9 +159,7 @@ function setRows(
 
 // AlertBanner's INFO_SEVERITY exclusion list, recomputed exactly as
 // components/admin/AlertBanner.tsx:57 derives it.
-const INFO_SEVERITY_CODES: string[] = (
-  Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[]
-)
+const INFO_SEVERITY_CODES: string[] = (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[])
   .filter((entry) => entry.severity === "info")
   .map((entry) => entry.code);
 
@@ -247,11 +245,7 @@ describe("Group B — harness rows survive AlertBanner SELECT predicate", () => 
       .is("resolved_at", null)
       .like("context->>validation_tag", "m12-fixture-%");
     if (INFO_SEVERITY_CODES.length > 0) {
-      query = query.not(
-        "code",
-        "in",
-        `(${INFO_SEVERITY_CODES.map((c) => `"${c}"`).join(",")})`,
-      );
+      query = query.not("code", "in", `(${INFO_SEVERITY_CODES.map((c) => `"${c}"`).join(",")})`);
     }
     const { data, error } = await query.order("raised_at", { ascending: false });
     expect(error).toBeNull();

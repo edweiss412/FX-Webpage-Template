@@ -89,11 +89,13 @@ type IssuesDeps = {
 };
 
 function envFromDeps(deps?: IssuesDeps): GitHubEnv {
-  return deps?.env ?? {
-    GITHUB_API_TOKEN: process.env.GITHUB_API_TOKEN,
-    GITHUB_REPO: process.env.GITHUB_REPO,
-    GITHUB_BOT_LOGIN: process.env.GITHUB_BOT_LOGIN,
-  };
+  return (
+    deps?.env ?? {
+      GITHUB_API_TOKEN: process.env.GITHUB_API_TOKEN,
+      GITHUB_REPO: process.env.GITHUB_REPO,
+      GITHUB_BOT_LOGIN: process.env.GITHUB_BOT_LOGIN,
+    }
+  );
 }
 
 function parseRepo(env: GitHubEnv): { owner: string; repo: string } {
@@ -159,7 +161,10 @@ export async function createIssue(
   const octokit = octokitFromDeps(deps);
   const create = octokit.rest.issues.create;
   if (!create) {
-    throw new GitHubIssueInfraError("createIssue", new Error("octokit.rest.issues.create is missing"));
+    throw new GitHubIssueInfraError(
+      "createIssue",
+      new Error("octokit.rest.issues.create is missing"),
+    );
   }
 
   try {
@@ -288,7 +293,11 @@ export async function findIssueByMarker(
       });
       data = response.data;
     } catch (cause) {
-      throw new LookupInconclusive("PAGINATION_ERROR", "listForRepo threw during pagination", cause);
+      throw new LookupInconclusive(
+        "PAGINATION_ERROR",
+        "listForRepo threw during pagination",
+        cause,
+      );
     }
 
     if (!Array.isArray(data)) {

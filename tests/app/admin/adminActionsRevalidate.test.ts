@@ -20,9 +20,8 @@ const mockState = vi.hoisted(() => ({
 const revalidatePath = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth/requireAdmin", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/auth/requireAdmin")>(
-    "@/lib/auth/requireAdmin",
-  );
+  const actual =
+    await vi.importActual<typeof import("@/lib/auth/requireAdmin")>("@/lib/auth/requireAdmin");
   return {
     ...actual,
     requireAdminIdentity: async () => ({ email: "test-admin@example.com" }),
@@ -42,9 +41,7 @@ vi.mock("@/lib/data/adminEmails", () => ({
 
 vi.mock("next/cache", () => ({ revalidatePath }));
 
-const { addAdminAction, revokeAdminAction } = await import(
-  "@/app/admin/settings/admins/actions"
-);
+const { addAdminAction, revokeAdminAction } = await import("@/app/admin/settings/admins/actions");
 
 describe("admin allow-list actions — canonical-surface revalidation (Task 6.3)", () => {
   beforeEach(() => {
@@ -76,7 +73,10 @@ describe("admin allow-list actions — canonical-surface revalidation (Task 6.3)
     // revokeAdminEmail returns already_active when the email never
     // existed; the action treats it as a successful no-op and still
     // refreshes both surfaces.
-    mockState.revokeAdminEmailImpl = async () => ({ kind: "already_active", email: "ghost@example.com" });
+    mockState.revokeAdminEmailImpl = async () => ({
+      kind: "already_active",
+      email: "ghost@example.com",
+    });
     const fd = new FormData();
     fd.set("email", "ghost@example.com");
     const out = await revokeAdminAction(null, fd);

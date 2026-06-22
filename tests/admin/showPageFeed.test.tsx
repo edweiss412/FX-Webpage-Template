@@ -34,9 +34,7 @@ it("mi11ApproveAction submits holdId + the feed-rendered token and DELEGATES to 
   // the helper resolves drive_file_id from the hold and owns the Drive re-check +
   // lock-taking RPC. PF40: the action forwards the feed-rendered token as 2nd arg.
   expect(spy).toHaveBeenCalledWith("h1", "2026-06-09T10:00:00Z");
-  expect(spy).not.toHaveBeenCalledWith(
-    expect.objectContaining({ driveFileId: expect.anything() }),
-  );
+  expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ driveFileId: expect.anything() }));
 });
 
 it("mi11RejectAction forwards holdId + expectedBaseModifiedTime to rejectMi11Hold (PF40)", async () => {

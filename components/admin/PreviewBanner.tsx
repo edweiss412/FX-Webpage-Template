@@ -78,10 +78,7 @@ export function PreviewBanner({
           >
             Previewing as
           </span>
-          <span
-            data-testid="admin-preview-banner-name"
-            className="font-semibold text-text-strong"
-          >
+          <span data-testid="admin-preview-banner-name" className="font-semibold text-text-strong">
             {crewMemberName}
           </span>
           {crewMemberRoleLabel ? (

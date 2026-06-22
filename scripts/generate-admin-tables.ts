@@ -17,9 +17,7 @@ function uniqueInOrder(values: readonly string[]): string[] {
 
 export function extractAdminTablesFromSpec(spec: string): string[] {
   const showsInternal = spec.match(/- \*\*`(shows_internal)`:\s*admin-only/);
-  const adminLine = spec
-    .split(/\r?\n/)
-    .find((line) => line.startsWith("- **Admin-only tables"));
+  const adminLine = spec.split(/\r?\n/).find((line) => line.startsWith("- **Admin-only tables"));
   if (!showsInternal || !adminLine) {
     throw new Error("Could not find §4.3 admin-only table prose in spec");
   }

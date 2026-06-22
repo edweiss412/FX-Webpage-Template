@@ -1,0 +1,43 @@
+name: Quality
+
+# Lightweight, secret-free code-quality gate: eslint + tsc + prettier.
+# Net-new (the repo had no lint/typecheck/format CI job). Mirrors the canonical
+# checkout -> pnpm/action-setup -> setup-node -> install preamble used by the
+# other workflows. workflow_dispatch is enabled so the gate can be verified on
+# demand without waiting for a PR (real-CI-green is its own close-out gate).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # All three run regardless of earlier failures so one PR run surfaces
+      # every gate that is red, not just the first.
+      - name: Lint (eslint)
+        if: ${{ !cancelled() }}
+        run: pnpm lint
+      - name: Typecheck (tsc)
+        # Fresh checkout has no .next, so tsc never sees the stale route-validator
+        # types that only appear locally after a dev/build run.
+        if: ${{ !cancelled() }}
+        run: pnpm typecheck
+      - name: Format check (prettier)
+        if: ${{ !cancelled() }}
+        run: pnpm format:check

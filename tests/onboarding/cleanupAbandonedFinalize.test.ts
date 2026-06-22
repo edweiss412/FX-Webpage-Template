@@ -9,9 +9,12 @@ import { CleanupRequiresStaleSessionError } from "@/lib/onboarding/sessionLifecy
 const W1 = "11111111-1111-4111-8111-111111111111";
 
 function request(): Request {
-  return new Request(`https://crew.fxav.test/api/admin/onboarding/cleanup-abandoned-finalize/${W1}`, {
-    method: "POST",
-  });
+  return new Request(
+    `https://crew.fxav.test/api/admin/onboarding/cleanup-abandoned-finalize/${W1}`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 class FakeCleanupRouteTx implements CleanupAbandonedFinalizeRouteTx {
@@ -64,9 +67,13 @@ describe("POST /api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]", ()
     const tx = new FakeCleanupRouteTx();
     const routeDeps = deps(tx);
 
-    const response = await handleCleanupAbandonedFinalize(request(), {
-      params: Promise.resolve({ sessionId: W1 }),
-    }, routeDeps);
+    const response = await handleCleanupAbandonedFinalize(
+      request(),
+      {
+        params: Promise.resolve({ sessionId: W1 }),
+      },
+      routeDeps,
+    );
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "cleaned" });
@@ -83,13 +90,17 @@ describe("POST /api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]", ()
       wizard_session_id: W1,
     });
 
-    const response = await handleCleanupAbandonedFinalize(request(), {
-      params: Promise.resolve({ sessionId: W1 }),
-    }, deps(tx, {
-      cleanupAbandonedFinalize: vi.fn(async () => {
-        throw error;
+    const response = await handleCleanupAbandonedFinalize(
+      request(),
+      {
+        params: Promise.resolve({ sessionId: W1 }),
+      },
+      deps(tx, {
+        cleanupAbandonedFinalize: vi.fn(async () => {
+          throw error;
+        }),
       }),
-    }));
+    );
 
     expect(response.status).toBe(409);
     expect(await json(response)).toEqual({
@@ -112,9 +123,13 @@ describe("POST /api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]", ()
       }),
     });
 
-    const response = await handleCleanupAbandonedFinalize(request(), {
-      params: Promise.resolve({ sessionId: W1 }),
-    }, routeDeps);
+    const response = await handleCleanupAbandonedFinalize(
+      request(),
+      {
+        params: Promise.resolve({ sessionId: W1 }),
+      },
+      routeDeps,
+    );
 
     expect(response.status).toBe(403);
     expect(await json(response)).toEqual({ ok: false, code: "ADMIN_FORBIDDEN" });

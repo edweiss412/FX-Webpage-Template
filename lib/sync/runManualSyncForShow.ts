@@ -81,12 +81,15 @@ type ManualRecoveryTx = SyncPipelineTx & {
     driveFileId: string,
     code: string,
   ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
-  insertSyncLog(entry: {
-    driveFileId: string | null;
-    outcome: string;
-    code?: string;
-    payload?: Record<string, unknown>;
-  }, showId?: string | null): Promise<void>;
+  insertSyncLog(
+    entry: {
+      driveFileId: string | null;
+      outcome: string;
+      code?: string;
+      payload?: Record<string, unknown>;
+    },
+    showId?: string | null,
+  ): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
 
@@ -329,7 +332,12 @@ export async function runManualSyncForShow(
         if (isFinalizeOwned) {
           return { outcome: "blocked" as const, code: FINALIZE_OWNED_SHOW };
         }
-        return await markManualDriveError_unlocked(tx, driveFileId, "drive_metadata_fetch_failed", error);
+        return await markManualDriveError_unlocked(
+          tx,
+          driveFileId,
+          "drive_metadata_fetch_failed",
+          error,
+        );
       });
     }
     return await withLock(driveFileId, async (tx) => {

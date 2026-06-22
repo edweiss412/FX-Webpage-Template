@@ -255,7 +255,9 @@ export async function runPushSyncForShow(
   const withLock: PushPipelineLock =
     deps.withPipelineLock ??
     (async (id, fn) => {
-      const r = await withPostgresSyncPipelineLock<ProcessOneFileResult>(id, fn, { tryOnly: false });
+      const r = await withPostgresSyncPipelineLock<ProcessOneFileResult>(id, fn, {
+        tryOnly: false,
+      });
       // tryOnly:false blocks until the lock is acquired, so ConcurrentSyncSkipped is unreachable here;
       // narrow defensively to the silent archived-style skip so we never write a misleading log.
       if ("skipped" in r) return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
@@ -268,7 +270,13 @@ export async function runPushSyncForShow(
   const fetched = deps.fileMeta ?? (await fetchScopedPushFileMeta(driveFileId, deps));
   if ("result" in fetched) {
     // R9 DEF-4 TOCTOU: gate the fetch-failure / out-of-scope log on a locked archived re-read.
-    return await logUnlessArchived(withLock, driveFileId, logSync, fetched.logEntry, fetched.result);
+    return await logUnlessArchived(
+      withLock,
+      driveFileId,
+      logSync,
+      fetched.logEntry,
+      fetched.result,
+    );
   }
   const fileMeta = fetched;
   const preflight = await (deps.readPushDuplicatePreflight ?? readPushDuplicatePreflight)(

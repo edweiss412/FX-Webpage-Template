@@ -95,10 +95,7 @@ type PersistedState = {
   errorCode?: string | null;
 };
 
-type ErrorState =
-  | { kind: "code"; code: MessageCode }
-  | { kind: "network" }
-  | null;
+type ErrorState = { kind: "code"; code: MessageCode } | { kind: "network" } | null;
 
 type SuccessState = { kind: "succeeded"; github_issue_url?: string } | null;
 
@@ -428,11 +425,7 @@ export function ReportModal(props: ReportModalProps) {
       return copyForCode("NETWORK_UNREACHABLE", surface) ?? "";
     }
     const oppositeSurface: ReportSurface = surface === "admin" ? "crew" : "admin";
-    return (
-      copyForCode(error.code, surface) ??
-      copyForCode(error.code, oppositeSurface) ??
-      ""
-    );
+    return copyForCode(error.code, surface) ?? copyForCode(error.code, oppositeSurface) ?? "";
   })();
 
   return (
@@ -474,10 +467,7 @@ export function ReportModal(props: ReportModalProps) {
 
         <div className="flex items-start justify-between gap-4 px-4 pb-2 pt-4 sm:px-6 sm:pt-5">
           <div className="min-w-0 flex-1">
-            <h2
-              id="report-modal-heading"
-              className="text-lg font-semibold text-text-strong"
-            >
+            <h2 id="report-modal-heading" className="text-lg font-semibold text-text-strong">
               {heading}
             </h2>
             <p className="mt-1 text-sm text-text-subtle">{subhead}</p>
@@ -489,7 +479,9 @@ export function ReportModal(props: ReportModalProps) {
             onClick={handleClose}
             className="-mr-2 inline-flex size-tap-min  items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
-            <span aria-hidden="true" className="text-xl leading-none">×</span>
+            <span aria-hidden="true" className="text-xl leading-none">
+              ×
+            </span>
           </button>
         </div>
 
@@ -519,7 +511,8 @@ export function ReportModal(props: ReportModalProps) {
             className="mx-4 mt-2 rounded-sm border border-border-strong bg-warning-bg p-3  text-sm text-warning-text sm:mx-6"
           >
             <p id="report-modal-start-fresh-heading" className="font-medium">
-              Your previous attempt may have already gone through. Starting fresh could create a duplicate.
+              Your previous attempt may have already gone through. Starting fresh could create a
+              duplicate.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -578,9 +571,7 @@ export function ReportModal(props: ReportModalProps) {
                 View on GitHub
               </a>
             ) : (
-              <p className="mt-2 text-sm text-text-subtle">
-                Thanks, we&apos;ll take a look.
-              </p>
+              <p className="mt-2 text-sm text-text-subtle">Thanks, we&apos;ll take a look.</p>
             )}
             <button
               type="button"
@@ -614,10 +605,7 @@ export function ReportModal(props: ReportModalProps) {
         ) : (
           <>
             <div className="px-4 pb-2 pt-3 sm:px-6">
-              <label
-                htmlFor="report-modal-textarea"
-                className="sr-only"
-              >
+              <label htmlFor="report-modal-textarea" className="sr-only">
                 Report details
               </label>
               <textarea

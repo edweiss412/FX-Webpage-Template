@@ -15,10 +15,7 @@ import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduled
 const OK_CODE = "OK" as const;
 
 export type FinalizeCasRouteTx = {
-  query<T>(
-    sql: string,
-    params?: readonly unknown[],
-  ): Promise<{ rows: T[]; rowCount: number }>;
+  query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }>;
 };
 
 export type FinalizeCasRouteDeps = {
@@ -103,7 +100,9 @@ async function defaultWithTx<R>(fn: (tx: FinalizeCasRouteTx) => Promise<R>): Pro
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     return (await sql.begin(async (rawTx) =>
-      fn(postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> })),
+      fn(
+        postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> }),
+      ),
     )) as R;
   } finally {
     await sql.end({ timeout: 5 });
@@ -143,7 +142,11 @@ function depsWithDefaults(deps: FinalizeCasRouteDeps) {
   };
 }
 
-function errorResponse(status: number, code: string, extra: Record<string, unknown> = {}): Response {
+function errorResponse(
+  status: number,
+  code: string,
+  extra: Record<string, unknown> = {},
+): Response {
   return NextResponse.json({ ok: false, code, ...extra }, { status });
 }
 
@@ -162,11 +165,13 @@ async function readSession(tx: FinalizeCasRouteTx): Promise<SessionRow> {
        where id = 'default'
     `,
   );
-  return rows[0] ?? {
-    pending_wizard_session_id: null,
-    pending_folder_id: null,
-    watched_folder_id: null,
-  };
+  return (
+    rows[0] ?? {
+      pending_wizard_session_id: null,
+      pending_folder_id: null,
+      watched_folder_id: null,
+    }
+  );
 }
 
 /**
@@ -186,14 +191,18 @@ async function readSessionForUpdate(tx: FinalizeCasRouteTx): Promise<SessionRow>
        for update
     `,
   );
-  return rows[0] ?? {
-    pending_wizard_session_id: null,
-    pending_folder_id: null,
-    watched_folder_id: null,
-  };
+  return (
+    rows[0] ?? {
+      pending_wizard_session_id: null,
+      pending_folder_id: null,
+      watched_folder_id: null,
+    }
+  );
 }
 
-async function readLatestFinalizedCheckpoint(tx: FinalizeCasRouteTx): Promise<{ wizard_session_id: string } | null> {
+async function readLatestFinalizedCheckpoint(
+  tx: FinalizeCasRouteTx,
+): Promise<{ wizard_session_id: string } | null> {
   const { rows } = await tx.query<{ wizard_session_id: string }>(
     `
       select wizard_session_id
@@ -259,7 +268,10 @@ async function unresolvedManifestCount(
   return rows[0]?.unresolved_count ?? 0;
 }
 
-async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<ShadowRow[]> {
+async function readShadowRows(
+  tx: FinalizeCasRouteTx,
+  wizardSessionId: string,
+): Promise<ShadowRow[]> {
   const { rows } = await tx.query<ShadowRow>(
     `
       select wizard_session_id, drive_file_id, show_id, applied_by_email, applied_at_intent, payload
@@ -273,10 +285,9 @@ async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): 
 }
 
 async function deleteShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<void> {
-  await tx.query(
-    `delete from public.shows_pending_changes where wizard_session_id = $1::uuid`,
-    [wizardSessionId],
-  );
+  await tx.query(`delete from public.shows_pending_changes where wizard_session_id = $1::uuid`, [
+    wizardSessionId,
+  ]);
 }
 
 async function deleteAppliedShadowRow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<void> {
@@ -325,7 +336,11 @@ async function applyShadow(
   if (!parsed.ok) return { drive_file_id: row.drive_file_id, code: parsed.code }; // shadow retained
 
   const live = (
-    await tx.query<{ id: string; last_seen_modified_time: string | Date | null; diagrams: unknown }>(
+    await tx.query<{
+      id: string;
+      last_seen_modified_time: string | Date | null;
+      diagrams: unknown;
+    }>(
       `
         select id, last_seen_modified_time, diagrams
           from public.shows
@@ -686,7 +701,8 @@ export async function handleOnboardingFinalizeCas(
   try {
     await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
       return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
     }

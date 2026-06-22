@@ -5,7 +5,7 @@
  * surfaces declare their own thin, currentColor stroke glyphs traced from the
  * mock's `crew/components.jsx` paths. Each is a 24×24 stroke icon that inherits
  * its size + color from the parent (the FactRows `.mini` square sets
- * `[&_svg]:size-[15px]` and `text-text-subtle`), so the glyph component takes
+ * `[&_svg]:size-3.75` and `text-text-subtle`), so the glyph component takes
  * only an optional `className` passthrough and no color/size of its own.
  *
  * Exported here: `DockIcon` (loading dock), `CarIcon` (parking/ground),

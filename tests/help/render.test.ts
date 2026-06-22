@@ -68,11 +68,7 @@ describe("MDX smoke renderer (test #4)", () => {
     it(`${route}: renders non-empty HTML`, async () => {
       const Page = await importPage(file);
       const html = renderToStaticMarkup(
-        createElement(
-          MDXProvider,
-          { components: useMDXComponents({}) },
-          createElement(Page),
-        ),
+        createElement(MDXProvider, { components: useMDXComponents({}) }, createElement(Page)),
       );
 
       expect(html.length).toBeGreaterThan(100);

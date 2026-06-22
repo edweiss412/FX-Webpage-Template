@@ -40,9 +40,9 @@ describe("revisionTimesMatch", () => {
   });
 
   test("two ISO strings for the same instant match", () => {
-    expect(
-      revisionTimesMatch("2026-05-09T03:44:06.040Z", "2026-05-09T03:44:06.040+00:00"),
-    ).toBe(true);
+    expect(revisionTimesMatch("2026-05-09T03:44:06.040Z", "2026-05-09T03:44:06.040+00:00")).toBe(
+      true,
+    );
   });
 
   test("two nulls match; one null does not match a real time", () => {

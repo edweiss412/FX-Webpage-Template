@@ -118,9 +118,7 @@ describe("M11 spec file:line citation integrity (Phase I Codex R4 structural def
     }
     const lineCount = readFileSync(absPath, "utf8").split("\n").length;
     if (lineCount < maxLine) {
-      violations.push(
-        `Cited line out of range: ${fullMatch} (file has ${lineCount} lines)`,
-      );
+      violations.push(`Cited line out of range: ${fullMatch} (file has ${lineCount} lines)`);
     }
   }
 

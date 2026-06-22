@@ -1,28 +1,54 @@
 // tests/admin/alertCount.test.ts
 import { readFileSync } from "node:fs";
 import { it, expect, vi, beforeEach } from "vitest";
-const state = { throwOnConstruct: false, throwOnFrom: false, returnError: false, nullCount: false, count: 0 };
+const state = {
+  throwOnConstruct: false,
+  throwOnFrom: false,
+  returnError: false,
+  nullCount: false,
+  count: 0,
+};
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => {
     if (state.throwOnConstruct) throw new Error("construct boom");
     return {
       from: () => {
         if (state.throwOnFrom) throw new Error("boom");
-        type Builder = { select: () => Builder; is: () => Builder; not: () => Builder; then: (f: (r: { data: null; count: number | null; error: { message: string } | null }) => unknown) => unknown };
+        type Builder = {
+          select: () => Builder;
+          is: () => Builder;
+          not: () => Builder;
+          then: (
+            f: (r: {
+              data: null;
+              count: number | null;
+              error: { message: string } | null;
+            }) => unknown,
+          ) => unknown;
+        };
         const b = {} as Builder;
         const pass = () => b;
-        b.select = pass; b.is = pass; b.not = pass;
-        b.then = (f) => f({
-          data: null,
-          count: state.returnError || state.nullCount ? null : state.count, // nullCount = null count WITHOUT an error
-          error: state.returnError ? { message: "rls" } : null,
-        });
+        b.select = pass;
+        b.is = pass;
+        b.not = pass;
+        b.then = (f) =>
+          f({
+            data: null,
+            count: state.returnError || state.nullCount ? null : state.count, // nullCount = null count WITHOUT an error
+            error: state.returnError ? { message: "rls" } : null,
+          });
         return b;
       },
     };
   },
 }));
-beforeEach(() => { state.throwOnConstruct = false; state.throwOnFrom = false; state.returnError = false; state.nullCount = false; state.count = 0; });
+beforeEach(() => {
+  state.throwOnConstruct = false;
+  state.throwOnFrom = false;
+  state.returnError = false;
+  state.nullCount = false;
+  state.count = 0;
+});
 
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 it("returns { kind:'ok', count } on success", async () => {

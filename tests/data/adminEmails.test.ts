@@ -251,7 +251,12 @@ describe("revokeAdminEmail (M9 C9 / M2-D1 R1)", () => {
     }
   });
 
-  test("last_admin_lockout envelope translates to last_admin_lockout kind", async () => {
+  test("last_admin_lockout envelope translates to last_admin_lockout kind (transitional: pre-M12.5-DEF-1 RPC)", async () => {
+    // Transitional acceptance: tables/ files run BEFORE migrations/ on
+    // every apply, so during the apply window the OLD revoke RPC (which
+    // returns last_admin_lockout for a self-revoke of the only admin)
+    // can still respond. The data layer keeps accepting it so the page
+    // doesn't infra-error mid-deploy.
     mockState.rpcResponse = { status: "last_admin_lockout", email: "lonely@example.com" };
     const out = await revokeAdminEmail({
       rawEmail: "lonely@example.com",
@@ -259,6 +264,19 @@ describe("revokeAdminEmail (M9 C9 / M2-D1 R1)", () => {
       actorCanonicalEmail: "lonely@example.com",
     });
     expect(out.kind).toBe("last_admin_lockout");
+  });
+
+  test("M12.5-DEF-1: self_revoke_forbidden envelope translates to self_revoke_forbidden kind", async () => {
+    mockState.rpcResponse = { status: "self_revoke_forbidden", email: "self@example.com" };
+    const out = await revokeAdminEmail({
+      rawEmail: "self@example.com",
+      revokedBy: "u-self",
+      actorCanonicalEmail: "self@example.com",
+    });
+    expect(out.kind).toBe("self_revoke_forbidden");
+    if (out.kind === "self_revoke_forbidden") {
+      expect(out.email).toBe("self@example.com");
+    }
   });
 
   test("throws AdminEmailsInfraError on RPC error result", async () => {

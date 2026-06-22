@@ -19,12 +19,7 @@
 import { describe, expect, test } from "vitest";
 
 import { selectRightNowState } from "@/lib/time/rightNow";
-import {
-  buildFixtures,
-  R_COMBOS,
-  SW_COMBOS,
-  type Combo,
-} from "@/scripts/lib/validation-fixtures";
+import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/scripts/lib/validation-fixtures";
 
 // Use a midday UTC instant to avoid TZ-midnight edge cases — the
 // fixtures themselves are TZ-pinned to UTC via venue.timezone in the
@@ -53,12 +48,7 @@ describe("validation fixtures resolve to the expected runtime Right Now state (R
     const fx = fixtures.find((f) => f.combo === combo)!;
     test(`${combo} resolves to ${fx.expectedRuntimeStateKind}`, () => {
       expect(fx, `Missing fixture for ${combo}`).toBeDefined();
-      const result = selectRightNowState(
-        TODAY,
-        fx.dates,
-        fx.dateRestriction,
-        SELECTOR_OPTIONS,
-      );
+      const result = selectRightNowState(TODAY, fx.dates, fx.dateRestriction, SELECTOR_OPTIONS);
       expect(
         result.kind,
         `${combo}: fixture.expectedRuntimeStateKind='${fx.expectedRuntimeStateKind}' but selector returned '${result.kind}'. ` +
@@ -70,12 +60,7 @@ describe("validation fixtures resolve to the expected runtime Right Now state (R
 
   test("R13-F1 — SW-SHOW_1 specifically resolves to show_day_n with n=0 / total=3 / isLast=false", () => {
     const fx = fixtures.find((f) => f.combo === "SW-SHOW_1")!;
-    const result = selectRightNowState(
-      TODAY,
-      fx.dates,
-      fx.dateRestriction,
-      SELECTOR_OPTIONS,
-    );
+    const result = selectRightNowState(TODAY, fx.dates, fx.dateRestriction, SELECTOR_OPTIONS);
     expect(result.kind).toBe("show_day_n");
     if (result.kind === "show_day_n") {
       // n is 1-indexed (matches the "show_day_1" prose); SW-SHOW_1 has
@@ -88,12 +73,7 @@ describe("validation fixtures resolve to the expected runtime Right Now state (R
 
   test("R13-F1 — SW-SHOW_LAST resolves to show_day_n with isLast=true", () => {
     const fx = fixtures.find((f) => f.combo === "SW-SHOW_LAST")!;
-    const result = selectRightNowState(
-      TODAY,
-      fx.dates,
-      fx.dateRestriction,
-      SELECTOR_OPTIONS,
-    );
+    const result = selectRightNowState(TODAY, fx.dates, fx.dateRestriction, SELECTOR_OPTIONS);
     expect(result.kind).toBe("show_day_n");
     if (result.kind === "show_day_n") {
       expect(result.isLast).toBe(true);
@@ -104,12 +84,7 @@ describe("validation fixtures resolve to the expected runtime Right Now state (R
 
   test("R13-F1 — SW-SHOW_INTERIOR resolves to show_day_n with neither first nor last", () => {
     const fx = fixtures.find((f) => f.combo === "SW-SHOW_INTERIOR")!;
-    const result = selectRightNowState(
-      TODAY,
-      fx.dates,
-      fx.dateRestriction,
-      SELECTOR_OPTIONS,
-    );
+    const result = selectRightNowState(TODAY, fx.dates, fx.dateRestriction, SELECTOR_OPTIONS);
     expect(result.kind).toBe("show_day_n");
     if (result.kind === "show_day_n") {
       expect(result.n).toBeGreaterThan(0);

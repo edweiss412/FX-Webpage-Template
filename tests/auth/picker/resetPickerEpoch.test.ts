@@ -56,7 +56,9 @@ describe("resetPickerEpoch", () => {
         admin_email_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     });
-    expect(vi.mocked(upsertAdminAlert).mock.calls[0]![0].context.admin_email_hash).not.toBe(ADMIN_EMAIL);
+    expect(vi.mocked(upsertAdminAlert).mock.calls[0]![0].context.admin_email_hash).not.toBe(
+      ADMIN_EMAIL,
+    );
   });
 
   test("maps returned or thrown RPC faults to typed picker infra failure", async () => {

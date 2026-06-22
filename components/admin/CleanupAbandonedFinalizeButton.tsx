@@ -70,10 +70,7 @@ export function CleanupAbandonedFinalizeButton({ sessionId }: Props) {
   }
 
   return (
-    <div
-      className="flex flex-col gap-3"
-      data-testid="cleanup-abandoned-finalize"
-    >
+    <div className="flex flex-col gap-3" data-testid="cleanup-abandoned-finalize">
       {state.kind === "confirming" ? null : (
         <button
           type="button"
@@ -93,15 +90,12 @@ export function CleanupAbandonedFinalizeButton({ sessionId }: Props) {
           data-testid="cleanup-abandoned-finalize-confirm"
           className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
         >
-          <p
-            id="cleanup-abandoned-finalize-confirm-heading"
-            className="text-sm font-semibold"
-          >
+          <p id="cleanup-abandoned-finalize-confirm-heading" className="text-sm font-semibold">
             Discard this setup?
           </p>
           <p className="text-sm">
-            This deletes every show that was published as part of this
-            wizard run. Your live folder, if you had one, is not touched.
+            This deletes every show that was published as part of this wizard run. Your live folder,
+            if you had one, is not touched.
           </p>
           <div className="flex flex-wrap gap-2">
             <button

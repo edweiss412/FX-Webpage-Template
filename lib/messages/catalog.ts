@@ -2344,6 +2344,19 @@ export const MESSAGE_CATALOG = {
       "The report route caught a typed infrastructure failure from the report submission or reaper path and returned a cataloged 500 instead of crashing. Try again in a few minutes.",
     helpHref: "/help/errors#REPORT_PIPELINE_FAILED",
   },
+  SELF_REVOKE_FORBIDDEN: {
+    code: "SELF_REVOKE_FORBIDDEN",
+    dougFacing:
+      "You can't revoke your own administrator access. Ask another admin to do it if you need to be removed.",
+    crewFacing: null,
+    followUp: "Doug → ask another admin to revoke you",
+    helpfulContext:
+      "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke (a rogue admin revoking a peer, including the last peer) stays allowed by design; see amendment §5.5 + §11 anti-goal.",
+    title: "Can't revoke your own access",
+    longExplanation:
+      "An administrator can never revoke their own access — the database refuses it directly, behind the Server Action guard. If you need to be removed, ask another admin to revoke you.",
+    helpHref: "/help/errors#SELF_REVOKE_FORBIDDEN",
+  },
   SESSION_NOT_FOUND: {
     code: "SESSION_NOT_FOUND",
     dougFacing: null,
@@ -2516,8 +2529,7 @@ export const MESSAGE_CATALOG = {
   PICKER_REMOVED_FROM_ROSTER_BANNER: {
     code: "PICKER_REMOVED_FROM_ROSTER_BANNER",
     dougFacing: null,
-    crewFacing:
-      "Your selection is no longer on the roster. Pick your name again.",
+    crewFacing: "Your selection is no longer on the roster. Pick your name again.",
     followUp: "Crew → pick name or text Doug",
     helpfulContext: null,
     title: null,

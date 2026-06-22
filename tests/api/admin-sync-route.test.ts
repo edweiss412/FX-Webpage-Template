@@ -11,7 +11,10 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 
 const syncMock = vi.hoisted(() => ({
   runManualSyncForShow: vi.fn<
-    (driveFileId: string, mode: "manual") => Promise<
+    (
+      driveFileId: string,
+      mode: "manual",
+    ) => Promise<
       | { outcome: "applied"; showId: string }
       | { outcome: "parse_error"; code: "SYNC_INFRA_ERROR" | "DRIVE_METADATA_MISSING" }
       | { outcome: "hard_fail"; code: string }
@@ -85,9 +88,9 @@ describe("POST /api/admin/sync/[slug]", () => {
     const rejected = new Error("forbidden");
     adminMock.requireAdmin.mockRejectedValueOnce(rejected);
 
-    await expect(
-      POST(request(), { params: Promise.resolve({ slug: "test-show" }) }),
-    ).rejects.toBe(rejected);
+    await expect(POST(request(), { params: Promise.resolve({ slug: "test-show" }) })).rejects.toBe(
+      rejected,
+    );
 
     expect(supabaseMock.state.calls).toEqual([]);
     expect(syncMock.runManualSyncForShow).not.toHaveBeenCalled();

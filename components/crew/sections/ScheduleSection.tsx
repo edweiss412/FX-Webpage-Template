@@ -185,7 +185,10 @@ export function ScheduleSection({
                               title → "") has zero displayable entries → no
                               run-of-show container → the Phase-1 anchor floor shows. */}
                           {displayableEntries(data.runOfShow?.[day.date]).length > 0 ? (
-                            <RunOfShowList entries={data.runOfShow![day.date]!} isoDate={day.date} />
+                            <RunOfShowList
+                              entries={data.runOfShow![day.date]!}
+                              isoDate={day.date}
+                            />
                           ) : null}
                         </div>
                       );

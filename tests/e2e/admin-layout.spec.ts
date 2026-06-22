@@ -20,9 +20,7 @@ test.describe("admin layout (mobile-safari, /admin/dev)", () => {
     await signOut(page);
   });
 
-  test("admin can reach /admin/dev: layout chrome (nav) wraps the dev panel", async ({
-    page,
-  }) => {
+  test("admin can reach /admin/dev: layout chrome (nav) wraps the dev panel", async ({ page }) => {
     await signInAs(page, ADMIN_FIXTURE);
     const response = await page.goto("/admin/dev");
     expect(response?.status()).toBe(200);

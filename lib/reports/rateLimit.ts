@@ -64,7 +64,9 @@ function postgresTxAdapter(tx: { unsafe: (sql: string, params?: never[]) => Prom
 }
 
 type ReserveQuotaSql = {
-  begin: <T>(fn: (tx: { unsafe: (sql: string, params?: never[]) => Promise<unknown[]> }) => Promise<T>) => Promise<T>;
+  begin: <T>(
+    fn: (tx: { unsafe: (sql: string, params?: never[]) => Promise<unknown[]> }) => Promise<T>,
+  ) => Promise<T>;
   end: (opts?: { timeout?: number }) => Promise<void>;
 };
 
@@ -75,7 +77,10 @@ export async function enforceQuota(
 ): Promise<QuotaResult> {
   const persistedIdentity = kind === "admin" ? canonicalize(identity) : identity;
   if (!persistedIdentity) {
-    throw new ReportQuotaInfraError("enforceQuota", new Error("admin report quota identity is empty"));
+    throw new ReportQuotaInfraError(
+      "enforceQuota",
+      new Error("admin report quota identity is empty"),
+    );
   }
   try {
     const { rows } = await db.query(
@@ -103,7 +108,8 @@ export async function reserveQuota(
   deps: { sql?: ReserveQuotaSql } = {},
 ): Promise<QuotaResult> {
   const sql =
-    deps.sql ?? (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as ReserveQuotaSql);
+    deps.sql ??
+    (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as ReserveQuotaSql);
   try {
     return await sql.begin(async (tx) => {
       const result = await enforceQuota(postgresTxAdapter(tx), kind, identity);

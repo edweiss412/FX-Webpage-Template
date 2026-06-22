@@ -3,17 +3,11 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  MESSAGE_CATALOG,
-  type MessageCatalogEntry,
-} from "@/lib/messages/catalog";
+import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const src = readFileSync(
-  join(process.cwd(), "app/help/errors/page.tsx"),
-  "utf8",
-);
+const src = readFileSync(join(process.cwd(), "app/help/errors/page.tsx"), "utf8");
 
 // r3 fix per E-r2 finding 4: page renders entries that ALSO have all three
 // M11 fields populated. Use the same predicate the page itself uses (mirrors
@@ -25,9 +19,7 @@ const src = readFileSync(
 // optional `severity` field. The same pattern is established in
 // tests/help/page-parse-warnings.test.tsx; the cast keeps this test honest
 // against the contract type rather than the per-literal narrowing.
-const renderableCodes = (
-  Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[]
-).filter(
+const renderableCodes = (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[]).filter(
   (e) =>
     e.severity !== "info" &&
     e.dougFacing !== null &&

@@ -902,6 +902,12 @@ export const SPEC_CODES = {
     "followUp": null,
     "helpfulContext": null,
   },
+  "SELF_REVOKE_FORBIDDEN": {
+    "crewFacing": null,
+    "dougFacing": "You can't revoke your own administrator access. Ask another admin to do it if you need to be removed.",
+    "followUp": "Doug → ask another admin to revoke you",
+    "helpfulContext": "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke (a rogue admin revoking a peer, including the last peer) stays allowed by design; see amendment §5.5 + §11 anti-goal.",
+  },
   "SESSION_ABSOLUTE_TIMEOUT": {
     "crewFacing": "Your session has expired. Open the original link Doug shared again.",
     "dougFacing": null,

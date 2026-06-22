@@ -7,10 +7,7 @@ import { join } from "node:path";
 import { MDXProvider } from "@mdx-js/react";
 import { useMDXComponents } from "@/mdx-components";
 
-const src = readFileSync(
-  join(process.cwd(), "app/help/tour/page.mdx"),
-  "utf8",
-);
+const src = readFileSync(join(process.cwd(), "app/help/tour/page.mdx"), "utf8");
 
 const ADMIN_REFERENCE_URLS = [
   "/help/admin/dashboard",

@@ -3,7 +3,7 @@ import { sqlClient } from "@/tests/db/_b2Helpers";
 
 describe("B2 lifecycle columns", () => {
   it("app_settings.auto_publish_clean_first_seen exists, boolean not null default true", async () => {
-    const [row] = await sqlClient/*sql*/ `
+    const [row] = await sqlClient /*sql*/ `
       select data_type, is_nullable, column_default
         from information_schema.columns
        where table_schema='public' and table_name='app_settings'
@@ -16,12 +16,19 @@ describe("B2 lifecycle columns", () => {
   });
 
   it("shows.archived_at (timestamptz, nullable) and shows.requires_resync (boolean not null default false) exist", async () => {
-    const rows = await sqlClient/*sql*/ `
+    const rows = await sqlClient<
+      {
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+        column_default: string | null;
+      }[]
+    > /*sql*/ `
       select column_name, data_type, is_nullable, column_default
         from information_schema.columns
        where table_schema='public' and table_name='shows'
          and column_name in ('archived_at','requires_resync')`;
-    const byName = Object.fromEntries(rows.map((r: any) => [r.column_name, r]));
+    const byName = Object.fromEntries(rows.map((r) => [r.column_name, r]));
     expect(byName.archived_at?.data_type).toBe("timestamp with time zone");
     expect(byName.archived_at?.is_nullable).toBe("YES");
     expect(byName.requires_resync?.data_type).toBe("boolean");

@@ -61,7 +61,9 @@ describe("cookieEnvelope", () => {
 
     const encoded = encodePickerCookie({ v: 1, selections }, TEST_KEY);
     expect(`${COOKIE_NAME}=${encoded}`.length).toBeLessThanOrEqual(MAX_COOKIE_VALUE_BYTES);
-    expect(decodePickerCookie(encoded, TEST_KEY)?.selections["00000000-1111-1111-1111-111111111111"]).toBeUndefined();
+    expect(
+      decodePickerCookie(encoded, TEST_KEY)?.selections["00000000-1111-1111-1111-111111111111"],
+    ).toBeUndefined();
   });
 
   test("accepts realistic Unix-ms timestamps through Number.MAX_SAFE_INTEGER", () => {
@@ -82,7 +84,10 @@ describe("cookieEnvelope", () => {
   });
 
   test("does not mutate the caller envelope while evicting", () => {
-    const env = { v: 1 as const, selections: { [SHOW_A]: { id: CREW_A, e: 1, t: 1 }, [SHOW_B]: { id: CREW_A, e: 1, t: 2 } } };
+    const env = {
+      v: 1 as const,
+      selections: { [SHOW_A]: { id: CREW_A, e: 1, t: 1 }, [SHOW_B]: { id: CREW_A, e: 1, t: 2 } },
+    };
 
     encodePickerCookie(env, TEST_KEY);
 

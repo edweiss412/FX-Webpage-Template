@@ -5,10 +5,7 @@ import {
   type DiscardStagedResult,
   type DiscardVariant,
 } from "@/lib/sync/discardStaged";
-import {
-  type WizardStagedRouteDeps,
-  type WizardStagedRouteTx,
-} from "../apply/route";
+import { type WizardStagedRouteDeps, type WizardStagedRouteTx } from "../apply/route";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import {
   readCurrentWizardSessionIdBestEffort,
@@ -105,7 +102,8 @@ export async function handleWizardStagedDiscard(
   try {
     await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, code);
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }

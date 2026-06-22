@@ -79,12 +79,16 @@ function makeFetch({
   return vi.fn(async (input: URL | RequestInfo) => {
     const url = input instanceof Request ? input.url : String(input);
     if (status !== 200) {
-      return new Response(JSON.stringify({ message: status === 401 ? "Bad credentials" : "Forbidden" }), {
-        status,
-      });
+      return new Response(
+        JSON.stringify({ message: status === 401 ? "Bad credentials" : "Forbidden" }),
+        {
+          status,
+        },
+      );
     }
     if (url.includes("/branches/main/protection")) {
-      if (legacy === null) return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      if (legacy === null)
+        return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       return Response.json(legacy ?? legacyProtection());
     }
     if (url.includes("/rulesets")) {
@@ -132,10 +136,16 @@ describe("X.6 branch-protection verifier", () => {
       }),
       "review_count:0 < 1",
     ],
-    ["enforce-admins-disabled", legacyProtection({ enforce_admins: { enabled: false } }), "enforce_admins:false"],
+    [
+      "enforce-admins-disabled",
+      legacyProtection({ enforce_admins: { enabled: false } }),
+      "enforce_admins:false",
+    ],
     [
       "strict-false",
-      legacyProtection({ required_status_checks: { strict: false, contexts: REQUIRED_STATUS_CHECKS } }),
+      legacyProtection({
+        required_status_checks: { strict: false, contexts: REQUIRED_STATUS_CHECKS },
+      }),
       "strict:false",
     ],
     [
@@ -153,19 +163,22 @@ describe("X.6 branch-protection verifier", () => {
       legacyProtection({ allow_force_pushes: { enabled: true } }),
       "allow_force_pushes:true",
     ],
-  ])("%s emits BRANCH_PROTECTION_DRIFT with the specific named diff", async (_name, legacy, diff) => {
-    const { result, rpc } = await runCase({ legacy });
+  ])(
+    "%s emits BRANCH_PROTECTION_DRIFT with the specific named diff",
+    async (_name, legacy, diff) => {
+      const { result, rpc } = await runCase({ legacy });
 
-    expect(result.ok).toBe(false);
-    expect(rpc).toHaveBeenCalledWith("upsert_admin_alert", {
-      p_show_id: null,
-      p_code: "BRANCH_PROTECTION_DRIFT",
-      p_context: expect.objectContaining({
-        failures: expect.arrayContaining([diff]),
-        repo: "owner/repo",
-      }),
-    });
-  });
+      expect(result.ok).toBe(false);
+      expect(rpc).toHaveBeenCalledWith("upsert_admin_alert", {
+        p_show_id: null,
+        p_code: "BRANCH_PROTECTION_DRIFT",
+        p_context: expect.objectContaining({
+          failures: expect.arrayContaining([diff]),
+          repo: "owner/repo",
+        }),
+      });
+    },
+  );
 
   test("legacy-protection-happy-path exits cleanly without admin alert", async () => {
     const { result, rpc } = await runCase({ legacy: legacyProtection() });
@@ -289,7 +302,11 @@ describe("X.6 branch-protection verifier", () => {
 
     try {
       const result = await verifyBranchProtection({
-        env: { GITHUB_REPOSITORY: "owner/repo", GH_APP_TOKEN: "token", SUPABASE_URL: "http://127.0.0.1:1" },
+        env: {
+          GITHUB_REPOSITORY: "owner/repo",
+          GH_APP_TOKEN: "token",
+          SUPABASE_URL: "http://127.0.0.1:1",
+        },
         fetchImpl: makeFetch({ legacy: null, rulesets: { rulesets: [] } }),
         reportPath,
       });

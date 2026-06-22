@@ -30,7 +30,7 @@ import { clean, presence, splitRow } from "./_helpers";
 export function parseRooms(
   markdown: string,
   _version: "v1" | "v2" | "v4",
-   
+
   agg?: ParseAggregator,
 ): RoomRow[] {
   // Parse BOTH the v4 structured layout and the v2/v1 layout, then merge — a
@@ -93,10 +93,10 @@ function collectV2V1Rooms(markdown: string): RoomRow[] {
 }
 
 function parseAdditionalRoomFields(markdown: string): RoomRow | null {
-  const nameVal = presence(clean(matchFieldValue(markdown, /^Additional\s+Room\s+Name\(s\)$/i) ?? ""));
-  const setupVal = presence(
-    clean(matchFieldValue(markdown, /^Additional\s+Room\s+Setup$/i) ?? ""),
+  const nameVal = presence(
+    clean(matchFieldValue(markdown, /^Additional\s+Room\s+Name\(s\)$/i) ?? ""),
   );
+  const setupVal = presence(clean(matchFieldValue(markdown, /^Additional\s+Room\s+Setup$/i) ?? ""));
   if (!nameVal && !setupVal) return null;
   const room = buildEmptyRoom("additional", nameVal ?? "Additional Room(s)");
   room.setup = setupVal;

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  travelFlightNameUnmatched, travelFlightUnparseable, travelFlightAmbiguousTable,
+  travelFlightNameUnmatched,
+  travelFlightUnparseable,
+  travelFlightAmbiguousTable,
 } from "@/lib/parser/blocks/travelFlightWarnings";
 
 describe("travelFlight warning factories", () => {

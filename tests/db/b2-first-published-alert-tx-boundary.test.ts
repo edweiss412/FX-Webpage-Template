@@ -21,8 +21,7 @@ const DB_URL =
 
 // The EXACT statement applyStaged's default firstPublishedTailDeps writer runs (lib/sync/applyStaged.ts).
 // Pinning the literal ties this regression to the production statement, not a paraphrase.
-const UPSERT_ALERT_SQL =
-  "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id";
+const UPSERT_ALERT_SQL = "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id";
 
 // Mirrors tests/db/_b2Helpers.ts seedShow's column set (the known-minimal valid `shows` insert) plus the
 // auto-publish unpublish_token pair persisted by applyShowSnapshot on a first-seen auto-publish.

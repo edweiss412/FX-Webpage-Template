@@ -150,7 +150,11 @@ function fakeTx(held = true): FakeTx {
       if (!show) return { showId: null, lastSeenModifiedTime: null, title: null };
       show.lastSyncStatus = "sheet_unavailable";
       show.lastSyncError = code;
-      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime, title: show.title };
+      return {
+        showId: show.showId,
+        lastSeenModifiedTime: show.lastSeenModifiedTime,
+        title: show.title,
+      };
     },
     async markShowDriveError(driveFileId: string, code: string) {
       this.operations.push(`markShowDriveError:${driveFileId}`);
@@ -158,7 +162,11 @@ function fakeTx(held = true): FakeTx {
       if (!show) return { showId: null, lastSeenModifiedTime: null, title: null };
       show.lastSyncStatus = "drive_error";
       show.lastSyncError = code;
-      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime, title: show.title };
+      return {
+        showId: show.showId,
+        lastSeenModifiedTime: show.lastSeenModifiedTime,
+        title: show.title,
+      };
     },
     async insertSyncLog(
       entry: {
@@ -188,7 +196,11 @@ describe("runManualSyncForShow", () => {
   test("_unlocked uses caller-provided fileMeta and never performs Drive metadata fetch inside the lock", async () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const fetchDriveFileMetadata = vi.fn(async () => fileMeta("drive-file-1"));
-    const processOneFile_unlocked = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", parseWarnings: [] }));
+    const processOneFile_unlocked = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+      parseWarnings: [],
+    }));
 
     const result = await runManualSyncForShow_unlocked(
       tx,
@@ -220,7 +232,11 @@ describe("runManualSyncForShow", () => {
 
     await expect(
       runManualSyncForShow_unlocked(tx, "drive-file-1", "manual", fileMeta("drive-file-1"), {
-        processOneFile_unlocked: async () => ({ outcome: "applied", showId: "show-1", parseWarnings: [] }),
+        processOneFile_unlocked: async () => ({
+          outcome: "applied",
+          showId: "show-1",
+          parseWarnings: [],
+        }),
       }),
     ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
   });
@@ -291,7 +307,10 @@ describe("runManualSyncForShow", () => {
     expect(getActiveWatchedFolderId).toHaveBeenCalledOnce();
     expect(fetchDriveFileMetadata).toHaveBeenCalledWith("drive-file-1");
     expect(withPipelineLock).toHaveBeenCalledTimes(2);
-    expect(withPipelineLock.mock.calls.map((call) => call[0])).toEqual(["drive-file-1", "drive-file-1"]);
+    expect(withPipelineLock.mock.calls.map((call) => call[0])).toEqual([
+      "drive-file-1",
+      "drive-file-1",
+    ]);
     expect(processOneFile).toHaveBeenCalledOnce();
   });
 
@@ -299,7 +318,10 @@ describe("runManualSyncForShow", () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
     const processDeps = {
-      perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "manual" as const })),
+      perFileProcessor: vi.fn(async () => ({
+        outcome: "proceed" as const,
+        mode: "manual" as const,
+      })),
       captureBinding: vi.fn(async () => ({
         bindingToken: "binding-1",
         modifiedTime: "2026-05-08T12:00:00.000Z",
@@ -339,7 +361,10 @@ describe("runManualSyncForShow", () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
     const processDeps = {
-      perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "manual" as const })),
+      perFileProcessor: vi.fn(async () => ({
+        outcome: "proceed" as const,
+        mode: "manual" as const,
+      })),
       captureBinding: vi.fn(async () => ({
         bindingToken: "binding-1",
         modifiedTime: "2026-05-08T12:00:00.000Z",
@@ -374,7 +399,11 @@ describe("runManualSyncForShow", () => {
   test("manual re-sync marks the show sheet_unavailable and skips processing when Drive parents exclude the watched folder", async () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", parseWarnings: [] }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+      parseWarnings: [],
+    }));
 
     const result = await runManualSyncForShow("drive-file-1", "manual", {
       checkFinalizeOwnership: async () => false,
@@ -426,7 +455,11 @@ describe("runManualSyncForShow", () => {
   test("manual re-sync marks the show sheet_unavailable and skips processing when Drive metadata returns 404", async () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", parseWarnings: [] }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+      parseWarnings: [],
+    }));
     const gone = Object.assign(new Error("Drive file not found"), { code: 404 });
 
     const result = await runManualSyncForShow("drive-file-1", "manual", {
@@ -464,7 +497,11 @@ describe("runManualSyncForShow", () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
     const fetchDriveFileMetadata = vi.fn(async () => fileMeta("drive-file-1"));
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", parseWarnings: [] }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+      parseWarnings: [],
+    }));
 
     const result = await runManualSyncForShow("drive-file-1", "manual", {
       checkFinalizeOwnership: async () => false,

@@ -66,7 +66,7 @@ export function FactRows({ rows }: FactRowsProps) {
               <span
                 data-slot="fact-row-icon"
                 aria-hidden="true"
-                className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-[15px]"
+                className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-3.75"
               >
                 {row.icon}
               </span>
@@ -76,11 +76,11 @@ export function FactRows({ rows }: FactRowsProps) {
 
           {/* `.v` — strong value, right-aligned, with an optional muted sub. */}
           <dd className="flex min-w-0 flex-col items-end text-right">
-            <span className="min-w-0 break-words text-sm font-semibold text-text">{row.v}</span>
+            <span className="min-w-0 wrap-break-word text-sm font-semibold text-text">{row.v}</span>
             {row.sub !== undefined ? (
               <span
                 data-slot="fact-row-sub"
-                className="block min-w-0 break-words text-xs text-text-faint"
+                className="block min-w-0 wrap-break-word text-xs text-text-faint"
               >
                 {row.sub}
               </span>

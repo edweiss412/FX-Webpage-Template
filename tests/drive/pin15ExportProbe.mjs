@@ -150,7 +150,15 @@ const revisionExportLinks =
 const candidateResults = [];
 for (const mimeType of CANDIDATE_MIME_TYPES) {
   const url = revisionExportLinks[mimeType] ?? fileExportLinks[mimeType];
-  const result = { mimeType, hasExportLink: Boolean(url), source: revisionExportLinks[mimeType] ? "revision" : fileExportLinks[mimeType] ? "file" : "none" };
+  const result = {
+    mimeType,
+    hasExportLink: Boolean(url),
+    source: revisionExportLinks[mimeType]
+      ? "revision"
+      : fileExportLinks[mimeType]
+        ? "file"
+        : "none",
+  };
   if (!url) {
     candidateResults.push(result);
     continue;
@@ -225,7 +233,9 @@ const revisionSummary =
         publishedOutsideDomain: revision.data.publishedOutsideDomain,
         exportLinks: revisionExportLinks,
       }
-    : revision ?? { skipped: "no headRevisionId and revisions.list returned no candidate revision" };
+    : (revision ?? {
+        skipped: "no headRevisionId and revisions.list returned no candidate revision",
+      });
 
 const sheetsSummary = {
   spreadsheetId: spreadsheet.data.spreadsheetId,
@@ -260,7 +270,10 @@ const report = [
   "",
   section("(a) files.get", `\`\`\`json\n${json(fileSummary)}\n\`\`\``),
   section("(b) revisions.list", `\`\`\`json\n${json(revisionsSummary)}\n\`\`\``),
-  section("(c) revisions.get / current export links", `\`\`\`json\n${json(revisionSummary)}\n\`\`\``),
+  section(
+    "(c) revisions.get / current export links",
+    `\`\`\`json\n${json(revisionSummary)}\n\`\`\``,
+  ),
   section("(d) candidate export MIME results", `\`\`\`json\n${json(candidateResults)}\n\`\`\``),
   section("(e) spreadsheets.get sheet properties", `\`\`\`json\n${json(sheetsSummary)}\n\`\`\``),
   section("(f) spreadsheets.values.batchGet", `\`\`\`json\n${json(valuesSummary)}\n\`\`\``),

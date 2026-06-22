@@ -30,9 +30,7 @@ export default function CrewLinkNotFound() {
       >
         FXAV
       </span>
-      <h1 className="mt-2 text-2xl font-bold text-text-strong">
-        We couldn’t open this link
-      </h1>
+      <h1 className="mt-2 text-2xl font-bold text-text-strong">We couldn’t open this link</h1>
       <p data-testid="crew-not-found-body" className="mt-4 text-base text-text-subtle">
         {body}
       </p>

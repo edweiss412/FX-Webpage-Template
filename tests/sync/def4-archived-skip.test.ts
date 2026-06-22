@@ -23,7 +23,10 @@ function fileMeta(driveFileId = "drive-1"): DriveListedFile {
 // A per-show lock that runs fn against a fake tx whose archived re-read returns the given value
 // (readShowArchived_unlocked → "select archived from public.shows where drive_file_id = $1").
 function lockWithArchived(archived: boolean): NonNullable<ProcessOneFileDeps["withShowLock"]> {
-  return (async (_driveFileId: string, fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<unknown>) =>
+  return (async (
+    _driveFileId: string,
+    fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<unknown>,
+  ) =>
     fn({
       async queryOne<T>(sql: string) {
         if (/select archived from public\.shows/i.test(sql)) return { archived } as T;
@@ -95,10 +98,21 @@ describe("DEF-4 — archived cron/push silent-skip (no fetch, no sync_log)", () 
       },
     } as unknown as LockedShowTx<SyncPipelineTx>;
     const logSync = vi.fn(async () => undefined);
-    const result = await processOneFile_unlocked(tx, "drive-1", "cron", fileMeta(), { logSync }, undefined);
+    const result = await processOneFile_unlocked(
+      tx,
+      "drive-1",
+      "cron",
+      fileMeta(),
+      { logSync },
+      undefined,
+    );
     expect(result).toEqual({ outcome: "skipped", reason: "archived" });
     expect(logSync).not.toHaveBeenCalled();
     // Only the lock-held probe + the archived re-read ran — no deferral recheck / processing SQL.
-    expect(calls.every((c) => /pg_locks/i.test(c.sql) || /select archived from public\.shows/i.test(c.sql))).toBe(true);
+    expect(
+      calls.every(
+        (c) => /pg_locks/i.test(c.sql) || /select archived from public\.shows/i.test(c.sql),
+      ),
+    ).toBe(true);
   });
 });

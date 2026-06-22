@@ -48,8 +48,13 @@ describe("lifecycle callers", () => {
   });
 
   it("archiveShow maps FINALIZE_OWNED_SHOW errcode to a typed refusal", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "FINALIZE_OWNED_SHOW" } });
-    expect(await archiveShow("show-1", { rpc })).toEqual({ ok: false, code: "FINALIZE_OWNED_SHOW" });
+    const rpc = vi
+      .fn()
+      .mockResolvedValue({ data: null, error: { message: "FINALIZE_OWNED_SHOW" } });
+    expect(await archiveShow("show-1", { rpc })).toEqual({
+      ok: false,
+      code: "FINALIZE_OWNED_SHOW",
+    });
   });
 
   it("archiveShow surfaces an unmapped RETURNED error as infra_error (not silent)", async () => {
@@ -58,15 +63,26 @@ describe("lifecycle callers", () => {
   });
 
   it("publishShow maps PUBLISH_BLOCKED_PENDING_REVIEW to a typed refusal", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "PUBLISH_BLOCKED_PENDING_REVIEW" } });
-    expect(await publishShow("show-1", { rpc })).toEqual({ ok: false, code: "PUBLISH_BLOCKED_PENDING_REVIEW" });
+    const rpc = vi
+      .fn()
+      .mockResolvedValue({ data: null, error: { message: "PUBLISH_BLOCKED_PENDING_REVIEW" } });
+    expect(await publishShow("show-1", { rpc })).toEqual({
+      ok: false,
+      code: "PUBLISH_BLOCKED_PENDING_REVIEW",
+    });
   });
 
   it("unarchiveShow runs the catch-up sync AFTER a REAL transition (RPC returns true)", async () => {
     const order: string[] = [];
     // R8: unarchive_show returns TRUE when it performed the archived->held transition.
-    const rpc = vi.fn().mockImplementation(async () => { order.push("rpc"); return { data: true, error: null }; });
-    const catchUp = vi.fn().mockImplementation(async () => { order.push("sync"); return { outcome: "applied" }; });
+    const rpc = vi.fn().mockImplementation(async () => {
+      order.push("rpc");
+      return { data: true, error: null };
+    });
+    const catchUp = vi.fn().mockImplementation(async () => {
+      order.push("sync");
+      return { outcome: "applied" };
+    });
     const res = await unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp });
     expect(order).toEqual(["rpc", "sync"]);
     // Real signature is runManualSyncForShow(driveFileId, mode="manual", deps?) — positional mode string
@@ -86,9 +102,13 @@ describe("lifecycle callers", () => {
   });
 
   it("unarchiveShow does NOT run the catch-up when the RPC fails, and surfaces the typed result", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "ADMIN_LINK_SHOW_NOT_FOUND" } });
+    const rpc = vi
+      .fn()
+      .mockResolvedValue({ data: null, error: { message: "ADMIN_LINK_SHOW_NOT_FOUND" } });
     const catchUp = vi.fn();
-    expect(await unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp })).toEqual({ ok: false, code: "ADMIN_LINK_SHOW_NOT_FOUND" });
+    expect(
+      await unarchiveShow("show-1", "drive-1", { rpc, runManualSyncForShow: catchUp }),
+    ).toEqual({ ok: false, code: "ADMIN_LINK_SHOW_NOT_FOUND" });
     expect(catchUp).not.toHaveBeenCalled();
   });
 });
@@ -114,7 +134,9 @@ describe("lifecycle callers — THROWN Supabase faults map to infra_error (R7, i
   );
 
   it("default path: a thrown createSupabaseServerClient construction fault → infra_error (not a rejection)", async () => {
-    vi.mocked(createSupabaseServerClient).mockRejectedValueOnce(new Error("client construction fault"));
+    vi.mocked(createSupabaseServerClient).mockRejectedValueOnce(
+      new Error("client construction fault"),
+    );
     await expect(archiveShow("show-1")).resolves.toEqual({ ok: false, code: "infra_error" });
   });
 

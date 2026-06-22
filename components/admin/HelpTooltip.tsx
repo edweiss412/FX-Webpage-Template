@@ -48,11 +48,7 @@ export type HelpTooltipProps = {
   testId?: string;
 };
 
-export function HelpTooltip({
-  label,
-  children,
-  testId = "help-tooltip",
-}: HelpTooltipProps) {
+export function HelpTooltip({ label, children, testId = "help-tooltip" }: HelpTooltipProps) {
   return (
     <details
       data-testid={testId}

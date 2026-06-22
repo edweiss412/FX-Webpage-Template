@@ -119,7 +119,6 @@ function showDates() {
   };
 }
 
-const TZ = "America/New_York";
 const at = (iso: string) => new Date(`${iso}T16:00:00Z`);
 
 /**
@@ -303,7 +302,7 @@ describe("RightNowHero — §4.3 12-state map (Test 5)", () => {
       // goes blank for any of the 12 kinds — §4.3 maps all 12).
       const eyebrow = hero(container).querySelector('[data-testid="right-now-eyebrow"]');
       expect(eyebrow?.textContent?.trim().length ?? 0).toBeGreaterThan(0);
-      expect((lead(container)?.textContent?.trim().length ?? 0)).toBeGreaterThan(0);
+      expect(lead(container)?.textContent?.trim().length ?? 0).toBeGreaterThan(0);
 
       // Degraded hook: dateless/unknown/viewer_unconfirmed carry the stale
       // tint hook AND render NO stats (fabricated stats on degraded states
@@ -316,7 +315,7 @@ describe("RightNowHero — §4.3 12-state map (Test 5)", () => {
       // Progress segments: show_day_n renders `total` segments (derived from
       // the fixture's showDays.length); every other kind renders none.
       if (c.progressSegments !== null) {
-        const seg = progress(container)?.querySelectorAll('[data-segment]');
+        const seg = progress(container)?.querySelectorAll("[data-segment]");
         expect(seg?.length).toBe(c.progressSegments);
       } else {
         expect(progress(container)).toBeNull();
@@ -393,7 +392,7 @@ describe("RightNowHero — owns the live clock (Test 5 re-derive)", () => {
     expect(stateMarker(container).getAttribute("data-state")).toBe("show_day_n");
     // Sanity: it's day 1 (2 segments, first segment is the active one is not
     // asserted here — we only need the kind to flip).
-    expect(progress(container)?.querySelectorAll('[data-segment]').length).toBe(2);
+    expect(progress(container)?.querySelectorAll("[data-segment]").length).toBe(2);
 
     // Advance the wall clock to day 2, fire the minute tick + a
     // visibilitychange (the §4.3 refresh hooks), and let React re-render.
@@ -468,7 +467,7 @@ describe("RightNowHero — two-level stat guards (Test 6)", () => {
     // The present stat (hotel name) survives.
     expect(strip.textContent).toContain("Marriott");
     // The strip did not collapse just because one date was null.
-    expect(strip.querySelectorAll('[data-stat]').length).toBeGreaterThan(0);
+    expect(strip.querySelectorAll("[data-stat]").length).toBeGreaterThan(0);
   });
 });
 

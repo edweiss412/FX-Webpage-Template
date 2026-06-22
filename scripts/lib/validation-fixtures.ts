@@ -13,28 +13,13 @@
 // OAuth cannot authenticate against any of these domains — the J3 walk
 // would be unwalkable.
 import { canonicalize } from "@/lib/email/canonicalize";
-import type {
-  DateRestriction,
-  StageRestriction,
-  WorkPhase,
-} from "@/lib/parser/types";
+import type { DateRestriction, StageRestriction } from "@/lib/parser/types";
 
 // =============================================================================
 // Canonical enums per spec §3.3 + §3.3.1.
 // =============================================================================
 
-export const R_COMBOS = [
-  "R1",
-  "R2",
-  "R3",
-  "R4",
-  "R5",
-  "R6",
-  "R7a",
-  "R7b",
-  "R8a",
-  "R8b",
-] as const;
+export const R_COMBOS = ["R1", "R2", "R3", "R4", "R5", "R6", "R7a", "R7b", "R8a", "R8b"] as const;
 export type RCombo = (typeof R_COMBOS)[number];
 
 export const SW_COMBOS = [
@@ -224,9 +209,7 @@ export type FixtureCrewMember = {
 export const VALIDATION_PULL_SHEET = [
   {
     caseLabel: "Validation Case 1",
-    items: [
-      { qty: 1, cat: "Mic", subCat: "Wireless", item: "Validation Mic" },
-    ],
+    items: [{ qty: 1, cat: "Mic", subCat: "Wireless", item: "Validation Mic" }],
   },
 ] as const;
 
@@ -279,7 +262,10 @@ function isoOffset(today: string, deltaDays: number): string {
 // Per-combo restriction + dates shape per spec §3.3 table.
 // =============================================================================
 
-function buildRCombo(combo: RCombo, today: string): {
+function buildRCombo(
+  combo: RCombo,
+  today: string,
+): {
   dateRestriction: DateRestriction;
   stageRestriction: StageRestriction;
   dates: FixtureDates;
@@ -437,7 +423,10 @@ function buildRCombo(combo: RCombo, today: string): {
   }
 }
 
-function buildSWCombo(combo: SWCombo, today: string): {
+function buildSWCombo(
+  combo: SWCombo,
+  today: string,
+): {
   dateRestriction: DateRestriction;
   stageRestriction: StageRestriction;
   dates: FixtureDates;
@@ -497,11 +486,7 @@ function buildSWCombo(combo: SWCombo, today: string): {
         dates: {
           travelIn: isoOffset(today, -2),
           set: isoOffset(today, -1),
-          showDays: [
-            isoOffset(today, -1),
-            today,
-            isoOffset(today, 1),
-          ],
+          showDays: [isoOffset(today, -1), today, isoOffset(today, 1)],
           travelOut: isoOffset(today, 2),
         },
         expectedRuntimeStateKind: "show_day_n",
@@ -554,8 +539,10 @@ export function buildFixtures(today: string): FixtureRow[] {
   const out: FixtureRow[] = [];
 
   for (const combo of R_COMBOS) {
-    const { dateRestriction, stageRestriction, dates, expectedRuntimeStateKind } =
-      buildRCombo(combo, today);
+    const { dateRestriction, stageRestriction, dates, expectedRuntimeStateKind } = buildRCombo(
+      combo,
+      today,
+    );
     out.push({
       combo,
       showName: fixtureShowName(combo),
@@ -583,8 +570,10 @@ export function buildFixtures(today: string): FixtureRow[] {
   }
 
   for (const combo of SW_COMBOS) {
-    const { dateRestriction, stageRestriction, dates, expectedRuntimeStateKind } =
-      buildSWCombo(combo, today);
+    const { dateRestriction, stageRestriction, dates, expectedRuntimeStateKind } = buildSWCombo(
+      combo,
+      today,
+    );
     out.push({
       combo,
       showName: fixtureShowName(combo),
@@ -613,9 +602,7 @@ export function buildFixtures(today: string): FixtureRow[] {
 function synthesizeEmail(combo: Combo, alias: string): string {
   // Lowercase + replace _ with - per .env.local.example convention; preserve
   // SW- prefix (canonical separator). Plus-alias keeps lower(trim()) canonical.
-  const suffix = `${combo}-${alias.replace(/^alias_/, "")}`
-    .toLowerCase()
-    .replace(/_/g, "-");
+  const suffix = `${combo}-${alias.replace(/^alias_/, "")}`.toLowerCase().replace(/_/g, "-");
   const synthesized = `validation+${suffix}@example.com`;
   const canonical = canonicalize(synthesized);
   if (canonical === null) {

@@ -19,10 +19,7 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import {
-  StagedReviewCard,
-  type StagedRow,
-} from "@/components/admin/StagedReviewCard";
+import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import { AFFORDANCE_MATRIX } from "@/app/help/_affordanceMatrix";
 
 vi.mock("next/navigation", () => ({
@@ -33,9 +30,7 @@ vi.mock("next/navigation", () => ({
 afterEach(() => cleanup());
 
 function matrixRow(testid: string) {
-  const row = AFFORDANCE_MATRIX.find(
-    (r) => r.kind === "concrete" && r.testid === testid,
-  );
+  const row = AFFORDANCE_MATRIX.find((r) => r.kind === "concrete" && r.testid === testid);
   if (!row || row.kind !== "concrete") {
     throw new Error(`matrix row not found for testid ${testid}`);
   }
@@ -75,8 +70,6 @@ describe("StagedReviewCard first_seen mode — matrix affordance", () => {
 
   test("does NOT render the first-seen tooltip in live mode (mode boundary)", () => {
     render(<StagedReviewCard row={makeFirstSeenRow()} mode="live" />);
-    expect(
-      screen.queryByTestId("help-affordance--first-seen-review-card--tooltip"),
-    ).toBeNull();
+    expect(screen.queryByTestId("help-affordance--first-seen-review-card--tooltip")).toBeNull();
   });
 });

@@ -52,8 +52,7 @@ export function OpeningReelVideo({ showId }: OpeningReelVideoProps) {
         src={`/api/asset/reel/${showId}`}
         onError={() => setHasMediaError(true)}
       >
-        Your browser can&apos;t play this video. Try opening the page in
-        Safari or Chrome.
+        Your browser can&apos;t play this video. Try opening the page in Safari or Chrome.
       </video>
     </div>
   );

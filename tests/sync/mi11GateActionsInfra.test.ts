@@ -27,7 +27,10 @@ const fetchDriveFileMetadata = vi.fn(async (..._a: unknown[]) => ({
 }));
 vi.mock("@/lib/drive/fetch", () => {
   class DriveFetchError extends Error {}
-  return { fetchDriveFileMetadata: (...a: unknown[]) => fetchDriveFileMetadata(...a), DriveFetchError };
+  return {
+    fetchDriveFileMetadata: (...a: unknown[]) => fetchDriveFileMetadata(...a),
+    DriveFetchError,
+  };
 });
 
 vi.mock("@/lib/supabase/server", () => ({

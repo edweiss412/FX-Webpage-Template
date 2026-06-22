@@ -33,7 +33,8 @@ export function normalizeTravelCell(raw: string): string | null {
 }
 
 const SENTINELS = new Set(["DRIVING", "LOCAL", "N/A", "TBD", "TBA"]);
-const isSeparator = (cells: string[]) => cells.length > 0 && cells.every((c) => /^[\s:|*-]*$/.test(c));
+const isSeparator = (cells: string[]) =>
+  cells.length > 0 && cells.every((c) => /^[\s:|*-]*$/.test(c));
 const normalizeName = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
 /** Split ONE pipe-row into cells on UNESCAPED pipes (a `|` is a delimiter iff
@@ -47,8 +48,16 @@ function splitEscapedCells(line: string): string[] {
   if (t.startsWith("|")) i = 1;
   for (; i < t.length; i += 1) {
     const ch = t[i]!;
-    if (ch === "\\") { cur += ch + (t[i + 1] ?? ""); i += 1; continue; }
-    if (ch === "|") { cells.push(cur); cur = ""; continue; }
+    if (ch === "\\") {
+      cur += ch + (t[i + 1] ?? "");
+      i += 1;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(cur);
+      cur = "";
+      continue;
+    }
     cur += ch;
   }
   cells.push(cur); // trailing cell after last pipe (the row ends with `|` so this is empty → dropped below)
@@ -78,7 +87,9 @@ const isHeaderLine = (line: string): { nameIdx: number; flightIdx: number } | nu
  * row whose col-A cell is exactly `NAME` plus the FLIGHT-DETAILS + booking-sibling
  * signature, so data rows never match and a single table yields exactly one entry.
  */
-function findTravelBlocks(markdown: string): Array<{ lines: string[]; nameIdx: number; flightIdx: number }> {
+function findTravelBlocks(
+  markdown: string,
+): Array<{ lines: string[]; nameIdx: number; flightIdx: number }> {
   const lines = markdown.split("\n");
   const isPipe = (l: string) => l.trim().startsWith("|");
   const blocks: Array<{ lines: string[]; nameIdx: number; flightIdx: number }> = [];
@@ -101,7 +112,10 @@ export function parseTravelFlights(
 ): void {
   const blocks = findTravelBlocks(markdown);
   if (blocks.length === 0) return;
-  if (blocks.length > 1) { agg.warnings.push(travelFlightAmbiguousTable()); return; }
+  if (blocks.length > 1) {
+    agg.warnings.push(travelFlightAmbiguousTable());
+    return;
+  }
   const { lines, nameIdx, flightIdx } = blocks[0]!;
   for (let r = 1; r < lines.length; r += 1) {
     const cells = splitEscapedCells(lines[r]!);
@@ -111,9 +125,17 @@ export function parseTravelFlights(
     const flightRaw = (cells[flightIdx] ?? "").trim();
     if (flightRaw === "" || SENTINELS.has(flightRaw.toUpperCase())) continue; // silent non-flyer
     const flightInfo = normalizeTravelCell(flightRaw);
-    if (flightInfo === null) { agg.warnings.push(travelFlightUnparseable(nameRaw, flightRaw)); continue; }
-    const matches = crewMembers.filter((m) => normalizeName(m.name ?? "") === normalizeName(nameRaw));
-    if (matches.length !== 1) { agg.warnings.push(travelFlightNameUnmatched(nameRaw)); continue; }
+    if (flightInfo === null) {
+      agg.warnings.push(travelFlightUnparseable(nameRaw, flightRaw));
+      continue;
+    }
+    const matches = crewMembers.filter(
+      (m) => normalizeName(m.name ?? "") === normalizeName(nameRaw),
+    );
+    if (matches.length !== 1) {
+      agg.warnings.push(travelFlightNameUnmatched(nameRaw));
+      continue;
+    }
     if (matches[0]!.flight_info == null) matches[0]!.flight_info = flightInfo; // TECH precedence
   }
 }

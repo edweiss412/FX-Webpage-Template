@@ -30,12 +30,20 @@ export type FinalizeCheckpointReadInfra = {
   message: string;
 };
 
-export type FinalizeCheckpointReadResult = FinalizeCheckpointRow | null | FinalizeCheckpointReadInfra;
+export type FinalizeCheckpointReadResult =
+  | FinalizeCheckpointRow
+  | null
+  | FinalizeCheckpointReadInfra;
 
 export function isInfraError(
   result: FinalizeCheckpointReadResult,
 ): result is FinalizeCheckpointReadInfra {
-  return result !== null && typeof result === "object" && "kind" in result && result.kind === "infra_error";
+  return (
+    result !== null &&
+    typeof result === "object" &&
+    "kind" in result &&
+    result.kind === "infra_error"
+  );
 }
 
 export async function readFinalizeCheckpoint(
@@ -95,10 +103,7 @@ const STALENESS_HORIZON_MS = 24 * 3600 * 1000;
  * the same instant in here. Mutation-side staleness still uses the DB clock
  * via the helper's CAS — this branch only affects which surface renders.
  */
-export function isCheckpointStale(
-  lastProcessedAt: string | null,
-  now: Date,
-): boolean {
+export function isCheckpointStale(lastProcessedAt: string | null, now: Date): boolean {
   if (!lastProcessedAt) return false;
   const parsed = Date.parse(lastProcessedAt);
   if (Number.isNaN(parsed)) return false;

@@ -71,8 +71,7 @@ const FORBIDDEN_PATTERNS: ForbiddenPattern[] = [
   {
     id: 1,
     name: "Vault schema drift (supabase_vault.fn instead of vault.fn)",
-    regex:
-      /\bsupabase_vault\.(create_secret|update_secret|decrypted_secrets|secrets)\b/i,
+    regex: /\bsupabase_vault\.(create_secret|update_secret|decrypted_secrets|secrets)\b/i,
   },
   {
     id: 2,
@@ -266,7 +265,11 @@ function scanTextForPatterns(text: string, sourceLabel: string): DocFinding[] {
   return findings;
 }
 
-function scanWalkedSurfaces(): { findings: DocFinding[]; visitedSelf: boolean; walkedCount: number } {
+function scanWalkedSurfaces(): {
+  findings: DocFinding[];
+  visitedSelf: boolean;
+  walkedCount: number;
+} {
   const { paths, visitedSelf } = collectWalkedFiles();
   const findings: DocFinding[] = [];
   for (const abs of paths) {
@@ -297,7 +300,8 @@ describe("M12.1: pg-cron-pivot-doc-guard (walks M12.1 + parent M12 spec)", () =>
 
   test("walker visited the parent M12 spec (R27 F53)", () => {
     const { paths } = collectWalkedFiles();
-    const parentSpec = "docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md";
+    const parentSpec =
+      "docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md";
     const hasParent = paths.some((p) => p.endsWith(parentSpec));
     expect(hasParent, "parent M12 spec not in walked surface — R27 F53 regression").toBe(true);
   });
@@ -310,13 +314,10 @@ describe("M12.1: pg-cron-pivot-doc-guard (walks M12.1 + parent M12 spec)", () =>
     // vacuous), assert the self file CONTAINS forbidden literals — without them
     // the bidirectional regression fixtures below have no negative-case material.
     const selfText = readFileSync(SELF_ABSOLUTE, "utf8");
-    expect(selfText, "self file should contain net.http_post( literal").toContain(
-      "net.http_post(",
+    expect(selfText, "self file should contain net.http_post( literal").toContain("net.http_post(");
+    expect(selfText, "self file should contain supabase_vault.create_secret literal").toContain(
+      "supabase_vault.create_secret",
     );
-    expect(
-      selfText,
-      "self file should contain supabase_vault.create_secret literal",
-    ).toContain("supabase_vault.create_secret");
     expect(
       selfText,
       "self file should contain decrypted_secret from vault.decrypted_secrets literal",
@@ -336,7 +337,8 @@ describe("M12.1: pg-cron-pivot-doc-guard (walks M12.1 + parent M12 spec)", () =>
 
     test("Pattern 1 — Vault schema drift", () => {
       const negative = "Function: supabase_vault.create_secret(...) — wrong schema.";
-      const positiveProse = "Vault schema (vault.* NOT supabase_vault.*) consistent across surfaces.";
+      const positiveProse =
+        "Vault schema (vault.* NOT supabase_vault.*) consistent across surfaces.";
       const positiveExtCreate = "create extension if not exists supabase_vault with schema vault;";
       expect(scanFor(1, negative)).toHaveLength(1);
       expect(scanFor(1, positiveProse)).toHaveLength(0);
@@ -363,8 +365,7 @@ describe("M12.1: pg-cron-pivot-doc-guard (walks M12.1 + parent M12 spec)", () =>
     });
 
     test("Pattern 4 — non-existent pg_cron column", () => {
-      const negative =
-        "select started_at from cron.job_run_details where status = 'succeeded';";
+      const negative = "select started_at from cron.job_run_details where status = 'succeeded';";
       const positive =
         "select start_time, end_time from cron.job_run_details where status = 'succeeded';";
       expect(scanFor(4, negative)).toHaveLength(1);
@@ -380,8 +381,7 @@ describe("M12.1: pg-cron-pivot-doc-guard (walks M12.1 + parent M12 spec)", () =>
     });
 
     test("Pattern 6 — unescaped LIKE wildcard", () => {
-      const negative =
-        "delete from cron.job where jobname like 'fxav_cron_%';";
+      const negative = "delete from cron.job where jobname like 'fxav_cron_%';";
       const positiveEscaped =
         "delete from cron.job where jobname like 'fxav\\_cron\\_%' escape '\\';";
       expect(scanFor(6, negative)).toHaveLength(1);
@@ -389,10 +389,8 @@ describe("M12.1: pg-cron-pivot-doc-guard (walks M12.1 + parent M12 spec)", () =>
     });
 
     test("Pattern 7 — double-backslash ESCAPE clause", () => {
-      const negative =
-        "where jobname like 'fxav\\_cron\\_%' escape '\\\\';"; // SQL has '\\' (2 backslashes)
-      const positiveSingle =
-        "where jobname like 'fxav\\_cron\\_%' escape '\\';"; // SQL has '\' (1 backslash)
+      const negative = "where jobname like 'fxav\\_cron\\_%' escape '\\\\';"; // SQL has '\\' (2 backslashes)
+      const positiveSingle = "where jobname like 'fxav\\_cron\\_%' escape '\\';"; // SQL has '\' (1 backslash)
       expect(scanFor(7, negative)).toHaveLength(1);
       expect(scanFor(7, positiveSingle)).toHaveLength(0);
     });

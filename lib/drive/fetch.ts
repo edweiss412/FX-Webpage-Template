@@ -59,7 +59,12 @@ async function fetchFileForExport(
     fields: DRIVE_EXPORT_METADATA_FIELDS,
     supportsAllDrives: true,
   });
-  if (!response.data.id || !response.data.name || !response.data.mimeType || !response.data.modifiedTime) {
+  if (
+    !response.data.id ||
+    !response.data.name ||
+    !response.data.mimeType ||
+    !response.data.modifiedTime
+  ) {
     throw new DriveFetchError("Drive files.get response omitted required metadata");
   }
   return response.data;
@@ -124,7 +129,9 @@ export async function fetchSheetAsMarkdownAtRevision(
     },
   });
   if (!exportResponse.ok) {
-    throw new DriveFetchError(`Drive revision xlsx export failed with HTTP ${exportResponse.status}`);
+    throw new DriveFetchError(
+      `Drive revision xlsx export failed with HTTP ${exportResponse.status}`,
+    );
   }
 
   const bytes = await exportResponse.arrayBuffer();

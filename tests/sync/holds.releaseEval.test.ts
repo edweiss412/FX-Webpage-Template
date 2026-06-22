@@ -55,7 +55,15 @@ async function setup(tx: Sql, newEmail: string) {
   await writeMi11Holds(holdPort(tx), {
     showId,
     driveFileId,
-    mi11Items: [{ id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: newEmail }],
+    mi11Items: [
+      {
+        id: "1",
+        invariant: "MI-11",
+        crew_name: "Alice",
+        prior_email: "a@old",
+        new_email: newEmail,
+      },
+    ],
     liveCrewByName: new Map([["Alice", aliceLive]]),
     baseModifiedTime: MT,
   });
@@ -95,7 +103,10 @@ describe("hold release / re-eval (Task 2.8, §4.3)", () => {
 
       const holds = await readHolds(tx, showId);
       expect(holds).toHaveLength(1);
-      expect(holds[0]!.proposed_value).toMatchObject({ disposition: "email_change", email: "a@newer" });
+      expect(holds[0]!.proposed_value).toMatchObject({
+        disposition: "email_change",
+        email: "a@newer",
+      });
       expect(new Date(holds[0]!.base_modified_time as unknown as string).toISOString()).toBe(MT2);
       // Email still pinned to old until Approve.
       const alice = (await readCrew(tx, showId)).find((r) => r.name === "Alice")!;

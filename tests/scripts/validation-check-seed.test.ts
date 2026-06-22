@@ -14,14 +14,10 @@ import { runValidationCli, type CliRun } from "./_cli-helpers";
 
 import { buildFixtures, fixtureCrewName } from "@/scripts/lib/validation-fixtures";
 
-const CHECK_SEED_SCRIPT = join(
-  process.cwd(),
-  "scripts/validation-check-seed.ts",
-);
+const CHECK_SEED_SCRIPT = join(process.cwd(), "scripts/validation-check-seed.ts");
 
 const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 // Well-known local Supabase service_role key — surfaced by `npx supabase status -o env`.
@@ -33,17 +29,13 @@ const REAL_CLAIM_EMAIL = "test.validation.user@gmail.com";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
-function runCheckSeed(
-  combo?: string,
-  envOverrides: Record<string, string> = {},
-): CliRun {
+function runCheckSeed(combo?: string, envOverrides: Record<string, string> = {}): CliRun {
   // R25-F1 — hermetic tmpdir cwd + test-controlled .env.local containing
   // the VALIDATION_* values. The CLI's loadValidationEnv reads from
   // <cwd>/.env.local (same code path as production); no env-flag bypass.
@@ -87,16 +79,12 @@ function mintCombo(combo: string): void {
     seededBy: "validation-check-seed.test.ts",
     seededProjectRef: LOCAL_PROJECT_REF,
   });
-  runPsql(
-    `SELECT public.mint_validation_fixture_atomic('${combo}', '${payload}'::jsonb);`,
-  );
+  runPsql(`SELECT public.mint_validation_fixture_atomic('${combo}', '${payload}'::jsonb);`);
 }
 
 function finalizeAll(combos: string[]): void {
   const list = combos.map((c) => `'${c}'`).join(",");
-  runPsql(
-    `SELECT public.validation_finalize_all_atomic(ARRAY[${list}]::text[], '${TODAY}');`,
-  );
+  runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY[${list}]::text[], '${TODAY}');`);
 }
 
 function cleanup(): void {
@@ -124,13 +112,7 @@ describe("validation-check-seed", () => {
     // flag — node:util parseArgs throws on the unknown option.
     const res = runValidationCli({
       scriptPath: CHECK_SEED_SCRIPT,
-      args: [
-        "--allow-local-override",
-        "--combo",
-        "R1",
-        "--today",
-        "2020-01-01",
-      ],
+      args: ["--allow-local-override", "--combo", "R1", "--today", "2020-01-01"],
       envLocalValues: {
         VALIDATION_SUPABASE_URL: LOCAL_SUPABASE_URL,
         VALIDATION_SUPABASE_SECRET_KEY: LOCAL_SERVICE_ROLE_KEY,

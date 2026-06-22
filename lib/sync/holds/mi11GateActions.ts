@@ -17,20 +17,14 @@
  * vacuous. `drive_file_id` / `show_id` are NEVER taken from the client (PF23).
  */
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
-import {
-  createSupabaseServerClient,
-  createSupabaseServiceRoleClient,
-} from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 
 export type Mi11GateResult = { ok: true } | { ok: false; code: string };
 
 type RpcResult = { ok?: boolean; code?: string } | null;
 
-function mapRpcOutcome(
-  data: RpcResult,
-  error: { message?: string } | null,
-): Mi11GateResult {
+function mapRpcOutcome(data: RpcResult, error: { message?: string } | null): Mi11GateResult {
   // invariant 9: distinguish returned-error (RPC infra) from a discriminated RPC result.
   if (error) {
     return { ok: false, code: "SYNC_INFRA_ERROR" };

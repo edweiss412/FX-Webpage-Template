@@ -36,7 +36,9 @@ it("renders entries in array order and shows the truncation note when capped", (
   );
   const rows = screen.getAllByTestId(/change-feed-entry-/);
   expect(rows[0]).toHaveAttribute("data-testid", "change-feed-entry-b"); // array order preserved (newest first per Phase 5)
-  expect(screen.getByTestId("change-feed-truncation")).toHaveTextContent(/older changes not shown/i);
+  expect(screen.getByTestId("change-feed-truncation")).toHaveTextContent(
+    /older changes not shown/i,
+  );
 });
 
 it("does NOT render the truncation note when not truncated", () => {

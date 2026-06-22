@@ -163,7 +163,10 @@ describe("DriveConnectionPanel", () => {
     expect(statusLine()).not.toContain("Syncing, but");
     expect(statusLine()).not.toContain("need attention");
     expect(statusLine().startsWith("Connected")).toBe(false);
-    expect(screen.getByTestId("drive-connection-health-badge")).toHaveAttribute("data-health", "warn");
+    expect(screen.getByTestId("drive-connection-health-badge")).toHaveAttribute(
+      "data-health",
+      "warn",
+    );
     // M12.4 S2 (B1-D2): the explainer tooltip for sync_unknown must keep the
     // developer-escalation posture — it must tell the admin to send it to the
     // developer and must NOT soften the state into "clears on the next sync"

@@ -1,6 +1,11 @@
 import type { AgendaEntry, ParseWarning, ShowRow } from "../types";
 import { clean, normalizeDate, parseTableRows, presence } from "./_helpers";
-import { agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous, agendaDayTruncated } from "./agendaWarnings";
+import {
+  agendaGridMalformed,
+  agendaBlockUnresolved,
+  agendaDayAmbiguous,
+  agendaDayTruncated,
+} from "./agendaWarnings";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 export type ParseAgendaResult = {
@@ -9,9 +14,21 @@ export type ParseAgendaResult = {
 };
 
 const WEEKDAYS = new Set([
-  "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+  "SUNDAY",
   // Abbreviated forms used by some exporter templates (e.g. "Fri", "Wed")
-  "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
+  "MON",
+  "TUE",
+  "WED",
+  "THU",
+  "FRI",
+  "SAT",
+  "SUN",
 ]);
 
 // ── SINGLE NORMALIZATION BOUNDARY (R13 — closes the markdown-escape class) ──
@@ -33,7 +50,10 @@ function cleanRows(rows: string[][]): string[][] {
 
 /** Strip a leading `<prefix>/` segment (incl `#REF!/`, `Wednesday/`), unescape, trim, uppercase. */
 function normHeaderCell(cell: string): string {
-  return clean(cell).replace(/^[^/]*\//, "").trim().toUpperCase();
+  return clean(cell)
+    .replace(/^[^/]*\//, "")
+    .trim()
+    .toUpperCase();
 }
 
 function isTokenHeaderRow(cells: string[]): boolean {
@@ -132,8 +152,10 @@ function structuralRowIndices(rows: string[][]): Set<number> {
   const s = new Set<number>();
   rows.forEach((cells, i) => {
     if (
-      isTokenHeaderRow(cells) || isDateBannerRow(cells) ||
-      isDayNameRow(cells) || isDayTypeRow(cells)
+      isTokenHeaderRow(cells) ||
+      isDateBannerRow(cells) ||
+      isDayNameRow(cells) ||
+      isDayTypeRow(cells)
     ) {
       s.add(i);
     }
@@ -172,8 +194,8 @@ function findDayNameRow(rows: string[][]): string[] | undefined {
  * FLIGHT#`) and set (`TIME|TITLE|ROOM`) groups have NO `START` column → no block.
  */
 function locateBlocks(rows: string[][], header: string[], _headerIdx: number): AgendaBlock[] {
-  const dateRow = findDateRow(rows);     // whole table, shape-detected (#REF! ok)
-  const nameRow = findDayNameRow(rows);  // whole table
+  const dateRow = findDateRow(rows); // whole table, shape-detected (#REF! ok)
+  const nameRow = findDayNameRow(rows); // whole table
   const normHeader = header.map(normHeaderCell);
   const blocks: AgendaBlock[] = [];
 
@@ -199,8 +221,8 @@ function locateBlocks(rows: string[][], header: string[], _headerIdx: number): A
       blocks.push({
         startCol: c,
         endCol: c + 6, // the 6-col START|FINISH|TRT|TITLE|ROOM|AV group
-        dateCell: dateRow?.[c]?.trim(),   // may be M/D/YY, #REF!, or undefined — resolved in Task 1.5
-        dayName: nameRow?.[c]?.trim(),    // may be a weekday, #REF!, or undefined
+        dateCell: dateRow?.[c]?.trim(), // may be M/D/YY, #REF!, or undefined — resolved in Task 1.5
+        dayName: nameRow?.[c]?.trim(), // may be a weekday, #REF!, or undefined
       });
     }
   }
@@ -272,16 +294,24 @@ function buildEntry(row: string[], startCol: number): AgendaEntry | null {
   const title = presence(at(3));
   if (title === null || shouldHideGenericOptional(title)) return null; // TITLE-real gate
   const entry: AgendaEntry = { start: presence(at(0)) ?? "", title };
-  const finish = presence(at(1)); if (finish !== null) entry.finish = finish;
-  const trt    = presence(at(2)); if (trt    !== null) entry.trt    = trt;
-  const room   = presence(at(4)); if (room   !== null) entry.room   = room;
-  const av     = presence(at(5)); if (av     !== null) entry.av     = av;
+  const finish = presence(at(1));
+  if (finish !== null) entry.finish = finish;
+  const trt = presence(at(2));
+  if (trt !== null) entry.trt = trt;
+  const room = presence(at(4));
+  if (room !== null) entry.room = room;
+  const av = presence(at(5));
+  if (av !== null) entry.av = av;
   return entry;
 }
 
 // ── Step 6: storage caps (§4.1 D-6) ──────────────────────────────────────────
 // Parser caps to 200 entries/day (NOT the UI's 20 — stored 200 keeps §03 +N more computable).
-const MAX_ENTRIES = 200, MAX_TITLE = 300, MAX_RC = 120, MAX_TIME = 40, MAX_BYTES = 32 * 1024;
+const MAX_ENTRIES = 200,
+  MAX_TITLE = 300,
+  MAX_RC = 120,
+  MAX_TIME = 40,
+  MAX_BYTES = 32 * 1024;
 const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
 
 function capDay(entries: AgendaEntry[]): { entries: AgendaEntry[]; truncated: boolean } {
@@ -289,15 +319,31 @@ function capDay(entries: AgendaEntry[]): { entries: AgendaEntry[]; truncated: bo
   let capped = entries.map((e) => {
     const out: AgendaEntry = { start: cut(e.start, MAX_TIME), title: cut(e.title, MAX_TITLE) };
     if (e.title.length > MAX_TITLE || e.start.length > MAX_TIME) truncated = true;
-    if (e.finish !== undefined) { out.finish = cut(e.finish, MAX_TIME); if (e.finish.length > MAX_TIME) truncated = true; }
-    if (e.trt !== undefined) { out.trt = cut(e.trt, MAX_TIME); if (e.trt.length > MAX_TIME) truncated = true; }
-    if (e.room !== undefined) { out.room = cut(e.room, MAX_RC); if (e.room.length > MAX_RC) truncated = true; }
-    if (e.av !== undefined) { out.av = cut(e.av, MAX_RC); if (e.av.length > MAX_RC) truncated = true; }
+    if (e.finish !== undefined) {
+      out.finish = cut(e.finish, MAX_TIME);
+      if (e.finish.length > MAX_TIME) truncated = true;
+    }
+    if (e.trt !== undefined) {
+      out.trt = cut(e.trt, MAX_TIME);
+      if (e.trt.length > MAX_TIME) truncated = true;
+    }
+    if (e.room !== undefined) {
+      out.room = cut(e.room, MAX_RC);
+      if (e.room.length > MAX_RC) truncated = true;
+    }
+    if (e.av !== undefined) {
+      out.av = cut(e.av, MAX_RC);
+      if (e.av.length > MAX_RC) truncated = true;
+    }
     return out;
   });
-  if (capped.length > MAX_ENTRIES) { capped = capped.slice(0, MAX_ENTRIES); truncated = true; }
+  if (capped.length > MAX_ENTRIES) {
+    capped = capped.slice(0, MAX_ENTRIES);
+    truncated = true;
+  }
   while (capped.length > 0 && Buffer.byteLength(JSON.stringify(capped), "utf8") > MAX_BYTES) {
-    capped.pop(); truncated = true;
+    capped.pop();
+    truncated = true;
   }
   return { entries: capped, truncated };
 }

@@ -154,8 +154,6 @@ describe("TileServerFallback — server-side render isolation", () => {
       render: () => <span />,
       tileId: "global-tile",
     });
-    expect(upsertAdminAlert).toHaveBeenCalledWith(
-      expect.objectContaining({ showId: null }),
-    );
+    expect(upsertAdminAlert).toHaveBeenCalledWith(expect.objectContaining({ showId: null }));
   });
 });

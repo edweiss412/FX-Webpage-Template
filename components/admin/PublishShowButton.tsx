@@ -27,6 +27,7 @@ import { useFormStatus } from "react-dom";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
@@ -104,8 +105,7 @@ export function PublishShowButton({ publishAction, slug }: PublishShowButtonProp
           data-testid="publish-show-not-found"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
         >
-          We couldn&rsquo;t find this show anymore. Refresh the page and try
-          again.
+          We couldn&rsquo;t find this show anymore. Refresh the page and try again.
         </p>
       ) : null}
 
@@ -115,8 +115,8 @@ export function PublishShowButton({ publishAction, slug }: PublishShowButtonProp
           data-testid="publish-show-generic-error"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
         >
-          Publishing didn&rsquo;t go through. Try again in a moment; if it keeps
-          failing, contact the developer.
+          Publishing didn&rsquo;t go through. Try again in a moment; if it keeps failing, contact
+          the developer.
         </p>
       ) : null}
     </div>
@@ -127,14 +127,16 @@ export function PublishShowButton({ publishAction, slug }: PublishShowButtonProp
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
+    <AccentButton
       type="submit"
       data-testid="publish-show-button"
       disabled={pending}
       aria-busy={pending}
-      className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+      size="sm"
+      inline
+      minWidthTap
     >
       {pending ? "Publishing…" : "Publish"}
-    </button>
+    </AccentButton>
   );
 }

@@ -112,8 +112,7 @@ export default defineConfig({
         // (mirrors tests/setup.ts); it only feeds a SHA-256 of logged emails and
         // never affects rendered pixels, so screenshot baselines are unchanged.
         HASH_FOR_LOG_PEPPER:
-          process.env.HASH_FOR_LOG_PEPPER ??
-          "fxav-r41-test-pepper-32-chars-min-deterministic",
+          process.env.HASH_FOR_LOG_PEPPER ?? "fxav-r41-test-pepper-32-chars-min-deterministic",
         JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min",
         NEXT_DIST_DIR: ".next-screenshots-help",
         NEXT_PUBLIC_SUPABASE_URL:

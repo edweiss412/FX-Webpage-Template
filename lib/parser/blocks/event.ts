@@ -32,6 +32,7 @@
 
 import { clean, presence, splitRow } from "./_helpers";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 // The EVENT DETAILS block header labels (all variants found in corpus)
 const EVENT_DETAILS_HEADER_RE =
@@ -83,12 +84,23 @@ const CANONICAL_KEY_MAP: Record<string, string> = {
   goosneck: "gooseneck",
   goosenecks: "gooseneck",
   notes: "notes",
+  // M4-D1: dress-code family. The four labels below all collapse to the single
+  // canonical `dress_code` key (the parser is now the sole dress-key authority;
+  // the consumer reads `event_details.dress_code` only). Because several labels
+  // map to one key, the write site applies SENTINEL-AWARE PRECEDENCE so a
+  // sentinel value for one label never clobbers a real value for another (see
+  // the write block in parseEventDetails). `dress_code` itself round-trips via
+  // the fallback, but is listed for documentation of the full family.
+  dress_code: "dress_code",
+  "dress code": "dress_code",
+  dress: "dress_code",
+  attire: "dress_code",
 };
 
 export function parseEventDetails(
   markdown: string,
   _version: "v1" | "v2" | "v4",
-   
+
   agg?: ParseAggregator,
 ): Record<string, string> {
   const result: Record<string, string> = {};
@@ -134,7 +146,22 @@ export function parseEventDetails(
       const key = toCanonicalKey(col0);
       const val = presence(col1);
       if (key && val) {
-        result[key] = val;
+        // Sentinel-aware precedence (M4-D1): when several labels collapse to one
+        // canonical key (the dress family — "attire"/"dress"/"dress code" all →
+        // dress_code), a sentinel value ('' / TBD / N/A / TBA) must never clobber
+        // a real value already written for that key, regardless of row order.
+        // Non-dress keys are unaffected: each maps 1:1, so the existing value is
+        // only ever the same label re-read, and last-write-wins is preserved for
+        // two genuine values. The guard only suppresses the write when the
+        // incoming value is a sentinel AND the held value is real.
+        const existing = result[key];
+        const incomingIsSentinel = shouldHideGenericOptional(val);
+        const existingIsReal = existing !== undefined && !shouldHideGenericOptional(existing);
+        if (incomingIsSentinel && existingIsReal) {
+          // keep the real value already held; drop the sentinel write
+        } else {
+          result[key] = val;
+        }
       }
     }
     // Single-column row (label only, no value) — skip

@@ -20,7 +20,12 @@ type Seed = {
 
 const state = vi.hoisted(() => ({
   seed: {} as Record<string, unknown>,
-  calls: [] as Array<{ table: string; head: boolean; inCol: string | null; inArgs: unknown[] | null }>,
+  calls: [] as Array<{
+    table: string;
+    head: boolean;
+    inCol: string | null;
+    inArgs: unknown[] | null;
+  }>,
 }));
 
 function makeClient() {
@@ -33,20 +38,25 @@ function makeClient() {
       return { data: owned.includes(args.p_show_id), error: null };
     },
     from(table: string) {
-      const ctx: { head: boolean; inCol: string | null; inArgs: unknown[] | null; rangeStart: number | null; rangeEnd: number | null } =
-        { head: false, inCol: null, inArgs: null, rangeStart: null, rangeEnd: null };
+      const ctx: {
+        head: boolean;
+        inCol: string | null;
+        inArgs: unknown[] | null;
+        rangeStart: number | null;
+        rangeEnd: number | null;
+      } = { head: false, inCol: null, inArgs: null, rangeStart: null, rangeEnd: null };
       const resolve = () => {
         state.calls.push({ table, head: ctx.head, inCol: ctx.inCol, inArgs: ctx.inArgs });
         if (ctx.head) {
           const count =
             table === "shows"
-              ? seed.showsActiveCount ?? 0
+              ? (seed.showsActiveCount ?? 0)
               : table === "crew_members"
-                ? seed.crewTotal ?? 0
+                ? (seed.crewTotal ?? 0)
                 : table === "pending_ingestions"
-                  ? seed.ingestionCount ?? 0
+                  ? (seed.ingestionCount ?? 0)
                   : table === "pending_syncs"
-                    ? seed.syncCount ?? 0
+                    ? (seed.syncCount ?? 0)
                     : 0;
           return { data: null, count, error: null };
         }
@@ -98,7 +108,12 @@ vi.mock("@/lib/time/now", () => ({
   nowDate: async () => new Date("2026-06-03T12:00:00.000Z"),
 }));
 
-const FULL_DATES = { travelIn: "2026-06-01", set: null, showDays: ["2026-06-03"], travelOut: "2026-06-05" };
+const FULL_DATES = {
+  travelIn: "2026-06-01",
+  set: null,
+  showDays: ["2026-06-03"],
+  travelOut: "2026-06-05",
+};
 
 async function run() {
   const { fetchDashboardData } = await import("@/components/admin/Dashboard");
@@ -115,12 +130,36 @@ describe("fetchDashboardData", () => {
   it("Active set = archived=false (incl unpublished); liveCount over published && inWindow", async () => {
     state.seed = {
       showsList: [
-        { id: "1", slug: "live-pub", title: "Live", drive_file_id: "d1", dates: FULL_DATES, venue: null, published: true, last_sync_status: "ok", last_synced_at: null },
-        { id: "2", slug: "unpub", title: "Unpub", drive_file_id: "d2", dates: FULL_DATES, venue: null, published: false, last_sync_status: "pending", last_synced_at: null },
+        {
+          id: "1",
+          slug: "live-pub",
+          title: "Live",
+          drive_file_id: "d1",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+          last_sync_status: "ok",
+          last_synced_at: null,
+        },
+        {
+          id: "2",
+          slug: "unpub",
+          title: "Unpub",
+          drive_file_id: "d2",
+          dates: FULL_DATES,
+          venue: null,
+          published: false,
+          last_sync_status: "pending",
+          last_synced_at: null,
+        },
       ],
       showsActiveCount: 2,
     };
-    const r = (await run()) as { rows: Array<{ slug: string; isLive: boolean; published: boolean }>; liveCount: number; activeCount: number };
+    const r = (await run()) as {
+      rows: Array<{ slug: string; isLive: boolean; published: boolean }>;
+      liveCount: number;
+      activeCount: number;
+    };
     expect(r.rows.map((x) => x.slug).sort()).toEqual(["live-pub", "unpub"]);
     expect(r.activeCount).toBe(2);
     expect(r.rows.find((x) => x.slug === "live-pub")!.isLive).toBe(true);
@@ -134,9 +173,33 @@ describe("fetchDashboardData", () => {
   it("liveCount === count of rows with isLive===true (single source)", async () => {
     state.seed = {
       showsList: [
-        { id: "1", slug: "a", title: "A", drive_file_id: "d1", dates: FULL_DATES, venue: null, published: true },
-        { id: "2", slug: "b", title: "B", drive_file_id: "d2", dates: FULL_DATES, venue: null, published: true },
-        { id: "3", slug: "c", title: "C", drive_file_id: "d3", dates: { ...FULL_DATES, showDays: [] }, venue: null, published: true },
+        {
+          id: "1",
+          slug: "a",
+          title: "A",
+          drive_file_id: "d1",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+        },
+        {
+          id: "2",
+          slug: "b",
+          title: "B",
+          drive_file_id: "d2",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+        },
+        {
+          id: "3",
+          slug: "c",
+          title: "C",
+          drive_file_id: "d3",
+          dates: { ...FULL_DATES, showDays: [] },
+          venue: null,
+          published: true,
+        },
       ],
       showsActiveCount: 3,
     };
@@ -147,7 +210,17 @@ describe("fetchDashboardData", () => {
 
   it("crewTotal is a head:true exact count, not a row-fetch sum", async () => {
     state.seed = {
-      showsList: [{ id: "1", slug: "a", title: "A", drive_file_id: "d1", dates: FULL_DATES, venue: null, published: true }],
+      showsList: [
+        {
+          id: "1",
+          slug: "a",
+          title: "A",
+          drive_file_id: "d1",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+        },
+      ],
       showsActiveCount: 1,
       crewTotal: 42,
       crewRows: [{ show_id: "1" }, { show_id: "1" }], // row fetch would give 2; head count is 42
@@ -172,10 +245,21 @@ describe("fetchDashboardData", () => {
   it("activeCount > ACTIVE_SHOWS_CAP -> exact activeCount + statsScope='shown' + overflowCount>0", async () => {
     const { ACTIVE_SHOWS_CAP } = await import("@/components/admin/Dashboard");
     const list = Array.from({ length: ACTIVE_SHOWS_CAP }, (_, i) => ({
-      id: `${i}`, slug: `s${i}`, title: `S${i}`, drive_file_id: `d${i}`, dates: FULL_DATES, venue: null, published: true,
+      id: `${i}`,
+      slug: `s${i}`,
+      title: `S${i}`,
+      drive_file_id: `d${i}`,
+      dates: FULL_DATES,
+      venue: null,
+      published: true,
     }));
     state.seed = { showsList: list, showsActiveCount: ACTIVE_SHOWS_CAP + 17 };
-    const r = (await run()) as { activeCount: number; statsScope: string; overflowCount: number; rows: unknown[] };
+    const r = (await run()) as {
+      activeCount: number;
+      statsScope: string;
+      overflowCount: number;
+      rows: unknown[];
+    };
     expect(r.activeCount).toBe(ACTIVE_SHOWS_CAP + 17);
     expect(r.statsScope).toBe("shown");
     expect(r.overflowCount).toBe(17);
@@ -184,7 +268,17 @@ describe("fetchDashboardData", () => {
 
   it("normal case -> statsScope='global', overflowCount=0", async () => {
     state.seed = {
-      showsList: [{ id: "1", slug: "a", title: "A", drive_file_id: "d1", dates: FULL_DATES, venue: null, published: true }],
+      showsList: [
+        {
+          id: "1",
+          slug: "a",
+          title: "A",
+          drive_file_id: "d1",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+        },
+      ],
       showsActiveCount: 1,
     };
     const r = (await run()) as { statsScope: string; overflowCount: number };
@@ -198,12 +292,25 @@ describe("fetchDashboardData", () => {
       showsActiveCount: 0,
       ingestionRows: [],
       ingestionCount: 0,
-      syncRows: [{ staged_id: "s1", drive_file_id: "dfX", staged_modified_time: "2026-06-02T00:00:00Z", parse_result: { show: { title: "X" } } }],
+      syncRows: [
+        {
+          staged_id: "s1",
+          drive_file_id: "dfX",
+          staged_modified_time: "2026-06-02T00:00:00Z",
+          parse_result: { show: { title: "X" } },
+        },
+      ],
       syncCount: 1,
-      existenceRows: [{ drive_file_id: "dfX", slug: "x-show", title: "X", archived: false, published: true }],
+      existenceRows: [
+        { drive_file_id: "dfX", slug: "x-show", title: "X", archived: false, published: true },
+      ],
     };
-    const r = (await run()) as { needsAttention: { items: Array<{ variant: string; driveFileId: string }> } };
-    const existenceCall = state.calls.find((c) => c.table === "shows" && c.inCol === "drive_file_id");
+    const r = (await run()) as {
+      needsAttention: { items: Array<{ variant: string; driveFileId: string }> };
+    };
+    const existenceCall = state.calls.find(
+      (c) => c.table === "shows" && c.inCol === "drive_file_id",
+    );
     expect(existenceCall).toBeDefined();
     expect(existenceCall!.inArgs).toEqual(["dfX"]);
     const item = r.needsAttention.items.find((i) => i.driveFileId === "dfX")!;
@@ -211,7 +318,14 @@ describe("fetchDashboardData", () => {
   });
 
   it("zero pending rows -> no existence query issued, empty inbox", async () => {
-    state.seed = { showsList: [], showsActiveCount: 0, ingestionRows: [], ingestionCount: 0, syncRows: [], syncCount: 0 };
+    state.seed = {
+      showsList: [],
+      showsActiveCount: 0,
+      ingestionRows: [],
+      ingestionCount: 0,
+      syncRows: [],
+      syncCount: 0,
+    };
     const r = (await run()) as { needsAttention: { items: unknown[]; totalCount: number } };
     expect(r.needsAttention.items).toEqual([]);
     expect(r.needsAttention.totalCount).toBe(0);
@@ -220,9 +334,12 @@ describe("fetchDashboardData", () => {
 
   it("needReviewCount = exact pending totals (not capped render length)", async () => {
     state.seed = {
-      showsList: [], showsActiveCount: 0,
-      ingestionRows: [], ingestionCount: 30,
-      syncRows: [], syncCount: 25,
+      showsList: [],
+      showsActiveCount: 0,
+      ingestionRows: [],
+      ingestionCount: 30,
+      syncRows: [],
+      syncCount: 25,
     };
     const r = (await run()) as { needReviewCount: number; needsAttention: { totalCount: number } };
     expect(r.needReviewCount).toBe(55);
@@ -238,8 +355,24 @@ describe("fetchDashboardData", () => {
     ];
     state.seed = {
       showsList: [
-        { id: "1", slug: "a", title: "A", drive_file_id: "d1", dates: FULL_DATES, venue: null, published: true },
-        { id: "2", slug: "b", title: "B", drive_file_id: "d2", dates: FULL_DATES, venue: null, published: true },
+        {
+          id: "1",
+          slug: "a",
+          title: "A",
+          drive_file_id: "d1",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+        },
+        {
+          id: "2",
+          slug: "b",
+          title: "B",
+          drive_file_id: "d2",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+        },
       ],
       showsActiveCount: 2,
       crewTotal: CREW_PAGE_SIZE + 3,
@@ -257,7 +390,17 @@ describe("fetchDashboardData", () => {
     // The .eq('archived', false) filter is applied server-side; the mock returns
     // only seeded (non-archived) rows. This asserts the filter call shape exists.
     state.seed = {
-      showsList: [{ id: "1", slug: "a", title: "A", drive_file_id: "d1", dates: FULL_DATES, venue: null, published: true }],
+      showsList: [
+        {
+          id: "1",
+          slug: "a",
+          title: "A",
+          drive_file_id: "d1",
+          dates: FULL_DATES,
+          venue: null,
+          published: true,
+        },
+      ],
       showsActiveCount: 1,
     };
     await run();

@@ -35,14 +35,10 @@ import { runValidationCli, type CliRun } from "../scripts/_cli-helpers";
 // reseed + check-seed use — they can never drift to a stale literal.
 import { fixtureCrewName, fixtureShowName } from "@/scripts/lib/validation-fixtures";
 
-const CHECK_SEED_SCRIPT = join(
-  process.cwd(),
-  "scripts/validation-check-seed.ts",
-);
+const CHECK_SEED_SCRIPT = join(process.cwd(), "scripts/validation-check-seed.ts");
 
 const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 const LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 const LOCAL_SERVICE_ROLE_KEY =
@@ -52,11 +48,10 @@ const REAL_CLAIM_EMAIL = "test.validation.user@gmail.com";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 function runCheckSeed(combo: string): CliRun {
@@ -72,7 +67,6 @@ function runCheckSeed(combo: string): CliRun {
     },
   });
 }
-
 
 function cleanup(): void {
   safeValidationCleanup();
@@ -127,9 +121,7 @@ function mintR1Canonical(): void {
     seededBy: "validation-check-seed-content-coverage.test.ts",
     seededProjectRef: "local",
   });
-  runPsql(
-    `SELECT public.mint_validation_fixture_atomic('R1', '${payload}'::jsonb);`,
-  );
+  runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${payload}'::jsonb);`);
 }
 
 // =============================================================================

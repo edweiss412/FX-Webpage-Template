@@ -36,7 +36,8 @@ class FakeWizardPendingTx {
   } | null;
   deferrals: Array<{ kind: string; driveFileId: string }> = [];
   manifestUpdates: Array<{ status: string; wizardSessionId: string; driveFileId: string }> = [];
-  manifestUpdateAttempts: Array<{ status: string; wizardSessionId: string; driveFileId: string }> = [];
+  manifestUpdateAttempts: Array<{ status: string; wizardSessionId: string; driveFileId: string }> =
+    [];
   deleted = false;
 
   async queryOne<T>(sql: string, params: unknown[]) {
@@ -80,9 +81,14 @@ function deps(
 ): WizardPendingIngestionRouteDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
-    withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx as unknown as WizardPendingIngestionRouteTx)),
+    withRowTx: vi.fn(async (_driveFileId, fn) =>
+      fn(tx as unknown as WizardPendingIngestionRouteTx),
+    ),
     readDriveFileIdForPendingIngestion: vi.fn(async () => tx.row?.drive_file_id ?? null),
-    retrySingleFileUnlocked: vi.fn(async () => ({ outcome: "retried" as const, status: "staged" as const })),
+    retrySingleFileUnlocked: vi.fn(async () => ({
+      outcome: "retried" as const,
+      status: "staged" as const,
+    })),
     // Task 5.3: keep the unit suite hermetic — never let the default Supabase
     // alert writer or the best-effort current-session DB read run in here.
     upsertAdminAlert: vi.fn(async () => "alert-id"),
@@ -111,7 +117,12 @@ describe("wizard pending_ingestions actions", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "staged" });
     expect(routeDeps.withRowTx).toHaveBeenCalledWith("file-1", expect.any(Function));
-    expect(routeDeps.retrySingleFileUnlocked).toHaveBeenCalledWith(tx, "file-1", W1, expect.any(Object));
+    expect(routeDeps.retrySingleFileUnlocked).toHaveBeenCalledWith(
+      tx,
+      "file-1",
+      W1,
+      expect.any(Object),
+    );
   });
 
   test("retry rejects stale wizard session after the row lock", async () => {
@@ -130,7 +141,11 @@ describe("wizard pending_ingestions actions", () => {
       readDriveFileIdForPendingIngestion: vi.fn(async () => "file-locked"),
     });
 
-    const response = await handleWizardPendingIngestionDeferUntilModified(req("/defer"), context, routeDeps);
+    const response = await handleWizardPendingIngestionDeferUntilModified(
+      req("/defer"),
+      context,
+      routeDeps,
+    );
 
     expect(response.status).toBe(500);
     expect(await json(response)).toEqual({ ok: false, code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
@@ -142,7 +157,11 @@ describe("wizard pending_ingestions actions", () => {
   test("defer_until_modified writes a wizard deferral and deletes the pending ingestion", async () => {
     const tx = new FakeWizardPendingTx();
 
-    const response = await handleWizardPendingIngestionDeferUntilModified(req("/defer"), context, deps(tx));
+    const response = await handleWizardPendingIngestionDeferUntilModified(
+      req("/defer"),
+      context,
+      deps(tx),
+    );
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "deferred" });
@@ -153,7 +172,11 @@ describe("wizard pending_ingestions actions", () => {
   test("permanent_ignore writes a wizard deferral and deletes the pending ingestion", async () => {
     const tx = new FakeWizardPendingTx();
 
-    const response = await handleWizardPendingIngestionPermanentIgnore(req("/ignore"), context, deps(tx));
+    const response = await handleWizardPendingIngestionPermanentIgnore(
+      req("/ignore"),
+      context,
+      deps(tx),
+    );
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "ignored" });
@@ -172,7 +195,11 @@ describe("wizard pending_ingestions actions", () => {
   test("defer_until_modified transitions the manifest row to defer_until_modified", async () => {
     const tx = new FakeWizardPendingTx();
 
-    const response = await handleWizardPendingIngestionDeferUntilModified(req("/defer"), context, deps(tx));
+    const response = await handleWizardPendingIngestionDeferUntilModified(
+      req("/defer"),
+      context,
+      deps(tx),
+    );
 
     expect(response.status).toBe(200);
     expect(tx.manifestUpdates).toEqual([
@@ -183,7 +210,11 @@ describe("wizard pending_ingestions actions", () => {
   test("permanent_ignore transitions the manifest row to permanent_ignore", async () => {
     const tx = new FakeWizardPendingTx();
 
-    const response = await handleWizardPendingIngestionPermanentIgnore(req("/ignore"), context, deps(tx));
+    const response = await handleWizardPendingIngestionPermanentIgnore(
+      req("/ignore"),
+      context,
+      deps(tx),
+    );
 
     expect(response.status).toBe(200);
     expect(tx.manifestUpdates).toEqual([
@@ -200,7 +231,11 @@ describe("wizard pending_ingestions actions", () => {
     const tx = new FakeWizardPendingTx();
     tx.manifestUpdateAffectsRow = false;
 
-    const response = await handleWizardPendingIngestionDeferUntilModified(req("/defer"), context, deps(tx));
+    const response = await handleWizardPendingIngestionDeferUntilModified(
+      req("/defer"),
+      context,
+      deps(tx),
+    );
 
     expect(response.status).toBe(409);
     expect(await json(response)).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
@@ -215,7 +250,11 @@ describe("wizard pending_ingestions actions", () => {
     const tx = new FakeWizardPendingTx();
     tx.manifestUpdateAffectsRow = false;
 
-    const response = await handleWizardPendingIngestionPermanentIgnore(req("/ignore"), context, deps(tx));
+    const response = await handleWizardPendingIngestionPermanentIgnore(
+      req("/ignore"),
+      context,
+      deps(tx),
+    );
 
     expect(response.status).toBe(409);
     expect(await json(response)).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });

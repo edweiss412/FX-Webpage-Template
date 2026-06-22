@@ -7,10 +7,7 @@ import { join } from "node:path";
 import { MDXProvider } from "@mdx-js/react";
 import { useMDXComponents } from "@/mdx-components";
 
-const src = readFileSync(
-  join(process.cwd(), "app/help/admin/onboarding-wizard/page.mdx"),
-  "utf8",
-);
+const src = readFileSync(join(process.cwd(), "app/help/admin/onboarding-wizard/page.mdx"), "utf8");
 
 describe("/help/admin/onboarding-wizard (E.11)", () => {
   it("renders without throwing through the real MDX pipeline (E.5 precedent — MDXProvider load-bearing for Step / Callout / etc.)", async () => {

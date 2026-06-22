@@ -48,7 +48,7 @@ function classifyLabel(label: string): DateRowKind {
 export function parseDates(
   markdown: string,
   version: "v1" | "v2" | "v4",
-   
+
   agg?: ParseAggregator,
 ): ShowRow["dates"] {
   const result: ShowRow["dates"] = {
@@ -265,7 +265,10 @@ function extractClockTime(raw: string): string | null {
   if (!c) return null;
   const m = c.match(/\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/);
   if (!m) return null;
-  return m[0].replace(/\s+/g, " ").replace(/([AaPp][Mm])$/, (s) => s.toUpperCase()).trim();
+  return m[0]
+    .replace(/\s+/g, " ")
+    .replace(/([AaPp][Mm])$/, (s) => s.toUpperCase())
+    .trim();
 }
 
 function extractAllDates(text: string): string[] {

@@ -1784,7 +1784,11 @@ describe("runScheduledCronSync", () => {
     process.env.GOOGLE_DRIVE_FOLDER_ID = "env-folder-x";
     delete process.env.DRIVE_FOLDER_ID;
     const listFolder = vi.fn(async () => [fileMeta("file-a")]);
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a", parseWarnings: [] }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-a",
+      parseWarnings: [],
+    }));
     const getActiveWatchedFolderId = vi.fn(async () => ({ folderId: "settings-folder-y" }));
 
     try {
@@ -1807,7 +1811,11 @@ describe("runScheduledCronSync", () => {
     delete process.env.DRIVE_FOLDER_ID;
     const logSync = vi.fn(async () => undefined);
     const listFolder = vi.fn(async () => [fileMeta("file-a")]);
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a", parseWarnings: [] }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-a",
+      parseWarnings: [],
+    }));
 
     try {
       const result = await runScheduledCronSync({
@@ -1862,7 +1870,11 @@ describe("runScheduledCronSync", () => {
   test("passes the configured sync_log sink into each cron file pipeline", async () => {
     const logSync = vi.fn(async () => undefined);
     const file = fileMeta("file-a");
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a", parseWarnings: [] }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-a",
+      parseWarnings: [],
+    }));
 
     await runScheduledCronSync({
       folderId: "folder-1",
@@ -1925,7 +1937,11 @@ describe("runScheduledCronSync", () => {
       lockEvents.push(`lock:${driveFileId}`);
       return await fn(fakeTx as LockedShowTx<PipelineTx>);
     });
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-b", parseWarnings: [] }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-b",
+      parseWarnings: [],
+    }));
 
     const result = await runScheduledCronSync({
       folderId: "folder-1",
@@ -1945,7 +1961,10 @@ describe("runScheduledCronSync", () => {
 
     expect(result.processed).toEqual([
       { driveFileId: "file-a", result: { outcome: "source_gone", code: "SHEET_UNAVAILABLE" } },
-      { driveFileId: "file-b", result: { outcome: "applied", showId: "show-b", parseWarnings: [] } },
+      {
+        driveFileId: "file-b",
+        result: { outcome: "applied", showId: "show-b", parseWarnings: [] },
+      },
     ]);
     expect(lockEvents).toEqual(["lock:file-a"]);
     expect(fakeTx.shows.get("file-a")).toMatchObject({
@@ -1990,7 +2009,11 @@ describe("runScheduledCronSync", () => {
     await runScheduledCronSync({
       folderId: "folder-1",
       listFolder: vi.fn(async () => [fileMeta("file-b")]),
-      processOneFile: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-b", parseWarnings: [] })),
+      processOneFile: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-b",
+        parseWarnings: [],
+      })),
       withShowLock,
       listLiveShows: vi.fn(async () => [
         {

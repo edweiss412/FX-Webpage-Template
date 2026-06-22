@@ -68,16 +68,10 @@ describe("X.6 traceability matrix", () => {
     const workflow = readFileSync(WORKFLOW_PATH, "utf8")
       .replace("pull_request:", "pull_request_target:")
       .replace("GH_TOKEN: ${{ github.token }}", "GH_TOKEN: ${{ secrets.GH_APP_TOKEN }}")
-      .replace(
-        /(verify-branch-protection-status:\n(?:\s*#.*\n)*)\s*if:\s*false\s*\n/,
-        "$1",
-      ); // simulate reader re-enabled; remove when X6-D-1 closes
+      .replace(/(verify-branch-protection-status:\n(?:\s*#.*\n)*)\s*if:\s*false\s*\n/, "$1"); // simulate reader re-enabled; remove when X6-D-1 closes
 
     expect(parseWorkflowFindings(workflow)).toEqual(
-      expect.arrayContaining([
-        "+pull_request_target_used",
-        "+reader_uses_secret:GH_TOKEN",
-      ]),
+      expect.arrayContaining(["+pull_request_target_used", "+reader_uses_secret:GH_TOKEN"]),
     );
   });
 });

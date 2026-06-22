@@ -25,6 +25,10 @@ const eslintConfig = defineConfig([
     // every source file and OOM the eslint process when bare `pnpm lint`
     // runs from the main checkout.
     ".claude/**",
+    // Local-only design-mock reference (gitignored; ESLint flat config does
+    // not auto-respect .gitignore). Shared components live in sibling files,
+    // so these produce spurious react/jsx-no-undef + tailwind noise.
+    ".validation-local/**",
     "tests/cross-cutting/fixtures/no-global-cursor/**",
     "tests/cross-cutting/fixtures/no-global-cursor-semantic/**",
     "tests/cross-cutting/fixtures/email-canonicalization/**",

@@ -25,7 +25,17 @@
  * forwarded so Playwright's webServer cleanup works correctly.
  */
 import { spawn } from "node:child_process";
-import { renameSync, existsSync, openSync, closeSync, unlinkSync, mkdirSync, writeFileSync, writeSync, readFileSync } from "node:fs";
+import {
+  renameSync,
+  existsSync,
+  openSync,
+  closeSync,
+  unlinkSync,
+  mkdirSync,
+  writeFileSync,
+  writeSync,
+  readFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -249,9 +259,7 @@ async function main() {
 // Run the gate flow only on direct invocation (node scripts/with-admin-dev-flag.mjs
 // <cmd>). When imported (e.g. by unit tests for writeDevPanelPresent), do NOT run
 // main() — that would rename real dev files. Mirrors scripts/extract-spec-codes.ts.
-const invokedPath = process.argv[1]
-  ? fileURLToPath(import.meta.url) === process.argv[1]
-  : false;
+const invokedPath = process.argv[1] ? fileURLToPath(import.meta.url) === process.argv[1] : false;
 if (invokedPath) {
   await main();
 }

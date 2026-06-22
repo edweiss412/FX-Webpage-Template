@@ -39,11 +39,7 @@
 import { usePathname } from "next/navigation";
 import { testidForErrorCode } from "@/app/help/_affordanceMatrix";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
-import {
-  lookupHelpfulContext,
-  messageFor,
-  type MessageParams,
-} from "@/lib/messages/lookup";
+import { lookupHelpfulContext, messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { shouldEmitLearnMore } from "@/lib/messages/renderer-gate";
 
 export type HelpAffordanceProps = {

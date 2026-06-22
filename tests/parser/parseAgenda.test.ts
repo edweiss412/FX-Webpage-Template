@@ -3,8 +3,11 @@ import { describe, it, expect } from "vitest";
 import type { ShowRow } from "@/lib/parser/types";
 import { parseAgenda, locateAgendaShowBlocks } from "@/lib/parser/blocks/agenda";
 import {
-  agendaGridMalformed, agendaBlockUnresolved, agendaDayAmbiguous,
-  agendaDayTruncated, agendaDayEmptied,
+  agendaGridMalformed,
+  agendaBlockUnresolved,
+  agendaDayAmbiguous,
+  agendaDayTruncated,
+  agendaDayEmptied,
 } from "@/lib/parser/blocks/agendaWarnings";
 
 describe("parseAgenda — step 1: grid location (fail-soft)", () => {
@@ -33,7 +36,8 @@ describe("parseAgenda — step 1: grid location (fail-soft)", () => {
   });
 
   it("locates a prefix-form token-header (#REF!/NAME, Wednesday/START) after prefix-strip", () => {
-    const md = "| #REF!/NAME | Tuesday/ARRIVAL | Tuesday/FLIGHT# | Wednesday/START | Wednesday/FINISH | Wednesday/TRT |";
+    const md =
+      "| #REF!/NAME | Tuesday/ARRIVAL | Tuesday/FLIGHT# | Wednesday/START | Wednesday/FINISH | Wednesday/TRT |";
     expect(parseAgenda(md).runOfShow).not.toBeUndefined();
   });
 
@@ -118,8 +122,11 @@ describe("agendaWarnings — all 5 AGENDA_* codes are lib/parser code: literals"
     expect(agendaDayTruncated(3).code).toBe("AGENDA_DAY_TRUNCATED");
     expect(agendaDayEmptied(4, "2025-09-05").code).toBe("AGENDA_DAY_EMPTIED");
     for (const w of [
-      agendaGridMalformed(0), agendaBlockUnresolved(1), agendaDayAmbiguous(2),
-      agendaDayTruncated(3), agendaDayEmptied(4, "2025-09-05"),
+      agendaGridMalformed(0),
+      agendaBlockUnresolved(1),
+      agendaDayAmbiguous(2),
+      agendaDayTruncated(3),
+      agendaDayEmptied(4, "2025-09-05"),
     ]) {
       expect(w.severity).toBe("warn");
       expect(w.blockRef!.kind).toBe("agenda");
@@ -128,7 +135,11 @@ describe("agendaWarnings — all 5 AGENDA_* codes are lib/parser code: literals"
 });
 
 const datesOf = (showDays: string[]): ShowRow["dates"] => ({
-  travelIn: null, set: null, showDays, travelOut: null, loadIn: null,
+  travelIn: null,
+  set: null,
+  showDays,
+  travelOut: null,
+  loadIn: null,
 });
 
 describe("parseAgenda — step 3: ISO resolution + ambiguity guard", () => {
@@ -136,7 +147,10 @@ describe("parseAgenda — step 3: ISO resolution + ambiguity guard", () => {
   const mk = (dateRow: string, nameRow: string, dataRow: string) =>
     [
       "| TRAVEL DAY | TRAVEL DAY | TRAVEL DAY | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 | DAY 1 |",
-      dateRow, nameRow, hdr, dataRow,
+      dateRow,
+      nameRow,
+      hdr,
+      dataRow,
     ].join("\n");
 
   it("resolves from the banner date (M/D/YY → ISO)", () => {
@@ -192,8 +206,11 @@ describe("parseAgenda — steps 4-5: data walk + TITLE-real gate (real fixtures,
     // the token-header row's first show-day START is col 6; first data row's col 6..11.
     // We assert the parser reproduced the fixture's first session verbatim.
     expect(day1![0]).toEqual({
-      start: "7:15 AM", finish: "7:30 AM", trt: "0:15",
-      title: "Family Office Only Breakfast", av: "NONE",
+      start: "7:15 AM",
+      finish: "7:30 AM",
+      trt: "0:15",
+      title: "Family Office Only Breakfast",
+      av: "NONE",
       // no `room` — the fixture cell is blank
     });
     // titles appear in sheet order
@@ -225,8 +242,11 @@ describe("parseAgenda — steps 4-5: data walk + TITLE-real gate (real fixtures,
     // first Day-1 entry — clone-and-read from ria.md:320 (NOT hardcoded blind): the DAY-1
     // block START is col 6, so col 6..11 = start/finish/trt/title/room/av.
     expect(day1![0]).toEqual({
-      start: "7:30 AM", finish: "8:30 AM", trt: "1:00",
-      title: "Attendee Registration and Breakfast", room: "Foyer",
+      start: "7:30 AM",
+      finish: "8:30 AM",
+      trt: "1:00",
+      title: "Attendee Registration and Breakfast",
+      room: "Foyer",
       // av blank in this row
     });
     // times stay display strings, no Date coercion
@@ -291,8 +311,9 @@ describe("parseAgenda — R7/R8/R13: structural banner rows (incl. all-#REF! and
     // East Coast promotes the day-TYPE row to md-header; DATE/day-name/token-header are body
     // rows ABOVE the data. Confirms the structural-skip handles BOTH promotion shapes.
     const md = readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8");
-    const titles = (parseAgenda(md, datesOf(["2024-05-15", "2024-05-16"])).runOfShow?.["2024-05-15"] ?? [])
-      .map((e) => e.title);
+    const titles = (
+      parseAgenda(md, datesOf(["2024-05-15", "2024-05-16"])).runOfShow?.["2024-05-15"] ?? []
+    ).map((e) => e.title);
     expect(titles).toContain("Family Office Only Breakfast");
     expect(titles).not.toContain("5/15/24");
     expect(titles).not.toContain("DAY 1");
@@ -303,15 +324,13 @@ describe("parseAgenda — R7/R8/R13: structural banner rows (incl. all-#REF! and
     // The OTHER promotion shape with empty titles: still must not emit DATE/day-name banners.
     // Assert with inline patterns (the parser's WEEKDAYS/DAY_TYPE_RE are module-internal).
     const md = readFileSync("fixtures/shows/exporter-xlsx/rpas.md", "utf8");
-    const r = parseAgenda(md, datesOf([
-      "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27",
-    ]));
+    const r = parseAgenda(md, datesOf(["2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27"]));
     const WEEKDAY_RE = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i;
     const DAYTYPE_RE = /^(travel day|set day|day\s+\d+)$/i;
     const MDY_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
     for (const day of Object.values(r.runOfShow ?? {})) {
       for (const e of day) {
-        expect(MDY_RE.test(e.title.trim())).toBe(false);     // no M/D/YY banner as title
+        expect(MDY_RE.test(e.title.trim())).toBe(false); // no M/D/YY banner as title
         expect(WEEKDAY_RE.test(e.title.trim())).toBe(false); // no weekday banner as title
         expect(DAYTYPE_RE.test(e.title.trim())).toBe(false); // no TRAVEL DAY/DAY N as title
       }
@@ -330,8 +349,8 @@ describe("parseAgenda — R7/R8/R13: structural banner rows (incl. all-#REF! and
     ].join("\n");
     const r = parseAgenda(md, datesOf(["2025-09-05"])); // unique Friday → resolves
     const titles = (r.runOfShow?.["2025-09-05"] ?? []).map((e) => e.title);
-    expect(titles).toContain("Keynote");          // real session parsed
-    expect(titles).not.toContain("#REF!");         // banner NOT walked as data
+    expect(titles).toContain("Keynote"); // real session parsed
+    expect(titles).not.toContain("#REF!"); // banner NOT walked as data
     expect(titles.some((t) => /#REF/i.test(t))).toBe(false);
   });
 
@@ -343,7 +362,7 @@ describe("parseAgenda — R7/R8/R13: structural banner rows (incl. all-#REF! and
       "|  |  |  | 8:30 AM | 9:30 AM | 1:00 | Keynote | Hall A | LAV |",
     ].join("\n");
     const r = parseAgenda(md, datesOf(["2025-09-05"]));
-    expect(r.runOfShow).toEqual({});  // unresolved → absent (not stored → anchors)
+    expect(r.runOfShow).toEqual({}); // unresolved → absent (not stored → anchors)
     expect(r.warnings.map((w) => w.code)).toContain("AGENDA_BLOCK_UNRESOLVED"); // warning DID emit
   });
 
@@ -359,9 +378,9 @@ describe("parseAgenda — R7/R8/R13: structural banner rows (incl. all-#REF! and
     const WEEKDAY_RE = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i;
     for (const day of Object.values(r.runOfShow ?? {})) {
       for (const e of day) {
-        expect(MDY_RE.test(e.title.trim())).toBe(false);     // no 10/8/25 banner as a title
+        expect(MDY_RE.test(e.title.trim())).toBe(false); // no 10/8/25 banner as a title
         expect(WEEKDAY_RE.test(e.title.trim())).toBe(false); // no Wednesday banner as a title
-        expect(/#?REF!?/i.test(e.title)).toBe(false);        // no (escaped) #REF! as a title
+        expect(/#?REF!?/i.test(e.title)).toBe(false); // no (escaped) #REF! as a title
       }
     }
   });
@@ -375,7 +394,7 @@ describe("parseAgenda — R7/R8/R13: structural banner rows (incl. all-#REF! and
     ].join("\n");
     const r = parseAgenda(md, datesOf(["2025-09-05"])); // unique Friday → resolves via day-name
     const titles = (r.runOfShow?.["2025-09-05"] ?? []).map((e) => e.title);
-    expect(titles).toContain("Keynote");                 // real session parsed
+    expect(titles).toContain("Keynote"); // real session parsed
     expect(titles.some((t) => /#?REF!?/i.test(t))).toBe(false); // escaped banner NOT a title
   });
 });
@@ -387,10 +406,7 @@ describe("parseAgenda — LOAD-BEARING: post-AGENDA tables never leak as run-of-
   // and emits them as bogus AgendaEntry titles → persisted → shown to crew.
 
   it("dedicated fixture: a PULL SHEET row with a value at the DAY-1 TITLE column (idx 9) does NOT become an entry", () => {
-    const md = readFileSync(
-      "fixtures/shows/parser-units/agenda-followed-by-pullsheet.md",
-      "utf8",
-    );
+    const md = readFileSync("fixtures/shows/parser-units/agenda-followed-by-pullsheet.md", "utf8");
     const r = parseAgenda(md, datesOf(["2025-09-05"]));
     const titles = (r.runOfShow?.["2025-09-05"] ?? []).map((e) => e.title);
     // Exactly the agenda rows — derive the count by reading the fixture's agenda block,
@@ -409,7 +425,13 @@ describe("parseAgenda — LOAD-BEARING: post-AGENDA tables never leak as run-of-
     const r = parseAgenda(md, datesOf(["2024-05-15", "2024-05-16"]));
     const day1 = (r.runOfShow?.["2024-05-15"] ?? []).map((e) => e.title);
     // Pull-sheet equipment tokens that live below the AGENDA block must never be titles.
-    for (const leak of ["FOH Rack", "Batteries", "Allen & Heath QU32 Mixer", "FALSE", "TOTAL COUNT CORP & INS SALON 1"]) {
+    for (const leak of [
+      "FOH Rack",
+      "Batteries",
+      "Allen & Heath QU32 Mixer",
+      "FALSE",
+      "TOTAL COUNT CORP & INS SALON 1",
+    ]) {
       expect(day1).not.toContain(leak);
     }
     // and the real last agenda session is present (the block's actual tail, not a pull-sheet row)
@@ -419,27 +441,37 @@ describe("parseAgenda — LOAD-BEARING: post-AGENDA tables never leak as run-of-
 
 describe("parseAgenda — robustness (stale raw/ fixtures + empty skeletons, fail-soft only)", () => {
   const datesAny = datesOf([
-    "2025-03-26", "2025-03-27", "2025-04-15", "2025-04-16",
-    "2025-10-14", "2025-10-15", "2025-09-05",
+    "2025-03-26",
+    "2025-03-27",
+    "2025-04-15",
+    "2025-04-16",
+    "2025-10-14",
+    "2025-10-15",
+    "2025-09-05",
   ]);
 
   it.each([
     "fixtures/shows/raw/2025-03-dci-rpas-central.md",
     "fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md",
     "fixtures/shows/raw/2025-10-consultants-roundtable.md",
-  ])("stale/variant %s parses fail-soft (Record or undefined, never throws, no EVENT/DAY garbage)", (path) => {
-    const md = readFileSync(path, "utf8");
-    let r!: ReturnType<typeof parseAgenda>;
-    expect(() => { r = parseAgenda(md, datesAny); }).not.toThrow();
-    expect(r.runOfShow === undefined || typeof r.runOfShow === "object").toBe(true);
-    // never mis-parse a normalized EVENT/DAY side-table as a session title
-    for (const day of Object.values(r.runOfShow ?? {})) {
-      for (const e of day) {
-        expect(e.title.toUpperCase()).not.toBe("EVENT");
-        expect(e.title.toUpperCase()).not.toBe("DAY");
+  ])(
+    "stale/variant %s parses fail-soft (Record or undefined, never throws, no EVENT/DAY garbage)",
+    (path) => {
+      const md = readFileSync(path, "utf8");
+      let r!: ReturnType<typeof parseAgenda>;
+      expect(() => {
+        r = parseAgenda(md, datesAny);
+      }).not.toThrow();
+      expect(r.runOfShow === undefined || typeof r.runOfShow === "object").toBe(true);
+      // never mis-parse a normalized EVENT/DAY side-table as a session title
+      for (const day of Object.values(r.runOfShow ?? {})) {
+        for (const e of day) {
+          expect(e.title.toUpperCase()).not.toBe("EVENT");
+          expect(e.title.toUpperCase()).not.toBe("DAY");
+        }
       }
-    }
-  });
+    },
+  );
 
   it("empty production skeleton (auto-times, blank TITLEs) → all-[] Record, no invented entries", () => {
     const md = readFileSync("fixtures/shows/exporter-xlsx/rpas.md", "utf8");
@@ -451,12 +483,18 @@ describe("parseAgenda — robustness (stale raw/ fixtures + empty skeletons, fai
 
 describe("parseAgenda — step 6: storage caps + AGENDA_DAY_TRUNCATED", () => {
   const dayHeader = "| NAME | ARRIVAL | FLIGHT# | START  | FINISH | TRT | TITLE | ROOM | AV |";
-  const dateRow = "| 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 |";
+  const dateRow =
+    "| 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 | 9/5/25 |";
   const nameRow = "| Fri | Fri | Fri | Fri | Fri | Fri | Fri | Fri | Fri |";
 
   it("title>300 truncates to 300; room/av>120 to 120; time>40 to 40", () => {
-    const longTitle = "T".repeat(10_000), longRoom = "R".repeat(500), longTime = "8".repeat(100);
-    const md = [dayHeader, dateRow, nameRow,
+    const longTitle = "T".repeat(10_000),
+      longRoom = "R".repeat(500),
+      longTime = "8".repeat(100);
+    const md = [
+      dayHeader,
+      dateRow,
+      nameRow,
       `|  |  |  | ${longTime} | 9:00 AM | 1:00 | ${longTitle} | ${longRoom} | ${longRoom} |`,
     ].join("\n");
     const e = parseAgenda(md, datesOf(["2025-09-05"])).runOfShow!["2025-09-05"]![0]!;
@@ -467,8 +505,10 @@ describe("parseAgenda — step 6: storage caps + AGENDA_DAY_TRUNCATED", () => {
   });
 
   it(">200 filled rows in one day → capped at 200 + AGENDA_DAY_TRUNCATED (NOT 20)", () => {
-    const rows = Array.from({ length: 250 }, (_, i) =>
-      `|  |  |  | 8:00 AM | 9:00 AM | 1:00 | Session ${i} | Hall | LAV |`);
+    const rows = Array.from(
+      { length: 250 },
+      (_, i) => `|  |  |  | 8:00 AM | 9:00 AM | 1:00 | Session ${i} | Hall | LAV |`,
+    );
     const md = [dayHeader, dateRow, nameRow, ...rows].join("\n");
     const r = parseAgenda(md, datesOf(["2025-09-05"]));
     expect(r.runOfShow!["2025-09-05"]!.length).toBe(200);
@@ -477,8 +517,10 @@ describe("parseAgenda — step 6: storage caps + AGENDA_DAY_TRUNCATED", () => {
 
   it("a day exceeding 32KB serialized → tail entries dropped to ≤32KB + AGENDA_DAY_TRUNCATED", () => {
     // ~250 chars of title each * 200 entries ≈ 50KB > 32KB
-    const rows = Array.from({ length: 200 }, (_, i) =>
-      `|  |  |  | 8:00 AM | 9:00 AM | 1:00 | ${"X".repeat(250)} ${i} | Hall | LAV |`);
+    const rows = Array.from(
+      { length: 200 },
+      (_, i) => `|  |  |  | 8:00 AM | 9:00 AM | 1:00 | ${"X".repeat(250)} ${i} | Hall | LAV |`,
+    );
     const md = [dayHeader, dateRow, nameRow, ...rows].join("\n");
     const r = parseAgenda(md, datesOf(["2025-09-05"]));
     const day = r.runOfShow!["2025-09-05"]!;

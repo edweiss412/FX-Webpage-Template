@@ -29,6 +29,7 @@
  * re-enter Today) are exercised in the real browser — see the e2e suite.
  */
 import "@testing-library/jest-dom/vitest";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,20 +57,22 @@ const INSTANT_BY_DESIGN = [
 afterEach(cleanup);
 
 describe("§4.10 transition audit — static enumeration", () => {
-  it("inventory: section↔section + hero swap — every AnimatePresence carries mode=\"wait\" AND initial={false}", () => {
+  it('inventory: section↔section + hero swap — every AnimatePresence carries mode="wait" AND initial={false}', () => {
     for (const rel of MOTION_COMPONENTS) {
       const s = src(rel);
       // Match each AnimatePresence opening tag (up to its first `>`), tolerant of
       // attribute order / whitespace / newlines.
       const opens = s.match(/<AnimatePresence\b[^>]*>/g) ?? [];
-      expect(opens.length, `${rel} must use AnimatePresence (the inventory says it animates)`).toBeGreaterThan(
-        0,
-      );
+      expect(
+        opens.length,
+        `${rel} must use AnimatePresence (the inventory says it animates)`,
+      ).toBeGreaterThan(0);
       for (const tag of opens) {
         const flat = tag.replace(/\s+/g, " ");
-        expect(flat, `${rel}: AnimatePresence must be mode="wait" (crossfade out-then-in): ${flat}`).toMatch(
-          /mode="wait"/,
-        );
+        expect(
+          flat,
+          `${rel}: AnimatePresence must be mode="wait" (crossfade out-then-in): ${flat}`,
+        ).toMatch(/mode="wait"/);
         expect(
           flat,
           `${rel}: AnimatePresence must carry initial={false} (no animate-from-hidden first paint; M12.11): ${flat}`,
@@ -105,7 +108,7 @@ describe("§4.10 transition audit — static enumeration", () => {
     expect(flat, "section crossfade requires animate=").toMatch(/animate=\{/);
     expect(
       flat,
-      "section crossfade requires exit= (mode=\"wait\" plays the exit before the next enter)",
+      'section crossfade requires exit= (mode="wait" plays the exit before the next enter)',
     ).toMatch(/exit=\{/);
     // The crossfade's translateY + token duration/ease are part of the inventory.
     expect(flat, "section crossfade is keyed by sectionId (re-mounts the body on swap)").toMatch(
@@ -127,7 +130,9 @@ describe("§4.10 transition audit — static enumeration", () => {
       /transitionTreatment/,
     );
     // The crossfade branch (treatment === "crossfade-body") supplies animate + exit.
-    expect(s, "hero crossfade branch supplies animate").toMatch(/animate:\s*\{\s*opacity:\s*1\s*\}/);
+    expect(s, "hero crossfade branch supplies animate").toMatch(
+      /animate:\s*\{\s*opacity:\s*1\s*\}/,
+    );
     expect(s, "hero crossfade branch supplies exit").toMatch(/exit:\s*\{\s*opacity:\s*0\s*\}/);
   });
 
@@ -177,11 +182,10 @@ describe("§4.10 transition audit — instant-by-design rows", () => {
     // Class-sweep: walk the whole crew subtree and assert the ONLY files importing
     // framer-motion are the two inventory surfaces. A new <motion.*> in any section
     // primitive would be an undocumented animation (a §4.10 violation).
-    const { execSync } = require("node:child_process") as typeof import("node:child_process");
-    const out = execSync(
-      "grep -rlE 'framer-motion|motion/react' components/crew/ || true",
-      { cwd: process.cwd(), encoding: "utf8" },
-    ).trim();
+    const out = execSync("grep -rlE 'framer-motion|motion/react' components/crew/ || true", {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    }).trim();
     const files = out
       .split("\n")
       .map((l) => l.trim())

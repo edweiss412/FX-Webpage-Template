@@ -115,8 +115,7 @@ export function PersonRow({ person }: PersonRowProps) {
   // `.notes`) is intentional so the §8.3 sentinel-hiding meta-test's
   // field-access patterns enforce the predicate on THIS file.
   const phoneActionable =
-    !shouldHideGenericOptional(person.phone ?? null) &&
-    digitsOnly(person.phone ?? "").length > 0;
+    !shouldHideGenericOptional(person.phone ?? null) && digitsOnly(person.phone ?? "").length > 0;
   const emailActionable = !shouldHideGenericOptional(person.email ?? null);
 
   // §8.3 whole-row omission: no identity (name/role) AND no action
@@ -153,9 +152,7 @@ export function PersonRow({ person }: PersonRowProps) {
               {heading}
             </p>
             {you ? (
-              <span className={[CHIP_CLASS, "bg-stale-tint text-accent-on-bg"].join(" ")}>
-                You
-              </span>
+              <span className={[CHIP_CLASS, "bg-stale-tint text-accent-on-bg"].join(" ")}>You</span>
             ) : null}
             {lead ? (
               <span className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}>
@@ -204,9 +201,7 @@ export function PersonRow({ person }: PersonRowProps) {
             ) : null}
           </div>
         ) : null}
-        {showNotes ? (
-          <p className="pt-1 text-xs/snug text-text-subtle">{person.notes}</p>
-        ) : null}
+        {showNotes ? <p className="pt-1 text-xs/snug text-text-subtle">{person.notes}</p> : null}
       </div>
     </li>
   );

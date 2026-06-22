@@ -72,10 +72,7 @@ function baselineOf(held: Record<string, unknown>): Baseline | null {
  * General rule (PF13 / resolution #16): release iff the incoming parse would NO LONGER reproduce
  * the undone change (NOT "differs from held_value").
  */
-function undoOverrideReleased(
-  hold: OpenHoldRow,
-  parseByName: Map<string, CrewMemberRow>,
-): boolean {
+function undoOverrideReleased(hold: OpenHoldRow, parseByName: Map<string, CrewMemberRow>): boolean {
   const held = hold.held_value;
   if (hold.domain === "crew_email") {
     // Reject (email override): release when the sheet reverted the email to held_value.email.
@@ -88,7 +85,9 @@ function undoOverrideReleased(
     // Tombstone (undone add): release when the sheet stops adding it OR lists a different identity.
     const sheet = parseByName.get(String((held as Record<string, unknown>).name ?? ""));
     if (!sheet) return true; // no longer adding it
-    return canonRow(sheet.email) !== canonRow((held as Record<string, unknown>).email as string | null);
+    return (
+      canonRow(sheet.email) !== canonRow((held as Record<string, unknown>).email as string | null)
+    );
   }
   const baseline = baselineOf(held);
   if (baseline?.kind === "removal") {
@@ -200,8 +199,17 @@ export async function planHoldAwareApply(
 
   // Per-hold in-place mutations to perform POST-plan (re-target/fold + reservation), collected here.
   type HoldMutation =
-    | { kind: "retarget"; holdId: string; proposed: Record<string, unknown>; baseModifiedTime: string }
-    | { kind: "reservation"; holdId: string; collisions: Array<{ name: string; email: string | null }> };
+    | {
+        kind: "retarget";
+        holdId: string;
+        proposed: Record<string, unknown>;
+        baseModifiedTime: string;
+      }
+    | {
+        kind: "reservation";
+        holdId: string;
+        collisions: Array<{ name: string; email: string | null }>;
+      };
   const mutations: HoldMutation[] = [];
 
   for (const hold of survivingHolds) {
@@ -478,8 +486,17 @@ function computeReservations(
     effectiveProposed: Map<string, Record<string, unknown> | null>;
     priorCrewNames: Set<string>;
     mutations: Array<
-      | { kind: "retarget"; holdId: string; proposed: Record<string, unknown>; baseModifiedTime: string }
-      | { kind: "reservation"; holdId: string; collisions: Array<{ name: string; email: string | null }> }
+      | {
+          kind: "retarget";
+          holdId: string;
+          proposed: Record<string, unknown>;
+          baseModifiedTime: string;
+        }
+      | {
+          kind: "reservation";
+          holdId: string;
+          collisions: Array<{ name: string; email: string | null }>;
+        }
     >;
     baseModifiedTime: string;
   },

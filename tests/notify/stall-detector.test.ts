@@ -69,9 +69,9 @@ describe("detectAndResolveStall", () => {
   test("upsert failure returns infra_error and never throws", async () => {
     upsertMock.mockRejectedValue(new Error("write failed"));
 
-    await expect(detectAndResolveStall(null, new Date("2026-06-02T15:00:00.000Z"))).resolves.toEqual(
-      { kind: "infra_error" },
-    );
+    await expect(
+      detectAndResolveStall(null, new Date("2026-06-02T15:00:00.000Z")),
+    ).resolves.toEqual({ kind: "infra_error" });
   });
 
   test("resolve failure returns infra_error and never throws", async () => {

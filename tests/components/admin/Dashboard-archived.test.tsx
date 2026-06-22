@@ -32,7 +32,8 @@ function makeClient() {
       const resolve = () => {
         if (ctx.head) {
           if (table === "shows") {
-            const count = ctx.eq.archived === true ? seed.archivedCount ?? 0 : seed.activeCount ?? 0;
+            const count =
+              ctx.eq.archived === true ? (seed.archivedCount ?? 0) : (seed.activeCount ?? 0);
             return { data: null, count, error: null };
           }
           return { data: null, count: 0, error: null };
@@ -40,7 +41,7 @@ function makeClient() {
         if (table === "shows" && ctx.inCol === "drive_file_id") return { data: [], error: null };
         if (table === "shows") {
           return {
-            data: ctx.eq.archived === true ? seed.archivedShows ?? [] : seed.activeShows ?? [],
+            data: ctx.eq.archived === true ? (seed.archivedShows ?? []) : (seed.activeShows ?? []),
             error: null,
           };
         }
@@ -76,7 +77,12 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/admin",
 }));
 
-const DATES = { travelIn: "2026-06-01", set: null, showDays: ["2026-06-03"], travelOut: "2026-06-05" };
+const DATES = {
+  travelIn: "2026-06-01",
+  set: null,
+  showDays: ["2026-06-03"],
+  travelOut: "2026-06-05",
+};
 
 async function renderDashboard(bucket?: "active" | "archived") {
   const { Dashboard } = await import("@/components/admin/Dashboard");
@@ -124,7 +130,16 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     // (it has no active wizard finalize checkpoint → not in finalizeOwnedIds).
     state.seed = {
       activeShows: [
-        { id: "held", slug: "held", title: "Held Show", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
+        {
+          id: "held",
+          slug: "held",
+          title: "Held Show",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: false,
+          requires_resync: false,
+        },
       ],
       activeCount: 1,
       archivedCount: 0,
@@ -139,7 +154,16 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
   it("Active segment: a finalize-owned row (active checkpoint) shows 'Publishing…'", async () => {
     state.seed = {
       activeShows: [
-        { id: "pub", slug: "pub", title: "Pub Show", drive_file_id: "d1", dates: DATES, venue: null, published: false, requires_resync: false },
+        {
+          id: "pub",
+          slug: "pub",
+          title: "Pub Show",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: false,
+          requires_resync: false,
+        },
       ],
       activeCount: 1,
       archivedCount: 0,
@@ -156,7 +180,18 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
       activeCount: 0,
       archivedCount: 1,
       archivedShows: [
-        { id: "1", slug: "old-show", title: "Old Show", drive_file_id: "d1", dates: DATES, venue: null, published: false, archived: true, archived_at: "2026-05-20T10:00:00.000Z", requires_resync: false },
+        {
+          id: "1",
+          slug: "old-show",
+          title: "Old Show",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: false,
+          archived: true,
+          archived_at: "2026-05-20T10:00:00.000Z",
+          requires_resync: false,
+        },
       ],
     };
     await renderDashboard("archived");
@@ -198,7 +233,9 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
         unarchiveAction={async () => {}}
       />,
     );
-    expect(screen.getByTestId("archived-show-row-no-time").textContent).toMatch(/Archived \(date unknown\)/);
+    expect(screen.getByTestId("archived-show-row-no-time").textContent).toMatch(
+      /Archived \(date unknown\)/,
+    );
   });
 
   it("UnarchiveShowButton renders a one-tap submit inside a form bound to unarchiveAction", () => {

@@ -107,7 +107,9 @@ export function KeyValueRows({ rows, columns = 1 }: KeyValueRowsProps) {
                   is safe across every consumer. */}
               <span className="min-w-0 wrap-break-word tabular-nums">{row.v}</span>
             </span>
-            {row.sub !== undefined ? <span className="text-xs text-text-subtle">{row.sub}</span> : null}
+            {row.sub !== undefined ? (
+              <span className="text-xs text-text-subtle">{row.sub}</span>
+            ) : null}
           </dd>
         </div>
       ))}
