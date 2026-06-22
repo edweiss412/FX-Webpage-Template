@@ -1744,17 +1744,25 @@ Steps:
   // ...inside visibleDays.map((day) => { ...
   const sd = data.runOfShow?.[day.date] ?? null; // types.ScheduleDay | null
   const isSetDay = day.phase === "Set";
+  // EVERY meta source is routed through resolveOptionalField (strips URLs + hides
+  // 'TBD'/'N/A'/'TBA' sentinels) — the file-level sentinel meta-test (Task 15) is
+  // VACUOUS for ScheduleSection (the file already imports the guard for other
+  // fields), so THIS per-value guard + the behavioral tests below are the real
+  // enforcement for showStart/window/setupTime (plan-review R5 finding).
+  const guardMeta = (v: string | null | undefined): string | undefined =>
+    resolveOptionalField(v ?? undefined) ?? undefined;
   let meta: string | undefined;
-  if (isSetDay && !shouldHideGenericOptional(setupTime ?? "")) {
-    meta = `Setup ${setupTime!.trim()}`;
+  if (isSetDay) {
+    meta = guardMeta(setupTime != null ? `Setup ${setupTime.trim()}` : undefined);
   } else if (sd?.window != null) {
-    meta = formatScheduleWindow(sd.window);
+    meta = guardMeta(formatScheduleWindow(sd.window));
   } else if (sd != null && sd.showStart != null && sd.entries.length === 0) {
-    meta = sd.showStart; // fragment day: single showStart, no window/entries
+    meta = guardMeta(sd.showStart); // fragment day: single showStart, sentinel-guarded
   }
   // titled day (entries.length > 0) → meta stays undefined; RunOfShowList renders below
   // <DayCard day={day.date} phase={day.phase} today={isToday} meta={meta} />
   ```
+  Add `resolveOptionalField` to the existing `from "@/lib/crew/agendaDisplay"` import in `ScheduleSection.tsx` (alongside `formatScheduleWindow`/`visibleShowDays`/`displayableEntries`).
   Update the resolver call at `:87` to `resolveKeyTimes(data.show, data.rooms, data.runOfShow, dateRestriction)`. The `RunOfShowList` gate at `:213-216` reads `data.runOfShow?.[day.date]` which is now a `ScheduleDay` value, not an `AgendaEntry[]` — change it to `displayableEntries(sd?.entries).length > 0 ? <RunOfShowList entries={sd!.entries} isoDate={day.date} /> : null`.
 - [ ] Run it, expect PASS: `pnpm vitest run tests/components/crew/sections/ScheduleSection.test.tsx -t 'bare-window'` → `1 passed`.
 - [ ] Add a failing test (Set-day setupTime meta + absent → no meta):
@@ -1778,6 +1786,29 @@ Steps:
   ```
   Failure mode caught: §4.2/§5.3 zombie-field — `dates.setupTime` captured by the parser but never reaching a user surface (R9 finding 17), AND a sentinel `"N/A"` setupTime leaking as `"Setup N/A"`.
 - [ ] Run it, expect PASS: `pnpm vitest run tests/components/crew/sections/ScheduleSection.test.tsx -t 'Set day with dates.setupTime'` → `1 passed`.
+- [ ] Add a failing test (fragment-day `showStart` + bare-window are sentinel-guarded at render — plan-review R5 finding; the file-level meta-test can't catch this):
+  ```tsx
+  test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never renders as meta)", () => {
+    // Fragment day: showStart only, entries [], window null — but the value is a sentinel.
+    const data = makeShowForViewer({
+      dates: { showDays: ["2026-10-08"], set: null, travelIn: null, travelOut: null },
+      runOfShow: { "2026-10-08": { entries: [], showStart: "TBD", window: null } },
+    });
+    const r = render(<ScheduleSection data={data} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />);
+    // The day card renders, but NO meta node (sentinel showStart hidden by resolveOptionalField).
+    expect(r.getByTestId("schedule-day-today").querySelector('[data-slot="day-card-meta"]')).toBeNull();
+    cleanup();
+    // Real clock → meta renders.
+    const data2 = makeShowForViewer({
+      dates: { showDays: ["2026-10-08"], set: null, travelIn: null, travelOut: null },
+      runOfShow: { "2026-10-08": { entries: [], showStart: "8:00am", window: null } },
+    });
+    const r2 = render(<ScheduleSection data={data2} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />);
+    expect(r2.getByTestId("schedule-day-today").querySelector('[data-slot="day-card-meta"]')!.textContent).toBe("8:00am");
+  });
+  ```
+  Negative-regression: stash the `guardMeta(...)` wrapper back to a raw `meta = sd.showStart` → the `"TBD"` case renders `data-slot="day-card-meta"` with `"TBD"` and the `toBeNull()` assertion FAILS. Confirms the render-time guard is the real enforcement (not the vacuous file-level registry).
+- [ ] Run it, expect PASS: `pnpm vitest run tests/components/crew/sections/ScheduleSection.test.tsx -t 'sentinel-guarded'` → `1 passed`.
 - [ ] Add the anchor-floor negative-regression confirmation (no times → zero Phase-2 markup) with the updated wrapper-child shape, plus the date-safe fallback render (Redefining-FI Day-2). Extend `tests/components/crew/sections/ScheduleSection.anchorFloor.test.tsx`:
   ```tsx
   test("no anchors, no runOfShow → right column emitted but empty; grid falls back to flex (anchor floor holds)", () => {
@@ -2048,6 +2079,8 @@ Steps:
     pattern: /\bdates\??\.setupTime\b|\bsetupTime\b/,
   },
 ```
+
+> **Scope of this registry (plan-review R5):** the `_metaSentinelHidingContract` test is **file-level** — it asserts that a file CONSUMING a registered field also IMPORTS `shouldHideGenericOptional`/`resolveOptionalField`. It does NOT prove each individual read is actually routed through the guard. Because `ScheduleSection` already imports the guard (for other fields), this registry is a **coarse net** for that file; the AUTHORITATIVE per-value enforcement for `showStart`/`window`/`setupTime` is the render-time `guardMeta(resolveOptionalField(...))` wrapper in Task 12 + its behavioral tests (sentinel `showStart`/`setupTime` → no `[data-slot="day-card-meta"]`). The registry's value is catching a FUTURE crew/tile file that reads these raw without importing the guard at all.
 
 - [ ] Run the meta-test again to confirm the registry edit alone keeps it green (no crew/tile file reads these yet at this point in the plan ordering): `pnpm vitest run tests/components/tiles/_metaSentinelHidingContract.test.ts`. Expected: `5 passed`.
 - [ ] Negative-regression PROOF (defend the contract is live, not vacuous): temporarily append a stub file `components/crew/primitives/__sentinel_probe__.tsx` containing exactly `export const X = (day: any) => <span>{day.showStart}</span>;` (a raw `showStart` read with NO `shouldHideGenericOptional`/`resolveOptionalField`). Re-run the meta-test. Expected: the `every tile/crew file that consumes a §8.3 generic-optional field imports shouldHideGenericOptional` test FAILS with `components/crew/primitives/__sentinel_probe__.tsx: consumes [ScheduleDay.window.start / window.end / showStart] but does not route them through shouldHideGenericOptional`. This proves the new `showStart` pattern actually matches a crew read path. Then DELETE the probe file and re-run → `5 passed`. (Concrete failure mode caught: a future §5 UI task that reads `day.showStart`/`day.window.start`/`anchor.time`/`dates.setupTime` raw and forgets the predicate ships a `TBD` leak — this row makes that a CI failure, not a round-N adversarial finding.)
