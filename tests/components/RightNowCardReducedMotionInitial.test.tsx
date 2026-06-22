@@ -52,6 +52,7 @@ const ctx = {
   callTime: "14:00",
   roomName: null,
   strikeTime: null,
+  showAnchors: [] as import("@/lib/crew/resolveKeyTimes").ShowAnchor[],
   timezone: "America/New_York",
 };
 

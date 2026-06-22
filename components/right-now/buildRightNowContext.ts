@@ -13,9 +13,9 @@
  * Server-safe (pure function; no environment reads, no side effects,
  * no React imports).
  */
-import type { DateRestriction, HotelReservationRow, ShowRow } from "@/lib/parser/types";
+import type { DateRestriction, HotelReservationRow, RunOfShow, ShowRow } from "@/lib/parser/types";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
-import { resolveKeyTimes, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
+import { resolveKeyTimes, type ProjectedRoomRow, type ShowAnchor } from "@/lib/crew/resolveKeyTimes";
 
 /**
  * Everything the card needs to render any of the 12 §8.2 states.
@@ -44,6 +44,8 @@ export type RightNowContext = {
   roomName: string | null;
   /** Used on the last show day per §8.2. */
   strikeTime: string | null;
+  /** Dated per-day Show anchors; RightNowHero selects by client show-tz todayIso. */
+  showAnchors: ShowAnchor[];
   /** IANA tz; defaults to America/New_York. */
   timezone: string;
 };
@@ -67,17 +69,21 @@ export function buildRightNowContext(opts: {
   show: Pick<ShowRow, "dates" | "title" | "venue" | "event_details">;
   dateRestriction: DateRestriction;
   hotelReservations: HotelReservationRow[];
-  rooms: ProjectedRoomRow[] | null; // NEW — replaces the dropped `contacts` param
+  rooms: ProjectedRoomRow[] | null;
+  runOfShow: RunOfShow | null; // NEW — per-day RunOfShow for ShowAnchor carry
 }): RightNowContext {
-  const { show, dateRestriction, hotelReservations, rooms } = opts;
+  const { show, dateRestriction, hotelReservations, rooms, runOfShow } = opts;
   const firstHotel = hotelReservations[0] ?? null;
 
   // Time anchors are rooms-sourced via the shared resolver (§4.4). The old
   // event_details.{call_time,load_in_time,strike_time,first_show_room} reads
   // are DROPPED ENTIRELY (always empty for real shows, §7.1) — not a fallback.
-  const anchors = resolveKeyTimes(show, rooms);
+  const anchors = resolveKeyTimes(show, rooms, runOfShow, dateRestriction); // 4-arg
   const loadInTime = anchors.set ?? null; // Set anchor (dates.loadIn ?? GS set_time)
-  const callTime = anchors.show ?? null; // Show anchor
+  const showAnchors = anchors.shows ?? []; // dated per-day Show anchors
+  // callTime: single string for back-compat consumers; defaults to the first anchor.
+  // RightNowHero re-selects from showAnchors by todayIso for multi-day shows.
+  const callTime = showAnchors[0]?.time ?? null;
   const strikeTime = anchors.strike ?? null; // Strike anchor
   const roomName = null; // first_show_room dropped (§7.1); no Phase-1 source
 
@@ -98,6 +104,7 @@ export function buildRightNowContext(opts: {
     callTime,
     roomName,
     strikeTime,
+    showAnchors,
     timezone,
   };
 }

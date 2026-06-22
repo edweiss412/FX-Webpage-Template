@@ -56,6 +56,7 @@ function makeContext(overrides: Partial<RightNowContext>): RightNowContext {
     callTime: null,
     roomName: null,
     strikeTime: null,
+    showAnchors: [],
     timezone: "America/New_York",
     ...overrides,
   };

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
-import type { ShowRow } from "@/lib/parser/types";
+import type { RunOfShow, ShowRow } from "@/lib/parser/types";
 
 function room(overrides: Partial<ProjectedRoomRow>): ProjectedRoomRow {
   return {
@@ -46,6 +46,7 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
     const gs = room({ set_time: "9:00 AM", show_time: "1:00 PM", strike_time: "8:00 PM" });
     const ctx = buildRightNowContext({
       show: show({
+        dates: { travelIn: null, set: null, showDays: ["2026-10-08"], travelOut: null },
         // legacy event_details time keys set to DIFFERENT values — must be ignored:
         event_details: {
           load_in_time: "99:99 ZZ",
@@ -57,6 +58,7 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
       dateRestriction: { kind: "none" },
       hotelReservations: [],
       rooms: [gs],
+      runOfShow: null,
     });
     expect(ctx.loadInTime).toBe(gs.set_time); // from rooms, not event_details
     expect(ctx.callTime).toBe(gs.show_time);
@@ -67,10 +69,11 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
   it("no gs room → first room in total order supplies Show/Strike", () => {
     const breakout = room({ kind: "breakout", name: "B", show_time: "2:00 PM" });
     const ctx = buildRightNowContext({
-      show: show(),
+      show: show({ dates: { travelIn: null, set: null, showDays: ["2026-10-08"], travelOut: null } }),
       dateRestriction: { kind: "none" },
       hotelReservations: [],
       rooms: [breakout],
+      runOfShow: null,
     });
     expect(ctx.callTime).toBe(breakout.show_time);
   });
@@ -81,6 +84,7 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
       dateRestriction: { kind: "none" },
       hotelReservations: [],
       rooms: [],
+      runOfShow: null,
     });
     expect(ctx.loadInTime).toBeNull();
     expect(ctx.callTime).toBeNull();
@@ -95,6 +99,7 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
       dateRestriction: { kind: "none" },
       hotelReservations: [],
       rooms: [],
+      runOfShow: null,
     });
     expect(ctx.loadInTime).toBe("8:30 AM"); // Set still renders, rooms-independent
     expect(ctx.callTime).toBeNull();
@@ -107,6 +112,7 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
       dateRestriction: { kind: "none" },
       hotelReservations: [],
       rooms: null,
+      runOfShow: null,
     });
     expect(ctx.loadInTime).toBeNull();
     expect(ctx.callTime).toBeNull();
@@ -120,6 +126,7 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
       dateRestriction: { kind: "none" },
       hotelReservations: [],
       rooms: [gs],
+      runOfShow: null,
     });
     expect(ctx.loadInTime).toBe(gs.set_time);
     expect(ctx.callTime).toBeNull(); // "10/20 @ TBD" → absent
@@ -143,8 +150,48 @@ describe("buildRightNowContext — rooms-sourcing (§9 test 3)", () => {
         },
       ],
       rooms: [],
+      runOfShow: null,
     });
     expect(ctx.hotelName).toBe("The Grand");
     expect(ctx.hotelCheckInTime).toBe("2026-03-22"); // a DATE, not a clock
+  });
+});
+
+const NONE = { kind: "none" } as const;
+
+describe("buildRightNowContext — showAnchors carry (D6/§5.1)", () => {
+  it("carries the dated per-day Show anchors from runOfShow into RightNowContext.showAnchors", () => {
+    const showDays = ["2026-10-08", "2026-10-09"];
+    const runOfShow: RunOfShow = {
+      "2026-10-08": { entries: [], showStart: "7:15am", window: null },
+      "2026-10-09": { entries: [], showStart: "8:30am", window: null },
+    };
+    const ctx = buildRightNowContext({
+      show: show({ dates: { travelIn: null, set: null, showDays, travelOut: null } }),
+      dateRestriction: NONE,
+      hotelReservations: [],
+      rooms: null,
+      runOfShow,
+    });
+    // assert against the data source (runOfShow), not a rendered container:
+    expect(ctx.showAnchors.map((a) => a.date)).toEqual(showDays);
+    expect(ctx.showAnchors.map((a) => a.time)).toEqual(["7:15am", "8:30am"]);
+  });
+});
+
+describe("buildRightNowContext — unknown_asterisk zero-leak (D6/§5.1)", () => {
+  it("unknown_asterisk → loadInTime/callTime/strikeTime all null AND showAnchors empty (zero leak)", () => {
+    const gs = room({ set_time: "9:00 AM", show_time: "10/8 @ 8:45am", strike_time: "10/9 @ 4:30pm" });
+    const ctx = buildRightNowContext({
+      show: show({ dates: { travelIn: null, set: "2026-10-07", showDays: ["2026-10-08"], travelOut: null, loadIn: "9:00PM" } }),
+      dateRestriction: { kind: "unknown_asterisk", days: null },
+      hotelReservations: [],
+      rooms: [gs],
+      runOfShow: null,
+    });
+    expect(ctx.loadInTime).toBeNull();
+    expect(ctx.callTime).toBeNull();
+    expect(ctx.strikeTime).toBeNull();
+    expect(ctx.showAnchors).toEqual([]);
   });
 });

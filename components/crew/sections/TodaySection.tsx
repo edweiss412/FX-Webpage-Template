@@ -209,9 +209,10 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
             dateRestriction: ctx.dateRestriction,
             hotelReservations: data.hotelReservations,
             rooms: data.rooms,
+            runOfShow: data.runOfShow ?? null, // NEW — carry per-day ShowAnchors
           });
 
-          const anchors = resolveKeyTimes(data.show, data.rooms);
+          const anchors = resolveKeyTimes(data.show, data.rooms, data.runOfShow ?? null, ctx.dateRestriction);
 
           const firstHotel = data.hotelReservations[0] ?? null;
           // Tonight uses the 2-up grid (columns={2} on the card below): the Hotel
@@ -410,7 +411,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           // card. `anchorsPresent` mirrors KeyTimesStrip's own all-absent → null
           // rule, so the "Key times" card never wraps an empty strip.
           const anchorsPresent =
-            anchors.set != null || anchors.show != null || anchors.strike != null;
+            anchors.set != null || (anchors.shows != null && anchors.shows.length > 0) || anchors.strike != null;
           const keyTimesCard = anchorsPresent ? (
             <div data-testid="today-key-times" data-card-id="today-key-times">
               <SectionCard
