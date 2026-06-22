@@ -172,6 +172,107 @@ describe("MaintenanceResetButtons — isPending disables the confirm", () => {
   });
 });
 
+describe("MaintenanceResetButtons — Escape-to-cancel (impeccable a11y HIGH-1)", () => {
+  test("pressing Escape on the open Reset modal closes it without calling the action", () => {
+    const { getByTestId, queryByTestId } = render(<MaintenanceResetButtons />);
+    fireEvent.click(getByTestId("validation-reset-button"));
+    const modal = getByTestId("validation-reset-modal");
+    expect(modal).toBeInTheDocument();
+
+    fireEvent.keyDown(modal, { key: "Escape" });
+    expect(queryByTestId("validation-reset-modal")).toBeNull();
+    expect(resetMock).not.toHaveBeenCalled();
+  });
+
+  test("pressing Escape on the open Reseed modal closes it without calling the action", () => {
+    const { getByTestId, queryByTestId } = render(<MaintenanceResetButtons />);
+    fireEvent.click(getByTestId("validation-reseed-button"));
+    const modal = getByTestId("validation-reseed-modal");
+    expect(modal).toBeInTheDocument();
+
+    fireEvent.keyDown(modal, { key: "Escape" });
+    expect(queryByTestId("validation-reseed-modal")).toBeNull();
+    expect(reseedMock).not.toHaveBeenCalled();
+  });
+
+  test("pressing Escape while the Reset action is pending does NOT close the modal", async () => {
+    // Hold the action promise open so the transition stays pending.
+    let resolveAction: (v: { ok: true; count: number }) => void = () => {};
+    resetMock.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: true; count: number }>((resolve) => {
+          resolveAction = resolve;
+        }),
+    );
+
+    const { getByTestId, queryByTestId } = render(<MaintenanceResetButtons />);
+    fireEvent.click(getByTestId("validation-reset-button"));
+    const modal = getByTestId("validation-reset-modal");
+    fireEvent.change(within(modal).getByTestId("validation-reset-input"), {
+      target: { value: "RESET" },
+    });
+    fireEvent.click(within(modal).getByTestId("validation-reset-confirm"));
+
+    // While pending, the modal is still open and Escape must NOT interrupt it.
+    await waitFor(() =>
+      expect(within(modal).getByTestId("validation-reset-confirm")).toBeDisabled(),
+    );
+    fireEvent.keyDown(modal, { key: "Escape" });
+    expect(getByTestId("validation-reset-modal")).toBeInTheDocument();
+
+    // Drain the promise so the transition settles (no act() warning at teardown).
+    resolveAction({ ok: true, count: 3 });
+    await waitFor(() => expect(queryByTestId("validation-reset-modal")).toBeNull());
+  });
+});
+
+describe("MaintenanceResetButtons — focus restoration after completion (impeccable a11y HIGH-2)", () => {
+  test("after a completed Reset the focus does not drop to <body> and lands on a focusable element", async () => {
+    resetMock.mockResolvedValueOnce({ ok: true, count: 3 });
+    const { getByTestId } = render(<MaintenanceResetButtons />);
+    fireEvent.click(getByTestId("validation-reset-button"));
+    const modal = getByTestId("validation-reset-modal");
+    fireEvent.change(within(modal).getByTestId("validation-reset-input"), {
+      target: { value: "RESET" },
+    });
+    fireEvent.click(within(modal).getByTestId("validation-reset-confirm"));
+
+    // Wait for the action to settle: modal closed + result rendered.
+    await waitFor(() =>
+      expect(getByTestId("validation-reset-result").textContent ?? "").toContain("3"),
+    );
+
+    // Focus must not silently drop to <body>; it should land on a focusable
+    // (non-disabled) element — the re-enabled trigger.
+    await waitFor(() => {
+      const active = document.activeElement;
+      expect(active).not.toBe(document.body);
+      expect(active).not.toBeNull();
+      expect((active as HTMLElement).hasAttribute("disabled")).toBe(false);
+    });
+  });
+
+  test("after a completed Reseed the focus does not drop to <body>", async () => {
+    reseedMock.mockResolvedValueOnce({ ok: true, count: 16 });
+    const { getByTestId } = render(<MaintenanceResetButtons />);
+    fireEvent.click(getByTestId("validation-reseed-button"));
+    fireEvent.click(
+      within(getByTestId("validation-reseed-modal")).getByTestId("validation-reseed-confirm"),
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("validation-reseed-result").textContent ?? "").toContain("16"),
+    );
+
+    await waitFor(() => {
+      const active = document.activeElement;
+      expect(active).not.toBe(document.body);
+      expect(active).not.toBeNull();
+      expect((active as HTMLElement).hasAttribute("disabled")).toBe(false);
+    });
+  });
+});
+
 describe("MaintenanceResetButtons — error copy resolves (invariant 5)", () => {
   test("every validation code resolves to a non-empty dougFacing string", () => {
     for (const code of VALIDATION_CODES) {

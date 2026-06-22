@@ -29,7 +29,7 @@
  * each modal is a labelled group with focus moved to its least-destructive
  * control on open and returned to the trigger on close.
  */
-import { useEffect, useRef, useState, useTransition } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
@@ -80,19 +80,38 @@ export function MaintenanceResetButtons() {
     const prev = lastOpenRef.current;
     if (open === "reset") {
       resetCancelRef.current?.focus();
+      lastOpenRef.current = open;
     } else if (open === "reseed") {
       reseedCancelRef.current?.focus();
-    } else if (prev === "reset") {
+      lastOpenRef.current = open;
+    } else if (!isPending && prev === "reset") {
+      // Restore focus to the trigger ONLY after isPending clears — the trigger
+      // is disabled={isPending}, so restoring mid-action would land on a
+      // non-focusable control and silently drop focus to <body> (impeccable
+      // HIGH). Gating on !isPending mirrors ReapStaleSessionsButton's
+      // state.kind !== "running" guard. lastOpenRef is NOT advanced while
+      // pending so the restoration re-fires once isPending flips false.
       resetTriggerRef.current?.focus();
-    } else if (prev === "reseed") {
+      lastOpenRef.current = open;
+    } else if (!isPending && prev === "reseed") {
       reseedTriggerRef.current?.focus();
+      lastOpenRef.current = open;
     }
-    lastOpenRef.current = open;
-  }, [open]);
+  }, [open, isPending]);
 
   function closeModal() {
     setOpen("none");
     setTyped("");
+  }
+
+  // Escape closes an open modal — but NEVER mid-action (impeccable a11y HIGH):
+  // interrupting a running reset/reseed via Escape would desync the UI from the
+  // in-flight server action. Applied to both modal containers.
+  function handleModalKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape" && !isPending) {
+      event.stopPropagation();
+      closeModal();
+    }
   }
 
   function runReset() {
@@ -246,6 +265,7 @@ export function MaintenanceResetButtons() {
           role="group"
           aria-labelledby="validation-reset-modal-heading"
           data-testid="validation-reset-modal"
+          onKeyDown={handleModalKeyDown}
           className="flex flex-col gap-3 rounded-md border border-status-warn bg-warning-bg p-tile-pad text-warning-text"
         >
           <p id="validation-reset-modal-heading" className="text-sm font-semibold">
@@ -299,6 +319,7 @@ export function MaintenanceResetButtons() {
           role="group"
           aria-labelledby="validation-reseed-modal-heading"
           data-testid="validation-reseed-modal"
+          onKeyDown={handleModalKeyDown}
           className="flex flex-col gap-3 rounded-md border border-border bg-surface-sunken p-tile-pad text-text-strong"
         >
           <p id="validation-reseed-modal-heading" className="text-sm font-semibold">
