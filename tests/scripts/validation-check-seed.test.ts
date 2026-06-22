@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
 import { runValidationCli, type CliRun } from "./_cli-helpers";
 
-import { buildFixtures, fixtureCrewName } from "@/scripts/lib/validation-fixtures";
+import { buildFixtures, fixtureCrewName } from "@/lib/validation/fixtures";
 
 const CHECK_SEED_SCRIPT = join(process.cwd(), "scripts/validation-check-seed.ts");
 

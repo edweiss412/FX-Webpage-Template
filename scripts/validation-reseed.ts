@@ -23,7 +23,7 @@ import {
   SW_COMBOS,
   type Combo,
   type FixtureRow,
-} from "./lib/validation-fixtures";
+} from "../lib/validation/fixtures";
 
 const USAGE = `Usage: pnpm validation:reseed [--combo <id>|all] [--allow-local-override] [--help]
 

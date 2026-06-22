@@ -30,7 +30,7 @@ import {
   fixtureCrewName,
   type Combo,
   type FixtureRow,
-} from "./lib/validation-fixtures";
+} from "../lib/validation/fixtures";
 
 const USAGE = `Usage: pnpm validation:check-seed [--combo <id>|all] [--allow-local-override] [--help]
 

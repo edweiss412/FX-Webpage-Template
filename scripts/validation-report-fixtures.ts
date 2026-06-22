@@ -37,7 +37,7 @@ import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
-import { R_COMBOS, SW_COMBOS } from "./lib/validation-fixtures";
+import { R_COMBOS, SW_COMBOS } from "../lib/validation/fixtures";
 
 const ALL_COMBOS: readonly string[] = [...R_COMBOS, ...SW_COMBOS];
 

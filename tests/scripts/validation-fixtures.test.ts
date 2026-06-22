@@ -37,13 +37,13 @@ describe("buildFixtures (validation-fixtures)", () => {
   });
 
   it("returns exactly 16 combos", async () => {
-    const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+    const { buildFixtures } = await import("@/lib/validation/fixtures");
     const fixtures = buildFixtures(TODAY);
     expect(fixtures).toHaveLength(16);
   });
 
   it("R-combos each have 9 crew_members; SW-* each have 1", async () => {
-    const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+    const { buildFixtures } = await import("@/lib/validation/fixtures");
     const fixtures = buildFixtures(TODAY);
     for (const fx of fixtures) {
       if ((R_COMBOS as readonly string[]).includes(fx.combo)) {
@@ -55,14 +55,14 @@ describe("buildFixtures (validation-fixtures)", () => {
   });
 
   it("total leaf aliases = 96 (10 × 9 + 6 × 1)", async () => {
-    const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+    const { buildFixtures } = await import("@/lib/validation/fixtures");
     const fixtures = buildFixtures(TODAY);
     const total = fixtures.reduce((sum, fx) => sum + fx.crewMembers.length, 0);
     expect(total).toBe(96);
   });
 
   it("every R-combo's crew_members includes all 9 role-variant aliases", async () => {
-    const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+    const { buildFixtures } = await import("@/lib/validation/fixtures");
     const fixtures = buildFixtures(TODAY);
     for (const fx of fixtures) {
       if (!(R_COMBOS as readonly string[]).includes(fx.combo)) continue;
@@ -72,7 +72,7 @@ describe("buildFixtures (validation-fixtures)", () => {
   });
 
   it("every SW-* combo's crew_members is exactly [alias_5a_lead]", async () => {
-    const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+    const { buildFixtures } = await import("@/lib/validation/fixtures");
     const fixtures = buildFixtures(TODAY);
     for (const fx of fixtures) {
       if (!(SW_COMBOS as readonly string[]).includes(fx.combo)) continue;
@@ -82,7 +82,7 @@ describe("buildFixtures (validation-fixtures)", () => {
 
   it("R1.alias_5a_lead.email reads from VALIDATION_J3_CLAIM_EMAIL (canonicalized)", async () => {
     process.env.VALIDATION_J3_CLAIM_EMAIL = "Test.Validation.User@GMAIL.com";
-    const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+    const { buildFixtures } = await import("@/lib/validation/fixtures");
     const fixtures = buildFixtures(TODAY);
     const r1 = fixtures.find((f) => f.combo === "R1");
     expect(r1).toBeDefined();
@@ -91,7 +91,7 @@ describe("buildFixtures (validation-fixtures)", () => {
   });
 
   it("every alias EXCEPT R1.alias_5a_lead uses synthesized validation+...@example.com", async () => {
-    const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+    const { buildFixtures } = await import("@/lib/validation/fixtures");
     const fixtures = buildFixtures(TODAY);
     for (const fx of fixtures) {
       for (const c of fx.crewMembers) {
@@ -111,7 +111,7 @@ describe("buildFixtures (validation-fixtures)", () => {
   describe("VALIDATION_J3_CLAIM_EMAIL guard", () => {
     it("aborts when VALIDATION_J3_CLAIM_EMAIL is unset", async () => {
       delete process.env.VALIDATION_J3_CLAIM_EMAIL;
-      const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+      const { buildFixtures } = await import("@/lib/validation/fixtures");
       expect(() => buildFixtures(TODAY)).toThrow(/VALIDATION_J3_CLAIM_EMAIL/);
     });
 
@@ -129,7 +129,7 @@ describe("buildFixtures (validation-fixtures)", () => {
     for (const bad of rejected) {
       it(`aborts on canonical rejected-domain set: ${bad}`, async () => {
         process.env.VALIDATION_J3_CLAIM_EMAIL = bad;
-        const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+        const { buildFixtures } = await import("@/lib/validation/fixtures");
         expect(() => buildFixtures(TODAY)).toThrow(/placeholder\/dev-only reserved domain/);
       });
     }
@@ -147,14 +147,14 @@ describe("buildFixtures (validation-fixtures)", () => {
     for (const bad of malformed) {
       it(`aborts on malformed shape: ${bad}`, async () => {
         process.env.VALIDATION_J3_CLAIM_EMAIL = bad;
-        const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+        const { buildFixtures } = await import("@/lib/validation/fixtures");
         expect(() => buildFixtures(TODAY)).toThrow(/real-email shape/);
       });
     }
 
     it("accepts a canonicalized real-email-shape value (Gmail)", async () => {
       process.env.VALIDATION_J3_CLAIM_EMAIL = "real.dev@gmail.com";
-      const { buildFixtures } = await import("@/scripts/lib/validation-fixtures");
+      const { buildFixtures } = await import("@/lib/validation/fixtures");
       expect(() => buildFixtures(TODAY)).not.toThrow();
     });
   });

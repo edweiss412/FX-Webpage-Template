@@ -13,7 +13,7 @@ import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
-import { R_COMBOS, SW_COMBOS, type Combo } from "./lib/validation-fixtures";
+import { R_COMBOS, SW_COMBOS, type Combo } from "../lib/validation/fixtures";
 
 const ALL_COMBOS: readonly Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
