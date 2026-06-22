@@ -303,7 +303,12 @@ export function auditNoRawCodesInSourceFiles(
 const HELP_DOCS_CATALOG_RENDER_PATHS = new Set(["/help/errors", "/help/admin/parse-warnings"]);
 
 export function discoverStaticAppRoutePaths(): string[] {
-  return walkSourceFiles(["app"])
+  // `.mdx` is required here: M11 authors most help routes as `page.mdx`.
+  // `walkSourceFiles` defaults to `.ts`/`.tsx` only, so without this the
+  // `endsWith("/page.mdx")` filter below is dead code and the 13 `/help/**`
+  // MDX routes are never crawled (M11-A-D3 — the runtime crawl is the
+  // structural guard that supersedes a static MDX AST pass).
+  return walkSourceFiles(["app"], { extensions: [".tsx", ".mdx"] })
     .filter((path) => path.endsWith("/page.tsx") || path.endsWith("/page.mdx"))
     .filter((path) => !path.startsWith("app/api/"))
     .filter((path) => !path.startsWith("app/admin/dev/"))

@@ -48,6 +48,8 @@ Per-plan deferrals: items that WILL be done with a concrete trigger (distinct fr
 
 ### B1-D4 — Dev-gate 3-build Playwright e2e has no CI workflow
 
+**STATUS: RESOLVED 2026-06-21** (test-hardening bundle). Authored `.github/workflows/dev-gate-e2e.yml` (`workflow_dispatch` + scoped `pull_request`) mirroring `help-affordances.yml`'s native-runner + Supabase-bootstrap + `playwright install` shape (no amd64 raster pin — the dev-gate specs assert HTTP status codes, not pixels). It runs `--project=dev-build --project=prod-build --project=prod-runtime-flip` with a new `DEV_GATE_ONLY=1` `playwright.config.ts` webServer filter (boots only :3001/:3002/:3003, so the five-cold-build lock-contention timeout can't fire) and bumps `acquireLockWithRetry`'s default 240s→600s so three serial cold builds fit. Authoritative real-CI green is the orchestrator's `gh workflow run dev-gate-e2e.yml` (push-gated; local-passes-CI-fails class). Plan Task 8.4 Steps 3-4 + the "Real CI green (dev-gate)" exit criterion checked off. Original entry below.
+
 **Status:** Open. **Trigger:** next CI-hardening pass, or before relying on the dev-panel build gate as a release blocker.
 
 **Source:** M12.2 B1 close-out (orchestrator), 2026-06-01.
