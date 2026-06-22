@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** APPROVED — cross-model adversarial R1–R5 (Codex approved round 5, 0 findings); user review waived. Ready to execute.
+
 **Goal:** Give every crew-page source-backed card a subtle "In sheet ↗" link that opens the show's Google Sheet at the A1 region the card's data was parsed from.
 
 **Architecture:** A standalone **label-coordinate scan** (`extractSourceAnchors`) reads the XLSX grid with absolute cell coordinates, finds each of 11 parser source-regions by its known labels (reusing parser alias constants), and computes a per-region `{title, gid, a1}` anchor via the §8.1.1 union-bounding-range reduction. Anchors are persisted in one `shows.source_anchors jsonb` column (written via the existing `applyShowSnapshot` shows-UPDATE, like `opening_reel_*`), projected through `getShowForViewer`, and turned into a URL at render time by the pure `buildSheetDeepLink` helper with a range→tab→whole-spreadsheet fallback ladder. The parser is **not** modified.
