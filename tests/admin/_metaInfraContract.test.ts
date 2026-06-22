@@ -240,18 +240,20 @@ const infraRegistry = [
     helper: "resetValidationDataAction",
     path: "app/admin/settings/_actions/validationReset.ts",
     contract:
-      "two-client flow (hotfix): session-client assert_destructive_reset_enabled() first (is_admin + gate, no locks, 8s-timeout-safe), then service-role reset_validation_data() (no statement_timeout, waits on advisory locks); service-role constructed ONLY after assert passes; gate-disabled raise → VALIDATION_RESET_NOT_ENABLED; other error → VALIDATION_RESET_FAILED; success → { ok:true, count }",
-    // not-subject-to-meta: uses named client variables (sessionClient/serviceClient),
-    // not the supabase.from() builder pattern. Covered by validationResetAction.test.ts.
+      "client construction + assert/reset rpc awaits each wrapped in try/catch: createSupabaseServerClient() THROWS → VALIDATION_RESET_FAILED (no RPC, no service-role); createSupabaseServiceRoleClient() THROWS (after assert passes) → VALIDATION_RESET_FAILED; gate-disabled raise → VALIDATION_RESET_NOT_ENABLED; success → { ok:true, count }",
+    // grep-shape rule targets the supabase.from() builder pattern; this file uses named
+    // clients (sessionClient / serviceClient) — construction + rpc try/catch coverage is
+    // asserted behaviorally in tests/admin/validationResetAction.test.ts (construction-throw tests).
     skipGrepShape: true as const,
   },
   {
     helper: "reseedValidationFixturesAction",
     path: "app/admin/settings/_actions/validationReset.ts",
     contract:
-      "triple-guarded (requireAdmin + env gate + assert_destructive_reset_enabled RPC); service-role client constructed ONLY after assert passes; gate-disabled raise → VALIDATION_RESET_NOT_ENABLED; mint/finalize infra fault → VALIDATION_RESEED_FAILED; success → { ok:true, count }",
-    // not-subject-to-meta: uses named client variables (sessionClient/serviceClient),
-    // not the supabase.from() builder pattern. Covered by validationResetAction.test.ts.
+      "client construction + assert/reseed rpc awaits each wrapped in try/catch: createSupabaseServerClient() THROWS → VALIDATION_RESEED_FAILED (no RPC, no service-role); createSupabaseServiceRoleClient() THROWS (after assert passes) → VALIDATION_RESEED_FAILED; gate-disabled raise → VALIDATION_RESET_NOT_ENABLED; success → { ok:true, count }",
+    // grep-shape rule targets the supabase.from() builder pattern; this file uses named
+    // clients (sessionClient / serviceClient) — construction + rpc try/catch coverage is
+    // asserted behaviorally in tests/admin/validationResetAction.test.ts (construction-throw tests).
     skipGrepShape: true as const,
   },
 ];

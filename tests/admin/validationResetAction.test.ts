@@ -243,6 +243,44 @@ describe("resetValidationDataAction", () => {
     const serverClientCallOrder = createSupabaseServerClient.mock.invocationCallOrder[0]!;
     expect(requireAdminCallOrder).toBeLessThan(serverClientCallOrder);
   });
+
+  test("createSupabaseServerClient() THROWS → VALIDATION_RESET_FAILED, no RPC, service-role NOT constructed", async () => {
+    // Codex review finding: construction throw must map to the typed FAILED code (invariant 9).
+    // createSupabaseServerClient is async → mockRejectedValueOnce.
+    const { createSupabaseServerClient, createSupabaseServiceRoleClient } = await getServerMocks();
+    createSupabaseServerClient.mockRejectedValueOnce(new Error("client construction fault"));
+
+    const { resetValidationDataAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
+    const result = await resetValidationDataAction();
+
+    expect(result).toEqual({ ok: false, code: "VALIDATION_RESET_FAILED" });
+    // No RPC should have been attempted
+    expect(mockSessionRpc).not.toHaveBeenCalled();
+    // Service-role client must NOT be constructed
+    expect(createSupabaseServiceRoleClient).not.toHaveBeenCalled();
+    expect(mockState.serviceClientConstructed).toBe(false);
+  });
+
+  test("createSupabaseServiceRoleClient() THROWS (after assert passes) → VALIDATION_RESET_FAILED", async () => {
+    // The session-client assert passes (no error), but the service-role client construction throws.
+    // createSupabaseServiceRoleClient is sync → mockImplementationOnce with throw.
+    mockState.assertRpcError = null;
+    const { createSupabaseServiceRoleClient } = await getServerMocks();
+    createSupabaseServiceRoleClient.mockImplementationOnce(() => {
+      throw new Error("service-role client construction fault");
+    });
+
+    const { resetValidationDataAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
+    const result = await resetValidationDataAction();
+
+    expect(result).toEqual({ ok: false, code: "VALIDATION_RESET_FAILED" });
+    // The assert RPC was called (session path succeeded)
+    expect(mockSessionRpc).toHaveBeenCalledTimes(1);
+    // The service-role reset RPC must NOT have been called
+    expect(mockServiceRpc).not.toHaveBeenCalled();
+  });
 });
 
 describe("reseedValidationFixturesAction", () => {
@@ -382,5 +420,44 @@ describe("reseedValidationFixturesAction", () => {
     const requireAdminCallOrder = requireAdminMock.mock.invocationCallOrder[0]!;
     const serverClientCallOrder = createSupabaseServerClient.mock.invocationCallOrder[0]!;
     expect(requireAdminCallOrder).toBeLessThan(serverClientCallOrder);
+  });
+
+  test("createSupabaseServerClient() THROWS → VALIDATION_RESEED_FAILED, no RPC, service-role NOT constructed", async () => {
+    // Codex review finding: construction throw must map to the typed FAILED code (invariant 9).
+    // createSupabaseServerClient is async → mockRejectedValueOnce.
+    const { createSupabaseServerClient, createSupabaseServiceRoleClient } = await getServerMocks();
+    createSupabaseServerClient.mockRejectedValueOnce(new Error("client construction fault"));
+
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
+    const result = await reseedValidationFixturesAction();
+
+    expect(result).toEqual({ ok: false, code: "VALIDATION_RESEED_FAILED" });
+    // No assert RPC should have been attempted
+    expect(mockSessionRpc).not.toHaveBeenCalled();
+    // Service-role client must NOT be constructed
+    expect(createSupabaseServiceRoleClient).not.toHaveBeenCalled();
+    expect(mockState.serviceClientConstructed).toBe(false);
+  });
+
+  test("createSupabaseServiceRoleClient() THROWS (after assert passes) → VALIDATION_RESEED_FAILED", async () => {
+    // The session-client assert passes (no error), but the service-role client construction throws.
+    // createSupabaseServiceRoleClient is sync → mockImplementationOnce with throw.
+    mockState.assertRpcError = null;
+    const { createSupabaseServiceRoleClient } = await getServerMocks();
+    createSupabaseServiceRoleClient.mockImplementationOnce(() => {
+      throw new Error("service-role client construction fault");
+    });
+
+    const { reseedValidationFixturesAction } =
+      await import("@/app/admin/settings/_actions/validationReset");
+    const result = await reseedValidationFixturesAction();
+
+    expect(result).toEqual({ ok: false, code: "VALIDATION_RESEED_FAILED" });
+    // The assert RPC was called (session path succeeded)
+    expect(mockSessionRpc).toHaveBeenCalledTimes(1);
+    // mint/finalize must NOT have been called
+    expect(mintSpy).not.toHaveBeenCalled();
+    expect(finalizeSpy).not.toHaveBeenCalled();
   });
 });
