@@ -1,7 +1,7 @@
 # Tile → Source-Sheet Deep Links — Design Spec
 
 - **Date:** 2026-06-21
-- **Status:** Draft (self-review + adversarial R1 applied; pending adversarial re-review)
+- **Status:** Draft (self-review + adversarial R1 & R2 applied; pending adversarial re-review)
 - **Branch / worktree:** `worktree-tile-source-deeplinks`
 - **Author:** Opus 4.8 (Claude Code), orchestrated session
 
@@ -200,9 +200,20 @@ The anchor map is keyed by **parser source-region**, not by card — cards that 
 | `gear_packlist` | `pullSheet[]` | PULL SHEET / GEAR | block / item-row |
 | `schedule` | `runOfShow` + `dates` (agenda grid) | AGENDA | day-band (near-cell on the grid) |
 
+### 8.1.1 Region reduction rule (multi-block & cross-tab regions)
+
+Several regions are **composite** — the parser reads them from more than one block: `hotels` (multiple reservations), `rooms` (AVL scope + set/show/strike times), `financials` (COI + PO/proposal/invoice), `details` (multiple event-detail rows), and `schedule` (`runOfShow` on AGENDA **+** `dates` on INFO — *cross-tab*). Because `source_anchors[regionId]` holds exactly one `{title, gid, a1}`, the writer reduces a region's blocks to one anchor **deterministically**:
+
+1. **Each region designates a single PRIMARY block** (the headline data its cards verify): `hotels`→first reservation; `rooms`→the General-Session room block; `financials`→the COI/proposal/PO block; `details`→the DETAILS block; `schedule`→the AGENDA `runOfShow` grid. Single-block regions (`crew`, `contacts`, `transportation`, `flights`, `venue`, `gear_packlist`) are their own primary.
+2. **Same-tab blocks → union bounding range.** When a region's blocks all sit on the primary block's tab, `a1` = the A1 bounding rectangle from the top-left of the first to the bottom-right of the last. **Overreach is accepted** — intervening unrelated rows may fall inside the box; landing the viewer on a span that *contains* all the region's data is the honest Tier-3 outcome (cell-exact is rejected, §15).
+3. **Cross-tab regions → primary tab only.** `schedule`'s anchor is the AGENDA `runOfShow` grid; the secondary `dates` rows on INFO are **not** separately anchored (one anchor cannot span two gids). Documented, not silent.
+4. **Unlocatable primary → degrade.** If the primary block can't be located, the region degrades to gid-only (tab) then whole-spreadsheet (§5.2).
+
+§12 requires fixtures for each shape: single-block, same-tab union-with-overreach, and the cross-tab `schedule` case.
+
 ### 8.2 Card → region coverage (all source-backed cards)
 
-Every source-backed card across the 7 sections maps to exactly one region anchor. Cards in **Today** reuse other sections' anchors (introduce no new region).
+Every source-backed card links to exactly one region — the region of its **primary (headline) data** (§8.1.1). Cards in **Today** reuse other sections' anchors (introduce no new region). Cards that render fields from more than one region are tracked in the **mixed-source registry** (§8.2.1) so their secondary fields are documented, never silently mis-covered.
 
 | Section · Card | Region id |
 |---|---|
@@ -228,9 +239,16 @@ Every source-backed card across the 7 sections maps to exactly one region anchor
 | Today · Dress code | `details` (reuse) |
 | Today · Run of show | `schedule` (reuse) |
 
-Notes:
-- **Venue · Facilities** mixes `venue` scalars with `transportation.parking`/`event_details` internet-power; it anchors its **dominant** region `venue`. **Venue · Venue status** mixes `coi_status` (financials-adjacent in the sheet) with `venue.notes`; it anchors `venue` (its section), accepting `coi` degrades to that region — a documented mixed case, not a precision regression.
-- **Gear scope (3 discipline cards)** and **Key times** both read `rooms[]`; both anchor `rooms`.
+### 8.2.1 Mixed-source card registry
+
+A few cards render fields from MORE THAN ONE region. Per D5 they still carry exactly ONE link — to their **primary** region (precise for the headline fields) — and this registry documents the **secondary** fields the link does NOT precisely anchor (those fields live elsewhere in the same workbook; the link lands at the primary region). The §12 field-aware parity test asserts every such card is in this registry **and** that its rendered field set matches the registry — so a newly-mixed card cannot ship with an undocumented wrong-region link.
+
+| Card | Primary region (linked) | Secondary fields (NOT precisely anchored — verify at primary region) |
+|---|---|---|
+| Venue · Facilities | `venue` (loading dock) | `transportation.parking`, `event_details.internet`, `event_details.power` |
+| Venue · Venue status | `venue` (venue notes) | `coi_status` |
+
+All other §8.2 cards render a single region's data, so their one link is precise. **Gear scope (3 discipline cards)** and **Key times** both read `rooms[]` — same region, not mixed.
 
 ### 8.3 Out-of-scope cards (no link) — explicit
 
@@ -285,16 +303,16 @@ Per AGENTS.md "Every migration must reach the validation project":
 4. Apply surgically to the validation project (`supabase db query --linked` or `psql "$TEST_DATABASE_URL" -f …`), then `notify pgrst, 'reload schema';`.
 5. The `validation-schema-parity` CI gate then asserts validation ⊇ manifest.
 
-No PostgREST DML-lockdown row is required: `source_anchors` is written only by the existing SECURITY-DEFINER sync path; `shows` write access is already locked down. **The plan MUST confirm at implementation time** that no new direct-from-`authenticated` write path to `shows.source_anchors` is introduced.
+**PostgREST DML lockdown (already enforced — no new row needed).** `shows` write access is whole-table REVOKEd from `anon, authenticated` — `revoke insert, update, delete on table public.shows from anon, authenticated;` at `supabase/migrations/20260523000001_picker_epoch_columns.sql:45`. The new `source_anchors` column therefore inherits the lockdown: no PostgREST caller can `update public.shows set source_anchors = …`, so a crew/anon user cannot inject arbitrary (even allowed-title) anchors to mislead the link. `shows` is already a registered row in the lockdown meta-test (`tests/db/postgrest-dml-lockdown.test.ts:138`), whose UPDATE probe asserts the whole-table REVOKE and thus covers the new column — **no new registry row is required.** `source_anchors` is written only inside the existing SECURITY-DEFINER sync path. The plan re-runs `tests/db/postgrest-dml-lockdown.test.ts` after the migration to confirm the lockdown still holds for the altered table.
 
 ---
 
 ## 12. Testing strategy
 
 - **Unit — `buildSheetDeepLink`:** every fallback rung (range / gid-only / none / null id → null); the **`gid === 0` case** — `buildSheetDeepLink(driveFileId, { title:"INFO", gid:0, a1:"A1:B2" })` MUST emit `…/edit#gid=0&range=A1%3AB2` (not degrade); the **URL-encoding** assertion (`a1="A1:C1"` → `…&range=A1%3AC1`); empty-string inputs (`driveFileId=''` → null; `a1=''` → gid-only rung); the `a1`-without-`gid` → whole-spreadsheet invariant; the **disallowed-`title`** anchor → whole-spreadsheet. **Negative-regression:** a truthy `if (gid)` impl must fail the gid-0 test; a no-op allowlist check must fail the disallowed-title test.
-- **Export/parser — anchored-block emission:** against committed exporter fixtures (`tests/drive/exportSheetToMarkdown.test.ts`, `tests/parser/exporterFixtures.test.ts`), assert each emitted block's `{title, gid, a1}` matches expected, including a **merge-origin** case (anchor = merge top-left) and a **trimmed-block** case (origin shifted by `trimBlock`).
+- **Export/parser — anchored-block emission:** against committed exporter fixtures (`tests/drive/exportSheetToMarkdown.test.ts`, `tests/parser/exporterFixtures.test.ts`), assert each emitted block's `{title, gid, a1}` matches expected, including a **merge-origin** case (anchor = merge top-left) and a **trimmed-block** case (origin shifted by `trimBlock`). Plus a **region-reduction** fixture set (§8.1.1): a single-block region, a same-tab **union-with-overreach** region (e.g. `rooms`/`details`/`financials` — assert `a1` is the bounding rectangle covering all the region's blocks), and the **cross-tab `schedule`** case (assert the anchor is the AGENDA `runOfShow` grid and that INFO `dates` is NOT separately anchored).
 - **Allowlist meta-test (§9):** (a) walk corpus fixtures, assert no **persisted** anchor `title` is excluded; (b) `buildSheetDeepLink` drops a hand-crafted disallowed-`title` anchor (corrupted-JSON defense); (c) master-library titles absent from the allowlist constant.
-- **Card-coverage parity (§8):** every source-backed card in the 7 sections either maps to a region id (§8.2) or is on the §8.3 out-of-scope list; every region id in §8.1 is referenced by ≥1 card; assert against the rendered fixture suite (a card walker, not a hardcoded list, so a new SectionCard added later fails the test until classified).
+- **Field-aware coverage parity (§8):** a walker over the rendered fixture suite that tags **every rendered source-backed datum** (not just every card) with the parser region that produces it. It asserts: (a) every rendered source-backed field maps to a known region; (b) each card's single link targets the region of its **primary** field (§8.2); (c) every card that renders fields from >1 region appears in the mixed-source registry (§8.2.1) with a **matching field set**; (d) a card with no link is on the §8.3 out-of-scope list with a composite/non-sheet rationale; (e) every region id in §8.1 is referenced by ≥1 card. Because it walks fields — not a hardcoded card list — a new SectionCard, a new rendered field, or a newly-mixed card fails the test until classified; it **cannot** pass while a visible datum is unlinked or links to a region that does not back it (this closes the round-2 card-vs-field gap).
 - **Corpus regression:** for representative committed fixtures across both format eras (per D11), assert region anchors resolve to the right tab + region per §8.1.
 - **Projection guard:** `getShowForViewer` projects `drive_file_id` + `source_anchors`; assert the empty-object (`{}`) and null-`drive_file_id` paths render no broken links.
 - **Real-browser (Playwright + impeccable gate; jsdom insufficient):**
@@ -305,10 +323,10 @@ No PostgREST DML-lockdown row is required: `source_anchors` is written only by t
 
 ### Meta-test inventory (per AGENTS.md)
 
-- **CREATES:** the §9 allowlist meta-test (persisted-anchor + read-time `buildSheetDeepLink` title guard); the §8 card-coverage parity walker.
+- **CREATES:** the §9 allowlist meta-test (persisted-anchor + read-time `buildSheetDeepLink` title guard); the §8 **field-aware** coverage parity walker (incl. the §8.2.1 mixed-source registry check).
 - **EXTENDS:** the fields-mask pin (`tests/sync/defaultDriveClientSheetsFieldsMask.test.ts`) for the widened `sheetId` mask.
 - **Advisory-lock topology:** unchanged — no new `pg_advisory*` holder (Hop 4 rides the existing sync lock). Declared explicitly.
-- **PostgREST DML lockdown:** no new RPC-gated table; `shows` already locked down. No new registry row (confirm in plan).
+- **PostgREST DML lockdown:** `shows` is already whole-table REVOKEd (`picker_epoch_columns.sql:45`) and registered in the meta-test (`postgrest-dml-lockdown.test.ts:138`); the new column inherits both. Plan re-runs that test post-migration. No new registry row (§11).
 - **Supabase call-boundary (invariant 9):** no new query expected (Hop 5 reuses the fetched `shows` row); if one is added, register in `tests/auth/_metaInfraContract.test.ts`.
 
 ---
@@ -341,6 +359,8 @@ No PostgREST DML-lockdown row is required: `source_anchors` is written only by t
 - **"Tab-level first" staging was considered and rejected.** For the legacy single-`INFO` sheets (majority, D11), tab-level ≈ whole-spreadsheet and does not serve the verify job. We build region-range directly behind a graceful fallback.
 - **Per-row / per-field links were considered and rejected.** Verified in visual brainstorming: a per-row glyph truncates dense rows (Crew role line). Affordance is per-source-backed-card → region anchor (D5).
 - **Region-keyed (not card-keyed) anchors are deliberate.** 23 source-backed cards collapse to 11 parser source-regions; cards sharing a source share its anchor (e.g. Today reuses; gear scope + key times → `rooms`). This is why the canonical set is 11, not 23 — see §8.
+- **Mixed-source cards link to their PRIMARY region, by design (R2 resolution).** Per D5 (one subtle link per card), the 2 mixed cards (§8.2.1) link to their primary region and document the secondary fields rather than carrying multiple links (which D5 forbids as clutter) or splitting cards. Field-aware parity (§12) prevents silent mis-coverage. Do not relitigate toward multiple-links-per-card — that contradicts the ratified D5.
+- **Composite/cross-tab regions reduce to one anchor by the §8.1.1 rule (R2 resolution).** Same-tab multi-block regions use a union bounding range with accepted overreach; the cross-tab `schedule` anchors AGENDA only. This is the deliberate Tier-3 outcome (cell-exact rejected); overreach is acceptable because landing on a span that contains the data still serves verification.
 - **The allowlist exclusion of `CLIENT/VENUE/TECH/ROLE/VEHICLE/...` tabs is deliberate.** In the standardized format (2026 sheets) these are company-wide master libraries, not per-show data; linking there points at the wrong show (§9).
 
 ---
