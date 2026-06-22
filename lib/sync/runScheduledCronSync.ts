@@ -28,6 +28,7 @@ import type {
   ParseResult,
   TriggeredReviewItem,
 } from "@/lib/parser/types";
+import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   enrichWithDrivePins,
@@ -975,7 +976,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
     // first-seen show has no shows_internal row → null (the correct "nothing previously stored"
     // signal). Raw-tx path returns the parsed jsonb object (matching the parse_warnings read shape).
     const priorInternal = existing
-      ? await this.one<{ run_of_show: Record<string, AgendaEntry[]> | null }>(
+      ? await this.one<{ run_of_show: unknown }>(
           "select run_of_show from public.shows_internal where show_id = $1 limit 1",
           [existing.id],
         )
@@ -1195,9 +1196,10 @@ class PostgresPipelineTx implements SyncPipelineTx {
     return {
       outcome: "updated" as const,
       showId: updated.id,
-      // §02 (D-2 / R6): the prior stored run_of_show (null for a first-seen show with no
-      // shows_internal row) — consumed by applyParseResult to emit AGENDA_DAY_EMPTIED.
-      priorRunOfShow: priorInternal?.run_of_show ?? null,
+      // §02 (D-2 / R6 / R3-finding-5): the prior stored run_of_show decoded through decodeRunOfShow
+      // so legacy-array rows are wrapped to ScheduleDay before apply reads them. null for a
+      // first-seen show with no shows_internal row.
+      priorRunOfShow: decodeRunOfShow(priorInternal?.run_of_show ?? null).value,
       previousCrewNames: previousCrew.map((row) => row.name),
       previousCrewMembers: previousCrew.map((row) => ({
         id: row.id,
