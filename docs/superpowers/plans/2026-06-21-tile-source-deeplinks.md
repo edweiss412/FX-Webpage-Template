@@ -540,19 +540,24 @@ The walker is authored as Task 9 Step 1 (test-first per TDD). No separate task; 
 
 Since the corpus markdown fixtures lost coordinates, this test runs `extractSourceAnchors` against committed **xlsx** fixtures (add 2 representative ones under `fixtures/shows/exporter-xlsx/` — one legacy single-INFO, one standardized) and asserts each produced anchor's `title` ∈ allowlist and region→tab matches §8.1, incl. the cross-tab `schedule` (AGENDA) and a union case. If committing binary xlsx is undesirable, synthesize the two fixtures in-test via `XLSX.utils` from small representative grids drawn from the live East Coast / RPAS layouts.
 
-- [ ] **Step 1: Write the corpus test.** **Step 2: Run — PASS.** **Step 3: Commit** `test(parser): source-anchor corpus regression (legacy + standardized)`
+- [ ] **Step 1: Write the corpus test** (region→tab assertions per §8.1, incl. cross-tab `schedule`=AGENDA + a union case).
+- [ ] **Step 2: Run — verify PASS** (the scanner exists from Task 4): `pnpm test -- tests/parser/sourceAnchorsCorpus.test.ts`.
+- [ ] **Step 3: Negative-red (prove the gate catches a bad mapping)** — temporarily change `REGION_ANCHOR_SPEC.schedule.tabs` to `["CLIENT"]` (a disallowed/wrong tab) and re-run; confirm the corpus test **FAILS** (schedule anchor now dropped / title not allowlisted). **Revert** and confirm green again. This supplies the red/green proof the TDD invariant requires for a regression gate built after its scanner.
+- [ ] **Step 4: Commit** `test(parser): source-anchor corpus regression (legacy + standardized)`
 
 ---
 
 ## Task 12: Real-browser dimensional invariant (spec §5.4 — mandatory, jsdom insufficient)
 
+**Harness (plan-R4 finding 1 — explicit control render):** a dev-gated render route mounts the four measured primitives **twice with identical props** — once with `action={<SourceLink…/>}`, once with `action={undefined}` — so the spec gets a real-browser no-link control without depending on the global Task-9 wiring or app seed data.
+
 **Files:**
-- Create: `e2e/source-link-dimensional.spec.ts` (Playwright, `desktop-chromium` project, `playwright.config.ts`)
+- Create: `app/admin/dev/source-link-dim/page.tsx` — dev-only (gated by `ADMIN_DEV_PANEL_ENABLED`, mirroring the existing `/admin/dev` route used by the `dev-build` Playwright project, `playwright.config.ts:37-190`). Renders, inside a fixed-width column: a `SectionCard` containing one `PersonRow`, one `FactRows` row, one `KeyValueRows` row, one `KeyTimesStrip` cell (static fixture props), in two sibling containers — `data-testid="card-with-link"` (passes `action={<SourceLink driveFileId="x" anchor={{title:"INFO",gid:0,a1:"A1:B2"}} />}`) and `data-testid="card-no-link"` (`action={undefined}`). Each measured row carries a stable testid: `dim-personrow`, `dim-factrow`, `dim-kvrow`, `dim-keytime`.
+- Create: `e2e/source-link-dimensional.spec.ts` (Playwright `dev-build` project).
 
-Asserts (spec §5.4): on a crew page with the link present, `getBoundingClientRect().height` of `PersonRow`, `FactRows` row, `KeyValueRows` row, `KeyTimesStrip` cell is unchanged vs the pre-feature baseline (the link lives in the card **header**, not a row) within 0.5px. Anti-tautology: measure rows present in the baseline, not the link itself.
-
-- [ ] **Step 1: Write the spec** using the existing e2e harness (`playwright.config.ts:37-190`, baseURL `http://127.0.0.1:3000`). Capture row heights with the link rendered; assert against the documented baseline heights (read from a no-link control render of the same fixture in the same spec — render the card with and without `action` and diff the row heights).
-- [ ] **Step 2: Run** `pnpm test:e2e -- e2e/source-link-dimensional.spec.ts` (do NOT run the screenshot-writing config — baseline-overwrite guard). **Step 3: Commit** `test(e2e): source-link header does not change row heights`
+- [ ] **Step 1: Build the dev route + the spec.** The spec navigates to `/admin/dev/source-link-dim` (with `ADMIN_DEV_PANEL_ENABLED=true`, baseURL `http://127.0.0.1:3000`), reads `getBoundingClientRect().height` of each `dim-*` row inside **both** containers via `locator(...).evaluate(el => el.getBoundingClientRect().height)`, and asserts `Math.abs(withLink - noLink) <= 0.5` for each of the four row types. Anti-tautology: it measures the rows (present in both), never the link element.
+- [ ] **Step 2: Run** `pnpm test:e2e -- e2e/source-link-dimensional.spec.ts` against the `dev-build` project (do NOT run the screenshot-writing config — baseline-overwrite guard). Negative-red: temporarily give the link wrapper a `min-h-[40px]` and a row a flex parent without `shrink-0` to force a height delta, confirm the spec FAILS, revert.
+- [ ] **Step 3: Run `/impeccable critique`** on the dev route (UI surface). **Step 4: Commit** `test(e2e): source-link header does not change row heights`
 
 ---
 
