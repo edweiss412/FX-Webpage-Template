@@ -6,6 +6,8 @@ const CREW_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const d1 = "2026-06-24",
   d2 = "2026-06-25";
 const e = [{ start: "9:00 AM", title: "Keynote" }];
+// decodeRunOfShow wraps legacy AgendaEntry[] to ScheduleDay; decoded form used in assertions below.
+const eSD = { entries: e, showStart: null, window: null };
 
 // Minimal shows row — only the fields getShowForViewer dereferences. dates.showDays is the current-date domain.
 function showRow(showDays: string[]) {
@@ -132,7 +134,7 @@ describe("getShowForViewer.runOfShow projection (D-4)", () => {
       crew: { data: [crewRow({ kind: "none" })], error: null },
     });
     const out = await getShowForViewer(SHOW_ID, CREW);
-    expect(out.runOfShow).toEqual({ [d1]: e });
+    expect(out.runOfShow).toEqual({ [d1]: eSD });
   });
 
   it("no shows_internal row ({data:null,error:null}) → runOfShow null, NO tileErrors (legitimate empty — ?? null coercion)", async () => {
@@ -149,7 +151,7 @@ describe("getShowForViewer.runOfShow projection (D-4)", () => {
       crew: { data: [crewRow({ kind: "explicit", days: [d2] })], error: null },
     });
     const out = await getShowForViewer(SHOW_ID, CREW);
-    expect(out.runOfShow).toEqual({ [d2]: e });
+    expect(out.runOfShow).toEqual({ [d2]: eSD });
   });
 
   it("unknown_asterisk → no keys", async () => {
@@ -168,14 +170,14 @@ describe("getShowForViewer.runOfShow projection (D-4)", () => {
       showsInternal: { data: { run_of_show: { [d1]: e, [d2]: e } }, error: null },
     });
     const out = await getShowForViewer(SHOW_ID, ADMIN);
-    expect(out.runOfShow).toEqual({ [d1]: e, [d2]: e });
+    expect(out.runOfShow).toEqual({ [d1]: eSD, [d2]: eSD });
   });
 
   it("current-date intersection: a stored key NOT in dates.showDays is dropped at READ while STORAGE is untouched (R10/R12)", async () => {
     const storedRow = { run_of_show: { [d1]: e, [d2]: e } };
     setup({ showDays: [d1], showsInternal: { data: storedRow, error: null } }); // d2 removed from showDays
     const out = await getShowForViewer(SHOW_ID, ADMIN);
-    expect(out.runOfShow).toEqual({ [d1]: e }); // d2 hidden at read
+    expect(out.runOfShow).toEqual({ [d1]: eSD }); // d2 hidden at read
     expect(storedRow.run_of_show).toHaveProperty(d2); // storage object UNCHANGED (non-destructive)
     expect(mockState.writeCalls).toEqual([]); // no insert/update/delete/upsert — read-only
   });
@@ -213,7 +215,7 @@ describe("getShowForViewer.runOfShow projection (D-4)", () => {
       },
     });
     const out = await getShowForViewer(SHOW_ID, ADMIN);
-    expect(out.runOfShow).toEqual({ [d1]: e }); // only the well-formed, in-domain day survives
+    expect(out.runOfShow).toEqual({ [d1]: eSD }); // only the well-formed, in-domain day survives
     expect(out.tileErrors.run_of_show).toBeTruthy();
   });
 
@@ -223,6 +225,63 @@ describe("getShowForViewer.runOfShow projection (D-4)", () => {
     const showKeys = Object.keys(out.show);
     expect(showKeys).not.toContain("run_of_show");
     expect(showKeys).not.toContain("runOfShow");
+  });
+});
+
+describe("getShowForViewer.runOfShow ScheduleDay projection (per-day-schedule)", () => {
+  beforeEach(() => {
+    mockState.responses = {};
+    mockState.showsInternalThrows = false;
+    mockState.writeCalls = [];
+  });
+
+  const sd = (start: string | null, win: { start: string; end: string } | null = null) => ({
+    entries: start ? [{ start, title: "Keynote" }] : [],
+    showStart: start,
+    window: win,
+  });
+
+  it("ADMIN/none → both ScheduleDay days survive with showStart + window intact", async () => {
+    setup({
+      showDays: [d1, d2],
+      showsInternal: {
+        data: {
+          run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd(null, { start: "8:00am", end: "5:00pm" }) },
+        },
+        error: null,
+      },
+    });
+    const r = await getShowForViewer(SHOW_ID, ADMIN);
+    expect(Object.keys(r.runOfShow ?? {})).toEqual([d1, d2]);
+    expect(r.runOfShow![d1]!.showStart).toBe("7:15 AM");
+    expect(r.runOfShow![d2]!.window).toEqual({ start: "8:00am", end: "5:00pm" });
+  });
+
+  it("explicit Day-1-only crew viewer → Day-2 ScheduleDay (incl. its window/showStart) is GATED OUT", async () => {
+    setup({
+      showDays: [d1, d2],
+      crew: { data: [crewRow({ kind: "explicit", days: [d1] })], error: null },
+      showsInternal: {
+        data: { run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd("8:00 AM") } },
+        error: null,
+      },
+    });
+    const r = await getShowForViewer(SHOW_ID, CREW);
+    expect(Object.keys(r.runOfShow ?? {})).toEqual([d1]); // Day 2 dropped at read
+    expect(r.runOfShow![d1]!.showStart).toBe("7:15 AM");
+  });
+
+  it("unknown_asterisk crew viewer → runOfShow null (no ScheduleDay leaks)", async () => {
+    setup({
+      showDays: [d1, d2],
+      crew: { data: [crewRow({ kind: "unknown_asterisk", days: null })], error: null },
+      showsInternal: {
+        data: { run_of_show: { [d1]: sd("7:15 AM"), [d2]: sd("8:00 AM") } },
+        error: null,
+      },
+    });
+    const r = await getShowForViewer(SHOW_ID, CREW);
+    expect(r.runOfShow).toBeNull();
   });
 });
 

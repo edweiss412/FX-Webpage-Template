@@ -41,3 +41,19 @@ export function agendaDayEmptied(index: number, iso: string): ParseWarning {
     blockRef: { kind: "agenda", index },
   };
 }
+/**
+ * Emitted by §04 parseScheduleTimes when a SHOW DAY TIME cell is non-empty AND
+ * non-sentinel yet yields zero usable fields (no showStart, no window, no
+ * entries) — the end-only/unknown-start case ("GS: ... - 6:00 PM") and the
+ * no-clock-contentful case ("General Session TBD"). Defined here so its code:
+ * literal lives in lib/parser for the internal-code-enums extractor (matches
+ * agendaDayEmptied's rationale).
+ */
+export function scheduleTimeUnparsed(index: number, iso: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "SCHEDULE_TIME_UNPARSED",
+    message: `SHOW DAY ${iso} TIME cell has content but yielded no usable schedule time; falling back to anchors`,
+    blockRef: { kind: "dates", index },
+  };
+}

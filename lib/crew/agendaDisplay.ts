@@ -8,7 +8,7 @@
  * "what are the show days" — duplicating either predicate would let the
  * Today/Schedule privacy contracts drift apart.
  */
-import type { AgendaEntry, ShowRow } from "@/lib/parser/types";
+import type { AgendaEntry, DateRestriction, ShowAnchor, ShowRow } from "@/lib/parser/types";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 
@@ -51,7 +51,7 @@ export function displayableEntries(entries: AgendaEntry[] | undefined): AgendaEn
 
 export type SchedulePhase = "Travel In" | "Set" | "Show" | "Travel Out";
 
-export type ScheduleDay = {
+export type AggregateDay = {
   /** ISO 'YYYY-MM-DD'. */
   date: string;
   /** Phase tag — what's happening on this day. */
@@ -63,7 +63,7 @@ export type ScheduleDay = {
  * deduped by date (first phase in the workflow wins), sorted ASC by ISO date.
  * Ported verbatim from ScheduleTile.tsx:93-107.
  */
-export function aggregateDays(dates: ShowRow["dates"]): ScheduleDay[] {
+export function aggregateDays(dates: ShowRow["dates"]): AggregateDay[] {
   const seen = new Map<string, SchedulePhase>();
   const push = (date: string | null, phase: SchedulePhase): void => {
     if (!date) return;
@@ -76,4 +76,37 @@ export function aggregateDays(dates: ShowRow["dates"]): ScheduleDay[] {
   return [...seen.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, phase]) => ({ date, phase }));
+}
+
+/**
+ * §contract: visibleShowDays = show.dates.showDays ∩ DateRestriction.
+ * explicit → listed days (filtered through showDays, so order = showDays ASC,
+ * never restriction order); none → all showDays; unknown_asterisk → [].
+ * SINGLE SOURCE — ScheduleSection's day-list intersection AND resolveKeyTimes'
+ * per-day Show iteration both route here (agendaDisplay-single-source guard).
+ */
+export function visibleShowDays(
+  dates: Pick<ShowRow["dates"], "showDays">,
+  dateRestriction: DateRestriction,
+): string[] {
+  const showDays = dates.showDays ?? [];
+  if (dateRestriction.kind === "unknown_asterisk") return [];
+  if (dateRestriction.kind === "explicit") {
+    const allowed = new Set(dateRestriction.days);
+    return showDays.filter((d) => allowed.has(d));
+  }
+  return [...showDays]; // none
+}
+
+/** §5.3 bare-window DayCard meta: '7:30am–5:50pm'. Sentinel-guarded both ends → null. */
+export function formatScheduleWindow(window: { start: string; end: string } | null): string | null {
+  if (window == null) return null;
+  if (resolveOptionalField(window.start) == null) return null;
+  if (resolveOptionalField(window.end) == null) return null;
+  return `${window.start}–${window.end}`;
+}
+
+/** §5.4 Today filter: only the Show anchor(s) whose date === today's ISO. */
+export function todayShowAnchors(anchors: ShowAnchor[], todayIso: string): ShowAnchor[] {
+  return anchors.filter((a) => a.date === todayIso);
 }

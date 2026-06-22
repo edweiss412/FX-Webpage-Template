@@ -11,10 +11,18 @@
  * date, so a `today` near a UTC day boundary pins the show-tz day.
  */
 import { expect, test } from "vitest";
-import { render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
+
+// Task 12 per-day-meta helpers. `adminViewer` matches the none-restriction admin
+// posture; `at(iso)` freezes the clock to noon UTC of an ISO date (the show TZ is
+// America/New_York → noon-UTC pins the same calendar day, so the today-card is the
+// expected day). These mirror the inline `{ kind: "admin" }` / `new Date(...)`
+// usage above with named handles the brief's per-day-meta tests reference.
+const adminViewer = { kind: "admin" } as const;
+const at = (iso: string): Date => new Date(`${iso}T12:00:00Z`);
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -178,4 +186,107 @@ test("all anchors absent + no rooms error → NO card AND the grid collapses to 
   expect(grid.className).not.toContain("grid-cols-[1.6fr_1fr]");
   // Day cards still render (the days column is intact, full width).
   expect(container.querySelectorAll('[data-testid^="schedule-day"]').length).toBe(ALL_DATES.length);
+});
+
+// ---------------------------------------------------------------------------
+// Task 12 — per-day DayCard.meta (window / Set setupTime / fragment showStart),
+// every source sentinel-guarded through resolveOptionalField at render time.
+// ---------------------------------------------------------------------------
+
+// These per-day-meta tests scope every query to the render-local `container`.
+// This suite has no afterEach(cleanup) and `render().getByTestId` resolves against
+// the shared document.body, so a global query would collide with trees mounted by
+// other files in the same worker (see the container-scoping note at line ~122).
+test("bare-window day → DayCard meta = the window string from the data source", () => {
+  const window = { start: "7:30am", end: "5:50pm" };
+  const data = makeShowForViewer({
+    show: { dates: { showDays: ["2026-10-08"], travelIn: null, travelOut: null, set: null } },
+    runOfShow: { "2026-10-08": { entries: [], showStart: null, window } },
+  });
+  const { container } = render(
+    <ScheduleSection data={data} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,
+  );
+  const dayCard = container
+    .querySelector('[data-testid="schedule-day-today"]')!
+    .querySelector('[data-slot="day-card-meta"]');
+  // Expected meta derived from the data source's window, not a hardcoded literal.
+  expect(dayCard).not.toBeNull();
+  expect(dayCard!.textContent).toBe(`${window.start}–${window.end}`);
+  cleanup();
+});
+
+test("Set day with dates.setupTime → DayCard meta 'Setup <time>'; sentinel/absent → no meta", () => {
+  const data = makeShowForViewer({
+    show: {
+      dates: {
+        showDays: ["2026-10-08"],
+        set: "2026-10-07",
+        travelIn: null,
+        travelOut: null,
+        setupTime: "10:00PM",
+      },
+    },
+    runOfShow: null,
+  });
+  const r = render(
+    <ScheduleSection data={data} viewer={adminViewer} today={at("2026-10-07")} showId="s1" />,
+  );
+  const setCard = r.container
+    .querySelector('[data-testid="schedule-day-today"]')!
+    .querySelector('[data-slot="day-card-meta"]');
+  expect(setCard!.textContent).toBe(`Setup ${data.show.dates.setupTime}`);
+  cleanup();
+  const data2 = makeShowForViewer({
+    show: {
+      dates: {
+        showDays: ["2026-10-08"],
+        set: "2026-10-07",
+        travelIn: null,
+        travelOut: null,
+        setupTime: "N/A",
+      },
+    },
+    runOfShow: null,
+  });
+  const r2 = render(
+    <ScheduleSection data={data2} viewer={adminViewer} today={at("2026-10-07")} showId="s1" />,
+  );
+  expect(
+    r2.container
+      .querySelector('[data-testid="schedule-day-today"]')!
+      .querySelector('[data-slot="day-card-meta"]'),
+  ).toBeNull();
+  cleanup();
+});
+
+test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never renders as meta)", () => {
+  // Fragment day: showStart only, entries [], window null — but the value is a sentinel.
+  const data = makeShowForViewer({
+    show: { dates: { showDays: ["2026-10-08"], set: null, travelIn: null, travelOut: null } },
+    runOfShow: { "2026-10-08": { entries: [], showStart: "TBD", window: null } },
+  });
+  const r = render(
+    <ScheduleSection data={data} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,
+  );
+  // The day card renders, but NO meta node (sentinel showStart hidden by resolveOptionalField).
+  expect(
+    r.container
+      .querySelector('[data-testid="schedule-day-today"]')!
+      .querySelector('[data-slot="day-card-meta"]'),
+  ).toBeNull();
+  cleanup();
+  // Real clock → meta renders.
+  const data2 = makeShowForViewer({
+    show: { dates: { showDays: ["2026-10-08"], set: null, travelIn: null, travelOut: null } },
+    runOfShow: { "2026-10-08": { entries: [], showStart: "8:00am", window: null } },
+  });
+  const r2 = render(
+    <ScheduleSection data={data2} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,
+  );
+  expect(
+    r2.container
+      .querySelector('[data-testid="schedule-day-today"]')!
+      .querySelector('[data-slot="day-card-meta"]')!.textContent,
+  ).toBe("8:00am");
+  cleanup();
 });

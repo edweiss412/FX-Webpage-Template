@@ -103,7 +103,7 @@ test("unknown_asterisk on a populated show-day → Mode B, NO run-of-show timeli
         notes: null,
       },
     ],
-    runOfShow: { [TODAY_ISO]: AGENDA },
+    runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
   const { container } = render(
@@ -147,7 +147,7 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
       },
     ],
     contacts: [{ kind: "venue", name: "Sam", phone: "555-111-2222", email: null, notes: null }],
-    runOfShow: { [TODAY_ISO]: AGENDA },
+    runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
   const { container } = render(
@@ -195,8 +195,16 @@ test("Mode A keys off the SHOW-tz ISO across the UTC midnight boundary, not UTC"
     },
     // Distinct entries under each key so we can tell which day rendered.
     runOfShow: {
-      [showTzIso]: [{ start: "9:00 AM", title: "Show-tz day session" }],
-      [utcIso]: [{ start: "9:00 AM", title: "UTC day session" }],
+      [showTzIso]: {
+        entries: [{ start: "9:00 AM", title: "Show-tz day session" }],
+        showStart: "9:00 AM",
+        window: null,
+      },
+      [utcIso]: {
+        entries: [{ start: "9:00 AM", title: "UTC day session" }],
+        showStart: "9:00 AM",
+        window: null,
+      },
     },
   });
 
@@ -248,7 +256,7 @@ test("runOfShow populated for today but todayIso NOT in show's days → Mode B (
     show: {
       dates: { travelIn: null, set: null, showDays: [otherDay], travelOut: null },
     },
-    runOfShow: { [TODAY_ISO]: AGENDA },
+    runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
   // Sanity: the fixture really has TODAY_ISO OFF the aggregate.
@@ -349,7 +357,7 @@ test("Today card chrome: section-card icons + a Booked pill on Tonight + a Full-
       },
     ],
     contacts: [{ kind: "venue", name: "Sam", phone: "555-111-2222", email: null, notes: null }],
-    runOfShow: { [TODAY_ISO]: AGENDA },
+    runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
   const { container } = render(

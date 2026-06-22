@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseDates } from "@/lib/parser/blocks/dates";
+import { parseDates, extractClockTimes } from "@/lib/parser/blocks/dates";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
 import { detectVersion } from "@/lib/parser/schema";
 
@@ -402,6 +402,23 @@ describe("parseDates — loadIn capture (§9 test 4)", () => {
     const d = parseDates(md, version!);
     expect(d.loadIn ?? null).toBeNull();
   });
+
+  it("captures setupTime as the SECOND clock in a SET-row TIME cell", () => {
+    const md = datesTable([
+      ["SET", "Tue", "3/23/26", "9:00PM LOAD IN 10:00PM SETUP"],
+      ["SHOW DAY 1", "Wed", "3/24/26", ""],
+    ]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBe("9:00PM"); // first clock — unchanged precedence
+    expect(d.setupTime).toBe("10:00PM"); // second clock — newly captured
+  });
+
+  it("setupTime is null when the SET-row TIME cell has only one clock", () => {
+    const md = datesTable([["SET", "Tue", "3/23/26", "11:00 AM LOAD IN"]]);
+    const d = parseDates(md, "v4");
+    expect(d.loadIn).toBe("11:00 AM");
+    expect(d.setupTime).toBeNull();
+  });
 });
 
 // ── Edge case: duplicate show days (pin dedupe + sort) ────────────────────────
@@ -445,5 +462,20 @@ describe("parseDates — duplicate showDays (edge-case pin)", () => {
     expect(d.showDays).toEqual(["2026-03-24", "2026-03-25"]);
     expect(d.set).toBe("2026-03-23");
     expect(d.travelOut).toBe("2026-03-26");
+  });
+});
+
+// ── extractClockTimes — all-matches, colon-required (R12 finding 19) ──────────
+describe("extractClockTimes — all-matches, colon-required (R12 finding 19)", () => {
+  // _Catches:_ a permissive (no-colon) SET extractor silently converting vague
+  // qualifiers like "AFTER 8PM" into an exact crew-facing key time.
+  it("returns ALL colon-bearing clocks in document order", () => {
+    expect(extractClockTimes("9:00PM - LOAD IN 10:00PM - SETUP")).toEqual(["9:00PM", "10:00PM"]);
+  });
+  it("returns [] for coarse no-colon text ('AFTER 8PM')", () => {
+    expect(extractClockTimes("AFTER 8PM")).toEqual([]);
+  });
+  it("returns [] for 'LOAD IN' (no clock at all)", () => {
+    expect(extractClockTimes("LOAD IN")).toEqual([]);
   });
 });

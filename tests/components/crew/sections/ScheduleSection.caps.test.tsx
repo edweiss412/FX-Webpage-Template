@@ -17,7 +17,12 @@ const VIEWER = { kind: "admin" } as const;
 function renderEntries(entries: AgendaEntry[]) {
   return render(
     <ScheduleSection
-      data={makeShowForViewer({ show: { dates: DATES }, runOfShow: { [D1]: entries } })}
+      data={makeShowForViewer({
+        show: { dates: DATES },
+        // runOfShow is now Record<string, ScheduleDay> (Task 2): lift the bare
+        // entries into the canonical day value (null showStart/window).
+        runOfShow: { [D1]: { entries, showStart: null, window: null } },
+      })}
       viewer={VIEWER}
       today={TODAY}
       showId={SHOW_ID}

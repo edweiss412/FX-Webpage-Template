@@ -60,7 +60,9 @@ import {
   setSystemTime,
   advanceClock,
   type SeededShow,
+  SEED_DRIVE_FILE_ID,
 } from "./helpers/rightNow";
+import { admin } from "./helpers/supabaseAdmin";
 
 /** What kind of in-page driving each treatment maps to. */
 type Category = "TICK_DRIVABLE" | "NAV_DRIVABLE" | "SKIP";
@@ -563,5 +565,188 @@ test.describe.skip("RightNow §8.2 — 6 compound transition audits (plan Step 3
     // why the attribute is supposed to stay put.
     expect(after.treatment).toBe("crossfade-body");
     expect(after.stale).toBe("false");
+  });
+});
+
+/**
+ * §5.7 RightNowHero client-state transitions — day-anchor re-selection.
+ *
+ * These three tests are NOT skipped (the two suites above use
+ * `test.describe.skip` because they depend on ?crew= mock retirement;
+ * this suite also uses ?crew= but is the INTENDED non-skipped gate for
+ * §5.7 day-anchor selection — a distinct concern from the §8.2 matrix).
+ *
+ * Seed contract:
+ *   Shows_internal.run_of_show is populated in beforeAll with a 2-show-day
+ *   fixture (showDay1 = 2026-04-21 showStart=7:30am, showDay2 = 2026-04-22
+ *   showStart=8:00am). The distinct anchors make stale-freeze observable
+ *   (Day1 time persisting into Day2 would be caught by not.toContainText).
+ *   Restored to the original in afterAll.
+ *
+ * Clock strategy:
+ *   RightNowHero derives `todayIso` from client `now` on every 60s tick
+ *   (RightNowHero.tsx:148/223/274 — `formatIsoForTimezone(now, ctx.timezone)`).
+ *   We drive the client clock via `page.clock.install` (before navigation)
+ *   and `page.clock.setSystemTime` + `page.clock.runFor` (to fire the tick
+ *   in-session). Noon UTC on each date resolves to the correct calendar date
+ *   in America/New_York regardless of DST.
+ *
+ * TestId:
+ *   `right-now-body` — the AnimatePresence child that carries the call-time
+ *   detail (RightNowHero.tsx:504 `data-testid="right-now-body"`).
+ */
+test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
+  // Anchor times derived from the seed (distinct so freeze is observable).
+  const DAY1_ISO = "2026-04-21";
+  const DAY2_ISO = "2026-04-22";
+  const DAY1_TIME = "7:30am"; // showStart for Day 1
+  const DAY2_TIME = "8:00am"; // showStart for Day 2
+
+  /**
+   * 2-show-day run_of_show seed. Mirrors the shape used by
+   * crew-layout-dimensions.spec.ts:88 (SEED_RUN_OF_SHOW), derived from
+   * the same Waldorf dates. Distinct showStart per day so a stale-anchor
+   * freeze is immediately observable.
+   */
+  const ANCHOR_RUN_OF_SHOW = {
+    [DAY1_ISO]: {
+      entries: [
+        { start: "7:30am", title: "Registration & Breakfast" },
+        { start: "8:15am", title: "Welcome & Polling" },
+      ],
+      showStart: DAY1_TIME,
+      window: null,
+    },
+    [DAY2_ISO]: {
+      entries: [],
+      showStart: DAY2_TIME,
+      window: { start: "8:00am", end: "5:30pm" },
+    },
+  };
+
+  let s: SeededShow;
+  let showInternalId: string | null = null;
+  let runOfShowOriginal: unknown = null;
+
+  test.beforeAll(async () => {
+    s = await lookupSeededShow();
+
+    // Seed shows_internal.run_of_show with the 2-day anchor fixture.
+    const si = await admin
+      .from("shows_internal")
+      .select("show_id, run_of_show")
+      .eq("show_id", s.showId)
+      .maybeSingle();
+    if (si.error || !si.data?.show_id) {
+      throw new Error(
+        `§5.7 setup: no shows_internal row for show ${s.showId} (run \`pnpm db:seed\`). error=${si.error?.message ?? "no row"}`,
+      );
+    }
+    showInternalId = si.data.show_id as string;
+    runOfShowOriginal = (si.data as { run_of_show?: unknown }).run_of_show ?? null;
+
+    const upd = await admin
+      .from("shows_internal")
+      .update({ run_of_show: ANCHOR_RUN_OF_SHOW })
+      .eq("show_id", showInternalId);
+    if (upd.error) {
+      throw new Error(`§5.7 setup: run_of_show seed failed: ${upd.error.message}`);
+    }
+
+    // Restore the LEAD's restriction to neutral so clock alone drives the kind.
+    await setDateRestriction(s.leadCrewId, { kind: "none", days: null });
+  });
+
+  test.afterAll(async () => {
+    if (showInternalId) {
+      await admin
+        .from("shows_internal")
+        .update({ run_of_show: runOfShowOriginal })
+        .eq("show_id", showInternalId);
+    }
+    // Restore restriction.
+    await setDateRestriction(s.leadCrewId, { kind: "none", days: null });
+  });
+
+  /**
+   * §5.7 midnight rollover: Day1 → Day2.
+   *
+   * Concrete failure mode caught: the RightNowHero anchor selection pins
+   * showAnchors[0] (Day1's 7:30am) regardless of todayIso — so after the
+   * clock advances to Day2, day1Time still appears and the
+   * `not.toContainText(day1Time)` assertion trips.
+   */
+  test("midnight rollover Day1→Day2: call time re-selects the NEW day's anchor (no stale freeze)", async ({
+    page,
+  }) => {
+    // Pin client clock to Day 1 noon UTC, navigate as the LEAD.
+    await page.clock.install({ time: new Date(`${DAY1_ISO}T12:00:00Z`) });
+    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+
+    // Day 1 anchor must appear on initial render.
+    await expect(page.getByTestId("right-now-body")).toContainText(DAY1_TIME);
+
+    // Advance client clock to Day 2 and fire the 60s tick.
+    await page.clock.setSystemTime(new Date(`${DAY2_ISO}T12:00:00Z`));
+    await page.clock.runFor(60_000); // fire the hero's 60s re-derive tick
+
+    // After the tick, the hero re-selects by the new todayIso → Day 2 time.
+    await expect(page.getByTestId("right-now-body")).toContainText(DAY2_TIME);
+    await expect(page.getByTestId("right-now-body")).not.toContainText(DAY1_TIME);
+  });
+
+  /**
+   * §5.7 recovery/last-good: re-select by current todayIso, not a cached
+   * prior day.
+   *
+   * Concrete failure mode caught: a last-good cache that stores an anchor
+   * object (rather than re-running todayShowAnchors on recovery) would pin
+   * the Day1 time even after the clock is on Day2.
+   */
+  test("recovery/last-good does not pin a prior day's call time", async ({ page }) => {
+    // Enter a degraded-zone kind (viewer_off_day: clock=Day1, restricted to Day2 only).
+    await driveToState(page, s, "viewer_off_day");
+
+    // Now pin clock to Day 2 and recover to show_day_n via a fresh navigation.
+    // driveToState calls pinClock (installs clock before goto) + navigates.
+    // This exercises the re-selection path after the viewer re-enters a show day.
+    await driveToState(page, s, "show_day_n");
+    // show_day_n driver uses showDay1 clock. Advance to Day2 so todayIso=Day2.
+    await page.clock.setSystemTime(new Date(`${DAY2_ISO}T12:00:00Z`));
+    await page.clock.runFor(60_000);
+
+    // After the tick on Day2, the hero must show Day2's anchor, not Day1's.
+    await expect(page.getByTestId("right-now-body")).toContainText(DAY2_TIME);
+  });
+
+  /**
+   * §5.7 non-show "now" → show day: call time appears only once now is a show day.
+   *
+   * Pre-show is 2026-04-20 (set day — no runOfShow entry, not a show_day).
+   * Advancing to Day1 (2026-04-21) should surface the 7:30am anchor.
+   *
+   * Concrete failure mode caught: todayShowAnchors returns [] when todayIso
+   * doesn't match any anchor date, falling back to ctx.callTime. If
+   * ctx.callTime is non-null from a stale prior anchor, the call time would
+   * appear on pre-show days — a false positive. This test pins that only the
+   * show-day anchor appears when the clock transitions into a show day.
+   */
+  test("non-show now → show day: call time appears only once now is a show day", async ({
+    page,
+  }) => {
+    // Pin to 2026-04-20 (set day — before showDay1). The hero should be in
+    // set_day state; the showAnchors filter yields [] for this date.
+    await page.clock.install({ time: new Date("2026-04-20T12:00:00Z") });
+    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+
+    // Day1 call time must NOT appear on the set day.
+    await expect(page.getByTestId("right-now-body")).not.toContainText(DAY1_TIME);
+
+    // Advance clock to Day1 noon UTC and fire the 60s tick.
+    await page.clock.setSystemTime(new Date(`${DAY1_ISO}T12:00:00Z`));
+    await page.clock.runFor(60_000);
+
+    // Now on Day1 — the anchor selection fires and DAY1_TIME appears.
+    await expect(page.getByTestId("right-now-body")).toContainText(DAY1_TIME);
   });
 });

@@ -60,6 +60,7 @@ import type {
   PullSheetCase,
   RoleFlag,
   RoomRow,
+  ScheduleDay,
   ShowRow,
   StageRestriction,
   TransportationRow,
@@ -184,7 +185,7 @@ export type ShowForViewer = {
    * `tileErrors["run_of_show"]` (never raw infra text). §03's Schedule UI
    * keys off `runOfShow[isoDate]?.length > 0`.
    */
-  runOfShow: Record<string, AgendaEntry[]> | null;
+  runOfShow: Record<string, ScheduleDay> | null;
   financials?: FinancialsRow;
   /**
    * Resolved viewer name for the active crew / admin_preview viewer, or
@@ -521,7 +522,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   // runOfShow=null + a FIXED tileErrors string, never raw infra text). The
   // date∩DateRestriction intersection below happens at READ only — the stored
   // shows_internal.run_of_show object is never mutated.
-  let runOfShow: Record<string, AgendaEntry[]> | null = null;
+  let runOfShow: Record<string, ScheduleDay> | null = null;
   try {
     // not-subject-to-meta: lib/data is outside _metaInfraContract's auth-domain scan
     // (tests/auth/_metaInfraContract.test.ts:258-259 walks lib/auth/app/auth/app/api/auth/app/api/show only);
@@ -578,7 +579,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
       allowed = showDaySet;
     }
 
-    const gated: Record<string, AgendaEntry[]> = {};
+    const gated: Record<string, ScheduleDay> = {};
     for (const key of Object.keys(runOfShow)) {
       if (allowed.has(key)) {
         gated[key] = runOfShow[key]!;

@@ -241,6 +241,28 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     description: "agenda entry.room / av / finish / trt (run-of-show)",
     pattern: /\bentry\??\.(room|av|finish|trt)\b/,
   },
+  // Per-day-schedule-keytimes spec §5.3 / §5.5 / §3.3: the RAW-RENDERED free-text
+  // fields are the ScheduleDay window/showStart (DayCard meta "7:30am–5:50pm" /
+  // fragment showStart) and dates.setupTime (Set-day "Setup 10:00PM"). Each is
+  // raw sheet text rendered by DayCard meta and MUST route through
+  // shouldHideGenericOptional so a 'TBD'/'N/A'/'TBA' sentinel hides rather than
+  // rendering as content. Accessors used by the consumers:
+  //   - `day.window.start` / `day.window.end` (DayCard window meta)
+  //   - `day.showStart`     (DayCard fragment meta)
+  //   - `dates.setupTime`   (Set-day DayCard "Setup …" meta)
+  // NOTE (R2 finding 6): ShowAnchor.time is INTENTIONALLY NOT registered here —
+  // it is sentinel-guarded at the SOURCE (`resolveKeyTimes` only emits anchors
+  // whose value passes `isAbsentTime`, and the §5.1 decision table never emits an
+  // absent/sentinel time), so the KeyTimesStrip value (`s.time` → `row.value`) is
+  // already clean by construction; a render-time pattern here would be vacuous.
+  {
+    description: "ScheduleDay.window.start / window.end / showStart",
+    pattern: /\b(window\??\.(start|end)\b|\bshowStart\b)/,
+  },
+  {
+    description: "dates.setupTime (Set-day DayCard meta)",
+    pattern: /\bdates\??\.setupTime\b|\bsetupTime\b/,
+  },
 ];
 
 /**

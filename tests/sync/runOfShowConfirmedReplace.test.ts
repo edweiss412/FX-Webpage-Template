@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { AgendaEntry, ParseResult } from "@/lib/parser/types";
+import type { AgendaEntry, ParseResult, ScheduleDay } from "@/lib/parser/types";
 import type { DriveListedFile } from "@/lib/drive/list";
 // §01 parser-owned warning factory — what parseAgenda ACTUALLY produces when runOfShow is undefined.
 // (Parser owns GRID_MALFORMED/BLOCK_UNRESOLVED/DAY_AMBIGUOUS/DAY_TRUNCATED; the sync owns DAY_EMPTIED only.)
@@ -12,6 +12,10 @@ const d2 = "2026-05-10"; // a 2nd showDay
 const e1: AgendaEntry[] = [{ start: "9:00 AM", title: "Keynote A" }];
 const e1b: AgendaEntry[] = [{ start: "9:00 AM", title: "Keynote A v2" }];
 const e2: AgendaEntry[] = [{ start: "1:00 PM", title: "Panel B" }];
+
+// ScheduleDay helpers — wrap AgendaEntry arrays in the ScheduleDay shape (Task 8 retype).
+const day = (entries: AgendaEntry[]): ScheduleDay => ({ entries, showStart: null, window: null });
+const emptyDay: ScheduleDay = { entries: [], showStart: null, window: null };
 
 // Minimal ParseResult factory (mirror tests/sync/phase2.test.ts parseResult(); only the fields the apply reads).
 function parseResult(overrides: Partial<ParseResult> = {}): ParseResult {
@@ -63,7 +67,7 @@ function fileMeta(modifiedTime = "2026-05-08T12:00:00.000Z"): DriveListedFile {
 }
 
 // FakePhase2Tx: captures the upsertShowsInternal payload; applyShowSnapshot returns a SEEDED priorRunOfShow.
-function makeFakeTx(priorRunOfShow: Record<string, AgendaEntry[]> | null) {
+function makeFakeTx(priorRunOfShow: Record<string, ScheduleDay> | null) {
   const captured: { payload?: { run_of_show: unknown; parse_warnings: ParseResult["warnings"] } } =
     {};
   const tx = {
@@ -132,14 +136,14 @@ function codes(captured: ReturnType<typeof makeFakeTx>["captured"]): string[] {
 
 describe("sync run_of_show CONFIRMED-ONLY full replace + AGENDA_DAY_EMPTIED live plumbing (D-2 / R6 / R17/R21/R22)", () => {
   it("(i) one block unresolved (d2 absent from parse) → stored {d1:e1}, d2 NOT preserved, NO AGENDA_DAY_EMPTIED", async () => {
-    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
-    await runWith(tx, { [d1]: e1b }); // d2 absent (unresolved block → parser already emitted AGENDA_BLOCK_UNRESOLVED)
-    expect(captured.payload!.run_of_show).toEqual({ [d1]: e1b });
+    const { tx, captured } = makeFakeTx({ [d1]: day(e1), [d2]: day(e2) });
+    await runWith(tx, { [d1]: day(e1b) }); // d2 absent (unresolved block → parser already emitted AGENDA_BLOCK_UNRESOLVED)
+    expect(captured.payload!.run_of_show).toEqual({ [d1]: day(e1b) });
     expect(captured.payload!.run_of_show).not.toHaveProperty(d2);
     expect(codes(captured)).not.toContain("AGENDA_DAY_EMPTIED"); // d2 absent, not read-empty
   });
   it("(ii) grid unlocatable (runOfShow === undefined) → stored null; the PARSER's AGENDA_GRID_MALFORMED is carried through UNCHANGED (sync adds nothing), ZERO AGENDA_DAY_EMPTIED", async () => {
-    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 }); // both previously stored — makes the no-EMPTIED load-bearing
+    const { tx, captured } = makeFakeTx({ [d1]: day(e1), [d2]: day(e2) }); // both previously stored — makes the no-EMPTIED load-bearing
     // parseAgenda already emitted GRID_MALFORMED into parseResult.warnings when it returned undefined — SEED it.
     await runWith(tx, undefined, { seedWarnings: [agendaGridMalformed(0)] });
     expect(captured.payload!.run_of_show).toBeNull();
@@ -149,44 +153,44 @@ describe("sync run_of_show CONFIRMED-ONLY full replace + AGENDA_DAY_EMPTIED live
     expect(codes(captured)).not.toContain("AGENDA_DAY_EMPTIED"); // conversion fault, not per-day blanking (R22)
   });
   it("(iii) previously-stored day goes read-empty → dropped + AGENDA_DAY_EMPTIED for that day", async () => {
-    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
-    await runWith(tx, { [d1]: e1b, [d2]: [] });
-    expect(captured.payload!.run_of_show).toEqual({ [d1]: e1b });
+    const { tx, captured } = makeFakeTx({ [d1]: day(e1), [d2]: day(e2) });
+    await runWith(tx, { [d1]: day(e1b), [d2]: emptyDay });
+    expect(captured.payload!.run_of_show).toEqual({ [d1]: day(e1b) });
     expect(codes(captured)).toContain("AGENDA_DAY_EMPTIED");
   });
   it("(iv) all read-empty → stored null + AGENDA_DAY_EMPTIED for every previously-stored day", async () => {
-    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
-    await runWith(tx, { [d1]: [], [d2]: [] });
+    const { tx, captured } = makeFakeTx({ [d1]: day(e1), [d2]: day(e2) });
+    await runWith(tx, { [d1]: emptyDay, [d2]: emptyDay });
     expect(captured.payload!.run_of_show).toBeNull();
     expect(codes(captured).filter((c) => c === "AGENDA_DAY_EMPTIED")).toHaveLength(2);
   });
   it("(vi) first-time read-empty (no prior) → stored null, NO AGENDA_DAY_EMPTIED", async () => {
     const { tx, captured } = makeFakeTx(null);
-    await runWith(tx, { [d1]: [], [d2]: [] });
+    await runWith(tx, { [d1]: emptyDay, [d2]: emptyDay });
     expect(captured.payload!.run_of_show).toBeNull();
     expect(codes(captured)).not.toContain("AGENDA_DAY_EMPTIED");
   });
   it("(vii) self-heal: a later confirmed re-sync re-stores the day", async () => {
     const { tx, captured } = makeFakeTx(null); // prior dropped
-    await runWith(tx, { [d2]: e2 });
-    expect(captured.payload!.run_of_show).toEqual({ [d2]: e2 });
+    await runWith(tx, { [d2]: day(e2) });
+    expect(captured.payload!.run_of_show).toEqual({ [d2]: day(e2) });
     expect(codes(captured)).not.toContain("AGENDA_DAY_EMPTIED");
   });
   it("NO write-time date prune (R12): a confirmed day absent from dates.showDays is STILL stored", async () => {
     const { tx, captured } = makeFakeTx(null);
-    await runWith(tx, { [d2]: e2 }, { showDays: [d1] }); // showDays = [d1] only; d2 confirmed by AGENDA
-    expect(captured.payload!.run_of_show).toEqual({ [d2]: e2 }); // storage NOT gated by dates (hidden at read, not write)
+    await runWith(tx, { [d2]: day(e2) }, { showDays: [d1] }); // showDays = [d1] only; d2 confirmed by AGENDA
+    expect(captured.payload!.run_of_show).toEqual({ [d2]: day(e2) }); // storage NOT gated by dates (hidden at read, not write)
   });
   it("CHANNEL 1 (shows_internal) — an AGENDA_DAY_EMPTIED-emitting apply puts it in the upsertShowsInternal payload (NOT proof of sync_log — see runOfShowSyncLogChannel.test.ts)", async () => {
-    const { tx, captured } = makeFakeTx({ [d1]: e1, [d2]: e2 });
-    await runWith(tx, { [d1]: e1b, [d2]: [] });
+    const { tx, captured } = makeFakeTx({ [d1]: day(e1), [d2]: day(e2) });
+    await runWith(tx, { [d1]: day(e1b), [d2]: emptyDay });
     expect(captured.payload!.parse_warnings.some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(
       true,
     );
   });
   it("R6 cross-boundary: Phase2Result.applied.parseWarnings carries the apply-appended AGENDA_DAY_EMPTIED OUT of runPhase2", async () => {
-    const { tx } = makeFakeTx({ [d1]: e1, [d2]: e2 });
-    const result = await runWith(tx, { [d1]: e1b, [d2]: [] });
+    const { tx } = makeFakeTx({ [d1]: day(e1), [d2]: day(e2) });
+    const result = await runWith(tx, { [d1]: day(e1b), [d2]: emptyDay });
     expect(result.outcome).toBe("applied");
     // the applied result must surface the warning so the tail (PART C) can log it to sync_log
     expect(
