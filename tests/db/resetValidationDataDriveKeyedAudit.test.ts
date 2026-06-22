@@ -34,12 +34,8 @@
  *    via `delete from public.shows`.)
  */
 import { afterAll, describe, expect, test } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import postgres, { type Sql } from "postgres";
-
-const ROOT = process.cwd();
-const MIGRATION = "supabase/migrations/20260622000001_validation_reset_rpc.sql";
+import { latestResetValidationDataBody } from "./_resetRpcSource.js";
 
 const DB_URL =
   process.env.TEST_DATABASE_URL ??
@@ -80,20 +76,6 @@ const DRIVE_KEYED_REGISTRY: Record<string, Disposition> = {
   revision_race_cooldowns: { kind: "clear-explicit" },
 };
 
-function stripSqlComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*--.*$/gm, "");
-}
-
-function resetRpcBody(): string {
-  const source = stripSqlComments(readFileSync(join(ROOT, MIGRATION), "utf8"));
-  const m = source.match(
-    /create\s+(?:or\s+replace\s+)?function\s+public\.reset_validation_data\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/i,
-  );
-  if (!m || !m[1])
-    throw new Error(`could not extract reset_validation_data body from ${MIGRATION}`);
-  return m[1];
-}
-
 /** Is `table` an ON DELETE CASCADE FK child of public.shows? */
 async function isCascadeChildOfShows(table: string): Promise<boolean> {
   const rows = await sql<{ ok: boolean }[]>`
@@ -122,7 +104,7 @@ describe("reset_validation_data() — drive-keyed completeness audit", () => {
       "DRIVE_KEYED_REGISTRY must list exactly the live drive_file_id tables (add/remove a row to match)",
     ).toEqual(registered);
 
-    const body = resetRpcBody();
+    const body = latestResetValidationDataBody();
 
     for (const table of driveKeyedTables) {
       const disp = DRIVE_KEYED_REGISTRY[table]!;
