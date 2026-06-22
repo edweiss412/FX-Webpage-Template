@@ -66,6 +66,11 @@ jobs:
           # :3004 server's test-secret-fixture — signInAs sends this as Bearer
           # and the server compares against its own TEST_AUTH_SECRET.
           TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
+          # The dev-gate webServers cold-build, and module-eval of
+          # /api/auth/picker-bootstrap requires the R41 PII-hash pepper
+          # (lib/email/hashForLog.ts) at build time. Set on the runner so the
+          # webServer subprocesses inherit it (mirrors help-affordances.yml:58).
+          HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
           # Boot ONLY the :3001/:3002/:3003 dev-gate webServers — see the
           # workflow header + playwright.config.ts filter. Without this, all five
           # servers cold-build and contend on the with-admin-dev-flag lock.
