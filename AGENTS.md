@@ -22,6 +22,23 @@ These are hard constraints from the spec. Violating any of them is a P0 bug rega
 
 ---
 
+## Brainstorming gate: autonomous-ship checkpoint (mandatory)
+
+This gate hooks `superpowers:brainstorming` and OVERRIDES its default flow (per the superpowers instruction-priority rule, user/AGENTS.md instructions outrank skill defaults).
+
+**When:** during `superpowers:brainstorming`, at the moment requirements, intent, and design have converged — **immediately before writing the spec document, and before any code.** This is the single human decision point for autonomy.
+
+**What:** STOP and ask the user whether to ship this feature autonomously. Summarize first: the agreed scope, expected complexity/blast radius, and whether the diff is expected to touch UI / DB / advisory-locks. Then ask explicitly: _"Ship this autonomously through to a merged PR?"_
+
+**Branches:**
+
+- **User declines (or no answer):** continue the normal interactive flow — write the spec, pause for the user's spec review, then plan with a user plan-review gate, etc. Default behavior; nothing is waived.
+- **User approves:** drive the full autonomous pipeline — relocate into a fresh worktree off `origin/main` (`pnpm install`, `--no-verify`); spec → self-review → Codex `adversarial-review` to APPROVE (no round budget); plan → self-review → Codex `adversarial-review` to APPROVE (no round budget); TDD-per-task implementation honoring every plan-wide invariant (incl. the invariant-8 impeccable dual-gate if UI is touched, and migration→validation parity); whole-diff Codex cross-model review to APPROVE; push → **real CI green** (not just local) → `gh pr merge --merge` → fast-forward local `main` (verify `rev-list --left-right --count main...origin/main` == `0  0`). Both user-review gates (spec, plan) are WAIVED; stop only for a genuine, unresolvable ambiguity.
+
+This pipeline is the authoritative definition (it lives here in the tracked repo so it is cross-CLI durable). A local convenience command `/ship-feature <description>` runs the same pipeline triggered explicitly, but `.claude/` is gitignored on this repo, so that command is per-machine and may be absent in a fresh checkout — never rely on it existing; rely on this section.
+
+---
+
 ## Spec self-review additions (mirrors global guidance, project-scoped)
 
 Run these checks during the self-review step in `superpowers:brainstorming` (or its Codex equivalent). They are derived from past adversarial-review findings on this project.
