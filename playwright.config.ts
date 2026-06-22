@@ -361,7 +361,24 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
     },
-  ].filter(
-    (server) => !process.env.HELP_DOCS_WALKER_ONLY || server.url === "http://localhost:3004",
-  ),
+  ].filter((server) => {
+    // Boot ONLY the :3004 webServer for the help-affordances walker (see the
+    // long comment above the webServer array).
+    if (process.env.HELP_DOCS_WALKER_ONLY) return server.url === "http://localhost:3004";
+    // Boot ONLY the three dev-gate webServers (:3001 dev-build, :3002 prod-build,
+    // :3003 prod-runtime-flip) for the B1-D4 dev-gate CI workflow. The baseline
+    // :3000 and screenshots/help :3004 servers ALSO run `pnpm build`, and every
+    // build serializes on the shared with-admin-dev-flag lock — booting all five
+    // means five cold builds contend on that lock and the last exceeds the wait
+    // window (DEFERRED.md B1-D4). Scoping to the three dev-gate ports leaves only
+    // the builds the admin-dev.spec.ts projects actually need.
+    if (process.env.DEV_GATE_ONLY) {
+      return (
+        server.url === "http://localhost:3001" ||
+        server.url === "http://localhost:3002" ||
+        server.url === "http://localhost:3003"
+      );
+    }
+    return true;
+  }),
 });

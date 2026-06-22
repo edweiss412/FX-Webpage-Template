@@ -5,6 +5,10 @@ import { describe, expect, test } from "vitest";
 const ROOTS = ["app", "lib", "components", "tests"];
 const ALLOWED_FILES = new Set([
   "tests/cross-cutting/no-m9-5-surfaces.test.ts",
+  // M12-DOCS-WALKER sibling: lists every retired TERM as its docs-scan
+  // search patterns, so it legitimately contains all of them. Allow-list
+  // it exactly as this audit allow-lists itself.
+  "tests/cross-cutting/no-m9-5-surfaces-in-m12-docs.test.ts",
   "tests/db/cutover-drop-m9-5.test.ts",
   // M12 Phase 0.B Task 0.B.2: the PostgREST DML lockdown meta-test
   // documents WHY crew_member_auth is NOT in its LOCKED_TABLES
