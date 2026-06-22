@@ -1,7 +1,7 @@
 # Tile → Source-Sheet Deep Links — Design Spec
 
 - **Date:** 2026-06-21
-- **Status:** Draft (self-review + adversarial R1–R4 applied; pending adversarial re-review)
+- **Status:** APPROVED — self-review + cross-model adversarial R1–R5 (Codex approved round 5, 0 findings); user review waived per D10. Ready for writing-plans.
 - **Branch / worktree:** `worktree-tile-source-deeplinks`
 - **Author:** Opus 4.8 (Claude Code), orchestrated session
 
