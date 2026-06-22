@@ -33,7 +33,7 @@ import {
   resolveEffectiveToday,
 } from "@/scripts/validation-check-seed";
 
-import { R_COMBOS } from "@/scripts/lib/validation-fixtures";
+import { R_COMBOS } from "@/lib/validation/fixtures";
 
 const R1 = R_COMBOS[0];
 
