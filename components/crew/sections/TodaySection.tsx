@@ -201,7 +201,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const todays =
             dateRestriction.kind === "unknown_asterisk"
               ? []
-              : displayableEntries(data.runOfShow?.[todayIso]);
+              : displayableEntries(data.runOfShow?.[todayIso]?.entries);
           const modeA = isShowDay && eligible && todays.length > 0;
 
           const rightNowContext = buildRightNowContext({
@@ -559,7 +559,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                           </span>
                         }
                       >
-                        <RunOfShowList entries={data.runOfShow![todayIso]!} isoDate={todayIso} />
+                        <RunOfShowList entries={data.runOfShow![todayIso]!.entries} isoDate={todayIso} />
                       </SectionCard>
                     </div>
                     <div className="min-w-0">{quickCardsStack}</div>

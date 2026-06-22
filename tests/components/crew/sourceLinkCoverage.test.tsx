@@ -160,7 +160,11 @@ function fullFixture(): ShowForViewer {
     ],
     openingReelHasVideo: false,
     runOfShow: {
-      [TODAY_ISO]: [{ start: "09:00", title: "Doors open" }],
+      [TODAY_ISO]: {
+        entries: [{ start: "09:00", title: "Doors open" }],
+        showStart: "09:00",
+        window: null,
+      },
     },
     financials: { po: "PO-7", proposal: "Prop", invoice: "Inv", invoice_notes: "Notes" },
     viewerFlightInfo: "UA123 11:29am 5/13 | UA456 5:00pm 5/16",
