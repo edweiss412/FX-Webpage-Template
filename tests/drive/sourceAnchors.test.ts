@@ -107,6 +107,33 @@ it("non-A1 origin: absolute coordinates preserved when sheet data starts at C5",
   const b = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
 
   const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
-  // row-label-union for venue must return ABSOLUTE C5:D6, not zero-indexed A1:B2
+  // header-block for venue must return ABSOLUTE C5:D6, not zero-indexed A1:B2
   expect(a.venue).toEqual({ title: "INFO", gid: 0, a1: "C5:D6" });
+});
+
+it("venue header-block does NOT overreach into a later HOTEL block (regression: row-label-union /Hotel Address/ matched both)", () => {
+  // VENUE block: rows 1-2 (A1:B2). Gap row 3. HOTEL block: rows 4-5 (A4:B5).
+  // With the old row-label-union strategy, /Hotel Address/ matched the HOTEL block's
+  // "Hotel Address" row (row 5), causing venue's union to span from A1 all the way to A5.
+  // With header-block bounded by BLOCK_TERMINATORS, venue stops at the HOTEL header (row 4).
+  const b = buf([{
+    name: "INFO",
+    rows: [
+      ["VENUE",         "Marriott Grand"],   // row 1 — VENUE header
+      ["Hotel Address", "123 Main St"],      // row 2 — venue data row
+      [],                                    // row 3 — blank gap
+      ["HOTEL",         "Four Seasons"],     // row 4 — HOTEL block header (terminator)
+      ["Hotel Address", "57 E 57th St"],     // row 5 — hotel data row
+    ],
+  }]);
+  const a = extractSourceAnchors(b, new Map([["INFO", 0]]));
+  // venue must stop before the HOTEL terminator row (row 4, index 3)
+  expect(a.venue, "venue anchor must be defined").toBeDefined();
+  const venueRange = XLSX.utils.decode_range(a.venue!.a1!);
+  // The HOTEL header is at row index 3 (0-based); venue must end before it
+  expect(venueRange.e.r, "venue must not extend into HOTEL block rows").toBeLessThan(3);
+  // Also assert hotels anchor exists and is distinct from venue
+  expect(a.hotels, "hotels anchor must be defined").toBeDefined();
+  const hotelsRange = XLSX.utils.decode_range(a.hotels!.a1!);
+  expect(hotelsRange.s.r, "hotels must start at its own header row").toBe(3);
 });

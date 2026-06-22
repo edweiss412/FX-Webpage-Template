@@ -172,6 +172,14 @@ describe("Legacy single-INFO fixture (East Coast-style)", () => {
     expect(anchors.venue?.title).toBe("INFO");
   });
 
+  it("venue a1 does NOT overreach into CREW block (header-block stops at CREW terminator)", () => {
+    // LEGACY_INFO_ROWS: VENUE header at row 0, Hotel Address at row 1, Loading Dock at row 2,
+    // then CREW header at row 3 (terminator). venue must end at row 2 (index 2), i.e. A1:B3.
+    expect(anchors.venue).toBeDefined();
+    const range = XLSX.utils.decode_range(anchors.venue!.a1!);
+    expect(range.e.r, "venue must not overreach past row 2 (before CREW at row 3)").toBeLessThanOrEqual(2);
+  });
+
   it("hotels → INFO tab", () => {
     expect(anchors.hotels?.title).toBe("INFO");
   });
@@ -259,6 +267,14 @@ describe("Standardized multitab fixture (RPAS-style)", () => {
 
   it("venue → INFO tab", () => {
     expect(anchors.venue?.title).toBe("INFO");
+  });
+
+  it("venue a1 does NOT overreach into HOTEL block (header-block stops at HOTEL terminator)", () => {
+    // STANDARDIZED_INFO_ROWS: CREW rows 0-2, VENUE header at row 3, Hotel Address row 4,
+    // Google row 5, then HOTEL header at row 6 (terminator). venue must end at row 5 (index 5).
+    expect(anchors.venue).toBeDefined();
+    const range = XLSX.utils.decode_range(anchors.venue!.a1!);
+    expect(range.e.r, "venue must not overreach past row 5 (before HOTEL at row 6)").toBeLessThanOrEqual(5);
   });
 
   it("hotels → INFO tab", () => {

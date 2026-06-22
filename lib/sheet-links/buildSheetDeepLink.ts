@@ -44,7 +44,7 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
   hotels:         { tabs: ["INFO"], strategy: "header-block", header: /^(HOTEL|HOTELS|Hotel Stays|Hotel Reservations)$/i, terminators: BLOCK_TERMINATORS },
   transportation: { tabs: ["INFO"], strategy: "header-block", header: /^(TRANSPORTATION|Driver)$/i, terminators: BLOCK_TERMINATORS },
   rooms:          { tabs: ["INFO"], strategy: "row-label-union", labels: [/^GENERAL SESSION/i, /^BREAKOUT/i, /^GS (Setup|Set Time|Strike Time|Audio|Video|Scenic|Other)/i, /^BO (Setup|Set Time|Strike Time|Audio|Video|Other)/i] },
-  venue:          { tabs: ["INFO"], strategy: "row-label-union", labels: [/^VENUE$/i, /Hotel Address/i, /Loading Dock/i, /Google/i] },
+  venue:          { tabs: ["INFO"], strategy: "header-block", header: /^VENUE$/i, terminators: BLOCK_TERMINATORS },
   financials:     { tabs: ["INFO"], strategy: "row-label-union", labels: [/^COI$/i, /^PO\s*#?$/i, /^Proposal$/i, /^Invoice/i] },
   details:        { tabs: ["INFO"], strategy: "header-block", header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)/i, terminators: BLOCK_TERMINATORS },
   gear_packlist:  { tabs: ["PULL SHEET","GEAR"], strategy: "whole-tab" },

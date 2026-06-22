@@ -1084,6 +1084,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.parseResult.pullSheet,
       args.autoPublishFirstSeen?.unpublishToken ?? null,
       args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
+      // Task 6 (F1 fix): source_anchors on first-seen INSERT — pass raw object to $21::jsonb
+      args.sourceAnchors ?? {},
     ];
 
     const updated = existing
@@ -1148,15 +1150,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
           // R30-1 + R65-1 (F1): wizard Phase B first-seen INSERT variants. When
           // firstSeenPublished === false the column list gains `published` with literal false
           // (overriding the DDL default true); when wizardCreatedSessionId is set the column
-          // list gains `wizard_created_session_id` ($21::uuid) — the show-side provenance
+          // list gains `wizard_created_session_id` ($22::uuid) — the show-side provenance
           // discriminator every created_show_id consumer joins on. Both absent → the SQL is
           // byte-identical to the pre-F1 statement.
+          // NOTE: $21 is now source_anchors (F1 finding 1 fix); wizard extra is $22.
           const extraColumns =
             (args.firstSeenPublished === false ? ", published" : "") +
             (args.wizardCreatedSessionId ? ", wizard_created_session_id" : "");
           const extraValues =
             (args.firstSeenPublished === false ? ", false" : "") +
-            (args.wizardCreatedSessionId ? ", $21::uuid" : "");
+            (args.wizardCreatedSessionId ? ", $22::uuid" : "");
           const extraParams = args.wizardCreatedSessionId ? [args.wizardCreatedSessionId] : [];
           return insertFirstSeenShowWithSlugRetry({
             baseSlug: args.slug,
@@ -1169,13 +1172,13 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_drive_file_id, opening_reel_drive_modified_time,
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
-                  unpublish_token, unpublish_token_expires_at,
+                  unpublish_token, unpublish_token_expires_at, source_anchors,
                   last_synced_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, now(), 'ok', null${extraValues})
+                        $19::uuid, $20::timestamptz, $21::jsonb, now(), 'ok', null${extraValues})
                 on conflict do nothing
                 returning id
               `,
