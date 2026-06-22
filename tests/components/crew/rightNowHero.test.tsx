@@ -406,6 +406,50 @@ describe("RightNowHero — per-day Show anchor selection (Task 14 / §5.1)", () 
     expect(showStat!.textContent).not.toBe(showAnchors[0]!.time);
   });
 
+  test("today=Day2 but Day2 anchor INTENTIONALLY OMITTED (only Day1 in showAnchors) → Show stat ABSENT (no Day-1 cross-label)", () => {
+    // Regression for the cross-task composition HIGH finding: when per-day
+    // anchors EXIST but none match today (the date-safe resolver intentionally
+    // omitted Day 2 — e.g. a contentful-unparsed Day 2 whose room show_time
+    // date doesn't match Day 2), the hero must OMIT the Show stat rather than
+    // fall back to ctx.callTime (which is Day 1's time → a cross-day mislabel).
+    vi.setSystemTime(at("2026-04-23")); // showDays[1] (Day 2) in the showDates() fixture
+    const showAnchors = [{ date: "2026-04-22", label: "Day 1", time: "7:15am" }]; // Day 2 omitted
+    const ctx = makeContext({
+      dates: showDates(),
+      showAnchors,
+      // callTime mirrors buildRightNowContext's showAnchors[0].time (Day 1) —
+      // the value that would leak onto Day 2 under the old `?? ctx.callTime`.
+      callTime: "7:15am",
+      strikeTime: "11:00 PM",
+    });
+    const { container } = render(<RightNowHero context={ctx} />);
+    // Sanity: the machine is in show_day_n (Day 2).
+    expect(stateMarker(container).getAttribute("data-state")).toBe("show_day_n");
+    // Today's show-tz day has no matching anchor → the Show stat must be ABSENT.
+    expect(container.querySelector('[data-stat="Show"]')).toBeNull();
+    // And specifically Day 1's time must NOT have leaked onto Day 2 anywhere in
+    // the stats strip (clone-and-scan defense against an accidental render).
+    const strip = statsStrip(container);
+    expect(strip?.textContent ?? "").not.toContain("7:15am");
+  });
+
+  test("legacy no-per-day-anchors case (showAnchors empty) → Show stat falls back to ctx.callTime", () => {
+    // Negative-regression: the omit rule fires ONLY when per-day anchors exist
+    // but none match today. With NO per-day anchors at all (the legacy
+    // single-anchor case), ctx.callTime is still the authorized Show value.
+    vi.setSystemTime(at("2026-04-22"));
+    const ctx = makeContext({
+      dates: showDates(),
+      showAnchors: [], // no per-day anchors
+      callTime: "7:00 PM",
+    });
+    const { container } = render(<RightNowHero context={ctx} />);
+    expect(stateMarker(container).getAttribute("data-state")).toBe("show_day_n");
+    const showStat = container.querySelector('[data-stat="Show"] dd');
+    expect(showStat).not.toBeNull();
+    expect(showStat!.textContent).toBe("7:00 PM"); // legacy fallback preserved
+  });
+
   test("show-tz midnight rollover Day1→Day2 → Show stat re-selects to Day 2's anchor (no freeze on Day 1)", () => {
     vi.setSystemTime(at("2026-04-22")); // Day 1
     const showAnchors = [
