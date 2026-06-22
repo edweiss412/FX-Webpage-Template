@@ -103,8 +103,6 @@ export type EnrichContext = {
    * count at one per sync pass.
    */
   sheets?: SpreadsheetSheet[];
-  /** Binding token for the current revision (used by some enrichment paths). */
-  binding?: { bindingToken: string; modifiedTime: string };
 };
 
 function warning(code: string, message: string): ParseWarning {

@@ -315,7 +315,7 @@ describe("sourceAnchors pipeline (Task 5)", () => {
       expect(prepared.kind, "pipeline should reach ready state").toBe("ready");
       if (prepared.kind !== "ready") return;
 
-      // (b) listSpreadsheetSheets called EXACTLY ONCE across prepare (both anchor scan + enrich)
+      // (b) listSpreadsheetSheets called EXACTLY ONCE in the prepare/parse phase (Phase 2 does not call it)
       expect(listSpreadsheetSheetsMock).toHaveBeenCalledTimes(1);
 
       // Step 2: run the locked phase with a mock tx

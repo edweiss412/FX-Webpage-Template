@@ -18,8 +18,7 @@ import { runInvariants } from "@/lib/parser/invariants";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import {
   fetchDriveFileMetadata,
-  fetchSheetAsMarkdownAtRevision,
-  fetchSheetXlsxBytesAtRevision,
+  fetchSheetMarkdownAndBytesAtRevision,
 } from "@/lib/drive/fetch";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -264,16 +263,17 @@ export type ProcessOneFileDeps = {
   captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
   fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
   /**
-   * Task 5: raw XLSX bytes for the revision (used by extractSourceAnchors). When absent
-   * the pipeline fetches bytes via fetchSheetAsMarkdownAtRevision's internal copy and
-   * re-parses — tests inject this to avoid a real Drive call.
+   * Task 5 (test injection): raw XLSX bytes for the revision (used by extractSourceAnchors).
+   * Only consulted when fetchMarkdownAtRevision is also injected (test path). On the real
+   * path, fetchSheetMarkdownAndBytesAtRevision performs a single Drive export and returns
+   * both markdown and bytes together — no second export ever occurs.
    */
   fetchXlsxBytes?: (driveFileId: string, revisionId: string) => Promise<ArrayBuffer>;
   parseSheet?: (markdown: string, filename?: string) => ParsedSheet;
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
     driveClient: DriveClient,
-    ctx: { driveFileId: string; fileMeta: DriveFileMeta; binding: Phase1Binding },
+    ctx: { driveFileId: string; fileMeta: DriveFileMeta; sheets?: SpreadsheetSheet[] },
   ) => Promise<ParseResult>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
@@ -2251,15 +2251,35 @@ export async function prepareProcessOneFile(
     }
   }
 
+  // Task 5 — single Drive export: fetch markdown AND raw bytes in one call on the real path.
+  // When deps.fetchMarkdownAtRevision is injected (tests), fall back to separate markdown +
+  // fetchXlsxBytes injections. On the real path, fetchSheetMarkdownAndBytesAtRevision performs
+  // exactly ONE Drive export and returns both artifacts — no second export ever occurs.
   let markdown: string;
+  let xlsxBytes: ArrayBuffer | undefined;
   try {
-    markdown = await withStepTimeout(
-      "fetchMarkdownAtRevision",
-      (deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision)(
-        driveFileId,
-        binding.bindingToken,
-      ),
-    );
+    if (deps.fetchMarkdownAtRevision) {
+      // Test/injected path: markdown and bytes come from separate injected fns.
+      markdown = await withStepTimeout(
+        "fetchMarkdownAtRevision",
+        deps.fetchMarkdownAtRevision(driveFileId, binding.bindingToken),
+      );
+      try {
+        xlsxBytes = deps.fetchXlsxBytes
+          ? await deps.fetchXlsxBytes(driveFileId, binding.bindingToken)
+          : undefined;
+      } catch {
+        xlsxBytes = undefined;
+      }
+    } else {
+      // Real path: single Drive export, both markdown and bytes from one HTTP call.
+      const result = await withStepTimeout(
+        "fetchMarkdownAtRevision",
+        fetchSheetMarkdownAndBytesAtRevision(driveFileId, binding.bindingToken),
+      );
+      markdown = result.markdown;
+      xlsxBytes = result.bytes;
+    }
   } catch (error) {
     if (isSpreadsheetBindingRace(error)) {
       return {
@@ -2301,7 +2321,7 @@ export async function prepareProcessOneFile(
       (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
         parsed,
         driveClient,
-        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), binding, sheets },
+        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), sheets },
       ),
     );
   } catch (error) {
@@ -2319,18 +2339,6 @@ export async function prepareProcessOneFile(
       error,
       code: classifySyncFailure(error),
     };
-  }
-
-  // Task 5 — extract source anchors from the XLSX bytes (same revision, no extra Drive call).
-  let xlsxBytes: ArrayBuffer | undefined;
-  try {
-    xlsxBytes = await (deps.fetchXlsxBytes ?? fetchSheetXlsxBytesAtRevision)(
-      driveFileId,
-      binding.bindingToken,
-    );
-  } catch {
-    // Non-fatal: if bytes are unavailable we emit an empty anchors map.
-    xlsxBytes = undefined;
   }
 
   const titleToGid = new Map<string, number>(
