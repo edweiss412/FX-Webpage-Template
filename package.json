@@ -99,7 +99,10 @@
     "pre-commit": "pnpm exec lint-staged"
   },
   "lint-staged": {
-    "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css,scss,yml,yaml,md,mdx}": "prettier --write --ignore-unknown",
-    "*.{ts,tsx}": "eslint --fix"
+    "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,jsonc,css,scss,yml,yaml,md,mdx,html}": "prettier --write --ignore-unknown"
   }
 }
