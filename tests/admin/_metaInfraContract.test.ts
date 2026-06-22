@@ -236,6 +236,18 @@ const infraRegistry = [
     contract:
       "watch-status row + per-predicate active-shows head:true counts + max last_synced_at; client construction + any await/throw → { kind:'infra_error' } (never a false Healthy)",
   },
+  {
+    helper: "resetValidationDataAction",
+    path: "app/admin/settings/_actions/validationReset.ts",
+    contract:
+      "triple-guarded (requireAdmin + env gate + reset_validation_data RPC); destructures { data, error }; gate-disabled raise → VALIDATION_RESET_NOT_ENABLED; other error → VALIDATION_RESET_FAILED; success → { ok:true, count }; service-role client never constructed",
+  },
+  {
+    helper: "reseedValidationFixturesAction",
+    path: "app/admin/settings/_actions/validationReset.ts",
+    contract:
+      "triple-guarded (requireAdmin + env gate + assert_destructive_reset_enabled RPC); service-role client constructed ONLY after assert passes; gate-disabled raise → VALIDATION_RESET_NOT_ENABLED; mint/finalize infra fault → VALIDATION_RESEED_FAILED; success → { ok:true, count }",
+  },
 ];
 
 // Every helper file gets a grep-shape assertion that EVERY supabase-derived
@@ -258,6 +270,11 @@ const grepShapeRegistry = [
     surface: "components/admin/AlertBanner.tsx",
     contract:
       "supabase client construction + admin_alerts SELECT + count probe (builder-variable awaits) each wrapped in try/catch",
+  },
+  {
+    surface: "app/admin/settings/_actions/validationReset.ts",
+    contract:
+      "reset_validation_data rpc + assert_destructive_reset_enabled rpc — both supabase.rpc() awaits wrapped in try/catch; service-role constructed only after assert passes",
   },
 ];
 
